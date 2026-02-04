@@ -1,0 +1,78 @@
+# ~/.codex/config.toml
+
+# 普段は dev。設計だけ design。初回セットアップだけ bootstrap。
+profile = "dev"
+
+model = "gpt-5.2-codex"
+review_model = "gpt-5.2-codex"
+
+# 深く設計させたいのでデフォルト高め
+model_reasoning_effort = "high"
+model_reasoning_summary = "auto"
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-failure"
+
+# 前回の続き用（履歴を保存）
+[history]
+persistence = "save-all"
+# max_bytes は任意。欲しければ上限を入れる。
+# max_bytes = 50000000
+
+[sandbox_workspace_write]
+# 通常はネット無し（セキュリティ優先）
+network_access = false
+writable_roots = []
+
+[features]
+# 画像を扱うなら true
+view_image_tool = true
+# web_search は不要（MCP/ローカル調査でやる）
+web_search_request = false
+
+# --- MCP servers -------------------------------------------------------------
+
+# A) Serena: コードベース調査
+[mcp_servers.serena]
+enabled = true
+command = "uvx"
+args = ["--from", "git+https://github.com/oraios/serena",
+        "serena", "start-mcp-server", "--context", "codex"]
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+
+# B) Sequential Thinking: 設計検討（普段は切る）
+[mcp_servers.sequential_thinking]
+enabled = false
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+
+# C) Memory Bank: 決定事項の固定（普段は切る）
+[mcp_servers.memory_bank]
+enabled = false
+command = "uvx"
+args = ["--from", "git+https://github.com/ipospelov/mcp-memory-bank",
+        "mcp_memory_bank"]
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+
+# --- Profiles ----------------------------------------------------------------
+
+[profiles.dev]
+# dev は Serena のみ（他は無効のまま）
+
+[profiles.design]
+# 設計モード：思考をさらに上げ、Sequential+Memory を有効化
+model_reasoning_effort = "xhigh"
+mcp_servers.sequential_thinking.enabled = true
+mcp_servers.memory_bank.enabled = true
+
+[profiles.bootstrap]
+# 初回のみ：MCP の依存取得でネットが要るならここだけON
+# 使い終わったら必ず dev に戻すこと。
+sandbox_workspace_write.network_access = true
+mcp_servers.sequential_thinking.enabled = true
+mcp_servers.memory_bank.enabled = true
+mcp_servers.serena.enabled = true

