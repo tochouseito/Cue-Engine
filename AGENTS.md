@@ -1,4 +1,4 @@
-# AGENTS.md (DramaEngine)
+# AGENTS.md (Cue Engine)
 
 ## 目的（このリポジトリで Codex にやらせること）
 - 機械的リファクタ（命名変更、ファイル分割、include整理、重複排除）
@@ -11,7 +11,7 @@
 - 例外：HLSL の識別子や外部API名は英語のまま。
 
 ## ビルド（必須）
-- ビルド方式：MSBuild で `DramaEngine.slnx`
+- ビルド方式：MSBuild で `Cue Engine.slnx`
 - 指定：`Debug|x64`
 - NuGet は使わない（restore もしない）
 - 変更を入れたら、原則として **`scripts/codex_build.ps1` を実行して通す**。

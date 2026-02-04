@@ -1,5 +1,5 @@
 param(
-    [string]$Solution = "DramaEngine.slnx",
+    [string]$Solution = "Cue Engine.slnx",
     [string]$Configuration = "Debug",
     [string]$Platform = "x64",
     [switch]$Rebuild

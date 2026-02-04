@@ -1,0 +1,11 @@
+# コードスタイル/規約
+- 標準: clang-format / Allman。
+- 命名: 型 PascalCase、型エイリアス lowerCamelCase、関数 snake_case、変数 camelCase、メンバ `m_`。
+- `using namespace` 禁止。
+- 制御構文は単行でも `{}` 必須。
+- 例外禁止。戻り値でエラーを返す。`assert` は不変条件/再処理不能のみ。
+- 所有権: `std::unique_ptr` 優先、共有は `std::shared_ptr`、生ポインタは非所有。
+- コメント: Why 重視。関数内フローは `// 1)` 形式で番号付き。
+- 言語: コメントは原則日本語（HLSL 識別子・API名は英語、`.hlsli` は英語）。
+- 追加: `CODING_RULES.md` にファイル/フォルダ規約、Doxygen、ヘッダ順序等の詳細あり。
+- 優先: `AGENTS.md` が「このファイルが正」と明記しているため、AGENTS を優先する。
