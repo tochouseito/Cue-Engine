@@ -53,4 +53,10 @@ target_compile_options(cue_compile_options INTERFACE
 
 # サブプロジェクトを含めます。
 add_subdirectory ("Core")
+add_subdirectory ("Platform")
+add_subdirectory ("Platform/win")
+add_subdirectory ("GraphicsCore")
+add_subdirectory ("GraphicsCore/d3d12")
+add_subdirectory ("Engine")
 add_subdirectory ("Editor")
+add_subdirectory ("App")
