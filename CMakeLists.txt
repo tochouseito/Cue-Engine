@@ -51,6 +51,12 @@ target_compile_options(cue_compile_options INTERFACE
     /MP # 複数プロセスでのビルドを有効化
 )
 
+target_compile_definitions(cue_compile_options INTERFACE
+    $<$<CONFIG:Release>:CUE_RELEASE=1>
+    $<$<CONFIG:RelWithDebInfo>:CUE_RELWITHDEBINFO=1>
+    $<$<CONFIG:Debug>:CUE_DEBUG=1>
+)
+
 # サブプロジェクトを含めます。
 add_subdirectory ("Core")
 add_subdirectory ("Platform")
