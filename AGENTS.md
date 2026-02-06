@@ -217,7 +217,82 @@ C) **Memory Bank**: “決定事項の固定化” 専用（決めたことを�
 
 ---
 
-## 7. ビルド司令塔としての Editor（IDE依存を避ける）
+## 7. Engineプロジェクト設計（ターゲット分割と責務）
+
+> 目的：**依存漏れを防ぎつつ、バックエンド別に最適化できる**構造にする。
+
+### 7.1 推奨ターゲット一覧（最小）
+
+* **CueCore (lib)**
+
+  * OS/GPU非依存の基盤（型、結果型、ハンドル、ログ抽象、データ構造など）
+  * 禁止：Windows.h / D3D12/Vulkan/Metalヘッダ / ImGui
+* **CuePlatform (lib)**
+
+  * Platform抽象（例：IPlatform/IFileSystem/ITimer 等）と共通部
+  * 依存：CueCore
+* **CuePlatformWin (lib)**
+
+  * Windows実装（Win32、ウィンドウ、入力、タイマー等）
+  * 依存：CuePlatform + CueCore
+* **CueGraphicsCore (lib)**
+
+  * 薄いRHI抽象（IRhiDevice/CommandList/Resource/Pipeline 等）
+  * 依存：CueCore
+* **CueGfxD3D12 (lib)**
+
+  * D3D12バックエンド実装（PSO/RS/Descriptor/Queueなど）
+  * 依存：CueGraphicsCore + CuePlatform（surface等に必要な最小接点）+ CueCore
+* （将来）**CueGfxVulkan / CueGfxMetal (lib)**
+
+  * Vulkan/Metalバックエンド
+* **CueEngine (lib)**
+
+  * 統合ロジック（init/tick/shutdown、シーン/ECS/レンダリングの統括）
+  * 依存：CueCore + CuePlatform + CueGraphicsCore
+  * 重要：OS/API名で分岐しない。分岐はCapabilities/Extensionsのみ。
+* **CueRuntime (INTERFACE or lib)**（任意：便利のための“束ね役”）
+
+  * CueCore/CuePlatform/CueGraphicsCore/CueEngine をまとめてリンクするだけ
+
+### 7.2 アプリ（Host）ターゲット
+
+* **CueEditor (exe, Windows)**
+
+  * WinMain/ループ所有者。ImGui等のEditor機能。
+  * Engineを初期化して tick する。GameScriptのロード/ホットリロード。
+* **CueApp (exe, Windows)**
+
+  * 製品実行用Host。WinMain/ループ所有者。Engineをtick。
+* （将来）**CueTool* (exe, Console)**
+
+  * パッカー/ビルダー/アセット変換などのCLI。
+
+### 7.3 Game側（案B：APIテーブル + ハンドル）
+
+* **GamePlugin (開発：dll / リリース：lib)**
+
+  * Engineにリンクしない（原則）。Hostから渡されたEngineApiだけで動く。
+  * 入口：GameExports（create/update/render/destroy等）
+
+### 7.4 依存関係（固定）
+
+* CuePlatform → CueCore
+* CueGraphicsCore → CueCore
+* 各backend（D3D12等）→ CueGraphicsCore (+ 必要最小のCuePlatform)
+* CueEngine → CueCore + CuePlatform + CueGraphicsCore
+* Host（Editor/App）→ CueEngine + （対象プラットフォーム実装/対象backend）
+
+> **循環依存が出たら設計ミス**。その場で分割/責務を修正する。
+
+### 7.5 分岐の置き場所
+
+* **OS/プラットフォーム分岐**：Hostのリンク構成（ターゲット分割）で解決
+* **GPU機能分岐**：Engine内は `Capabilities/Extensions` で分岐（OS/API名は見ない）
+
+---
+
+## 8. ビルド司令塔としての Editor（IDE依存を避ける）
 
 * Editor は Windows 専用でも、**各プラットフォームのツールチェーンをコマンドで叩く**設計にする。
 * Windows：MSBuild（または CMake→MSBuild）

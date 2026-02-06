@@ -40,6 +40,7 @@ target_compile_options(cue_warnings INTERFACE
 target_compile_options(cue_warnings INTERFACE
     /wd4201
     /we26800
+    /we28251
 )
 
 # コンパイルオプション
@@ -52,3 +53,4 @@ target_compile_options(cue_compile_options INTERFACE
 
 # サブプロジェクトを含めます。
 add_subdirectory ("Core")
+add_subdirectory ("Editor")

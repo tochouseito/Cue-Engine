@@ -5,8 +5,7 @@
 
 using namespace std;
 
-int main()
+void TestFunction()
 {
-	cout << "Hello CMake." << endl;
-	return 0;
+    cout << "This is a test function in Core module." << endl;
 }
