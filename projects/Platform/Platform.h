@@ -1,5 +1,6 @@
 #pragma once
 #include <Result.h>
+#include <memory>
 
 namespace Cue::Platform
 {

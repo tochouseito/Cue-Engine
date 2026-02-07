@@ -4,6 +4,11 @@
 
 namespace Cue::Platform::Win
 {
+    std::unique_ptr<IPlatform> create_platform()
+    {
+        return std::make_unique<WinPlatform>();
+    }
+
     struct WinPlatform::Impl
     {
         WinApp app;

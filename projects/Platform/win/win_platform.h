@@ -1,8 +1,7 @@
 #pragma once
 #include <Platform.h>
 #include <memory>
-
-#define PLATFORM_WIN
+#include "PlatformFactory.h"
 
 namespace Cue::Platform::Win
 {
