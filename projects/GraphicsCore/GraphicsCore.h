@@ -1,4 +1,5 @@
 #pragma once
+#include <Result.h>
 
 namespace Cue::Graphics
 {
@@ -7,7 +8,7 @@ namespace Cue::Graphics
     public:
         Backend() = default;
         virtual ~Backend() = default;
-        virtual void initialize() = 0;
-        virtual void shutdown() = 0;
+        virtual Core::Result initialize() = 0;
+        virtual Core::Result shutdown() = 0;
     };
-} // namespace Cue
+} // namespace Cue::Graphics
