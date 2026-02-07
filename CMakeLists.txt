@@ -52,17 +52,19 @@ target_compile_options(cue_compile_options INTERFACE
 )
 
 target_compile_definitions(cue_compile_options INTERFACE
+    UNICODE
+    _UNICODE
     $<$<CONFIG:Release>:CUE_RELEASE=1>
     $<$<CONFIG:RelWithDebInfo>:CUE_RELWITHDEBINFO=1>
     $<$<CONFIG:Debug>:CUE_DEBUG=1>
 )
 
 # サブプロジェクトを含めます。
-add_subdirectory ("Core")
-add_subdirectory ("Platform")
-add_subdirectory ("Platform/win")
-add_subdirectory ("GraphicsCore")
-add_subdirectory ("GraphicsCore/d3d12")
-add_subdirectory ("Engine")
-add_subdirectory ("Editor")
-add_subdirectory ("App")
+add_subdirectory ("projects/Core")
+add_subdirectory ("projects/Platform")
+add_subdirectory ("projects/Platform/win")
+add_subdirectory ("projects/GraphicsCore")
+add_subdirectory ("projects/GraphicsCore/d3d12")
+add_subdirectory ("projects/Engine")
+add_subdirectory ("projects/Editor")
+add_subdirectory ("projects/App")

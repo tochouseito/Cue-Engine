@@ -7,7 +7,7 @@ add_library(win_platform STATIC
 )
 
 # リンクライブラリ
-target_link_libraries(win_platform PUBLIC Core)
+target_link_libraries(win_platform PUBLIC Platform)
 target_link_libraries(win_platform PRIVATE cue_warnings)
 target_link_libraries(win_platform PRIVATE cue_compile_options)
 

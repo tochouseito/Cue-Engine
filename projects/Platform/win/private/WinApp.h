@@ -22,7 +22,7 @@ namespace Cue::Platform::Win
         [[nodiscard]] Core::Result destroy_window();
         /// @brief ウィンドウの表示
         [[nodiscard]] Core::Result show_window(bool isMaximized);
-    private:
+        /// @brief ウィンドウのメッセージポンプ
         [[nodiscard]] bool pump_messages();
     private:
         struct Impl;

@@ -80,10 +80,6 @@ namespace Cue::Platform::Win
     }
     WinApp::~WinApp()
     {
-        if (m_impl && (m_impl->m_hwnd || m_impl->m_isTimePeriodSet))
-        {
-            destroy_window();
-        }
         if (m_impl && m_impl->m_isComInitialized)
         {
             // COM終了処理
@@ -187,6 +183,8 @@ namespace Cue::Platform::Win
     }
     Core::Result WinApp::destroy_window()
     {
+        // ウィンドウを破棄
+
         if (m_impl->m_isTimePeriodSet)
         {
             ::timeEndPeriod(1);
@@ -198,11 +196,13 @@ namespace Cue::Platform::Win
             ::DestroyWindow(m_impl->m_hwnd);
             m_impl->m_hwnd = nullptr;
         }
+        return Core::Result::ok();
     }
     Core::Result WinApp::show_window(bool isMaximized)
     {
         // ウィンドウを表示
         ::ShowWindow(m_impl->m_hwnd, isMaximized ? SW_MAXIMIZE : SW_SHOW);
+        return Core::Result::ok();
     }
     bool WinApp::pump_messages()
     {
