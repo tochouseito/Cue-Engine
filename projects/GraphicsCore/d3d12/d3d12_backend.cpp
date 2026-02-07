@@ -1,9 +1,17 @@
 #include "d3d12_backend.h"
 
-namespace Cue
+namespace Cue::Graphics::DX12
 {
-    void D3D12Backend::Initialize()
+    D3D12Backend::D3D12Backend()
     {
-        // Implementation for initializing D3D12 backend
     }
-} // namespace Cue
+    D3D12Backend::~D3D12Backend()
+    {
+    }
+    void D3D12Backend::initialize()
+    {
+    }
+    void D3D12Backend::shutdown()
+    {
+    }
+} // namespace Cue::Graphics::DX12

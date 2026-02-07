@@ -1,10 +1,14 @@
 #pragma once
+#include <GraphicsCore.h>
 
-namespace Cue
+namespace Cue::Graphics::DX12
 {
-    class D3D12Backend
+    class D3D12Backend : public Backend
     {
     public:
-        static void InitializeD3D12();
+        D3D12Backend();
+        ~D3D12Backend() override;
+        void initialize() override;
+        void shutdown() override;
     };
-} // namespace Cue
+} // namespace Cue::Graphics::DX12

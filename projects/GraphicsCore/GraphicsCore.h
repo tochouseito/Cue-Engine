@@ -1,10 +1,13 @@
 #pragma once
 
-namespace Cue
+namespace Cue::Graphics
 {
-    class GraphicsCore
+    class Backend
     {
-        public:
-        static void Initialize();
+    public:
+        Backend() = default;
+        virtual ~Backend() = default;
+        virtual void initialize() = 0;
+        virtual void shutdown() = 0;
     };
 } // namespace Cue

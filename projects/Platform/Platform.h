@@ -1,7 +1,7 @@
 #pragma once
 #include <Result.h>
 
-namespace Cue
+namespace Cue::Platform
 {
     class IPlatform
     {
@@ -10,6 +10,8 @@ namespace Cue
         virtual ~IPlatform() = default;
         virtual Core::Result setup() = 0;
         virtual Core::Result start() = 0;
+        virtual void begin_frame() = 0;
+        virtual void end_frame() = 0;
         virtual bool poll_message() = 0;
         virtual Core::Result shutdown() = 0;
     };

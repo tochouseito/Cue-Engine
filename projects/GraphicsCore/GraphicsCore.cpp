@@ -1,9 +1,5 @@
 #include "GraphicsCore.h"
 
-namespace Cue
+namespace Cue::Graphics
 {
-    void GraphicsCore::Initialize()
-    {
-        // Implementation for initializing graphics core
-    }
-} // namespace Cue
+} // namespace Cue::Graphics
