@@ -1,6 +1,7 @@
 #pragma once
 #include <Platform.h>
 #include <memory>
+#include "PlatformFactory.h"
 
 namespace Cue::Platform::Win
 {
@@ -12,6 +13,8 @@ namespace Cue::Platform::Win
 
         Core::Result setup() override;
         Core::Result start() override;
+        void begin_frame() override {}
+        void end_frame() override {}
         bool poll_message() override;
         Core::Result shutdown() override;
     private:

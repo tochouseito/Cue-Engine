@@ -9,12 +9,17 @@ namespace Cue
     Engine::~Engine()
     {
     }
-
-    void Engine::Initialize()
+    void Engine::initialize(EngineInitInfo& initInfo)
     {
+        m_platform = initInfo.platform;
     }
+    void Engine::tick()
+    {
+        m_platform->begin_frame();
 
-    void Engine::Shutdown()
+        m_platform->end_frame();
+    }
+    void Engine::shutdown()
     {
     }
 } // namespace Cue

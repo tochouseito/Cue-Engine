@@ -1,10 +1,14 @@
 #pragma once
+#include <Result.h>
 
-namespace Cue
+namespace Cue::Graphics
 {
-    class GraphicsCore
+    class Backend
     {
-        public:
-        static void Initialize();
+    public:
+        Backend() = default;
+        virtual ~Backend() = default;
+        virtual Core::Result initialize() = 0;
+        virtual Core::Result shutdown() = 0;
     };
-} // namespace Cue
+} // namespace Cue::Graphics

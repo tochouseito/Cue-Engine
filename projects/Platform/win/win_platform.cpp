@@ -2,6 +2,14 @@
 #include "win_platform.h"
 #include "private/WinApp.h"
 
+namespace Cue::Platform
+{
+    std::unique_ptr<IPlatform> create_platform()
+    {
+        return std::make_unique<Win::WinPlatform>();
+    }
+}
+
 namespace Cue::Platform::Win
 {
     struct WinPlatform::Impl
