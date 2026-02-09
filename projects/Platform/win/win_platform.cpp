@@ -26,7 +26,7 @@ namespace Cue::Platform::Win
     }
     Core::Result WinPlatform::setup()
     {
-        return impl->app.create_window(800, 600);
+        return impl->app.create_window(800, 600, L"CueWindowClass", L"Cue Engine");
     }
     Core::Result WinPlatform::start()
     {

@@ -25,7 +25,7 @@
 #define D3D12_GPU_VIRTUAL_ADDRESS_NULL ((D3D12_GPU_VIRTUAL_ADDRESS)0)
 #endif
 
-namespace Cue::Graphics::DX12
+namespace Cue::GraphicsCore::DX12
 {
     template<typename T>
     using ComPtr = Microsoft::WRL::ComPtr<T>;
@@ -34,7 +34,6 @@ namespace Cue::Graphics::DX12
 
     inline void SetDXGIName([[maybe_unused]] IDXGIObject* obj, [[maybe_unused]] const wchar_t* name)
     {
-#ifndef NDEBUG
         if (obj)
         {
             obj->SetPrivateData(
@@ -42,17 +41,14 @@ namespace Cue::Graphics::DX12
                 static_cast<UINT>((wcslen(name) + 1) * sizeof(wchar_t)),
                 name);
         }
-#endif
     }
 
     inline void SetD3D12Name([[maybe_unused]] ID3D12Object* obj, [[maybe_unused]] const wchar_t* name)
     {
-#ifndef NDEBUG
         if (obj)
         {
             obj->SetName(name);
         }
-#endif
     }
 
     std::string to_utf8(std::wstring_view w) noexcept;

@@ -1,7 +1,7 @@
 #pragma once
 #include <Result.h>
 
-namespace Cue::Graphics
+namespace Cue::GraphicsCore
 {
     class Backend
     {
@@ -11,4 +11,4 @@ namespace Cue::Graphics
         virtual Core::Result initialize() = 0;
         virtual Core::Result shutdown() = 0;
     };
-} // namespace Cue::Graphics
+} // namespace Cue::GraphicsCore

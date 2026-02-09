@@ -1,7 +1,7 @@
 #pragma once
 #include "stdafx.h"
 
-namespace Cue::Graphics::DX12
+namespace Cue::GraphicsCore::DX12
 {
     class RenderDevice
     {

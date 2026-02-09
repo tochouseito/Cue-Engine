@@ -3,7 +3,7 @@
 
 #include "RenderDevice.h"
 
-namespace Cue::Graphics
+namespace Cue::GraphicsCore
 {
     std::unique_ptr<Backend> create_backend()
     {
@@ -12,7 +12,7 @@ namespace Cue::Graphics
     }
 }
 
-namespace Cue::Graphics::DX12
+namespace Cue::GraphicsCore::DX12
 {
     struct D3D12Backend::Impl
     {

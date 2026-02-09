@@ -17,7 +17,7 @@ namespace Cue::Platform::Win
         ~WinApp();
 
         /// @brief ウィンドウの作成
-        [[nodiscard]] Core::Result create_window(uint32_t w, uint32_t h);
+        [[nodiscard]] Core::Result create_window(uint32_t w, uint32_t h, const wchar_t* className, const wchar_t* titleName);
         /// @brief ウィンドウの破棄
         [[nodiscard]] Core::Result destroy_window();
         /// @brief ウィンドウの表示

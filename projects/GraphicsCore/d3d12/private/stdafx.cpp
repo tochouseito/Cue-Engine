@@ -1,6 +1,6 @@
 #include "stdafx.h"
 
-namespace Cue::Graphics::DX12
+namespace Cue::GraphicsCore::DX12
 {
     std::string to_utf8(std::wstring_view w) noexcept
     {

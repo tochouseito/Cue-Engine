@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 
-namespace Cue::Graphics
+namespace Cue::GraphicsCore
 {
     class Backend;
 

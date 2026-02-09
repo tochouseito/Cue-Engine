@@ -86,7 +86,7 @@ namespace Cue::Platform::Win
             ::CoUninitialize();
         }
     }
-    Core::Result WinApp::create_window(uint32_t w, uint32_t h)
+    Core::Result WinApp::create_window(uint32_t w, uint32_t h, const wchar_t* className, const wchar_t* titleName)
     {
         // 1) スレッド前提の初期化に失敗している場合は継続できない
         if (!m_impl->m_isComInitialized)
@@ -124,15 +124,13 @@ namespace Cue::Platform::Win
 
         m_impl->m_width = w;
         m_impl->m_height = h;
-
-        constexpr wchar_t k_className[] = L"CueWindowClass";
         HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
 
         // 3) ウィンドウクラスを登録する
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = &Impl::window_proc;
-        wc.lpszClassName = k_className;
+        wc.lpszClassName = className;
         wc.hInstance = hInstance;
         wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
 
@@ -156,8 +154,8 @@ namespace Cue::Platform::Win
 
         HWND hwnd = ::CreateWindowExW(
             0,
-            k_className,
-            L"Cue Engine",
+            className,
+            titleName,
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT,
             rc.right - rc.left,

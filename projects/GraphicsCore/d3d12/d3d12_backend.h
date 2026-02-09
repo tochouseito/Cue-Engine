@@ -4,7 +4,7 @@
 #include <win_platform.h>
 #include <memory>
 
-namespace Cue::Graphics::DX12
+namespace Cue::GraphicsCore::DX12
 {
     class D3D12Backend : public Backend
     {
@@ -18,4 +18,4 @@ namespace Cue::Graphics::DX12
         struct Impl;
         std::unique_ptr<Impl> m_impl;
     };
-} // namespace Cue::Graphics::DX12
+} // namespace Cue::GraphicsCore::DX12
