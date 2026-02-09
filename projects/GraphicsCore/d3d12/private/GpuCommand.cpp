@@ -2,7 +2,7 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    CommandContext::CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+    CommandContext::CommandContext(ID3D12Device& device)
         : m_device(device)
     {
     }

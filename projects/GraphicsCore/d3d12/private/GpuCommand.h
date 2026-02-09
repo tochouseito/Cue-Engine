@@ -10,7 +10,7 @@ namespace Cue::GraphicsCore::DX12
     class CommandContext
     {
     public:
-        CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        CommandContext(ID3D12Device& device);
         virtual ~CommandContext() = default;
         Result initialize(D3D12_COMMAND_LIST_TYPE type);
         Result reset();
@@ -72,6 +72,23 @@ namespace Cue::GraphicsCore::DX12
         ~CommandPool() = default;
 
         // Context取得
+        Core::Pool<GraphicsCommandContext, std::function<void(GraphicsCommandContext&)>>::pooled_ptr get_graphics_context() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_graphicsContextPoolMutex);
+            return m_graphicsContextPool.acquire();
+        }
+
+        Core::Pool<ComputeCommandContext, std::function<void(ComputeCommandContext&)>>::pooled_ptr get_compute_context() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_computeContextPoolMutex);
+            return m_computeContextPool.acquire();
+        }
+
+        Core::Pool<CopyCommandContext, std::function<void(CopyCommandContext&)>>::pooled_ptr get_copy_context() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_copyContextPoolMutex);
+            return m_copyContextPool.acquire();
+        }
     private:
         ID3D12Device& m_device;
 
@@ -104,7 +121,7 @@ namespace Cue::GraphicsCore::DX12
     {
     public:
         /// @brief コンストラクタ
-        QueueContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+        QueueContext(ID3D12Device& device)
             : m_device(device)
         {
 
@@ -269,9 +286,49 @@ namespace Cue::GraphicsCore::DX12
         /// @brief デストラクタ
         ~QueuePool() = default;
 
-        Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>>& get_graphics_pool() noexcept
+        // Context取得
+        Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>>::pooled_ptr get_graphics_queue() noexcept
         {
-            return m_graphicsQueuePool;
+            std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
+            return m_graphicsQueuePool.acquire();
+        }
+        Core::Pool<ComputeQueueContext, std::function<void(ComputeQueueContext&)>>::pooled_ptr get_compute_queue() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
+            return m_computeQueuePool.acquire();
+        }
+        Core::Pool<CopyQueueContext, std::function<void(CopyQueueContext&)>>::pooled_ptr get_copy_queue() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
+            return m_copyQueuePool.acquire();
+        }
+
+        void flush_all()
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
+                for (size_t i = 0; i < m_graphicsQueuePool.total_allocated(); ++i)
+                {
+                    auto ctx = m_graphicsQueuePool.acquire();
+                    ctx->flush();
+                }
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
+                for (size_t i = 0; i < m_computeQueuePool.total_allocated(); ++i)
+                {
+                    auto ctx = m_computeQueuePool.acquire();
+                    ctx->flush();
+                }
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
+                for (size_t i = 0; i < m_copyQueuePool.total_allocated(); ++i)
+                {
+                    auto ctx = m_copyQueuePool.acquire();
+                    ctx->flush();
+                }
+            }
         }
     private:
         ID3D12Device& m_device;

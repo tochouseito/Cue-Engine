@@ -40,7 +40,7 @@ namespace Cue::Core
         Pool& operator=(const Pool&) = delete;
 
     public:
-        pooled_ptr get()
+        pooled_ptr acquire()
         {
             // 1) キャッシュがあれば取り出す
             if (!m_cached.empty())
