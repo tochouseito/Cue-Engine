@@ -3,7 +3,7 @@
 #
 
 # ソースをこのプロジェクトの実行可能ファイルに追加します。
-add_library (Core STATIC "Core.cpp" "Core.h" "public/Result.h")
+add_library (Core STATIC "Core.cpp" "Core.h" "public/Result.h" "public/Pool.h")
 
 target_link_libraries(Core PRIVATE cue_warnings)
 target_link_libraries(Core PRIVATE cue_compile_options)
