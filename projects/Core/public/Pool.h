@@ -103,5 +103,13 @@ namespace Cue::Core
         std::vector<std::unique_ptr<T>> m_cached{};
         size_t m_totalAllocated = 0;
     };
-
+    // 何もしないリセット（デフォルト用）
+    template <typename T>
+    struct NoReset
+    {
+        void operator()(T&) const noexcept
+        {
+            // 1) no-op
+        }
+    };
 }
