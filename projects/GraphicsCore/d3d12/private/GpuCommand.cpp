@@ -2,20 +2,33 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    CommandContext::CommandContext(ID3D12Device& device)
-        : m_device(device)
+    Result CommandContext::initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
     {
-    }
-    Result CommandContext::initialize(D3D12_COMMAND_LIST_TYPE type)
-    {
+        m_device = device;
+        if (m_device == nullptr)
+        {
+            return Result::fail(
+                Core::Facility::Graphics,
+                Core::Code::InvalidArg,
+                Core::Severity::Error,
+                0,
+                "Device is null.");
+        }
+
+        // 1) 初期化済みなら再生成は不要
+        if (m_commandAllocator && m_commandList)
+        {
+            return Result::ok();
+        }
+
         Result r;
-        // 1) コマンドアロケータの作成
+        // 2) コマンドアロケータの作成
         r = create_command_allocator(type);
         if (!r)
         {
             return r;
         }
-        // 2) コマンドリストの作成
+        // 3) コマンドリストの作成
         r = create_command_list(type);
         if (!r)
         {
@@ -25,6 +38,11 @@ namespace Cue::GraphicsCore::DX12
     }
     Result CommandContext::reset()
     {
+        if (!m_commandAllocator || !m_commandList)
+        {
+            return Result::ok();
+        }
+
         // 1) コマンドアロケータのリセット
         HRESULT hr = m_commandAllocator->Reset();
         if (FAILED(hr))
@@ -53,6 +71,11 @@ namespace Cue::GraphicsCore::DX12
     }
     Result CommandContext::close()
     {
+        if (!m_commandList)
+        {
+            return Result::ok();
+        }
+
         // コマンドリストのクローズ
         HRESULT hr = m_commandList->Close();
         if (FAILED(hr))
@@ -68,8 +91,18 @@ namespace Cue::GraphicsCore::DX12
     }
     Result CommandContext::create_command_allocator(D3D12_COMMAND_LIST_TYPE type)
     {
+        if (m_device == nullptr)
+        {
+            return Result::fail(
+                Core::Facility::Graphics,
+                Core::Code::InvalidState,
+                Core::Severity::Error,
+                0,
+                "Device is null.");
+        }
+
         // コマンドアロケータの作成
-        HRESULT hr = m_device.CreateCommandAllocator(
+        HRESULT hr = m_device->CreateCommandAllocator(
             type,
             IID_PPV_ARGS(&m_commandAllocator));
         if (FAILED(hr))
@@ -86,8 +119,18 @@ namespace Cue::GraphicsCore::DX12
     }
     Result CommandContext::create_command_list(D3D12_COMMAND_LIST_TYPE type)
     {
+        if (m_device == nullptr)
+        {
+            return Result::fail(
+                Core::Facility::Graphics,
+                Core::Code::InvalidState,
+                Core::Severity::Error,
+                0,
+                "Device is null.");
+        }
+
         // 1) コマンドリストの作成
-        HRESULT hr = m_device.CreateCommandList(
+        HRESULT hr = m_device->CreateCommandList(
             0,
             type,
             m_commandAllocator.Get(),

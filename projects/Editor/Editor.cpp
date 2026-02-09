@@ -19,7 +19,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     auto platform = Cue::Platform::create_platform();
     platform->setup();
     platform->start();
-    auto backend = Cue::Graphics::create_backend();
+    auto backend = Cue::GraphicsCore::create_backend();
     Cue::Engine engine;
     Cue::EngineInitInfo initInfo;
     initInfo.platform = platform.get();
