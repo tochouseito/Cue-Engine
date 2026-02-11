@@ -12,6 +12,8 @@ namespace Cue
     void Engine::initialize(EngineInitInfo& initInfo)
     {
         m_platform = initInfo.platform;
+        m_platform->setup();
+        m_platform->start();
     }
     void Engine::tick()
     {

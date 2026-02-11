@@ -55,8 +55,8 @@ namespace Cue::GraphicsCore::DX12
         // 1) 現状は明示解放対象がないため成功を返す
         return Core::Result::ok();
     }
-    void D3D12Backend::set_win_platform(Platform::Win::WinPlatform* platform)
+    void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {
-        m_impl->m_winPlatform = platform;
+        m_impl->m_winPlatform = dynamic_cast<Platform::Win::WinPlatform*>(platform);
     }
 } // namespace Cue::Graphics::DX12

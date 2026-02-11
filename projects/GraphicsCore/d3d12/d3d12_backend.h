@@ -13,7 +13,7 @@ namespace Cue::GraphicsCore::DX12
         ~D3D12Backend() override;
         Core::Result initialize() override;
         Core::Result shutdown() override;
-        void set_win_platform(Platform::Win::WinPlatform* platform);
+        void set_win_platform(Platform::IPlatform* platform);
     private:
         struct Impl;
         std::unique_ptr<Impl> m_impl;
