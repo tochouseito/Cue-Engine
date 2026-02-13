@@ -18,7 +18,15 @@ namespace Cue::GraphicsCore::DX12
         {
             if (is_in_use())
             {
-                
+                Cue::Core::LogAssert::cue_assert(
+                    Result::fail(
+                        Core::Facility::GraphicsCore,
+                        Core::Code::InvalidState,
+                        Core::Severity::Error,
+                        false,
+                        "GpuResource is still in use during destruction."),
+                    Core::LogSink::debugConsole,
+                    "GpuResource::~GpuResource");
             }
         }
         // 破棄
