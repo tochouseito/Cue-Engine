@@ -12,7 +12,8 @@ namespace Cue::Core
         Platform = 2,
         IO = 3,
         Graphics = 4,
-        D3D12 = 5,
+        GraphicsCore = 5,
+        D3D12 = 6,
     };
 
     enum class Code : uint16_t
