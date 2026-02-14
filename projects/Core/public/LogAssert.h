@@ -1,5 +1,4 @@
 #pragma once
-#include "Result.h"
 #include <format>
 #include <source_location>
 
@@ -48,7 +47,7 @@ namespace Cue::Core
         }
 
         // アサート
-        static void cue_assert(const Result r, LogSink sink, std::string_view fmt, std::string_view title = "Error", std::source_location loc = std::source_location::current())
+        static void cue_assert(bool expr, LogSink sink, std::string_view fmt, std::string_view title = "Error", std::source_location loc = std::source_location::current())
         {
 
         }

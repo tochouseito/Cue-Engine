@@ -18,15 +18,10 @@ namespace Cue::GraphicsCore::DX12
         {
             if (is_in_use())
             {
-                Cue::Core::LogAssert::cue_assert(
-                    Result::fail(
-                        Core::Facility::GraphicsCore,
-                        Core::Code::InvalidState,
-                        Core::Severity::Error,
-                        false,
-                        "GpuResource is still in use during destruction."),
+                Core::LogAssert::cue_assert(
+                    false,
                     Core::LogSink::debugConsole,
-                    "GpuResource::~GpuResource");
+                    "GpuResource is still in use during destruction.");
             }
         }
         // 破棄
@@ -39,7 +34,6 @@ namespace Cue::GraphicsCore::DX12
             if (m_resource)
             {
                 m_resource.Reset();
-                m_resource = nullptr;
             }
             m_currentState = D3D12_RESOURCE_STATE_COMMON;
             m_resourceDesc = {};
@@ -72,7 +66,7 @@ namespace Cue::GraphicsCore::DX12
     protected:
         Result create_resource(
             ID3D12Device& device,
-            D3D12_HEAP_PROPERTIES& heapProperties,
+            const D3D12_HEAP_PROPERTIES& heapProperties,
             D3D12_HEAP_FLAGS heapFlags,
             const D3D12_RESOURCE_DESC& desc,
             D3D12_RESOURCE_STATES initialState,
@@ -200,7 +194,7 @@ namespace Cue::GraphicsCore::DX12
         GpuTextureResource() = default;
         ~GpuTextureResource() override = default;
     protected:
-        Result create_texture(ID3D12Device& device, D3D12_RESOURCE_DESC& desc, const D3D12_CLEAR_VALUE* clearValue, std::wstring_view name)
+        Result create_texture(ID3D12Device& device, D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initialState, const D3D12_CLEAR_VALUE* clearValue, std::wstring_view name)
         {
             D3D12_HEAP_PROPERTIES heapProperties = {};
             heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -209,7 +203,7 @@ namespace Cue::GraphicsCore::DX12
                 heapProperties,
                 D3D12_HEAP_FLAG_NONE,
                 desc,
-                D3D12_RESOURCE_STATE_COMMON,
+                initialState,
                 clearValue,
                 name);
         }
