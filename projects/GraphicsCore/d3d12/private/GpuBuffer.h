@@ -24,6 +24,42 @@ namespace Cue::GraphicsCore::DX12
                     "GpuResource is still in use during destruction.");
             }
         }
+        Result init(
+            ComPtr<ID3D12Resource>&& resource,
+            D3D12_RESOURCE_STATES initialState,
+            std::wstring_view name)
+        {
+            // 1) 二重初期化を防ぐ
+            if (m_resource)
+            {
+                return Result::fail(
+                    Core::Facility::D3D12,
+                    Core::Code::
+                )
+            }
+
+            // 2) リソースを受け取る
+            m_resource = std::move(resource);
+            if (!m_resource)
+            {
+                return Result::fail(..., "Invalid resource.");
+            }
+
+            // 3) 付随情報を初期化
+            m_resourceDesc = m_resource->GetDesc();
+            m_currentState = initialState;
+            m_fence.Reset();
+            m_fenceValue = 0;
+
+            // 4) デバッグ名（任意）
+            if (!name.empty())
+            {
+                std::wstring nameStr(name);
+                m_resource->SetName(nameStr.c_str());
+            }
+
+            return Result::ok();
+        }
         // 破棄
         virtual bool destroy()
         {

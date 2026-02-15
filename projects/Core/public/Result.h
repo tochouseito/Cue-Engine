@@ -19,7 +19,7 @@ namespace Cue::Core
     enum class Code : uint16_t
     {
         Ok = 0,
-        InvalidArg,
+        InvalidArg, // 
         InvalidState,
         NotFound,
         AccessDenied,
