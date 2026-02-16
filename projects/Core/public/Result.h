@@ -19,16 +19,16 @@ namespace Cue::Core
     enum class Code : uint16_t
     {
         Ok = 0,
-        InvalidArg, // 
-        InvalidState,
-        NotFound,
-        AccessDenied,
-        IoError,
-        OutOfMemory,
-        Unsupported,
-        CreationFailed,
-        GettingInfoFailed,
-        Unknown,
+        InvalidArg, // 引数エラー
+        InvalidState, // 状態エラー（例: 初期化前のオブジェクトに対する操作）
+        NotFound, // 対象が見つからない
+        AccessDenied, // アクセス拒否
+        IoError, // 入出力エラー
+        OutOfMemory, // メモリ不足
+        Unsupported, // サポートされていない操作
+        CreationFailed, // 作成失敗
+        GettingInfoFailed, // 情報取得失敗
+        Unknown, // 不明なエラー
     };
 
     enum class Severity : uint8_t

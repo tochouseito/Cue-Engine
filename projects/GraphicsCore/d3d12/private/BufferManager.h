@@ -8,6 +8,7 @@ namespace Cue::GraphicsCore::DX12
         BufferManager() = default;
         ~BufferManager() = default;
 
+    private:
 
 
     private:
