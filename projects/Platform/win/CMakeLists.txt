@@ -5,7 +5,7 @@ add_library(win_platform STATIC
     "private/WinApp.h"
     "private/WinApp.cpp"
     "pch.h" "pch.cpp"
-)
+ "private/WinQpcClock.h" "private/WinQpcClock.cpp")
 
 # リンクライブラリ
 target_link_libraries(win_platform PUBLIC Platform)
