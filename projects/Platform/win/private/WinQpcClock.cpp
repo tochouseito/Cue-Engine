@@ -1,4 +1,4 @@
-#include "pch.h"
+#include "win_pch.h"
 #include "WinQpcClock.h"
 
 namespace Cue::Platform::Win

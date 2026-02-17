@@ -4,7 +4,7 @@ add_library(win_platform STATIC
     "../PlatformFactory.h"
     "private/WinApp.h"
     "private/WinApp.cpp"
-    "pch.h" "pch.cpp"
+    "win_pch.h" "win_pch.cpp"
  "private/WinQpcClock.h" "private/WinQpcClock.cpp")
 
 # リンクライブラリ
@@ -22,4 +22,4 @@ target_compile_definitions(win_platform PUBLIC
 )
 
 # プリコンパイラヘッダ
-target_precompile_headers(win_platform PRIVATE "pch.h")
+target_precompile_headers(win_platform PRIVATE "win_pch.h")

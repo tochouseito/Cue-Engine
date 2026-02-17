@@ -61,6 +61,7 @@ target_compile_definitions(cue_compile_options INTERFACE
 
 # サブプロジェクトを含めます。
 add_subdirectory ("projects/Core")
+add_subdirectory ("projects/Math")
 add_subdirectory ("projects/Platform")
 add_subdirectory ("projects/Platform/win")
 add_subdirectory ("projects/GraphicsCore")
