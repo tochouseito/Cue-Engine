@@ -11,7 +11,7 @@ namespace Cue::Platform::Win
         ~WinQpcClock() override = default;
 
         // ナノ秒単位の現在時刻を取得する
-        [[nodiscard]] std::int64_t now_ns() const noexcept override;
+        [[nodiscard]] Math::TimeSpan now_ns() const noexcept override;
 
     private:
         [[nodiscard]] static std::int64_t query_frequency_hz() noexcept;

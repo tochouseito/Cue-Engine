@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "TimeUnit.h"
 
 namespace Cue::Math
 {

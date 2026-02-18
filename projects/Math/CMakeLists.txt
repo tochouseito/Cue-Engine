@@ -1,4 +1,4 @@
-add_library (Math STATIC "CueMath.cpp" "CueMath.h" )
+add_library (Math STATIC "CueMath.cpp" "CueMath.h"  "TimeUnit.h")
 
 target_link_libraries(Math PRIVATE Base)
 target_link_libraries(Math PRIVATE cue_warnings)

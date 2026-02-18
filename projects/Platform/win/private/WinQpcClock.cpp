@@ -4,18 +4,19 @@
 namespace Cue::Platform::Win
 {
     [[nodiscard]]
-    std::int64_t WinQpcClock::now_ns() const noexcept
+    Math::TimeSpan WinQpcClock::now_ns() const noexcept
     {
         // 1) QPC取得
         LARGE_INTEGER c{};
         const BOOL ok = ::QueryPerformanceCounter(&c);
         if (ok == FALSE)
         {
-            return 0;
+            return Math::TimeSpan::zero();
         }
 
         // 2) ticks->ns
-        return ticks_to_ns(static_cast<std::int64_t>(c.QuadPart), query_frequency_hz());
+        int64_t ns = ticks_to_ns(static_cast<std::int64_t>(c.QuadPart), query_frequency_hz());
+        return Math::TimeSpan{ ns, Math::TimeUnit::nanoseconds };
     }
     [[nodiscard]]
     std::int64_t WinQpcClock::query_frequency_hz() noexcept
