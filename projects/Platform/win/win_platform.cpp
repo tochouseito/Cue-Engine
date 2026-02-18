@@ -1,6 +1,9 @@
 #include "win_pch.h"
 #include "win_platform.h"
 #include "private/WinApp.h"
+#include "private/WinQpcClock.h"
+#include "private/WinWaiter.h"
+#include "private/WinThreadFactory.h"
 
 namespace Cue::Platform
 {
@@ -15,6 +18,9 @@ namespace Cue::Platform::Win
     struct WinPlatform::Impl
     {
         WinApp app;
+        std::unique_ptr<WinQpcClock> clock = std::make_unique<WinQpcClock>();
+        std::unique_ptr<WinWaiter> waiter = std::make_unique<WinWaiter>(clock.get());
+        std::unique_ptr<WinThreadFactory> threadFactory = std::make_unique<WinThreadFactory>();
     };
     
     WinPlatform::WinPlatform()
@@ -39,5 +45,18 @@ namespace Cue::Platform::Win
     Result WinPlatform::shutdown()
     {
         return impl->app.destroy_window();
+    }
+
+    Core::Threading::IThreadFactory& WinPlatform::get_thread_factory()
+    {
+        return *impl->threadFactory;
+    }
+    Core::Time::IClock& WinPlatform::get_clock()
+    {
+        return *impl->clock;
+    }
+    Core::Time::IWaiter& WinPlatform::get_waiter()
+    {
+        return *impl->waiter;
     }
 } // namespace Cue

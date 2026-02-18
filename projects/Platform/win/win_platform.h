@@ -17,6 +17,10 @@ namespace Cue::Platform::Win
         void end_frame() override {}
         bool poll_message() override;
         Result shutdown() override;
+
+        Core::Threading::IThreadFactory& get_thread_factory() override;
+        Core::Time::IClock& get_clock() override;
+        Core::Time::IWaiter& get_waiter() override;
     private:
         struct Impl;
         std::unique_ptr<Impl> impl;
