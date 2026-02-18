@@ -1,10 +1,10 @@
 #pragma once
 #include <cstdint>
-#include <Time/Clock.h>
+#include <Time/IClock.h>
 
 namespace Cue::Platform::Win
 {
-    class WinQpcClock final : public Time::IClock
+    class WinQpcClock final : public Core::Time::IClock
     {
     public:
         WinQpcClock() = default;

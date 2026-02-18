@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace Cue::Platform::Time
+namespace Cue::Core::Time
 {
     class IClock
     {

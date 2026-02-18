@@ -3,7 +3,7 @@
 #
 
 # ソースをこのプロジェクトの実行可能ファイルに追加します。
-add_library (Core STATIC "Core.cpp" "Core.h" "public/Pool.h" "public/Logger.h")
+add_library (Core STATIC "Core.cpp" "Core.h" "public/Pool.h" "public/Logger.h" "public/JobSystem.h" "public/Threading/IThread.h" "public/Threading/IThreadFactory.h" "public/Threading/JobSystem.h" "public/Threading/StopToken.h" "public/Time/IClock.h" "public/Time/IWaiter.h")
 
 target_link_libraries(Core PUBLIC Base)
 target_link_libraries(Core PUBLIC Math)
