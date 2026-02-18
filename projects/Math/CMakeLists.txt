@@ -1,6 +1,6 @@
-add_library (Math STATIC "Math.cpp" "Math.h" )
+add_library (Math STATIC "CueMath.cpp" "CueMath.h" )
 
-target_link_libraries(Math PUBLIC Core)
+target_link_libraries(Math PRIVATE Base)
 target_link_libraries(Math PRIVATE cue_warnings)
 target_link_libraries(Math PRIVATE cue_compile_options)
 

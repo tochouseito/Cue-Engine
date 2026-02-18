@@ -1,5 +1,5 @@
 #include "math_pch.cpp"
-#include "Math.h"
+#include "CueMath.h"
 
 namespace Cue::Math
 {
@@ -11,10 +11,10 @@ namespace Cue::Math
         // 1) step == 0 は無効
         if(step <= 0)
         {
-            Core::LogAssert::cue_assert(
+            Assert::cue_assert(
                 false,
-                Core::LogSink::debugConsole,
-                "step must be greater than 0.");
+                "Invalid step: {}. Step must be greater than 0.",
+                step);
         }
 
         // 2) 既に倍数ならそのまま
@@ -31,10 +31,10 @@ namespace Cue::Math
         // 3-1) value + add > maxv ならオーバーフローする
         if (value > (maxv - add))
         {
-            Core::LogAssert::cue_assert(
+            Assert::cue_assert(
                 false,
-                Core::LogSink::debugConsole,
-                "Overflow detected.");
+                "Overflow detected: value {} + add {} exceeds max uint32_t {}.",
+                value, add, maxv);
         }
 
         out = value + add;

@@ -11,12 +11,12 @@ namespace Cue::Platform::Win
         WinPlatform();
         ~WinPlatform() override;
 
-        Core::Result setup() override;
-        Core::Result start() override;
+        Result setup() override;
+        Result start() override;
         void begin_frame() override {}
         void end_frame() override {}
         bool poll_message() override;
-        Core::Result shutdown() override;
+        Result shutdown() override;
     private:
         struct Impl;
         std::unique_ptr<Impl> impl;

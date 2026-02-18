@@ -3,8 +3,10 @@
 #
 
 # ソースをこのプロジェクトの実行可能ファイルに追加します。
-add_library (Core STATIC "Core.cpp" "Core.h" "public/Result.h" "public/Pool.h"   "public/LogAssert.h" )
+add_library (Core STATIC "Core.cpp" "Core.h" "public/Pool.h" "public/Logger.h")
 
+target_link_libraries(Core PUBLIC Base)
+target_link_libraries(Core PUBLIC Math)
 target_link_libraries(Core PRIVATE cue_warnings)
 target_link_libraries(Core PRIVATE cue_compile_options)
 

@@ -18,12 +18,15 @@
 // Microsoft WRL includes
 #include <wrl.h>
 
-// Core includes
+// Base includes
 #include <Result.h>
-#include <LogAssert.h>
+#include <CueAssert.h>
+
+// Core includes
+#include <Logger.h>
 
 // Math includes
-#
+#include <CueMath.h>
 
 #ifndef D3D12_GPU_VIRTUAL_ADDRESS_NULL
 #define D3D12_GPU_VIRTUAL_ADDRESS_NULL ((D3D12_GPU_VIRTUAL_ADDRESS)0)
@@ -33,8 +36,6 @@ namespace Cue::GraphicsCore::DX12
 {
     template<typename T>
     using ComPtr = Microsoft::WRL::ComPtr<T>;
-
-    using Result = Core::Result;
 
     inline void SetDXGIName([[maybe_unused]] IDXGIObject* obj, [[maybe_unused]] const wchar_t* name)
     {

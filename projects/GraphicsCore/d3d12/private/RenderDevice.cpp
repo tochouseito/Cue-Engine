@@ -52,9 +52,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::CreationFailed,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to create DXGI Factory.");
         }
@@ -82,9 +82,9 @@ namespace Cue::GraphicsCore::DX12
             if (FAILED(hr))
             {
                 return Result::fail(
-                    Core::Facility::Graphics,
-                    Core::Code::GettingInfoFailed,
-                    Core::Severity::Error,
+                    Facility::Graphics,
+                    Code::GettingInfoFailed,
+                    Severity::Error,
                     static_cast<uint32_t>(hr),
                     "Failed to get adapter description.");
             }
@@ -101,9 +101,9 @@ namespace Cue::GraphicsCore::DX12
         if (useAdapter == nullptr)
         {
             Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::NotFound,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::NotFound,
+                Severity::Error,
                 0,
                 "Failed to find a suitable GPU adapter.");
         }
@@ -138,9 +138,9 @@ namespace Cue::GraphicsCore::DX12
         if (m_d3d12Device == nullptr)
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::CreationFailed,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to create D3D12 Device.");
         }

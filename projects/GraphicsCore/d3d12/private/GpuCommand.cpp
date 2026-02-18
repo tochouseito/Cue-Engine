@@ -8,9 +8,9 @@ namespace Cue::GraphicsCore::DX12
         if (m_device == nullptr)
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidArg,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidArg,
+                Severity::Error,
                 0,
                 "Device is null.");
         }
@@ -48,9 +48,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to reset CommandAllocator.");
         }
@@ -61,9 +61,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to reset CommandList.");
         }
@@ -81,9 +81,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to close CommandList.");
         }
@@ -94,9 +94,9 @@ namespace Cue::GraphicsCore::DX12
         if (m_device == nullptr)
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
                 0,
                 "Device is null.");
         }
@@ -108,9 +108,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::CreationFailed,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to create CommandAllocator.");
         }
@@ -122,9 +122,9 @@ namespace Cue::GraphicsCore::DX12
         if (m_device == nullptr)
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
                 0,
                 "Device is null.");
         }
@@ -139,9 +139,9 @@ namespace Cue::GraphicsCore::DX12
         if (FAILED(hr))
         {
             return Result::fail(
-                Core::Facility::Graphics,
-                Core::Code::CreationFailed,
-                Core::Severity::Error,
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
                 static_cast<uint32_t>(hr),
                 "Failed to create CommandList.");
         }

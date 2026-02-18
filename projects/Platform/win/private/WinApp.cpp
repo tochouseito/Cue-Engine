@@ -86,15 +86,15 @@ namespace Cue::Platform::Win
             ::CoUninitialize();
         }
     }
-    Core::Result WinApp::create_window(uint32_t w, uint32_t h, const wchar_t* className, const wchar_t* titleName)
+    Result WinApp::create_window(uint32_t w, uint32_t h, const wchar_t* className, const wchar_t* titleName)
     {
         // 1) スレッド前提の初期化に失敗している場合は継続できない
         if (!m_impl->m_isComInitialized)
         {
-            return Core::Result::fail(
-                Core::Facility::Platform,
-                Core::Code::CreationFailed,
-                Core::Severity::Fatal,
+            return Result::fail(
+                Facility::Platform,
+                Code::CreationFailed,
+                Severity::Fatal,
                 0, "Failed to initialize COM library for WinApp.");
         }
 
@@ -104,10 +104,10 @@ namespace Cue::Platform::Win
             const MMRESULT timeResult = ::timeBeginPeriod(1);
             if (timeResult != TIMERR_NOERROR)
             {
-                return Core::Result::fail(
-                    Core::Facility::Platform,
-                    Core::Code::CreationFailed,
-                    Core::Severity::Fatal,
+                return Result::fail(
+                    Facility::Platform,
+                    Code::CreationFailed,
+                    Severity::Fatal,
                     0, "Failed to set time period for high precision timer.");
             }
             m_impl->m_isTimePeriodSet = true;
@@ -140,10 +140,10 @@ namespace Cue::Platform::Win
             if (err != ERROR_CLASS_ALREADY_EXISTS)
             {
                 rollbackTimePeriod();
-                return Core::Result::fail(
-                    Core::Facility::Platform,
-                    Core::Code::CreationFailed,
-                    Core::Severity::Fatal,
+                return Result::fail(
+                    Facility::Platform,
+                    Code::CreationFailed,
+                    Severity::Fatal,
                     0, "Failed to register window class.");
             }
         }
@@ -168,18 +168,18 @@ namespace Cue::Platform::Win
         if (!hwnd)
         {
             rollbackTimePeriod();
-            return Core::Result::fail(
-                Core::Facility::Platform,
-                Core::Code::CreationFailed,
-                Core::Severity::Fatal,
+            return Result::fail(
+                Facility::Platform,
+                Code::CreationFailed,
+                Severity::Fatal,
                 0, "Failed to create window.");
         }
 
         m_impl->m_hwnd = hwnd;
 
-        return Core::Result::ok();
+        return Result::ok();
     }
-    Core::Result WinApp::destroy_window()
+    Result WinApp::destroy_window()
     {
         // ウィンドウを破棄
 
@@ -194,13 +194,13 @@ namespace Cue::Platform::Win
             ::DestroyWindow(m_impl->m_hwnd);
             m_impl->m_hwnd = nullptr;
         }
-        return Core::Result::ok();
+        return Result::ok();
     }
-    Core::Result WinApp::show_window(bool isMaximized)
+    Result WinApp::show_window(bool isMaximized)
     {
         // ウィンドウを表示
         ::ShowWindow(m_impl->m_hwnd, isMaximized ? SW_MAXIMIZE : SW_SHOW);
-        return Core::Result::ok();
+        return Result::ok();
     }
     bool WinApp::pump_messages()
     {

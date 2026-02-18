@@ -1,4 +1,4 @@
-#include "pch.h"
+#include "win_pch.h"
 #include "win_platform.h"
 #include "private/WinApp.h"
 
@@ -24,11 +24,11 @@ namespace Cue::Platform::Win
     WinPlatform::~WinPlatform()
     {
     }
-    Core::Result WinPlatform::setup()
+    Result WinPlatform::setup()
     {
         return impl->app.create_window(800, 600, L"CueWindowClass", L"Cue Engine");
     }
-    Core::Result WinPlatform::start()
+    Result WinPlatform::start()
     {
         return impl->app.show_window(false);
     }
@@ -36,7 +36,7 @@ namespace Cue::Platform::Win
     {
         return impl->app.pump_messages();
     }
-    Core::Result WinPlatform::shutdown()
+    Result WinPlatform::shutdown()
     {
         return impl->app.destroy_window();
     }

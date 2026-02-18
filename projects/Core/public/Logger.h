@@ -36,18 +36,12 @@ namespace Cue::Core
         return (static_cast<U>(mask & bit) != 0);
     }
 
-    class LogAssert
+    class Logger
     {
     public:
         // ログ出力
         template <typename... Args>
         static void log(LogSink sink, std::string_view fmt, Args&&... args)
-        {
-            
-        }
-
-        // アサート
-        static void cue_assert(bool expr, LogSink sink, std::string_view fmt, std::string_view title = "Error", std::source_location loc = std::source_location::current())
         {
 
         }

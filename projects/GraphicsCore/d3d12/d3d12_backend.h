@@ -11,8 +11,8 @@ namespace Cue::GraphicsCore::DX12
     public:
         D3D12Backend();
         ~D3D12Backend() override;
-        Core::Result initialize() override;
-        Core::Result shutdown() override;
+        Result initialize() override;
+        Result shutdown() override;
         void set_win_platform(Platform::IPlatform* platform);
     private:
         struct Impl;

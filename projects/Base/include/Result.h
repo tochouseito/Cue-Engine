@@ -4,7 +4,7 @@
 #include <string_view>
 #include <source_location>
 
-namespace Cue::Core
+namespace Cue
 {
     enum class Facility : uint16_t
     {

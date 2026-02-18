@@ -28,32 +28,32 @@ namespace Cue::GraphicsCore::DX12
     D3D12Backend::~D3D12Backend()
     {
     }
-    Core::Result D3D12Backend::initialize()
+    Result D3D12Backend::initialize()
     {
         if (!m_impl->m_winPlatform)
         {
-            return Core::Result::fail(
-                Core::Facility::D3D12,
-                Core::Code::InvalidState,
-                Core::Severity::Error,
+            return Result::fail(
+                Facility::D3D12,
+                Code::InvalidState,
+                Severity::Error,
                 0,
                 "WinPlatform is not set in D3D12Backend.");
         }
 
         // 1) デバイス初期化失敗をそのまま返し、失敗点を保持する
-        Core::Result r = m_impl->m_renderDevice.initialize(true);
+        Result r = m_impl->m_renderDevice.initialize(true);
         if (!r)
         {
             return r;
         }
 
         // 2) すべての初期化が成功したことを返す
-        return Core::Result::ok();
+        return Result::ok();
     }
-    Core::Result D3D12Backend::shutdown()
+    Result D3D12Backend::shutdown()
     {
         // 1) 現状は明示解放対象がないため成功を返す
-        return Core::Result::ok();
+        return Result::ok();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {

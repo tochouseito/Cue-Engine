@@ -1,6 +1,3 @@
-add_library (Base STATIC "include/Assert.h" )
+add_library (Base INTERFACE)
 
-target_link_libraries(Base PRIVATE cue_warnings)
-target_link_libraries(Base PRIVATE cue_compile_options)
-
-target_include_directories(Base PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(Base INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
