@@ -1,6 +1,11 @@
 #pragma once
 #include <format>
 #include <source_location>
+#include <type_traits>
+#include <string_view>
+#ifdef CUE_DEBUG
+#include <Windows.h>
+#endif
 
 namespace Cue::Core
 {
@@ -43,7 +48,14 @@ namespace Cue::Core
         template <typename... Args>
         static void log(LogSink sink, std::string_view fmt, Args&&... args)
         {
-
+            std::string message = std::vformat(fmt, std::make_format_args(args...));
+            if (has_sink(sink, LogSink::debugConsole))
+            {
+#ifdef CUE_DEBUG
+                // デバッグコンソールに出力
+                OutputDebugStringA(message.c_str());
+#endif
+            }
         }
     private:
     };

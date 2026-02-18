@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include <Logger.h>
 
 namespace Cue
 {
@@ -14,6 +15,8 @@ namespace Cue
         m_platform = initInfo.platform;
         m_platform->setup();
         m_platform->start();
+
+        Core::Logger::log(Core::LogSink::debugConsole, "Engine initialized successfully.");
     }
     void Engine::tick()
     {
