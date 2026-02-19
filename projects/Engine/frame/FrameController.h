@@ -94,6 +94,11 @@ namespace Cue
         void step();
         void poll_resize_request();
 
+        Core::Time::FrameCounter& frame_counter() noexcept
+        {
+            return m_frameCounter;
+        }
+
     private:
         struct FixedState final
         {

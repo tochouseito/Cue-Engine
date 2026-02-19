@@ -16,6 +16,7 @@ namespace Cue
         m_platform->setup();
 
         FrameControllerDesc frameControllerDesc{};
+        frameControllerDesc.m_maxFps = 60;
         m_frameController = std::make_unique<FrameController>(
             frameControllerDesc,
             m_platform->get_thread_factory(),
@@ -33,10 +34,17 @@ namespace Cue
     {
         m_platform->begin_frame();
 
+        m_frameController->step();
+        double fps = m_frameController->frame_counter().fps();
+        Core::Logger::log(Core::LogSink::debugConsole, "Current FPS: {:.1f}", fps);
+
         m_platform->end_frame();
     }
     void Engine::shutdown()
     {
+        m_frameController.reset();
+        m_platform->shutdown();
+        Core::Logger::log(Core::LogSink::debugConsole, "Engine shutdown completed.");
     }
     std::function<void(uint64_t, uint32_t)> Engine::update()
     {

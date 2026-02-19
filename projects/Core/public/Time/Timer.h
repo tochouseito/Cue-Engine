@@ -72,13 +72,13 @@ namespace Cue::Core::Time
             return total;
         }
 
-        int64_t elapsed_seconds() const noexcept
+        double elapsed_seconds() const noexcept
         {
             // 1) Tickを取得
             const Math::TimeSpan ticks = elapsed_ticks();
 
-            // 2) 秒へ変換
-            return ticks.s();
+            // 2) double秒へ
+            return ticks.s_f64();
         }
 
         // フレーム計測用：前回呼び出しからの差分Tick（動作中/停止中に関係なく計測）
@@ -94,13 +94,13 @@ namespace Cue::Core::Time
             return dt;
         }
 
-        int64_t lap_seconds() noexcept
+        double lap_seconds() noexcept
         {
             // 1) 差分Tickを得る
             const Math::TimeSpan dt = lap_ticks();
 
-            // 2) 秒へ変換
-            return dt.s();
+            // 2) double秒へ
+            return dt.s_f64();
         }
 
     private:

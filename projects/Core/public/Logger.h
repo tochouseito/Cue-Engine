@@ -49,11 +49,16 @@ namespace Cue::Core
         static void log(LogSink sink, std::string_view fmt, Args&&... args)
         {
             std::string message = std::vformat(fmt, std::make_format_args(args...));
+            // 2) 末尾改行を保証（既に改行があるなら足さない）
+            if (message.empty() || message.back() != '\n')
+            {
+                message += "\n"; // Windowsでも大抵これでOK（気になるなら "\r\n"）
+            }
             if (has_sink(sink, LogSink::debugConsole))
             {
 #ifdef CUE_DEBUG
                 // デバッグコンソールに出力
-                OutputDebugStringA(message.c_str());
+                ::OutputDebugStringA(message.c_str());
 #endif
             }
         }

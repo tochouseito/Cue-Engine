@@ -20,6 +20,9 @@ namespace Cue::Math
             return { 0, TimeUnit::nanoseconds };
         }
 
+        // --------------------
+        // Integer conversions (truncate)
+        // --------------------
         int64_t nano() const noexcept
         {
             return unit_cast(*this, TimeUnit::nanoseconds);
@@ -40,21 +43,50 @@ namespace Cue::Math
             return unit_cast(*this, TimeUnit::seconds);
         }
 
-        // 変換
-        static int64_t to_nanoseconds(int64_t value, TimeUnit unit) noexcept
+        // --------------------
+        // Floating-point conversions (no truncate)
+        // --------------------
+        double nano_f64() const noexcept
         {
-            switch (unit)
+            // 1) 対象単位へ浮動小数で変換
+            return unit_cast_f64(*this, TimeUnit::nanoseconds);
+        }
+
+        double ms_f64() const noexcept
+        {
+            // 1) 対象単位へ浮動小数で変換
+            return unit_cast_f64(*this, TimeUnit::milliseconds);
+        }
+
+        double us_f64() const noexcept
+        {
+            // 1) 対象単位へ浮動小数で変換
+            return unit_cast_f64(*this, TimeUnit::microseconds);
+        }
+
+        double s_f64() const noexcept
+        {
+            // 1) 対象単位へ浮動小数で変換
+            return unit_cast_f64(*this, TimeUnit::seconds);
+        }
+
+        // --------------------
+        // Integer cast helpers (truncate)
+        // --------------------
+        static int64_t to_nanoseconds(int64_t v, TimeUnit u) noexcept
+        {
+            switch (u)
             {
             case TimeUnit::seconds:
-                return value * 1'000'000'000LL;
+                return v * 1'000'000'000LL;
             case TimeUnit::milliseconds:
-                return value * 1'000'000LL;
+                return v * 1'000'000LL;
             case TimeUnit::microseconds:
-                return value * 1'000LL;
+                return v * 1'000LL;
             case TimeUnit::nanoseconds:
-                return value;
+                return v;
             default:
-                return 0; // 異常系
+                return 0;
             }
         }
 
@@ -72,7 +104,50 @@ namespace Cue::Math
             case TimeUnit::nanoseconds:
                 return ns;
             default:
-                return 0; // 不明な単位は0とみなす
+                return 0;
+            }
+        }
+
+        // --------------------
+        // Floating cast helpers (no truncate)
+        //   ※整数の ns へ一旦変換するとオーバーフローし得るので、
+        //     直接スケールして秒へ落としてから目的単位へ変換する。
+        // --------------------
+        static double to_seconds_f64(int64_t v, TimeUnit u) noexcept
+        {
+            switch (u)
+            {
+            case TimeUnit::seconds:
+                return static_cast<double>(v);
+            case TimeUnit::milliseconds:
+                return static_cast<double>(v) * 1e-3;
+            case TimeUnit::microseconds:
+                return static_cast<double>(v) * 1e-6;
+            case TimeUnit::nanoseconds:
+                return static_cast<double>(v) * 1e-9;
+            default:
+                return 0.0;
+            }
+        }
+
+        static double unit_cast_f64(TimeSpan v, TimeUnit targetUnit) noexcept
+        {
+            // 1) まず秒(double)へ
+            const double sec = to_seconds_f64(v.value, v.unit);
+
+            // 2) 秒から目的単位へ
+            switch (targetUnit)
+            {
+            case TimeUnit::seconds:
+                return sec;
+            case TimeUnit::milliseconds:
+                return sec * 1e3;
+            case TimeUnit::microseconds:
+                return sec * 1e6;
+            case TimeUnit::nanoseconds:
+                return sec * 1e9;
+            default:
+                return 0.0;
             }
         }
 

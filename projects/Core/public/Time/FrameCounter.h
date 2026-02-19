@@ -68,10 +68,10 @@ namespace Cue::Core::Time
 
         double delta_time() const noexcept
         {
-            return static_cast<double>(m_deltaTime);
+            return m_deltaTime;
         }
 
-        int64_t fps() const noexcept
+        double fps() const noexcept
         {
             return m_fps;
         }
@@ -159,8 +159,8 @@ namespace Cue::Core::Time
         Math::TimeSpan m_capBaseTick = Math::TimeSpan::zero();
         Math::TimeSpan m_nextTickNs = Math::TimeSpan::zero();
 
-        int64_t m_deltaTime = 0.0;
-        int64_t m_fps = 0;
+        double m_deltaTime = 0.0;
+        double m_fps = 0;
 
         std::uint32_t m_maxFps = 60;
         std::uint32_t m_maxLead = 0; // 2枚→1, 3枚→2
