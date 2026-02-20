@@ -8,6 +8,36 @@ namespace
 {
     using Result = Cue::Result;
 
+    [[nodiscard]] static Result make_invalid_arg_error(std::string_view message) noexcept
+    {
+        return Result::fail(
+            Cue::Facility::IO,
+            Cue::Code::InvalidArg,
+            Cue::Severity::Error,
+            0,
+            message);
+    }
+
+    [[nodiscard]] static Result make_io_error(std::string_view message) noexcept
+    {
+        return Result::fail(
+            Cue::Facility::IO,
+            Cue::Code::IoError,
+            Cue::Severity::Error,
+            0,
+            message);
+    }
+
+    [[nodiscard]] static Result make_not_supported_error(std::string_view message) noexcept
+    {
+        return Result::fail(
+            Cue::Facility::IO,
+            Cue::Code::Unsupported,
+            Cue::Severity::Error,
+            0,
+            message);
+    }
+
     [[nodiscard]] static Result map_win_error(const DWORD e) noexcept
     {
         // 1) よくあるものを優先
@@ -21,8 +51,8 @@ namespace
                 Cue::Facility::Platform,
                 Cue::Code::NotFound,
                 Cue::Severity::Error,
-                false,
-                "Windows API error code: " + std::to_string(e));
+                static_cast<uint32_t>(e),
+                "Windows API returned NotFound.");
         case ERROR_ACCESS_DENIED:
         case ERROR_SHARING_VIOLATION:
         case ERROR_LOCK_VIOLATION:
@@ -30,8 +60,8 @@ namespace
                 Cue::Facility::Platform,
                 Cue::Code::AccessDenied,
                 Cue::Severity::Error,
-                false,
-                "Windows API error code: " + std::to_string(e));
+                static_cast<uint32_t>(e),
+                "Windows API returned AccessDenied.");
         case ERROR_INVALID_PARAMETER:
         case ERROR_BAD_PATHNAME:
         case ERROR_DIRECTORY:
@@ -39,22 +69,22 @@ namespace
                 Cue::Facility::Platform,
                 Cue::Code::InvalidArg,
                 Cue::Severity::Error,
-                false,
-                "Windows API error code: " + std::to_string(e));
+                static_cast<uint32_t>(e),
+                "Windows API returned InvalidArg.");
         case ERROR_NOT_SUPPORTED:
             return Result::fail(
                 Cue::Facility::Platform,
                 Cue::Code::Unsupported,
                 Cue::Severity::Error,
-                false,
-                "Windows API error code: " + std::to_string(e));
+                static_cast<uint32_t>(e),
+                "Windows API returned Unsupported.");
         default:
             return Result::fail(
                 Cue::Facility::Platform,
                 Cue::Code::Unknown,
                 Cue::Severity::Error,
-                false,
-                "Windows API error code: " + std::to_string(e));
+                static_cast<uint32_t>(e),
+                "Windows API returned an unknown error.");
         }
     }
 
@@ -63,12 +93,7 @@ namespace
         // 1) 引数チェック
         if (out == nullptr)
         {
-            return Result::fail(
-                Cue::Facility::Platform,
-                Cue::Code::InvalidArg,
-                Cue::Severity::Error,
-                false,
-                "Output pointer is null");
+            return make_invalid_arg_error("Output pointer is null.");
         }
 
         // 2) 空文字
@@ -101,12 +126,7 @@ namespace
         // 1) 引数チェック
         if (out == nullptr)
         {
-            return Result::fail(
-                Cue::Facility::Platform,
-                Cue::Code::InvalidArg,
-                Cue::Severity::Error,
-                false,
-                "Output pointer is null");
+            return make_invalid_arg_error("Output pointer is null.");
         }
 
         // 2) 空文字
@@ -210,12 +230,7 @@ namespace
         // 1) 引数チェック
         if (out == nullptr)
         {
-            return Result::fail(
-                Cue::Facility::Platform,
-                Cue::Code::InvalidArg,
-                Cue::Severity::Error,
-                false,
-                "Output pointer is null");
+            return make_invalid_arg_error("Output pointer is null.");
         }
 
         // 2) 取得
@@ -224,10 +239,10 @@ namespace
             return map_win_error(::GetLastError());
         }
 
-        return Result::ok;
+        return Result::ok();
     }
 
-    class WinFile final : public Cue::IO::IFile
+    class WinFile final : public Cue::Core::IO::IFile
     {
     public:
         explicit WinFile(HANDLE h) noexcept
@@ -244,24 +259,24 @@ namespace
             }
         }
 
-        Cue::Core::Result read(std::span<std::byte> dst, uint64_t* out_read) noexcept override
+        Result read(std::span<std::byte> dst, uint64_t* out_read) noexcept override
         {
             // 1) 引数チェック
             if (out_read == nullptr)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
             *out_read = 0;
 
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) 0バイト
             if (dst.size() == 0)
             {
-                return Result::ok;
+                return Result::ok();
             }
 
             // 3) ReadFile (最大DWORDずつ)
@@ -271,7 +286,7 @@ namespace
             while (offset < dst.size())
             {
                 const size_t remain = dst.size() - offset;
-                const DWORD chunk = (remain > static_cast<size_t>(DWORD_MAX)) ? DWORD_MAX : static_cast<DWORD>(remain);
+                const DWORD chunk = (remain > static_cast<size_t>(MAXDWORD)) ? MAXDWORD : static_cast<DWORD>(remain);
 
                 DWORD readBytes = 0;
                 if (::ReadFile(m_handle, dst.data() + offset, chunk, &readBytes, nullptr) == FALSE)
@@ -290,27 +305,27 @@ namespace
             }
 
             *out_read = total;
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result write(std::span<const std::byte> src, uint64_t* out_written) noexcept override
+        Result write(std::span<const std::byte> src, uint64_t* out_written) noexcept override
         {
             // 1) 引数チェック
             if (out_written == nullptr)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
             *out_written = 0;
 
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) 0バイト
             if (src.size() == 0)
             {
-                return Result::ok;
+                return Result::ok();
             }
 
             // 3) WriteFile (最大DWORDずつ)
@@ -320,7 +335,7 @@ namespace
             while (offset < src.size())
             {
                 const size_t remain = src.size() - offset;
-                const DWORD chunk = (remain > static_cast<size_t>(DWORD_MAX)) ? DWORD_MAX : static_cast<DWORD>(remain);
+                const DWORD chunk = (remain > static_cast<size_t>(MAXDWORD)) ? MAXDWORD : static_cast<DWORD>(remain);
 
                 DWORD written = 0;
                 if (::WriteFile(m_handle, src.data() + offset, chunk, &written, nullptr) == FALSE)
@@ -334,37 +349,37 @@ namespace
                 // 4) 異常（書けない）
                 if (written == 0)
                 {
-                    return Result::io_error;
+                    return make_io_error("I/O operation failed.");
                 }
             }
 
             *out_written = total;
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result seek(int64_t offset, Cue::IO::SeekOrigin origin) noexcept override
+        Result seek(int64_t offset, Cue::Core::IO::SeekOrigin origin) noexcept override
         {
             // 1) ハンドルチェック
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) origin
             DWORD moveMethod = FILE_BEGIN;
             switch (origin)
             {
-            case Cue::IO::SeekOrigin::begin:
+            case Cue::Core::IO::SeekOrigin::begin:
                 moveMethod = FILE_BEGIN;
                 break;
-            case Cue::IO::SeekOrigin::current:
+            case Cue::Core::IO::SeekOrigin::current:
                 moveMethod = FILE_CURRENT;
                 break;
-            case Cue::IO::SeekOrigin::end:
+            case Cue::Core::IO::SeekOrigin::end:
                 moveMethod = FILE_END;
                 break;
             default:
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 3) SetFilePointerEx
@@ -377,21 +392,21 @@ namespace
                 return map_win_error(::GetLastError());
             }
 
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result tell(uint64_t* out_pos) noexcept override
+        Result tell(uint64_t* out_pos) noexcept override
         {
             // 1) 引数チェック
             if (out_pos == nullptr)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
             *out_pos = 0;
 
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) 現在位置 = seek(0, current)
@@ -406,25 +421,25 @@ namespace
 
             if (newPos.QuadPart < 0)
             {
-                return Result::io_error;
+                return make_io_error("I/O operation failed.");
             }
 
             *out_pos = static_cast<uint64_t>(newPos.QuadPart);
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result size(uint64_t* out_size) noexcept override
+        Result size(uint64_t* out_size) noexcept override
         {
             // 1) 引数チェック
             if (out_size == nullptr)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
             *out_size = 0;
 
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) GetFileSizeEx
@@ -436,19 +451,19 @@ namespace
 
             if (sz.QuadPart < 0)
             {
-                return Result::io_error;
+                return make_io_error("I/O operation failed.");
             }
 
             *out_size = static_cast<uint64_t>(sz.QuadPart);
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result flush() noexcept override
+        Result flush() noexcept override
         {
             // 1) ハンドルチェック
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::invalid_argument;
+                return make_invalid_arg_error("Invalid argument.");
             }
 
             // 2) FlushFileBuffers
@@ -457,15 +472,15 @@ namespace
                 return map_win_error(::GetLastError());
             }
 
-            return Result::ok;
+            return Result::ok();
         }
 
-        Cue::Core::Result close() noexcept override
+        Result close() noexcept override
         {
             // 1) 既に閉じている
             if (m_handle == INVALID_HANDLE_VALUE)
             {
-                return Result::ok;
+                return Result::ok();
             }
 
             // 2) CloseHandle
@@ -475,7 +490,7 @@ namespace
             }
 
             m_handle = INVALID_HANDLE_VALUE;
-            return Result::ok;
+            return Result::ok();
         }
 
     private:
@@ -487,7 +502,7 @@ namespace
         // 1) 引数チェック
         if (outPattern == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
 
         // 2) 末尾に "\*" を付ける
@@ -499,7 +514,7 @@ namespace
         }
         outPattern->push_back(L'*');
 
-        return Result::ok;
+        return Result::ok();
     }
 
     [[nodiscard]] static Result create_dir_if_needed(const std::wstring& p) noexcept
@@ -507,14 +522,14 @@ namespace
         // 1) CreateDirectoryW
         if (::CreateDirectoryW(p.c_str(), nullptr) != FALSE)
         {
-            return Result::ok;
+            return Result::ok();
         }
 
         // 2) 既存は成功扱い
         const DWORD e = ::GetLastError();
         if (e == ERROR_ALREADY_EXISTS)
         {
-            return Result::ok;
+            return Result::ok();
         }
 
         return map_win_error(e);
@@ -525,14 +540,14 @@ namespace
         // 1) //server/share/...
         if (outRootLen == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         *outRootLen = 0;
 
         // 2) 先頭 "\\"
         if (s.size() < 2 || s[0] != L'\\' || s[1] != L'\\')
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
 
         // 3) \\server\share\ までを root にする
@@ -545,7 +560,7 @@ namespace
         }
         if (i >= s.size())
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         ++i;
 
@@ -562,25 +577,25 @@ namespace
         }
 
         *outRootLen = i;
-        return Result::ok;
+        return Result::ok();
     }
 }
 
 namespace Cue::Platform::Win
 {
-    Result WinFileSystem::exists(const Cue::IO::Path& path, bool* out_exists) noexcept
+    Result WinFileSystem::exists(const Cue::Core::IO::Path& path, bool* out_exists) noexcept
     {
         // 1) 引数チェック
         if (out_exists == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         *out_exists = false;
 
         // 2) 変換
         std::wstring wpath{};
         Result r = path_to_native_w(path, &wpath);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -593,28 +608,28 @@ namespace Cue::Platform::Win
             if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
             {
                 *out_exists = false;
-                return Result::ok;
+                return Result::ok();
             }
             return map_win_error(e);
         }
 
         *out_exists = true;
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::stat(const Cue::IO::Path& path, Cue::IO::FileStat* out_stat) noexcept
+    Result WinFileSystem::stat(const Cue::Core::IO::Path& path, Cue::Core::IO::FileStat* out_stat) noexcept
     {
         // 1) 引数チェック
         if (out_stat == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         *out_stat = {};
 
         // 2) 変換
         std::wstring wpath{};
         Result r = path_to_native_w(path, &wpath);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -622,7 +637,7 @@ namespace Cue::Platform::Win
         // 3) 属性取得
         WIN32_FILE_ATTRIBUTE_DATA data{};
         r = get_attrs(wpath, &data);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -630,12 +645,12 @@ namespace Cue::Platform::Win
         // 4) 種別
         if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0u)
         {
-            out_stat->type = Cue::IO::FileType::directory;
+            out_stat->type = Cue::Core::IO::FileType::directory;
             out_stat->size_bytes = 0;
         }
         else
         {
-            out_stat->type = Cue::IO::FileType::regular;
+            out_stat->type = Cue::Core::IO::FileType::regular;
             ULARGE_INTEGER sz{};
             sz.LowPart = data.nFileSizeLow;
             sz.HighPart = data.nFileSizeHigh;
@@ -645,15 +660,15 @@ namespace Cue::Platform::Win
         // 5) mtime
         out_stat->mtime_ns = filetime_to_unix_ns(data.ftLastWriteTime);
 
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::create_directories(const Cue::IO::Path& path) noexcept
+    Result WinFileSystem::create_directories(const Cue::Core::IO::Path& path) noexcept
     {
         // 1) 変換
         std::wstring wpath{};
         Result r = path_to_native_w(path, &wpath);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -661,7 +676,7 @@ namespace Cue::Platform::Win
         // 2) 空は何もしない
         if (wpath.empty())
         {
-            return Result::ok;
+            return Result::ok();
         }
 
         // 3) ルートを決める（C:\ / \ / \\server\share\）
@@ -675,7 +690,7 @@ namespace Cue::Platform::Win
         {
             size_t rootLen = 0;
             r = split_unc_root(std::wstring_view{ wpath }, &rootLen);
-            if (r != Result::ok)
+            if (!r)
             {
                 return r;
             }
@@ -727,28 +742,28 @@ namespace Cue::Platform::Win
 
             // 4-4) 作成
             r = create_dir_if_needed(cur);
-            if (r != Result::ok)
+            if (!r)
             {
                 return r;
             }
         }
 
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::list_directory(const Cue::IO::Path& path, std::vector<Cue::IO::Path>* out_entries) noexcept
+    Result WinFileSystem::list_directory(const Cue::Core::IO::Path& path, std::vector<Cue::Core::IO::Path>* out_entries) noexcept
     {
         // 1) 引数チェック
         if (out_entries == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         out_entries->clear();
 
         // 2) native path
         std::wstring wdir{};
         Result r = path_to_native_w(path, &wdir);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -756,7 +771,7 @@ namespace Cue::Platform::Win
         // 3) パターン作成
         std::wstring pattern{};
         r = build_find_pattern(wdir, &pattern);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -790,7 +805,7 @@ namespace Cue::Platform::Win
                     // 5-3) wide -> utf8
                     std::string utf8{};
                     r = wide_to_utf8(wfull, &utf8);
-                    if (r != Result::ok)
+                    if (!r)
                     {
                         (void)::FindClose(hFind);
                         return r;
@@ -805,7 +820,7 @@ namespace Cue::Platform::Win
                         }
                     }
 
-                    out_entries->push_back(Cue::IO::Path{ std::move(utf8) }.normalize());
+                    out_entries->push_back(Cue::Core::IO::Path{ std::move(utf8) }.normalize());
                 }
             }
 
@@ -817,26 +832,26 @@ namespace Cue::Platform::Win
 
                 if (e == ERROR_NO_MORE_FILES)
                 {
-                    return Result::ok;
+                    return Result::ok();
                 }
                 return map_win_error(e);
             }
         }
     }
 
-    Result WinFileSystem::remove(const Cue::IO::Path& path, bool* out_removed) noexcept
+    Result WinFileSystem::remove(const Cue::Core::IO::Path& path, bool* out_removed) noexcept
     {
         // 1) 引数チェック
         if (out_removed == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         *out_removed = false;
 
         // 2) native
         std::wstring wpath{};
         Result r = path_to_native_w(path, &wpath);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -849,7 +864,7 @@ namespace Cue::Platform::Win
             if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
             {
                 *out_removed = false;
-                return Result::ok;
+                return Result::ok();
             }
             return map_win_error(e);
         }
@@ -871,23 +886,23 @@ namespace Cue::Platform::Win
         }
 
         *out_removed = true;
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::rename(const Cue::IO::Path& from, const Cue::IO::Path& to) noexcept
+    Result WinFileSystem::rename(const Cue::Core::IO::Path& from, const Cue::Core::IO::Path& to) noexcept
     {
         // 1) 変換
         std::wstring wfrom{};
         std::wstring wto{};
 
         Result r = path_to_native_w(from, &wfrom);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
 
         r = path_to_native_w(to, &wto);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -899,28 +914,28 @@ namespace Cue::Platform::Win
             return map_win_error(::GetLastError());
         }
 
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::open(const Cue::IO::Path& path, const Cue::IO::FileOpenDesc& desc, std::unique_ptr<Cue::IO::IFile>* out_file) noexcept
+    Result WinFileSystem::open(const Cue::Core::IO::Path& path, const Cue::Core::IO::FileOpenDesc& desc, std::unique_ptr<Cue::Core::IO::IFile>* out_file) noexcept
     {
         // 1) 引数チェック
         if (out_file == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         out_file->reset();
 
         // 2) no_buffer は地雷なので未対応にする（整列/セクタサイズ問題が出る）
-        if (Cue::IO::has_flag(desc.flags, Cue::IO::OpenFlags::no_buffer))
+        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::no_buffer))
         {
-            return Result::not_supported;
+            return make_not_supported_error("Operation is not supported.");
         }
 
         // 3) 変換
         std::wstring wpath{};
         Result r = path_to_native_w(path, &wpath);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -929,21 +944,21 @@ namespace Cue::Platform::Win
         DWORD desired = 0;
         switch (desc.access)
         {
-        case Cue::IO::OpenAccess::read:
+        case Cue::Core::IO::OpenAccess::read:
             desired = GENERIC_READ;
             break;
-        case Cue::IO::OpenAccess::write:
+        case Cue::Core::IO::OpenAccess::write:
             desired = GENERIC_WRITE;
             break;
-        case Cue::IO::OpenAccess::read_write:
+        case Cue::Core::IO::OpenAccess::read_write:
             desired = GENERIC_READ | GENERIC_WRITE;
             break;
         default:
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
 
         // 5) append
-        if (Cue::IO::has_flag(desc.flags, Cue::IO::OpenFlags::append))
+        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::append))
         {
             // 5-1) 書き込み時は FILE_APPEND_DATA を足す（GENERIC_WRITE でも動くが意図が明確）
             desired |= FILE_APPEND_DATA;
@@ -953,32 +968,32 @@ namespace Cue::Platform::Win
         DWORD disposition = OPEN_EXISTING;
         switch (desc.create)
         {
-        case Cue::IO::OpenCreate::open_existing:
+        case Cue::Core::IO::OpenCreate::open_existing:
             disposition = OPEN_EXISTING;
             break;
-        case Cue::IO::OpenCreate::open_always:
+        case Cue::Core::IO::OpenCreate::open_always:
             disposition = OPEN_ALWAYS;
             break;
-        case Cue::IO::OpenCreate::create_new:
+        case Cue::Core::IO::OpenCreate::create_new:
             disposition = CREATE_NEW;
             break;
-        case Cue::IO::OpenCreate::create_always:
+        case Cue::Core::IO::OpenCreate::create_always:
             disposition = CREATE_ALWAYS;
             break;
-        case Cue::IO::OpenCreate::truncate_existing:
+        case Cue::Core::IO::OpenCreate::truncate_existing:
             disposition = TRUNCATE_EXISTING;
             break;
         default:
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
 
         // 7) FlagsAndAttributes（ヒント）
         DWORD flags = FILE_ATTRIBUTE_NORMAL;
-        if (Cue::IO::has_flag(desc.flags, Cue::IO::OpenFlags::sequential))
+        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::sequential))
         {
             flags |= FILE_FLAG_SEQUENTIAL_SCAN;
         }
-        if (Cue::IO::has_flag(desc.flags, Cue::IO::OpenFlags::random))
+        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::random))
         {
             flags |= FILE_FLAG_RANDOM_ACCESS;
         }
@@ -1002,7 +1017,7 @@ namespace Cue::Platform::Win
         }
 
         // 10) append の場合、末尾へ
-        if (Cue::IO::has_flag(desc.flags, Cue::IO::OpenFlags::append))
+        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::append))
         {
             LARGE_INTEGER zero{};
             zero.QuadPart = 0;
@@ -1017,28 +1032,28 @@ namespace Cue::Platform::Win
         }
 
         // 11) wrap
-        *out_file = std::unique_ptr<Cue::IO::IFile>(new WinFile(h));
-        return Result::ok;
+        *out_file = std::unique_ptr<Cue::Core::IO::IFile>(new WinFile(h));
+        return Result::ok();
     }
 
-    Result WinFileSystem::read_all(const Cue::IO::Path& path, std::vector<std::byte>* out_data) noexcept
+    Result WinFileSystem::read_all(const Cue::Core::IO::Path& path, std::vector<std::byte>* out_data) noexcept
     {
         // 1) 引数チェック
         if (out_data == nullptr)
         {
-            return Result::invalid_argument;
+            return make_invalid_arg_error("Invalid argument.");
         }
         out_data->clear();
 
         // 2) open
-        Cue::IO::FileOpenDesc d{};
-        d.access = Cue::IO::OpenAccess::read;
-        d.create = Cue::IO::OpenCreate::open_existing;
-        d.flags = Cue::IO::OpenFlags::sequential;
+        Cue::Core::IO::FileOpenDesc d{};
+        d.access = Cue::Core::IO::OpenAccess::read;
+        d.create = Cue::Core::IO::OpenCreate::open_existing;
+        d.flags = Cue::Core::IO::OpenFlags::sequential;
 
-        std::unique_ptr<Cue::IO::IFile> f{};
+        std::unique_ptr<Cue::Core::IO::IFile> f{};
         Result r = open(path, d, &f);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -1046,7 +1061,7 @@ namespace Cue::Platform::Win
         // 3) size
         uint64_t sz = 0;
         r = f->size(&sz);
-        if (r != Result::ok)
+        if (!r)
         {
             (void)f->close();
             return r;
@@ -1055,7 +1070,7 @@ namespace Cue::Platform::Win
         if (sz > static_cast<uint64_t>(SIZE_MAX))
         {
             (void)f->close();
-            return Result::io_error;
+            return make_io_error("I/O operation failed.");
         }
 
         // 4) 読み込み
@@ -1063,7 +1078,7 @@ namespace Cue::Platform::Win
 
         uint64_t got = 0;
         r = f->read(std::span<std::byte>{ out_data->data(), out_data->size() }, & got);
-        if (r != Result::ok)
+        if (!r)
         {
             (void)f->close();
             out_data->clear();
@@ -1077,19 +1092,19 @@ namespace Cue::Platform::Win
         }
 
         (void)f->close();
-        return Result::ok;
+        return Result::ok();
     }
 
-    Result WinFileSystem::write_all(const Cue::IO::Path& path, std::span<const std::byte> data, bool create_parent_dirs) noexcept
+    Result WinFileSystem::write_all(const Cue::Core::IO::Path& path, std::span<const std::byte> data, bool create_parent_dirs) noexcept
     {
         // 1) 親ディレクトリ作成
         if (create_parent_dirs)
         {
-            const Cue::IO::Path parent = path.parent();
+            const Cue::Core::IO::Path parent = path.parent();
             if (!parent.is_empty())
             {
                 const Result r0 = create_directories(parent);
-                if (r0 != Result::ok)
+                if (!r0)
                 {
                     return r0;
                 }
@@ -1097,14 +1112,14 @@ namespace Cue::Platform::Win
         }
 
         // 2) open (create_always)
-        Cue::IO::FileOpenDesc d{};
-        d.access = Cue::IO::OpenAccess::write;
-        d.create = Cue::IO::OpenCreate::create_always;
-        d.flags = Cue::IO::OpenFlags::sequential;
+        Cue::Core::IO::FileOpenDesc d{};
+        d.access = Cue::Core::IO::OpenAccess::write;
+        d.create = Cue::Core::IO::OpenCreate::create_always;
+        d.flags = Cue::Core::IO::OpenFlags::sequential;
 
-        std::unique_ptr<Cue::IO::IFile> f{};
+        std::unique_ptr<Cue::Core::IO::IFile> f{};
         Result r = open(path, d, &f);
-        if (r != Result::ok)
+        if (!r)
         {
             return r;
         }
@@ -1112,7 +1127,7 @@ namespace Cue::Platform::Win
         // 3) write
         uint64_t written = 0;
         r = f->write(data, &written);
-        if (r != Result::ok)
+        if (!r)
         {
             (void)f->close();
             return r;
@@ -1121,18 +1136,20 @@ namespace Cue::Platform::Win
         if (written != static_cast<uint64_t>(data.size()))
         {
             (void)f->close();
-            return Result::io_error;
+            return make_io_error("I/O operation failed.");
         }
 
         // 4) flush
         r = f->flush();
-        if (r != Result::ok)
+        if (!r)
         {
             (void)f->close();
             return r;
         }
 
         (void)f->close();
-        return Result::ok;
+        return Result::ok();
     }
 }
+
+
