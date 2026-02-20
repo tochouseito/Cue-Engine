@@ -16,7 +16,7 @@ namespace Cue
         m_platform->setup();
 
         FrameControllerDesc frameControllerDesc{};
-        frameControllerDesc.m_maxFps = 0;
+        frameControllerDesc.m_maxFps = 60;
         m_frameController = std::make_unique<FrameController>(
             frameControllerDesc,
             m_platform->get_thread_factory(),

@@ -113,8 +113,8 @@ namespace Cue::Core::Time
             // 2) 1フレーム(ns)（丸め）
             const Math::TimeSpan frameNs = { static_cast<int64_t>((1'000'000'000.0 / static_cast<double>(m_maxFps)) + 0.5), Math::TimeUnit::nanoseconds };
 
-            // 3) 追い込みスピン(ns)（ここはPC向け。まず200usから）
-            const Math::TimeSpan spinNs = { 200'000LL, Math::TimeUnit::nanoseconds };
+            // 3) 追い込みスピン(ns)（ここはPC向け。まず1000usから）
+            const Math::TimeSpan spinNs = { 1000'000LL, Math::TimeUnit::nanoseconds };
 
             // 4) 初回：次フレーム予定を作る（位相固定の開始点）
             const Math::TimeSpan now0 = m_clock->now_ns();
