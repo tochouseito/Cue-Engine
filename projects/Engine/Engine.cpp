@@ -16,7 +16,6 @@ namespace Cue
         m_platform->setup();
 
         FrameControllerDesc frameControllerDesc{};
-        frameControllerDesc.m_maxFps = 60;
         m_frameController = std::make_unique<FrameController>(
             frameControllerDesc,
             m_platform->get_thread_factory(),
@@ -36,7 +35,12 @@ namespace Cue
 
         m_frameController->step();
         double fps = m_frameController->frame_counter().fps();
-        Core::Logger::log(Core::LogSink::debugConsole, "Current FPS: {:.1f}", fps);
+        uint32_t updateIndex = m_frameController->update_index();
+        uint32_t renderIndex = m_frameController->render_index();
+        uint32_t presentIndex = m_frameController->present_index();
+        uint64_t totalFrame = m_frameController->total_frame();
+        Core::Logger::log(Core::LogSink::debugConsole, "Frame: {}, FPS: {:.2f}, UpdateIndex: {}, RenderIndex: {}, PresentIndex: {}",
+            totalFrame, fps, updateIndex, renderIndex, presentIndex);
 
         m_platform->end_frame();
     }

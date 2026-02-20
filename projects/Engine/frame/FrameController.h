@@ -99,6 +99,23 @@ namespace Cue
             return m_frameCounter;
         }
 
+        uint64_t total_frame() const noexcept
+        {
+            return m_frameCounter.total_frames();
+        }
+        uint32_t update_index() const noexcept
+        {
+            return m_updateIndex;
+        }
+        uint32_t render_index() const noexcept
+        {
+            return m_renderIndex;
+        }
+        uint32_t present_index() const noexcept
+        {
+            return m_presentIndex;
+        }
+
     private:
         struct FixedState final
         {
@@ -162,5 +179,8 @@ namespace Cue
         uint64_t m_maxLead = 0;
         bool m_started = false;
         bool m_finished = false;
+        uint32_t m_updateIndex = 0;
+        uint32_t m_renderIndex = 0;
+        uint32_t m_presentIndex = 0;
     };
 }

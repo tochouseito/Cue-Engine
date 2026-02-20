@@ -5,7 +5,7 @@ add_library(win_platform STATIC
     "private/WinApp.h"
     "private/WinApp.cpp"
     "win_pch.h" "win_pch.cpp"
- "private/WinQpcClock.h" "private/WinQpcClock.cpp" "private/WinWaiter.h" "private/WinWaiter.cpp" "private/WinThread.h" "private/WinThreadFactory.h" "private/WinThread.cpp" "private/WinThreadFactory.cpp")
+ "private/WinQpcClock.h" "private/WinQpcClock.cpp" "private/WinWaiter.h" "private/WinWaiter.cpp" "private/WinThread.h" "private/WinThreadFactory.h" "private/WinThread.cpp" "private/WinThreadFactory.cpp" "private/WinFileSystem.h" "private/WinFileSystem.cpp")
 
 # リンクライブラリ
 target_link_libraries(win_platform PUBLIC Platform)

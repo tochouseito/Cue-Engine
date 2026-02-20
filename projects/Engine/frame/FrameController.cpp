@@ -241,6 +241,9 @@ namespace Cue
         presentIndex = static_cast<uint32_t>(baseFrame % bufferCount);
         renderIndex = (presentIndex + bufferCount - 2) % bufferCount;
         updateIndex = (presentIndex + bufferCount - 1) % bufferCount;
+        m_updateIndex = updateIndex;
+        m_renderIndex = renderIndex;
+        m_presentIndex = presentIndex;
     }
     void FrameController::present_frame(uint64_t frameNo)
     {
