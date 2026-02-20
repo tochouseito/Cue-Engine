@@ -1,8 +1,8 @@
-#include "GpuCommand.h"
+#include "DX12GpuCommand.h"
 
 namespace Cue::GraphicsCore::DX12
 {
-    Result CommandContext::initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
+    Result DX12CommandContext::initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
     {
         m_device = device;
         if (m_device == nullptr)
@@ -36,7 +36,7 @@ namespace Cue::GraphicsCore::DX12
         }
         return Result::ok();
     }
-    Result CommandContext::reset()
+    Result DX12CommandContext::reset()
     {
         if (!m_commandAllocator || !m_commandList)
         {
@@ -69,7 +69,7 @@ namespace Cue::GraphicsCore::DX12
         }
         return Result::ok();
     }
-    Result CommandContext::close()
+    Result DX12CommandContext::close()
     {
         if (!m_commandList)
         {
@@ -89,7 +89,7 @@ namespace Cue::GraphicsCore::DX12
         }
         return Result::ok();
     }
-    Result CommandContext::create_command_allocator(D3D12_COMMAND_LIST_TYPE type)
+    Result DX12CommandContext::create_command_allocator(D3D12_COMMAND_LIST_TYPE type)
     {
         if (m_device == nullptr)
         {
@@ -117,7 +117,7 @@ namespace Cue::GraphicsCore::DX12
         SetD3D12Name(m_commandAllocator.Get(), L"CommandContext CommandAllocator");
         return Result::ok();
     }
-    Result CommandContext::create_command_list(D3D12_COMMAND_LIST_TYPE type)
+    Result DX12CommandContext::create_command_list(D3D12_COMMAND_LIST_TYPE type)
     {
         if (m_device == nullptr)
         {

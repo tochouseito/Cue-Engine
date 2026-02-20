@@ -59,6 +59,17 @@ target_compile_definitions(cue_compile_options INTERFACE
     $<$<CONFIG:Debug>:CUE_DEBUG=1>
 )
 
+# JSON（Editor 向け）
+# Release では include を通さず、JSON 依存をコンパイル時に禁止する。
+add_library(cue_json INTERFACE)
+target_include_directories(cue_json SYSTEM INTERFACE
+    "$<$<NOT:$<CONFIG:Release>>:${CMAKE_SOURCE_DIR}/thirdparty/json>"
+)
+target_compile_definitions(cue_json INTERFACE
+    "$<$<NOT:$<CONFIG:Release>>:CUE_USE_JSON=1>"
+    "$<$<CONFIG:Release>:CUE_USE_JSON=0>"
+)
+
 # サブプロジェクトを含めます。
 add_subdirectory ("projects/Base")
 add_subdirectory ("projects/Math")

@@ -7,11 +7,11 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    class CommandContext
+    class DX12CommandContext : public CommandContext
     {
     public:
-        CommandContext() = default;
-        virtual ~CommandContext() = default;
+        DX12CommandContext() = default;
+        virtual ~DX12CommandContext() = default;
         Result initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type);
         Result reset();
         Result close();
@@ -20,6 +20,7 @@ namespace Cue::GraphicsCore::DX12
         bool is_list_empty() const { return m_listEmpty; }
 
         /* === Commands === */
+
     private:
         Result create_command_allocator(D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(D3D12_COMMAND_LIST_TYPE type);
@@ -30,28 +31,28 @@ namespace Cue::GraphicsCore::DX12
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
     };
 
-    class GraphicsCommandContext : public CommandContext
+    class DX12GraphicsCommandContext : public DX12CommandContext
     {
     public:
-        GraphicsCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_DIRECT); }
-        ~GraphicsCommandContext() = default;
+        DX12GraphicsCommandContext() = default;
+        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_DIRECT); }
+        ~DX12GraphicsCommandContext() = default;
     };
 
-    class ComputeCommandContext : public CommandContext
+    class DX12ComputeCommandContext : public DX12CommandContext
     {
     public:
-        ComputeCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COMPUTE); }
-        ~ComputeCommandContext() = default;
+        DX12ComputeCommandContext() = default;
+        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COMPUTE); }
+        ~DX12ComputeCommandContext() = default;
     };
 
-    class CopyCommandContext : public CommandContext
+    class DX12CopyCommandContext : public DX12CommandContext
     {
     public:
-        CopyCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COPY); }
-        ~CopyCommandContext() = default;
+        DX12CopyCommandContext() = default;
+        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COPY); }
+        ~DX12CopyCommandContext() = default;
     };
 
     class CommandPool final
@@ -66,7 +67,7 @@ namespace Cue::GraphicsCore::DX12
         ~CommandPool() = default;
 
         // Context取得
-        Core::Pool<GraphicsCommandContext, std::function<void(GraphicsCommandContext&)>>::pooled_ptr get_graphics_context() noexcept
+        Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>>::pooled_ptr get_graphics_context() noexcept
         {
             std::lock_guard<std::mutex> lock(m_graphicsContextPoolMutex);
             auto ctx = m_graphicsContextPool.acquire();
@@ -77,7 +78,7 @@ namespace Cue::GraphicsCore::DX12
             return ctx;
         }
 
-        Core::Pool<ComputeCommandContext, std::function<void(ComputeCommandContext&)>>::pooled_ptr get_compute_context() noexcept
+        Core::Pool<DX12ComputeCommandContext, std::function<void(DX12ComputeCommandContext&)>>::pooled_ptr get_compute_context() noexcept
         {
             std::lock_guard<std::mutex> lock(m_computeContextPoolMutex);
             auto ctx = m_computeContextPool.acquire();
@@ -88,7 +89,7 @@ namespace Cue::GraphicsCore::DX12
             return ctx;
         }
 
-        Core::Pool<CopyCommandContext, std::function<void(CopyCommandContext&)>>::pooled_ptr get_copy_context() noexcept
+        Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>>::pooled_ptr get_copy_context() noexcept
         {
             std::lock_guard<std::mutex> lock(m_copyContextPoolMutex);
             auto ctx = m_copyContextPool.acquire();
@@ -101,25 +102,25 @@ namespace Cue::GraphicsCore::DX12
     private:
         ID3D12Device* m_device = nullptr;
 
-        Core::Pool<GraphicsCommandContext, std::function<void(GraphicsCommandContext&)>> m_graphicsContextPool{
+        Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>> m_graphicsContextPool{
             32,
-            [](GraphicsCommandContext& ctx) {
+            [](DX12GraphicsCommandContext& ctx) {
                 ctx.reset();
             }
         };
         std::mutex m_graphicsContextPoolMutex;
 
-        Core::Pool<ComputeCommandContext, std::function<void(ComputeCommandContext&)>> m_computeContextPool{
+        Core::Pool<DX12ComputeCommandContext, std::function<void(DX12ComputeCommandContext&)>> m_computeContextPool{
             32,
-            [](ComputeCommandContext& ctx) {
+            [](DX12ComputeCommandContext& ctx) {
                 ctx.reset();
             }
         };
         std::mutex m_computeContextPoolMutex;
 
-        Core::Pool<CopyCommandContext, std::function<void(CopyCommandContext&)>> m_copyContextPool{
+        Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>> m_copyContextPool{
             32,
-            [](CopyCommandContext& ctx) {
+            [](DX12CopyCommandContext& ctx) {
                 ctx.reset();
             }
         };
@@ -208,7 +209,7 @@ namespace Cue::GraphicsCore::DX12
             return Result::ok();
         }
 
-        void execute(CommandContext* ctx)
+        void execute(DX12CommandContext* ctx)
         {
             if (ctx && m_commandQueue)
             {

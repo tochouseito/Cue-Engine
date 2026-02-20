@@ -19,8 +19,6 @@ namespace Cue
         m_platform->setup();
 
         // 1) EngineConfig の読み込み
-        Core::IO::IFileSystem& fs = m_platform->get_file_system();
-
 
         FrameControllerDesc frameControllerDesc{};
         m_frameController = std::make_unique<FrameController>(

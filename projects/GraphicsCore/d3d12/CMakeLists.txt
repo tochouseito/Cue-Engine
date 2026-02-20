@@ -1,5 +1,5 @@
 # 構成の種類
-add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "../BackendFactory.h" "private/stdafx.h" "private/RenderDevice.h" "private/RenderDevice.cpp" "private/stdafx.cpp" "private/GpuCommand.h" "private/GpuCommand.cpp" "private/BufferManager.h" "private/BufferManager.cpp" "private/GpuBuffer.h")
+add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "../BackendFactory.h" "private/stdafx.h" "private/RenderDevice.h" "private/RenderDevice.cpp" "private/stdafx.cpp" "private/DX12GpuCommand.h" "private/DX12GpuCommand.cpp" "private/BufferManager.h" "private/BufferManager.cpp" "private/GpuBuffer.h")
 
 # リンクライブラリ
 target_link_libraries(d3d12_backend PRIVATE cue_warnings)
