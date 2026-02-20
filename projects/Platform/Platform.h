@@ -4,6 +4,7 @@
 #include <Threading/IThreadFactory.h>
 #include <Time/IClock.h>
 #include <Time/IWaiter.h>
+#include <IO/IFileSystem.h>
 
 namespace Cue::Platform
 {
@@ -21,6 +22,7 @@ namespace Cue::Platform
 
         virtual Core::Threading::IThreadFactory& get_thread_factory() = 0;
         virtual Core::Time::IClock& get_clock() = 0;
-        virtual Core::Time::IWaiter& get_waiter() = 0;  
+        virtual Core::Time::IWaiter& get_waiter() = 0;
+        virtual Core::IO::IFileSystem& get_file_system() = 0;
     };
 } // namespace Cue

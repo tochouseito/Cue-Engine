@@ -21,6 +21,7 @@ namespace Cue::Platform::Win
         Core::Threading::IThreadFactory& get_thread_factory() override;
         Core::Time::IClock& get_clock() override;
         Core::Time::IWaiter& get_waiter() override;
+        Core::IO::IFileSystem& get_file_system() override;
     private:
         struct Impl;
         std::unique_ptr<Impl> impl;

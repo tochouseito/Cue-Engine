@@ -1,5 +1,8 @@
 #include "Engine.h"
+
+// === Core includes ===
 #include <Logger.h>
+#include <IO/IFileSystem.h>
 
 namespace Cue
 {
@@ -14,6 +17,10 @@ namespace Cue
     {
         m_platform = initInfo.platform;
         m_platform->setup();
+
+        // 1) EngineConfig の読み込み
+        Core::IO::IFileSystem& fs = m_platform->get_file_system();
+
 
         FrameControllerDesc frameControllerDesc{};
         m_frameController = std::make_unique<FrameController>(

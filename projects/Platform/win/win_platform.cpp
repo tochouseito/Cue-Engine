@@ -4,6 +4,7 @@
 #include "private/WinQpcClock.h"
 #include "private/WinWaiter.h"
 #include "private/WinThreadFactory.h"
+#include "private/WinFileSystem.h"
 
 namespace Cue::Platform
 {
@@ -21,6 +22,7 @@ namespace Cue::Platform::Win
         std::unique_ptr<WinQpcClock> clock = std::make_unique<WinQpcClock>();
         std::unique_ptr<WinWaiter> waiter = std::make_unique<WinWaiter>(clock.get());
         std::unique_ptr<WinThreadFactory> threadFactory = std::make_unique<WinThreadFactory>();
+        std::unique_ptr<WinFileSystem> fileSystem = std::make_unique<WinFileSystem>();
     };
     
     WinPlatform::WinPlatform()
@@ -58,5 +60,9 @@ namespace Cue::Platform::Win
     Core::Time::IWaiter& WinPlatform::get_waiter()
     {
         return *impl->waiter;
+    }
+    Core::IO::IFileSystem& WinPlatform::get_file_system()
+    {
+        return *impl->fileSystem;
     }
 } // namespace Cue
