@@ -16,9 +16,13 @@ namespace Cue
     void Engine::initialize(EngineInitInfo& initInfo)
     {
         m_platform = initInfo.platform;
+
+        // 1) Platform の初期化と関連リソースの取得を行う
         m_platform->setup();
 
-        // 1) EngineConfig の読み込み
+        // 2) EngineConfig の読み込み
+        Core::IO::IFileSystem& fileSystem = m_platform->get_file_system();
+
 
         FrameControllerDesc frameControllerDesc{};
         m_frameController = std::make_unique<FrameController>(
@@ -86,5 +90,17 @@ namespace Cue
                 (void)index;
                 (void)this;
             };
+    }
+
+    Result Engine::load_engine_config(const Core::IO::Path& configPath)
+    {
+
+
+        return Result::ok();
+    }
+
+    Result Engine::save_engine_config(const Core::IO::Path& configPath)
+    {
+        return Result::ok();
     }
 } // namespace Cue

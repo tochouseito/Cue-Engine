@@ -4,7 +4,7 @@
 #include <memory>
 #include <functional>
 
-#include "frame/FrameController.h"
+#include "Configuration.h"
 
 namespace Cue
 {
@@ -31,8 +31,13 @@ namespace Cue
         /// @brief フリップ処理
         std::function<void(uint64_t, uint32_t)> present();
     private:
+        Result load_engine_config(const Core::IO::Path& configPath);
+        Result save_engine_config(const Core::IO::Path& configPath);
+    private:
         Platform::IPlatform* m_platform = nullptr;
         GraphicsCore::Backend* m_graphicsBackend = nullptr;
+
+        EngineConfig m_engineConfig{};
 
         std::unique_ptr<FrameController> m_frameController = nullptr;
     };
