@@ -3,6 +3,9 @@
 #include "BufferManager.h"
 #include "TextureManager.h"
 
+#include <type_traits>
+#include <utility>
+
 namespace Cue::GraphicsCore
 {
     struct ResourceRef final
@@ -18,21 +21,21 @@ namespace Cue::GraphicsCore
 
         bool operator==(const ResourceRef& other) const noexcept
         {
-            return kind == other.kind && index == other.index && generation == other.generation;
+            return (kind == other.kind) && (index == other.index) && (generation == other.generation);
         }
     };
 
-    ResourceRef to_resource_ref(BufferHandle handle)
+    [[nodiscard]] inline ResourceRef to_resource_ref(BufferHandle handle) noexcept
     {
         return ResourceRef{ ResourceKind::Buffer, handle.index, handle.generation };
     }
 
-    ResourceRef to_resource_ref(TextureHandle handle)
+    [[nodiscard]] inline ResourceRef to_resource_ref(TextureHandle handle) noexcept
     {
         return ResourceRef{ ResourceKind::Texture, handle.index, handle.generation };
     }
 
-    struct ResourceAccess
+    struct ResourceAccess final
     {
         ResourceRef handle{};
         ResourceAccessType type = ResourceAccessType::Read;
@@ -41,20 +44,55 @@ namespace Cue::GraphicsCore
         ResourceState finalState = ResourceState::Common;
     };
 
+    struct ImportedBufferDesc final
+    {
+        std::string_view name{};
+        BufferHandle sourceHandle{};
+        QueueType ownerQueue = QueueType::Graphics;
+        ResourceState initialState = ResourceState::Common;
+        bool hasFinalState = false;
+        ResourceState finalState = ResourceState::Common;
+        bool hasInitialSyncPoint = false;
+        QueueSyncPoint initialSyncPoint{};
+    };
+
+    struct ImportedTextureDesc final
+    {
+        std::string_view name{};
+        TextureHandle sourceHandle{};
+        QueueType ownerQueue = QueueType::Graphics;
+        ResourceState initialState = ResourceState::Common;
+        bool hasFinalState = false;
+        ResourceState finalState = ResourceState::Common;
+        bool hasInitialSyncPoint = false;
+        QueueSyncPoint initialSyncPoint{};
+    };
+
+    class IFrameGraphRuntime
+    {
+    public:
+        virtual ~IFrameGraphRuntime() = default;
+        [[nodiscard]] virtual IQueueContext* get_queue_context(QueueType queueType) = 0;
+        [[nodiscard]] virtual ICommandContext* acquire_pass_command_context(QueueType queueType, size_t passIndex) = 0;
+    };
+
     class FrameGraph;
-    class BufferManager;
 
     class FrameGraphBuilder final
     {
     public:
-        FrameGraphBuilder(FrameGraph& frameGraph, std::vector<ResourceAccess>& accesses)
+        FrameGraphBuilder(FrameGraph& frameGraph, std::vector<ResourceAccess>& accesses) noexcept
             : m_frameGraph(frameGraph), m_accesses(accesses)
-        {}
+        {
+        }
 
-        BufferHandle create_buffer(std::string_view name);
-        TextureHandle create_texture(std::string_view name);
-        BufferHandle get_buffer(std::string_view name);
-        TextureHandle get_texture(std::string_view name);
+        [[nodiscard]] BufferHandle create_buffer(std::string_view name);
+        [[nodiscard]] TextureHandle create_texture(std::string_view name);
+        [[nodiscard]] BufferHandle import_buffer(const ImportedBufferDesc& desc);
+        [[nodiscard]] TextureHandle import_texture(const ImportedTextureDesc& desc);
+        [[nodiscard]] BufferHandle get_buffer(std::string_view name);
+        [[nodiscard]] TextureHandle get_texture(std::string_view name);
+
         void read(BufferHandle handle, ResourceState requiredState = ResourceState::ShaderResource);
         void read(TextureHandle handle, ResourceState requiredState = ResourceState::ShaderResource);
         void write(BufferHandle handle, ResourceState requiredState);
@@ -71,8 +109,11 @@ namespace Cue::GraphicsCore
     {
     public:
         virtual ~FrameGraphPass() = default;
-        virtual const char* name() const = 0;
-        virtual QueueType queue_type() const { return QueueType::Graphics; }
+        [[nodiscard]] virtual const char* name() const = 0;
+        [[nodiscard]] virtual QueueType queue_type() const
+        {
+            return QueueType::Graphics;
+        }
         virtual void setup(FrameGraphBuilder& builder) = 0;
         virtual void execute(ICommandContext& cmd) const = 0;
     };
@@ -80,94 +121,120 @@ namespace Cue::GraphicsCore
     class FrameGraph final
     {
         friend class FrameGraphBuilder;
+
     public:
-        FrameGraph(BufferManager& bufferManager, TextureManager& textureManager)
+        FrameGraph(BufferManager& bufferManager, TextureManager& textureManager) noexcept
             : m_bufferManager(bufferManager), m_textureManager(textureManager)
-        {}
+        {
+        }
         ~FrameGraph() = default;
 
-        void add_pass(std::unique_ptr<FrameGraphPass> pass)
-        {
-            if (!pass)
-            {
-                throw std::runtime_error("add_pass: pass is null");
-            }
-            m_passes.push_back(CompiledPass{ std::move(pass), {} });
-        }
+        [[nodiscard]] Result add_pass(std::unique_ptr<FrameGraphPass> pass);
 
-        template <class TPass, class... Args,
-            class = std::enable_if_t<std::is_base_of_v<FrameGraphPass, TPass>>>
-        TPass& add_pass(Args&&... args)
+        template <class TPass, class... Args, class = std::enable_if_t<std::is_base_of_v<FrameGraphPass, TPass>>>
+        [[nodiscard]] TPass* add_pass(Args&&... args)
         {
+            // 1) Passを生成して登録し、成功時のみポインタを返す。
             auto pass = std::make_unique<TPass>(std::forward<Args>(args)...);
-            TPass& ref = *pass;
-            add_pass(std::move(pass));
+            TPass* ref = pass.get();
+            const Result result = add_pass(std::move(pass));
+            if (!result)
+            {
+                return nullptr;
+            }
+
             return ref;
         }
 
-        bool build()
-        {
-            if (m_passes.empty())
-            {
-                return;
-            }
-
-            // 毎回 Pass 宣言から再構築し、編集後の再 build でも決定的な結果を保つ。
-            m_resourceKinds.clear();
-            m_resourceByNameId.clear();
-
-            // 各 Pass の read/write 宣言を収集する。
-            for (CompiledPass& compiled : m_passes)
-            {
-                compiled.accesses.clear();
-                FrameGraphBuilder builder(*this, compiled.accesses);
-                compiled.pass->setup(builder);
-            }
-
-            // 宣言済みの論理リソースに対して、模擬的な物理バッファを生成する。
-
-            // データハザードに基づいて Pass 順を並べ替え、必要なバリアを事前計算する。
-
-            return true;
-        }
-
-        void execute();
+        [[nodiscard]] Result build();
+        [[nodiscard]] Result execute(IFrameGraphRuntime& runtime);
 
     private:
-        struct CompiledPass
+        struct CompiledPass final
         {
             std::unique_ptr<FrameGraphPass> pass;
             std::vector<ResourceAccess> accesses;
-        };
-
-        struct PassExecutionInfo
-        {
             QueueType queueType = QueueType::Graphics;
-            uint64_t fenceValue = 0;
-            bool submitted = false;
+            size_t originalIndex = 0;
         };
 
-        struct ResourceHazardState
+        struct LogicalResourceInfo final
+        {
+            ResourceKind kind = ResourceKind::Buffer;
+            bool imported = false;
+            QueueType ownerQueue = QueueType::Graphics;
+            ResourceState initialState = ResourceState::Common;
+            bool hasFinalState = false;
+            ResourceState finalState = ResourceState::Common;
+            bool hasInitialSyncPoint = false;
+            QueueSyncPoint initialSyncPoint{};
+            int32_t firstAccessPass = -1;
+            int32_t lastAccessPass = -1;
+            BufferHandle importedBufferHandle{};
+            TextureHandle importedTextureHandle{};
+        };
+
+        struct ResourceHazardState final
         {
             int32_t lastWriter = -1;
             std::vector<int32_t> lastReaders;
         };
 
-        struct BarrierEvent
+        struct BarrierEvent final
         {
-            ResourceRef handle{};
-            ResourceState before = ResourceState::Common;
-            ResourceState after = ResourceState::Common;
+            ResourceBarrierDesc barrier{};
             bool beforePass = true;
         };
+
+        struct QueueWaitEvent final
+        {
+            bool isExternalSyncPoint = false;
+            size_t sourcePassIndex = 0;
+            QueueType sourceQueue = QueueType::Graphics;
+            QueueType waitQueue = QueueType::Graphics;
+            QueueSyncPoint externalSyncPoint{};
+        };
+
+        struct PassExecutionPlan final
+        {
+            QueueType queueType = QueueType::Graphics;
+            std::vector<size_t> dependencies;
+            std::vector<QueueWaitEvent> waitEvents;
+            std::vector<BarrierEvent> preBarriers;
+            std::vector<BarrierEvent> postBarriers;
+        };
+
+    private:
+        [[nodiscard]] Result create_named_resource(ResourceKind kind, std::string_view name, ResourceRef& outRef);
+        [[nodiscard]] Result import_named_buffer(const ImportedBufferDesc& desc, ResourceRef& outRef);
+        [[nodiscard]] Result import_named_texture(const ImportedTextureDesc& desc, ResourceRef& outRef);
+        [[nodiscard]] Result get_named_resource(ResourceKind kind, std::string_view name, ResourceRef& outRef) const;
+        [[nodiscard]] Result validate_resource_ref(const ResourceRef& ref) const;
+        [[nodiscard]] Result push_access(const ResourceAccess& access, std::vector<ResourceAccess>& accesses);
+
+        void set_setup_error(Result result) noexcept;
+        [[nodiscard]] bool has_setup_error() const noexcept;
+        void reset_build_artifacts();
+
+        [[nodiscard]] Result collect_pass_declarations();
+        [[nodiscard]] Result compile_dependencies();
+        [[nodiscard]] Result compile_execution_order();
+        [[nodiscard]] Result compile_queue_waits();
+        [[nodiscard]] Result compile_barriers();
+        [[nodiscard]] Result issue_barriers(ICommandContext& cmd, const std::vector<BarrierEvent>& barriers);
+
     private:
         std::vector<ResourceKind> m_resourceKinds;
+        std::vector<LogicalResourceInfo> m_resourceInfos;
         std::unordered_map<ResourceNameId, ResourceRef> m_resourceByNameId;
         std::vector<CompiledPass> m_passes;
-        std::vector<std::vector<size_t>> m_dependenciesByPass;
-        std::unordered_map<size_t, std::vector<BarrierEvent>> m_barriersByPass;
+        std::vector<PassExecutionPlan> m_plansByPass;
+        std::vector<size_t> m_executionOrder;
+        std::vector<QueueSyncPoint> m_signalPointByPass;
+        Result m_setupError = Result::ok();
+        bool m_isBuilt = false;
 
         BufferManager& m_bufferManager;
         TextureManager& m_textureManager;
     };
-}
+} // namespace Cue::GraphicsCore

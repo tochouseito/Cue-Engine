@@ -1,12 +1,19 @@
 #pragma once
 
 // === C++ standard library includes ===
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <cstdint>
+#include <limits>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <type_traits>
 #include <unordered_map>
-#include <memory>
+#include <utility>
+#include <vector>
 
 // === Base includes ===
 #include <Result.h>
@@ -27,7 +34,7 @@ namespace Cue::GraphicsCore
         Present
     };
 
-    const char* resource_state_to_string(ResourceState state) noexcept
+    inline const char* resource_state_to_string(ResourceState state) noexcept
     {
         switch (state)
         {
@@ -48,7 +55,7 @@ namespace Cue::GraphicsCore
         Copy
     };
 
-    const char* queue_type_to_string(QueueType type) noexcept
+    inline const char* queue_type_to_string(QueueType type) noexcept
     {
         switch (type)
         {
@@ -65,7 +72,7 @@ namespace Cue::GraphicsCore
         Write,
     };
 
-    const char* resource_access_type_to_string(ResourceAccessType type) noexcept
+    inline const char* resource_access_type_to_string(ResourceAccessType type) noexcept
     {
         switch (type)
         {
@@ -82,7 +89,22 @@ namespace Cue::GraphicsCore
         Pipeline
     };
 
-    const char* resource_kind_to_string(ResourceKind kind) noexcept
+    struct ResourceBarrierDesc final
+    {
+        ResourceKind kind = ResourceKind::Buffer;
+        uint32_t index = 0;
+        uint32_t generation = 0;
+        ResourceState before = ResourceState::Common;
+        ResourceState after = ResourceState::Common;
+    };
+
+    struct QueueSyncPoint final
+    {
+        QueueType queueType = QueueType::Graphics;
+        uint64_t value = 0;
+    };
+
+    inline const char* resource_kind_to_string(ResourceKind kind) noexcept
     {
         switch (kind)
         {
@@ -442,8 +464,46 @@ namespace Cue::GraphicsCore
         virtual ~ICommandContext() = default;
 
         // Commands
-        void begin_event(const char* name) {}
-        void end_event() {}
+        virtual void begin_event(const char* name)
+        {
+            // 1) 既定実装は no-op。
+            (void)name;
+        }
+        virtual void end_event()
+        {
+            // 1) 既定実装は no-op。
+        }
+        virtual Result resource_barrier(const ResourceBarrierDesc& barrier)
+        {
+            // 1) backend未実装時は Unsupported を返す。
+            (void)barrier;
+            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "resource_barrier is unsupported");
+        }
+        virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count)
+        {
+            // 1) 入力を検証する。
+            if ((barriers == nullptr) && (count > 0))
+            {
+                return Result::fail(Facility::GraphicsCore, Code::InvalidArg, Severity::Error, 0, "barriers is null");
+            }
+
+            // 2) 単発APIにフォールバックする。
+            for (size_t i = 0; i < count; ++i)
+            {
+                const Result result = resource_barrier(barriers[i]);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+        virtual Result close()
+        {
+            // 1) 既定実装は no-op。
+            return Result::ok();
+        }
     };
 
     class IQueueContext
@@ -451,5 +511,28 @@ namespace Cue::GraphicsCore
     public:
         IQueueContext() = default;
         virtual ~IQueueContext() = default;
+        virtual QueueType queue_type() const noexcept
+        {
+            // 1) 既定実装は Graphics を返す。
+            return QueueType::Graphics;
+        }
+        virtual Result submit(ICommandContext& cmd)
+        {
+            // 1) backend未実装時は Unsupported を返す。
+            (void)cmd;
+            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "submit is unsupported");
+        }
+        virtual Result signal(QueueSyncPoint& outPoint)
+        {
+            // 1) backend未実装時は Unsupported を返す。
+            (void)outPoint;
+            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "signal is unsupported");
+        }
+        virtual Result wait(const QueueSyncPoint& point)
+        {
+            // 1) backend未実装時は Unsupported を返す。
+            (void)point;
+            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "wait is unsupported");
+        }
     };
 }
