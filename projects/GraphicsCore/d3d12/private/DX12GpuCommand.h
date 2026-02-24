@@ -7,7 +7,7 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    class DX12CommandContext : public CommandContext
+    class DX12CommandContext : public ICommandContext
     {
     public:
         DX12CommandContext() = default;
