@@ -20,7 +20,7 @@ namespace Cue
     using RenderFunc = std::function<void(uint64_t, uint32_t)>;
     using PresentFunc = std::function<void(uint64_t, uint32_t)>;
 
-    enum class ControllerMode
+    enum class ControllerMode : uint32_t
     {
         Fixed,
         Mailbox,

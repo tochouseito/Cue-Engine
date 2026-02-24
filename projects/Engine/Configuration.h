@@ -11,4 +11,7 @@ namespace Cue
         uint32_t m_maxFps = 60;
         ControllerMode m_mode = ControllerMode::Fixed;
     };
+
+    // ファイルパス
+    inline const char* k_engineConfigPath = "config/engine_config.json";
 }
