@@ -105,6 +105,9 @@ namespace Cue
         load_engine_config(Core::IO::Path{ k_engineConfigPath });
 
         FrameControllerDesc frameControllerDesc{};
+        frameControllerDesc.m_bufferCount = m_engineConfig.m_bufferCount;
+        frameControllerDesc.m_maxFps = m_engineConfig.m_maxFps;
+        frameControllerDesc.m_mode = m_engineConfig.m_mode;
         m_frameController = std::make_unique<FrameController>(
             frameControllerDesc,
             m_platform->get_thread_factory(),

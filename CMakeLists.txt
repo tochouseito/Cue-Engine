@@ -11,6 +11,20 @@ endif()
 
 project ("CueEngine" LANGUAGES C CXX)
 
+# 生成物の出力先（全ターゲット共通）
+# Multi-config generator では $<CONFIG> を含めて二重階層化を防ぐ
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
+
+# Visual Studio の中間ファイル出力先（IntDir）
+# MSBuild マクロを使って構成名/プロジェクト名ごとに分離する
+if (CMAKE_GENERATOR MATCHES "Visual Studio")
+  list(APPEND CMAKE_VS_GLOBALS
+    "IntDir=${CMAKE_SOURCE_DIR}/generated/intermediate/$(Configuration)/$(ProjectName)/"
+  )
+endif()
+
 # C標準
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
