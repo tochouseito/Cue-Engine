@@ -349,7 +349,7 @@ namespace Cue::GraphicsCore
             }
             else
             {
-                if (m_records.size() >= static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+                if (m_records.size() >= static_cast<size_t>((std::numeric_limits<uint32_t>::max)()))
                 {
                     throw std::overflow_error("Registry index overflow");
                 }

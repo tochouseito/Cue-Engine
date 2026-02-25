@@ -392,7 +392,7 @@ namespace Cue::GraphicsCore
         }
 
         // 3) 新規論理リソースを登録する。
-        if (m_resourceKinds.size() >= static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+        if (m_resourceKinds.size() >= static_cast<size_t>((std::numeric_limits<uint32_t>::max)()))
         {
             return make_frame_graph_error(Code::OutOfMemory, "create resource: index overflow");
         }
