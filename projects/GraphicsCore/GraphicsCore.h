@@ -1,5 +1,6 @@
 #pragma once
 #include <Result.h>
+#include "FrameGraph.h"
 
 namespace Cue::GraphicsCore
 {
@@ -10,5 +11,6 @@ namespace Cue::GraphicsCore
         virtual ~Backend() = default;
         virtual Result initialize() = 0;
         virtual Result shutdown() = 0;
+    private:
     };
 } // namespace Cue::GraphicsCore

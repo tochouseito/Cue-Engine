@@ -2,6 +2,7 @@
 #include <Windows.h>
 
 #include "RenderDevice.h"
+#include "DX12GpuCommand.h"
 
 namespace Cue::GraphicsCore
 {
@@ -19,6 +20,8 @@ namespace Cue::GraphicsCore::DX12
         // 実装の詳細をここに記述
         Platform::Win::WinPlatform* m_winPlatform = nullptr;
         RenderDevice m_renderDevice;
+        std::unique_ptr<CommandPool> m_commandPool = nullptr;
+        std::unique_ptr<QueuePool> m_queuePool = nullptr;
     };
 
     D3D12Backend::D3D12Backend()
@@ -46,6 +49,12 @@ namespace Cue::GraphicsCore::DX12
         {
             return r;
         }
+
+        // 2) コマンドプールとキュープールを作成する
+        m_impl->m_commandPool = std::make_unique<CommandPool>(m_impl->m_renderDevice.get_d3d12_device());
+        m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice.get_d3d12_device());
+
+
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();
