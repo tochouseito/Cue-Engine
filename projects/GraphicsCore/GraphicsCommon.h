@@ -336,7 +336,7 @@ namespace Cue::GraphicsCore
         static_assert(std::is_move_assignable_v<Record>,
             "Registry<Record> requires move-assignable Record for slot reuse.");
 
-        [[nodiscard]] handle_type create(Record record)
+        [[nodiscard]] handle_type create(Record& record)
         {
             // 1) 空き再利用 or 末尾追加
             uint32_t idx = 0;

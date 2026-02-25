@@ -12,14 +12,9 @@ namespace Cue::GraphicsCore
     {
     public:
         BufferManager() = default;
-        ~BufferManager() = default;
+        virtual ~BufferManager() = default;
 
-        BufferHandle create_buffer(const BufferDesc& desc)
-        {
-            // 1) 現状MVPでは空レコードを登録してハンドルだけ発行する。
-            (void)desc;
-            return m_bufferRegistry.create(BufferRecord{});
-        }
+        virtual BufferHandle create_buffer(const BufferDesc& desc) = 0;
 
         //const BufferRecord* get_buffer(BufferHandle handle) const noexcept
         //{

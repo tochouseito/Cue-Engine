@@ -3,6 +3,7 @@
 
 #include "RenderDevice.h"
 #include "DX12GpuCommand.h"
+#include "DX12BufferManager.h"
 
 namespace Cue::GraphicsCore
 {
@@ -22,6 +23,7 @@ namespace Cue::GraphicsCore::DX12
         RenderDevice m_renderDevice;
         std::unique_ptr<CommandPool> m_commandPool = nullptr;
         std::unique_ptr<QueuePool> m_queuePool = nullptr;
+        std::unique_ptr<DX12BufferManager> m_bufferManager;
     };
 
     D3D12Backend::D3D12Backend()
@@ -54,7 +56,8 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_commandPool = std::make_unique<CommandPool>(m_impl->m_renderDevice.get_d3d12_device());
         m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice.get_d3d12_device());
 
-
+        // 3) バッファマネージャを作成する
+        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>();
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();
