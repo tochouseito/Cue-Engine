@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
+#include <array>
 
 // DirectX includes
 #include <d3d12.h>
