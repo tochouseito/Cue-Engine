@@ -222,4 +222,17 @@ namespace Cue::Platform::Win
         }
         return true;
     }
+    NativeWindowHandle WinApp::get_native_window_handle() const noexcept
+    {
+        // 1) HWND の実体型を公開しないため、透過ハンドルへ変換して返す
+        return reinterpret_cast<NativeWindowHandle>(m_impl->m_hwnd);
+    }
+    uint32_t WinApp::get_window_width() const noexcept
+    {
+        return m_impl->m_width;
+    }
+    uint32_t WinApp::get_window_height() const noexcept
+    {
+        return m_impl->m_height;
+    }
 } // namespace Cue::Platform::Win

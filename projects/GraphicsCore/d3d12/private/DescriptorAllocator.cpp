@@ -269,6 +269,8 @@ namespace Cue::GraphicsCore::DX12
         auto cpuH = get_cpu_handle(id);
         m_renderDevice.get_d3d12_device()->CreateUnorderedAccessView(buffer->get_resource(), nullptr, &desc, cpuH);
         copy_to_gpu_heap(id);
+
+        return Result::ok();
     }
     Result DescriptorAllocator::create_srv_texture_2d(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format)
     {

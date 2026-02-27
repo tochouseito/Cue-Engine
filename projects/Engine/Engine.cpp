@@ -97,12 +97,18 @@ namespace Cue
     void Engine::initialize(EngineInitInfo& initInfo)
     {
         m_platform = initInfo.platform;
+        m_graphicsBackend = initInfo.graphicsBackend;
 
         // 1) Platform の初期化と関連リソースの取得を行う
         m_platform->setup();
 
         // 2) EngineConfig の読み込み
         load_engine_config(Core::IO::Path{ k_engineConfigPath });
+
+        // 3) GraphicsBackend をセットアップする
+        GraphicsCore::backend_setup_info backendInfo{};
+        backendInfo.bufferCount = m_engineConfig.m_bufferCount;
+        m_graphicsBackend->initialize(backendInfo);
 
         FrameControllerDesc frameControllerDesc{};
         frameControllerDesc.m_bufferCount = m_engineConfig.m_bufferCount;

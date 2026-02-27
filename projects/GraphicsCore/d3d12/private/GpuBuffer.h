@@ -180,7 +180,15 @@ namespace Cue::GraphicsCore::DX12
     class GpuBufferResource : public GpuResource
     {
     public:
+        // デフォルトコンストラクタ
         GpuBufferResource() = default;
+        // コピー禁止
+        GpuBufferResource(const GpuBufferResource&) = delete;
+        GpuBufferResource& operator=(const GpuBufferResource&) = delete;
+        // ムーブは許可
+        GpuBufferResource(GpuBufferResource&&) noexcept = default;
+        GpuBufferResource& operator=(GpuBufferResource&&) noexcept = default;
+        // デストラクタ
         ~GpuBufferResource() override = default;
     protected:
         Result create_buffer(ID3D12Device& device, const BufferCreateDesc& desc)
@@ -257,7 +265,15 @@ namespace Cue::GraphicsCore::DX12
     class GpuTextureResource : public GpuResource
     {
     public:
+        // デフォルトコンストラクタ
         GpuTextureResource() = default;
+        // コピー禁止
+        GpuTextureResource(const GpuTextureResource&) = delete;
+        GpuTextureResource& operator=(const GpuTextureResource&) = delete;
+        // ムーブは許可
+        GpuTextureResource(GpuTextureResource&&) noexcept = default;
+        GpuTextureResource& operator=(GpuTextureResource&&) noexcept = default;
+        // デストラクタ
         ~GpuTextureResource() override = default;
     protected:
         Result create_texture(ID3D12Device& device, D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initialState, const D3D12_CLEAR_VALUE* clearValue, std::wstring_view name)

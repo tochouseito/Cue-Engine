@@ -66,4 +66,17 @@ namespace Cue::Platform::Win
     {
         return *impl->fileSystem;
     }
+    NativeWindowHandle WinPlatform::get_native_window_handle() const noexcept
+    {
+        // 1) Win32 実体型は WinApp 側へ閉じ込め、透過ハンドルとして公開する
+        return impl->app.get_native_window_handle();
+    }
+    uint32_t WinPlatform::window_width() const noexcept
+    {
+        return impl->app.get_window_width();
+    }
+    uint32_t WinPlatform::window_height() const noexcept
+    {
+        return impl->app.get_window_height();
+    }
 } // namespace Cue

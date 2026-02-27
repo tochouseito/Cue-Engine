@@ -34,7 +34,7 @@ namespace Cue::GraphicsCore::DX12
     D3D12Backend::~D3D12Backend()
     {
     }
-    Result D3D12Backend::initialize()
+    Result D3D12Backend::initialize(const backend_setup_info& info)
     {
         if (!m_impl->m_winPlatform)
         {
@@ -65,9 +65,12 @@ namespace Cue::GraphicsCore::DX12
             m_impl->m_renderDevice,
             *m_impl->m_queuePool,
             m_impl->m_bufferManager->get_descriptor_allocator());
-        m_impl->m_swapChain->initialize(
-            m_impl->m_winPlatform->get_hwnd_
-        )
+        r = m_impl->m_swapChain->initialize(
+            reinterpret_cast<HWND>(m_impl->m_winPlatform->get_native_window_handle()),
+            m_impl->m_winPlatform->window_width(),
+            m_impl->m_winPlatform->window_height(),
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            info.bufferCount);
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();

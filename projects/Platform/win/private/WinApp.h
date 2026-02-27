@@ -5,6 +5,7 @@
 
 // Cue engine includes
 #include "Result.h"
+#include "win_native.h"
 
 namespace Cue::Platform::Win
 {
@@ -24,6 +25,10 @@ namespace Cue::Platform::Win
         [[nodiscard]] Result show_window(bool isMaximized);
         /// @brief ウィンドウのメッセージポンプ
         [[nodiscard]] bool pump_messages();
+        [[nodiscard]] NativeWindowHandle get_native_window_handle() const noexcept;
+
+        uint32_t get_window_width() const noexcept;
+        uint32_t get_window_height() const noexcept;
     private:
         struct Impl;
         std::unique_ptr<Impl> m_impl;
