@@ -1,5 +1,6 @@
 #include "d3d12_backend.h"
 #include <win/win_native.h>
+#include "ResourceLeakChecker.h"
 #include "RenderDevice.h"
 #include "DX12GpuCommand.h"
 #include "DX12BufferManager.h"
@@ -20,7 +21,8 @@ namespace Cue::GraphicsCore::DX12
     {
         // 実装の詳細をここに記述
         Platform::Win::WinPlatform* m_winPlatform = nullptr;
-        RenderDevice m_renderDevice;
+        std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>();
+        std::unique_ptr<RenderDevice> m_renderDevice = std::make_unique<RenderDevice>();
         std::unique_ptr<CommandPool> m_commandPool = nullptr;
         std::unique_ptr<QueuePool> m_queuePool = nullptr;
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr;
@@ -47,22 +49,22 @@ namespace Cue::GraphicsCore::DX12
         }
 
         // 1) デバイス初期化失敗をそのまま返し、失敗点を保持する
-        Result r = m_impl->m_renderDevice.initialize(true);
+        Result r = m_impl->m_renderDevice->initialize(true);
         if (!r)
         {
             return r;
         }
 
         // 2) コマンドプールとキュープールを作成する
-        m_impl->m_commandPool = std::make_unique<CommandPool>(m_impl->m_renderDevice.get_d3d12_device());
-        m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice.get_d3d12_device());
+        m_impl->m_commandPool = std::make_unique<CommandPool>(m_impl->m_renderDevice->get_d3d12_device());
+        m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice->get_d3d12_device());
 
         // 3) バッファマネージャを作成する
-        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(m_impl->m_renderDevice);
+        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(*m_impl->m_renderDevice.get());
 
         // 4) スワップチェインを作成する
         m_impl->m_swapChain = std::make_unique<SwapChain>(
-            m_impl->m_renderDevice,
+            *m_impl->m_renderDevice.get(),
             *m_impl->m_queuePool,
             m_impl->m_bufferManager->get_descriptor_allocator());
         r = m_impl->m_swapChain->initialize(
