@@ -132,7 +132,7 @@ namespace Cue::GraphicsCore::DX12
         {
             if (m_commandQueue && m_fence)
             {
-                flush();
+                signal();
             }
             if (m_fenceEvent)
             {
@@ -211,30 +211,18 @@ namespace Cue::GraphicsCore::DX12
                 ID3D12CommandList* lists[] = { ctx->get_command_list() };
                 m_commandQueue->ExecuteCommandLists(1, lists);
             }
-            if (!m_commandQueue || !m_fence)
-            {
-                return;
-            }
-            m_fenceValue++;
-            // GPUがここまでたどり着いたときに、Fenceの値を指定した値に代入するようにSignalを送る
-            m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
         }
-        void flush()
+        void signal() override
         {
             if (!m_commandQueue || !m_fence || !m_fenceEvent)
             {
                 return;
             }
             const UINT64 fence = ++m_fenceValue;
+            // GPUがここまでたどり着いたときに、Fenceの値を指定した値に代入するようにSignalを送る
             m_commandQueue->Signal(m_fence.Get(), fence);
-
-            if (m_fence->GetCompletedValue() < fence)
-            {
-                m_fence->SetEventOnCompletion(fence, m_fenceEvent);
-                WaitForSingleObject(m_fenceEvent, INFINITE);
-            }
         }
-        void wait_fence()
+        void wait_fence() override
         {
             if (!m_fence || !m_fenceEvent)
             {
@@ -346,7 +334,7 @@ namespace Cue::GraphicsCore::DX12
                 for (size_t i = 0; i < m_graphicsQueuePool.total_allocated(); ++i)
                 {
                     auto ctx = m_graphicsQueuePool.acquire();
-                    ctx->flush();
+                    ctx->signal();
                 }
             }
             {
@@ -354,7 +342,7 @@ namespace Cue::GraphicsCore::DX12
                 for (size_t i = 0; i < m_computeQueuePool.total_allocated(); ++i)
                 {
                     auto ctx = m_computeQueuePool.acquire();
-                    ctx->flush();
+                    ctx->signal();
                 }
             }
             {
@@ -362,7 +350,7 @@ namespace Cue::GraphicsCore::DX12
                 for (size_t i = 0; i < m_copyQueuePool.total_allocated(); ++i)
                 {
                     auto ctx = m_copyQueuePool.acquire();
-                    ctx->flush();
+                    ctx->signal();
                 }
             }
         }
