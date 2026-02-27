@@ -178,12 +178,12 @@ namespace Cue::GraphicsCore::DX12
                     "Failed to create Fence.");
             }
             SetD3D12Name(m_fence.Get(), L"QueueContext Fence");
-            m_fenceValue++;// 次回以降のシグナル用にインクリメントしておく
+
             // イベントハンドルの作成
             m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
             if (m_fenceEvent == nullptr)
             {
-                Result::fail(
+                return Result::fail(
                     Facility::Graphics,
                     Code::CreationFailed,
                     Severity::Error,
@@ -198,7 +198,7 @@ namespace Cue::GraphicsCore::DX12
                 IID_PPV_ARGS(&m_commandQueue));
             if (FAILED(hr))
             {
-                Result::fail(
+                return Result::fail(
                     Facility::Graphics,
                     Code::CreationFailed,
                     Severity::Error,

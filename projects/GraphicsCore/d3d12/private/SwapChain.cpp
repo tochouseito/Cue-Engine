@@ -16,8 +16,9 @@ namespace Cue::GraphicsCore::DX12
             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
             DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;// ティアリングサポート
 
+        auto commandQueue = m_queuePool.get_graphics_pool()->get_command_queue();
         HRESULT hr = m_renderDevice.get_dxgi_factory()->CreateSwapChainForHwnd(
-            m_queuePool.get_graphics_pool()->get_command_queue(),
+            commandQueue,
             m_hWnd,
             &m_desc,
             nullptr, nullptr,
