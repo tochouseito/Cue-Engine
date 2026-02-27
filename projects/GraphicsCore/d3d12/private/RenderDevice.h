@@ -12,6 +12,8 @@ namespace Cue::GraphicsCore::DX12
         [[nodiscard]] Result initialize(bool enableDebugLayer = false);
         // D3D12デバイス取得
         [[nodiscard]] ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
+        // DXGIFactory取得
+        [[nodiscard]] IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
     private:
         // DXGIファクトリ生成
         [[nodiscard]] Result create_dxgi_factory([[maybe_unused]] bool enableDebugLayer);

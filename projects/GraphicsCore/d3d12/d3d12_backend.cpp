@@ -1,9 +1,9 @@
 #include "d3d12_backend.h"
-#include <Windows.h>
-
+#include <win/win_native.h>
 #include "RenderDevice.h"
 #include "DX12GpuCommand.h"
 #include "DX12BufferManager.h"
+#include "SwapChain.h"
 
 namespace Cue::GraphicsCore
 {
@@ -23,7 +23,8 @@ namespace Cue::GraphicsCore::DX12
         RenderDevice m_renderDevice;
         std::unique_ptr<CommandPool> m_commandPool = nullptr;
         std::unique_ptr<QueuePool> m_queuePool = nullptr;
-        std::unique_ptr<DX12BufferManager> m_bufferManager;
+        std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr;
+        std::unique_ptr<SwapChain> m_swapChain = nullptr;
     };
 
     D3D12Backend::D3D12Backend()
@@ -57,7 +58,16 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice.get_d3d12_device());
 
         // 3) バッファマネージャを作成する
-        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>();
+        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(m_impl->m_renderDevice);
+
+        // 4) スワップチェインを作成する
+        m_impl->m_swapChain = std::make_unique<SwapChain>(
+            m_impl->m_renderDevice,
+            *m_impl->m_queuePool,
+            m_impl->m_bufferManager->get_descriptor_allocator());
+        m_impl->m_swapChain->initialize(
+            m_impl->m_winPlatform->get_hwnd_
+        )
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();

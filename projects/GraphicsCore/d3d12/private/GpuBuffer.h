@@ -187,6 +187,8 @@ namespace Cue::GraphicsCore::DX12
         {
             // バイトサイズの整合性チェック
             UINT64 byteSize = desc.byteSize;
+            m_numElements = desc.numElements;
+            m_stride = desc.stride;
             // 0 の場合は要素数とストライドから計算
             if (byteSize == 0)
             {
@@ -240,7 +242,16 @@ namespace Cue::GraphicsCore::DX12
                 nullptr,
                 desc.name);
         }
+    public:
+        // 要素数の取得（StructuredBuffer 用）
+        UINT get_num_elements() const { return m_numElements; }
+        // ストライドの取得（StructuredBuffer 用）
+        UINT get_stride() const { return m_stride; }
+        // バイトサイズの取得（RawBuffer 用）
+        UINT64 get_byte_size() const { return get_resource_desc().Width; }
     private:
+        UINT m_numElements = 0;
+        UINT m_stride = 0;
     };
 
     class GpuTextureResource : public GpuResource

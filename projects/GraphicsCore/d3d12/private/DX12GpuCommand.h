@@ -313,7 +313,7 @@ namespace Cue::GraphicsCore::DX12
         ~QueuePool() = default;
 
         // Context取得
-        Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>>::pooled_ptr get_graphics_queue() noexcept
+        Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>>::pooled_ptr get_graphics_pool() noexcept
         {
             std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
             auto ctx = m_graphicsQueuePool.acquire();
@@ -323,7 +323,7 @@ namespace Cue::GraphicsCore::DX12
             }
             return ctx;
         }
-        Core::Pool<ComputeQueueContext, std::function<void(ComputeQueueContext&)>>::pooled_ptr get_compute_queue() noexcept
+        Core::Pool<ComputeQueueContext, std::function<void(ComputeQueueContext&)>>::pooled_ptr get_compute_pool() noexcept
         {
             std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
             auto ctx = m_computeQueuePool.acquire();
@@ -333,7 +333,7 @@ namespace Cue::GraphicsCore::DX12
             }
             return ctx;
         }
-        Core::Pool<CopyQueueContext, std::function<void(CopyQueueContext&)>>::pooled_ptr get_copy_queue() noexcept
+        Core::Pool<CopyQueueContext, std::function<void(CopyQueueContext&)>>::pooled_ptr get_copy_pool() noexcept
         {
             std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
             auto ctx = m_copyQueuePool.acquire();

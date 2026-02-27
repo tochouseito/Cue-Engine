@@ -1,5 +1,6 @@
 #include "win_pch.h"
 #include "win_platform.h"
+#include "win_native.h"
 #include "private/WinApp.h"
 #include "private/WinQpcClock.h"
 #include "private/WinWaiter.h"

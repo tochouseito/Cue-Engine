@@ -46,21 +46,26 @@ namespace Cue::GraphicsCore::DX12
         };
 
         // 初期化
-        [[nodiscard]] Result initialize();
+        [[nodiscard]] Result initialize(
+            uint32_t texCap,
+            uint32_t bufCap,
+            uint32_t rtCap = 32,
+            uint32_t dsCap = 2);
 
         // テーブル別の割り当て/解放
-        [[nodiscard]] Result allocate(TableKind k);
+        [[nodiscard]] TableID allocate(TableKind k);
         void free_table(TableID id);
 
         // 各種 view 作成
-        void create_cbv(TableID& id, GpuBufferResource* buffer);
-        void create_srv_buffer(TableID& id, GpuBufferResource* buffer);
-        void create_uav_buffer(TableID& id, GpuBufferResource* buffer);
-        void create_uav_raw_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_cbv(TableID& id, GpuBufferResource* buffer);
+        Result create_srv_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_uav_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_uav_raw_buffer(TableID& id, GpuBufferResource* buffer);
 
-        void create_srv_texture_2d(TableID& id, GpuTextureResource* texture);
-        void create_rtv(TableID& id, GpuTextureResource* texture);
-        void create_dsv(TableID& id, GpuTextureResource* texture);
+        Result create_srv_texture_2d(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
+        Result create_rtv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
+        Result create_rtv(TableID& id, ID3D12Resource* resource, DXGI_FORMAT format);
+        Result create_dsv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
 
         // CPU/GPU デスクリプタハンドルの取得
         D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind k);
