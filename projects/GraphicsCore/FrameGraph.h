@@ -48,7 +48,7 @@ namespace Cue::GraphicsCore
     {
         std::string_view name{};
         BufferHandle sourceHandle{};
-        QueueType ownerQueue = QueueType::Graphics;
+        CommandListType ownerQueue = CommandListType::Graphics;
         ResourceState initialState = ResourceState::Common;
         bool hasFinalState = false;
         ResourceState finalState = ResourceState::Common;
@@ -60,7 +60,7 @@ namespace Cue::GraphicsCore
     {
         std::string_view name{};
         TextureHandle sourceHandle{};
-        QueueType ownerQueue = QueueType::Graphics;
+        CommandListType ownerQueue = CommandListType::Graphics;
         ResourceState initialState = ResourceState::Common;
         bool hasFinalState = false;
         ResourceState finalState = ResourceState::Common;
@@ -72,8 +72,8 @@ namespace Cue::GraphicsCore
     {
     public:
         virtual ~IFrameGraphRuntime() = default;
-        [[nodiscard]] virtual IQueueContext* get_queue_context(QueueType queueType) = 0;
-        [[nodiscard]] virtual ICommandContext* acquire_pass_command_context(QueueType queueType, size_t passIndex) = 0;
+        [[nodiscard]] virtual IQueueContext* get_queue_context(CommandListType queueType) = 0;
+        [[nodiscard]] virtual ICommandContext* acquire_pass_command_context(CommandListType queueType, size_t passIndex) = 0;
     };
 
     class FrameGraph;
@@ -110,9 +110,9 @@ namespace Cue::GraphicsCore
     public:
         virtual ~FrameGraphPass() = default;
         [[nodiscard]] virtual const char* name() const = 0;
-        [[nodiscard]] virtual QueueType queue_type() const
+        [[nodiscard]] virtual CommandListType queue_type() const
         {
-            return QueueType::Graphics;
+            return CommandListType::Graphics;
         }
         virtual void setup(FrameGraphBuilder& builder) = 0;
         virtual void execute(ICommandContext& cmd) const = 0;
@@ -154,7 +154,7 @@ namespace Cue::GraphicsCore
         {
             std::unique_ptr<FrameGraphPass> pass;
             std::vector<ResourceAccess> accesses;
-            QueueType queueType = QueueType::Graphics;
+            CommandListType queueType = CommandListType::Graphics;
             size_t originalIndex = 0;
         };
 
@@ -162,7 +162,7 @@ namespace Cue::GraphicsCore
         {
             ResourceKind kind = ResourceKind::Buffer;
             bool imported = false;
-            QueueType ownerQueue = QueueType::Graphics;
+            CommandListType ownerQueue = CommandListType::Graphics;
             ResourceState initialState = ResourceState::Common;
             bool hasFinalState = false;
             ResourceState finalState = ResourceState::Common;
@@ -190,14 +190,14 @@ namespace Cue::GraphicsCore
         {
             bool isExternalSyncPoint = false;
             size_t sourcePassIndex = 0;
-            QueueType sourceQueue = QueueType::Graphics;
-            QueueType waitQueue = QueueType::Graphics;
+            CommandListType sourceQueue = CommandListType::Graphics;
+            CommandListType waitQueue = CommandListType::Graphics;
             QueueSyncPoint externalSyncPoint{};
         };
 
         struct PassExecutionPlan final
         {
-            QueueType queueType = QueueType::Graphics;
+            CommandListType queueType = CommandListType::Graphics;
             std::vector<size_t> dependencies;
             std::vector<QueueWaitEvent> waitEvents;
             std::vector<BarrierEvent> preBarriers;

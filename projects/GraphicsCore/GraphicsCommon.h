@@ -48,20 +48,20 @@ namespace Cue::GraphicsCore
         }
     }
 
-    enum class QueueType : uint8_t
+    enum class CommandListType : uint8_t
     {
         Graphics,
         Compute,
         Copy
     };
 
-    inline const char* queue_type_to_string(QueueType type) noexcept
+    inline const char* command_list_type_to_string(CommandListType type) noexcept
     {
         switch (type)
         {
-        case QueueType::Graphics: return "Graphics";
-        case QueueType::Compute: return "Compute";
-        case QueueType::Copy: return "Copy";
+        case CommandListType::Graphics: return "Graphics";
+        case CommandListType::Compute: return "Compute";
+        case CommandListType::Copy: return "Copy";
         default: return "Unknown";
         }
     }
@@ -100,7 +100,7 @@ namespace Cue::GraphicsCore
 
     struct QueueSyncPoint final
     {
-        QueueType queueType = QueueType::Graphics;
+        CommandListType queueType = CommandListType::Graphics;
         uint64_t value = 0;
     };
 
@@ -463,47 +463,23 @@ namespace Cue::GraphicsCore
         ICommandContext() = default;
         virtual ~ICommandContext() = default;
 
+        virtual Result reset() = 0;
+        virtual Result close() = 0;
+        virtual CommandListType type() const = 0;
+
+        bool is_list_empty() const
+        {
+            return m_listEmpty;
+        }
+    protected:
+        bool m_listEmpty = true; // コマンドリストが空かどうか
+    public:
         // Commands
-        virtual void begin_event(const char* name)
-        {
-            // 1) 既定実装は no-op。
-            (void)name;
-        }
-        virtual void end_event()
-        {
-            // 1) 既定実装は no-op。
-        }
-        virtual Result resource_barrier(const ResourceBarrierDesc& barrier)
-        {
-            // 1) backend未実装時は Unsupported を返す。
-            (void)barrier;
-            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "resource_barrier is unsupported");
-        }
-        virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count)
-        {
-            // 1) 入力を検証する。
-            if ((barriers == nullptr) && (count > 0))
-            {
-                return Result::fail(Facility::GraphicsCore, Code::InvalidArg, Severity::Error, 0, "barriers is null");
-            }
+        virtual void begin_event(const char* name) = 0;
+        virtual void end_event() = 0;
 
-            // 2) 単発APIにフォールバックする。
-            for (size_t i = 0; i < count; ++i)
-            {
-                const Result result = resource_barrier(barriers[i]);
-                if (!result)
-                {
-                    return result;
-                }
-            }
-
-            return Result::ok();
-        }
-        virtual Result close()
-        {
-            // 1) 既定実装は no-op。
-            return Result::ok();
-        }
+        virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
+        virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
     };
 
     class IQueueContext
@@ -511,28 +487,10 @@ namespace Cue::GraphicsCore
     public:
         IQueueContext() = default;
         virtual ~IQueueContext() = default;
-        virtual QueueType queue_type() const noexcept
-        {
-            // 1) 既定実装は Graphics を返す。
-            return QueueType::Graphics;
-        }
-        virtual Result submit(ICommandContext& cmd)
-        {
-            // 1) backend未実装時は Unsupported を返す。
-            (void)cmd;
-            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "submit is unsupported");
-        }
-        virtual Result signal(QueueSyncPoint& outPoint)
-        {
-            // 1) backend未実装時は Unsupported を返す。
-            (void)outPoint;
-            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "signal is unsupported");
-        }
-        virtual Result wait(const QueueSyncPoint& point)
-        {
-            // 1) backend未実装時は Unsupported を返す。
-            (void)point;
-            return Result::fail(Facility::GraphicsCore, Code::Unsupported, Severity::Warning, 0, "wait is unsupported");
-        }
+
+        virtual CommandListType type() const = 0;
+        virtual Result submit(ICommandContext& cmd) = 0;
+        virtual Result signal(QueueSyncPoint& outPoint) = 0;
+        virtual Result wait(const QueueSyncPoint& point) = 0;
     };
 }

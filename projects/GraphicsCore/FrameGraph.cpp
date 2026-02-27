@@ -204,7 +204,7 @@ namespace Cue::GraphicsCore
 
         // 2) 登録し、再buildを要求状態へ戻す。
         const size_t index = m_passes.size();
-        m_passes.push_back(CompiledPass{ std::move(pass), {}, QueueType::Graphics, index });
+        m_passes.push_back(CompiledPass{ std::move(pass), {}, CommandListType::Graphics, index });
         m_isBuilt = false;
         return Result::ok();
     }
@@ -560,7 +560,7 @@ namespace Cue::GraphicsCore
         for (size_t i = 0; i < m_passes.size(); ++i)
         {
             m_passes[i].accesses.clear();
-            m_passes[i].queueType = QueueType::Graphics;
+            m_passes[i].queueType = CommandListType::Graphics;
             m_passes[i].originalIndex = i;
         }
     }
@@ -758,8 +758,8 @@ namespace Cue::GraphicsCore
             PassExecutionPlan& plan = m_plansByPass[passIndex];
             for (size_t dependencyIndex : plan.dependencies)
             {
-                const QueueType sourceQueue = m_plansByPass[dependencyIndex].queueType;
-                const QueueType waitQueue = plan.queueType;
+                const CommandListType sourceQueue = m_plansByPass[dependencyIndex].queueType;
+                const CommandListType waitQueue = plan.queueType;
                 if (sourceQueue != waitQueue)
                 {
                     append_wait(

@@ -7,26 +7,21 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    class DX12CommandContext
+    class DX12CommandContext : public ICommandContext
     {
     public:
         DX12CommandContext() = default;
         virtual ~DX12CommandContext() = default;
         Result initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type);
-        Result reset();
-        Result close();
         ID3D12GraphicsCommandList* get_command_list() { return m_commandList.Get(); }
         ID3D12CommandAllocator* get_command_allocator() { return m_commandAllocator.Get(); }
-        bool is_list_empty() const { return m_listEmpty; }
-
-        /* === Commands === */
-
+        Result reset() override;
+        Result close() override;
     private:
         Result create_command_allocator(D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(D3D12_COMMAND_LIST_TYPE type);
     protected:
         ID3D12Device* m_device = nullptr;
-        bool m_listEmpty = true;
         ComPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
     };
@@ -127,7 +122,7 @@ namespace Cue::GraphicsCore::DX12
         std::mutex m_copyContextPoolMutex;
     };
 
-    class QueueContext
+    class QueueContext : public IQueueContext
     {
     public:
         /// @brief コンストラクタ
@@ -209,7 +204,7 @@ namespace Cue::GraphicsCore::DX12
             return Result::ok();
         }
 
-        void execute(DX12CommandContext* ctx)
+        Result submit(DX12CommandContext* ctx) override
         {
             if (ctx && m_commandQueue)
             {
