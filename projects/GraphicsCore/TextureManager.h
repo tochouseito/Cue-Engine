@@ -14,7 +14,7 @@ namespace Cue::GraphicsCore
         TextureManager() = default;
         ~TextureManager() = default;
 
-        virtual TextureHandle create_texture(const TextureDesc& desc) = 0;
+        // virtual TextureHandle create_texture(const TextureDesc& desc) = 0;
     private:
         TextureRegistry m_textureRegistry;
     };

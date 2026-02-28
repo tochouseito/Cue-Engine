@@ -149,6 +149,7 @@ namespace Cue
         // 設定ファイルの保存
         save_engine_config(Core::IO::Path{ k_engineConfigPath });
 
+        m_graphicsBackend->shutdown();
         m_platform->shutdown();
         Core::Logger::log(Core::LogSink::debugConsole, "Engine shutdown completed.");
     }
