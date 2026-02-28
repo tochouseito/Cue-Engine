@@ -46,4 +46,17 @@ namespace Cue::GraphicsCore::DX12
 
         return w;
     }
+    DXGI_FORMAT convert_color_format(Cue::GraphicsCore::ColorFormat format)
+    {
+        using namespace Cue::GraphicsCore;
+        switch (format)
+        {
+        case ColorFormat::R8G8B8A8_UNORM:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case ColorFormat::R8G8B8A8_UNORM_SRGB:
+            return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        default:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        }
+    }
 }

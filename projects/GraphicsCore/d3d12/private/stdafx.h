@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 #include <array>
+#include <unordered_map>
 
 // DirectX includes
 #include <d3d12.h>
@@ -36,6 +37,7 @@
 #include <CueMath.h>
 
 // GraphicsCore includes
+#include <GraphicsCommon.h>
 
 #ifndef D3D12_GPU_VIRTUAL_ADDRESS_NULL
 #define D3D12_GPU_VIRTUAL_ADDRESS_NULL ((D3D12_GPU_VIRTUAL_ADDRESS)0)
@@ -75,4 +77,6 @@ namespace Cue::GraphicsCore::DX12
 
     std::string to_utf8(std::wstring_view w) noexcept;
     std::wstring to_utf16(std::string_view s) noexcept;
+
+    DXGI_FORMAT convert_color_format(Cue::GraphicsCore::ColorFormat format);
 }

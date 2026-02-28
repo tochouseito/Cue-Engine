@@ -1,5 +1,5 @@
 # 構成の種類
-add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "../BackendFactory.h" "private/stdafx.h" "private/RenderDevice.h" "private/RenderDevice.cpp" "private/stdafx.cpp" "private/DX12GpuCommand.h" "private/DX12GpuCommand.cpp"   "private/GpuBuffer.h" "private/SwapChain.h" "private/SwapChain.cpp" "private/DX12BufferManager.h" "private/DX12BufferManager.cpp" "private/DescriptorAllocator.h" "private/DescriptorAllocator.cpp" "private/ResourceLeakChecker.h")
+add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "../BackendFactory.h" "private/stdafx.h" "private/RenderDevice.h" "private/RenderDevice.cpp" "private/stdafx.cpp" "private/DX12GpuCommand.h" "private/DX12GpuCommand.cpp"   "private/GpuBuffer.h" "private/SwapChain.h" "private/SwapChain.cpp" "private/DX12BufferManager.h" "private/DX12BufferManager.cpp" "private/DescriptorAllocator.h" "private/DescriptorAllocator.cpp" "private/ResourceLeakChecker.h" "private/HLSLCompiler.h" "private/HLSLCompiler.cpp" "private/DX12PipelineManager.h" "private/DX12PipelineManager.cpp")
 
 # リンクライブラリ
 target_link_libraries(d3d12_backend PRIVATE cue_warnings)
@@ -9,6 +9,7 @@ target_link_libraries(d3d12_backend PRIVATE win_platform)
 target_link_libraries(d3d12_backend PRIVATE d3d12)
 target_link_libraries(d3d12_backend PRIVATE dxguid)
 target_link_libraries(d3d12_backend PRIVATE dxgi)
+target_link_libraries(d3d12_backend PRIVATE dxcompiler)
 
 # インクルードディレクトリ
 target_include_directories(d3d12_backend PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

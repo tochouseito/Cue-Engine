@@ -315,12 +315,16 @@ namespace Cue::GraphicsCore
     // リソースハンドルのタグ型
     struct BufferTag {};
     struct TextureTag {};
-    struct PipelineTag {};
+    struct PipelineStateTag {};
+    struct RootSignatureTag {};
+    struct ShaderBlobTag {};
 
     // エイリアス
     using BufferHandle = Handle<BufferTag>;
     using TextureHandle = Handle<TextureTag>;
-    using PipelineHandle = Handle<PipelineTag>;
+    using PipelineStateHandle = Handle<PipelineStateTag>;
+    using RootSignatureHandle = Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Handle<ShaderBlobTag>;
 
     // レジストリ
     template <class Tag, class Record>
@@ -455,7 +459,7 @@ namespace Cue::GraphicsCore
     // 具体的なレジストリの型エイリアス
     using BufferRegistry = Registry<BufferTag, BufferRecord>;
     using TextureRegistry = Registry<TextureTag, TextureRecord>;
-    using PipelineRegistry = Registry<PipelineTag, PipelineRecord>;
+    using PipelineRegistry = Registry<PipelineStateTag, PipelineRecord>;
 
     class ICommandContext
     {
@@ -492,5 +496,11 @@ namespace Cue::GraphicsCore
         virtual Result submit(ICommandContext& cmd) = 0;
         virtual Result signal(QueueSyncPoint& outPoint) = 0;
         virtual Result wait(const QueueSyncPoint& point) = 0;
+    };
+
+    enum class ColorFormat : uint8_t
+    {
+        R8G8B8A8_UNORM,
+        R8G8B8A8_UNORM_SRGB,
     };
 }
