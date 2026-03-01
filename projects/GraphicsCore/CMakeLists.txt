@@ -1,5 +1,5 @@
 # 構成の設定
-add_library(GraphicsCore STATIC "GraphicsCore.h" "GraphicsCore.cpp" "BackendFactory.h"   "FrameGraph.h" "FrameGraph.cpp"      "GraphicsCommon.h" "BufferManager.h"  "TextureManager.h" "PipelineManager.h" "ShaderCompiler.h" )
+add_library(GraphicsCore STATIC "GraphicsCore.h" "GraphicsCore.cpp" "BackendFactory.h"   "FrameGraph.h" "FrameGraph.cpp"      "GraphicsCommon.h" "BufferManager.h"  "TextureManager.h" "PipelineManager.h" "ShaderCompiler.h"  "passes/BackBufferClear.h")
 
 # リンクライブラリ
 target_link_libraries(GraphicsCore PRIVATE cue_warnings)

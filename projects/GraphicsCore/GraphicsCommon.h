@@ -413,6 +413,16 @@ namespace Cue::GraphicsCore
             return true;
         }
 
+        [[nodiscard]] bool try_get(handle_type h, Record& outRecord) const
+        {
+            if (!is_alive(h))
+            {
+                return false;
+            }
+            outRecord = m_records[h.index];
+            return true;
+        }
+
     private:
         [[nodiscard]] bool is_alive(handle_type h) const noexcept
         {

@@ -128,12 +128,217 @@ namespace
             return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         }
     }
+
+    D3D12_ROOT_PARAMETER_TYPE convert_root_parameter_type(Cue::GraphicsCore::RootParameterType type)
+    {
+        using namespace Cue::GraphicsCore;
+        switch (type)
+        {
+        case RootParameterType::CBV:
+            return D3D12_ROOT_PARAMETER_TYPE_CBV;
+        case RootParameterType::SRV:
+            return D3D12_ROOT_PARAMETER_TYPE_SRV;
+        case RootParameterType::_32BitConstants:
+            return D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        default:
+            return D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        }
+    }
+
+    D3D12_SHADER_VISIBILITY convert_shader_visibility(Cue::GraphicsCore::ShaderVisibility visibility)
+    {
+        using namespace Cue::GraphicsCore;
+        switch (visibility)
+        {
+        case ShaderVisibility::All:
+            return D3D12_SHADER_VISIBILITY_ALL;
+        case ShaderVisibility::Vertex:
+            return D3D12_SHADER_VISIBILITY_VERTEX;
+        case ShaderVisibility::Pixel:
+            return D3D12_SHADER_VISIBILITY_PIXEL;
+        default:
+            return D3D12_SHADER_VISIBILITY_ALL;
+        }
+    }
 }
 
 namespace Cue::GraphicsCore::DX12
 {
-    PipelineStateHandle DX12PipelineManager::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc)
+    Result DX12PipelineManager::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& outHandle)
     {
-        return PipelineStateHandle();
+        // 1) 入力レイアウトをD3D12_INPUT_ELEMENT_DESCに変換する。
+        std::vector<D3D12_INPUT_ELEMENT_DESC> inputElementDescs;
+        for (const auto& elem : desc.inputElements)
+        {
+            inputElementDescs.push_back(convert_input_element_desc(elem));
+        }
+        D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
+        inputLayoutDesc.pInputElementDescs = inputElementDescs.data();
+        inputLayoutDesc.NumElements = static_cast<UINT>(inputElementDescs.size());
+
+        // 2) ブレンドステート、ラスタライザーステート、デプスステンシルステートをD3D12の構造体に変換する。
+        D3D12_BLEND_DESC blendDesc = convert_blend_mode(desc.blendMode);
+        D3D12_RASTERIZER_DESC rasterizerDesc = convert_rasterizer_state(desc.rasterizerState);
+        D3D12_DEPTH_STENCIL_DESC depthStencilDesc = convert_depth_stencil_state(desc.depthStencilState);
+
+        // 3) ルートシグネチャをRegistryから取得する。
+        ComPtr<ID3D12RootSignature> rootSignature;
+        bool result = m_rootSignatureRegistry.try_get(desc.rootSignatureHandle, rootSignature);
+        if (!result)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::NotFound,
+                Severity::Error,
+                0,
+                "Root signature not found for the given handle."
+            );
+        }
+
+        // 4) シェーダーブロブをRegistryから取得する。
+        ComPtr<IDxcBlob> vsBlob;
+        result = m_shaderBlobRegistry.try_get(desc.vsHandle, vsBlob);
+        if (!result)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::NotFound,
+                Severity::Error,
+                0,
+                "Vertex shader blob not found for the given handle."
+            );
+        }
+        ComPtr<IDxcBlob> psBlob;
+        result = m_shaderBlobRegistry.try_get(desc.psHandle, psBlob);
+        if (!result)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::NotFound,
+                Severity::Error,
+                0,
+                "Pixel shader blob not found for the given handle."
+            );
+        }
+
+        // 5) D3D12_GRAPHICS_PIPELINE_STATE_DESC を構築する。
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+        psoDesc.pRootSignature = rootSignature.Get();
+        psoDesc.VS.pShaderBytecode = vsBlob->GetBufferPointer();
+        psoDesc.VS.BytecodeLength = vsBlob->GetBufferSize();
+        psoDesc.PS.pShaderBytecode = psBlob->GetBufferPointer();
+        psoDesc.PS.BytecodeLength = psBlob->GetBufferSize();
+        psoDesc.InputLayout = inputLayoutDesc;
+        psoDesc.BlendState = blendDesc;
+        psoDesc.RasterizerState = rasterizerDesc;
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DSVFormat = convert_dsv_format(desc.dsvFormat);
+        psoDesc.PrimitiveTopologyType = convert_primitive_topology_type(desc.primitiveTopologyType);
+        psoDesc.NumRenderTargets = static_cast<UINT>(desc.rtvFormats.size());
+        for (size_t i = 0; i < desc.rtvFormats.size() && i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+        {
+            psoDesc.RTVFormats[i] = convert_color_format(desc.rtvFormats[i]);
+        }
+        psoDesc.SampleDesc.Count = 1;
+        psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+        // 6) ID3D12PipelineState を作成する。
+        ComPtr<ID3D12PipelineState> pipelineState;
+        HRESULT hr = m_renderDevice.get_d3d12_device()->CreateGraphicsPipelineState(
+            &psoDesc,
+            IID_PPV_ARGS(&pipelineState)
+        );
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                Facility::D3D12,
+                Code::CreationFailed,
+                Severity::Error,
+                static_cast<uint32_t>(hr),
+                "Failed to create graphics pipeline state object."
+            );
+        }
+
+        // 7) 作成したパイプラインステートをRegistryに登録する。
+        PipelineStateHandle handle = m_pipelineStateRegistry.create(pipelineState);
+
+        // 8) 成功結果を返す。
+        outHandle = handle;
+        return Result::ok();
+    }
+    Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& outHandle)
+    {
+        // 1) D3D12_ROOT_SIGNATURE_DESC を構築する。
+        D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        // 2) RootParameterDesc を D3D12_ROOT_PARAMETER に変換して追加する。
+        std::vector<D3D12_ROOT_PARAMETER> d3dParameters;
+        d3dParameters.reserve(desc.parameters.size());
+        for (auto parmDesc : desc.parameters)
+        {
+            D3D12_ROOT_PARAMETER d3dParam{};
+            d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
+            d3dParam.ShaderVisibility = convert_shader_visibility(parmDesc.visibility);
+            d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
+            d3dParam.Descriptor.RegisterSpace = 0;
+            d3dParameters.push_back(d3dParam);
+        }
+
+        // 3) D3D12_ROOT_SIGNATURE_DESC にパラメータをセットする。
+        rootSignatureDesc.NumParameters = static_cast<UINT>(d3dParameters.size());
+        rootSignatureDesc.pParameters = d3dParameters.data();
+
+        // 4) D3D12_ROOT_SIGNATURE_DESC をシリアライズしてバイナリ化する。
+        ComPtr<ID3DBlob> serializedRootSig;
+        ComPtr<ID3DBlob> errorBlob;
+        HRESULT hr = D3D12SerializeRootSignature(
+            &rootSignatureDesc,
+            D3D_ROOT_SIGNATURE_VERSION_1,
+            &serializedRootSig,
+            &errorBlob);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
+                static_cast<uint32_t>(hr),
+                "Failed to serialize root signature.");
+        }
+        ComPtr<ID3D12RootSignature> rootSignature;
+        hr = m_renderDevice.get_d3d12_device()->CreateRootSignature(
+            0,
+            serializedRootSig->GetBufferPointer(),
+            serializedRootSig->GetBufferSize(),
+            IID_PPV_ARGS(&rootSignature));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
+                static_cast<uint32_t>(hr),
+                "Failed to create root signature.");
+        }
+
+        // 5) 作成したルートシグネチャをRegistryに登録する。
+        RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSignature);
+
+        // 6) 成功結果を返す。
+        outHandle = handle;
+        return Result::ok();
+    }
+    Result DX12PipelineManager::compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle)
+    {
+        // 1) HLSLCompilerを使ってシェーダーをコンパイルする。
+        ComPtr<IDxcBlob> blob = m_shaderCompiler.compile_shader_raw(desc);
+
+        // 2) コンパイル結果をShaderBlobRegistryに登録する。
+        ShaderBlobHandle handle = m_shaderBlobRegistry.create(blob);
+
+        // 3) 成功結果を返す。
+        outHandle = handle;
+        return Result::ok();
     }
 } // namespace Cue::GraphicsCore::DX12

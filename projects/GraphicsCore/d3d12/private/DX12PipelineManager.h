@@ -13,9 +13,9 @@ namespace Cue::GraphicsCore::DX12
             : m_renderDevice(renderDevice), m_shaderCompiler(shaderCompiler) {}
         ~DX12PipelineManager() override = default;
 
-        PipelineStateHandle create_graphics_pipeline(const GraphicsPipelineStateDesc& desc) override;
-
-        ShaderBlobHandle compile_shader(const ShaderCompileDesc& desc) override;
+        Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& outHandle) override;
+        Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& outHandle) override;
+        Result compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle) override;
     private:
         RenderDevice& m_renderDevice; // RenderDeviceへの参照
         HLSLCompiler& m_shaderCompiler; // HLSLCompilerへの参照

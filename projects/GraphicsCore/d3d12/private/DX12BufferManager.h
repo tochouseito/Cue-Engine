@@ -13,13 +13,7 @@ namespace Cue::GraphicsCore::DX12
         DX12BufferManager(RenderDevice& renderDevice);
         ~DX12BufferManager() override = default;
 
-        BufferHandle create_buffer(const BufferDesc& desc) override
-        {
-            // 1) 現状MVPでは空レコードを登録してハンドルだけ発行する。
-            (void)desc;
-            GpuBufferResource resource; // 仮のGpuBufferResourceクラス
-            return m_bufferRegistry.create(resource);
-        }
+        Result create_buffer(const BufferDesc& desc, BufferHandle& outHandle) override;
 
         DescriptorAllocator& get_descriptor_allocator() { return *m_descriptorAllocator; }
     private:

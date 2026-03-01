@@ -86,15 +86,40 @@ namespace Cue::GraphicsCore
         std::vector<ColorFormat> rtvFormats = {};
     };
 
+    enum class RootParameterType : uint8_t
+    {
+        CBV,
+        SRV,
+        _32BitConstants
+    };
+
+    enum class ShaderVisibility : uint8_t
+    {
+        All,
+        Vertex,
+        Pixel
+    };
+
+    struct RootParameterDesc
+    {
+        RootParameterType type;
+        ShaderVisibility visibility;
+        uint32_t shaderRegister;
+    };
+
+    struct RootSignatureDesc
+    {
+        std::vector<RootParameterDesc> parameters;
+    };
+
     class PipelineManager
     {
     public:
         PipelineManager() = default;
         virtual ~PipelineManager() = default;
-
-        virtual PipelineStateHandle create_graphics_pipeline(const GraphicsPipelineStateDesc& desc) = 0;
-
-        virtual ShaderBlobHandle compile_shader(const ShaderCompileDesc& desc) = 0;
+        virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& outHandle) = 0;
+        virtual Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& outHandle) = 0;
+        virtual Result compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle) = 0;
     private:
     };
 }

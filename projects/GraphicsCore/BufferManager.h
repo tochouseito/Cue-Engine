@@ -14,8 +14,7 @@ namespace Cue::GraphicsCore
         BufferManager() = default;
         virtual ~BufferManager() = default;
 
-        virtual BufferHandle create_buffer(const BufferDesc& desc) = 0;
-
+        virtual Result create_buffer(const BufferDesc& desc, BufferHandle& outHandle) = 0;
     private:
     };
 } // namespace Cue::GraphicsCore

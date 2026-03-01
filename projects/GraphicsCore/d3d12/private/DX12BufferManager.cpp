@@ -14,4 +14,11 @@ namespace Cue::GraphicsCore::DX12
             /*dsCap=*/2);
         Assert::cue_assert(r, "DX12BufferManager", "Failed to initialize DescriptorAllocator: {}", r.message);
     }
+    Result DX12BufferManager::create_buffer(const BufferDesc& desc, BufferHandle& outHandle)
+    {
+        (void)desc;
+        (void)  outHandle;
+
+        return Result();
+    }
 } // namespace Cue::GraphicsCore::DX12

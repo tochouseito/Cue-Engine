@@ -4,6 +4,8 @@
 #include "RenderDevice.h"
 #include "DX12GpuCommand.h"
 #include "DX12BufferManager.h"
+#include "private/DX12PipelineManager.h"
+#include "private/HLSLCompiler.h"
 #include "SwapChain.h"
 
 namespace Cue::GraphicsCore
@@ -25,8 +27,10 @@ namespace Cue::GraphicsCore::DX12
         std::unique_ptr<RenderDevice> m_renderDevice = std::make_unique<RenderDevice>();
         std::unique_ptr<CommandPool> m_commandPool = nullptr;
         std::unique_ptr<QueuePool> m_queuePool = nullptr;
+        std::unique_ptr<HLSLCompiler> m_shaderCompiler = std::make_unique<HLSLCompiler>();
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr;
         std::unique_ptr<TextureManager> m_textureManager = nullptr;
+        std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
     };
 
@@ -80,6 +84,9 @@ namespace Cue::GraphicsCore::DX12
         //
         r = create_frame_graph_runtime(&m_frameGraphRuntime);
         m_frameGraph = std::make_unique<FrameGraph>(*m_impl->m_bufferManager, *m_impl->m_textureManager);
+
+        //
+        m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice.get(), *m_impl->m_shaderCompiler);
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();
