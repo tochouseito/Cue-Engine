@@ -16,6 +16,8 @@ namespace Cue::GraphicsCore
         virtual ~Backend() = default;
         virtual Result initialize(const backend_setup_info& info) = 0;
         virtual Result shutdown() = 0;
+        virtual Result build_frame_graph() = 0;
+        virtual Result render() = 0;
         virtual [[nodiscard]] Result create_frame_graph_runtime(std::unique_ptr<IFrameGraphRuntime>* outRuntime) = 0;
     protected:
         std::unique_ptr<IFrameGraphRuntime> m_frameGraphRuntime = nullptr;

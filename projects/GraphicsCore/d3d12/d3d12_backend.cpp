@@ -82,11 +82,11 @@ namespace Cue::GraphicsCore::DX12
             info.bufferCount);
 
         //
-        r = create_frame_graph_runtime(&m_frameGraphRuntime);
-        m_frameGraph = std::make_unique<FrameGraph>(*m_impl->m_bufferManager, *m_impl->m_textureManager);
+        m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice.get(), *m_impl->m_shaderCompiler);
 
         //
-        m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice.get(), *m_impl->m_shaderCompiler);
+        r = create_frame_graph_runtime(&m_frameGraphRuntime);
+        m_frameGraph = std::make_unique<FrameGraph>(*m_impl->m_bufferManager, *m_impl->m_textureManager);
 
         // 2) すべての初期化が成功したことを返す
         return Result::ok();
@@ -95,6 +95,14 @@ namespace Cue::GraphicsCore::DX12
     {
         m_frameGraphRuntime.reset();
         return Result::ok();
+    }
+    Result D3D12Backend::build_frame_graph()
+    {
+        return m_frameGraph->build();
+    }
+    Result D3D12Backend::render()
+    {
+       return m_frameGraph->execute(*m_frameGraphRuntime);
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {
