@@ -90,12 +90,13 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
         QueueContextLease graphicsQueue;
         r = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
+        DX12QueueContext& graphicsQueueRef = static_cast<DX12QueueContext&>(*graphicsQueue);
         m_impl->m_swapChain->create(
             m_impl->m_hWnd,
             m_impl->m_winPlatform->window_width(),
             m_impl->m_winPlatform->window_height(),
             info.bufferCount,
-            graphicsQueue->)
+            graphicsQueueRef);
 
         return Result::ok();
     }
@@ -109,7 +110,7 @@ namespace Cue::GraphicsCore::DX12
     }
     Result D3D12Backend::render(uint64_t frameNo, uint32_t index)
     {
-       return m_frameGraph->execute(*m_frameGraphRuntime);
+       return m_frameGraph->execute(frameNo, index, *m_impl->m_commandPool, *m_impl->m_queuePool);
     }
     Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
     {

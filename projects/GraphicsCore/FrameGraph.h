@@ -52,7 +52,7 @@ namespace Cue::GraphicsCore
         bool declared = false;
         ResourceNameId nameId = 0;
         std::string debugName = {};
-        PipelineDesc desc = {};
+        GraphicsPipelineStateDesc desc = {};
         PipelineStateHandle handle = {};
     };
 
@@ -126,7 +126,7 @@ namespace Cue::GraphicsCore
         void cpy_dst(BufferHandle handle, ResourceState finalState);
         void cpy_dst(TextureHandle handle, ResourceState finalState);
 
-        void use_pipeline(const PipelineDesc& desc);
+        void use_pipeline(const GraphicsPipelineStateDesc& desc);
         void get_pipeline(std::string_view name);
         void use_root_signature(const RootSignatureDesc& desc);
         void get_root_signature(std::string_view name);
@@ -380,7 +380,7 @@ namespace Cue::GraphicsCore
         void reorder_compiled_passes(const std::vector<size_t>& sortedOrder);
         void build_execution_dependencies();
         void build_resource_barriers();
-        void declare_pipeline(PipelineBindingDecl& outDecl, const PipelineDesc& desc);
+        void declare_pipeline(PipelineBindingDecl& outDecl, const GraphicsPipelineStateDesc& desc);
         void reference_pipeline(PipelineBindingDecl& outDecl, std::string_view name);
         void declare_root_signature(RootSignatureBindingDecl& outDecl, const RootSignatureDesc& desc);
         void reference_root_signature(RootSignatureBindingDecl& outDecl, std::string_view name);

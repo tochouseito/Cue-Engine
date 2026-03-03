@@ -23,6 +23,12 @@ namespace Cue::GraphicsCore
     {
     public:
         ICommandContext() = default;
+        // コピー禁止
+        ICommandContext(const ICommandContext&) = delete;
+        ICommandContext& operator=(const ICommandContext&) = delete;
+        // ムーブは許可
+        ICommandContext(ICommandContext&&) = default;
+        ICommandContext& operator=(ICommandContext&&) = default;
         virtual ~ICommandContext() = default;
 
         virtual Result reset() = 0;
@@ -48,6 +54,12 @@ namespace Cue::GraphicsCore
     {
     public:
         IQueueContext() = default;
+        // コピー禁止
+        IQueueContext(const IQueueContext&) = delete;
+        IQueueContext& operator=(const IQueueContext&) = delete;
+        // ムーブは許可
+        IQueueContext(IQueueContext&&) = default;
+        IQueueContext& operator=(IQueueContext&&) = default;
         virtual ~IQueueContext() = default;
 
         virtual CommandListType type() const = 0;
@@ -63,6 +75,12 @@ namespace Cue::GraphicsCore
     {
     public:
         IRenderDevice() = default;
+        // コピー禁止
+        IRenderDevice(const IRenderDevice&) = delete;
+        IRenderDevice& operator=(const IRenderDevice&) = delete;
+        // ムーブは許可
+        IRenderDevice(IRenderDevice&&) = default;
+        IRenderDevice& operator=(IRenderDevice&&) = default;
         virtual ~IRenderDevice() = default;
         virtual Result initialize(bool enableDebugLayer = false) = 0;
 
@@ -74,6 +92,7 @@ namespace Cue::GraphicsCore
     {
     public:
         ICommandPool() = default;
+
         virtual ~ICommandPool() = default;
         virtual Result initialize() = 0;
         virtual Result acquire_context(CommandListType type, CommandContextLease& outContext) = 0;
@@ -83,6 +102,12 @@ namespace Cue::GraphicsCore
     {
     public:
         IQueuePool() = default;
+        // コピー禁止
+        IQueuePool(const IQueuePool&) = delete;
+        IQueuePool& operator=(const IQueuePool&) = delete;
+        // ムーブは許可
+        IQueuePool(IQueuePool&&) = default;
+        IQueuePool& operator=(IQueuePool&&) = default;
         virtual ~IQueuePool() = default;
         virtual Result initialize() = 0;
         virtual Result acquire_queue(CommandListType type, QueueContextLease& outQueue) = 0;

@@ -334,7 +334,7 @@ namespace Cue::GraphicsCore
         return Result::ok();
     }
 
-    void FrameGraph::declare_pipeline(PipelineBindingDecl& outDecl, const PipelineDesc& desc)
+    void FrameGraph::declare_pipeline(PipelineBindingDecl& outDecl, const GraphicsPipelineStateDesc& desc)
     {
         if (outDecl.declared)
         {
@@ -511,7 +511,7 @@ namespace Cue::GraphicsCore
             Result result = m_pipelineManager.get_pipeline(nameId, pipelineDecl.handle);
             if (!result)
             {
-                result = m_pipelineManager.create_pipeline(pipelineDecl.desc, pipelineDecl.handle);
+                result = m_pipelineManager.create_graphics_pipeline(pipelineDecl.desc, pipelineDecl.handle);
                 if (!result)
                 {
                     return result;
@@ -1155,7 +1155,7 @@ namespace Cue::GraphicsCore
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::CopyDest, true, finalState });
     }
 
-    void FrameGraphBuilder::use_pipeline(const PipelineDesc& desc)
+    void FrameGraphBuilder::use_pipeline(const GraphicsPipelineStateDesc& desc)
     {
         m_frameGraph.declare_pipeline(m_pipelineDecl, desc);
     }
