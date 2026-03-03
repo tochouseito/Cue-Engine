@@ -91,35 +91,20 @@ namespace Cue::GraphicsCore::DX12
     class DX12CommandPool final : public ICommandPool
     {
     public:
-        DX12CommandPool() = default;
+        explicit DX12CommandPool(DX12RenderDevice& device);
         ~DX12CommandPool() override = default;
 
-        Result initialize(DX12RenderDevice& device) override;
+        Result initialize() override;
 
         Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
     private:
-        Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>> m_graphicsContextPool{
-            32,
-            [](DX12GraphicsCommandContext& ctx) {
-                ctx.reset();
-            }
-        };
+        Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>> m_graphicsContextPool;
         std::mutex m_graphicsContextPoolMutex;
 
-        Core::Pool<DX12ComputeCommandContext, std::function<void(DX12ComputeCommandContext&)>> m_computeContextPool{
-            32,
-            [](DX12ComputeCommandContext& ctx) {
-                ctx.reset();
-            }
-        };
+        Core::Pool<DX12ComputeCommandContext, std::function<void(DX12ComputeCommandContext&)>> m_computeContextPool;
         std::mutex m_computeContextPoolMutex;
 
-        Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>> m_copyContextPool{
-            32,
-            [](DX12CopyCommandContext& ctx) {
-                ctx.reset();
-            }
-        };
+        Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>> m_copyContextPool;
         std::mutex m_copyContextPoolMutex;
     };
 
@@ -197,11 +182,10 @@ namespace Cue::GraphicsCore::DX12
 
     class DX12QueuePool final : public IQueuePool
     {
-        public:
-        DX12QueuePool() = default;
+    public:
+        explicit DX12QueuePool(DX12RenderDevice& device);
         ~DX12QueuePool() override = default;
-        Result initialize(IRenderDevice& device) override;
-
+        Result initialize() override;
         Result acquire_queue(CommandListType type, QueueContextLease& outQueue) override;
     private:
         // 各キューの数
@@ -209,28 +193,13 @@ namespace Cue::GraphicsCore::DX12
         static const uint32_t k_computeQueueCount = 4; ///>
         static const uint32_t k_copyQueueCount = 2;    ///>
 
-        Core::Pool<DX12GraphicsQueueContext, std::function<void(DX12GraphicsQueueContext&)>> m_graphicsQueuePool{
-            4,
-            [](DX12GraphicsQueueContext& ctx) {
-                ctx.wait_for_last_signal();
-            }
-        };
+        Core::Pool<DX12GraphicsQueueContext, std::function<void(DX12GraphicsQueueContext&)>> m_graphicsQueuePool;
         std::mutex m_graphicsQueuePoolMutex;
 
-        Core::Pool<DX12ComputeQueueContext, std::function<void(DX12ComputeQueueContext&)>> m_computeQueuePool{
-            4,
-            [](DX12ComputeQueueContext& ctx) {
-                ctx.wait_for_last_signal();
-            }
-        };
+        Core::Pool<DX12ComputeQueueContext, std::function<void(DX12ComputeQueueContext&)>> m_computeQueuePool;
         std::mutex m_computeQueuePoolMutex;
 
-        Core::Pool<DX12CopyQueueContext, std::function<void(DX12CopyQueueContext&)>> m_copyQueuePool{
-            4,
-            [](DX12CopyQueueContext& ctx) {
-                ctx.wait_for_last_signal();
-            }
-        };
+        Core::Pool<DX12CopyQueueContext, std::function<void(DX12CopyQueueContext&)>> m_copyQueuePool;
         std::mutex m_copyQueuePoolMutex;
     };
 } // namespace Cue::GraphicsCore::DX12

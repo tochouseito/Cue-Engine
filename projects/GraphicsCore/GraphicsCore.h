@@ -19,9 +19,7 @@ namespace Cue::GraphicsCore
         virtual Result build_frame_graph() = 0;
         virtual Result render(uint64_t frameNo, uint32_t index) = 0;
         virtual Result present(uint64_t frameNo, uint32_t index) = 0;
-        virtual [[nodiscard]] Result create_frame_graph_runtime(std::unique_ptr<IFrameGraphRuntime>* outRuntime) = 0;
     protected:
-        std::unique_ptr<IFrameGraphRuntime> m_frameGraphRuntime = nullptr;
         std::unique_ptr<FrameGraph> m_frameGraph = nullptr;
     };
 } // namespace Cue::GraphicsCore

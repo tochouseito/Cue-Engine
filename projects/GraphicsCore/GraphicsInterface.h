@@ -75,8 +75,7 @@ namespace Cue::GraphicsCore
     public:
         ICommandPool() = default;
         virtual ~ICommandPool() = default;
-        virtual Result initialize(IRenderDevice& device) = 0;
-
+        virtual Result initialize() = 0;
         virtual Result acquire_context(CommandListType type, CommandContextLease& outContext) = 0;
     };
 
@@ -85,8 +84,7 @@ namespace Cue::GraphicsCore
     public:
         IQueuePool() = default;
         virtual ~IQueuePool() = default;
-        virtual Result initialize(IRenderDevice& device) = 0;
-
+        virtual Result initialize() = 0;
         virtual Result acquire_queue(CommandListType type, QueueContextLease& outQueue) = 0;
     };
 

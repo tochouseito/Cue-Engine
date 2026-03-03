@@ -123,9 +123,41 @@ namespace Cue::GraphicsCore::DX12
 
         return Result::ok();
     }
-    Result DX12CommandPool::initialize(DX12RenderDevice& device)
+    DX12CommandPool::DX12CommandPool(DX12RenderDevice& device)
+        : m_graphicsContextPool(
+            32,
+            [](DX12GraphicsCommandContext& ctx)
+            {
+                ctx.reset();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12GraphicsCommandContext>(*d3d12Device);
+            })
+        , m_computeContextPool(
+            32,
+            [](DX12ComputeCommandContext& ctx)
+            {
+                ctx.reset();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12ComputeCommandContext>(*d3d12Device);
+            })
+        , m_copyContextPool(
+            32,
+            [](DX12CopyCommandContext& ctx)
+            {
+                ctx.reset();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12CopyCommandContext>(*d3d12Device);
+            })
     {
-        (void)device;
+    }
+    Result DX12CommandPool::initialize()
+    {
         m_graphicsContextPool.prewarm(1);
         m_computeContextPool.prewarm(1);
         m_copyContextPool.prewarm(1);
@@ -341,9 +373,41 @@ namespace Cue::GraphicsCore::DX12
         SetD3D12Name(m_commandQueue.Get(), L"QueueContext CommandQueue");
         return Result::ok();
     }
-    Result DX12QueuePool::initialize(IRenderDevice& device)
+    DX12QueuePool::DX12QueuePool(DX12RenderDevice& device)
+        : m_graphicsQueuePool(
+            4,
+            [](DX12GraphicsQueueContext& ctx)
+            {
+                ctx.wait_for_last_signal();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12GraphicsQueueContext>(*d3d12Device);
+            })
+        , m_computeQueuePool(
+            4,
+            [](DX12ComputeQueueContext& ctx)
+            {
+                ctx.wait_for_last_signal();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12ComputeQueueContext>(*d3d12Device);
+            })
+        , m_copyQueuePool(
+            4,
+            [](DX12CopyQueueContext& ctx)
+            {
+                ctx.wait_for_last_signal();
+            },
+            [d3d12Device = device.get_d3d12_device()]()
+            {
+                return std::make_unique<DX12CopyQueueContext>(*d3d12Device);
+            })
     {
-        (void)device;
+    }
+    Result DX12QueuePool::initialize()
+    {
         m_graphicsQueuePool.prewarm(k_graphicsQueueCount);
         m_computeQueuePool.prewarm(k_computeQueueCount);
         m_copyQueuePool.prewarm(k_copyQueueCount);

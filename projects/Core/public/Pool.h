@@ -1,7 +1,8 @@
 #pragma once
-#include <vector>
+#include <functional>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace Cue::Core
 {
@@ -9,6 +10,8 @@ namespace Cue::Core
     class Pool
     {
     public:
+        using create_func = std::function<std::unique_ptr<T>()>;
+
         struct Deleter
         {
             Pool* pool = nullptr;
@@ -31,8 +34,19 @@ namespace Cue::Core
 
     public:
         Pool(size_t maxCached, ResetFunc resetFunc)
+            : Pool(
+                maxCached,
+                std::move(resetFunc),
+                []()
+                {
+                    return std::make_unique<T>();
+                })
+        {}
+
+        Pool(size_t maxCached, ResetFunc resetFunc, create_func createFunc)
             : m_maxCached(maxCached)
             , m_resetFunc(std::move(resetFunc))
+            , m_createFunc(std::move(createFunc))
         {}
 
         Pool(const Pool&) = delete;
@@ -50,9 +64,9 @@ namespace Cue::Core
             }
 
             // 2) なければ新規確保
-            T* raw = new T();
+            std::unique_ptr<T> obj = m_createFunc();
             ++m_totalAllocated;
-            return pooled_ptr(raw, Deleter{ this });
+            return pooled_ptr(obj.release(), Deleter{ this });
         }
 
         void recycle(T* raw) noexcept
@@ -75,7 +89,7 @@ namespace Cue::Core
                     return;
                 }
 
-                m_cached.push_back(std::make_unique<T>());
+                m_cached.push_back(m_createFunc());
                 ++m_totalAllocated;
             }
         }
@@ -109,6 +123,7 @@ namespace Cue::Core
     private:
         size_t m_maxCached = 0;
         ResetFunc m_resetFunc{};
+        create_func m_createFunc{};
         std::vector<std::unique_ptr<T>> m_cached{};
         size_t m_totalAllocated = 0;
     };

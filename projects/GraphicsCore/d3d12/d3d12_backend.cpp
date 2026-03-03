@@ -24,6 +24,7 @@ namespace Cue::GraphicsCore::DX12
     {
         // 実装の詳細をここに記述
         Platform::Win::WinPlatform* m_winPlatform = nullptr;
+        HWND m_hWnd = nullptr;
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>();
         std::unique_ptr<DX12RenderDevice> m_renderDevice = std::make_unique<DX12RenderDevice>();
         std::unique_ptr<DX12CommandPool> m_commandPool = nullptr;
@@ -55,6 +56,8 @@ namespace Cue::GraphicsCore::DX12
                 "WinPlatform is not set in D3D12Backend.");
         }
 
+        m_impl->m_hWnd = reinterpret_cast<HWND>(m_impl->m_winPlatform->get_native_window_handle());
+
         // 1) デバイス初期化失敗をそのまま返し、失敗点を保持する
         Result r = m_impl->m_renderDevice->initialize(true);
         if (!r)
@@ -64,9 +67,9 @@ namespace Cue::GraphicsCore::DX12
 
         // 2) コマンドプールとキュープールを初期化する
         m_impl->m_commandPool = std::make_unique<DX12CommandPool>(*m_impl->m_renderDevice);
-        m_impl->m_commandPool->initialize(*m_impl->m_renderDevice);
+        m_impl->m_commandPool->initialize();
         m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
-        m_impl->m_queuePool->initialize(*m_impl->m_renderDevice);
+        m_impl->m_queuePool->initialize();
 
         // 3) マネージャー類を初期化する
         m_impl->m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_impl->m_renderDevice);
@@ -85,18 +88,19 @@ namespace Cue::GraphicsCore::DX12
 
         // 4) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
+        QueueContextLease graphicsQueue;
+        r = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
         m_impl->m_swapChain->create(
-            m_impl->m_winPlatform->get_native_window_handle(),
+            m_impl->m_hWnd,
             m_impl->m_winPlatform->window_width(),
             m_impl->m_winPlatform->window_height(),
             info.bufferCount,
-        )
+            graphicsQueue->)
 
         return Result::ok();
     }
     Result D3D12Backend::shutdown()
     {
-        m_frameGraphRuntime.reset();
         return Result::ok();
     }
     Result D3D12Backend::build_frame_graph()
@@ -114,38 +118,5 @@ namespace Cue::GraphicsCore::DX12
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {
         m_impl->m_winPlatform = dynamic_cast<Platform::Win::WinPlatform*>(platform);
-    }
-    Result D3D12Backend::create_frame_graph_runtime(std::unique_ptr<IFrameGraphRuntime>* outRuntime)
-    {
-        // 1) 出力先と pool の生成状態を検証し、不完全な backend から runtime を作らない。
-        if (outRuntime == nullptr)
-        {
-            return Result::fail(
-                Facility::D3D12,
-                Code::InvalidArg,
-                Severity::Error,
-                0,
-                "Output runtime pointer is null.");
-        }
-        if (!m_impl->m_commandPool || !m_impl->m_queuePool)
-        {
-            return Result::fail(
-                Facility::D3D12,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "CommandPool or QueuePool is not initialized.");
-        }
-
-        // 2) queue を固定保持する runtime を生成して初期化し、成功時だけ公開する。
-        auto runtime = std::make_unique<Dx12FrameGraphRuntime>(*m_impl->m_commandPool, *m_impl->m_queuePool);
-        Result result = runtime->initialize();
-        if (!result)
-        {
-            return result;
-        }
-
-        *outRuntime = std::move(runtime);
-        return Result::ok();
     }
 } // namespace Cue::Graphics::DX12
