@@ -2,82 +2,24 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    namespace
+    DX12CommandContext::DX12CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
-        [[nodiscard]] CommandListType to_command_list_type(D3D12_COMMAND_LIST_TYPE type) noexcept
-        {
-            // 1) DX12 のキュー種別を FrameGraph 共通の列挙へ写像する。
-            switch (type)
-            {
-            case D3D12_COMMAND_LIST_TYPE_DIRECT:
-                return CommandListType::Graphics;
-            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-                return CommandListType::Compute;
-            case D3D12_COMMAND_LIST_TYPE_COPY:
-                return CommandListType::Copy;
-            default:
-                return CommandListType::Graphics;
-            }
-        }
+        // 1) コマンドアロケータの作成
+        create_command_allocator(device, type);
 
-        [[nodiscard]] size_t to_queue_index(CommandListType type) noexcept
-        {
-            // 1) 固定長配列へアクセスするため共通列挙を添字へ変換する。
-            switch (type)
-            {
-            case CommandListType::Graphics:
-                return 0;
-            case CommandListType::Compute:
-                return 1;
-            case CommandListType::Copy:
-                return 2;
-            default:
-                return 0;
-            }
-        }
-    }
-
-    Result DX12CommandContext::initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
-    {
-        m_device = device;
-        m_nativeType = type;
-        m_type = to_command_list_type(type);
-        if (m_device == nullptr)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidArg,
-                Severity::Error,
-                0,
-                "Device is null.");
-        }
-
-        // 1) 初期化済みなら再生成は不要
-        if (m_commandAllocator && m_commandList)
-        {
-            return Result::ok();
-        }
-
-        Result r;
-        // 2) コマンドアロケータの作成
-        r = create_command_allocator(type);
-        if (!r)
-        {
-            return r;
-        }
-        // 3) コマンドリストの作成
-        r = create_command_list(type);
-        if (!r)
-        {
-            return r;
-        }
-        return Result::ok();
+        // 2) コマンドリストの作成
+        create_command_list(device, type);
     }
     Result DX12CommandContext::reset()
     {
         if (!m_commandAllocator || !m_commandList)
         {
-            return Result::ok();
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "CommandAllocator or CommandList is null.");
         }
 
         // 1) コマンドアロケータのリセット
@@ -91,6 +33,7 @@ namespace Cue::GraphicsCore::DX12
                 static_cast<uint32_t>(hr),
                 "Failed to reset CommandAllocator.");
         }
+
         // 2) コマンドリストのリセット
         hr = m_commandList->Reset(
             m_commandAllocator.Get(),
@@ -104,14 +47,21 @@ namespace Cue::GraphicsCore::DX12
                 static_cast<uint32_t>(hr),
                 "Failed to reset CommandList.");
         }
+
         m_listEmpty = true;
+
         return Result::ok();
     }
     Result DX12CommandContext::close()
     {
         if (!m_commandList)
         {
-            return Result::ok();
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "CommandList is null.");
         }
 
         // コマンドリストのクローズ
@@ -125,61 +75,13 @@ namespace Cue::GraphicsCore::DX12
                 static_cast<uint32_t>(hr),
                 "Failed to close CommandList.");
         }
+
         return Result::ok();
     }
-    void DX12CommandContext::begin_event(const char* name)
+    Result DX12CommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
-        // 1) PIX/マーカー連携は未実装のため、現状は no-op とする。
-        (void)name;
-    }
-    void DX12CommandContext::end_event()
-    {
-        // 1) PIX/マーカー連携は未実装のため、現状は no-op とする。
-    }
-    Result DX12CommandContext::resource_barrier(const ResourceBarrierDesc& barrier)
-    {
-        // 1) 実リソース解決層が未接続のため、現状は Unsupported を返す。
-        (void)barrier;
-        return Result::fail(
-            Facility::GraphicsCore,
-            Code::Unsupported,
-            Severity::Warning,
-            0,
-            "DX12 resource_barrier is not connected to concrete resources yet.");
-    }
-    Result DX12CommandContext::resource_barriers(const ResourceBarrierDesc* barriers, size_t count)
-    {
-        // 1) 入力の整合性だけ確認し、現状は Unsupported を返す。
-        if ((barriers == nullptr) && (count > 0))
-        {
-            return Result::fail(
-                Facility::GraphicsCore,
-                Code::InvalidArg,
-                Severity::Error,
-                0,
-                "barriers is null.");
-        }
-        return Result::fail(
-            Facility::GraphicsCore,
-            Code::Unsupported,
-            Severity::Warning,
-            0,
-            "DX12 resource_barriers is not connected to concrete resources yet.");
-    }
-    Result DX12CommandContext::create_command_allocator(D3D12_COMMAND_LIST_TYPE type)
-    {
-        if (m_device == nullptr)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Device is null.");
-        }
-
         // コマンドアロケータの作成
-        HRESULT hr = m_device->CreateCommandAllocator(
+        HRESULT hr = device.CreateCommandAllocator(
             type,
             IID_PPV_ARGS(&m_commandAllocator));
         if (FAILED(hr))
@@ -194,20 +96,10 @@ namespace Cue::GraphicsCore::DX12
         SetD3D12Name(m_commandAllocator.Get(), L"CommandContext CommandAllocator");
         return Result::ok();
     }
-    Result DX12CommandContext::create_command_list(D3D12_COMMAND_LIST_TYPE type)
+    Result DX12CommandContext::create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
-        if (m_device == nullptr)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Device is null.");
-        }
-
         // 1) コマンドリストの作成
-        HRESULT hr = m_device->CreateCommandList(
+        HRESULT hr = device.CreateCommandList(
             0,
             type,
             m_commandAllocator.Get(),
@@ -222,33 +114,85 @@ namespace Cue::GraphicsCore::DX12
                 static_cast<uint32_t>(hr),
                 "Failed to create CommandList.");
         }
+
+        // 2) オブジェクトに名前を付ける
         SetD3D12Name(m_commandList.Get(), L"CommandContext CommandList");
 
-        // 2) コマンドリストは生成直後にオープン状態になるのでクローズしておく
+        // 3) コマンドリストは生成直後にオープン状態になるのでクローズしておく
         m_commandList->Close();
+
         return Result::ok();
     }
-
-    Result QueueContext::submit(ICommandContext& cmd)
+    Result DX12CommandPool::initialize(IRenderDevice& device)
     {
-        // 1) runtime が返す DX12 コマンドコンテキストだけを受け取る前提で送信する。
-        if (m_commandQueue == nullptr)
+        (void)device;
+        m_graphicsContextPool.prewarm(1);
+        m_computeContextPool.prewarm(1);
+        m_copyContextPool.prewarm(1);
+        return Result::ok();
+    }
+    Result DX12CommandPool::acquire_context(CommandListType type, CommandContextLease& outContext)
+    {
+        switch (type)
         {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Command queue is null.");
+        case CommandListType::Graphics:
+        {
+            auto pooled = m_graphicsContextPool.acquire();
+            outContext = CommandContextLease(
+                pooled.release(),
+                [this](ICommandContext* raw) { m_graphicsContextPool.recycle(static_cast<DX12GraphicsCommandContext*>(raw)); });
+            return Result::ok();
         }
-        if (cmd.type() != m_type)
+        case CommandListType::Compute:
+        {
+            auto pooled = m_computeContextPool.acquire();
+            outContext = CommandContextLease(
+                pooled.release(),
+                [this](ICommandContext* raw) { m_computeContextPool.recycle(static_cast<DX12ComputeCommandContext*>(raw)); });
+            return Result::ok();
+        }
+        case CommandListType::Copy:
+        {
+            auto pooled = m_copyContextPool.acquire();
+            outContext = CommandContextLease(
+                pooled.release(),
+                [this](ICommandContext* raw) { m_copyContextPool.recycle(static_cast<DX12CopyCommandContext*>(raw)); });
+            return Result::ok();
+        }
+        default:
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Unsupported command list type");
+        }
+    }
+    DX12QueueContext::DX12QueueContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+    {
+        create_fence(device);
+        create_fence_event();
+        create_command_queue(device, type);
+    }
+    DX12QueueContext::~DX12QueueContext()
+    {
+        if (m_commandQueue && m_fence)
+        {
+            wait(m_lastSignalPoint);
+        }
+        if (m_fenceEvent)
+        {
+            CloseHandle(m_fenceEvent);
+            m_fenceEvent = nullptr;
+        }
+        m_fence.Reset();
+        m_commandQueue.Reset();
+    }
+    Result DX12QueueContext::submit(ICommandContext& cmd)
+    {
+        if (cmd.type() != type() || !m_commandQueue)
         {
             return Result::fail(
                 Facility::GraphicsCore,
                 Code::InvalidArg,
                 Severity::Error,
                 0,
-                "Command list type does not match queue type.");
+                "Command list type does not match queue type or command queue is not initialized.");
         }
 
         DX12CommandContext& dx12Cmd = static_cast<DX12CommandContext&>(cmd);
@@ -267,7 +211,7 @@ namespace Cue::GraphicsCore::DX12
         m_commandQueue->ExecuteCommandLists(1, lists);
         return Result::ok();
     }
-    Result QueueContext::signal(QueueSyncPoint& outPoint)
+    Result DX12QueueContext::signal(QueueSyncPoint& outPoint)
     {
         // 1) submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す。
         if (!m_commandQueue || !m_fence)
@@ -292,11 +236,11 @@ namespace Cue::GraphicsCore::DX12
                 "Failed to signal queue fence.");
         }
 
-        outPoint.queueType = m_type;
+        outPoint.queueType = type();
         outPoint.value = fence;
         return Result::ok();
     }
-    Result QueueContext::wait(const QueueSyncPoint& point)
+    Result DX12QueueContext::wait(const QueueSyncPoint& point)
     {
         // 1) runtime が束ねているキュー表から待機元 fence を解決して GPU 側 wait を発行する。
         if (!m_commandQueue)
@@ -317,132 +261,124 @@ namespace Cue::GraphicsCore::DX12
                 0,
                 "Queue sync point is invalid.");
         }
-        if (m_queueTable == nullptr)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Queue table is not bound.");
-        }
 
-        QueueContext* sourceQueue = (*m_queueTable)[to_queue_index(point.queueType)];
-        if ((sourceQueue == nullptr) || (sourceQueue->get_fence() == nullptr))
+        return Result::ok();
+        if (!m_fence || !m_fenceEvent)
         {
-            return Result::fail(
-                Facility::Graphics,
-                Code::NotFound,
-                Severity::Error,
-                0,
-                "Source queue fence is not available.");
+            return;
         }
-
-        const HRESULT hr = m_commandQueue->Wait(sourceQueue->get_fence(), point.value);
+        // Fenceの値が指定したSignal値にたどり着いているか確認する
+        // GetCompletedValueの初期値はFence作成時に渡した初期値
+        if (!m_fenceValue) { return; }
+        if (m_fence->GetCompletedValue() < m_fenceValue)
+        {
+            // 指定したSignalにたどり着いていないので、たどり着くまで待つようにイベントを設定する
+            m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
+            // イベント待つ
+            WaitForSingleObject(m_fenceEvent, INFINITE);
+        }
+    }
+    Result DX12QueueContext::wait_for_last_signal()
+    {
+        if (m_lastSignalPoint.value != 0)
+        {
+            return wait(m_lastSignalPoint);
+        }
+        return Result::ok();
+    }
+    Result DX12QueueContext::create_fence(ID3D12Device& device)
+    {
+        // フェンスの作成
+        m_fence.Reset();
+        m_fenceValue = 0;// 初期値0
+        HRESULT hr = device.CreateFence(
+            m_fenceValue,
+            D3D12_FENCE_FLAG_NONE,
+            IID_PPV_ARGS(&m_fence));
         if (FAILED(hr))
         {
             return Result::fail(
                 Facility::Graphics,
-                Code::InvalidState,
+                Code::CreationFailed,
                 Severity::Error,
                 static_cast<uint32_t>(hr),
-                "Failed to wait for source queue fence.");
+                "Failed to create Fence.");
         }
-
+        SetD3D12Name(m_fence.Get(), L"QueueContext Fence");
         return Result::ok();
     }
-
-    Dx12FrameGraphRuntime::~Dx12FrameGraphRuntime()
+    Result DX12QueueContext::create_fence_event()
     {
-        reset();
-    }
-    Result Dx12FrameGraphRuntime::initialize()
-    {
-        // 1) FrameGraph 実行中は固定の QueueContext を保持し、QueueSyncPoint の解決先を安定化する。
-        m_graphicsQueue = m_queuePool.get_graphics_pool();
-        m_computeQueue = m_queuePool.get_compute_pool();
-        m_copyQueue = m_queuePool.get_copy_pool();
-        if (!m_graphicsQueue || !m_computeQueue || !m_copyQueue)
+        // イベントハンドルの作成
+        m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        if (m_fenceEvent == nullptr)
         {
-            reset();
             return Result::fail(
                 Facility::Graphics,
                 Code::CreationFailed,
                 Severity::Error,
-                0,
-                "Failed to acquire DX12 frame-graph queues.");
+                GetLastError(),
+                "Failed to create Fence event handle.");
         }
-
-        m_queueTable[0] = m_graphicsQueue.get();
-        m_queueTable[1] = m_computeQueue.get();
-        m_queueTable[2] = m_copyQueue.get();
-        m_graphicsQueue->bind_queue_table(&m_queueTable);
-        m_computeQueue->bind_queue_table(&m_queueTable);
-        m_copyQueue->bind_queue_table(&m_queueTable);
         return Result::ok();
     }
-    void Dx12FrameGraphRuntime::reset() noexcept
+    Result DX12QueueContext::create_command_queue(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
-        // 1) コマンドを先に pool へ返し、その後で queue を返して依存順を保つ。
-        m_commandSlots.clear();
-        m_queueTable = { nullptr, nullptr, nullptr };
-        m_graphicsQueue.reset();
-        m_computeQueue.reset();
-        m_copyQueue.reset();
+        D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+        queueDesc.Type = type;
+        HRESULT hr = device.CreateCommandQueue(
+            &queueDesc,
+            IID_PPV_ARGS(&m_commandQueue));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::CreationFailed,
+                Severity::Error,
+                static_cast<uint32_t>(hr),
+                "Failed to create CommandQueue.");
+        }
+        SetD3D12Name(m_commandQueue.Get(), L"QueueContext CommandQueue");
+        return Result::ok();
     }
-    IQueueContext* Dx12FrameGraphRuntime::get_queue_context(CommandListType queueType)
+    Result DX12QueuePool::initialize(IRenderDevice& device)
     {
-        // 1) execute 中に固定保持している queue をそのまま返し、pass 間同期を安定させる。
-        switch (queueType)
+        (void)device;
+        m_graphicsQueuePool.prewarm(k_graphicsQueueCount);
+        m_computeQueuePool.prewarm(k_computeQueueCount);
+        m_copyQueuePool.prewarm(k_copyQueueCount);
+        return Result::ok();
+    }
+    Result DX12QueuePool::acquire_queue(CommandListType type, QueueContextLease& outQueue)
+    {
+        switch (type)
         {
         case CommandListType::Graphics:
-            return m_graphicsQueue.get();
+        {
+            auto pooled = m_graphicsQueuePool.acquire();
+            outQueue = QueueContextLease(
+                pooled.release(),
+                [this](IQueueContext* raw) { m_graphicsQueuePool.recycle(static_cast<DX12GraphicsQueueContext*>(raw)); });
+            return Result::ok();
+        }
         case CommandListType::Compute:
-            return m_computeQueue.get();
+        {
+            auto pooled = m_computeQueuePool.acquire();
+            outQueue = QueueContextLease(
+                pooled.release(),
+                [this](IQueueContext* raw) { m_computeQueuePool.recycle(static_cast<DX12ComputeQueueContext*>(raw)); });
+            return Result::ok();
+        }
         case CommandListType::Copy:
-            return m_copyQueue.get();
+        {
+            auto pooled = m_copyQueuePool.acquire();
+            outQueue = QueueContextLease(
+                pooled.release(),
+                [this](IQueueContext* raw) { m_copyQueuePool.recycle(static_cast<DX12CopyQueueContext*>(raw)); });
+            return Result::ok();
+        }
         default:
-            return nullptr;
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Unsupported queue type");
         }
-    }
-    ICommandContext* Dx12FrameGraphRuntime::acquire_pass_command_context(CommandListType queueType, size_t passIndex)
-    {
-        // 1) pass ごとに borrowed command context を保持し、execute 完了まで pool へ返さない。
-        if (passIndex >= m_commandSlots.size())
-        {
-            m_commandSlots.resize(passIndex + 1);
-        }
-
-        CommandSlot& slot = m_commandSlots[passIndex];
-        if (slot.raw != nullptr)
-        {
-            if (slot.type != queueType)
-            {
-                return nullptr;
-            }
-            return slot.raw;
-        }
-
-        slot.type = queueType;
-        switch (queueType)
-        {
-        case CommandListType::Graphics:
-            slot.graphics = m_commandPool.get_graphics_context();
-            slot.raw = slot.graphics.get();
-            break;
-        case CommandListType::Compute:
-            slot.compute = m_commandPool.get_compute_context();
-            slot.raw = slot.compute.get();
-            break;
-        case CommandListType::Copy:
-            slot.copy = m_commandPool.get_copy_context();
-            slot.raw = slot.copy.get();
-            break;
-        default:
-            slot.raw = nullptr;
-            break;
-        }
-
-        return slot.raw;
     }
 } // namespace Cue::GraphicsCore::DX12

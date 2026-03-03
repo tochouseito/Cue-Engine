@@ -33,8 +33,7 @@ namespace Cue::Core
         Pool(size_t maxCached, ResetFunc resetFunc)
             : m_maxCached(maxCached)
             , m_resetFunc(std::move(resetFunc))
-        {
-        }
+        {}
 
         Pool(const Pool&) = delete;
         Pool& operator=(const Pool&) = delete;
@@ -54,6 +53,16 @@ namespace Cue::Core
             T* raw = new T();
             ++m_totalAllocated;
             return pooled_ptr(raw, Deleter{ this });
+        }
+
+        void recycle(T* raw) noexcept
+        {
+            if (raw == nullptr)
+            {
+                return;
+            }
+
+            release(std::unique_ptr<T>(raw));
         }
 
         void prewarm(size_t totalCount)

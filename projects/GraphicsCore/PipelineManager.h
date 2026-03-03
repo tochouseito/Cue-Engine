@@ -1,9 +1,38 @@
 #pragma once
 #include "GraphicsCommon.h"
-#include "ShaderCompiler.h"
+#include "ResourceHandle.h"
+#include "Registry.h"
 
 namespace Cue::GraphicsCore
 {
+    enum class RootParameterType : uint8_t
+    {
+        CBV,
+        SRV,
+        UAV,
+        _32BitConstants
+    };
+
+    enum class ShaderVisibility : uint8_t
+    {
+        All,
+        Vertex,
+        Pixel
+    };
+
+    struct RootParameterDesc
+    {
+        RootParameterType type;
+        ShaderVisibility visibility;
+        uint32_t shaderRegister;
+    };
+
+    struct RootSignatureDesc
+    {
+        std::string_view name;
+        std::vector<RootParameterDesc> parameters;
+    };
+
     enum class InputElementFormat : uint8_t
     {
         R32G32B32A32_Float,
@@ -55,11 +84,6 @@ namespace Cue::GraphicsCore
         LessEqual,
     };
 
-    enum class DSVFormat : uint8_t
-    {
-        D24_UNorm_S8_UInt,
-    };
-
     struct DepthStencilStateDesc final
     {
         bool depthEnable = true;
@@ -74,6 +98,7 @@ namespace Cue::GraphicsCore
 
     struct GraphicsPipelineStateDesc final
     {
+        std::string_view name = {};
         RootSignatureHandle rootSignatureHandle = {};
         ShaderBlobHandle vsHandle = {};
         ShaderBlobHandle psHandle = {};
@@ -86,40 +111,22 @@ namespace Cue::GraphicsCore
         std::vector<ColorFormat> rtvFormats = {};
     };
 
-    enum class RootParameterType : uint8_t
-    {
-        CBV,
-        SRV,
-        _32BitConstants
-    };
-
-    enum class ShaderVisibility : uint8_t
-    {
-        All,
-        Vertex,
-        Pixel
-    };
-
-    struct RootParameterDesc
-    {
-        RootParameterType type;
-        ShaderVisibility visibility;
-        uint32_t shaderRegister;
-    };
-
-    struct RootSignatureDesc
-    {
-        std::vector<RootParameterDesc> parameters;
-    };
-
-    class PipelineManager
+    class IPipelineManager
     {
     public:
-        PipelineManager() = default;
-        virtual ~PipelineManager() = default;
+        IPipelineManager() = default;
+        virtual ~IPipelineManager() = default;
         virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& outHandle) = 0;
+        
+        virtual Result destroy_pipeline(const PipelineStateHandle& handle) = 0;
+        virtual Result get_pipeline(ResourceNameId nameId, PipelineStateHandle& outHandle) = 0;
+
         virtual Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& outHandle) = 0;
+        virtual Result destroy_root_signature(const RootSignatureHandle& handle) = 0;
+        virtual Result get_root_signature(ResourceNameId nameId, RootSignatureHandle& outHandle) = 0;
+
         virtual Result compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle) = 0;
-    private:
+        virtual Result destroy_shader(const ShaderBlobHandle& handle) = 0;
+        virtual Result get_shader(ResourceNameId nameId, ShaderBlobHandle& outHandle) = 0;
     };
 }

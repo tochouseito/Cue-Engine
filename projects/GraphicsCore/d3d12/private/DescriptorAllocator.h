@@ -1,6 +1,6 @@
 #pragma once
 #include "stdafx.h"
-#include "RenderDevice.h"
+#include "DX12RenderDevice.h"
 #include "GpuBuffer.h"
 
 namespace Cue::GraphicsCore::DX12
@@ -18,7 +18,7 @@ namespace Cue::GraphicsCore::DX12
     class DescriptorAllocator final
     {
     public:
-        DescriptorAllocator(RenderDevice& renderDevice)
+        DescriptorAllocator(DX12RenderDevice& renderDevice)
             : m_renderDevice(renderDevice)
         {
         }
@@ -114,7 +114,7 @@ namespace Cue::GraphicsCore::DX12
         void copy_to_gpu_heap(const TableID& id);
 
     private:
-        RenderDevice& m_renderDevice;
+        DX12RenderDevice& m_renderDevice;
         // ヒープタイプごとのディスクリプタサイズ
         std::array<UINT, static_cast<size_t>(HeapType::kCount)> m_descriptorSizes = { 0 };
 

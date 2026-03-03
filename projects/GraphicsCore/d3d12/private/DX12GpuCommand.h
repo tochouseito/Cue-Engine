@@ -12,104 +12,82 @@ namespace Cue::GraphicsCore::DX12
     class DX12CommandContext : public ICommandContext
     {
     public:
-        DX12CommandContext() = default;
-        virtual ~DX12CommandContext() = default;
-        Result initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type);
-        ID3D12GraphicsCommandList* get_command_list() { return m_commandList.Get(); }
-        ID3D12CommandAllocator* get_command_allocator() { return m_commandAllocator.Get(); }
+        DX12CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        virtual ~DX12CommandContext() override = default;
+
         Result reset() override;
         Result close() override;
-        CommandListType type() const override { return m_type; }
-        void begin_event(const char* name) override;
-        void end_event() override;
-        Result resource_barrier(const ResourceBarrierDesc& barrier) override;
-        Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
-    private:
-        Result create_command_allocator(D3D12_COMMAND_LIST_TYPE type);
-        Result create_command_list(D3D12_COMMAND_LIST_TYPE type);
+        ID3D12CommandAllocator* get_command_allocator() const noexcept
+        {
+            return m_commandAllocator.Get();
+        }
+        ID3D12GraphicsCommandList* get_command_list() const noexcept
+        {
+            return m_commandList.Get();
+        }
+        virtual CommandListType type() const = 0;
     protected:
-        ID3D12Device* m_device = nullptr;
-        D3D12_COMMAND_LIST_TYPE m_nativeType = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        CommandListType m_type = CommandListType::Graphics;
         ComPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
+    private:
+        Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+    public:
+        // Commands
+        virtual void begin_event(const char* name) = 0;
+        virtual void end_event() = 0;
+
+        virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
+        virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
     };
 
-    class DX12GraphicsCommandContext : public DX12CommandContext
+    class DX12GraphicsCommandContext final : public DX12CommandContext
     {
     public:
         DX12GraphicsCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_DIRECT); }
-        ~DX12GraphicsCommandContext() = default;
+        ~DX12GraphicsCommandContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Graphics;
+        }
     };
 
-    class DX12ComputeCommandContext : public DX12CommandContext
+    class DX12ComputeCommandContext final : public DX12CommandContext
     {
     public:
         DX12ComputeCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COMPUTE); }
-        ~DX12ComputeCommandContext() = default;
+        ~DX12ComputeCommandContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Compute;
+        }
     };
 
-    class DX12CopyCommandContext : public DX12CommandContext
+    class DX12CopyCommandContext final : public DX12CommandContext
     {
     public:
         DX12CopyCommandContext() = default;
-        Result initialize(ID3D12Device* device) { return DX12CommandContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COPY); }
-        ~DX12CopyCommandContext() = default;
+        ~DX12CopyCommandContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Copy;
+        }
     };
 
     using GraphicsCommandPooledPtr = Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>>::pooled_ptr;
     using ComputeCommandPooledPtr = Core::Pool<DX12ComputeCommandContext, std::function<void(DX12ComputeCommandContext&)>>::pooled_ptr;
     using CopyCommandPooledPtr = Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>>::pooled_ptr;
 
-    class CommandPool final
+    class DX12CommandPool final : public ICommandPool
     {
     public:
-        /// @brief コンストラクタ
-        CommandPool(ID3D12Device* device)
-            : m_device(device)
-        {
-        }
-        /// @brief デストラクタ
-        ~CommandPool() = default;
+        DX12CommandPool() = default;
+        ~DX12CommandPool() override = default;
 
-        // Context取得
-        GraphicsCommandPooledPtr get_graphics_context() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_graphicsContextPoolMutex);
-            auto ctx = m_graphicsContextPool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
+        Result initialize(IRenderDevice& device) override;
 
-        ComputeCommandPooledPtr get_compute_context() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_computeContextPoolMutex);
-            auto ctx = m_computeContextPool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
-
-        CopyCommandPooledPtr get_copy_context() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_copyContextPoolMutex);
-            auto ctx = m_copyContextPool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
+        Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
     private:
-        ID3D12Device* m_device = nullptr;
-
         Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>> m_graphicsContextPool{
             32,
             [](DX12GraphicsCommandContext& ctx) {
@@ -135,325 +113,105 @@ namespace Cue::GraphicsCore::DX12
         std::mutex m_copyContextPoolMutex;
     };
 
-    class QueueContext : public IQueueContext
+    class DX12QueueContext : public IQueueContext
     {
     public:
-        /// @brief コンストラクタ
-        QueueContext() = default;
-        /// @brief デストラクタ
-        virtual ~QueueContext()
-        {
-            if (m_commandQueue && m_fence)
-            {
-                wait_fence();
-            }
-            if (m_fenceEvent)
-            {
-                CloseHandle(m_fenceEvent);
-                m_fenceEvent = nullptr;
-            }
-            m_fence.Reset();
-            m_commandQueue.Reset();
-        }
-
-        Result initialize(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
-        {
-            m_device = device;
-            m_nativeType = type;
-            switch (type)
-            {
-            case D3D12_COMMAND_LIST_TYPE_DIRECT:
-                m_type = CommandListType::Graphics;
-                break;
-            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-                m_type = CommandListType::Compute;
-                break;
-            case D3D12_COMMAND_LIST_TYPE_COPY:
-                m_type = CommandListType::Copy;
-                break;
-            default:
-                m_type = CommandListType::Graphics;
-                break;
-            }
-            if (m_device == nullptr)
-            {
-                return Result::fail(
-                    Facility::Graphics,
-                    Code::InvalidArg,
-                    Severity::Error,
-                    0,
-                    "Device is null.");
-            }
-
-            if (m_commandQueue && m_fence && m_fenceEvent)
-            {
-                return Result::ok();
-            }
-
-            // フェンスの作成
-            m_fence.Reset();
-            m_fenceValue = 0;// 初期値0
-            HRESULT hr = m_device->CreateFence(
-                m_fenceValue,
-                D3D12_FENCE_FLAG_NONE,
-                IID_PPV_ARGS(&m_fence));
-            if (FAILED(hr))
-            {
-                return Result::fail(
-                    Facility::Graphics,
-                    Code::CreationFailed,
-                    Severity::Error,
-                    static_cast<uint32_t>(hr),
-                    "Failed to create Fence.");
-            }
-            SetD3D12Name(m_fence.Get(), L"QueueContext Fence");
-
-            // イベントハンドルの作成
-            m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-            if (m_fenceEvent == nullptr)
-            {
-                return Result::fail(
-                    Facility::Graphics,
-                    Code::CreationFailed,
-                    Severity::Error,
-                    GetLastError(),
-                    "Failed to create Fence event handle.");
-            }
-            // コマンドキューの作成
-            D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-            queueDesc.Type = type;
-            hr = m_device->CreateCommandQueue(
-                &queueDesc,
-                IID_PPV_ARGS(&m_commandQueue));
-            if (FAILED(hr))
-            {
-                return Result::fail(
-                    Facility::Graphics,
-                    Code::CreationFailed,
-                    Severity::Error,
-                    static_cast<uint32_t>(hr),
-                    "Failed to create CommandQueue.");
-            }
-            SetD3D12Name(m_commandQueue.Get(), L"QueueContext CommandQueue");
-            return Result::ok();
-        }
-
-        CommandListType type() const override { return m_type; }
+        DX12QueueContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        virtual ~DX12QueueContext() override;
+        virtual CommandListType type() const = 0;
         Result submit(ICommandContext& cmd) override;
         Result signal(QueueSyncPoint& outPoint) override;
         Result wait(const QueueSyncPoint& point) override;
-        void wait_fence()
+        Result wait_for_last_signal();
+        ID3D12CommandQueue* get_command_queue() const noexcept
         {
-            if (!m_fence || !m_fenceEvent)
-            {
-                return;
-            }
-            // Fenceの値が指定したSignal値にたどり着いているか確認する
-            // GetCompletedValueの初期値はFence作成時に渡した初期値
-            if (!m_fenceValue) { return; }
-            if (m_fence->GetCompletedValue() < m_fenceValue)
-            {
-                // 指定したSignalにたどり着いていないので、たどり着くまで待つようにイベントを設定する
-                m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
-                // イベント待つ
-                WaitForSingleObject(m_fenceEvent, INFINITE);
-            }
+            return m_commandQueue.Get();
         }
-        void bind_queue_table(const std::array<QueueContext*, 3>* queueTable) noexcept
-        {
-            m_queueTable = queueTable;
-        }
-
-        ID3D12CommandQueue* get_command_queue() noexcept { return m_commandQueue.Get(); };
-        ID3D12Fence* get_fence() noexcept { return m_fence.Get(); };
-        uint64_t get_fence_value() noexcept { return m_fenceValue; };
     private:
-        ID3D12Device* m_device = nullptr;
-        D3D12_COMMAND_LIST_TYPE m_nativeType = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        CommandListType m_type = CommandListType::Graphics;
+        Result create_fence(ID3D12Device& device);
+        Result create_fence_event();
+        Result create_command_queue(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+    protected:
+        QueueSyncPoint m_lastSignalPoint{};
         ComPtr<ID3D12CommandQueue> m_commandQueue = nullptr;
         ComPtr<ID3D12Fence> m_fence = nullptr;
         HANDLE m_fenceEvent = {};
         uint64_t m_fenceValue = {};
-        const std::array<QueueContext*, 3>* m_queueTable = nullptr;
     };
 
-    class GraphicsQueueContext final : public QueueContext
+    class DX12GraphicsQueueContext final : public DX12QueueContext
     {
     public:
-        /// @brief コンストラクタ
-        GraphicsQueueContext() = default;
-        Result initialize(ID3D12Device* device) { return QueueContext::initialize(device, D3D12_COMMAND_LIST_TYPE_DIRECT); }
-        /// @brief デストラクタ
-        ~GraphicsQueueContext() = default;
+        DX12GraphicsQueueContext() = default;
+        ~DX12GraphicsQueueContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Graphics;
+        }
     };
 
-    class ComputeQueueContext final : public QueueContext
+    class DX12ComputeQueueContext final : public DX12QueueContext
     {
     public:
-        /// @brief コンストラクタ
-        ComputeQueueContext() = default;
-        Result initialize(ID3D12Device* device) { return QueueContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COMPUTE); }
-        /// @brief デストラクタ
-        ~ComputeQueueContext() = default;
+        DX12ComputeQueueContext() = default;
+        ~DX12ComputeQueueContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Compute;
+        }
     };
 
-    class CopyQueueContext final : public QueueContext
+    class DX12CopyQueueContext final : public DX12QueueContext
     {
     public:
-        /// @brief コンストラクタ
-        CopyQueueContext() = default;
-        Result initialize(ID3D12Device* device) { return QueueContext::initialize(device, D3D12_COMMAND_LIST_TYPE_COPY); }
-        /// @brief デストラクタ
-        ~CopyQueueContext() = default;
+        DX12CopyQueueContext() = default;
+        ~DX12CopyQueueContext() override = default;
+        CommandListType type() const override
+        {
+            return CommandListType::Copy;
+        }
     };
 
-    using GraphicsQueuePooledPtr = Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>>::pooled_ptr;
-    using ComputeQueuePooledPtr = Core::Pool<ComputeQueueContext, std::function<void(ComputeQueueContext&)>>::pooled_ptr;
-    using CopyQueuePooledPtr = Core::Pool<CopyQueueContext, std::function<void(CopyQueueContext&)>>::pooled_ptr;
+    using GraphicsQueuePooledPtr = Core::Pool<DX12GraphicsQueueContext, std::function<void(DX12GraphicsQueueContext&)>>::pooled_ptr;
+    using ComputeQueuePooledPtr = Core::Pool<DX12ComputeQueueContext, std::function<void(DX12ComputeQueueContext&)>>::pooled_ptr;
+    using CopyQueuePooledPtr = Core::Pool<DX12CopyQueueContext, std::function<void(DX12CopyQueueContext&)>>::pooled_ptr;
 
-    class QueuePool final
+    class DX12QueuePool final : public IQueuePool
     {
         public:
-        /// @brief コンストラクタ
-        QueuePool(ID3D12Device* device)
-            : m_device(device)
-        {
-            m_graphicsQueuePool.prewarm(k_graphicsQueueCount);
-            m_computeQueuePool.prewarm(k_computeQueueCount);
-            m_copyQueuePool.prewarm(k_copyQueueCount);
-        }
-        /// @brief デストラクタ
-        ~QueuePool() = default;
+        DX12QueuePool() = default;
+        ~DX12QueuePool() override = default;
+        Result initialize(IRenderDevice& device) override;
 
-        // Context取得
-        GraphicsQueuePooledPtr get_graphics_pool() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
-            auto ctx = m_graphicsQueuePool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
-        ComputeQueuePooledPtr get_compute_pool() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
-            auto ctx = m_computeQueuePool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
-        CopyQueuePooledPtr get_copy_pool() noexcept
-        {
-            std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
-            auto ctx = m_copyQueuePool.acquire();
-            if (!ctx->initialize(m_device))
-            {
-                return {};
-            }
-            return ctx;
-        }
-
-        void flush_all()
-        {
-            {
-                std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
-                for (size_t i = 0; i < m_graphicsQueuePool.total_allocated(); ++i)
-                {
-                    auto ctx = m_graphicsQueuePool.acquire();
-                    QueueSyncPoint point{};
-                    (void)ctx->signal(point);
-                    ctx->wait_fence();
-                }
-            }
-            {
-                std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
-                for (size_t i = 0; i < m_computeQueuePool.total_allocated(); ++i)
-                {
-                    auto ctx = m_computeQueuePool.acquire();
-                    QueueSyncPoint point{};
-                    (void)ctx->signal(point);
-                    ctx->wait_fence();
-                }
-            }
-            {
-                std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
-                for (size_t i = 0; i < m_copyQueuePool.total_allocated(); ++i)
-                {
-                    auto ctx = m_copyQueuePool.acquire();
-                    QueueSyncPoint point{};
-                    (void)ctx->signal(point);
-                    ctx->wait_fence();
-                }
-            }
-        }
+        Result acquire_queue(CommandListType type, QueueContextLease& outQueue) override;
     private:
-        ID3D12Device* m_device = nullptr;
         // 各キューの数
         static const uint32_t k_graphicsQueueCount = 1;///> 
         static const uint32_t k_computeQueueCount = 4; ///>
         static const uint32_t k_copyQueueCount = 2;    ///>
 
-        Core::Pool<GraphicsQueueContext, std::function<void(GraphicsQueueContext&)>> m_graphicsQueuePool{
+        Core::Pool<DX12GraphicsQueueContext, std::function<void(DX12GraphicsQueueContext&)>> m_graphicsQueuePool{
             4,
-            [](GraphicsQueueContext& ctx) {
-                ctx.wait_fence();
+            [](DX12GraphicsQueueContext& ctx) {
+                ctx.wait_for_last_signal();
             }
         };
         std::mutex m_graphicsQueuePoolMutex;
 
-        Core::Pool<ComputeQueueContext, std::function<void(ComputeQueueContext&)>> m_computeQueuePool{
+        Core::Pool<DX12ComputeQueueContext, std::function<void(DX12ComputeQueueContext&)>> m_computeQueuePool{
             4,
-            [](ComputeQueueContext& ctx) {
-                ctx.wait_fence();
+            [](DX12ComputeQueueContext& ctx) {
+                ctx.wait_for_last_signal();
             }
         };
         std::mutex m_computeQueuePoolMutex;
 
-        Core::Pool<CopyQueueContext, std::function<void(CopyQueueContext&)>> m_copyQueuePool{
+        Core::Pool<DX12CopyQueueContext, std::function<void(DX12CopyQueueContext&)>> m_copyQueuePool{
             4,
-            [](CopyQueueContext& ctx) {
-                ctx.wait_fence();
+            [](DX12CopyQueueContext& ctx) {
+                ctx.wait_for_last_signal();
             }
         };
         std::mutex m_copyQueuePoolMutex;
-    };
-
-    class Dx12FrameGraphRuntime final : public IFrameGraphRuntime
-    {
-    public:
-        Dx12FrameGraphRuntime(CommandPool& commandPool, QueuePool& queuePool) noexcept
-            : m_commandPool(commandPool)
-            , m_queuePool(queuePool)
-        {
-        }
-        ~Dx12FrameGraphRuntime() override;
-
-        [[nodiscard]] Result initialize();
-        void reset() noexcept;
-
-        [[nodiscard]] IQueueContext* get_queue_context(CommandListType queueType) override;
-        [[nodiscard]] ICommandContext* acquire_pass_command_context(CommandListType queueType, size_t passIndex) override;
-    private:
-        struct CommandSlot final
-        {
-            CommandListType type = CommandListType::Graphics;
-            DX12CommandContext* raw = nullptr;
-            GraphicsCommandPooledPtr graphics{};
-            ComputeCommandPooledPtr compute{};
-            CopyCommandPooledPtr copy{};
-        };
-    private:
-        CommandPool& m_commandPool;
-        QueuePool& m_queuePool;
-        std::vector<CommandSlot> m_commandSlots;
-        GraphicsQueuePooledPtr m_graphicsQueue{};
-        ComputeQueuePooledPtr m_computeQueue{};
-        CopyQueuePooledPtr m_copyQueue{};
-        std::array<QueueContext*, 3> m_queueTable{ nullptr, nullptr, nullptr };
     };
 } // namespace Cue::GraphicsCore::DX12

@@ -260,11 +260,36 @@ namespace Cue::GraphicsCore::DX12
         }
 
         // 7) 作成したパイプラインステートをRegistryに登録する。
-        PipelineStateHandle handle = m_pipelineStateRegistry.create(pipelineState);
+        PipelineStateHandle handle = m_pipelineRegistry.create(pipelineState);
 
-        // 8) 成功結果を返す。
+        // 8) 名前が指定されていれば名前マップに登録する。
+        if (!desc.name.empty())
+        {
+            m_pipelineNameMap[fnv1a64(desc.name)] = handle;
+        }
+
+        // 9) 成功結果を返す。
         outHandle = handle;
         return Result::ok();
+    }
+    Result DX12PipelineManager::destroy_pipeline(const PipelineStateHandle& handle)
+    {
+        if (!m_pipelineRegistry.destroy(handle))
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Pipeline handle is not alive");
+        }
+        std::erase_if(m_pipelineNameMap, [&handle](const auto& pair) { return pair.second == handle; });
+
+        return Result::ok();
+    }
+    Result DX12PipelineManager::get_pipeline(ResourceNameId nameId, PipelineStateHandle& outHandle)
+    {
+        if (m_pipelineNameMap.contains(nameId))
+        {
+            outHandle = m_pipelineNameMap[nameId];
+            return Result::ok();
+        }
+        return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Pipeline not found");
     }
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& outHandle)
     {
@@ -325,9 +350,34 @@ namespace Cue::GraphicsCore::DX12
         // 5) 作成したルートシグネチャをRegistryに登録する。
         RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSignature);
 
-        // 6) 成功結果を返す。
+        // 6) 名前が指定されていれば名前マップに登録する。
+        if (!desc.name.empty())
+        {
+            m_rootSignatureNameMap[fnv1a64(desc.name)] = handle;
+        }
+
+        // 7) 成功結果を返す。
         outHandle = handle;
         return Result::ok();
+    }
+    Result DX12PipelineManager::destroy_root_signature(const RootSignatureHandle& handle)
+    {
+        if (!m_rootSignatureRegistry.destroy(handle))
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Root signature handle is not alive");
+        }
+        std::erase_if(m_rootSignatureNameMap, [&handle](const auto& pair) { return pair.second == handle; });
+
+        return Result::ok();
+    }
+    Result DX12PipelineManager::get_root_signature(ResourceNameId nameId, RootSignatureHandle& outHandle)
+    {
+        if (m_rootSignatureNameMap.contains(nameId))
+        {
+            outHandle = m_rootSignatureNameMap[nameId];
+            return Result::ok();
+        }
+        return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Root signature not found");
     }
     Result DX12PipelineManager::compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle)
     {
@@ -337,8 +387,33 @@ namespace Cue::GraphicsCore::DX12
         // 2) コンパイル結果をShaderBlobRegistryに登録する。
         ShaderBlobHandle handle = m_shaderBlobRegistry.create(blob);
 
-        // 3) 成功結果を返す。
+        // 3) 名前が指定されていれば名前マップに登録する。
+        if (!desc.name.empty())
+        {
+            m_shaderBlobNameMap[fnv1a64(desc.name)] = handle;
+        }
+
+        // 4) 成功結果を返す。
         outHandle = handle;
         return Result::ok();
+    }
+    Result DX12PipelineManager::destroy_shader(const ShaderBlobHandle& handle)
+    {
+        if (!m_shaderBlobRegistry.destroy(handle))
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Shader handle is not alive");
+        }
+        std::erase_if(m_shaderBlobNameMap, [&handle](const auto& pair) { return pair.second == handle; });
+
+        return Result::ok();
+    }
+    Result DX12PipelineManager::get_shader(ResourceNameId nameId, ShaderBlobHandle& outHandle)
+    {
+        if (m_shaderBlobNameMap.contains(nameId))
+        {
+            outHandle = m_shaderBlobNameMap[nameId];
+            return Result::ok();
+        }
+        return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Shader not found");
     }
 } // namespace Cue::GraphicsCore::DX12

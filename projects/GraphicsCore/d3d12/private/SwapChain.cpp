@@ -2,7 +2,7 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    Result SwapChain::initialize(HWND hWnd, uint32_t width, uint32_t height, DXGI_FORMAT format, uint32_t bufferCount)
+    Result SwapChain::create(HWND hWnd, uint32_t width, uint32_t height, uint32_t bufferCount, DX12QueueContext& queue, DXGI_FORMAT format)
     {
         m_hWnd = hWnd;
         m_desc.Width = width;// 画面の幅。ウィンドウのクライアント領域を同じものにしておく
@@ -16,9 +16,8 @@ namespace Cue::GraphicsCore::DX12
             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
             DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;// ティアリングサポート
 
-        auto commandQueue = m_queuePool.get_graphics_pool()->get_command_queue();
         HRESULT hr = m_renderDevice.get_dxgi_factory()->CreateSwapChainForHwnd(
-            commandQueue,
+            queue.get_command_queue(),
             m_hWnd,
             &m_desc,
             nullptr, nullptr,
@@ -55,7 +54,8 @@ namespace Cue::GraphicsCore::DX12
             DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
 
         // RTV作成
-        m_rtvTableIDs.reserve(bufferCount);
+        m_rtvTableIDs.resize(bufferCount);
+        m_backBuffers.resize(bufferCount);
         for (uint32_t i = 0; i < bufferCount; ++i)
         {
             ComPtr<ID3D12Resource> pResource;
@@ -64,22 +64,12 @@ namespace Cue::GraphicsCore::DX12
             {
                 Assert::cue_assert(false, "Failed to get SwapChain back buffer. HRESULT: {:#X}", static_cast<uint32_t>(hr));
             }
+            m_backBuffers[i].init(std::move(pResource), D3D12_RESOURCE_STATE_PRESENT, L"SwapChain BackBuffer");
             DescriptorAllocator::TableID rtvTableID = m_descriptorAllocator.allocate(DescriptorAllocator::TableKind::RenderTargets);
             m_descriptorAllocator.create_rtv(rtvTableID, pResource.Get(), format);
-            m_rtvTableIDs.push_back(rtvTableID);
+            m_rtvTableIDs[i] = rtvTableID;
         }
 
         return Result::ok();
-    }
-    ComPtr<ID3D12Resource> SwapChain::get_back_buffer(uint32_t index) const
-    {
-        ComPtr <ID3D12Resource> pResource;
-        HRESULT hr = m_swapChain->GetBuffer(index, IID_PPV_ARGS(&pResource));
-        Assert::cue_assert(SUCCEEDED(hr), "Failed to get SwapChain back buffer. HRESULT: {:#X}", static_cast<uint32_t>(hr));
-        return pResource;
-    }
-    DescriptorAllocator::TableID SwapChain::get_rtv_table_id(uint32_t index) const
-    {
-        return m_rtvTableIDs[index];
     }
 } // namespace Cue::GraphicsCore::DX12

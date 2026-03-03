@@ -2,7 +2,7 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    Result RenderDevice::initialize(bool enableDebugLayer)
+    Result DX12RenderDevice::initialize(bool enableDebugLayer)
     {
         Result r;
         // 1) DXGIファクトリ生成
@@ -19,7 +19,7 @@ namespace Cue::GraphicsCore::DX12
         }
         return Result::ok();
     }
-    Result RenderDevice::create_dxgi_factory(bool enableDebugLayer)
+    Result DX12RenderDevice::create_dxgi_factory(bool enableDebugLayer)
     {
         // 1) デバッグ時は検証を強めて問題の早期発見を狙う
         // 2) DXGI ファクトリを生成して基盤を確立する
@@ -61,7 +61,7 @@ namespace Cue::GraphicsCore::DX12
         SetDXGIName(m_dxgiFactory.Get(), L"RenderDevice_DXGIFactory");
         return Result::ok();
     }
-    Result RenderDevice::create_d3d12_device()
+    Result DX12RenderDevice::create_d3d12_device()
     {
         // 1) 高性能 GPU を優先してアダプタを探索する
         // 2) 利用可能な機能レベルでデバイスを生成する

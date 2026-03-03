@@ -38,6 +38,7 @@
 
 // GraphicsCore includes
 #include <GraphicsCommon.h>
+#include <GraphicsInterface.h>
 
 #ifndef D3D12_GPU_VIRTUAL_ADDRESS_NULL
 #define D3D12_GPU_VIRTUAL_ADDRESS_NULL ((D3D12_GPU_VIRTUAL_ADDRESS)0)

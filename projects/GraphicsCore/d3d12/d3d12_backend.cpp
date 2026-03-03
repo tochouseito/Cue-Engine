@@ -24,7 +24,7 @@ namespace Cue::GraphicsCore::DX12
         // 実装の詳細をここに記述
         Platform::Win::WinPlatform* m_winPlatform = nullptr;
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>();
-        std::unique_ptr<RenderDevice> m_renderDevice = std::make_unique<RenderDevice>();
+        std::unique_ptr<DX12RenderDevice> m_renderDevice = std::make_unique<DX12RenderDevice>();
         std::unique_ptr<CommandPool> m_commandPool = nullptr;
         std::unique_ptr<QueuePool> m_queuePool = nullptr;
         std::unique_ptr<HLSLCompiler> m_shaderCompiler = std::make_unique<HLSLCompiler>();
@@ -74,7 +74,7 @@ namespace Cue::GraphicsCore::DX12
             *m_impl->m_renderDevice.get(),
             *m_impl->m_queuePool,
             m_impl->m_bufferManager->get_descriptor_allocator());
-        r = m_impl->m_swapChain->initialize(
+        r = m_impl->m_swapChain->create(
             reinterpret_cast<HWND>(m_impl->m_winPlatform->get_native_window_handle()),
             m_impl->m_winPlatform->window_width(),
             m_impl->m_winPlatform->window_height(),

@@ -1,5 +1,6 @@
 #pragma once
 #include "GraphicsCommon.h"
+#include "ResourceHandle.h"
 
 namespace Cue::GraphicsCore
 {

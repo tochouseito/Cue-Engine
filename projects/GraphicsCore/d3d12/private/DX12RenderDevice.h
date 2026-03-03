@@ -3,17 +3,20 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    class RenderDevice
+    class DX12RenderDevice final : public IRenderDevice
     {
     public:
-        RenderDevice() = default;
-        ~RenderDevice() = default;
+        DX12RenderDevice() = default;
+        ~DX12RenderDevice() = default;
         // 初期化
-        [[nodiscard]] Result initialize(bool enableDebugLayer = false);
+        Result initialize(bool enableDebugLayer = false) override;
         // D3D12デバイス取得
         [[nodiscard]] ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
         // DXGIFactory取得
         [[nodiscard]] IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
+
+        Result create_command_context(CommandListType type, ICommandContext& outContext) override;
+        Result create_command_queue(CommandListType type, IQueueContext& outQueue) override;
     private:
         // DXGIファクトリ生成
         [[nodiscard]] Result create_dxgi_factory([[maybe_unused]] bool enableDebugLayer);

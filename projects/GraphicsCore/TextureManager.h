@@ -1,21 +1,22 @@
 #pragma once
 #include "GraphicsCommon.h"
+#include "ResourceHandle.h"
+#include "Registry.h"
 
 namespace Cue::GraphicsCore
 {
     struct TextureDesc
     {
-
+        std::string_view name;
     };
 
-    class TextureManager
+    class ITextureManager
     {
     public:
-        TextureManager() = default;
-        ~TextureManager() = default;
-
-        // virtual TextureHandle create_texture(const TextureDesc& desc) = 0;
-    private:
-        TextureRegistry m_textureRegistry;
+        ITextureManager() = default;
+        virtual ~ITextureManager() = default;
+        virtual Result create_texture(const TextureDesc& desc, TextureHandle& outHandle) = 0;
+        virtual Result destroy_texture(const TextureHandle& handle) = 0;
+        virtual Result get_texture(ResourceNameId nameId, TextureHandle& outHandle) = 0;
     };
 } // namespace Cue::GraphicsCore
