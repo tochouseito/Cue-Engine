@@ -2,9 +2,6 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    DX12BufferManager::DX12BufferManager(DX12RenderDevice& renderDevice)
-    {
-    }
     Result DX12BufferManager::create_buffer(const BufferDesc& desc, BufferHandle& outHandle)
     {
         const uint32_t bufferingCount = (std::max)(desc.bufferingCount, 1u);

@@ -84,8 +84,6 @@ namespace Cue::GraphicsCore
         virtual ~IRenderDevice() = default;
         virtual Result initialize(bool enableDebugLayer = false) = 0;
 
-        virtual Result create_command_context(CommandListType type, ICommandContext& outContext) = 0;
-        virtual Result create_command_queue(CommandListType type, IQueueContext& outQueue) = 0;
     };
 
     class ICommandPool

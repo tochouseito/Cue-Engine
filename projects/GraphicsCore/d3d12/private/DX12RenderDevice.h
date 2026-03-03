@@ -15,8 +15,6 @@ namespace Cue::GraphicsCore::DX12
         // DXGIFactory取得
         [[nodiscard]] IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
 
-        Result create_command_context(CommandListType type, ICommandContext& outContext) override;
-        Result create_command_queue(CommandListType type, IQueueContext& outQueue) override;
     private:
         // DXGIファクトリ生成
         [[nodiscard]] Result create_dxgi_factory([[maybe_unused]] bool enableDebugLayer);

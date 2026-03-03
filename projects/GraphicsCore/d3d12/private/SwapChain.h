@@ -7,7 +7,7 @@
 
 namespace Cue::GraphicsCore::DX12
 {
-    class SwapChain final
+    class SwapChain final : public IExternalTextureOwner
     {
     public:
         SwapChain(DX12RenderDevice& renderDevice, DescriptorAllocator& descAllocator)
@@ -32,14 +32,31 @@ namespace Cue::GraphicsCore::DX12
             }
             return Result::ok();
         }
-        Result get_back_buffer(uint32_t index, GpuTextureResource& outBuffer) const
+        GpuTextureResource* get_back_buffer(uint32_t index) noexcept
         {
             if (index < m_backBuffers.size())
             {
-                outBuffer = m_backBuffers[index];
-                return Result::ok();
+                return &m_backBuffers[index];
             }
-            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Back buffer not found");
+            return nullptr;
+        }
+        const GpuTextureResource* get_back_buffer(uint32_t index) const noexcept
+        {
+            if (index < m_backBuffers.size())
+            {
+                return &m_backBuffers[index];
+            }
+            return nullptr;
+        }
+        Result resolve_external_texture(uint32_t index, GpuTextureResource*& outTexture) override
+        {
+            // 1) owner + index で逆引きし、SwapChain が持つ実体だけを貸し出す
+            outTexture = get_back_buffer(index);
+            if (outTexture == nullptr)
+            {
+                return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Back buffer not found");
+            }
+            return Result::ok();
         }
         DescriptorAllocator::TableID get_rtv_table_id(uint32_t index) const
         {
@@ -49,7 +66,7 @@ namespace Cue::GraphicsCore::DX12
             }
             return DescriptorAllocator::TableID{}; // 無効なテーブルIDを返す
         }
-        Result import_back_buffers(DX12TextureManager& textureManager, std::vector<TextureHandle>& outHandles) const
+        Result import_back_buffers(DX12TextureManager& textureManager, std::vector<TextureHandle>& outHandles)
         {
             outHandles.clear();
             outHandles.reserve(m_backBuffers.size());
@@ -60,7 +77,7 @@ namespace Cue::GraphicsCore::DX12
                 const ResourceNameId nameId = fnv1a64(name);
 
                 TextureHandle handle{};
-                const Result result = textureManager.import_external_texture(nameId, m_backBuffers[index], handle);
+                const Result result = textureManager.import_external_texture(nameId, *this, index, handle);
                 if (!result)
                 {
                     return result;

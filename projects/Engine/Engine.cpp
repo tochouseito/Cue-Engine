@@ -123,7 +123,7 @@ namespace Cue
             render(),
             present());
 
-        m_graphicsBackend->build_frame_graph();
+        // m_graphicsBackend->build_frame_graph();
 
         m_platform->start();
 
@@ -174,7 +174,7 @@ namespace Cue
                 (void)frameNo;
                 (void)index;
                 (void)this;
-                m_graphicsBackend->render(frameNo, index);
+                // m_graphicsBackend->render(frameNo, index);
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::present()

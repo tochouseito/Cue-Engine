@@ -35,11 +35,11 @@ namespace Cue::GraphicsCore::DX12
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
     public:
         // Commands
-        virtual void begin_event(const char* name) = 0;
-        virtual void end_event() = 0;
+        virtual void begin_event(const char*) override {}
+        virtual void end_event() override {}
 
-        virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
-        virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
+        virtual Result resource_barrier(const ResourceBarrierDesc&) override { return Result::ok(); }
+        virtual Result resource_barriers(const ResourceBarrierDesc*, size_t) override { return Result::ok(); }
     };
 
     class DX12GraphicsCommandContext final : public DX12CommandContext

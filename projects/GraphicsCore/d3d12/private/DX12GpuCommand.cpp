@@ -294,14 +294,27 @@ namespace Cue::GraphicsCore::DX12
                 "Queue sync point is invalid.");
         }
 
-        return Result::ok();
+        
         if (!m_fence || !m_fenceEvent)
         {
-            return;
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "Fence or fence event is not initialized.");
         }
         // Fenceの値が指定したSignal値にたどり着いているか確認する
         // GetCompletedValueの初期値はFence作成時に渡した初期値
-        if (!m_fenceValue) { return; }
+        if (!m_fenceValue)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "Fence value is not initialized.");
+        }
         if (m_fence->GetCompletedValue() < m_fenceValue)
         {
             // 指定したSignalにたどり着いていないので、たどり着くまで待つようにイベントを設定する
@@ -309,6 +322,7 @@ namespace Cue::GraphicsCore::DX12
             // イベント待つ
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }
+        return Result::ok();
     }
     Result DX12QueueContext::wait_for_last_signal()
     {

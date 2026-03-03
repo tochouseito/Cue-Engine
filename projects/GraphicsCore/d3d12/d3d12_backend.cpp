@@ -91,7 +91,7 @@ namespace Cue::GraphicsCore::DX12
         QueueContextLease graphicsQueue;
         r = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
         DX12QueueContext& graphicsQueueRef = static_cast<DX12QueueContext&>(*graphicsQueue);
-        m_impl->m_swapChain->create(
+        r = m_impl->m_swapChain->create(
             m_impl->m_hWnd,
             m_impl->m_winPlatform->window_width(),
             m_impl->m_winPlatform->window_height(),
@@ -114,7 +114,9 @@ namespace Cue::GraphicsCore::DX12
     }
     Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
     {
-        return m_impl->m_swapChain->present();
+        (void)frameNo; // 現状は未使用
+        (void)index;   // 現状は未使用
+        return m_impl->m_swapChain->present(1, 0);
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {
