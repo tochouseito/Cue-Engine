@@ -123,7 +123,7 @@ namespace Cue
             render(),
             present());
 
-        // m_graphicsBackend->build_frame_graph();
+        m_graphicsBackend->build_frame_graph();
 
         m_platform->start();
 

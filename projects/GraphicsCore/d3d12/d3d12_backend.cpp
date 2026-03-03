@@ -9,6 +9,8 @@
 #include "private/HLSLCompiler.h"
 #include "SwapChain.h"
 
+#include <passes/BackBufferClear.h>
+
 namespace Cue::GraphicsCore
 {
     std::unique_ptr<Backend> create_backend()
@@ -97,6 +99,17 @@ namespace Cue::GraphicsCore::DX12
             m_impl->m_winPlatform->window_height(),
             info.bufferCount,
             graphicsQueueRef);
+
+        //
+        std::vector<TextureHandle> m_backBufferHandles(info.bufferCount);
+        m_impl->m_swapChain->import_back_buffers(*m_impl->m_textureManager, m_backBufferHandles);
+
+        m_frameGraph = std::make_unique<FrameGraph>(
+            *m_impl->m_bufferManager,
+            *m_impl->m_textureManager,
+            *m_impl->m_pipelineManager,
+            info.bufferCount);
+        m_frameGraph->add_pass<Pass::BackBufferClearPass>(info.bufferCount);
 
         return Result::ok();
     }

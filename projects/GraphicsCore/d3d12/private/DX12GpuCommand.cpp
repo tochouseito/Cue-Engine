@@ -274,36 +274,6 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12QueueContext::wait(const QueueSyncPoint& point)
     {
-        // 1) runtime が束ねているキュー表から待機元 fence を解決して GPU 側 wait を発行する。
-        if (!m_commandQueue)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Command queue is null.");
-        }
-        if (point.value == 0)
-        {
-            return Result::fail(
-                Facility::GraphicsCore,
-                Code::InvalidArg,
-                Severity::Error,
-                0,
-                "Queue sync point is invalid.");
-        }
-
-        
-        if (!m_fence || !m_fenceEvent)
-        {
-            return Result::fail(
-                Facility::Graphics,
-                Code::InvalidState,
-                Severity::Error,
-                0,
-                "Fence or fence event is not initialized.");
-        }
         // Fenceの値が指定したSignal値にたどり着いているか確認する
         // GetCompletedValueの初期値はFence作成時に渡した初期値
         if (!m_fenceValue)
@@ -314,6 +284,15 @@ namespace Cue::GraphicsCore::DX12
                 Severity::Error,
                 0,
                 "Fence value is not initialized.");
+        }
+        if (!m_fence || !m_fenceEvent)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "Fence or fence event is not initialized.");
         }
         if (m_fence->GetCompletedValue() < m_fenceValue)
         {
