@@ -10,59 +10,87 @@ namespace Cue::GraphicsCore::Pass
     class BackBufferClearPass final : public FrameGraphPass
     {
     public:
-        using ExecuteCallback = std::function<void(ICommandContext& cmd, TextureHandle backBufferHandle, const std::array<float, 4>& clearColor)>;
-
-        BackBufferClearPass(
-            TextureHandle backBufferHandle,
-            std::array<float, 4> clearColor = { 0.0f, 0.0f, 0.0f, 1.0f },
-            ExecuteCallback executeCallback = {},
-            std::string resourceName = "BackBuffer")
-            : m_backBufferHandle(backBufferHandle)
-            , m_clearColor(clearColor)
-            , m_executeCallback(std::move(executeCallback))
-            , m_resourceName(std::move(resourceName))
-        {
-        }
-
-        ~BackBufferClearPass() override = default;
+        explicit BackBufferClearPass(uint32_t bufferingCount) noexcept
+            : m_bufferingCount((std::max)(bufferingCount, 1u))
+        {}
 
         [[nodiscard]] const char* name() const override
         {
-            return "BackBufferClearPass";
+            return "BackBufferPass";
         }
 
         void setup(FrameGraphBuilder& builder) override
         {
-            // 1) スワップチェインのバックバッファを外部テクスチャとして取り込み、初期状態を Present として扱う。
-            m_importedBackBufferHandle = builder.import_texture(
-                ImportedTextureDesc{
-                    m_resourceName,
-                    m_backBufferHandle,
-                    CommandListType::Graphics,
-                    ResourceState::Present,
-                    false,
-                    ResourceState::Common,
-                    false,
-                    {} });
+            // setup() only declares resources and bindings.
+            // This pass imports the back buffer and records the pipeline layout it expects.
+            GraphicsCore::BufferDesc sceneBufferDesc{};
+            sceneBufferDesc.name = "BackBuffer.Scene";
+            sceneBufferDesc.bufferingCount = 0;
+            m_sceneBuffer = builder.create_buffer("BackBuffer.Scene", sceneBufferDesc);
+            builder.read(m_sceneBuffer);
 
-            // 2) このPassがレンダーターゲット書き込みを担当し、終了時には Present へ戻す。
-            builder.write(m_importedBackBufferHandle, ResourceState::RenderTarget, ResourceState::Present);
-        }
-
-        void execute(ICommandContext& cmd) const override
-        {
-            // 1) 実際のクリア命令は backend 側の具体 API が必要なため、呼び出し側から注入された処理へ委譲する。
-            if (m_executeCallback)
+            m_backBuffers.clear();
+            m_backBuffers.reserve(m_bufferingCount);
+            for (uint32_t bufferIndex = 0; bufferIndex < m_bufferingCount; ++bufferIndex)
             {
-                m_executeCallback(cmd, m_backBufferHandle, m_clearColor);
+                const std::string backBufferName = "SwapChain.BackBuffer." + std::to_string(bufferIndex);
+                GraphicsCore::TextureDesc backBufferDesc{};
+                m_backBuffers.push_back(builder.import_texture(backBufferName, backBufferDesc, GraphicsCore::ResourceState::Present));
+                builder.render(m_backBuffers.back(), GraphicsCore::ResourceState::Present);
+            }
+
+            GraphicsCore::RootSignatureDesc rootSignatureDesc{};
+            rootSignatureDesc.name = "BackBuffer.RootSignature";
+            builder.use_root_signature(rootSignatureDesc);
+
+            builder.compile_shader(GraphicsCore::ShaderCompileDesc{
+                .name = "BackBuffer.VS",
+                .filePath = "backbuffer.hlsl",
+                .entryPoint = "vs_main",
+                .targetProfile = "vs_6_0",
+                .enableDebugInfo = true
+                });
+            builder.compile_shader(GraphicsCore::ShaderCompileDesc{
+                .name = "BackBuffer.PS",
+                .filePath = "backbuffer.hlsl",
+                .entryPoint = "ps_main",
+                .targetProfile = "ps_6_0",
+                .enableDebugInfo = true
+                });
+
+            GraphicsCore::GraphicsPipelineStateDesc pipelineDesc{};
+            pipelineDesc.name = "BackBuffer.Pipeline";
+            builder.use_pipeline(pipelineDesc);
+
+            builder.bind_cbv(0, m_sceneBuffer, GraphicsCore::ShaderVisibility::Vertex);
+            for (uint32_t bufferIndex = 0; bufferIndex < static_cast<uint32_t>(m_backBuffers.size()); ++bufferIndex)
+            {
+                builder.bind_srv_at(0, bufferIndex, m_backBuffers[bufferIndex], GraphicsCore::ShaderVisibility::Pixel);
             }
         }
 
+        void execute(FrameGraphContext& ctx) const override
+        {
+            // execute() resolves the logical back buffer to the backend handle for this frame.
+            if (m_backBuffers.empty())
+            {
+                return;
+            }
+
+            const uint32_t bufferIndex = (std::min)(ctx.buffer_index(), static_cast<uint32_t>(m_backBuffers.size() - 1));
+            GraphicsCore::TextureHandle physicalBackBuffer{};
+            const Result result = ctx.resolve_texture(m_backBuffers[bufferIndex], physicalBackBuffer);
+            if (!result)
+            {
+                return;
+            }
+            (void)ctx;
+            (void)physicalBackBuffer;
+        }
+
     private:
-        TextureHandle m_backBufferHandle{};
-        TextureHandle m_importedBackBufferHandle{};
-        std::array<float, 4> m_clearColor{};
-        ExecuteCallback m_executeCallback;
-        std::string m_resourceName;
+        uint32_t m_bufferingCount = 1;
+        GraphicsCore::BufferHandle m_sceneBuffer{};
+        std::vector<GraphicsCore::TextureHandle> m_backBuffers{};
     };
 }
