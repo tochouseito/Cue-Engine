@@ -1,9 +1,10 @@
 #include "d3d12_backend.h"
 #include <win/win_native.h>
 #include "ResourceLeakChecker.h"
-#include "RenderDevice.h"
+#include "DX12RenderDevice.h"
 #include "DX12GpuCommand.h"
 #include "DX12BufferManager.h"
+#include "private/DX12TextureManager.h"
 #include "private/DX12PipelineManager.h"
 #include "private/HLSLCompiler.h"
 #include "SwapChain.h"
@@ -25,11 +26,12 @@ namespace Cue::GraphicsCore::DX12
         Platform::Win::WinPlatform* m_winPlatform = nullptr;
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>();
         std::unique_ptr<DX12RenderDevice> m_renderDevice = std::make_unique<DX12RenderDevice>();
-        std::unique_ptr<CommandPool> m_commandPool = nullptr;
-        std::unique_ptr<QueuePool> m_queuePool = nullptr;
+        std::unique_ptr<DX12CommandPool> m_commandPool = nullptr;
+        std::unique_ptr<DX12QueuePool> m_queuePool = nullptr;
         std::unique_ptr<HLSLCompiler> m_shaderCompiler = std::make_unique<HLSLCompiler>();
+        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr;
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr;
-        std::unique_ptr<TextureManager> m_textureManager = nullptr;
+        std::unique_ptr<DX12TextureManager> m_textureManager = nullptr;
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
     };
@@ -60,35 +62,36 @@ namespace Cue::GraphicsCore::DX12
             return r;
         }
 
-        // 2) コマンドプールとキュープールを作成する
-        m_impl->m_commandPool = std::make_unique<CommandPool>(m_impl->m_renderDevice->get_d3d12_device());
-        m_impl->m_queuePool = std::make_unique<QueuePool>(m_impl->m_renderDevice->get_d3d12_device());
+        // 2) コマンドプールとキュープールを初期化する
+        m_impl->m_commandPool = std::make_unique<DX12CommandPool>(*m_impl->m_renderDevice);
+        m_impl->m_commandPool->initialize(*m_impl->m_renderDevice);
+        m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
+        m_impl->m_queuePool->initialize(*m_impl->m_renderDevice);
 
-        // 3) バッファマネージャを作成する
-        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(*m_impl->m_renderDevice.get());
+        // 3) マネージャー類を初期化する
+        m_impl->m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_impl->m_renderDevice);
+        r = m_impl->m_descriptorAllocator->initialize(
+            /*texCap=*/256,
+            /*bufCap=*/256,
+            /*rtCap=*/32,
+            /*dsCap=*/2);
+        if (!r)
+        {
+            return r;
+        }
+        m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(*m_impl->m_renderDevice);
+        m_impl->m_textureManager = std::make_unique<DX12TextureManager>(*m_impl->m_renderDevice);
+        m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice, *m_impl->m_shaderCompiler, *m_impl->m_descriptorAllocator);
 
-        m_impl->m_textureManager = std::make_unique<TextureManager>();
-
-        // 4) スワップチェインを作成する
-        m_impl->m_swapChain = std::make_unique<SwapChain>(
-            *m_impl->m_renderDevice.get(),
-            *m_impl->m_queuePool,
-            m_impl->m_bufferManager->get_descriptor_allocator());
-        r = m_impl->m_swapChain->create(
-            reinterpret_cast<HWND>(m_impl->m_winPlatform->get_native_window_handle()),
+        // 4) スワップチェーンを初期化する
+        m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
+        m_impl->m_swapChain->create(
+            m_impl->m_winPlatform->get_native_window_handle(),
             m_impl->m_winPlatform->window_width(),
             m_impl->m_winPlatform->window_height(),
-            DXGI_FORMAT_R8G8B8A8_UNORM,
-            info.bufferCount);
+            info.bufferCount,
+        )
 
-        //
-        m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice.get(), *m_impl->m_shaderCompiler);
-
-        //
-        r = create_frame_graph_runtime(&m_frameGraphRuntime);
-        m_frameGraph = std::make_unique<FrameGraph>(*m_impl->m_bufferManager, *m_impl->m_textureManager);
-
-        // 2) すべての初期化が成功したことを返す
         return Result::ok();
     }
     Result D3D12Backend::shutdown()
@@ -100,9 +103,13 @@ namespace Cue::GraphicsCore::DX12
     {
         return m_frameGraph->build();
     }
-    Result D3D12Backend::render()
+    Result D3D12Backend::render(uint64_t frameNo, uint32_t index)
     {
        return m_frameGraph->execute(*m_frameGraphRuntime);
+    }
+    Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
+    {
+        return m_impl->m_swapChain->present();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {

@@ -123,7 +123,7 @@ namespace Cue::GraphicsCore::DX12
 
         return Result::ok();
     }
-    Result DX12CommandPool::initialize(IRenderDevice& device)
+    Result DX12CommandPool::initialize(DX12RenderDevice& device)
     {
         (void)device;
         m_graphicsContextPool.prewarm(1);

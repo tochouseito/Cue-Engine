@@ -9,6 +9,11 @@ namespace Cue::GraphicsCore::DX12
     class DX12TextureManager final : public ITextureManager
     {
     public:
+        DX12TextureManager(DX12RenderDevice& renderDevice)
+            : m_renderDevice(renderDevice)
+        {
+        }
+
         Result create_texture(const TextureDesc& desc, TextureHandle& outHandle) override
         {
             GpuTextureResource texture{};
@@ -58,6 +63,7 @@ namespace Cue::GraphicsCore::DX12
             return Result::ok();
         }
     private:
+        DX12RenderDevice& m_renderDevice; // RenderDeviceへの参照
         Registry<TextureTag, GpuTextureResource> m_textureRegistry;
         std::unordered_map<ResourceNameId, TextureHandle> m_textureNameMap;
     };

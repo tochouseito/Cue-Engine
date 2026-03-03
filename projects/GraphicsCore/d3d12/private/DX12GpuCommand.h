@@ -1,5 +1,6 @@
 #pragma once
 #include "stdafx.h"
+#include "DX12RenderDevice.h"
 #include <FrameGraph.h>
 #include <Pool.h>
 
@@ -44,7 +45,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12GraphicsCommandContext final : public DX12CommandContext
     {
     public:
-        DX12GraphicsCommandContext() = default;
+        DX12GraphicsCommandContext(ID3D12Device& device)
+            : DX12CommandContext(device, D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+        }
         ~DX12GraphicsCommandContext() override = default;
         CommandListType type() const override
         {
@@ -55,7 +59,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12ComputeCommandContext final : public DX12CommandContext
     {
     public:
-        DX12ComputeCommandContext() = default;
+        DX12ComputeCommandContext(ID3D12Device& device)
+            : DX12CommandContext(device, D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        {
+        }
         ~DX12ComputeCommandContext() override = default;
         CommandListType type() const override
         {
@@ -66,7 +73,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12CopyCommandContext final : public DX12CommandContext
     {
     public:
-        DX12CopyCommandContext() = default;
+        DX12CopyCommandContext(ID3D12Device& device)
+            : DX12CommandContext(device, D3D12_COMMAND_LIST_TYPE_COPY)
+        {
+        }
         ~DX12CopyCommandContext() override = default;
         CommandListType type() const override
         {
@@ -84,7 +94,7 @@ namespace Cue::GraphicsCore::DX12
         DX12CommandPool() = default;
         ~DX12CommandPool() override = default;
 
-        Result initialize(IRenderDevice& device) override;
+        Result initialize(DX12RenderDevice& device) override;
 
         Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
     private:
@@ -142,7 +152,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12GraphicsQueueContext final : public DX12QueueContext
     {
     public:
-        DX12GraphicsQueueContext() = default;
+        DX12GraphicsQueueContext(ID3D12Device& device)
+            : DX12QueueContext(device, D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+        }
         ~DX12GraphicsQueueContext() override = default;
         CommandListType type() const override
         {
@@ -153,7 +166,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12ComputeQueueContext final : public DX12QueueContext
     {
     public:
-        DX12ComputeQueueContext() = default;
+        DX12ComputeQueueContext(ID3D12Device& device)
+            : DX12QueueContext(device, D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        {
+        }
         ~DX12ComputeQueueContext() override = default;
         CommandListType type() const override
         {
@@ -164,7 +180,10 @@ namespace Cue::GraphicsCore::DX12
     class DX12CopyQueueContext final : public DX12QueueContext
     {
     public:
-        DX12CopyQueueContext() = default;
+        DX12CopyQueueContext(ID3D12Device& device)
+            : DX12QueueContext(device, D3D12_COMMAND_LIST_TYPE_COPY)
+        {
+        }
         ~DX12CopyQueueContext() override = default;
         CommandListType type() const override
         {

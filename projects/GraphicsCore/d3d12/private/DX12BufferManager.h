@@ -19,7 +19,6 @@ namespace Cue::GraphicsCore::DX12
     private:
         Registry<BufferTag, GpuBufferResource> m_bufferRegistry;
         std::unordered_map<ResourceNameId, std::vector<BufferHandle>> m_bufferNameMap;
-        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr;
     };
 
 } // namespace Cue::GraphicsCore::DX12
