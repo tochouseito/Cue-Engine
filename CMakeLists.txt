@@ -78,6 +78,11 @@ add_library(cue_json INTERFACE)
 target_include_directories(cue_json SYSTEM INTERFACE
     "${CMAKE_SOURCE_DIR}/thirdparty/json")
 
+# ImGui
+add_library(cue_imgui INTERFACE)
+target_include_directories(cue_imgui SYSTEM INTERFACE
+    "${CMAKE_SOURCE_DIR}/thirdparty/imgui")
+
 # サブプロジェクトを含めます。
 add_subdirectory ("projects/Base")
 add_subdirectory ("projects/Math")
