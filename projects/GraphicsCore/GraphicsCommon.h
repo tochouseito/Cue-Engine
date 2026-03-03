@@ -97,6 +97,13 @@ namespace Cue::GraphicsCore
         Texture,
     };
 
+    enum class ResourceInstanceSource : uint8_t
+    {
+        Fixed,
+        FrameResourceIndex,
+        SwapchainImageIndex,
+    };
+
     inline const char* resource_kind_to_string(ResourceKind kind) noexcept
     {
         switch (kind)

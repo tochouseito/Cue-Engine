@@ -1,7 +1,37 @@
 #include "DX12GpuCommand.h"
+#include "DX12BufferManager.h"
+#include "DX12TextureManager.h"
 
 namespace Cue::GraphicsCore::DX12
 {
+    namespace
+    {
+        [[nodiscard]] D3D12_RESOURCE_STATES to_d3d12_resource_state(ResourceState state)
+        {
+            switch (state)
+            {
+            case ResourceState::Common:
+                return D3D12_RESOURCE_STATE_COMMON;
+            case ResourceState::CopySource:
+                return D3D12_RESOURCE_STATE_COPY_SOURCE;
+            case ResourceState::CopyDest:
+                return D3D12_RESOURCE_STATE_COPY_DEST;
+            case ResourceState::RenderTarget:
+                return D3D12_RESOURCE_STATE_RENDER_TARGET;
+            case ResourceState::UnorderedAccess:
+                return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            case ResourceState::ShaderResource:
+                return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            case ResourceState::DepthWrite:
+                return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            case ResourceState::Present:
+                return D3D12_RESOURCE_STATE_PRESENT;
+            default:
+                return D3D12_RESOURCE_STATE_COMMON;
+            }
+        }
+    }
+
     DX12CommandContext::DX12CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         // 1) コマンドアロケータの作成
@@ -9,6 +39,15 @@ namespace Cue::GraphicsCore::DX12
 
         // 2) コマンドリストの作成
         create_command_list(device, type);
+    }
+    DX12CommandContext::~DX12CommandContext()
+    {
+        // 1) 一時 RTV は command context 単位で確保しているため、破棄時に返却する。
+        if (m_descriptorAllocator != nullptr && m_transientRtv.valid())
+        {
+            m_descriptorAllocator->free_table(m_transientRtv);
+            m_transientRtv = {};
+        }
     }
     Result DX12CommandContext::reset()
     {
@@ -51,6 +90,13 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = true;
 
         return Result::ok();
+    }
+    void DX12CommandContext::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept
+    {
+        // 1) manager 参照は acquire 時に再設定し、pool を跨いでも最新構成へ合わせる。
+        m_bufferManager = &bufferManager;
+        m_textureManager = &textureManager;
+        m_descriptorAllocator = &descriptorAllocator;
     }
     Result DX12CommandContext::close()
     {
@@ -123,12 +169,125 @@ namespace Cue::GraphicsCore::DX12
 
         return Result::ok();
     }
+    Result DX12CommandContext::resolve_buffer_resource(BufferHandle handle, GpuBufferResource*& outBuffer) const
+    {
+        // 1) バリア対象の buffer 実体は manager にのみあるので、command context から直接保持しない。
+        if (m_bufferManager == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Buffer manager is not bound to command context");
+        }
+        return m_bufferManager->try_get_buffer(handle, outBuffer);
+    }
+    Result DX12CommandContext::resolve_texture_resource(TextureHandle handle, GpuTextureResource*& outTexture) const
+    {
+        // 1) テクスチャ解決も manager 経由に限定し、外部所有の back buffer を正しく逆引きする。
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Texture manager is not bound to command context");
+        }
+        return m_textureManager->try_get_texture(handle, outTexture);
+    }
+    Result DX12CommandContext::resource_barrier(const ResourceBarrierDesc& barrier)
+    {
+        // 1) 単発バリアも複数版へ集約し、実装差分を増やさない。
+        return resource_barriers(&barrier, 1);
+    }
+    Result DX12CommandContext::resource_barriers(const ResourceBarrierDesc* barriers, size_t count)
+    {
+        // 1) 空入力はそのまま成功扱いにして、呼び出し側の分岐を増やさない。
+        if (barriers == nullptr || count == 0)
+        {
+            return Result::ok();
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+
+        // 2) GraphicsCore の抽象バリアを D3D12 transition barrier へ変換する。
+        std::vector<D3D12_RESOURCE_BARRIER> nativeBarriers;
+        nativeBarriers.reserve(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            const ResourceBarrierDesc& barrier = barriers[i];
+            ID3D12Resource* resource = nullptr;
+            if (barrier.kind == ResourceKind::Buffer)
+            {
+                GpuBufferResource* buffer = nullptr;
+                const Result resolveResult = resolve_buffer_resource(BufferHandle{ barrier.index, barrier.generation }, buffer);
+                if (!resolveResult)
+                {
+                    return resolveResult;
+                }
+                resource = buffer->get_resource();
+            }
+            else
+            {
+                GpuTextureResource* texture = nullptr;
+                const Result resolveResult = resolve_texture_resource(TextureHandle{ barrier.index, barrier.generation }, texture);
+                if (!resolveResult)
+                {
+                    return resolveResult;
+                }
+                resource = texture->get_resource();
+            }
+
+            D3D12_RESOURCE_BARRIER nativeBarrier{};
+            nativeBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            nativeBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            nativeBarrier.Transition.pResource = resource;
+            nativeBarrier.Transition.StateBefore = to_d3d12_resource_state(barrier.before);
+            nativeBarrier.Transition.StateAfter = to_d3d12_resource_state(barrier.after);
+            nativeBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            nativeBarriers.push_back(nativeBarrier);
+        }
+
+        // 3) 実バリアをコマンドリストへ記録し、後続の clear/draw が正しい状態を見るようにする。
+        m_commandList->ResourceBarrier(static_cast<UINT>(nativeBarriers.size()), nativeBarriers.data());
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::clear_render_target(TextureHandle handle, const float clearColor[4])
+    {
+        // 1) RTV を動的に引いて clear し、pass 側が swap chain 実体を知らなくて済むようにする。
+        if (m_commandList == nullptr || m_descriptorAllocator == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command context is not bound to RTV resources.");
+        }
+
+        GpuTextureResource* texture = nullptr;
+        const Result resolveResult = resolve_texture_resource(handle, texture);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+        if (!m_transientRtv.valid())
+        {
+            m_transientRtv = m_descriptorAllocator->allocate(DescriptorAllocator::TableKind::RenderTargets);
+            if (!m_transientRtv.valid())
+            {
+                return Result::fail(Facility::Graphics, Code::CreationFailed, Severity::Error, 0, "Failed to allocate transient RTV table.");
+            }
+        }
+
+        const Result createRtvResult = m_descriptorAllocator->create_rtv(m_transientRtv, texture, texture->get_resource_desc().Format);
+        if (!createRtvResult)
+        {
+            return createRtvResult;
+        }
+
+        // 2) ClearRenderTargetView 自体は RTV ハンドルだけで実行できるため、最小コマンドで済ませる。
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_descriptorAllocator->get_cpu_handle(m_transientRtv);
+        m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     DX12CommandPool::DX12CommandPool(DX12RenderDevice& device)
         : m_graphicsContextPool(
             32,
             [](DX12GraphicsCommandContext& ctx)
             {
-                ctx.reset();
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
@@ -138,7 +297,7 @@ namespace Cue::GraphicsCore::DX12
             32,
             [](DX12ComputeCommandContext& ctx)
             {
-                ctx.reset();
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
@@ -148,7 +307,7 @@ namespace Cue::GraphicsCore::DX12
             32,
             [](DX12CopyCommandContext& ctx)
             {
-                ctx.reset();
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
@@ -163,6 +322,13 @@ namespace Cue::GraphicsCore::DX12
         m_copyContextPool.prewarm(1);
         return Result::ok();
     }
+    void DX12CommandPool::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept
+    {
+        // 1) command context が resource/barrier/clear を実行できるよう、backend 所有 manager を束ねて渡す。
+        m_bufferManager = &bufferManager;
+        m_textureManager = &textureManager;
+        m_descriptorAllocator = &descriptorAllocator;
+    }
     Result DX12CommandPool::acquire_context(CommandListType type, CommandContextLease& outContext)
     {
         // 1) 次に使う queue 種別の完了済み command context を先に回収して、再利用可能プールへ戻す。
@@ -174,6 +340,10 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Graphics:
         {
             auto pooled = m_graphicsContextPool.acquire();
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            {
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+            }
             outContext = CommandContextLease(
                 pooled.release(),
                 [this](ICommandContext* raw) { m_graphicsContextPool.recycle(static_cast<DX12GraphicsCommandContext*>(raw)); });
@@ -182,6 +352,10 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Compute:
         {
             auto pooled = m_computeContextPool.acquire();
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            {
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+            }
             outContext = CommandContextLease(
                 pooled.release(),
                 [this](ICommandContext* raw) { m_computeContextPool.recycle(static_cast<DX12ComputeCommandContext*>(raw)); });
@@ -190,6 +364,10 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Copy:
         {
             auto pooled = m_copyContextPool.acquire();
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            {
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+            }
             outContext = CommandContextLease(
                 pooled.release(),
                 [this](ICommandContext* raw) { m_copyContextPool.recycle(static_cast<DX12CopyCommandContext*>(raw)); });

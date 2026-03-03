@@ -164,6 +164,8 @@ namespace Cue
                 (void)frameNo;
                 (void)index;
                 (void)this;
+                int i = 0;
+                i++;
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::render()
@@ -174,7 +176,7 @@ namespace Cue
                 (void)frameNo;
                 (void)index;
                 (void)this;
-                // m_graphicsBackend->render(frameNo, index);
+                m_graphicsBackend->render(frameNo, index);
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::present()
@@ -183,9 +185,8 @@ namespace Cue
         // 2) 実装確定前でもパイプラインを動かすため仮実装にする
         return [this](uint64_t frameNo, uint32_t index)
             {
-                (void)frameNo;
-                (void)index;
                 (void)this;
+                m_graphicsBackend->present(frameNo, index);
             };
     }
 

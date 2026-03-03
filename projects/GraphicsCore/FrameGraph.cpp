@@ -30,21 +30,18 @@ namespace Cue::GraphicsCore
         }
 
         const uint32_t index = static_cast<uint32_t>(m_resources.size());
-        const ResourceState initialState =
-            (expectedKind == ResourceKind::Texture && name.starts_with("SwapChain.BackBuffer."))
-            ? ResourceState::Present
-            : ResourceState::Common;
 
         const ResourceRef ref{ expectedKind, index, 1 };
         LogicalResource resource{
             ref,
             nameId,
             std::string(name),
-            initialState
+            ResourceState::Common
         };
         resource.bufferDesc.name = resource.debugName;
         resource.bufferDesc.bufferingCount = 1;
         resource.textureDesc.name = resource.debugName;
+        resource.textureDesc.bufferingCount = 1;
 
         m_resources.push_back(std::move(resource));
         m_resourceByNameId.emplace(nameId, ref);
@@ -85,6 +82,8 @@ namespace Cue::GraphicsCore
         resource.bufferDesc = desc;
         resource.bufferDesc.name = resource.debugName;
         resource.bufferDesc.bufferingCount = resolve_buffering_count(desc.bufferingCount);
+        resource.instanceCount = resource.bufferDesc.bufferingCount;
+        resource.instanceSource = desc.instanceSource;
 
         return handle;
     }
@@ -97,6 +96,12 @@ namespace Cue::GraphicsCore
         LogicalResource& resource = m_resources[handle.index];
         resource.textureDesc = desc;
         resource.textureDesc.name = resource.debugName;
+        resource.textureDesc.bufferingCount = resolve_buffering_count(desc.bufferingCount);
+        resource.instanceCount = resource.textureDesc.bufferingCount;
+        resource.instanceSource = desc.instanceSource;
+        resource.initialState = (desc.instanceSource == ResourceInstanceSource::SwapchainImageIndex)
+            ? ResourceState::Present
+            : ResourceState::Common;
 
         return handle;
     }
@@ -112,6 +117,8 @@ namespace Cue::GraphicsCore
         resource.bufferDesc.bufferingCount = resolve_buffering_count(desc.bufferingCount);
         resource.initialState = initialState;
         resource.external = true;
+        resource.instanceCount = resource.bufferDesc.bufferingCount;
+        resource.instanceSource = desc.instanceSource;
 
         return handle;
     }
@@ -124,8 +131,11 @@ namespace Cue::GraphicsCore
         LogicalResource& resource = m_resources[handle.index];
         resource.textureDesc = desc;
         resource.textureDesc.name = resource.debugName;
+        resource.textureDesc.bufferingCount = resolve_buffering_count(desc.bufferingCount);
         resource.initialState = initialState;
         resource.external = true;
+        resource.instanceCount = resource.textureDesc.bufferingCount;
+        resource.instanceSource = desc.instanceSource;
 
         return handle;
     }
@@ -176,12 +186,33 @@ namespace Cue::GraphicsCore
         return m_resources[ref.index];
     }
 
-    Result FrameGraph::resolve_buffer(BufferHandle logicalHandle, uint32_t bufferIndex, BufferHandle& outHandle) const
+    uint32_t FrameGraph::resolve_resource_instance_index(const LogicalResource& resource, uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept
+    {
+        if (resource.instanceCount <= 1)
+        {
+            return 0;
+        }
+
+        switch (resource.instanceSource)
+        {
+        case ResourceInstanceSource::Fixed:
+            return 0;
+        case ResourceInstanceSource::FrameResourceIndex:
+            return frameResourceIndex % resource.instanceCount;
+        case ResourceInstanceSource::SwapchainImageIndex:
+            return swapchainImageIndex % resource.instanceCount;
+        default:
+            return 0;
+        }
+    }
+
+    Result FrameGraph::resolve_buffer(BufferHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, BufferHandle& outHandle) const
     {
         try
         {
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
-            return m_bufferManager.get_buffer(resource.nameId, bufferIndex, outHandle);
+            const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
+            return m_bufferManager.get_buffer(resource.nameId, instanceIndex, outHandle);
         }
         catch (const std::exception& e)
         {
@@ -190,12 +221,13 @@ namespace Cue::GraphicsCore
         }
     }
 
-    Result FrameGraph::resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const
+    Result FrameGraph::resolve_texture(TextureHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, TextureHandle& outHandle) const
     {
         try
         {
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
-            return m_textureManager.get_texture(resource.nameId, outHandle);
+            const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
+            return m_textureManager.get_texture(resource.nameId, instanceIndex, outHandle);
         }
         catch (const std::exception& e)
         {
@@ -204,9 +236,9 @@ namespace Cue::GraphicsCore
         }
     }
 
-    Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t bufferIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
+    Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
     {
-        if (binding.hasBufferIndex && binding.bufferIndex != bufferIndex)
+        if (binding.hasBufferIndex && binding.bufferIndex != frameResourceIndex)
         {
             return Result::fail(Facility::Graphics, Code::NotFound, Severity::Info, 0, "Descriptor binding is not active for this buffer index");
         }
@@ -218,7 +250,7 @@ namespace Cue::GraphicsCore
         if (binding.resource.kind == ResourceKind::Buffer)
         {
             BufferHandle physicalHandle{};
-            const Result result = resolve_buffer(BufferHandle{ binding.resource.index, binding.resource.generation }, bufferIndex, physicalHandle);
+            const Result result = resolve_buffer(BufferHandle{ binding.resource.index, binding.resource.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
             if (!result)
             {
                 return result;
@@ -231,7 +263,7 @@ namespace Cue::GraphicsCore
         }
 
         TextureHandle physicalHandle{};
-        const Result result = resolve_texture(TextureHandle{ binding.resource.index, binding.resource.generation }, physicalHandle);
+        const Result result = resolve_texture(TextureHandle{ binding.resource.index, binding.resource.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
         if (!result)
         {
             return result;
@@ -243,7 +275,7 @@ namespace Cue::GraphicsCore
         return Result::ok();
     }
 
-    Result FrameGraph::make_barrier_desc(const BarrierEvent& event, uint32_t bufferIndex, ResourceBarrierDesc& outBarrier) const
+    Result FrameGraph::make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const
     {
         outBarrier.before = event.before;
         outBarrier.after = event.after;
@@ -251,7 +283,7 @@ namespace Cue::GraphicsCore
         if (event.handle.kind == ResourceKind::Buffer)
         {
             BufferHandle physicalHandle{};
-            const Result result = resolve_buffer(BufferHandle{ event.handle.index, event.handle.generation }, bufferIndex, physicalHandle);
+            const Result result = resolve_buffer(BufferHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
             if (!result)
             {
                 return result;
@@ -264,7 +296,7 @@ namespace Cue::GraphicsCore
         }
 
         TextureHandle physicalHandle{};
-        const Result result = resolve_texture(TextureHandle{ event.handle.index, event.handle.generation }, physicalHandle);
+        const Result result = resolve_texture(TextureHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
         if (!result)
         {
             return result;
@@ -291,10 +323,28 @@ namespace Cue::GraphicsCore
     {
         // build() maps logical resources to manager-owned backend resources.
         // External resources are imported and therefore skipped here.
-        for (const LogicalResource& resource : m_resources)
+        for (LogicalResource& resource : m_resources)
         {
             if (resource.external)
             {
+                // 1) external resource は manager 側の実体数を採用し、pass 側へ buffering 情報を漏らさない。
+                uint32_t actualInstanceCount = 0;
+                Result instanceCountResult = Result::ok();
+                if (resource.ref.kind == ResourceKind::Buffer)
+                {
+                    instanceCountResult = m_bufferManager.get_buffer_instance_count(resource.nameId, actualInstanceCount);
+                }
+                else
+                {
+                    instanceCountResult = m_textureManager.get_texture_instance_count(resource.nameId, actualInstanceCount);
+                }
+
+                if (!instanceCountResult)
+                {
+                    return instanceCountResult;
+                }
+
+                resource.instanceCount = (std::max)(actualInstanceCount, 1u);
                 continue;
             }
 
@@ -317,7 +367,7 @@ namespace Cue::GraphicsCore
             }
 
             TextureHandle existingTexture{};
-            const Result getResult = m_textureManager.get_texture(resource.nameId, existingTexture);
+            const Result getResult = m_textureManager.get_texture(resource.nameId, 0, existingTexture);
             if (getResult)
             {
                 continue;
@@ -715,8 +765,7 @@ namespace Cue::GraphicsCore
                         access.handle,
                         current,
                         access.requiredState,
-                        true
-                        });
+                        true });
                     current = access.requiredState;
                 }
 
@@ -728,8 +777,7 @@ namespace Cue::GraphicsCore
                             access.handle,
                             current,
                             access.finalState,
-                            false
-                            });
+                            false });
                         current = access.finalState;
                     }
                     else if (access.hasFinalState)
@@ -814,7 +862,7 @@ namespace Cue::GraphicsCore
         }
     }
 
-    Result FrameGraph::execute(uint64_t frameNo, uint32_t index, ICommandPool& commandPool, IQueuePool& queuePool)
+    Result FrameGraph::execute(uint64_t frameNo, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ICommandPool& commandPool, IQueuePool& queuePool)
     {
         if (!m_isBuilt || m_isDirty)
         {
@@ -848,7 +896,8 @@ namespace Cue::GraphicsCore
         std::vector<ResourceState> runtimeTrackedState = initial_resource_states();
         ExecutionSummary summary{};
         summary.frameNo = frameNo;
-        summary.bufferIndex = index;
+        summary.bufferIndex = frameResourceIndex;
+        summary.swapchainImageIndex = swapchainImageIndex;
         summary.passCount = m_passes.size();
 
         auto queue_for = [&graphicsQueue, &computeQueue, &copyQueue](CommandListType type) -> IQueueContext&
@@ -867,7 +916,7 @@ namespace Cue::GraphicsCore
             };
 
         // Convert the precomputed barrier plan into backend barriers for the current frame index.
-        auto emit_barriers = [this, index](ICommandContext& commandContext, size_t passIndex, bool beforePass, std::vector<ResourceState>& trackedState) -> Result
+        auto emit_barriers = [this, frameResourceIndex, swapchainImageIndex](ICommandContext& commandContext, size_t passIndex, bool beforePass, std::vector<ResourceState>& trackedState) -> Result
             {
                 const auto barrierIt = m_barriersByPass.find(passIndex);
                 if (barrierIt == m_barriersByPass.end())
@@ -884,7 +933,7 @@ namespace Cue::GraphicsCore
                     }
 
                     ResourceBarrierDesc barrierDesc{};
-                    const Result buildBarrierResult = make_barrier_desc(barrierEvent, index, barrierDesc);
+                    const Result buildBarrierResult = make_barrier_desc(barrierEvent, frameResourceIndex, swapchainImageIndex, barrierDesc);
                     if (!buildBarrierResult)
                     {
                         return buildBarrierResult;
@@ -963,13 +1012,13 @@ namespace Cue::GraphicsCore
             descriptorBindings.reserve(compiledPass.descriptorDecls.size());
             for (const DescriptorBindingDecl& descriptorDecl : compiledPass.descriptorDecls)
             {
-                if (descriptorDecl.hasBufferIndex && descriptorDecl.bufferIndex != index)
+                if (descriptorDecl.hasBufferIndex && descriptorDecl.bufferIndex != frameResourceIndex)
                 {
                     continue;
                 }
 
                 FrameGraphContext::ResolvedDescriptorBinding resolvedBinding{};
-                const Result resolveDescriptorResult = resolve_descriptor_binding(descriptorDecl, index, resolvedBinding);
+                const Result resolveDescriptorResult = resolve_descriptor_binding(descriptorDecl, frameResourceIndex, swapchainImageIndex, resolvedBinding);
                 if (!resolveDescriptorResult)
                 {
                     return resolveDescriptorResult;
@@ -992,7 +1041,8 @@ namespace Cue::GraphicsCore
             FrameGraphContext context(
                 *this,
                 frameNo,
-                index,
+                frameResourceIndex,
+                swapchainImageIndex,
                 *commandContext,
                 compiledPass.pipelineDecl.handle,
                 compiledPass.rootSignatureDecl.handle,
@@ -1323,11 +1373,11 @@ namespace Cue::GraphicsCore
 
     Result FrameGraphContext::resolve_buffer(BufferHandle logicalHandle, BufferHandle& outHandle) const
     {
-        return m_frameGraph.resolve_buffer(logicalHandle, m_bufferIndex, outHandle);
+        return m_frameGraph.resolve_buffer(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
     }
 
     Result FrameGraphContext::resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const
     {
-        return m_frameGraph.resolve_texture(logicalHandle, outHandle);
+        return m_frameGraph.resolve_texture(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
     }
 } // namespace Cue::GraphicsCore

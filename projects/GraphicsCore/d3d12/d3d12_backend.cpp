@@ -67,13 +67,7 @@ namespace Cue::GraphicsCore::DX12
             return r;
         }
 
-        // 2) コマンドプールとキュープールを初期化する
-        m_impl->m_commandPool = std::make_unique<DX12CommandPool>(*m_impl->m_renderDevice);
-        m_impl->m_commandPool->initialize();
-        m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
-        m_impl->m_queuePool->initialize();
-
-        // 3) マネージャー類を初期化する
+        // 2) マネージャー類を初期化する
         m_impl->m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_impl->m_renderDevice);
         r = m_impl->m_descriptorAllocator->initialize(
             /*texCap=*/256,
@@ -88,6 +82,13 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_textureManager = std::make_unique<DX12TextureManager>(*m_impl->m_renderDevice);
         m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice, *m_impl->m_shaderCompiler, *m_impl->m_descriptorAllocator);
 
+        // 3) コマンドプールとキュープールを初期化する
+        m_impl->m_commandPool = std::make_unique<DX12CommandPool>(*m_impl->m_renderDevice);
+        m_impl->m_commandPool->initialize();
+        m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
+        m_impl->m_queuePool->initialize();
+        m_impl->m_commandPool->bind_resources(*m_impl->m_bufferManager, *m_impl->m_textureManager, *m_impl->m_descriptorAllocator);
+
         // 4) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
         QueueContextLease graphicsQueue;
@@ -101,21 +102,38 @@ namespace Cue::GraphicsCore::DX12
             graphicsQueueRef);
 
         //
-        std::vector<TextureHandle> m_backBufferHandles(info.bufferCount);
-        m_impl->m_swapChain->import_back_buffers(*m_impl->m_textureManager, m_backBufferHandles);
+        m_impl->m_swapChain->import_back_buffers(*m_impl->m_textureManager);
 
         m_frameGraph = std::make_unique<FrameGraph>(
             *m_impl->m_bufferManager,
             *m_impl->m_textureManager,
             *m_impl->m_pipelineManager,
             info.bufferCount);
-        Pass::BackBufferClearPass* backBufferClearPass = m_frameGraph->add_pass<Pass::BackBufferClearPass>(info.bufferCount);
+        Pass::BackBufferClearPass* backBufferClearPass = m_frameGraph->add_pass<Pass::BackBufferClearPass>();
         (void)backBufferClearPass;
 
         return Result::ok();
     }
     Result D3D12Backend::shutdown()
     {
+        // 1) FrameGraph と SwapChain を先に落とし、以後の render/present 経路を止める。
+        m_frameGraph.reset();
+        m_impl->m_swapChain.reset();
+
+        // 2) Queue/Command を manager より先に破棄し、pooled context の destructor が allocator 生存中に走るようにする。
+        m_impl->m_queuePool.reset();
+        m_impl->m_commandPool.reset();
+
+        // 3) CommandContext から参照される manager 群を後段で解放する。
+        m_impl->m_pipelineManager.reset();
+        m_impl->m_textureManager.reset();
+        m_impl->m_bufferManager.reset();
+        m_impl->m_descriptorAllocator.reset();
+        m_impl->m_shaderCompiler.reset();
+
+        // 4) 最後に device と補助オブジェクトを解放する。
+        m_impl->m_renderDevice.reset();
+        m_impl->m_leakChecker.reset();
         return Result::ok();
     }
     Result D3D12Backend::build_frame_graph()
@@ -124,7 +142,11 @@ namespace Cue::GraphicsCore::DX12
     }
     Result D3D12Backend::render(uint64_t frameNo, uint32_t index)
     {
-       return m_frameGraph->execute(frameNo, index, *m_impl->m_commandPool, *m_impl->m_queuePool);
+        (void)index;
+
+        // 1) SwapChain に対する描画は DXGI が次に Present する current back buffer に揃える。
+        const uint32_t backBufferIndex = m_impl->m_swapChain->current_back_buffer_index();
+        return m_frameGraph->execute(frameNo, index, backBufferIndex, *m_impl->m_commandPool, *m_impl->m_queuePool);
     }
     Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
     {

@@ -32,6 +32,14 @@ namespace Cue::GraphicsCore::DX12
             }
             return Result::ok();
         }
+        [[nodiscard]] uint32_t current_back_buffer_index() const noexcept
+        {
+            if (!m_swapChain)
+            {
+                return 0;
+            }
+            return m_swapChain->GetCurrentBackBufferIndex();
+        }
         GpuTextureResource* get_back_buffer(uint32_t index) noexcept
         {
             if (index < m_backBuffers.size())
@@ -66,23 +74,18 @@ namespace Cue::GraphicsCore::DX12
             }
             return DescriptorAllocator::TableID{}; // 無効なテーブルIDを返す
         }
-        Result import_back_buffers(DX12TextureManager& textureManager, std::vector<TextureHandle>& outHandles)
+        Result import_back_buffers(DX12TextureManager& textureManager, std::string_view resourceName = "SwapChain.BackBuffer")
         {
-            outHandles.clear();
-            outHandles.reserve(m_backBuffers.size());
+            const ResourceNameId nameId = fnv1a64(resourceName);
 
             for (uint32_t index = 0; index < static_cast<uint32_t>(m_backBuffers.size()); ++index)
             {
-                const std::string name = "SwapChain.BackBuffer." + std::to_string(index);
-                const ResourceNameId nameId = fnv1a64(name);
-
                 TextureHandle handle{};
                 const Result result = textureManager.import_external_texture(nameId, *this, index, handle);
                 if (!result)
                 {
                     return result;
                 }
-                outHandles.push_back(handle);
             }
 
             return Result::ok();

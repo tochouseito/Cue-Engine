@@ -1,5 +1,6 @@
 #pragma once
 #include "GraphicsCommon.h"
+#include "ResourceHandle.h"
 #include <functional>
 
 namespace Cue::GraphicsCore
@@ -48,6 +49,7 @@ namespace Cue::GraphicsCore
 
         virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
         virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
+        virtual Result clear_render_target(TextureHandle handle, const float clearColor[4]) = 0;
     };
 
     class IQueueContext

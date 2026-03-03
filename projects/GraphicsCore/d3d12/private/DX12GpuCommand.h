@@ -1,6 +1,8 @@
 #pragma once
 #include "stdafx.h"
 #include "DX12RenderDevice.h"
+#include "GpuBuffer.h"
+#include "DescriptorAllocator.h"
 #include <FrameGraph.h>
 #include <Pool.h>
 
@@ -10,16 +12,19 @@
 
 namespace Cue::GraphicsCore::DX12
 {
+    class DX12BufferManager;
+    class DX12TextureManager;
     class DX12QueueContext;
 
     class DX12CommandContext : public ICommandContext
     {
     public:
         DX12CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
-        virtual ~DX12CommandContext() override = default;
+        virtual ~DX12CommandContext() override;
 
         Result reset() override;
         Result close() override;
+        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept;
         ID3D12CommandAllocator* get_command_allocator() const noexcept
         {
             return m_commandAllocator.Get();
@@ -35,13 +40,21 @@ namespace Cue::GraphicsCore::DX12
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        [[nodiscard]] Result resolve_buffer_resource(BufferHandle handle, GpuBufferResource*& outBuffer) const;
+        [[nodiscard]] Result resolve_texture_resource(TextureHandle handle, GpuTextureResource*& outTexture) const;
     public:
         // Commands
         virtual void begin_event(const char*) override {}
         virtual void end_event() override {}
 
-        virtual Result resource_barrier(const ResourceBarrierDesc&) override { return Result::ok(); }
-        virtual Result resource_barriers(const ResourceBarrierDesc*, size_t) override { return Result::ok(); }
+        Result resource_barrier(const ResourceBarrierDesc& barrier) override;
+        Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
+        Result clear_render_target(TextureHandle handle, const float clearColor[4]) override;
+    private:
+        DX12BufferManager* m_bufferManager = nullptr;
+        DX12TextureManager* m_textureManager = nullptr;
+        DescriptorAllocator* m_descriptorAllocator = nullptr;
+        DescriptorAllocator::TableID m_transientRtv = {};
     };
 
     class DX12GraphicsCommandContext final : public DX12CommandContext
@@ -98,6 +111,7 @@ namespace Cue::GraphicsCore::DX12
 
         Result initialize() override;
 
+        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept;
         Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
         Result retire_context(CommandContextLease&& context, IQueueContext& queueContext, const QueueSyncPoint& completionPoint) override;
     private:
@@ -120,6 +134,9 @@ namespace Cue::GraphicsCore::DX12
         Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>> m_copyContextPool;
         std::mutex m_copyContextPoolMutex;
         std::vector<InFlightCommandContext> m_inFlightContexts;
+        DX12BufferManager* m_bufferManager = nullptr;
+        DX12TextureManager* m_textureManager = nullptr;
+        DescriptorAllocator* m_descriptorAllocator = nullptr;
     };
 
     class DX12QueueContext : public IQueueContext

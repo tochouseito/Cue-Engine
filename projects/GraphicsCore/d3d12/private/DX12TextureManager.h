@@ -44,13 +44,21 @@ namespace Cue::GraphicsCore::DX12
 
         Result create_texture(const TextureDesc& desc, TextureHandle& outHandle) override
         {
-            // 1) manager 所有のスロットを確保し、後段の実体生成先を固定する
-            TextureEntry entry{};
-            entry.kind = TextureEntry::Kind::Owned;
-            outHandle = m_textureRegistry.create(entry);
+            // 1) bufferingCount 分の実体スロットを確保し、論理 texture 名から複数実体へ解決できるようにする。
+            const uint32_t textureCount = (std::max)(desc.bufferingCount, 1u);
+            std::vector<TextureHandle> handles;
+            handles.reserve(textureCount);
+            for (uint32_t textureIndex = 0; textureIndex < textureCount; ++textureIndex)
+            {
+                TextureEntry entry{};
+                entry.kind = TextureEntry::Kind::Owned;
+                handles.push_back(m_textureRegistry.create(entry));
+            }
+
+            outHandle = handles.front();
             if (!desc.name.empty())
             {
-                m_textureNameMap[fnv1a64(desc.name)] = outHandle;
+                m_textureNameMap[fnv1a64(desc.name)] = std::move(handles);
             }
             return Result::ok();
         }
@@ -60,18 +68,42 @@ namespace Cue::GraphicsCore::DX12
             {
                 return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture handle is not alive");
             }
-            std::erase_if(m_textureNameMap, [&handle](const auto& pair) { return pair.second == handle; });
-            
+            std::erase_if(m_textureNameMap, [&handle](auto& pair)
+            {
+                auto& handles = pair.second;
+                std::erase(handles, handle);
+                return handles.empty();
+            });
+             
             return Result::ok();
         }
-        Result get_texture(ResourceNameId nameId, TextureHandle& outHandle) override
+        Result get_texture(ResourceNameId nameId, uint32_t textureIndex, TextureHandle& outHandle) override
         {
-            if (m_textureNameMap.contains(nameId))
+            const auto it = m_textureNameMap.find(nameId);
+            if (it == m_textureNameMap.end())
             {
-                outHandle = m_textureNameMap[nameId];
-                return Result::ok();
+                return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture not found");
             }
-            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture not found");
+
+            const auto& handles = it->second;
+            if (textureIndex >= handles.size())
+            {
+                return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Buffered texture not found");
+            }
+
+            outHandle = handles[textureIndex];
+            return Result::ok();
+        }
+        Result get_texture_instance_count(ResourceNameId nameId, uint32_t& outCount) override
+        {
+            const auto it = m_textureNameMap.find(nameId);
+            if (it == m_textureNameMap.end())
+            {
+                return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture not found");
+            }
+
+            outCount = static_cast<uint32_t>(it->second.size());
+            return Result::ok();
         }
 
         Result import_external_texture(ResourceNameId nameId, IExternalTextureOwner& owner, uint32_t ownerIndex, TextureHandle& outHandle)
@@ -82,8 +114,8 @@ namespace Cue::GraphicsCore::DX12
             entry.owner = &owner;
             entry.ownerIndex = ownerIndex;
             outHandle = m_textureRegistry.create(entry);
-            m_textureNameMap[nameId] = outHandle;
-            
+            m_textureNameMap[nameId].push_back(outHandle);
+             
             return Result::ok();
         }
 
@@ -133,6 +165,6 @@ namespace Cue::GraphicsCore::DX12
     private:
         DX12RenderDevice& m_renderDevice; // RenderDeviceへの参照
         Registry<TextureTag, TextureEntry> m_textureRegistry;
-        std::unordered_map<ResourceNameId, TextureHandle> m_textureNameMap;
+        std::unordered_map<ResourceNameId, std::vector<TextureHandle>> m_textureNameMap;
     };
 } // namespace Cue::GraphicsCore::DX12

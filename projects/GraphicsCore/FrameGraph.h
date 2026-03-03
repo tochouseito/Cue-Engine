@@ -170,7 +170,8 @@ namespace Cue::GraphicsCore
         FrameGraphContext(
             FrameGraph& frameGraph,
             uint64_t frameNo,
-            uint32_t bufferIndex,
+            uint32_t frameResourceIndex,
+            uint32_t swapchainImageIndex,
             ICommandContext& commandContext,
             PipelineStateHandle pipelineHandle,
             RootSignatureHandle rootSignatureHandle,
@@ -178,7 +179,8 @@ namespace Cue::GraphicsCore
             std::vector<ResolvedDescriptorBinding> descriptorBindings) noexcept
             : m_frameGraph(frameGraph)
             , m_frameNo(frameNo)
-            , m_bufferIndex(bufferIndex)
+            , m_frameResourceIndex(frameResourceIndex)
+            , m_swapchainImageIndex(swapchainImageIndex)
             , m_commandContext(commandContext)
             , m_pipelineHandle(pipelineHandle)
             , m_rootSignatureHandle(rootSignatureHandle)
@@ -193,7 +195,17 @@ namespace Cue::GraphicsCore
 
         [[nodiscard]] uint32_t buffer_index() const noexcept
         {
-            return m_bufferIndex;
+            return frame_resource_index();
+        }
+
+        [[nodiscard]] uint32_t frame_resource_index() const noexcept
+        {
+            return m_frameResourceIndex;
+        }
+
+        [[nodiscard]] uint32_t swapchain_image_index() const noexcept
+        {
+            return m_swapchainImageIndex;
         }
 
         [[nodiscard]] ICommandContext& command_context() noexcept
@@ -227,7 +239,8 @@ namespace Cue::GraphicsCore
     private:
         FrameGraph& m_frameGraph;
         uint64_t m_frameNo = 0;
-        uint32_t m_bufferIndex = 0;
+        uint32_t m_frameResourceIndex = 0;
+        uint32_t m_swapchainImageIndex = 0;
         ICommandContext& m_commandContext;
         PipelineStateHandle m_pipelineHandle = {};
         RootSignatureHandle m_rootSignatureHandle = {};
@@ -281,12 +294,13 @@ namespace Cue::GraphicsCore
         }
 
         [[nodiscard]] Result build();
-        [[nodiscard]] Result execute(uint64_t frameNo, uint32_t index, ICommandPool& commandPool, IQueuePool& queuePool);
+        [[nodiscard]] Result execute(uint64_t frameNo, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ICommandPool& commandPool, IQueuePool& queuePool);
         // Compact per-frame summary used by Engine::tick().
         struct ExecutionSummary final
         {
             uint64_t frameNo = 0;
             uint32_t bufferIndex = 0;
+            uint32_t swapchainImageIndex = 0;
             size_t passCount = 0;
             size_t barrierCount = 0;
             size_t waitCount = 0;
@@ -314,6 +328,8 @@ namespace Cue::GraphicsCore
             std::string debugName = {};
             ResourceState initialState = ResourceState::Common;
             bool external = false;
+            uint32_t instanceCount = 1;
+            ResourceInstanceSource instanceSource = ResourceInstanceSource::FrameResourceIndex;
             BufferDesc bufferDesc = {};
             TextureDesc textureDesc = {};
         };
@@ -365,10 +381,11 @@ namespace Cue::GraphicsCore
         [[nodiscard]] BufferHandle get_buffer(std::string_view name);
         [[nodiscard]] TextureHandle get_texture(std::string_view name);
 
-        [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, uint32_t bufferIndex, BufferHandle& outHandle) const;
-        [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const;
-        [[nodiscard]] Result resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t bufferIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const;
-        [[nodiscard]] Result make_barrier_desc(const BarrierEvent& event, uint32_t bufferIndex, ResourceBarrierDesc& outBarrier) const;
+        [[nodiscard]] uint32_t resolve_resource_instance_index(const LogicalResource& resource, uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept;
+        [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, BufferHandle& outHandle) const;
+        [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, TextureHandle& outHandle) const;
+        [[nodiscard]] Result resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const;
+        [[nodiscard]] Result make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const;
 
         void validate_resource_handle(BufferHandle handle) const;
         void validate_resource_handle(TextureHandle handle) const;

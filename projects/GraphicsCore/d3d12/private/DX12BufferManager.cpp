@@ -57,4 +57,34 @@ namespace Cue::GraphicsCore::DX12
         outHandle = handles[bufferIndex];
         return Result::ok();
     }
+    Result DX12BufferManager::get_buffer_instance_count(ResourceNameId nameId, uint32_t& outCount)
+    {
+        const auto it = m_bufferNameMap.find(nameId);
+        if (it == m_bufferNameMap.end())
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Buffer not found");
+        }
+
+        outCount = static_cast<uint32_t>(it->second.size());
+        return Result::ok();
+    }
+    Result DX12BufferManager::try_get_buffer(const BufferHandle& handle, GpuBufferResource*& outBuffer)
+    {
+        // 1) ハンドル解決に失敗した時点で null を返し、無効参照をその場で止める。
+        outBuffer = nullptr;
+        const bool found = m_bufferRegistry.with(handle, [&outBuffer](GpuBufferResource& buffer)
+        {
+            outBuffer = &buffer;
+        });
+        if (!found)
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Buffer handle is not alive");
+        }
+        if (outBuffer == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Buffer resource is not available");
+        }
+
+        return Result::ok();
+    }
 } // namespace Cue::GraphicsCore::DX12
