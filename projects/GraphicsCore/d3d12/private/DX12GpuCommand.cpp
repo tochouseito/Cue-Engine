@@ -165,6 +165,10 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12CommandPool::acquire_context(CommandListType type, CommandContextLease& outContext)
     {
+        // 1) 次に使う queue 種別の完了済み command context を先に回収して、再利用可能プールへ戻す。
+        collect_completed_contexts(type);
+
+        // 2) 完了済みのものを戻した後で、必要な command context を取得する。
         switch (type)
         {
         case CommandListType::Graphics:
@@ -195,6 +199,73 @@ namespace Cue::GraphicsCore::DX12
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Unsupported command list type");
         }
     }
+    Result DX12CommandPool::retire_context(CommandContextLease&& context, IQueueContext& queueContext, const QueueSyncPoint& completionPoint)
+    {
+        // 1) FrameGraph から渡された active context と queue を DX12 実装として検証する。
+        auto* dx12Context = dynamic_cast<DX12CommandContext*>(context.get());
+        auto* dx12QueueContext = dynamic_cast<DX12QueueContext*>(&queueContext);
+        if (dx12Context == nullptr || dx12QueueContext == nullptr)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidArg,
+                Severity::Error,
+                0,
+                "Retired command context or queue context is not a valid DX12 object.");
+        }
+
+        // 2) 完了 fence にひも付く in-flight リストへ移し、GPU 完了まで pool へ返却しない。
+        InFlightCommandContext inFlight{};
+        inFlight.context = std::unique_ptr<DX12CommandContext>(static_cast<DX12CommandContext*>(context.release()));
+        inFlight.queueContext = dx12QueueContext;
+        inFlight.completionPoint = completionPoint;
+        m_inFlightContexts.push_back(std::move(inFlight));
+        return Result::ok();
+    }
+    void DX12CommandPool::collect_completed_contexts(CommandListType type)
+    {
+        // 1) 要求された queue 種別に対して、完了 fence に到達した command context だけを回収する。
+        for (auto it = m_inFlightContexts.begin(); it != m_inFlightContexts.end();)
+        {
+            if (!it->context || it->context->type() != type)
+            {
+                ++it;
+                continue;
+            }
+            if (it->queueContext == nullptr || !it->queueContext->is_complete(it->completionPoint))
+            {
+                ++it;
+                continue;
+            }
+
+            // 2) GPU が使い終わったものだけ pool へ返し、recycle 時の reset を安全にする。
+            recycle_context(std::move(it->context));
+            it = m_inFlightContexts.erase(it);
+        }
+    }
+    void DX12CommandPool::recycle_context(std::unique_ptr<DX12CommandContext> context)
+    {
+        // 1) 実体の queue 種別ごとに元の pool へ戻し、既存の reset 動作を再利用する。
+        if (!context)
+        {
+            return;
+        }
+
+        switch (context->type())
+        {
+        case CommandListType::Graphics:
+            m_graphicsContextPool.recycle(static_cast<DX12GraphicsCommandContext*>(context.release()));
+            return;
+        case CommandListType::Compute:
+            m_computeContextPool.recycle(static_cast<DX12ComputeCommandContext*>(context.release()));
+            return;
+        case CommandListType::Copy:
+            m_copyContextPool.recycle(static_cast<DX12CopyCommandContext*>(context.release()));
+            return;
+        default:
+            return;
+        }
+    }
     DX12QueueContext::DX12QueueContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         create_fence(device);
@@ -205,7 +276,7 @@ namespace Cue::GraphicsCore::DX12
     {
         if (m_commandQueue && m_fence)
         {
-            wait(m_lastSignalPoint);
+            wait_for_last_signal();
         }
         if (m_fenceEvent)
         {
@@ -270,21 +341,70 @@ namespace Cue::GraphicsCore::DX12
 
         outPoint.queueType = type();
         outPoint.value = fence;
+        m_lastSignalPoint = outPoint;
         return Result::ok();
     }
-    Result DX12QueueContext::wait(const QueueSyncPoint& point)
+    Result DX12QueueContext::wait(const IQueueContext& producerQueue, const QueueSyncPoint& point)
     {
-        // Fenceの値が指定したSignal値にたどり着いているか確認する
-        // GetCompletedValueの初期値はFence作成時に渡した初期値
-        if (!m_fenceValue)
+        // 1) 依存元 queue の fence を consumer queue に積み、GPU 上で待機させる。
+        if (!m_commandQueue)
         {
             return Result::fail(
                 Facility::Graphics,
                 Code::InvalidState,
                 Severity::Error,
                 0,
-                "Fence value is not initialized.");
+                "Command queue is not initialized.");
         }
+
+        // 2) 共通 interface から渡された producer queue を DX12 実装へ落とし込む。
+        const auto* dx12ProducerQueue = dynamic_cast<const DX12QueueContext*>(&producerQueue);
+        if (dx12ProducerQueue == nullptr || dx12ProducerQueue->m_fence == nullptr)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidArg,
+                Severity::Error,
+                0,
+                "Producer queue is not a valid DX12 queue context.");
+        }
+
+        // 3) CPU を止めず queue wait を積み、クロスキュー依存を GPU 同期で解決する。
+        const HRESULT hr = m_commandQueue->Wait(dx12ProducerQueue->m_fence.Get(), point.value);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                static_cast<uint32_t>(hr),
+                "Failed to enqueue queue wait.");
+        }
+
+        return Result::ok();
+    }
+    bool DX12QueueContext::is_complete(const QueueSyncPoint& point) const
+    {
+        // 1) 完了確認は signal した fence 値との大小比較だけで行い、CPU wait は発生させない。
+        if (!m_fence)
+        {
+            return false;
+        }
+
+        return m_fence->GetCompletedValue() >= point.value;
+    }
+    Result DX12QueueContext::wait_for_last_signal()
+    {
+        // 1) recycle / shutdown では自 queue の最後の signal 完了を CPU で待つ。
+        if (m_lastSignalPoint.value != 0)
+        {
+            return wait_for_fence_value(m_lastSignalPoint.value);
+        }
+        return Result::ok();
+    }
+    Result DX12QueueContext::wait_for_fence_value(uint64_t value)
+    {
+        // 1) 自前 fence の完了だけを監視し、再利用前の CPU 同期待機に使う。
         if (!m_fence || !m_fenceEvent)
         {
             return Result::fail(
@@ -294,20 +414,11 @@ namespace Cue::GraphicsCore::DX12
                 0,
                 "Fence or fence event is not initialized.");
         }
-        if (m_fence->GetCompletedValue() < m_fenceValue)
+        if (m_fence->GetCompletedValue() < value)
         {
-            // 指定したSignalにたどり着いていないので、たどり着くまで待つようにイベントを設定する
-            m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
-            // イベント待つ
+            // 2) 完了通知イベントを張り、指定値まで到達するまで待機する。
+            m_fence->SetEventOnCompletion(value, m_fenceEvent);
             WaitForSingleObject(m_fenceEvent, INFINITE);
-        }
-        return Result::ok();
-    }
-    Result DX12QueueContext::wait_for_last_signal()
-    {
-        if (m_lastSignalPoint.value != 0)
-        {
-            return wait(m_lastSignalPoint);
         }
         return Result::ok();
     }

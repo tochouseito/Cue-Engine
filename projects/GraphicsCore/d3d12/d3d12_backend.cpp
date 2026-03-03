@@ -109,7 +109,8 @@ namespace Cue::GraphicsCore::DX12
             *m_impl->m_textureManager,
             *m_impl->m_pipelineManager,
             info.bufferCount);
-        m_frameGraph->add_pass<Pass::BackBufferClearPass>(info.bufferCount);
+        Pass::BackBufferClearPass* backBufferClearPass = m_frameGraph->add_pass<Pass::BackBufferClearPass>(info.bufferCount);
+        (void)backBufferClearPass;
 
         return Result::ok();
     }

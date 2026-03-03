@@ -65,7 +65,8 @@ namespace Cue::GraphicsCore
         virtual CommandListType type() const = 0;
         virtual Result submit(ICommandContext& cmd) = 0;
         virtual Result signal(QueueSyncPoint& outPoint) = 0;
-        virtual Result wait(const QueueSyncPoint& point) = 0;
+        virtual Result wait(const IQueueContext& producerQueue, const QueueSyncPoint& point) = 0;
+        virtual bool is_complete(const QueueSyncPoint& point) const = 0;
     };
 
     using CommandContextLease = std::unique_ptr<ICommandContext, std::function<void(ICommandContext*)>>;
@@ -94,6 +95,7 @@ namespace Cue::GraphicsCore
         virtual ~ICommandPool() = default;
         virtual Result initialize() = 0;
         virtual Result acquire_context(CommandListType type, CommandContextLease& outContext) = 0;
+        virtual Result retire_context(CommandContextLease&& context, IQueueContext& queueContext, const QueueSyncPoint& completionPoint) = 0;
     };
 
     class IQueuePool

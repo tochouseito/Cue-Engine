@@ -347,6 +347,7 @@ namespace Cue::GraphicsCore
         struct PassExecutionInfo final
         {
             CommandListType queueType = CommandListType::Graphics;
+            IQueueContext* queueContext = nullptr;
             QueueSyncPoint signalPoint = {};
             bool submitted = false;
         };

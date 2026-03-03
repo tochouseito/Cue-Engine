@@ -918,12 +918,12 @@ namespace Cue::GraphicsCore
                     }
 
                     const PassExecutionInfo& depInfo = passExecution[depPassIndex];
-                    if (!depInfo.submitted || depInfo.queueType == queueType)
+                    if (!depInfo.submitted || depInfo.queueContext == nullptr || depInfo.queueContext == &queue)
                     {
                         continue;
                     }
 
-                    const Result waitResult = queue.wait(depInfo.signalPoint);
+                    const Result waitResult = queue.wait(*depInfo.queueContext, depInfo.signalPoint);
                     if (!waitResult)
                     {
                         return waitResult;
@@ -1026,7 +1026,13 @@ namespace Cue::GraphicsCore
                 return signalResult;
             }
 
-            passExecution[passIndex] = PassExecutionInfo{ queueType, signalPoint, true };
+            const Result retireContextResult = commandPool.retire_context(std::move(commandContext), queue, signalPoint);
+            if (!retireContextResult)
+            {
+                return retireContextResult;
+            }
+
+            passExecution[passIndex] = PassExecutionInfo{ queueType, &queue, signalPoint, true };
         }
 
         size_t barrierCount = 0;

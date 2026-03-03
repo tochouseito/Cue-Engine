@@ -10,6 +10,8 @@
 
 namespace Cue::GraphicsCore::DX12
 {
+    class DX12QueueContext;
+
     class DX12CommandContext : public ICommandContext
     {
     public:
@@ -97,6 +99,17 @@ namespace Cue::GraphicsCore::DX12
         Result initialize() override;
 
         Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
+        Result retire_context(CommandContextLease&& context, IQueueContext& queueContext, const QueueSyncPoint& completionPoint) override;
+    private:
+        struct InFlightCommandContext final
+        {
+            std::unique_ptr<DX12CommandContext> context = nullptr;
+            DX12QueueContext* queueContext = nullptr;
+            QueueSyncPoint completionPoint = {};
+        };
+
+        void collect_completed_contexts(CommandListType type);
+        void recycle_context(std::unique_ptr<DX12CommandContext> context);
     private:
         Core::Pool<DX12GraphicsCommandContext, std::function<void(DX12GraphicsCommandContext&)>> m_graphicsContextPool;
         std::mutex m_graphicsContextPoolMutex;
@@ -106,6 +119,7 @@ namespace Cue::GraphicsCore::DX12
 
         Core::Pool<DX12CopyCommandContext, std::function<void(DX12CopyCommandContext&)>> m_copyContextPool;
         std::mutex m_copyContextPoolMutex;
+        std::vector<InFlightCommandContext> m_inFlightContexts;
     };
 
     class DX12QueueContext : public IQueueContext
@@ -116,7 +130,8 @@ namespace Cue::GraphicsCore::DX12
         virtual CommandListType type() const = 0;
         Result submit(ICommandContext& cmd) override;
         Result signal(QueueSyncPoint& outPoint) override;
-        Result wait(const QueueSyncPoint& point) override;
+        Result wait(const IQueueContext& producerQueue, const QueueSyncPoint& point) override;
+        bool is_complete(const QueueSyncPoint& point) const override;
         Result wait_for_last_signal();
         ID3D12CommandQueue* get_command_queue() const noexcept
         {
@@ -126,6 +141,7 @@ namespace Cue::GraphicsCore::DX12
         Result create_fence(ID3D12Device& device);
         Result create_fence_event();
         Result create_command_queue(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        Result wait_for_fence_value(uint64_t value);
     protected:
         QueueSyncPoint m_lastSignalPoint{};
         ComPtr<ID3D12CommandQueue> m_commandQueue = nullptr;
