@@ -54,6 +54,7 @@ namespace Cue::GraphicsCore
         virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
         virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
         virtual Result clear_render_target(TextureHandle handle, const float clearColor[4]) = 0;
+        virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
     };
 
     class IQueueContext

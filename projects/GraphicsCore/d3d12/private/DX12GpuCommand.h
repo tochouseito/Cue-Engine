@@ -55,6 +55,7 @@ namespace Cue::GraphicsCore::DX12
         Result resource_barrier(const ResourceBarrierDesc& barrier) override;
         Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
         Result clear_render_target(TextureHandle handle, const float clearColor[4]) override;
+        Result set_viewport_scissor(uint32_t width, uint32_t height) override;
     private:
         DX12BufferManager* m_bufferManager = nullptr;
         DX12TextureManager* m_textureManager = nullptr;

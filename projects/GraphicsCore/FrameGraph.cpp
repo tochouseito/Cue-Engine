@@ -1053,6 +1053,15 @@ namespace Cue::GraphicsCore
                 compiledPass.rootSignatureDecl.handle,
                 std::move(shaderHandles),
                 std::move(descriptorBindings));
+            if (queueType == CommandListType::Graphics)
+            {
+                // 1) Graphics pass は画面全体を既定値にしてから実行し、viewport/scissor の設定漏れで描画が消えないようにする。
+                const Result viewportResult = commandContext->set_viewport_scissor(m_screenWidth, m_screenHeight);
+                if (!viewportResult)
+                {
+                    return viewportResult;
+                }
+            }
             compiledPass.pass->execute(context);
             commandContext->end_event();
 

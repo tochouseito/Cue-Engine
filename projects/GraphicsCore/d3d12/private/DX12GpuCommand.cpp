@@ -297,6 +297,38 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = false;
         return Result::ok();
     }
+    Result DX12CommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
+    {
+        // 1) Graphics queue 以外では RS state を触れないため、呼び出し側の誤用をここで止める。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Viewport/scissor can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+
+        // 2) FrameGraph の画面サイズをそのまま rasterizer state に反映し、pass 側の毎回設定を減らす。
+        D3D12_VIEWPORT viewport{};
+        viewport.TopLeftX = 0.0f;
+        viewport.TopLeftY = 0.0f;
+        viewport.Width = static_cast<float>(width);
+        viewport.Height = static_cast<float>(height);
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        D3D12_RECT scissorRect{};
+        scissorRect.left = 0;
+        scissorRect.top = 0;
+        scissorRect.right = static_cast<LONG>(width);
+        scissorRect.bottom = static_cast<LONG>(height);
+
+        m_commandList->RSSetViewports(1, &viewport);
+        m_commandList->RSSetScissorRects(1, &scissorRect);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     DX12CommandPool::DX12CommandPool(DX12RenderDevice& device)
         : m_graphicsContextPool(
             32,

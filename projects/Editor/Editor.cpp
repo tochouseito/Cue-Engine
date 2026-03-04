@@ -43,8 +43,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imguiSetupInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imguiSetupInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
     imguiManager.initialize(imguiSetupInfo);
-    Cue::GraphicsCore::FrameGraph* frameGraph = d3d12Backend->get_frame_graph();
-    frameGraph->add_pass<Cue::Editor::ImGuiPass>(imguiManager);
+    //Cue::GraphicsCore::FrameGraph* frameGraph = d3d12Backend->get_frame_graph();
+    //frameGraph->add_pass<Cue::Editor::ImGuiPass>(imguiManager);
 
     // 5) メインループ
     bool isRunning = true;
