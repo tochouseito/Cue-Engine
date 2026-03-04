@@ -25,6 +25,10 @@ namespace Cue::GraphicsCore
             return nullptr;
         }
         FrameGraph* get_frame_graph() const { return m_frameGraph.get(); }
+        virtual FrameGraph* get_present_frame_graph() const
+        {
+            return nullptr;
+        }
     protected:
         std::unique_ptr<FrameGraph> m_frameGraph = nullptr;
     };

@@ -27,6 +27,7 @@ namespace Cue::GraphicsCore::DX12
         Result render(uint64_t frameNo, uint32_t index) override;
         Result present(uint64_t frameNo, uint32_t index) override;
         IViewManager* get_view_manager() const override;
+        FrameGraph* get_present_frame_graph() const override;
         void set_win_platform(Platform::IPlatform* platform);
 
         // ImGui用

@@ -43,8 +43,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imguiSetupInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imguiSetupInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
     imguiManager.initialize(imguiSetupInfo);
-    //Cue::GraphicsCore::FrameGraph* frameGraph = d3d12Backend->get_frame_graph();
-    //frameGraph->add_pass<Cue::Editor::ImGuiPass>(imguiManager);
+    Cue::GraphicsCore::FrameGraph* presentFrameGraph = d3d12Backend->get_present_frame_graph();
+    if (presentFrameGraph != nullptr)
+    {
+        auto pass = presentFrameGraph->add_pass<Cue::Editor::ImGuiPass>(imguiManager);
+        pass;
+    }
+    Cue::Result r = presentFrameGraph->build();
+    r;
 
     // 5) メインループ
     bool isRunning = true;
@@ -52,6 +58,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         // 5-1) メッセージの処理
         isRunning = win->poll_message();
+
+        // 5-1.5) ImGuiのフレーム開始
+        imguiManager.begin_frame();
 
         // 5-2) エンジンの更新と描画
         engine.tick();
