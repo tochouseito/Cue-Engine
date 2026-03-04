@@ -45,6 +45,7 @@ namespace Cue::GraphicsCore
     struct PipelineStateTag {};
     struct RootSignatureTag {};
     struct ShaderBlobTag {};
+    struct ViewTag {};
 
     // エイリアス
     using BufferHandle = Handle<BufferTag>;
@@ -52,4 +53,5 @@ namespace Cue::GraphicsCore
     using PipelineStateHandle = Handle<PipelineStateTag>;
     using RootSignatureHandle = Handle<RootSignatureTag>;
     using ShaderBlobHandle = Handle<ShaderBlobTag>;
+    using ViewHandle = Handle<ViewTag>;
 }// namespace Cue::GraphicsCore

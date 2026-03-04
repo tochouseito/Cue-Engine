@@ -7,6 +7,7 @@
 #include "TextureManager.h"
 #include "ShaderCompiler.h"
 #include "PipelineManager.h"
+#include "ViewManager.h"
 
 namespace Cue::GraphicsCore
 {
@@ -213,6 +214,8 @@ namespace Cue::GraphicsCore
             return m_commandContext;
         }
 
+        [[nodiscard]] IViewManager& view_manager() noexcept;
+
         [[nodiscard]] PipelineStateHandle pipeline_handle() const noexcept
         {
             return m_pipelineHandle;
@@ -269,12 +272,14 @@ namespace Cue::GraphicsCore
             uint32_t& screenHeight,
             IBufferManager& bufferManager,
             ITextureManager& textureManager,
+            IViewManager& viewManager,
             IPipelineManager& pipelineManager,
             uint32_t defaultBufferingCount = 1) noexcept
             : m_screenWidth(screenWidth)
             , m_screenHeight(screenHeight)
             , m_bufferManager(bufferManager)
             , m_textureManager(textureManager)
+            , m_viewManager(viewManager)
             , m_pipelineManager(pipelineManager)
             , m_defaultBufferingCount((std::max)(defaultBufferingCount, 1u))
         {}
@@ -317,6 +322,11 @@ namespace Cue::GraphicsCore
         [[nodiscard]] const ExecutionSummary& last_execution_summary() const noexcept
         {
             return m_lastExecutionSummary;
+        }
+
+        [[nodiscard]] IViewManager& view_manager() noexcept
+        {
+            return m_viewManager;
         }
 
     private:
@@ -413,6 +423,7 @@ namespace Cue::GraphicsCore
     private:
         IBufferManager& m_bufferManager;
         ITextureManager& m_textureManager;
+        IViewManager& m_viewManager;
         IPipelineManager& m_pipelineManager;
         uint32_t m_defaultBufferingCount = 1;
         std::vector<LogicalResource> m_resources;
@@ -429,4 +440,8 @@ namespace Cue::GraphicsCore
         uint32_t& m_screenWidth;
         uint32_t& m_screenHeight;
     };
+    inline IViewManager& FrameGraphContext::view_manager() noexcept
+    {
+        return m_frameGraph.view_manager();
+    }
 } // namespace Cue::GraphicsCore

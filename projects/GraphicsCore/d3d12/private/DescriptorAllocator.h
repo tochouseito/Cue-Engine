@@ -58,14 +58,23 @@ namespace Cue::GraphicsCore::DX12
 
         // 各種 view 作成
         Result create_cbv(TableID& id, GpuBufferResource* buffer);
+        Result create_cbv(TableID& id, GpuBufferResource* buffer, uint64_t byteOffset, uint32_t byteSize);
         Result create_srv_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_srv_buffer(TableID& id, GpuBufferResource* buffer, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride);
+        Result create_srv_raw_buffer(TableID& id, GpuBufferResource* buffer, uint64_t firstElement, uint32_t numElements);
         Result create_uav_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_uav_buffer(TableID& id, GpuBufferResource* buffer, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride);
         Result create_uav_raw_buffer(TableID& id, GpuBufferResource* buffer);
+        Result create_uav_raw_buffer(TableID& id, GpuBufferResource* buffer, uint64_t firstElement, uint32_t numElements);
 
         Result create_srv_texture_2d(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
+        Result create_srv_texture_2d(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format, uint32_t mipSlice, uint32_t mipLevels);
+        Result create_uav_texture_2d(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format, uint32_t mipSlice);
         Result create_rtv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
+        Result create_rtv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format, uint32_t mipSlice);
         Result create_rtv(TableID& id, ID3D12Resource* resource, DXGI_FORMAT format);
         Result create_dsv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format);
+        Result create_dsv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format, uint32_t mipSlice);
 
         // CPU/GPU デスクリプタハンドルの取得
         D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind k);

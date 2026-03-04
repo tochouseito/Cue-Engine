@@ -6,6 +6,7 @@
 #include "DX12BufferManager.h"
 #include "private/DX12TextureManager.h"
 #include "private/DX12PipelineManager.h"
+#include "private/DX12ViewManager.h"
 #include "private/HLSLCompiler.h"
 #include "SwapChain.h"
 
@@ -35,6 +36,7 @@ namespace Cue::GraphicsCore::DX12
         std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr;
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr;
         std::unique_ptr<DX12TextureManager> m_textureManager = nullptr;
+        std::unique_ptr<DX12ViewManager> m_viewManager = nullptr;
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
     };
@@ -80,6 +82,7 @@ namespace Cue::GraphicsCore::DX12
         }
         m_impl->m_bufferManager = std::make_unique<DX12BufferManager>(*m_impl->m_renderDevice);
         m_impl->m_textureManager = std::make_unique<DX12TextureManager>(*m_impl->m_renderDevice);
+        m_impl->m_viewManager = std::make_unique<DX12ViewManager>(*m_impl->m_bufferManager, *m_impl->m_textureManager, *m_impl->m_descriptorAllocator);
         m_impl->m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_impl->m_renderDevice, *m_impl->m_shaderCompiler, *m_impl->m_descriptorAllocator);
 
         // 3) コマンドプールとキュープールを初期化する
@@ -109,6 +112,7 @@ namespace Cue::GraphicsCore::DX12
             m_impl->m_swapChain->get_height(),
             *m_impl->m_bufferManager,
             *m_impl->m_textureManager,
+            *m_impl->m_viewManager,
             *m_impl->m_pipelineManager,
             info.bufferCount);
         Pass::BackBufferClearPass* backBufferClearPass = m_frameGraph->add_pass<Pass::BackBufferClearPass>();
@@ -128,6 +132,7 @@ namespace Cue::GraphicsCore::DX12
 
         // 3) CommandContext から参照される manager 群を後段で解放する。
         m_impl->m_pipelineManager.reset();
+        m_impl->m_viewManager.reset();
         m_impl->m_textureManager.reset();
         m_impl->m_bufferManager.reset();
         m_impl->m_descriptorAllocator.reset();
@@ -155,6 +160,10 @@ namespace Cue::GraphicsCore::DX12
         (void)frameNo; // 現状は未使用
         (void)index;   // 現状は未使用
         return m_impl->m_swapChain->present(1, 0);
+    }
+    IViewManager* D3D12Backend::get_view_manager() const
+    {
+        return m_impl->m_viewManager.get();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {

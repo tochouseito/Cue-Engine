@@ -1,6 +1,7 @@
 #pragma once
 #include <Result.h>
 #include "FrameGraph.h"
+#include "ViewManager.h"
 
 namespace Cue::GraphicsCore
 {
@@ -19,6 +20,10 @@ namespace Cue::GraphicsCore
         virtual Result build_frame_graph() = 0;
         virtual Result render(uint64_t frameNo, uint32_t index) = 0;
         virtual Result present(uint64_t frameNo, uint32_t index) = 0;
+        virtual IViewManager* get_view_manager() const
+        {
+            return nullptr;
+        }
         FrameGraph* get_frame_graph() const { return m_frameGraph.get(); }
     protected:
         std::unique_ptr<FrameGraph> m_frameGraph = nullptr;
