@@ -158,4 +158,29 @@ namespace Cue::GraphicsCore::DX12
     {
         m_impl->m_winPlatform = dynamic_cast<Platform::Win::WinPlatform*>(platform);
     }
+    ID3D12Device* D3D12Backend::get_device() const
+    {
+        return m_impl->m_renderDevice->get_d3d12_device();
+    }
+    DXGI_FORMAT D3D12Backend::get_rtv_format() const
+    {
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+    font_srv_for_imgui D3D12Backend::get_font_srv_for_imgui() const
+    {
+        font_srv_for_imgui result{};
+        if (!m_impl->m_descriptorAllocator)
+        {
+            Assert::cue_assert(false, "DescriptorAllocator is not initialized in D3D12Backend.");
+        }
+        else
+        {
+            DescriptorAllocator::TableID fontTable = m_impl->m_descriptorAllocator->allocate(DescriptorAllocator::TableKind::Textures);
+            result.srvDescHeap = m_impl->m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
+            result.cpuDescHandle = m_impl->m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
+            result.gpuDescHandle = m_impl->m_descriptorAllocator->get_gpu_handle(fontTable);
+        }
+
+        return result;
+    }
 } // namespace Cue::Graphics::DX12

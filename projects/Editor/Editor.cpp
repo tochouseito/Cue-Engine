@@ -12,29 +12,52 @@
 // Engine
 #include <Engine.h>
 
+// Editor
+#include "ImGuiManager.h"
+
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-    bool isRunning = true;
-    auto platform = Cue::Platform::create_platform();
-    auto backend = Cue::GraphicsCore::create_backend();
-#ifdef BACKEND_DX12
-    // WinPlatformをD3D12Backendにセット
-    auto d3d12Backend = dynamic_cast<Cue::GraphicsCore::DX12::D3D12Backend*>(backend.get());
-    d3d12Backend->set_win_platform(platform.get());
-#endif
+    // 1) プラットフォームとグラフィックスバックエンドの作成
+    auto win = std::make_unique<Cue::Platform::Win::WinPlatform>();
+    auto d3d12Backend = std::make_unique<Cue::GraphicsCore::DX12::D3D12Backend>();
+
+    // 2) WinPlatformをD3D12Backendにセット
+    d3d12Backend->set_win_platform(win.get());
+
+    // 3) エンジンの初期化
     Cue::Engine engine;
     Cue::EngineInitInfo initInfo;
-    initInfo.platform = platform.get();
-    initInfo.graphicsBackend = backend.get();
+    initInfo.platform = win.get();
+    initInfo.graphicsBackend = d3d12Backend.get();
     engine.initialize(initInfo);
+
+    // 4) Editorの初期化
+    Cue::Editor::ImGuiManager imguiManager;
+    Cue::Editor::imgui_setup_info imguiSetupInfo;
+    imguiSetupInfo.hwnd = static_cast<HWND>(win->get_native_window_handle());
+    imguiSetupInfo.device = d3d12Backend->get_device();
+    imguiSetupInfo.rtvFormat = d3d12Backend->get_rtv_format();
+    Cue::GraphicsCore::DX12::font_srv_for_imgui fontSrvInfo = d3d12Backend->get_font_srv_for_imgui();
+    imguiSetupInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
+    imguiSetupInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
+    imguiSetupInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
+    imguiManager.initialize(imguiSetupInfo);
+
+    // 5) メインループ
+    bool isRunning = true;
     while (isRunning)
     {
-        isRunning = platform->poll_message();
+        // 5-1) メッセージの処理
+        isRunning = win->poll_message();
+
+        // 5-2) エンジンの更新と描画
         engine.tick();
     }
 
+    // 6) エンジンのシャットダウン
     engine.shutdown();
 
+    // 7) アプリケーションの終了
     return 0;
 }
