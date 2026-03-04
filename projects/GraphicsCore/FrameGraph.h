@@ -162,8 +162,8 @@ namespace Cue::GraphicsCore
             ShaderVisibility visibility = ShaderVisibility::All;
             uint32_t shaderRegister = 0;
             ResourceKind resourceKind = ResourceKind::Buffer;
-            uint32_t resourceIndex = 0;
-            uint32_t resourceGeneration = 0;
+            ViewHandle viewHandle = {};
+            DescriptorHandle descriptorHandle = {};
         };
 
         // Runtime view passed to execute().
@@ -399,6 +399,7 @@ namespace Cue::GraphicsCore
         [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, BufferHandle& outHandle) const;
         [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, TextureHandle& outHandle) const;
         [[nodiscard]] Result resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const;
+        [[nodiscard]] Result resolve_render_target_views(const std::vector<ResourceAccess>& accesses, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const;
         [[nodiscard]] Result make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const;
 
         void validate_resource_handle(BufferHandle handle) const;

@@ -2,6 +2,47 @@
 
 namespace Cue::GraphicsCore
 {
+    namespace
+    {
+        [[nodiscard]] Result make_default_buffer_view_desc(RootParameterType parameterType, BufferViewDesc& outDesc)
+        {
+            // 1) FrameGraph の bind_* 宣言は現状 whole-resource view を意味するため、ここで既定の見せ方へ正規化する。
+            outDesc = {};
+            switch (parameterType)
+            {
+            case RootParameterType::CBV:
+                outDesc.type = ViewType::ConstantBuffer;
+                return Result::ok();
+            case RootParameterType::SRV:
+                outDesc.type = ViewType::ShaderResource;
+                return Result::ok();
+            case RootParameterType::UAV:
+                outDesc.type = ViewType::UnorderedAccess;
+                return Result::ok();
+            default:
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Unsupported root parameter type for buffer view");
+            }
+        }
+
+        [[nodiscard]] Result make_default_texture_view_desc(RootParameterType parameterType, TextureViewDesc& outDesc)
+        {
+            // 1) texture descriptor も whole-resource view を既定値にし、特殊な mip/range 指定は後続拡張で表現する。
+            outDesc = {};
+            switch (parameterType)
+            {
+            case RootParameterType::SRV:
+                outDesc.type = ViewType::ShaderResource;
+                outDesc.mipLevels = 0;
+                return Result::ok();
+            case RootParameterType::UAV:
+                outDesc.type = ViewType::UnorderedAccess;
+                return Result::ok();
+            default:
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Unsupported root parameter type for texture view");
+            }
+        }
+    }
+
     Result FrameGraph::add_pass(std::unique_ptr<FrameGraphPass> pass)
     {
         if (pass == nullptr)
@@ -238,6 +279,7 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
     {
+        // 1) buffer index 付き binding は対象フレーム以外では無効なので、descriptor table へ混ぜない。
         if (binding.hasBufferIndex && binding.bufferIndex != frameResourceIndex)
         {
             return Result::fail(Facility::Graphics, Code::NotFound, Severity::Info, 0, "Descriptor binding is not active for this buffer index");
@@ -256,10 +298,26 @@ namespace Cue::GraphicsCore
                 return result;
             }
 
+            BufferViewDesc viewDesc{};
+            const Result viewDescResult = make_default_buffer_view_desc(binding.type, viewDesc);
+            if (!viewDescResult)
+            {
+                return viewDescResult;
+            }
+
             outBinding.resourceKind = ResourceKind::Buffer;
-            outBinding.resourceIndex = physicalHandle.index;
-            outBinding.resourceGeneration = physicalHandle.generation;
-            return Result::ok();
+            const Result viewResult = m_viewManager.get_buffer_view(physicalHandle, viewDesc, outBinding.viewHandle);
+            if (!viewResult)
+            {
+                return viewResult;
+            }
+
+            return m_viewManager.get_descriptor_handle(outBinding.viewHandle, outBinding.descriptorHandle);
+        }
+
+        if (binding.resource.kind != ResourceKind::Texture)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Unsupported descriptor resource kind");
         }
 
         TextureHandle physicalHandle{};
@@ -269,9 +327,76 @@ namespace Cue::GraphicsCore
             return result;
         }
 
+        TextureViewDesc viewDesc{};
+        const Result viewDescResult = make_default_texture_view_desc(binding.type, viewDesc);
+        if (!viewDescResult)
+        {
+            return viewDescResult;
+        }
+
         outBinding.resourceKind = ResourceKind::Texture;
-        outBinding.resourceIndex = physicalHandle.index;
-        outBinding.resourceGeneration = physicalHandle.generation;
+        const Result viewResult = m_viewManager.get_texture_view(physicalHandle, viewDesc, outBinding.viewHandle);
+        if (!viewResult)
+        {
+            return viewResult;
+        }
+
+        return m_viewManager.get_descriptor_handle(outBinding.viewHandle, outBinding.descriptorHandle);
+    }
+
+    Result FrameGraph::resolve_render_target_views(const std::vector<ResourceAccess>& accesses, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const
+    {
+        // 1) graphics pass の output attachment は access 宣言からだけ導出し、pass 側へ backend 依存を漏らさない。
+        outRenderTargetViews.clear();
+        outDepthStencilView = {};
+
+        for (const ResourceAccess& access : accesses)
+        {
+            if (access.handle.kind != ResourceKind::Texture)
+            {
+                continue;
+            }
+
+            if (access.requiredState != ResourceState::RenderTarget && access.requiredState != ResourceState::DepthWrite)
+            {
+                continue;
+            }
+
+            TextureHandle physicalHandle{};
+            const Result resolveResult = resolve_texture(TextureHandle{ access.handle.index, access.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+            if (!resolveResult)
+            {
+                return resolveResult;
+            }
+
+            TextureViewDesc viewDesc{};
+            viewDesc.type = access.requiredState == ResourceState::RenderTarget ? ViewType::RenderTarget : ViewType::DepthStencil;
+
+            ViewHandle viewHandle{};
+            const Result viewResult = m_viewManager.get_texture_view(physicalHandle, viewDesc, viewHandle);
+            if (!viewResult)
+            {
+                return viewResult;
+            }
+
+            if (access.requiredState == ResourceState::RenderTarget)
+            {
+                const auto found = std::find(outRenderTargetViews.begin(), outRenderTargetViews.end(), viewHandle);
+                if (found == outRenderTargetViews.end())
+                {
+                    outRenderTargetViews.push_back(viewHandle);
+                }
+                continue;
+            }
+
+            if (outDepthStencilView.valid() && !(outDepthStencilView == viewHandle))
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Multiple depth stencil outputs are not supported");
+            }
+
+            outDepthStencilView = viewHandle;
+        }
+
         return Result::ok();
     }
 
@@ -1060,6 +1185,25 @@ namespace Cue::GraphicsCore
                 if (!viewportResult)
                 {
                     return viewportResult;
+                }
+
+                // 2) render/depth access から attachment view を解決し、draw の直前に OM へ統一的に bind する。
+                std::vector<ViewHandle> renderTargetViews;
+                renderTargetViews.reserve(compiledPass.accesses.size());
+                ViewHandle depthStencilView{};
+                const Result resolveRenderTargetResult = resolve_render_target_views(compiledPass.accesses, frameResourceIndex, swapchainImageIndex, renderTargetViews, depthStencilView);
+                if (!resolveRenderTargetResult)
+                {
+                    return resolveRenderTargetResult;
+                }
+
+                const Result bindRenderTargetResult = commandContext->set_render_targets(
+                    renderTargetViews.empty() ? nullptr : renderTargetViews.data(),
+                    static_cast<uint32_t>(renderTargetViews.size()),
+                    depthStencilView);
+                if (!bindRenderTargetResult)
+                {
+                    return bindRenderTargetResult;
                 }
             }
             compiledPass.pass->execute(context);

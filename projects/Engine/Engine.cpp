@@ -164,8 +164,6 @@ namespace Cue
                 (void)frameNo;
                 (void)index;
                 (void)this;
-                int i = 0;
-                i++;
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::render()

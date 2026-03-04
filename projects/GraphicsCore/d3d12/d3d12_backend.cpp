@@ -90,7 +90,7 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_commandPool->initialize();
         m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
         m_impl->m_queuePool->initialize();
-        m_impl->m_commandPool->bind_resources(*m_impl->m_bufferManager, *m_impl->m_textureManager, *m_impl->m_descriptorAllocator);
+        m_impl->m_commandPool->bind_resources(*m_impl->m_bufferManager, *m_impl->m_textureManager, *m_impl->m_viewManager, *m_impl->m_descriptorAllocator);
 
         // 4) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
@@ -122,15 +122,30 @@ namespace Cue::GraphicsCore::DX12
     }
     Result D3D12Backend::shutdown()
     {
-        // 1) FrameGraph と SwapChain を先に落とし、以後の render/present 経路を止める。
+        // 1) SwapChain back buffer を解放する前に graphics queue の最後の signal 完了を待ち、GPU 参照を確実に止める。
+        if (m_impl->m_queuePool != nullptr)
+        {
+            QueueContextLease graphicsQueue;
+            const Result acquireQueueResult = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
+            if (acquireQueueResult)
+            {
+                auto* dx12GraphicsQueue = dynamic_cast<DX12QueueContext*>(graphicsQueue.get());
+                if (dx12GraphicsQueue != nullptr)
+                {
+                    dx12GraphicsQueue->wait_for_last_signal();
+                }
+            }
+        }
+
+        // 2) FrameGraph と SwapChain を止め、以後の render/present 経路を無効化する。
         m_frameGraph.reset();
         m_impl->m_swapChain.reset();
 
-        // 2) Queue/Command を manager より先に破棄し、pooled context の destructor が allocator 生存中に走るようにする。
+        // 3) Queue/Command を manager より先に破棄し、pooled context の destructor が allocator 生存中に走るようにする。
         m_impl->m_queuePool.reset();
         m_impl->m_commandPool.reset();
 
-        // 3) CommandContext から参照される manager 群を後段で解放する。
+        // 4) CommandContext から参照される manager 群を後段で解放する。
         m_impl->m_pipelineManager.reset();
         m_impl->m_viewManager.reset();
         m_impl->m_textureManager.reset();
@@ -138,7 +153,7 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_descriptorAllocator.reset();
         m_impl->m_shaderCompiler.reset();
 
-        // 4) 最後に device と補助オブジェクトを解放する。
+        // 5) 最後に device と補助オブジェクトを解放する。
         m_impl->m_renderDevice.reset();
         m_impl->m_leakChecker.reset();
         return Result::ok();
@@ -149,17 +164,30 @@ namespace Cue::GraphicsCore::DX12
     }
     Result D3D12Backend::render(uint64_t frameNo, uint32_t index)
     {
-        (void)index;
-
-        // 1) SwapChain に対する描画は DXGI が次に Present する current back buffer に揃える。
+        // 1) 現状の実装では render フェーズで back buffer まで含めて FrameGraph を実行する。
         const uint32_t backBufferIndex = m_impl->m_swapChain->current_back_buffer_index();
         return m_frameGraph->execute(frameNo, index, backBufferIndex, *m_impl->m_commandPool, *m_impl->m_queuePool);
     }
     Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
     {
-        (void)frameNo; // 現状は未使用
-        (void)index;   // 現状は未使用
-        return m_impl->m_swapChain->present(1, 0);
+        (void)frameNo;
+        (void)index;
+        const Result presentResult = m_impl->m_swapChain->present(1, 0);
+        if (!presentResult)
+        {
+            return presentResult;
+        }
+
+        // 3) shutdown 時に Present 後の back buffer 使用完了まで待てるよう、直後の graphics queue fence を更新する。
+        QueueContextLease graphicsQueue;
+        const Result acquireQueueResult = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
+        if (!acquireQueueResult)
+        {
+            return acquireQueueResult;
+        }
+
+        QueueSyncPoint presentSignalPoint{};
+        return graphicsQueue->signal(presentSignalPoint);
     }
     IViewManager* D3D12Backend::get_view_manager() const
     {

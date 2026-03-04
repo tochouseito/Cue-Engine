@@ -120,7 +120,7 @@ namespace Cue::GraphicsCore::DX12
     {
         // 1) view type に応じて CPU 専用 heap と shader-visible heap の返し方を切り替える。
         bool found = false;
-        m_viewRegistry.with(handle, [this, &outHandle, &found](const ViewRecord& record)
+        found = m_viewRegistry.with(handle, [this, &outHandle, &found](const ViewRecord& record)
         {
             found = true;
             if (record.viewType == ViewType::RenderTarget || record.viewType == ViewType::DepthStencil)

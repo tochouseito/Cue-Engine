@@ -106,11 +106,12 @@ namespace Cue::GraphicsCore::DX12
 
         return Result::ok();
     }
-    void DX12CommandContext::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept
+    void DX12CommandContext::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept
     {
         // 1) manager 参照は acquire 時に再設定し、pool を跨いでも最新構成へ合わせる。
         m_bufferManager = &bufferManager;
         m_textureManager = &textureManager;
+        m_viewManager = &viewManager;
         m_descriptorAllocator = &descriptorAllocator;
     }
     Result DX12CommandContext::close()
@@ -329,6 +330,77 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = false;
         return Result::ok();
     }
+    Result DX12CommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
+    {
+        // 1) OM は graphics queue 専用なので、queue 種別と manager バインドの不整合を先に潰す。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Render targets can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr || m_viewManager == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command context is not bound to view resources.");
+        }
+        if (renderTargetCount > D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Render target count exceeds D3D12 limit.");
+        }
+        if (renderTargetCount > 0 && renderTargetViews == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Render target view array is null.");
+        }
+
+        // 2) view manager が保持する CPU descriptor へ引き直し、FrameGraph 側は ViewHandle だけを渡せばよいようにする。
+        std::array<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT> nativeRenderTargetHandles{};
+        for (uint32_t i = 0; i < renderTargetCount; ++i)
+        {
+            if (!renderTargetViews[i].valid())
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Render target view handle is invalid.");
+            }
+
+            DescriptorHandle descriptorHandle{};
+            const Result descriptorResult = m_viewManager->get_descriptor_handle(renderTargetViews[i], descriptorHandle);
+            if (!descriptorResult)
+            {
+                return descriptorResult;
+            }
+            if (!descriptorHandle.valid() || descriptorHandle.shaderVisible)
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Render target descriptor is not CPU-only.");
+            }
+
+            nativeRenderTargetHandles[i].ptr = static_cast<SIZE_T>(descriptorHandle.cpuPtr);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE nativeDepthStencilHandle{};
+        D3D12_CPU_DESCRIPTOR_HANDLE* depthStencilHandlePtr = nullptr;
+        if (depthStencilView.valid())
+        {
+            DescriptorHandle descriptorHandle{};
+            const Result descriptorResult = m_viewManager->get_descriptor_handle(depthStencilView, descriptorHandle);
+            if (!descriptorResult)
+            {
+                return descriptorResult;
+            }
+            if (!descriptorHandle.valid() || descriptorHandle.shaderVisible)
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Depth stencil descriptor is not CPU-only.");
+            }
+
+            nativeDepthStencilHandle.ptr = static_cast<SIZE_T>(descriptorHandle.cpuPtr);
+            depthStencilHandlePtr = &nativeDepthStencilHandle;
+        }
+
+        // 3) graphics pass 実行前に OM へ反映して、ImGui など backend 直叩きの描画も同じ bind 経路に揃える。
+        m_commandList->OMSetRenderTargets(
+            renderTargetCount,
+            renderTargetCount == 0 ? nullptr : nativeRenderTargetHandles.data(),
+            FALSE,
+            depthStencilHandlePtr);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     DX12CommandPool::DX12CommandPool(DX12RenderDevice& device)
         : m_graphicsContextPool(
             32,
@@ -369,11 +441,12 @@ namespace Cue::GraphicsCore::DX12
         m_copyContextPool.prewarm(1);
         return Result::ok();
     }
-    void DX12CommandPool::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept
+    void DX12CommandPool::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept
     {
         // 1) command context が resource/barrier/clear を実行できるよう、backend 所有 manager を束ねて渡す。
         m_bufferManager = &bufferManager;
         m_textureManager = &textureManager;
+        m_viewManager = &viewManager;
         m_descriptorAllocator = &descriptorAllocator;
     }
     Result DX12CommandPool::acquire_context(CommandListType type, CommandContextLease& outContext)
@@ -387,9 +460,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Graphics:
         {
             auto pooled = m_graphicsContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),
@@ -399,9 +472,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Compute:
         {
             auto pooled = m_computeContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),
@@ -411,9 +484,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Copy:
         {
             auto pooled = m_copyContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),

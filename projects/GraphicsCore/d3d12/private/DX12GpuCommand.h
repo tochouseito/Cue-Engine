@@ -25,7 +25,7 @@ namespace Cue::GraphicsCore::DX12
         Result setup() override;
         Result reset() override;
         Result close() override;
-        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept;
+        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept;
         ID3D12CommandAllocator* get_command_allocator() const noexcept
         {
             return m_commandAllocator.Get();
@@ -56,9 +56,11 @@ namespace Cue::GraphicsCore::DX12
         Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
         Result clear_render_target(TextureHandle handle, const float clearColor[4]) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
+        Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
     private:
         DX12BufferManager* m_bufferManager = nullptr;
         DX12TextureManager* m_textureManager = nullptr;
+        IViewManager* m_viewManager = nullptr;
         DescriptorAllocator* m_descriptorAllocator = nullptr;
         DescriptorAllocator::TableID m_transientRtv = {};
     };
@@ -117,7 +119,7 @@ namespace Cue::GraphicsCore::DX12
 
         Result initialize() override;
 
-        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept;
+        void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept;
         Result acquire_context(CommandListType type, CommandContextLease& outContext) override;
         Result retire_context(CommandContextLease&& context, IQueueContext& queueContext, const QueueSyncPoint& completionPoint) override;
     private:
@@ -142,6 +144,7 @@ namespace Cue::GraphicsCore::DX12
         std::vector<InFlightCommandContext> m_inFlightContexts;
         DX12BufferManager* m_bufferManager = nullptr;
         DX12TextureManager* m_textureManager = nullptr;
+        IViewManager* m_viewManager = nullptr;
         DescriptorAllocator* m_descriptorAllocator = nullptr;
     };
 
