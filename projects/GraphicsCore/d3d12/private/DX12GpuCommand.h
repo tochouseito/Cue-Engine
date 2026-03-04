@@ -22,6 +22,7 @@ namespace Cue::GraphicsCore::DX12
         DX12CommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         virtual ~DX12CommandContext() override;
 
+        Result setup() override;
         Result reset() override;
         Result close() override;
         void bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, DescriptorAllocator& descriptorAllocator) noexcept;

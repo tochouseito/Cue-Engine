@@ -49,6 +49,21 @@ namespace Cue::GraphicsCore::DX12
             m_transientRtv = {};
         }
     }
+    Result DX12CommandContext::setup()
+    {
+        if(!m_descriptorAllocator)
+        {
+            return Result::fail(
+                Facility::Graphics,
+                Code::InvalidState,
+                Severity::Error,
+                0,
+                "DescriptorAllocator is not bound to command context.");
+        }
+        auto srvHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
+        m_commandList->SetDescriptorHeaps(1, &srvHeap);
+        return Result::ok();
+    }
     Result DX12CommandContext::reset()
     {
         if (!m_commandAllocator || !m_commandList)

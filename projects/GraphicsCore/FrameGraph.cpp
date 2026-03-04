@@ -1038,6 +1038,11 @@ namespace Cue::GraphicsCore
 
             // Passes only see resolved runtime data here.
             // They do not need to know about logical names or manager lookups.
+            const Result setupResult = commandContext->setup();
+            if (!setupResult)
+            {
+                return setupResult;
+            }
             FrameGraphContext context(
                 *this,
                 frameNo,

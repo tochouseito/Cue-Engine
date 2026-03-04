@@ -34,6 +34,7 @@ namespace Cue::GraphicsCore
         ICommandContext& operator=(ICommandContext&&) = default;
         virtual ~ICommandContext() = default;
 
+        virtual Result setup() = 0;
         virtual Result reset() = 0;
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
