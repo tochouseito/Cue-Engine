@@ -20,6 +20,8 @@ namespace Cue::GraphicsCore
         ResourceState after = ResourceState::Common;
     };
 
+    using NativeCommandList = void*; // 透過型ハンドル（実際の型はバックエンドごとに異なる）
+
     class ICommandContext
     {
     public:
@@ -35,6 +37,7 @@ namespace Cue::GraphicsCore
         virtual Result reset() = 0;
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
+        virtual NativeCommandList native_command_list() const = 0;
 
         bool is_list_empty() const
         {

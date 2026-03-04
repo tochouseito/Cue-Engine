@@ -34,6 +34,10 @@ namespace Cue::GraphicsCore::DX12
             return m_commandList.Get();
         }
         virtual CommandListType type() const = 0;
+        virtual NativeCommandList native_command_list() const override
+        {
+            return reinterpret_cast<NativeCommandList>(m_commandList.Get());
+        }
     protected:
         ComPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;

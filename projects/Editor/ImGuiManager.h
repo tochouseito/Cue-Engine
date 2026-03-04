@@ -7,6 +7,12 @@
 // Core includes
 #include <Logger.h>
 
+// GraphicsCore includes
+#include <FrameGraph.h>
+
+// DX12 includes
+
+
 // ImGui includes
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -165,5 +171,58 @@ namespace Cue::Editor
     private:
         bool m_isInitialized = false;
         const char* m_layoutFilePath = "config/imgui_layout.ini";
+    };
+
+    class ImGuiPass final : public GraphicsCore::FrameGraphPass
+    {
+    public:
+        ImGuiPass(ImGuiManager& imguiManager)
+            : m_imguiManager(imguiManager)
+        {
+        }
+        ~ImGuiPass() override = default;
+        [[nodiscard]] const char* name() const override
+        {
+            return "ImGuiPass";
+        }
+
+        void setup(GraphicsCore::FrameGraphBuilder& builder) override
+        {
+            // 1) ImGuiの描画はフレームグラフの最後に行うため、常にバックバッファにレンダリングするパスを宣言する。
+            //    これにより、ImGuiが他のパスの後で確実に描画されるようになる。
+            GraphicsCore::TextureDesc desc{};
+            desc.name = "SwapChain.BackBuffer";
+            desc.instanceSource = GraphicsCore::ResourceInstanceSource::SwapchainImageIndex;
+            m_backBuffer = builder.import_texture(desc.name, desc, GraphicsCore::ResourceState::Present);
+            builder.render(m_backBuffer, GraphicsCore::ResourceState::Present);
+        }
+
+        void execute(GraphicsCore::FrameGraphContext& ctx) const override
+        {
+            m_imguiManager.end_frame(); // ImGuiのフレームを終了して描画データを確定させる
+            GraphicsCore::ICommandContext& commandContext = ctx.command_context();
+
+            GraphicsCore::TextureHandle resolvedBackBuffer{};
+            const Result resolveResult = ctx.resolve_texture(m_backBuffer, resolvedBackBuffer);
+            if (!resolveResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to resolve back buffer for swapchain image {}\n", ctx.swapchain_image_index());
+                return;
+            }
+            constexpr float clearColor[4] = { 0.07f, 0.11f, 0.18f, 1.0f };
+            const Result clearResult = commandContext.clear_render_target(resolvedBackBuffer, clearColor);
+            if (!clearResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to clear back buffer for swapchain image {}\n", ctx.swapchain_image_index());
+                return;
+            }
+
+            GraphicsCore::NativeCommandList nativeCommandList = commandContext.native_command_list();
+            ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);
+            m_imguiManager.render(dxCommandList); // ImGuiの描画コマンドを発行する
+        }
+    private:
+        ImGuiManager& m_imguiManager;
+        GraphicsCore::TextureHandle m_backBuffer;
     };
 }
