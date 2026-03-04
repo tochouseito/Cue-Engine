@@ -5,21 +5,24 @@ namespace Cue::GraphicsCore::DX12
     Result SwapChain::create(HWND hWnd, uint32_t width, uint32_t height, uint32_t bufferCount, DX12QueueContext& queue, DXGI_FORMAT format)
     {
         m_hWnd = hWnd;
-        m_desc.Width = width;// 画面の幅。ウィンドウのクライアント領域を同じものにしておく
-        m_desc.Height = height;// 画面の高さ。ウィンドウのクライアント領域を同じものにしておく
-        m_desc.Format = format;// 色の形式
-        m_desc.SampleDesc.Count = 1;// マルチサンプルしない
-        m_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;// 描画のターゲットとして利用する
-        m_desc.BufferCount = bufferCount;// バッファ数
-        m_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;// モニタにうつしたら、中身を破棄
-        m_desc.Flags =
+        m_width = width;
+        m_height = height;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = width;// 画面の幅。ウィンドウのクライアント領域を同じものにしておく
+        desc.Height = height;// 画面の高さ。ウィンドウのクライアント領域を同じものにしておく
+        desc.Format = format;// 色の形式
+        desc.SampleDesc.Count = 1;// マルチサンプルしない
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;// 描画のターゲットとして利用する
+        desc.BufferCount = bufferCount;// バッファ数
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;// モニタにうつしたら、中身を破棄
+        desc.Flags =
             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
             DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;// ティアリングサポート
 
         HRESULT hr = m_renderDevice.get_dxgi_factory()->CreateSwapChainForHwnd(
             queue.get_command_queue(),
             m_hWnd,
-            &m_desc,
+            &desc,
             nullptr, nullptr,
             reinterpret_cast<IDXGISwapChain1**>(m_swapChain.GetAddressOf()));
 

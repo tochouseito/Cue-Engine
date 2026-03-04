@@ -265,11 +265,15 @@ namespace Cue::GraphicsCore
     {
     public:
         FrameGraph(
+            uint32_t& screenWidth,
+            uint32_t& screenHeight,
             IBufferManager& bufferManager,
             ITextureManager& textureManager,
             IPipelineManager& pipelineManager,
             uint32_t defaultBufferingCount = 1) noexcept
-            : m_bufferManager(bufferManager)
+            : m_screenWidth(screenWidth)
+            , m_screenHeight(screenHeight)
+            , m_bufferManager(bufferManager)
             , m_textureManager(textureManager)
             , m_pipelineManager(pipelineManager)
             , m_defaultBufferingCount((std::max)(defaultBufferingCount, 1u))
@@ -422,5 +426,7 @@ namespace Cue::GraphicsCore
         ExecutionSummary m_lastExecutionSummary{};
         bool m_isBuilt = false;
         bool m_isDirty = false;
+        uint32_t& m_screenWidth;
+        uint32_t& m_screenHeight;
     };
 } // namespace Cue::GraphicsCore

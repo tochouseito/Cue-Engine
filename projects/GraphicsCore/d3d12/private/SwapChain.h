@@ -90,13 +90,16 @@ namespace Cue::GraphicsCore::DX12
 
             return Result::ok();
         }
+        uint32_t& get_width() noexcept { return m_width; }
+        uint32_t& get_height() noexcept { return m_height; }
     private:
         DX12RenderDevice& m_renderDevice;
         DescriptorAllocator& m_descriptorAllocator;
 
         HWND m_hWnd = nullptr;
         ComPtr<IDXGISwapChain4> m_swapChain;
-        DXGI_SWAP_CHAIN_DESC1 m_desc{};
+        uint32_t m_width = 0;
+        uint32_t m_height = 0;
         int32_t m_refreshrate = 60;
         std::vector<DescriptorAllocator::TableID> m_rtvTableIDs;
         std::vector<GpuTextureResource> m_backBuffers;

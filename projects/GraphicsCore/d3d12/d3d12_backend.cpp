@@ -105,6 +105,8 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_swapChain->import_back_buffers(*m_impl->m_textureManager);
 
         m_frameGraph = std::make_unique<FrameGraph>(
+            m_impl->m_swapChain->get_width(),
+            m_impl->m_swapChain->get_height(),
             *m_impl->m_bufferManager,
             *m_impl->m_textureManager,
             *m_impl->m_pipelineManager,
