@@ -55,9 +55,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         engine.tick();
     }
 
-    // 6) エンジンのシャットダウン
+    // 6) Editorのシャットダウン
+    imguiManager.shutdown();
+
+    // 7) エンジンのシャットダウン
     engine.shutdown();
 
-    // 7) アプリケーションの終了
+    // 8) アプリケーションの終了
     return 0;
 }

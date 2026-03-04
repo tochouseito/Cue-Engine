@@ -79,9 +79,17 @@ target_include_directories(cue_json SYSTEM INTERFACE
     "${CMAKE_SOURCE_DIR}/thirdparty/json")
 
 # ImGui
-add_library(cue_imgui INTERFACE)
-target_include_directories(cue_imgui SYSTEM INTERFACE
-    "${CMAKE_SOURCE_DIR}/thirdparty/imgui")
+add_library(cue_imgui STATIC
+    "thirdparty/imgui/src/imgui.cpp"
+    "thirdparty/imgui/src/imgui_draw.cpp"
+    "thirdparty/imgui/src/imgui_tables.cpp"
+    "thirdparty/imgui/src/imgui_widgets.cpp"
+    "thirdparty/imgui/src/imgui_impl_win32.cpp"
+    "thirdparty/imgui/src/imgui_impl_dx12.cpp")
+target_include_directories(cue_imgui PUBLIC
+    "${CMAKE_SOURCE_DIR}/thirdparty/imgui/include")
+target_link_libraries(cue_imgui PRIVATE cue_warnings)
+target_link_libraries(cue_imgui PRIVATE cue_compile_options)
 
 # サブプロジェクトを含めます。
 add_subdirectory ("projects/Base")
