@@ -15,9 +15,10 @@ namespace Cue::GraphicsCore::DX12
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;// 描画のターゲットとして利用する
         desc.BufferCount = bufferCount;// バッファ数
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;// モニタにうつしたら、中身を破棄
-        desc.Flags =
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
-            DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;// ティアリングサポート
+        desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;// ティアリングサポート
+
+        ComPtr<IDXGISwapChain1> swapChain1;
+
 
         HRESULT hr = m_renderDevice.get_dxgi_factory()->CreateSwapChainForHwnd(
             queue.get_command_queue(),
@@ -49,7 +50,7 @@ namespace Cue::GraphicsCore::DX12
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
         // VSync 共存型 FPS 固定としてレイテンシを 1 に設定する
-        m_swapChain->SetMaximumFrameLatency(1);
+        m_swapChain->SetMaximumFrameLatency(bufferCount);
 
         // OS の Alt+Enter フルスクリーン遷移を無効化する
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
@@ -73,6 +74,25 @@ namespace Cue::GraphicsCore::DX12
             m_rtvTableIDs[i] = rtvTableID;
         }
 
+        return Result::ok();
+    }
+    Result SwapChain::present(bool vsync)
+    {
+        HRESULT hr = S_OK;
+        // 1) VSync の有無で Present の引数を切り替える
+        if (vsync)
+        {
+            hr = m_swapChain->Present(1, 0);
+
+        }
+        else
+        {
+            hr = m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+        }
+        if (FAILED(hr))
+        {
+            return Result::fail(Facility::D3D12, Code::GettingInfoFailed, Severity::Error, static_cast<uint32_t>(hr), "Failed to present swap chain");
+        }
         return Result::ok();
     }
 } // namespace Cue::GraphicsCore::DX12

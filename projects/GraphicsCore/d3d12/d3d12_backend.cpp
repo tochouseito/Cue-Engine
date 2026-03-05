@@ -204,7 +204,7 @@ namespace Cue::GraphicsCore::DX12
             return executeResult;
         }
 
-        const Result presentResult = m_impl->m_swapChain->present(1, 0);
+        const Result presentResult = m_impl->m_swapChain->present(false);
         if (!presentResult)
         {
             return presentResult;

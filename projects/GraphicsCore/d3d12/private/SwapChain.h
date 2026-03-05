@@ -23,15 +23,7 @@ namespace Cue::GraphicsCore::DX12
             uint32_t bufferCount,
             DX12QueueContext& queue,
             DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM);
-        Result present(uint32_t syncInterval = 1, uint32_t flags = 0)
-        {
-            const HRESULT hr = m_swapChain->Present(syncInterval, flags);
-            if (FAILED(hr))
-            {
-                return Result::fail(Facility::D3D12, Code::GettingInfoFailed, Severity::Error, static_cast<uint32_t>(hr), "Failed to present swap chain");
-            }
-            return Result::ok();
-        }
+        Result present(bool vsync);
         [[nodiscard]] uint32_t current_back_buffer_index() const noexcept
         {
             if (!m_swapChain)
