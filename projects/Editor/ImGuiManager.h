@@ -27,6 +27,7 @@ namespace Cue::Editor
     {
         HWND hwnd = nullptr;
         ID3D12Device* device = nullptr;
+        ID3D12CommandQueue* commandQueue = nullptr;
         uint32_t bufferingCount = 2;
         DXGI_FORMAT rtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
         ID3D12DescriptorHeap* srvDescHeap = nullptr;
@@ -68,13 +69,16 @@ namespace Cue::Editor
 
             // 5) プラットフォーム/レンダラーの初期化
             ImGui_ImplWin32_Init(setupInfo.hwnd);
-            ImGui_ImplDX12_Init(
-                setupInfo.device,
-                setupInfo.bufferingCount,
-                setupInfo.rtvFormat,
-                setupInfo.srvDescHeap,
-                setupInfo.fontSrvCpuDescHandle,
-                setupInfo.fontSrvGpuDescHandle);
+
+            ImGui_ImplDX12_InitInfo initInfo = {};
+            initInfo.Device = setupInfo.device;
+            initInfo.CommandQueue = setupInfo.commandQueue;
+            initInfo.NumFramesInFlight = setupInfo.bufferingCount;
+            initInfo.RTVFormat = setupInfo.rtvFormat;
+            initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // 深度バッファは使用しないため、DSVフォーマットは指定しない
+            initInfo.LegacySingleSrvCpuDescriptor = setupInfo.fontSrvCpuDescHandle;
+            initInfo.LegacySingleSrvGpuDescriptor = setupInfo.fontSrvGpuDescHandle;
+            ImGui_ImplDX12_Init(&initInfo);
 
             // 6) スタイルの設定
             ImGui::StyleColorsDark();
@@ -112,10 +116,18 @@ namespace Cue::Editor
                     Facility::Core, Code::InvalidState, Severity::Error, 0,
                     "ImGuiManager is not initialized");
             }
-            // 2) フレーム開始
+            // 2) すでにフレームが開始されているならエラー
+            if(m_isBeginFrameCalled)
+            {
+                return Result::fail(
+                    Facility::Core, Code::InvalidState, Severity::Error, 0,
+                    "ImGui frame is already begun");
+            }
+            // 3) フレーム開始
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
+            m_isBeginFrameCalled = true;
             return Result::ok();
         }
         Result end_frame()
@@ -127,7 +139,14 @@ namespace Cue::Editor
                     Facility::Core, Code::InvalidState, Severity::Error, 0,
                     "ImGuiManager is not initialized");
             }
-            // 2) フレーム終了
+            // 2) フレームが開始されていないならエラー
+            if (!m_isBeginFrameCalled)
+            {
+                return Result::fail(
+                    Facility::Core, Code::InvalidState, Severity::Error, 0,
+                    "ImGui frame is not begun");
+            }
+            // 3) フレーム終了
             ImGui::EndFrame();
             return Result::ok();
         }
@@ -140,7 +159,14 @@ namespace Cue::Editor
                     Facility::Core, Code::InvalidState, Severity::Error, 0,
                     "ImGuiManager is not initialized");
             }
-            // 2) 描画コマンドを生成
+            // 2) フレームが開始されていないならエラー
+            if(!m_isBeginFrameCalled)
+            {
+                return Result::fail(
+                    Facility::Core, Code::InvalidState, Severity::Error, 0,
+                    "ImGui frame is not begun");
+            }
+            // 3) 描画コマンドを生成
             ImGui::Render();
             ImGuiIO& io = ImGui::GetIO();
             if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -149,14 +175,13 @@ namespace Cue::Editor
                 ImGui::RenderPlatformWindowsDefault();
             }
 
-            // 3) 有効な描画データを取得
+            // 4) 有効な描画データを取得
             ImDrawData* drawData = ImGui::GetDrawData();
-            if (drawData == nullptr || drawData->CmdListsCount == 0)
+            if (drawData != nullptr || drawData->CmdListsCount != 0)
             {
-                return Result::ok(); // 描画するものがない
+                ImGui_ImplDX12_RenderDrawData(drawData, commandList);
             }
-            ImGui_ImplDX12_RenderDrawData(drawData, commandList);
-
+            m_isBeginFrameCalled = false; // フレームが終了したので、次のフレームを開始できるようにする
             return Result::ok();
         }
 
@@ -170,6 +195,7 @@ namespace Cue::Editor
         }
     private:
         bool m_isInitialized = false;
+        std::atomic_bool m_isBeginFrameCalled = false;
         const char* m_layoutFilePath = "config/imgui_layout.ini";
     };
 
@@ -199,7 +225,6 @@ namespace Cue::Editor
 
         void execute(GraphicsCore::FrameGraphContext& ctx) const override
         {
-            m_imguiManager.end_frame(); // ImGuiのフレームを終了して描画データを確定させる
             GraphicsCore::ICommandContext& commandContext = ctx.command_context();
 
             GraphicsCore::TextureHandle resolvedBackBuffer{};
@@ -216,6 +241,17 @@ namespace Cue::Editor
                 Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to clear back buffer for swapchain image {}\n", ctx.swapchain_image_index());
                 return;
             }
+
+            /*GraphicsCore::TextureViewDesc rtvDesc{};
+            rtvDesc.type = GraphicsCore::ViewType::RenderTarget;
+            GraphicsCore::ViewHandle rtvHandle{};
+            const Result getViewResult = ctx.view_manager().get_texture_view(resolvedBackBuffer, rtvDesc, rtvHandle);
+            if (!getViewResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to get texture view for swapchain image {}\n", ctx.swapchain_image_index());
+                return;
+            }*/
+
 
             GraphicsCore::NativeCommandList nativeCommandList = commandContext.native_command_list();
             ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);

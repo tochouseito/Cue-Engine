@@ -37,6 +37,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::Editor::imgui_setup_info imguiSetupInfo;
     imguiSetupInfo.hwnd = static_cast<HWND>(win->get_native_window_handle());
     imguiSetupInfo.device = d3d12Backend->get_device();
+    imguiSetupInfo.commandQueue = d3d12Backend->get_graphics_command_queue();
     imguiSetupInfo.rtvFormat = d3d12Backend->get_rtv_format();
     Cue::GraphicsCore::DX12::font_srv_for_imgui fontSrvInfo = d3d12Backend->get_font_srv_for_imgui();
     imguiSetupInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
@@ -60,7 +61,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         isRunning = win->poll_message();
 
         // 5-1.5) ImGuiのフレーム開始
-        imguiManager.begin_frame();
+        if (imguiManager.begin_frame())
+        {
+            ImGui::Begin("Hello, ImGui!"); // ウィンドウを作成
+            ImGui::Text("This is a simple text in the ImGui window."); // テキストを表示
+            ImGui::End();
+            imguiManager.end_frame();
+        }
 
         // 5-2) エンジンの更新と描画
         engine.tick();

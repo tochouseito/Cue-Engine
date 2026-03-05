@@ -821,30 +821,117 @@ namespace Cue::GraphicsCore::DX12
         {
         case CommandListType::Graphics:
         {
+            // 1) SwapChain と同じ graphics queue を使い回すため、上限本数に達したら返却を待つ。
+            std::unique_lock<std::mutex> lock(m_graphicsQueuePoolMutex);
+            m_graphicsQueuePoolCv.wait(lock, [this]()
+                {
+                    return m_graphicsQueueInUseCount < k_graphicsQueueCount;
+                });
             auto pooled = m_graphicsQueuePool.acquire();
+            ++m_graphicsQueueInUseCount;
             outQueue = QueueContextLease(
                 pooled.release(),
-                [this](IQueueContext* raw) { m_graphicsQueuePool.recycle(static_cast<DX12GraphicsQueueContext*>(raw)); });
+                [this](IQueueContext* raw)
+                {
+                    recycle_graphics_queue(raw);
+                });
             return Result::ok();
         }
         case CommandListType::Compute:
         {
+            // 1) compute queue も固定本数で運用し、上限を超える追加生成を禁止する。
+            std::unique_lock<std::mutex> lock(m_computeQueuePoolMutex);
+            m_computeQueuePoolCv.wait(lock, [this]()
+                {
+                    return m_computeQueueInUseCount < k_computeQueueCount;
+                });
             auto pooled = m_computeQueuePool.acquire();
+            ++m_computeQueueInUseCount;
             outQueue = QueueContextLease(
                 pooled.release(),
-                [this](IQueueContext* raw) { m_computeQueuePool.recycle(static_cast<DX12ComputeQueueContext*>(raw)); });
+                [this](IQueueContext* raw)
+                {
+                    recycle_compute_queue(raw);
+                });
             return Result::ok();
         }
         case CommandListType::Copy:
         {
+            // 1) copy queue も固定本数で運用し、上限を超える追加生成を禁止する。
+            std::unique_lock<std::mutex> lock(m_copyQueuePoolMutex);
+            m_copyQueuePoolCv.wait(lock, [this]()
+                {
+                    return m_copyQueueInUseCount < k_copyQueueCount;
+                });
             auto pooled = m_copyQueuePool.acquire();
+            ++m_copyQueueInUseCount;
             outQueue = QueueContextLease(
                 pooled.release(),
-                [this](IQueueContext* raw) { m_copyQueuePool.recycle(static_cast<DX12CopyQueueContext*>(raw)); });
+                [this](IQueueContext* raw)
+                {
+                    recycle_copy_queue(raw);
+                });
             return Result::ok();
         }
         default:
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Unsupported queue type");
         }
+    }
+
+    void DX12QueuePool::recycle_graphics_queue(IQueueContext* raw) noexcept
+    {
+        // 1) pool 返却と in-use カウント更新を同一ロック内で行い、上限管理の整合性を保つ。
+        if (raw == nullptr)
+        {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_graphicsQueuePoolMutex);
+            m_graphicsQueuePool.recycle(static_cast<DX12GraphicsQueueContext*>(raw));
+            if (m_graphicsQueueInUseCount > 0)
+            {
+                --m_graphicsQueueInUseCount;
+            }
+        }
+        m_graphicsQueuePoolCv.notify_one();
+    }
+
+    void DX12QueuePool::recycle_compute_queue(IQueueContext* raw) noexcept
+    {
+        // 1) pool 返却と in-use カウント更新を同一ロック内で行い、上限管理の整合性を保つ。
+        if (raw == nullptr)
+        {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_computeQueuePoolMutex);
+            m_computeQueuePool.recycle(static_cast<DX12ComputeQueueContext*>(raw));
+            if (m_computeQueueInUseCount > 0)
+            {
+                --m_computeQueueInUseCount;
+            }
+        }
+        m_computeQueuePoolCv.notify_one();
+    }
+
+    void DX12QueuePool::recycle_copy_queue(IQueueContext* raw) noexcept
+    {
+        // 1) pool 返却と in-use カウント更新を同一ロック内で行い、上限管理の整合性を保つ。
+        if (raw == nullptr)
+        {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_copyQueuePoolMutex);
+            m_copyQueuePool.recycle(static_cast<DX12CopyQueueContext*>(raw));
+            if (m_copyQueueInUseCount > 0)
+            {
+                --m_copyQueueInUseCount;
+            }
+        }
+        m_copyQueuePoolCv.notify_one();
     }
 } // namespace Cue::GraphicsCore::DX12

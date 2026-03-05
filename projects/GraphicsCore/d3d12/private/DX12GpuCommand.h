@@ -7,6 +7,7 @@
 #include <Pool.h>
 
 #include <array>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 
@@ -230,6 +231,10 @@ namespace Cue::GraphicsCore::DX12
         Result initialize() override;
         Result acquire_queue(CommandListType type, QueueContextLease& outQueue) override;
     private:
+        void recycle_graphics_queue(IQueueContext* raw) noexcept;
+        void recycle_compute_queue(IQueueContext* raw) noexcept;
+        void recycle_copy_queue(IQueueContext* raw) noexcept;
+
         // 各キューの数
         static const uint32_t k_graphicsQueueCount = 1;///> 
         static const uint32_t k_computeQueueCount = 4; ///>
@@ -237,11 +242,17 @@ namespace Cue::GraphicsCore::DX12
 
         Core::Pool<DX12GraphicsQueueContext, std::function<void(DX12GraphicsQueueContext&)>> m_graphicsQueuePool;
         std::mutex m_graphicsQueuePoolMutex;
+        std::condition_variable m_graphicsQueuePoolCv;
+        uint32_t m_graphicsQueueInUseCount = 0;
 
         Core::Pool<DX12ComputeQueueContext, std::function<void(DX12ComputeQueueContext&)>> m_computeQueuePool;
         std::mutex m_computeQueuePoolMutex;
+        std::condition_variable m_computeQueuePoolCv;
+        uint32_t m_computeQueueInUseCount = 0;
 
         Core::Pool<DX12CopyQueueContext, std::function<void(DX12CopyQueueContext&)>> m_copyQueuePool;
         std::mutex m_copyQueuePoolMutex;
+        std::condition_variable m_copyQueuePoolCv;
+        uint32_t m_copyQueueInUseCount = 0;
     };
 } // namespace Cue::GraphicsCore::DX12

@@ -32,6 +32,7 @@ namespace Cue::GraphicsCore::DX12
 
         // ImGui用
         ID3D12Device* get_device() const;
+        ID3D12CommandQueue* get_graphics_command_queue() const;
         DXGI_FORMAT get_rtv_format() const;
         font_srv_for_imgui get_font_srv_for_imgui() const;
     private:

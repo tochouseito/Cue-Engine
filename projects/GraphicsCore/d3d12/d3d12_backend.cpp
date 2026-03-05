@@ -237,6 +237,23 @@ namespace Cue::GraphicsCore::DX12
     {
         return m_impl->m_renderDevice->get_d3d12_device();
     }
+    ID3D12CommandQueue* D3D12Backend::get_graphics_command_queue() const
+    {
+        QueueContextLease graphicsQueue;
+        const Result acquireQueueResult = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
+        if (!acquireQueueResult)
+        {
+            Assert::cue_assert(false, "Failed to acquire graphics queue in D3D12Backend.");
+        }
+        auto* dx12GraphicsQueue = dynamic_cast<DX12QueueContext*>(graphicsQueue.get());
+        if (dx12GraphicsQueue == nullptr)
+        {
+            Assert::cue_assert(false, "Failed to cast to DX12QueueContext in D3D12Backend.");
+            return nullptr;
+        }
+        auto* commandQueue = dx12GraphicsQueue->get_command_queue();
+        return commandQueue;
+    }
     DXGI_FORMAT D3D12Backend::get_rtv_format() const
     {
         return DXGI_FORMAT_R8G8B8A8_UNORM;
