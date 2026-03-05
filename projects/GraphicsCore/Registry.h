@@ -14,7 +14,7 @@ namespace Cue::GraphicsCore
         // Recordは、ハンドルのインデックスに対応する実体の型
         static_assert(std::is_default_constructible_v<Record>,
             "Registry<Record> requires default-constructible Record for destroy().");
-        // 破棄時に空きスロットを再利用するため、Recordはムーブ可能である必要がある
+        // 破棄済みスロットを再利用できるよう Record をムーブ可能として扱う
         static_assert(std::is_move_assignable_v<Record>,
             "Registry<Record> requires move-assignable Record for slot reuse.");
 

@@ -2,6 +2,6 @@
 
 namespace Cue::Platform::Win
 {
-    // Win32 の実体型(HWND)を公開ヘッダへ漏らさないための透過ハンドル
+    // Win32 実体型(HWND)を隠蔽する透過ハンドル
     using NativeWindowHandle = void*;
 }

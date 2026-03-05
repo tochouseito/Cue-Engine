@@ -4,7 +4,7 @@
 
 namespace Cue::GraphicsCore
 {
-    // 文字列を整数で扱うためのハッシュ関数
+    // 文字列を整数へ変換するハッシュ関数
     using ResourceNameId = uint64_t;
     constexpr ResourceNameId fnv1a64(std::string_view text) noexcept
     {

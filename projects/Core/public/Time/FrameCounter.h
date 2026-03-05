@@ -40,7 +40,7 @@ namespace Cue::Core::Time
                 return;
             }
 
-            // 2) FPS制限（待ちをdeltaに含めるため、lap前に待つ）
+            // 2) FPS制限の待機を lap 前に実行する（待機時間を delta に含める）
             if (m_maxFps > 0)
             {
                 cap_fps_();
@@ -124,7 +124,7 @@ namespace Cue::Core::Time
             }
 
             // 5) 既に遅れているなら、追いつく（遅れを引きずらない）
-            //    ※「遅れたフレームを無理に取り戻す」のは無理なので、次の予定を作り直す
+            //    ※ 遅延発生時は次フレーム予定を再計算する
             if (now0 >= m_nextTickNs)
             {
                 m_nextTickNs = now0 + frameNs;

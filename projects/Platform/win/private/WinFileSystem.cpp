@@ -926,7 +926,7 @@ namespace Cue::Platform::Win
         }
         out_file->reset();
 
-        // 2) no_buffer は地雷なので未対応にする（整列/セクタサイズ問題が出る）
+        // 2) no_buffer 指定は unsupported を返す（整列制約は未対応）
         if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::no_buffer))
         {
             return make_not_supported_error("Operation is not supported.");

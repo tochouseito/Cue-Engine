@@ -67,16 +67,16 @@ namespace Cue::GraphicsCore::DX12
         // 2) 利用可能な機能レベルでデバイスを生成する
         HRESULT hr;
 
-        // 未選択状態を明確にするため nullptr で初期化する
+        // 未選択状態として nullptr で初期化する
         Microsoft::WRL::ComPtr < IDXGIAdapter4> useAdapter = nullptr;
 
-        // 高性能優先で探索するため優先度順に列挙する
+        // 優先度順でアダプタを列挙する
         for (UINT i = 0; m_dxgiFactory->EnumAdapterByGpuPreference(i,
             DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) !=
             DXGI_ERROR_NOT_FOUND; ++i)
         {
 
-            // 条件判定のためアダプタ情報を取得する
+            // 条件判定用にアダプタ情報を取得する
             hr = useAdapter->GetDesc3(&m_adapterDesc);
 
             if (FAILED(hr))

@@ -45,7 +45,7 @@ namespace Cue::Platform::Win
 
             Cue::Core::Threading::StopSource stopSource{};
 
-            // 1) 競合を避けるため atomic にする（コピー不可だが、ヒープに置くので問題ない）
+            // 1) 停止フラグを atomic で保持する
             std::atomic<uint32_t> exitCode{ 0 };
 
             StartContext() noexcept = default;

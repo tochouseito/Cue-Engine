@@ -5,8 +5,8 @@ namespace Cue
 {
     bool FrameJob::start(ThreadFactory& factory, const char* name, JobFunc func)
     {
-        // 1) キック処理で再利用するため実行関数を保持する
-        // 2) 要求受付のためループスレッドを開始する
+        // 1) 実行関数をメンバへ保持する
+        // 2) 要求受付ループのスレッドを開始する
         m_func = std::move(func);
         m_exit = false;
         m_finishedFrame = 0;
@@ -30,7 +30,7 @@ namespace Cue
     }
     void FrameJob::kick(uint64_t frameNo, uint32_t index)
     {
-        // 1) 要求順を保つためキューに積む
+        // 1) 要求をキュー末尾へ追加する
         // 2) 待機中スレッドを起こして遅延を抑える
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -40,14 +40,14 @@ namespace Cue
     }
     uint64_t FrameJob::get_finished_frame() const
     {
-        // 1) 競合を避けて整合性を保つため排他する
+        // 1) キュー操作をミューテックスで排他する
         // 2) 進行判定に使う完了フレームを返す
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_finishedFrame;
     }
     void FrameJob::stop()
     {
-        // 1) ループを安全に抜けるため終了フラグを立てる
+        // 1) 終了フラグを立ててループ停止を要求する
         // 2) join して後処理中の競合を防ぐ
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -78,7 +78,7 @@ namespace Cue
     }
     uint32_t FrameJob::thread_loop(StopToken token) noexcept
     {
-        // 1) スピンを避けるため条件変数で待機する
+        // 1) 条件変数で待機する
         // 2) 停止要求を優先して安全に終了する
         uint64_t currentFrame = 0;
         while (!token.stop_requested())
@@ -163,14 +163,14 @@ namespace Cue
     }
     void FrameController::poll_resize_request()
     {
-        // 1) 直接反映せず次フレームで処理するためフラグ化する
+        // 1) 反映要求フラグを立てる
         // 2) セーフポイントで適用できるよう記録だけ行う
         m_resizePending.store(true, std::memory_order_relaxed);
     }
     bool FrameController::start_pipeline()
     {
-        // 1) 不正設定を早期に検出するため検証する
-        // 2) 初回遷移の整合性を取るため初期バッファを埋めて開始する
+        // 1) 設定値を検証する
+        // 2) 初期バッファを設定して開始状態を作る
         Assert::cue_assert((m_config.m_bufferCount >= 1), "bufferCount は 1 以上が必要です。");
         Assert::cue_assert(static_cast<bool>(m_updateFunc), "Update 関数が未設定です。");
         Assert::cue_assert(static_cast<bool>(m_renderFunc), "Render 関数が未設定です。");
@@ -227,8 +227,8 @@ namespace Cue
     void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex, uint32_t& presentIndex)
     {
         // 1) 単一バッファは固定で 0 を返す
-        // 2) 現フレームの出力先を決めるため presentIndex を算出する
-        // 3) 依存関係を守るため update/render をオフセットで算出する
+        // 2) presentIndex を算出する
+        // 3) update/render のインデックスをオフセットで算出する
         if (bufferCount == 1)
         {
             updateIndex = 0;
@@ -269,7 +269,7 @@ namespace Cue
     }
     void FrameController::fill_buffers(uint64_t frameNo)
     {
-        // 1) バッファ数分の更新を揃えるため走査する
+        // 1) 全バッファを走査して更新する
         // 2) 初回 Present で欠けが出ないよう順に埋める
         for (uint32_t i = 0; i < m_config.m_bufferCount; ++i)
         {
@@ -413,7 +413,7 @@ namespace Cue
     }
     bool FrameController::step_backpressure()
     {
-        // 1) 1 フレームずつ確実に進めるためキック条件を確認する
+        // 1) キック条件を確認する
         // 2) 完了済みなら Present して次へ進む
         if (!m_backpressureState.m_inFlight)
         {

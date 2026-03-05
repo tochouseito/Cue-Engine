@@ -48,7 +48,7 @@ namespace Cue
         // OS/SDKの生コード：GetLastError や HRESULT をそのまま入れる用途
         uint32_t native = 0;
 
-        // 動的確保を避けるため、基本は静的文字列だけ（必要ならログ側で整形）
+        // 基本メッセージは静的文字列で保持し、必要な整形はログ側で行う
         std::string_view message{};
 
         // 任意：発生箇所（ログで使う）

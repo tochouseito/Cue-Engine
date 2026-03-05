@@ -42,7 +42,7 @@ namespace
             p.text.push_back(s[0]);
             p.text.push_back(':');
 
-            // "C:/..." のみ absolute 扱い（"C:foo" は曖昧なので absolute にしない）
+            // ドライブレター + '/' 形式のみ absolute として扱う
             if (s.size() >= 3 && s[2] == '/')
             {
                 p.has_root_slash = true;

@@ -95,7 +95,7 @@ namespace Cue::Platform::Win
     }
     bool WinPlatform::unregister_message_handler(uint64_t handlerId)
     {
-        // 1) 解除可否は WinApp 側の登録状態に依存するため、結果をそのまま返す。
+        // 1) WinApp の解除結果をそのまま返す。
         return impl->app.unregister_message_handler(handlerId);
     }
     uint32_t WinPlatform::window_width() const noexcept

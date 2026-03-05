@@ -119,7 +119,7 @@ namespace Cue::Platform::Win
 
     WinThread::~WinThread() noexcept
     {
-        // 1) joinされず破棄されるのは危険なので、停止要求→join
+        // 1) 停止要求を出してから join する
         if (m_joinable)
         {
             request_stop();
@@ -179,7 +179,7 @@ namespace Cue::Platform::Win
         // 2) outThread 初期化
         outThread = WinThread{};
 
-        // 3) StartContext をヒープ確保（例外禁止なので nothrow）
+        // 3) StartContext を nothrow でヒープ確保する
         outThread.m_ctx.reset(new (std::nothrow) StartContext{});
         if (!outThread.m_ctx)
         {

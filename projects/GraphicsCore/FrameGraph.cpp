@@ -6,7 +6,7 @@ namespace Cue::GraphicsCore
     {
         [[nodiscard]] Result make_default_buffer_view_desc(RootParameterType parameterType, BufferViewDesc& outDesc)
         {
-            // 1) FrameGraph の bind_* 宣言は現状 whole-resource view を意味するため、ここで既定の見せ方へ正規化する。
+            // 1) FrameGraph の bind_* 宣言を whole-resource view の既定表現へ正規化する。
             outDesc = {};
             switch (parameterType)
             {
@@ -279,7 +279,7 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
     {
-        // 1) buffer index 付き binding は対象フレーム以外では無効なので、descriptor table へ混ぜない。
+        // 1) 対象フレームの buffer index binding だけを descriptor table へ追加する。
         if (binding.hasBufferIndex && binding.bufferIndex != frameResourceIndex)
         {
             return Result::fail(Facility::Graphics, Code::NotFound, Severity::Info, 0, "Descriptor binding is not active for this buffer index");

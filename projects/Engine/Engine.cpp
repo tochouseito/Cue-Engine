@@ -15,7 +15,7 @@ namespace
 {
     [[nodiscard]] bool try_parse_controller_mode(uint32_t numericMode, Cue::ControllerMode& outMode) noexcept
     {
-        // 1) 保存形式を固定するため数値指定のみを列挙変換する
+        // 1) 数値指定を列挙値へ変換する
         switch (numericMode)
         {
         case 0:
@@ -70,7 +70,7 @@ namespace
 
     [[nodiscard]] uint32_t to_numeric(Cue::ControllerMode mode) noexcept
     {
-        // 1) 保存形式を安定させるため数値表現を固定する
+        // 1) 列挙値を固定の数値表現へ変換する
         switch (mode)
         {
         case Cue::ControllerMode::Fixed:
@@ -158,7 +158,7 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::update()
     {
         // 1) 更新処理のエントリポイントを返す
-        // 2) 実装確定前でもパイプラインを動かすため仮実装にする
+        // 2) 現在は仮実装でパイプライン入力を埋める
         return [this](uint64_t frameNo, uint32_t index)
             {
                 (void)frameNo;
@@ -168,7 +168,7 @@ namespace Cue
     }
     std::function<void(uint64_t, uint32_t)> Engine::render()
     {
-        // 2) 実装確定前でもパイプラインを動かすため仮実装にする
+        // 2) 現在は仮実装でパイプライン入力を埋める
         return [this](uint64_t frameNo, uint32_t index)
             {
                 (void)frameNo;
@@ -180,7 +180,7 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::present()
     {
         // 1) Present 処理のエントリポイントを返す
-        // 2) 実装確定前でもパイプラインを動かすため仮実装にする
+        // 2) 現在は仮実装でパイプライン入力を埋める
         return [this](uint64_t frameNo, uint32_t index)
             {
                 (void)this;

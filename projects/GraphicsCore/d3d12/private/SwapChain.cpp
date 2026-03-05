@@ -30,7 +30,7 @@ namespace Cue::GraphicsCore::DX12
 
         SetDXGIName(m_swapChain.Get(), L"Main SwapChain");
 
-        // リフレッシュレートを取得。floatで取るのは大変なので大体あってれば良いので整数で。
+        // リフレッシュレートを整数値で取得する。
         // ウィンドウがあるモニターを取得
         HMONITOR hMonitor = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFOEX mi{};
@@ -48,10 +48,10 @@ namespace Cue::GraphicsCore::DX12
         }
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
-        // VSync共存型FPS固定のためにレイテンシ1
+        // VSync 共存型 FPS 固定としてレイテンシを 1 に設定する
         m_swapChain->SetMaximumFrameLatency(1);
 
-        // OSが行うAlt+Enterのフルスクリーンは制御不能なので禁止
+        // OS の Alt+Enter フルスクリーン遷移を無効化する
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
             m_hWnd,
             DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);

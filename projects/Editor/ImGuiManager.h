@@ -77,7 +77,7 @@ namespace Cue::Editor
             initInfo.CommandQueue = setupInfo.commandQueue;
             initInfo.NumFramesInFlight = setupInfo.bufferingCount;
             initInfo.RTVFormat = setupInfo.rtvFormat;
-            initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // 深度バッファは使用しないため、DSVフォーマットは指定しない
+            initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // DSV フォーマットは未使用値に設定する
             initInfo.LegacySingleSrvCpuDescriptor = setupInfo.fontSrvCpuDescHandle;
             initInfo.LegacySingleSrvGpuDescriptor = setupInfo.fontSrvGpuDescHandle;
             ImGui_ImplDX12_Init(&initInfo);
@@ -189,11 +189,11 @@ namespace Cue::Editor
 
         Result save_layout()
         {
-            return Result::ok(); // ImGuiは自動でレイアウトを保存するため、特に何もしない
+            return Result::ok(); // レイアウト保存は ImGui の標準動作に委譲する
         }
         Result load_layout()
         {
-            return Result::ok(); // ImGuiは自動でレイアウトを読み込むため、特に何もしない
+            return Result::ok(); // レイアウト読込は ImGui の標準動作に委譲する
         }
     private:
         bool m_isInitialized = false;
@@ -216,7 +216,7 @@ namespace Cue::Editor
 
         void setup(GraphicsCore::FrameGraphBuilder& builder) override
         {
-            // 1) ImGuiの描画はフレームグラフの最後に行うため、常にバックバッファにレンダリングするパスを宣言する。
+            // 1) バックバッファへ描画するパスを宣言する。
             //    これにより、ImGuiが他のパスの後で確実に描画されるようになる。
             GraphicsCore::TextureDesc desc{};
             desc.name = "SwapChain.BackBuffer";

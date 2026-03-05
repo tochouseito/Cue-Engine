@@ -104,7 +104,7 @@ namespace Cue::Platform::Win
     }
     void WinWaiter::sleep_until(Math::TimeSpan targetTick) noexcept
     {
-        // 1) clockがないのは設計ミスだが、例外禁止なので何もしない
+        // 1) clock 未設定時は処理を終了する
         if (m_clock == nullptr)
         {
             return;

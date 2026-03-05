@@ -50,7 +50,7 @@ namespace Cue::Platform::Win
         const std::int64_t sec = ticks / freq;
         const std::int64_t rem = ticks % freq;
 
-        // 3) rem < freq なので rem*kNsPerSec は通常 64bit に収まる
+        // 3) rem*kNsPerSec を 64bit で計算してナノ秒へ変換する
         const std::int64_t ns = (sec * kNsPerSec) + ((rem * kNsPerSec) / freq);
         return ns;
     }

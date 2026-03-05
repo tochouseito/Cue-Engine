@@ -52,7 +52,7 @@ namespace Cue::Platform::Win
             {
             case WM_CLOSE:
                 // 1) 破棄はエンジン側の終了手順に委譲する
-                // 2) メインループを抜けるためのフラグを立てる
+                // 2) メインループ終了フラグを立てる
                 m_shouldClose = true;
                 return 0;
 
@@ -123,7 +123,7 @@ namespace Cue::Platform::Win
                 0, "Failed to initialize COM library for WinApp.");
         }
 
-        // 2) 高精度タイマが必要なのでタイムスライスを要求する
+        // 2) タイムスライスを 1ms に設定する
         if (!m_impl->m_isTimePeriodSet)
         {
             const MMRESULT timeResult = ::timeBeginPeriod(1);
@@ -173,7 +173,7 @@ namespace Cue::Platform::Win
             }
         }
 
-        // 4) クライアントサイズを維持するために調整して生成する
+        // 4) クライアントサイズを維持するようウィンドウ矩形を調整して生成する
         RECT rc{ 0, 0, static_cast<LONG>(w), static_cast<LONG>(h) };
         ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
@@ -249,7 +249,7 @@ namespace Cue::Platform::Win
     }
     NativeWindowHandle WinApp::get_native_window_handle() const noexcept
     {
-        // 1) HWND の実体型を公開しないため、透過ハンドルへ変換して返す
+        // 1) HWND を透過ハンドルへ変換して返す
         return reinterpret_cast<NativeWindowHandle>(m_impl->m_hwnd);
     }
     uint32_t WinApp::get_window_width() const noexcept

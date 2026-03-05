@@ -42,7 +42,7 @@ namespace Cue::GraphicsCore::DX12
     }
     DX12CommandContext::~DX12CommandContext()
     {
-        // 1) 一時 RTV は command context 単位で確保しているため、破棄時に返却する。
+        // 1) 破棄時に一時 RTV を返却する。
         if (m_descriptorAllocator != nullptr && m_transientRtv.valid())
         {
             m_descriptorAllocator->free_table(m_transientRtv);
@@ -292,7 +292,7 @@ namespace Cue::GraphicsCore::DX12
             return createRtvResult;
         }
 
-        // 2) ClearRenderTargetView 自体は RTV ハンドルだけで実行できるため、最小コマンドで済ませる。
+        // 2) RTV ハンドルを使って ClearRenderTargetView を発行する。
         const D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_descriptorAllocator->get_cpu_handle(m_transientRtv);
         m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
         m_listEmpty = false;
@@ -300,7 +300,7 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12CommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
     {
-        // 1) Graphics queue 以外では RS state を触れないため、呼び出し側の誤用をここで止める。
+        // 1) queue 種別を検証して RS state を設定する。
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Viewport/scissor can only be set on a graphics command context.");
@@ -332,7 +332,7 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12CommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
     {
-        // 1) OM は graphics queue 専用なので、queue 種別と manager バインドの不整合を先に潰す。
+        // 1) queue 種別と manager バインドを検証する。
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Render targets can only be set on a graphics command context.");
@@ -821,7 +821,7 @@ namespace Cue::GraphicsCore::DX12
         {
         case CommandListType::Graphics:
         {
-            // 1) SwapChain と同じ graphics queue を使い回すため、上限本数に達したら返却を待つ。
+            // 1) graphics queue の利用可能枠が空くまで返却を待つ。
             std::unique_lock<std::mutex> lock(m_graphicsQueuePoolMutex);
             m_graphicsQueuePoolCv.wait(lock, [this]()
                 {

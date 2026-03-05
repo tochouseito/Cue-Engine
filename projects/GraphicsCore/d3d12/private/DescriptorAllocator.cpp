@@ -137,7 +137,7 @@ namespace Cue::GraphicsCore::DX12
 
         if (t.m_freeList.empty())
         {
-            // ensure_capacity が未実装なので、ここに来たら致命的
+            // ensure_capacity 未実装経路として致命エラーにする
             return TableID{ k, t.m_generation, TableID::kInvalid };
         }
 
@@ -163,7 +163,7 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DescriptorAllocator::create_cbv(TableID& id, GpuBufferResource* buffer, uint64_t byteOffset, uint32_t byteSize)
     {
-        // 1) 定数バッファ view は byte 単位の範囲指定が必要なので、先に実体サイズと整合させる。
+        // 1) 定数バッファ view の範囲を実体サイズへ合わせる。
         if (!id.valid())
         {
             return Result::fail(Facility::GraphicsCore, Code::InvalidArg, Severity::Error, 0, "Invalid TableID.");
@@ -482,7 +482,7 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DescriptorAllocator::create_dsv(TableID& id, GpuTextureResource* texture, DXGI_FORMAT format, uint32_t mipSlice)
     {
-        // 1) DSV は depth リソースの特定 mip を bind する単位なので、範囲外指定を早めに落とす。
+        // 1) DSV の mip 指定範囲を検証する。
         if (!id.valid())
         {
             return Result::fail(Facility::GraphicsCore, Code::InvalidArg, Severity::Error, 0, "Invalid TableID.");
@@ -622,7 +622,7 @@ namespace Cue::GraphicsCore::DX12
             break;
         }
 
-        // 2) 万が一のために無効なテーブルを返す
+        // 2) 無効なテーブルを返す
         return m_textures; // どれでもいいので返す
     }
     void DescriptorAllocator::copy_to_gpu_heap(const TableID& id)
