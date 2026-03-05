@@ -58,7 +58,7 @@ namespace Cue::Core
             {
 #ifdef CUE_DEBUG
                 // デバッグコンソールに出力
-                ::OutputDebugStringA(message.c_str());
+                //::OutputDebugStringA(message.c_str());
 #endif
             }
         }

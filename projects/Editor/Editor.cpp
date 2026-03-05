@@ -3,6 +3,8 @@
 
 // Platform
 #ifdef PLATFORM_WIN
+#define WIN32_LEAN_AND_MEAN             // Windows ヘッダーからあまり使われない部分を除外する
+#define NOMINMAX                        // min と max マクロの定義を防止する
 #include <Windows.h>
 #include <win_platform.h>
 #endif
@@ -82,6 +84,32 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             ImGui::Begin("Hello, ImGui!"); // ウィンドウを作成
             ImGui::Text("This is a simple text in the ImGui window."); // テキストを表示
+            ImGuiIO& io = ImGui::GetIO();
+            float fps = 1.0f / io.DeltaTime;
+            ImGui::Text("FPS: %.1f", fps); // フレームレートを表示
+            // ボタンを押したら最高fpsと最低fpsを表示
+            static bool showFpsDetails = false;
+            static float maxFps = 0;
+            static float minFps = 0;
+            if (ImGui::Button("Show FPS Details"))
+            {
+                showFpsDetails = !showFpsDetails;
+                maxFps = fps;
+                minFps = fps;
+            }
+            if(showFpsDetails)
+            {
+                if (fps > maxFps)
+                {
+                    maxFps = fps;
+                }
+                if (fps < minFps)
+                {
+                    minFps = fps;
+                }
+                ImGui::Text("Max FPS: %.1f", maxFps);
+                ImGui::Text("Min FPS: %.1f", minFps);
+            }
             ImGui::End();
             imguiManager.end_frame();
         }

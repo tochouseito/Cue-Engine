@@ -49,6 +49,12 @@ target_compile_options(cue_warnings INTERFACE
     /external:anglebrackets # 山かっこの外部ヘッダーを指定
     /external:W0 # 外部ヘッダーの警告を無効化
 )
+# 外部ライブラリの警告を無効化するためのオプション
+add_library(cue_external_warnings INTERFACE)
+target_compile_options(cue_external_warnings INTERFACE
+    /external:anglebrackets # 山かっこの外部ヘッダーを指定
+    /external:W0 # 外部ヘッダーの警告を無効化
+)
 
 #
 target_compile_options(cue_warnings INTERFACE
@@ -88,7 +94,7 @@ add_library(cue_imgui STATIC
     "thirdparty/imgui/src/imgui_impl_dx12.cpp")
 target_include_directories(cue_imgui PUBLIC
     "${CMAKE_SOURCE_DIR}/thirdparty/imgui/include")
-target_link_libraries(cue_imgui PRIVATE cue_warnings)
+target_link_libraries(cue_imgui PRIVATE cue_external_warnings)
 target_link_libraries(cue_imgui PRIVATE cue_compile_options)
 
 # サブプロジェクトを含めます。
