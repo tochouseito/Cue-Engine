@@ -71,6 +71,33 @@ namespace Cue::Platform::Win
         // 1) Win32 実体型は WinApp 側へ閉じ込め、透過ハンドルとして公開する
         return impl->app.get_native_window_handle();
     }
+    uint64_t WinPlatform::register_message_handler(MessageHandler handler)
+    {
+        // 1) WinPlatform では型変換のみを担当し、実際の登録管理は WinApp へ委譲する。
+        if (!handler)
+        {
+            return 0;
+        }
+
+        return impl->app.register_message_handler(
+            [handler = std::move(handler)](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& outResult)
+            {
+                std::intptr_t nativeResult = 0;
+                const bool handled = handler(
+                    reinterpret_cast<NativeWindowHandle>(hwnd),
+                    static_cast<uint32_t>(msg),
+                    static_cast<std::uintptr_t>(wParam),
+                    static_cast<std::intptr_t>(lParam),
+                    nativeResult);
+                outResult = static_cast<LRESULT>(nativeResult);
+                return handled;
+            });
+    }
+    bool WinPlatform::unregister_message_handler(uint64_t handlerId)
+    {
+        // 1) 解除可否は WinApp 側の登録状態に依存するため、結果をそのまま返す。
+        return impl->app.unregister_message_handler(handlerId);
+    }
     uint32_t WinPlatform::window_width() const noexcept
     {
         return impl->app.get_window_width();

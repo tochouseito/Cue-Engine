@@ -13,6 +13,12 @@ namespace Cue::Platform::Win
 {
     struct WinApp::Impl
     {
+        struct MessageHandlerEntry final
+        {
+            uint64_t m_id = 0;
+            WinApp::MessageHandler m_handler{};
+        };
+
         // Windowsアプリケーションに関する実装の詳細をここに記述
         HWND m_hwnd = nullptr;
         uint32_t m_width = 0;
@@ -20,9 +26,28 @@ namespace Cue::Platform::Win
         bool m_isComInitialized = false;
         bool m_isTimePeriodSet = false;
         bool m_shouldClose = false;
+        uint64_t m_nextMessageHandlerId = 1;
+        std::vector<MessageHandlerEntry> m_messageHandlers{};
 
         LRESULT on_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
+            // 1) 外部登録ハンドラを先に評価し、処理済みなら標準処理へ流さない。
+            for (const MessageHandlerEntry& entry : m_messageHandlers)
+            {
+                if (!entry.m_handler)
+                {
+                    continue;
+                }
+
+                LRESULT handledResult = 0;
+                const bool isHandled = entry.m_handler(hwnd, msg, wParam, lParam, handledResult);
+                if (isHandled)
+                {
+                    return handledResult;
+                }
+            }
+
+            // 2) 未処理メッセージだけ WinApp 既定処理へ渡す。
             switch (msg)
             {
             case WM_CLOSE:
@@ -234,5 +259,40 @@ namespace Cue::Platform::Win
     uint32_t WinApp::get_window_height() const noexcept
     {
         return m_impl->m_height;
+    }
+    uint64_t WinApp::register_message_handler(MessageHandler handler)
+    {
+        // 1) 空ハンドラは登録せず無効IDを返して呼び出し側へ通知する。
+        if (!handler)
+        {
+            return 0;
+        }
+
+        // 2) 以後の解除で参照できる一意IDを採番して保持する。
+        const uint64_t handlerId = m_impl->m_nextMessageHandlerId++;
+        m_impl->m_messageHandlers.push_back(Impl::MessageHandlerEntry{ handlerId, std::move(handler) });
+        return handlerId;
+    }
+    bool WinApp::unregister_message_handler(uint64_t handlerId)
+    {
+        // 1) 無効IDは探索せず false を返して誤使用を早期に返す。
+        if (handlerId == 0)
+        {
+            return false;
+        }
+
+        // 2) 該当エントリだけ削除し、残りのハンドラ順序は維持する。
+        for (auto it = m_impl->m_messageHandlers.begin(); it != m_impl->m_messageHandlers.end(); ++it)
+        {
+            if (it->m_id != handlerId)
+            {
+                continue;
+            }
+
+            m_impl->m_messageHandlers.erase(it);
+            return true;
+        }
+
+        return false;
     }
 } // namespace Cue::Platform::Win

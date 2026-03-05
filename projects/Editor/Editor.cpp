@@ -1,4 +1,5 @@
 #include <memory>
+#include <cstdint>
 
 // Platform
 #ifdef PLATFORM_WIN
@@ -44,6 +45,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imguiSetupInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imguiSetupInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
     imguiManager.initialize(imguiSetupInfo);
+    const uint64_t imguiMessageHandlerId = win->register_message_handler(
+        [](Cue::Platform::Win::NativeWindowHandle hwnd, uint32_t msg, std::uintptr_t wParam, std::intptr_t lParam, std::intptr_t& outResult)
+        {
+            const bool handled = ImGui_ImplWin32_WndProcHandler(
+                reinterpret_cast<HWND>(hwnd),
+                static_cast<UINT>(msg),
+                static_cast<WPARAM>(wParam),
+                static_cast<LPARAM>(lParam));
+            if (handled)
+            {
+                outResult = 1;
+                return true;
+            }
+
+            return false;
+        });
     Cue::GraphicsCore::FrameGraph* presentFrameGraph = d3d12Backend->get_present_frame_graph();
     if (presentFrameGraph != nullptr)
     {
@@ -71,6 +88,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         // 5-2) エンジンの更新と描画
         engine.tick();
+    }
+
+    if (imguiMessageHandlerId != 0)
+    {
+        (void)win->unregister_message_handler(imguiMessageHandlerId);
     }
 
     // 6) Editorのシャットダウン
