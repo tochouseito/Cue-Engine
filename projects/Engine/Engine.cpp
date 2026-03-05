@@ -111,8 +111,8 @@ namespace Cue
         m_graphicsBackend->initialize(backendInfo);
 
         FrameControllerDesc frameControllerDesc{};
-        frameControllerDesc.m_bufferCount = m_engineConfig.m_bufferCount;
-        frameControllerDesc.m_maxFps = 100;
+        frameControllerDesc.m_bufferCount = 3;
+        frameControllerDesc.m_maxFps = 1000;
         frameControllerDesc.m_mode = m_engineConfig.m_mode;
         m_frameController = std::make_unique<FrameController>(
             frameControllerDesc,

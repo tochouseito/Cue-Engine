@@ -780,7 +780,9 @@ namespace Cue::GraphicsCore::DX12
             4,
             [](DX12GraphicsQueueContext& ctx)
             {
-                ctx.wait_for_last_signal();
+                // 1) フレーム実行中の queue 返却では GPU 完了待ちを行わず、CPU 側の待機スパイクを防ぐ。
+                // 2) 破棄時の同期は queue/shutdown 側の wait_for_last_signal() に一元化する。
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
@@ -790,7 +792,9 @@ namespace Cue::GraphicsCore::DX12
             4,
             [](DX12ComputeQueueContext& ctx)
             {
-                ctx.wait_for_last_signal();
+                // 1) graphics queue と同様に、再利用時の同期は行わない。
+                // 2) 完了待ちは command/context 側の retire 回収と shutdown 同期で担保する。
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
@@ -800,7 +804,9 @@ namespace Cue::GraphicsCore::DX12
             4,
             [](DX12CopyQueueContext& ctx)
             {
-                ctx.wait_for_last_signal();
+                // 1) copy queue も返却時は non-blocking とし、フレーム時間のばらつきを抑える。
+                // 2) 破棄経路でのみ確定同期する。
+                (void)ctx;
             },
             [d3d12Device = device.get_d3d12_device()]()
             {
