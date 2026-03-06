@@ -23,6 +23,11 @@ namespace Cue
         void initialize(EngineInitInfo& initInfo);
         void tick();
         void shutdown();
+
+        FrameController& frame_controller() noexcept
+        {
+            return *m_frameController;
+        }
     private:
         /// @brief 更新処理
         std::function<void(uint64_t, uint32_t)> update();

@@ -3,9 +3,9 @@
 #include <source_location>
 #include <type_traits>
 #include <string_view>
-//#ifdef CUE_DEBUG
+#ifdef CUE_DEBUG
 #include <Windows.h>
-//#endif
+#endif
 
 namespace Cue::Core
 {
@@ -56,10 +56,10 @@ namespace Cue::Core
             }
             if (has_sink(sink, LogSink::debugConsole))
             {
-//#ifdef CUE_DEBUG
+#ifdef CUE_DEBUG
                 // デバッグコンソールに出力
                 ::OutputDebugStringA(message.c_str());
-//#endif
+#endif
             }
         }
     private:

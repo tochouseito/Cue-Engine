@@ -217,6 +217,18 @@ namespace Cue::Math
             const int64_t otherNs = to_nanoseconds(other.value, other.unit);
             return { thisNs + otherNs, TimeUnit::nanoseconds };
         }
+
+        TimeSpan operator+(int64_t other) const noexcept
+        {
+            // 1) 単位がナノ秒なら直接加算
+            if (unit == TimeUnit::nanoseconds)
+            {
+                return { value + other, unit };
+            }
+            // 2) 単位が違うなら、両方をナノ秒に換算して加算
+            const int64_t thisNs = to_nanoseconds(value, unit);
+            return { thisNs + other, TimeUnit::nanoseconds };
+        }
         
         TimeSpan operator-(const TimeSpan& other) const noexcept
         {
@@ -231,10 +243,50 @@ namespace Cue::Math
             return { thisNs - otherNs, TimeUnit::nanoseconds };
         }
 
+        TimeSpan operator-(int64_t other) const noexcept
+        {
+            // 1) 単位がナノ秒なら直接減算
+            if (unit == TimeUnit::nanoseconds)
+            {
+                return { value - other, unit };
+            }
+            // 2) 単位が違うなら、両方をナノ秒に換算して減算
+            const int64_t thisNs = to_nanoseconds(value, unit);
+            return { thisNs - other, TimeUnit::nanoseconds };
+        }
+
+        // 乗算
+        TimeSpan operator*(const TimeSpan& other) const noexcept
+        {
+            // 1) 単位が同じなら値を直接乗算
+            if (unit == other.unit)
+            {
+                return { value * other.value, unit };
+            }
+            // 2) 単位が違うなら、両方をナノ秒に換算して乗算
+            const int64_t thisNs = to_nanoseconds(value, unit);
+            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            return { thisNs * otherNs, TimeUnit::nanoseconds };
+        }
+
         // スカラー倍
         TimeSpan operator*(int64_t scalar) const noexcept
         {
             return { value * scalar, unit };
+        }
+
+        // 除算
+        TimeSpan operator/(const TimeSpan& other) const noexcept
+        {
+            // 1) 単位が同じなら値を直接除算
+            if (unit == other.unit)
+            {
+                return { value / other.value, unit };
+            }
+            // 2) 単位が違うなら、両方をナノ秒に換算して除算
+            const int64_t thisNs = to_nanoseconds(value, unit);
+            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            return { thisNs / otherNs, TimeUnit::nanoseconds };
         }
 
         // スカラー除算
