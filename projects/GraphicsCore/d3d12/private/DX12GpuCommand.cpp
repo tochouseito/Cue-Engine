@@ -6,6 +6,8 @@ namespace Cue::GraphicsCore::DX12
 {
     namespace
     {
+        constexpr UINT k_eventMetadataAnsi = 1u;
+
         [[nodiscard]] D3D12_RESOURCE_STATES to_d3d12_resource_state(ResourceState state)
         {
             switch (state)
@@ -113,6 +115,38 @@ namespace Cue::GraphicsCore::DX12
         m_textureManager = &textureManager;
         m_viewManager = &viewManager;
         m_descriptorAllocator = &descriptorAllocator;
+    }
+    void DX12CommandContext::begin_event(const char* name)
+    {
+        // 1) コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る。
+        if (m_commandList == nullptr)
+        {
+            return;
+        }
+
+        // 2) 空名はデバッグ時の識別性を落とすため、既定名に置き換える。
+        const char* eventName = name;
+        if (eventName == nullptr || eventName[0] == '\0')
+        {
+            eventName = "UnnamedEvent";
+        }
+
+        // 3) metadata と size を文字列形式に合わせて指定し、デバッグレイヤーの破損判定を回避する。
+        const UINT eventNameBytes = static_cast<UINT>((std::char_traits<char>::length(eventName) + 1) * sizeof(eventName[0]));
+        m_commandList->BeginEvent(k_eventMetadataAnsi, eventName, eventNameBytes);
+        m_listEmpty = false;
+    }
+    void DX12CommandContext::end_event()
+    {
+        // 1) コマンドリスト未初期化時は end marker を積めないため、何もせず戻る。
+        if (m_commandList == nullptr)
+        {
+            return;
+        }
+
+        // 2) begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
+        m_commandList->EndEvent();
+        m_listEmpty = false;
     }
     Result DX12CommandContext::close()
     {

@@ -50,8 +50,8 @@ namespace Cue::GraphicsCore::DX12
         [[nodiscard]] Result resolve_texture_resource(TextureHandle handle, GpuTextureResource*& outTexture) const;
     public:
         // Commands
-        virtual void begin_event(const char*) override {}
-        virtual void end_event() override {}
+        virtual void begin_event(const char* name) override;
+        virtual void end_event() override;
 
         Result resource_barrier(const ResourceBarrierDesc& barrier) override;
         Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
