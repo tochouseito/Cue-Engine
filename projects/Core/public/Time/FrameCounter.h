@@ -40,7 +40,7 @@ namespace Cue::Core::Time
                 return;
             }
 
-            // 2) FPS制限の待機を lap 前に実行する（待機時間を delta に含める）
+            // 2) FPS制限（待ちをdeltaに含めるため、lap前に待つ）
             if (m_maxFps > 0)
             {
                 cap_fps_();
@@ -113,39 +113,48 @@ namespace Cue::Core::Time
             // 2) 1フレーム(ns)（丸め）
             const Math::TimeSpan frameNs = { static_cast<int64_t>((1'000'000'000.0 / static_cast<double>(m_maxFps)) + 0.5), Math::TimeUnit::nanoseconds };
 
-            // 3) 追い込みスピン(ns)（ここはPC向け。まず1000usから）
-            const Math::TimeSpan spinNs = { 1000'000LL, Math::TimeUnit::nanoseconds };
-
-            // 4) 初回：次フレーム予定を作る（位相固定の開始点）
-            const Math::TimeSpan now0 = m_clock->now_ns();
-            if (m_nextTickNs == 0)
+            // 3) 低FPS帯はスピン予算を増やして sleep 起床遅れを吸収する。
+            //    60FPS(16.6ms)では約1msの最終スピンにしてジッタを抑える。
+            constexpr int64_t minSpinNs = 250'000LL;
+            constexpr int64_t maxSpinNs = 1'000'000LL;
+            int64_t spinBudgetNs = frameNs.nano() / 8;
+            if (spinBudgetNs < minSpinNs)
             {
-                m_nextTickNs = now0 + frameNs;
+                spinBudgetNs = minSpinNs;
             }
-
-            // 5) 既に遅れているなら、追いつく（遅れを引きずらない）
-            //    ※ 遅延発生時は次フレーム予定を再計算する
-            if (now0 >= m_nextTickNs)
+            else if (spinBudgetNs > maxSpinNs)
             {
-                m_nextTickNs = now0 + frameNs;
+                spinBudgetNs = maxSpinNs;
+            }
+            const Math::TimeSpan spinNs = { spinBudgetNs, Math::TimeUnit::nanoseconds };
+
+            // 4) 今フレームの目標時刻（前回tick基準 + 1フレーム）
+            const Math::TimeSpan now0 = m_clock->now_ns();
+            const Math::TimeSpan targetTick = m_capBaseTick + frameNs;
+
+            // 5) 既に遅れているなら待たない（次フレームを短くして取り戻さない）
+            if (now0 >= targetTick)
+            {
                 return;
             }
 
-            // 6) 大半をsleep（あなたのWaiterでブロック）
-            const Math::TimeSpan sleepUntilNs = m_nextTickNs - spinNs;
-            if (sleepUntilNs > now0)
+            // 6) 高FPS(短フレーム)では sleep の粒度誤差が支配的なので、フルスピンへ切替
+            //    目安: 2ms以下(500FPS以上)は sleep を使わない。
+            constexpr int64_t fullSpinThresholdNs = 2'000'000LL;
+            if (frameNs.nano() > fullSpinThresholdNs)
             {
-                m_waiter->sleep_until(sleepUntilNs);
+                const Math::TimeSpan sleepUntilNs = targetTick - spinNs;
+                if (sleepUntilNs > now0)
+                {
+                    m_waiter->sleep_until(sleepUntilNs);
+                }
             }
 
             // 7) 最後だけ短スピン（yieldは禁止。精度が落ちる）
-            while (m_clock->now_ns() < m_nextTickNs)
+            while (m_clock->now_ns() < targetTick)
             {
                 m_waiter->relax();
             }
-
-            // 8) 次フレーム予定を位相固定で進める（ここが肝）
-            m_nextTickNs += frameNs;
         }
 
     private:
@@ -155,9 +164,8 @@ namespace Cue::Core::Time
 
         bool m_initialized = false;
 
-        // FPS cap判定用の基準（前フレーム終了付近のTick）
+        // FPS cap判定用の基準（前回tickの終端Tick）
         Math::TimeSpan m_capBaseTick = Math::TimeSpan::zero();
-        Math::TimeSpan m_nextTickNs = Math::TimeSpan::zero();
 
         double m_deltaTime = 0.0;
         double m_fps = 0;

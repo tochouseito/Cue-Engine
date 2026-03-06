@@ -1,5 +1,6 @@
 #include <memory>
 #include <cstdint>
+#include <deque>
 
 // Platform
 #ifdef PLATFORM_WIN
@@ -84,9 +85,51 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             ImGui::Begin("Hello, ImGui!"); // ウィンドウを作成
             ImGui::Text("This is a simple text in the ImGui window."); // テキストを表示
-            ImGuiIO& io = ImGui::GetIO();
-            float fps = 1.0f / io.DeltaTime;
-            ImGui::Text("FPS: %.1f", fps); // フレームレートを表示
+            Cue::FrameController& frameController = engine.frame_controller();
+            const uint64_t totalFrame = frameController.total_frame();
+            const float fps = static_cast<float>(frameController.frame_counter().fps());
+            const uint32_t updateIndex = frameController.update_index();
+            const uint32_t renderIndex = frameController.render_index();
+            const uint32_t presentIndex = frameController.present_index();
+            struct FrameLogLine final
+            {
+                uint64_t totalFrame = 0;
+                float fps = 0.0f;
+                uint32_t updateIndex = 0;
+                uint32_t renderIndex = 0;
+                uint32_t presentIndex = 0;
+            };
+            static std::deque<FrameLogLine> frameLogs{};
+            constexpr size_t kMaxFrameLogs = 120;
+            if (frameLogs.empty() || frameLogs.back().totalFrame != totalFrame)
+            {
+                frameLogs.push_back(FrameLogLine{
+                    totalFrame,
+                    fps,
+                    updateIndex,
+                    renderIndex,
+                    presentIndex });
+                if (frameLogs.size() > kMaxFrameLogs)
+                {
+                    frameLogs.pop_front();
+                }
+            }
+            ImGui::BeginChild("FrameLogConsole", ImVec2(0.0f, 140.0f), true);
+            for (const FrameLogLine& line : frameLogs)
+            {
+                ImGui::Text(
+                    "Frame: %llu, FPS: %.2f, UpdateIndex: %u, RenderIndex: %u, PresentIndex: %u",
+                    static_cast<unsigned long long>(line.totalFrame),
+                    line.fps,
+                    line.updateIndex,
+                    line.renderIndex,
+                    line.presentIndex);
+            }
+            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+            {
+                ImGui::SetScrollHereY(1.0f);
+            }
+            ImGui::EndChild();
             // ボタンを押したら最高fpsと最低fpsを表示
             static bool showFpsDetails = false;
             static float maxFps = 0;
