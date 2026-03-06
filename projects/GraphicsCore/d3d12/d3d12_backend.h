@@ -23,11 +23,9 @@ namespace Cue::GraphicsCore::DX12
         ~D3D12Backend() override;
         Result initialize(const backend_setup_info& info) override;
         Result shutdown() override;
-        Result build_frame_graph() override;
-        Result render(uint64_t frameNo, uint32_t index) override;
-        Result present(uint64_t frameNo, uint32_t index) override;
-        IViewManager* get_view_manager() const override;
-        FrameGraph* get_present_frame_graph() const override;
+        Result render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
+        Result present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
+        Result create_frame_graph(std::unique_ptr<FrameGraph>& outFG) override;
         void set_win_platform(Platform::IPlatform* platform);
 
         // ImGui用

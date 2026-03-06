@@ -13,6 +13,8 @@ namespace Cue
         // 初期化情報をここに追加
         Platform::IPlatform* platform = nullptr;
         GraphicsCore::Backend* graphicsBackend = nullptr;
+
+        std::unique_ptr<GraphicsCore::FrameGraphPass> editorPass = nullptr; // オプション：エディタ用のパスを受け取る
     };
 
     class Engine
@@ -36,14 +38,13 @@ namespace Cue
         /// @brief フリップ処理
         std::function<void(uint64_t, uint32_t)> present();
     private:
-        Result load_engine_config(const Core::IO::Path& configPath);
-        Result save_engine_config(const Core::IO::Path& configPath);
-    private:
         Platform::IPlatform* m_platform = nullptr;
         GraphicsCore::Backend* m_graphicsBackend = nullptr;
 
         EngineConfig m_engineConfig{};
 
         std::unique_ptr<FrameController> m_frameController = nullptr;
+        std::unique_ptr<GraphicsCore::FrameGraph> m_frameGraph = nullptr;
+        std::unique_ptr<GraphicsCore::FrameGraph> m_presentFrameGraph = nullptr;
     };
 } // namespace Cue

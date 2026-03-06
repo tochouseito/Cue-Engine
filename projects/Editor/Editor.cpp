@@ -29,12 +29,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 2) WinPlatformをD3D12Backendにセット
     d3d12Backend->set_win_platform(win.get());
 
-    // 3) エンジンの初期化
-    Cue::Engine engine;
-    Cue::EngineInitInfo initInfo;
-    initInfo.platform = win.get();
-    initInfo.graphicsBackend = d3d12Backend.get();
-    engine.initialize(initInfo);
+    win->setup();
+
+    Cue::GraphicsCore::backend_setup_info backendSetupInfo{};
+    backendSetupInfo.bufferCount = 3;
+    backendSetupInfo.screenWidth = win->window_width();
+    backendSetupInfo.screenHeight = win->window_height();
+    d3d12Backend->initialize(backendSetupInfo);
 
     // 4) Editorの初期化
     Cue::Editor::ImGuiManager imguiManager;
@@ -64,14 +65,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
             return false;
         });
-    Cue::GraphicsCore::FrameGraph* presentFrameGraph = d3d12Backend->get_present_frame_graph();
-    if (presentFrameGraph != nullptr)
-    {
-        auto pass = presentFrameGraph->add_pass<Cue::Editor::ImGuiPass>(imguiManager);
-        pass;
-    }
-    Cue::Result r = presentFrameGraph->build();
-    r;
+
+    // 3) エンジンの初期化
+    Cue::Engine engine;
+    Cue::EngineInitInfo initInfo;
+    initInfo.platform = win.get();
+    initInfo.graphicsBackend = d3d12Backend.get();
+    std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
+    initInfo.editorPass = std::move(imguiPass);
+    engine.initialize(initInfo);
 
     // 5) メインループ
     bool isRunning = true;

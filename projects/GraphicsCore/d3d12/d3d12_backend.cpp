@@ -39,7 +39,6 @@ namespace Cue::GraphicsCore::DX12
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr;
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
-        std::unique_ptr<FrameGraph> m_presentFrameGraph = nullptr;
     };
 
     D3D12Backend::D3D12Backend()
@@ -62,6 +61,7 @@ namespace Cue::GraphicsCore::DX12
         }
 
         m_impl->m_hWnd = reinterpret_cast<HWND>(m_impl->m_winPlatform->get_native_window_handle());
+        m_setupInfo = info;
 
         // 1) デバイス初期化失敗をそのまま返し、失敗点を保持する
         Result r = m_impl->m_renderDevice->initialize(true);
@@ -108,25 +108,6 @@ namespace Cue::GraphicsCore::DX12
         //
         m_impl->m_swapChain->import_back_buffers(*m_impl->m_textureManager);
 
-        m_frameGraph = std::make_unique<FrameGraph>(
-            m_impl->m_swapChain->get_width(),
-            m_impl->m_swapChain->get_height(),
-            *m_impl->m_bufferManager,
-            *m_impl->m_textureManager,
-            *m_impl->m_viewManager,
-            *m_impl->m_pipelineManager,
-            info.bufferCount);
-        m_impl->m_presentFrameGraph = std::make_unique<FrameGraph>(
-            m_impl->m_swapChain->get_width(),
-            m_impl->m_swapChain->get_height(),
-            *m_impl->m_bufferManager,
-            *m_impl->m_textureManager,
-            *m_impl->m_viewManager,
-            *m_impl->m_pipelineManager,
-            info.bufferCount);
-        /*Pass::BackBufferClearPass* backBufferClearPass = m_impl->m_presentFrameGraph->add_pass<Pass::BackBufferClearPass>();
-        (void)backBufferClearPass;*/
-
         return Result::ok();
     }
     Result D3D12Backend::shutdown()
@@ -147,8 +128,6 @@ namespace Cue::GraphicsCore::DX12
         }
 
         // 2) FrameGraph と SwapChain を止め、以後の render/present 経路を無効化する。
-        m_impl->m_presentFrameGraph.reset();
-        m_frameGraph.reset();
         m_impl->m_swapChain.reset();
 
         // 3) Queue/Command を manager より先に破棄し、pooled context の destructor が allocator 生存中に走るようにする。
@@ -168,37 +147,21 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_leakChecker.reset();
         return Result::ok();
     }
-    Result D3D12Backend::build_frame_graph()
-    {
-        // 1) render graph と present graph を個別に build し、SwapChain 直描き pass を present 側へ限定する。
-        const Result renderBuildResult = m_frameGraph->build();
-        if (!renderBuildResult)
-        {
-            return renderBuildResult;
-        }
-
-        if (m_impl->m_presentFrameGraph == nullptr)
-        {
-            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Present frame graph is not initialized.");
-        }
-
-        return m_impl->m_presentFrameGraph->build();
-    }
-    Result D3D12Backend::render(uint64_t frameNo, uint32_t index)
+    Result D3D12Backend::render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph)
     {
         // 1) render graph は offscreen 専用として実行し、SwapChain 直描きは present graph へ分離する。
-        return m_frameGraph->execute(frameNo, index, 0, *m_impl->m_commandPool, *m_impl->m_queuePool);
+        return frameGraph.execute(frameNo, index, 0, *m_impl->m_commandPool, *m_impl->m_queuePool);
     }
-    Result D3D12Backend::present(uint64_t frameNo, uint32_t index)
+    Result D3D12Backend::present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph)
     {
         // 1) current back buffer が確定した時点で present graph を実行し、SwapChain 直描き pass をここへ集約する。
-        if (m_impl->m_presentFrameGraph == nullptr)
+        if (&frameGraph == nullptr)
         {
             return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Present frame graph is not initialized.");
         }
 
         const uint32_t backBufferIndex = m_impl->m_swapChain->current_back_buffer_index();
-        const Result executeResult = m_impl->m_presentFrameGraph->execute(frameNo, index, backBufferIndex, *m_impl->m_commandPool, *m_impl->m_queuePool);
+        const Result executeResult = frameGraph.execute(frameNo, index, backBufferIndex, *m_impl->m_commandPool, *m_impl->m_queuePool);
         if (!executeResult)
         {
             return executeResult;
@@ -221,13 +184,18 @@ namespace Cue::GraphicsCore::DX12
         QueueSyncPoint presentSignalPoint{};
         return graphicsQueue->signal(presentSignalPoint);
     }
-    IViewManager* D3D12Backend::get_view_manager() const
+    Result D3D12Backend::create_frame_graph(std::unique_ptr<FrameGraph>& outFG)
     {
-        return m_impl->m_viewManager.get();
-    }
-    FrameGraph* D3D12Backend::get_present_frame_graph() const
-    {
-        return m_impl->m_presentFrameGraph.get();
+        outFG = std::make_unique<FrameGraph>(
+            m_setupInfo.screenWidth,
+            m_setupInfo.screenHeight,
+            *m_impl->m_bufferManager,
+            *m_impl->m_textureManager,
+            *m_impl->m_viewManager,
+            *m_impl->m_pipelineManager,
+            m_setupInfo.bufferCount);
+
+        return Result::ok();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {
