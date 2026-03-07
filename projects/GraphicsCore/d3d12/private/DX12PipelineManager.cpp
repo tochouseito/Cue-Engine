@@ -129,19 +129,19 @@ namespace
         }
     }
 
-    D3D12_ROOT_PARAMETER_TYPE convert_root_parameter_type(Cue::GraphicsCore::RootParameterType type)
+    D3D12_DESCRIPTOR_RANGE_TYPE convert_descriptor_range_type(Cue::GraphicsCore::RootParameterType type)
     {
         using namespace Cue::GraphicsCore;
         switch (type)
         {
         case RootParameterType::CBV:
-            return D3D12_ROOT_PARAMETER_TYPE_CBV;
+            return D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
         case RootParameterType::SRV:
-            return D3D12_ROOT_PARAMETER_TYPE_SRV;
-        case RootParameterType::_32BitConstants:
-            return D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+            return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        case RootParameterType::UAV:
+            return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
         default:
-            return D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+            return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         }
     }
 
@@ -297,16 +297,37 @@ namespace Cue::GraphicsCore::DX12
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        // 2) RootParameterDesc を D3D12_ROOT_PARAMETER に変換して追加する。
+        // 2) RootParameterDesc を descriptor table / constants に変換し、FrameGraph の descriptor 解決結果をそのまま bind できる形にする。
         std::vector<D3D12_ROOT_PARAMETER> d3dParameters;
+        std::vector<D3D12_DESCRIPTOR_RANGE> d3dDescriptorRanges;
         d3dParameters.reserve(desc.parameters.size());
-        for (auto parmDesc : desc.parameters)
+        d3dDescriptorRanges.reserve(desc.parameters.size());
+        for (const RootParameterDesc& parmDesc : desc.parameters)
         {
             D3D12_ROOT_PARAMETER d3dParam{};
-            d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
             d3dParam.ShaderVisibility = convert_shader_visibility(parmDesc.visibility);
-            d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
-            d3dParam.Descriptor.RegisterSpace = 0;
+
+            if (parmDesc.type == RootParameterType::_32BitConstants)
+            {
+                d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+                d3dParam.Constants.ShaderRegister = parmDesc.shaderRegister;
+                d3dParam.Constants.RegisterSpace = 0;
+                d3dParam.Constants.Num32BitValues = 1;
+                d3dParameters.push_back(d3dParam);
+                continue;
+            }
+
+            D3D12_DESCRIPTOR_RANGE descriptorRange{};
+            descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
+            descriptorRange.NumDescriptors = 1;
+            descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
+            descriptorRange.RegisterSpace = 0;
+            descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+            d3dDescriptorRanges.push_back(descriptorRange);
+
+            d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            d3dParam.DescriptorTable.NumDescriptorRanges = 1;
+            d3dParam.DescriptorTable.pDescriptorRanges = &d3dDescriptorRanges.back();
             d3dParameters.push_back(d3dParam);
         }
 
@@ -415,5 +436,29 @@ namespace Cue::GraphicsCore::DX12
             return Result::ok();
         }
         return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Shader not found");
+    }
+    Result DX12PipelineManager::resolve_pipeline_state(PipelineStateHandle pipelineHandle, ID3D12PipelineState*& outPipelineState) const
+    {
+        // 1) 抽象 pipeline handle から DX12 実体を逆引きし、command context での bind 前に存在を検証する。
+        ComPtr<ID3D12PipelineState> pipelineState = nullptr;
+        if (!m_pipelineRegistry.try_get(pipelineHandle, pipelineState))
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Error, 0, "Pipeline state handle is not alive.");
+        }
+
+        outPipelineState = pipelineState.Get();
+        return Result::ok();
+    }
+    Result DX12PipelineManager::resolve_root_signature(RootSignatureHandle rootSignatureHandle, ID3D12RootSignature*& outRootSignature) const
+    {
+        // 1) 抽象 root signature handle から DX12 実体を逆引きし、command context の bind 先を確定する。
+        ComPtr<ID3D12RootSignature> rootSignature = nullptr;
+        if (!m_rootSignatureRegistry.try_get(rootSignatureHandle, rootSignature))
+        {
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Error, 0, "Root signature handle is not alive.");
+        }
+
+        outRootSignature = rootSignature.Get();
+        return Result::ok();
     }
 } // namespace Cue::GraphicsCore::DX12

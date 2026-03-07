@@ -27,6 +27,8 @@ namespace Cue::GraphicsCore::DX12
         Result compile_shader(const ShaderCompileDesc& desc, ShaderBlobHandle& outHandle) override;
         Result destroy_shader(const ShaderBlobHandle& handle) override;
         Result get_shader(ResourceNameId nameId, ShaderBlobHandle& outHandle) override;
+        Result resolve_pipeline_state(PipelineStateHandle pipelineHandle, ID3D12PipelineState*& outPipelineState) const;
+        Result resolve_root_signature(RootSignatureHandle rootSignatureHandle, ID3D12RootSignature*& outRootSignature) const;
     private:
         DX12RenderDevice& m_renderDevice; // RenderDeviceへの参照
         HLSLCompiler& m_shaderCompiler; // HLSLCompilerへの参照

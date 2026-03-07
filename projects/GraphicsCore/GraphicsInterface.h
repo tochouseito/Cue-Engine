@@ -5,6 +5,8 @@
 
 namespace Cue::GraphicsCore
 {
+    struct DescriptorHandle;
+
     struct QueueSyncPoint final
     {
         CommandListType queueType = CommandListType::Graphics;
@@ -56,6 +58,10 @@ namespace Cue::GraphicsCore
         virtual Result clear_render_target(TextureHandle handle, const float clearColor[4]) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
+        virtual Result set_graphics_pipeline(PipelineStateHandle pipelineHandle, RootSignatureHandle rootSignatureHandle) = 0;
+        virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, const DescriptorHandle& descriptorHandle) = 0;
+        virtual Result set_primitive_topology_triangle_list() = 0;
+        virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
     };
 
     class IQueueContext

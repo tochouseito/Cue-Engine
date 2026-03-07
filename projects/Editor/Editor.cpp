@@ -71,8 +71,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::EngineInitInfo initInfo;
     initInfo.platform = win.get();
     initInfo.graphicsBackend = d3d12Backend.get();
-    std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
-    initInfo.editorPass = std::move(imguiPass);
+    // std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
+    // initInfo.editorPass = std::move(imguiPass);
     engine.initialize(initInfo);
 
     // 5) メインループ

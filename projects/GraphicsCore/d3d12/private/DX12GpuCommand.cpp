@@ -1,6 +1,7 @@
 #include "DX12GpuCommand.h"
 #include "DX12BufferManager.h"
 #include "DX12TextureManager.h"
+#include "DX12PipelineManager.h"
 
 namespace Cue::GraphicsCore::DX12
 {
@@ -108,11 +109,17 @@ namespace Cue::GraphicsCore::DX12
 
         return Result::ok();
     }
-    void DX12CommandContext::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept
+    void DX12CommandContext::bind_resources(
+        DX12BufferManager& bufferManager,
+        DX12TextureManager& textureManager,
+        DX12PipelineManager& pipelineManager,
+        IViewManager& viewManager,
+        DescriptorAllocator& descriptorAllocator) noexcept
     {
         // 1) manager 参照は acquire 時に再設定し、pool を跨いでも最新構成へ合わせる。
         m_bufferManager = &bufferManager;
         m_textureManager = &textureManager;
+        m_pipelineManager = &pipelineManager;
         m_viewManager = &viewManager;
         m_descriptorAllocator = &descriptorAllocator;
     }
@@ -435,6 +442,95 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = false;
         return Result::ok();
     }
+    Result DX12CommandContext::set_graphics_pipeline(PipelineStateHandle pipelineHandle, RootSignatureHandle rootSignatureHandle)
+    {
+        // 1) graphics queue 以外では PSO bind を受け付けず、backend 間での誤用を即時に検出する。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Pipeline can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr || m_pipelineManager == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command context is not bound to pipeline resources.");
+        }
+
+        // 2) 抽象 handle を DX12 実体へ解決してから command list へ適用し、FrameGraph 側は handle だけを扱う。
+        ID3D12PipelineState* pipelineState = nullptr;
+        const Result resolvePipelineResult = m_pipelineManager->resolve_pipeline_state(pipelineHandle, pipelineState);
+        if (!resolvePipelineResult)
+        {
+            return resolvePipelineResult;
+        }
+
+        ID3D12RootSignature* rootSignature = nullptr;
+        const Result resolveRootSignatureResult = m_pipelineManager->resolve_root_signature(rootSignatureHandle, rootSignature);
+        if (!resolveRootSignatureResult)
+        {
+            return resolveRootSignatureResult;
+        }
+
+        m_commandList->SetPipelineState(pipelineState);
+        m_commandList->SetGraphicsRootSignature(rootSignature);
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, const DescriptorHandle& descriptorHandle)
+    {
+        // 1) graphics queue 以外では descriptor table bind を受け付けない。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Descriptor tables can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+        if (!descriptorHandle.valid() || !descriptorHandle.shaderVisible)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Descriptor table requires a shader-visible descriptor handle.");
+        }
+
+        // 2) FrameGraph が解決した GPU descriptor を root parameter index に設定する。
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle{};
+        gpuHandle.ptr = static_cast<SIZE_T>(descriptorHandle.gpuPtr);
+        m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::set_primitive_topology_triangle_list()
+    {
+        // 1) IA topology は graphics queue のみ有効なので、誤用を明示的に弾く。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Primitive topology can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+
+        // 2) 現在の抽象 API では triangle list のみを公開し、backend 依存の enum 漏れを防ぐ。
+        m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation)
+    {
+        // 1) draw 呼び出しは graphics queue でのみ有効とし、compute/copy queue での誤発行を防ぐ。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Draw can only be issued on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+
+        // 2) 頂点/インスタンス範囲は呼び出し側の宣言どおりにそのまま発行し、pass 実装が draw パターンを選べるようにする。
+        m_commandList->DrawInstanced(vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     DX12CommandPool::DX12CommandPool(DX12RenderDevice& device)
         : m_graphicsContextPool(
             32,
@@ -475,11 +571,17 @@ namespace Cue::GraphicsCore::DX12
         m_copyContextPool.prewarm(1);
         return Result::ok();
     }
-    void DX12CommandPool::bind_resources(DX12BufferManager& bufferManager, DX12TextureManager& textureManager, IViewManager& viewManager, DescriptorAllocator& descriptorAllocator) noexcept
+    void DX12CommandPool::bind_resources(
+        DX12BufferManager& bufferManager,
+        DX12TextureManager& textureManager,
+        DX12PipelineManager& pipelineManager,
+        IViewManager& viewManager,
+        DescriptorAllocator& descriptorAllocator) noexcept
     {
         // 1) command context が resource/barrier/clear を実行できるよう、backend 所有 manager を束ねて渡す。
         m_bufferManager = &bufferManager;
         m_textureManager = &textureManager;
+        m_pipelineManager = &pipelineManager;
         m_viewManager = &viewManager;
         m_descriptorAllocator = &descriptorAllocator;
     }
@@ -494,9 +596,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Graphics:
         {
             auto pooled = m_graphicsContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_pipelineManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),
@@ -506,9 +608,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Compute:
         {
             auto pooled = m_computeContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_pipelineManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),
@@ -518,9 +620,9 @@ namespace Cue::GraphicsCore::DX12
         case CommandListType::Copy:
         {
             auto pooled = m_copyContextPool.acquire();
-            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
+            if (m_bufferManager != nullptr && m_textureManager != nullptr && m_pipelineManager != nullptr && m_viewManager != nullptr && m_descriptorAllocator != nullptr)
             {
-                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_viewManager, *m_descriptorAllocator);
+                pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
             outContext = CommandContextLease(
                 pooled.release(),

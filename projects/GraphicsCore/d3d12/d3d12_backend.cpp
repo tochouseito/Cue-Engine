@@ -91,7 +91,12 @@ namespace Cue::GraphicsCore::DX12
         m_impl->m_commandPool->initialize();
         m_impl->m_queuePool = std::make_unique<DX12QueuePool>(*m_impl->m_renderDevice);
         m_impl->m_queuePool->initialize();
-        m_impl->m_commandPool->bind_resources(*m_impl->m_bufferManager, *m_impl->m_textureManager, *m_impl->m_viewManager, *m_impl->m_descriptorAllocator);
+        m_impl->m_commandPool->bind_resources(
+            *m_impl->m_bufferManager,
+            *m_impl->m_textureManager,
+            *m_impl->m_pipelineManager,
+            *m_impl->m_viewManager,
+            *m_impl->m_descriptorAllocator);
 
         // 4) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);

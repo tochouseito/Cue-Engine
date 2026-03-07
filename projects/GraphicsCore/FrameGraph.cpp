@@ -653,8 +653,7 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::resolve_pipeline_artifacts()
     {
-        // Pipeline artifacts are shared through the manager registries.
-        // Reuse by name when present, otherwise create here.
+        // 1) RootSignature は name ベースで再利用し、未作成分だけ backend manager に生成させる。
         for (auto& [nameId, rootSignatureDecl] : m_rootSignatureDecls)
         {
             Result result = m_pipelineManager.get_root_signature(nameId, rootSignatureDecl.handle);
@@ -668,6 +667,7 @@ namespace Cue::GraphicsCore
             }
         }
 
+        // 2) Shader も同様に name ベースで再利用し、未作成分だけコンパイルする。
         for (auto& [nameId, shaderDecl] : m_shaderDecls)
         {
             Result result = m_pipelineManager.get_shader(nameId, shaderDecl.handle);
@@ -681,19 +681,7 @@ namespace Cue::GraphicsCore
             }
         }
 
-        for (auto& [nameId, pipelineDecl] : m_pipelineDecls)
-        {
-            Result result = m_pipelineManager.get_pipeline(nameId, pipelineDecl.handle);
-            if (!result)
-            {
-                result = m_pipelineManager.create_graphics_pipeline(pipelineDecl.desc, pipelineDecl.handle);
-                if (!result)
-                {
-                    return result;
-                }
-            }
-        }
-
+        // 3) Pass ごとの宣言から PSO の未解決 handle を補完する。
         for (CompiledPass& compiledPass : m_passes)
         {
             if (compiledPass.rootSignatureDecl.declared)
@@ -706,6 +694,55 @@ namespace Cue::GraphicsCore
                 shaderDecl.handle = m_shaderDecls.at(shaderDecl.nameId).handle;
             }
 
+            if (!compiledPass.pipelineDecl.declared)
+            {
+                continue;
+            }
+
+            PipelineBindingDecl& pipelineDecl = m_pipelineDecls.at(compiledPass.pipelineDecl.nameId);
+            if (!pipelineDecl.desc.rootSignatureHandle.valid() && compiledPass.rootSignatureDecl.handle.valid())
+            {
+                pipelineDecl.desc.rootSignatureHandle = compiledPass.rootSignatureDecl.handle;
+            }
+
+            for (const ShaderBindingDecl& shaderDecl : compiledPass.shaderDecls)
+            {
+                const ShaderBindingDecl& resolvedShaderDecl = m_shaderDecls.at(shaderDecl.nameId);
+                if (!pipelineDecl.desc.vsHandle.valid() && resolvedShaderDecl.desc.targetProfile.starts_with("vs_"))
+                {
+                    pipelineDecl.desc.vsHandle = resolvedShaderDecl.handle;
+                    continue;
+                }
+
+                if (!pipelineDecl.desc.psHandle.valid() && resolvedShaderDecl.desc.targetProfile.starts_with("ps_"))
+                {
+                    pipelineDecl.desc.psHandle = resolvedShaderDecl.handle;
+                }
+            }
+        }
+
+        // 4) 補完済み PSO 設定を作成/再利用し、execute で直接 bind できる handle を確定する。
+        for (auto& [nameId, pipelineDecl] : m_pipelineDecls)
+        {
+            if (!pipelineDecl.desc.rootSignatureHandle.valid() || !pipelineDecl.desc.vsHandle.valid() || !pipelineDecl.desc.psHandle.valid())
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Pipeline declaration is missing root signature or shader handles.");
+            }
+
+            Result result = m_pipelineManager.get_pipeline(nameId, pipelineDecl.handle);
+            if (!result)
+            {
+                result = m_pipelineManager.create_graphics_pipeline(pipelineDecl.desc, pipelineDecl.handle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        // 5) CompiledPass 側の handle を最終状態に同期する。
+        for (CompiledPass& compiledPass : m_passes)
+        {
             if (compiledPass.pipelineDecl.declared)
             {
                 compiledPass.pipelineDecl.handle = m_pipelineDecls.at(compiledPass.pipelineDecl.nameId).handle;
@@ -1168,6 +1205,33 @@ namespace Cue::GraphicsCore
             {
                 return setupResult;
             }
+
+            if (queueType == CommandListType::Graphics
+                && compiledPass.pipelineDecl.handle.valid()
+                && compiledPass.rootSignatureDecl.handle.valid())
+            {
+                // 1) Graphics pass 実行前に PSO/RootSignature を command context へ設定し、pass は draw call だけに集中させる。
+                const Result bindPipelineResult = commandContext->set_graphics_pipeline(
+                    compiledPass.pipelineDecl.handle,
+                    compiledPass.rootSignatureDecl.handle);
+                if (!bindPipelineResult)
+                {
+                    return bindPipelineResult;
+                }
+
+                // 2) FrameGraph が解決した descriptor を root parameter index へ反映し、backend 依存の bind を execute ループに集約する。
+                for (const FrameGraphContext::ResolvedDescriptorBinding& descriptorBinding : descriptorBindings)
+                {
+                    const Result bindDescriptorResult = commandContext->set_graphics_descriptor_table(
+                        descriptorBinding.shaderRegister,
+                        descriptorBinding.descriptorHandle);
+                    if (!bindDescriptorResult)
+                    {
+                        return bindDescriptorResult;
+                    }
+                }
+            }
+
             FrameGraphContext context(
                 *this,
                 frameNo,
