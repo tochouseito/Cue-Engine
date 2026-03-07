@@ -1,4 +1,4 @@
-add_library(Engine STATIC "Engine.h" "Engine.cpp" "frame/FrameController.h" "frame/FrameController.cpp" "Configuration.h")
+add_library(Engine STATIC "Engine.h" "Engine.cpp" "frame/FrameController.h" "frame/FrameController.cpp" "Configuration.h" "pass/BackBufferClear.h" "pass/TestDraw.h")
 
 target_link_libraries(Engine PRIVATE cue_warnings)
 target_link_libraries(Engine PRIVATE cue_compile_options)

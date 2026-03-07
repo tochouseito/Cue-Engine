@@ -1,5 +1,5 @@
 #pragma once
-#include "FrameGraph.h"
+#include <FrameGraph.h>
 
 namespace Cue::GraphicsCore::Pass
 {
