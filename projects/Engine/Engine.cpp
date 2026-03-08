@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "pass/TestDraw.h"
 
 // === Core includes ===
 #include <Logger.h>
@@ -53,7 +54,8 @@ namespace Cue
         }
         else
         {
-
+            // 4) Editor pass 未指定時でも描画経路を検証できるよう、最小の三角形描画 pass を既定登録する。
+            r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>());
         }
         r = m_frameGraph->build();
         r = m_presentFrameGraph->build();

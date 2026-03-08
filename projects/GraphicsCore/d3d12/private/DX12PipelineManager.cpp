@@ -34,19 +34,38 @@ namespace
     {
         using namespace Cue::GraphicsCore;
         D3D12_BLEND_DESC desc{};
+        for (auto& rtDesc : desc.RenderTarget)
+        {
+            // 1) 色書き込みマスクを既定で有効化し、BlendMode::None でも出力が消えないようにする。
+            rtDesc.BlendEnable = FALSE;
+            rtDesc.LogicOpEnable = FALSE;
+            rtDesc.SrcBlend = D3D12_BLEND_ONE;
+            rtDesc.DestBlend = D3D12_BLEND_ZERO;
+            rtDesc.BlendOp = D3D12_BLEND_OP_ADD;
+            rtDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+            rtDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+            rtDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+            rtDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+            rtDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        }
+
         for (size_t i = 0; i < modes.size() && i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
         {
             D3D12_RENDER_TARGET_BLEND_DESC& rtDesc = desc.RenderTarget[i];
             switch (modes[i])
             {
             case BlendMode::None:
-                rtDesc.BlendEnable = false;
+                rtDesc.BlendEnable = FALSE;
                 break;
             case BlendMode::Normal:
-                rtDesc.BlendEnable = true;
+                rtDesc.BlendEnable = TRUE;
+                rtDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+                rtDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+                rtDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+                rtDesc.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
                 break;
             default:
-                rtDesc.BlendEnable = false;
+                rtDesc.BlendEnable = FALSE;
                 break;
             }
         }

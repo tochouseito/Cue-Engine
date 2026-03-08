@@ -10,8 +10,6 @@
 #include "private/HLSLCompiler.h"
 #include "SwapChain.h"
 
-#include <passes/BackBufferClear.h>
-
 namespace Cue::GraphicsCore
 {
     std::unique_ptr<Backend> create_backend()
