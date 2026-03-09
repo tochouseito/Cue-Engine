@@ -28,6 +28,8 @@
 // === Core includes ===
 #include <Logger.h>
 #include <Pool.h>
+#include <Native/Handle.h>
+#include <Registry.h>
 
 namespace Cue::GraphicsCore
 {

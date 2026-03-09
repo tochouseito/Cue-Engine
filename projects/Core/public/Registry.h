@@ -1,8 +1,8 @@
 #pragma once
-#include "ResourceHandle.h"
+#include "Native/Handle.h"
 #include <vector>
 
-namespace Cue::GraphicsCore
+namespace Cue::Core
 {
     // レジストリ
     template <class Tag, class Record>
@@ -146,5 +146,4 @@ namespace Cue::GraphicsCore
     using BufferRegistry = Registry<BufferTag, BufferRecord>;
     using TextureRegistry = Registry<TextureTag, TextureRecord>;
     using PipelineRegistry = Registry<PipelineStateTag, PipelineRecord>;
-
-} // namespace Cue::GraphicsCore
+}

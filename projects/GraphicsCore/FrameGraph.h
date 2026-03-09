@@ -1,8 +1,6 @@
 #pragma once
 #include "GraphicsCommon.h"
 #include "GraphicsInterface.h"
-#include "ResourceHandle.h"
-#include "Registry.h"
 #include "BufferManager.h"
 #include "TextureManager.h"
 #include "ShaderCompiler.h"
@@ -25,12 +23,12 @@ namespace Cue::GraphicsCore
         }
     };
 
-    [[nodiscard]] constexpr ResourceRef to_resource_ref(BufferHandle handle) noexcept
+    [[nodiscard]] constexpr ResourceRef to_resource_ref(Core::BufferHandle handle) noexcept
     {
         return ResourceRef{ ResourceKind::Buffer, handle.index, handle.generation };
     }
 
-    [[nodiscard]] constexpr ResourceRef to_resource_ref(TextureHandle handle) noexcept
+    [[nodiscard]] constexpr ResourceRef to_resource_ref(Core::TextureHandle handle) noexcept
     {
         return ResourceRef{ ResourceKind::Texture, handle.index, handle.generation };
     }

@@ -1,11 +1,16 @@
 #pragma once
+#include <Result.h>
+#include <CueAssert.h>
 
 namespace Cue::Asset
 {
     class AssetManager final
     {
-        public:
+    public:
         AssetManager() = default;
         ~AssetManager() = default;
+
+    private:
+        
     };
 }

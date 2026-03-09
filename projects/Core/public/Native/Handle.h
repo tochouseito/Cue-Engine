@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace Cue::GraphicsCore
+namespace Cue::Core
 {
     // 文字列を整数へ変換するハッシュ関数
     using ResourceNameId = uint64_t;
@@ -54,4 +54,4 @@ namespace Cue::GraphicsCore
     using RootSignatureHandle = Handle<RootSignatureTag>;
     using ShaderBlobHandle = Handle<ShaderBlobTag>;
     using ViewHandle = Handle<ViewTag>;
-}// namespace Cue::GraphicsCore
+}
