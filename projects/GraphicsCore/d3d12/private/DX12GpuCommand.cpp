@@ -51,6 +51,13 @@ namespace Cue::GraphicsCore::DX12
             m_descriptorAllocator->free_table(m_transientRtv);
             m_transientRtv = {};
         }
+
+        // 2) DSV も同様に返却し、descriptor leak を防ぐ。
+        if (m_descriptorAllocator != nullptr && m_transientDsv.valid())
+        {
+            m_descriptorAllocator->free_table(m_transientDsv);
+            m_transientDsv = {};
+        }
     }
     Result DX12CommandContext::setup()
     {
@@ -85,7 +92,19 @@ namespace Cue::GraphicsCore::DX12
                 "CommandAllocator or CommandList is null.");
         }
 
-        // 1) コマンドアロケータのリセット
+        // 1) 前回実行で使った一時 RTV/DSV は GPU 完了後の再利用タイミングなので、ここで返却して枯渇を防ぐ。
+        if (m_descriptorAllocator != nullptr && m_transientRtv.valid())
+        {
+            m_descriptorAllocator->free_table(m_transientRtv);
+            m_transientRtv = {};
+        }
+        if (m_descriptorAllocator != nullptr && m_transientDsv.valid())
+        {
+            m_descriptorAllocator->free_table(m_transientDsv);
+            m_transientDsv = {};
+        }
+
+        // 2) コマンドアロケータのリセット
         HRESULT hr = m_commandAllocator->Reset();
         if (FAILED(hr))
         {
@@ -97,7 +116,7 @@ namespace Cue::GraphicsCore::DX12
                 "Failed to reset CommandAllocator.");
         }
 
-        // 2) コマンドリストのリセット
+        // 3) コマンドリストのリセット
         hr = m_commandList->Reset(
             m_commandAllocator.Get(),
             nullptr);
@@ -111,6 +130,7 @@ namespace Cue::GraphicsCore::DX12
                 "Failed to reset CommandList.");
         }
 
+        // 4) reset 後は空リスト扱いから再開する。
         m_listEmpty = true;
 
         return Result::ok();
@@ -342,6 +362,41 @@ namespace Cue::GraphicsCore::DX12
         // 2) RTV ハンドルを使って ClearRenderTargetView を発行する。
         const D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_descriptorAllocator->get_cpu_handle(m_transientRtv);
         m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::clear_depth_stencil(TextureHandle handle, float depth, uint8_t stencil)
+    {
+        // 1) DSV を動的に引いて clear し、FrameGraph pass が depth texture 実体を直接保持しない形を守る。
+        if (m_commandList == nullptr || m_descriptorAllocator == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command context is not bound to DSV resources.");
+        }
+
+        GpuTextureResource* texture = nullptr;
+        const Result resolveResult = resolve_texture_resource(handle, texture);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+        if (!m_transientDsv.valid())
+        {
+            m_transientDsv = m_descriptorAllocator->allocate(DescriptorAllocator::TableKind::DepthStencils);
+            if (!m_transientDsv.valid())
+            {
+                return Result::fail(Facility::Graphics, Code::CreationFailed, Severity::Error, 0, "Failed to allocate transient DSV table.");
+            }
+        }
+
+        const Result createDsvResult = m_descriptorAllocator->create_dsv(m_transientDsv, texture, texture->get_resource_desc().Format);
+        if (!createDsvResult)
+        {
+            return createDsvResult;
+        }
+
+        // 2) DSV ハンドルを使って ClearDepthStencilView を発行し、フレームごとの深度内容を初期化する。
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = m_descriptorAllocator->get_cpu_handle(m_transientDsv);
+        m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, depth, stencil, 0, nullptr);
         m_listEmpty = false;
         return Result::ok();
     }

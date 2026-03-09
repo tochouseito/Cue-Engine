@@ -3,12 +3,25 @@
 
 namespace Cue::GraphicsCore
 {
+    enum class TextureUsage : uint8_t
+    {
+        Unknown,
+        DepthStencil,
+    };
+
     struct TextureDesc
     {
         std::string_view name;
         // 0 means "use the FrameGraph default buffering count".
         uint32_t bufferingCount = 0;
         ResourceInstanceSource instanceSource = ResourceInstanceSource::FrameResourceIndex;
+        TextureUsage usage = TextureUsage::Unknown;
+        ResourceState initialState = ResourceState::Common;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
+        float clearDepth = 1.0f;
+        uint8_t clearStencil = 0;
     };
 
     class ITextureManager

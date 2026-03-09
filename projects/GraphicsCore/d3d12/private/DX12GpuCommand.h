@@ -62,6 +62,7 @@ namespace Cue::GraphicsCore::DX12
         Result resource_barrier(const ResourceBarrierDesc& barrier) override;
         Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
         Result clear_render_target(TextureHandle handle, const float clearColor[4]) override;
+        Result clear_depth_stencil(TextureHandle handle, float depth, uint8_t stencil) override;
         Result copy_buffer_region(BufferHandle dstHandle, uint64_t dstByteOffset, BufferHandle srcHandle, uint64_t srcByteOffset, uint64_t byteSize) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
@@ -79,6 +80,7 @@ namespace Cue::GraphicsCore::DX12
         IViewManager* m_viewManager = nullptr;
         DescriptorAllocator* m_descriptorAllocator = nullptr;
         DescriptorAllocator::TableID m_transientRtv = {};
+        DescriptorAllocator::TableID m_transientDsv = {};
     };
 
     class DX12GraphicsCommandContext final : public DX12CommandContext

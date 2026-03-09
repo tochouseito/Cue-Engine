@@ -6,6 +6,45 @@
 
 namespace Cue::GraphicsCore::DX12
 {
+    namespace
+    {
+        [[nodiscard]] D3D12_RESOURCE_STATES convert_texture_resource_state(ResourceState state) noexcept
+        {
+            switch (state)
+            {
+            case ResourceState::Common:
+                return D3D12_RESOURCE_STATE_COMMON;
+            case ResourceState::CopySource:
+                return D3D12_RESOURCE_STATE_COPY_SOURCE;
+            case ResourceState::CopyDest:
+                return D3D12_RESOURCE_STATE_COPY_DEST;
+            case ResourceState::RenderTarget:
+                return D3D12_RESOURCE_STATE_RENDER_TARGET;
+            case ResourceState::UnorderedAccess:
+                return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            case ResourceState::ShaderResource:
+                return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            case ResourceState::DepthWrite:
+                return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            case ResourceState::Present:
+                return D3D12_RESOURCE_STATE_PRESENT;
+            default:
+                return D3D12_RESOURCE_STATE_COMMON;
+            }
+        }
+
+        [[nodiscard]] DXGI_FORMAT convert_dsv_format(DSVFormat format) noexcept
+        {
+            switch (format)
+            {
+            case DSVFormat::D24_UNorm_S8_UInt:
+                return DXGI_FORMAT_D24_UNORM_S8_UINT;
+            default:
+                return DXGI_FORMAT_D24_UNORM_S8_UINT;
+            }
+        }
+    }
+
     class IExternalTextureOwner
     {
     public:
@@ -52,6 +91,28 @@ namespace Cue::GraphicsCore::DX12
             {
                 TextureEntry entry{};
                 entry.kind = TextureEntry::Kind::Owned;
+                if (desc.usage == TextureUsage::DepthStencil)
+                {
+                    // 2) depth texture は実体をここで確保し、FrameGraph が DSV として直ちに利用できる状態にする。
+                    if (desc.width == 0 || desc.height == 0)
+                    {
+                        return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Depth texture size is invalid");
+                    }
+
+                    const Result createResult = entry.ownedTexture.create_depth_stencil_texture_2d(
+                        *m_renderDevice.get_d3d12_device(),
+                        desc.width,
+                        desc.height,
+                        convert_dsv_format(desc.dsvFormat),
+                        convert_texture_resource_state(desc.initialState),
+                        desc.clearDepth,
+                        desc.clearStencil,
+                        to_utf16(desc.name));
+                    if (!createResult)
+                    {
+                        return createResult;
+                    }
+                }
                 handles.push_back(m_textureRegistry.create(entry));
             }
 
@@ -158,6 +219,10 @@ namespace Cue::GraphicsCore::DX12
             if (outTexture == nullptr)
             {
                 return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture resource is not available");
+            }
+            if (outTexture->get_resource() == nullptr)
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Texture resource is not initialized");
             }
 
             return Result::ok();

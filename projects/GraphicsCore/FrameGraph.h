@@ -119,6 +119,8 @@ namespace Cue::GraphicsCore
         void write(TextureHandle handle, ResourceState finalState);
         void render(TextureHandle handle);
         void render(TextureHandle handle, ResourceState finalState);
+        void depth_write(TextureHandle handle);
+        void depth_write(TextureHandle handle, ResourceState finalState);
         void cpy_src(BufferHandle handle);
         void cpy_src(TextureHandle handle);
         void cpy_dst(BufferHandle handle);

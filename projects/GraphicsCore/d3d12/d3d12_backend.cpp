@@ -75,7 +75,7 @@ namespace Cue::GraphicsCore::DX12
             /*texCap=*/256,
             /*bufCap=*/256,
             /*rtCap=*/32,
-            /*dsCap=*/2);
+            /*dsCap=*/16);
         if (!r)
         {
             return r;

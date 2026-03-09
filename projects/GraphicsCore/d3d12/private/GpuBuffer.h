@@ -274,7 +274,7 @@ namespace Cue::GraphicsCore::DX12
         GpuTextureResource& operator=(GpuTextureResource&&) noexcept = default;
         // デストラクタ
         ~GpuTextureResource() override = default;
-    protected:
+
         Result create_texture(ID3D12Device& device, D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initialState, const D3D12_CLEAR_VALUE* clearValue, std::wstring_view name)
         {
             D3D12_HEAP_PROPERTIES heapProperties = {};
@@ -287,6 +287,37 @@ namespace Cue::GraphicsCore::DX12
                 initialState,
                 clearValue,
                 name);
+        }
+        Result create_depth_stencil_texture_2d(
+            ID3D12Device& device,
+            uint32_t width,
+            uint32_t height,
+            DXGI_FORMAT format,
+            D3D12_RESOURCE_STATES initialState,
+            float clearDepth,
+            uint8_t clearStencil,
+            std::wstring_view name)
+        {
+            // 1) 深度テクスチャは 2D 固定で作り、DSV/clear の前提を resource 生成時に確定する。
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Alignment = 0;
+            desc.Width = width;
+            desc.Height = height;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = format;
+            desc.SampleDesc = { 1, 0 };
+            desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+            // 2) 既定クリア値を埋めておくことで、ClearDepthStencilView と最適化ヒントを一致させる。
+            D3D12_CLEAR_VALUE clearValue{};
+            clearValue.Format = format;
+            clearValue.DepthStencil.Depth = clearDepth;
+            clearValue.DepthStencil.Stencil = clearStencil;
+
+            return create_texture(device, desc, initialState, &clearValue, name);
         }
     private:
 

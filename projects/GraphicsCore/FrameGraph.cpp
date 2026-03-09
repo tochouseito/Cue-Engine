@@ -140,9 +140,7 @@ namespace Cue::GraphicsCore
         resource.textureDesc.bufferingCount = resolve_buffering_count(desc.bufferingCount);
         resource.instanceCount = resource.textureDesc.bufferingCount;
         resource.instanceSource = desc.instanceSource;
-        resource.initialState = (desc.instanceSource == ResourceInstanceSource::SwapchainImageIndex)
-            ? ResourceState::Present
-            : ResourceState::Common;
+        resource.initialState = desc.initialState;
 
         return handle;
     }
@@ -499,7 +497,17 @@ namespace Cue::GraphicsCore
             }
 
             TextureHandle createdHandle{};
-            const Result createResult = m_textureManager.create_texture(resource.textureDesc, createdHandle);
+            TextureDesc resolvedDesc = resource.textureDesc;
+            if (resolvedDesc.width == 0)
+            {
+                resolvedDesc.width = m_screenWidth;
+            }
+            if (resolvedDesc.height == 0)
+            {
+                resolvedDesc.height = m_screenHeight;
+            }
+
+            const Result createResult = m_textureManager.create_texture(resolvedDesc, createdHandle);
             if (!createResult)
             {
                 return createResult;
@@ -1395,6 +1403,18 @@ namespace Cue::GraphicsCore
     {
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::RenderTarget, true, finalState });
+    }
+
+    void FrameGraphBuilder::depth_write(TextureHandle handle)
+    {
+        m_frameGraph.validate_resource_handle(handle);
+        m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::DepthWrite });
+    }
+
+    void FrameGraphBuilder::depth_write(TextureHandle handle, ResourceState finalState)
+    {
+        m_frameGraph.validate_resource_handle(handle);
+        m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::DepthWrite, true, finalState });
     }
 
     void FrameGraphBuilder::cpy_src(BufferHandle handle)

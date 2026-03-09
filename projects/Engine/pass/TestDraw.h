@@ -69,6 +69,16 @@ namespace Cue::GraphicsCore::Pass
             m_backBuffer = builder.import_texture(backBufferDesc.name, backBufferDesc, ResourceState::Present);
             builder.render(m_backBuffer, ResourceState::Present);
 
+            TextureDesc depthBufferDesc{};
+            depthBufferDesc.name = "TestDraw.DepthBuffer";
+            depthBufferDesc.usage = TextureUsage::DepthStencil;
+            depthBufferDesc.initialState = ResourceState::DepthWrite;
+            depthBufferDesc.dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
+            depthBufferDesc.clearDepth = 1.0f;
+            depthBufferDesc.clearStencil = 0;
+            m_depthBuffer = builder.create_texture(depthBufferDesc.name, depthBufferDesc);
+            builder.depth_write(m_depthBuffer);
+
             // 2) シェーダパスを先に確定し、VS/PS で同一ファイルを使う契約を固定する。
             m_shaderFilePath = resolve_test_draw_shader_path();
 
@@ -124,8 +134,8 @@ namespace Cue::GraphicsCore::Pass
             GraphicsPipelineStateDesc pipelineDesc{};
             pipelineDesc.name = "TestDraw.PSO";
             pipelineDesc.rasterizerState.cullMode = CullMode::Back;
-            pipelineDesc.depthStencilState.depthEnable = false;
-            pipelineDesc.depthStencilState.depthWriteMask = DepthWriteMask::Zero;
+            pipelineDesc.depthStencilState.depthEnable = true;
+            pipelineDesc.depthStencilState.depthWriteMask = DepthWriteMask::All;
             pipelineDesc.primitiveTopologyType = PrimitiveTopologyType::Triangle;
             pipelineDesc.rtvFormats = { ColorFormat::R8G8B8A8_UNORM };
             pipelineDesc.inputElements =
@@ -160,6 +170,21 @@ namespace Cue::GraphicsCore::Pass
             if (!clearResult)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to clear back buffer.\n");
+                return;
+            }
+
+            TextureHandle resolvedDepthBuffer{};
+            const Result resolveDepthBufferResult = ctx.resolve_texture(m_depthBuffer, resolvedDepthBuffer);
+            if (!resolveDepthBufferResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve depth buffer.\n");
+                return;
+            }
+
+            const Result clearDepthResult = ctx.command_context().clear_depth_stencil(resolvedDepthBuffer, 1.0f, 0);
+            if (!clearDepthResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to clear depth buffer.\n");
                 return;
             }
 
@@ -357,6 +382,7 @@ namespace Cue::GraphicsCore::Pass
         };
 
         GraphicsCore::TextureHandle m_backBuffer{};
+        GraphicsCore::TextureHandle m_depthBuffer{};
         GraphicsCore::BufferHandle m_cameraConstantBuffer{};
         GraphicsCore::BufferHandle m_frontTransformConstantBuffer{};
         GraphicsCore::BufferHandle m_backTransformConstantBuffer{};
