@@ -79,7 +79,10 @@ namespace Cue::GraphicsCore::DX12
             // 1) バッファ種別ごとの差は descriptor 作成時に吸収し、実体生成は共通経路へ寄せる。
             createDesc.name = resourceName;
             createDesc.heapType = convert_heap_type(desc.heapType);
-            createDesc.initialState = convert_resource_state(desc.initialState);
+            // 2) Upload heap は D3D12 の制約上 GENERIC_READ で作り、CBV/CopySource の両方で安全に使えるようにする。
+            createDesc.initialState = desc.heapType == ResourceHeapType::Upload
+                ? D3D12_RESOURCE_STATE_GENERIC_READ
+                : convert_resource_state(desc.initialState);
             createDesc.flags = D3D12_RESOURCE_FLAG_NONE;
             createDesc.byteSize = desc.size;
             createDesc.numElements = desc.elementCount;

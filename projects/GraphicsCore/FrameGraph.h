@@ -213,8 +213,12 @@ namespace Cue::GraphicsCore
             return m_commandContext;
         }
 
+        [[nodiscard]] IBufferManager& buffer_manager() noexcept;
+
         [[nodiscard]] IViewManager& view_manager() noexcept;
         [[nodiscard]] StaticMeshBufferPool& static_mesh_buffer_pool() noexcept;
+        [[nodiscard]] uint32_t screen_width() const noexcept;
+        [[nodiscard]] uint32_t screen_height() const noexcept;
 
         [[nodiscard]] PipelineStateHandle pipeline_handle() const noexcept
         {
@@ -235,6 +239,8 @@ namespace Cue::GraphicsCore
         {
             return m_descriptorBindings;
         }
+
+        [[nodiscard]] Result write_buffer(BufferHandle logicalHandle, uint64_t byteOffset, const void* data, uint32_t byteSize) const;
 
         [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, BufferHandle& outHandle) const;
         [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const;
@@ -453,8 +459,33 @@ namespace Cue::GraphicsCore
     {
         return m_frameGraph.view_manager();
     }
+    inline IBufferManager& FrameGraphContext::buffer_manager() noexcept
+    {
+        return m_frameGraph.m_bufferManager;
+    }
     inline StaticMeshBufferPool& FrameGraphContext::static_mesh_buffer_pool() noexcept
     {
         return m_frameGraph.static_mesh_buffer_pool();
+    }
+    inline uint32_t FrameGraphContext::screen_width() const noexcept
+    {
+        return m_frameGraph.m_screenWidth;
+    }
+    inline uint32_t FrameGraphContext::screen_height() const noexcept
+    {
+        return m_frameGraph.m_screenHeight;
+    }
+    inline Result FrameGraphContext::write_buffer(BufferHandle logicalHandle, uint64_t byteOffset, const void* data, uint32_t byteSize) const
+    {
+        // 1) 論理 handle を現在フレームの物理 buffer へ解決し、pass 側が buffering index を意識しなくて済むようにする。
+        BufferHandle physicalHandle{};
+        const Result resolveResult = resolve_buffer(logicalHandle, physicalHandle);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+
+        // 2) 実際の CPU 書き込みは BufferManager へ委譲し、upload heap の map/unmap 方針を backend 側に閉じ込める。
+        return m_frameGraph.m_bufferManager.write_buffer(physicalHandle, byteOffset, data, byteSize);
     }
 } // namespace Cue::GraphicsCore

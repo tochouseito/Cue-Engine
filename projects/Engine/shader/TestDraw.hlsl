@@ -1,3 +1,13 @@
+cbuffer CameraConstants : register(b0)
+{
+    row_major float4x4 g_viewProjection;
+};
+
+cbuffer TransformConstants : register(b1)
+{
+    row_major float4x4 g_world;
+};
+
 struct VsIn
 {
     float4 position : POSITION0;
@@ -14,7 +24,8 @@ struct VsOut
 VsOut vs_main(VsIn input)
 {
     VsOut output = (VsOut)0;
-    output.position = input.position;
+    float4 worldPosition = mul(input.position, g_world);
+    output.position = mul(worldPosition, g_viewProjection);
     output.color = (input.normal * 0.5f) + 0.5f;
     return output;
 }
