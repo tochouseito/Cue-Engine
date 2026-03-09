@@ -5,13 +5,13 @@
 namespace Cue::GraphicsCore
 {
     template<typename T>
-    class SlotUploadBuffer
+    class SlotUploader
     {
         // Tがトリビアルコピーであることを静的アサート
         static_assert(std::is_trivially_copyable_v<T>, "SlotUploadBuffer requires trivial types");
     public:
-        SlotUploadBuffer() = default;
-        ~SlotUploadBuffer() = default;
+        SlotUploader() = default;
+        ~SlotUploader() = default;
 
         void initialize(size_t capacity, size_t alignment, std::byte* mappedData) noexcept
         {
