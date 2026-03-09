@@ -21,6 +21,22 @@ namespace Cue::GraphicsCore
         ResourceState after = ResourceState::Common;
     };
 
+    struct VertexBufferBindDesc final
+    {
+        BufferHandle buffer{};
+        uint64_t byteOffset = 0;
+        uint32_t byteSize = 0;
+        uint32_t stride = 0;
+    };
+
+    struct IndexBufferBindDesc final
+    {
+        BufferHandle buffer{};
+        uint64_t byteOffset = 0;
+        uint32_t byteSize = 0;
+        IndexFormat format = IndexFormat::UInt32;
+    };
+
     using NativeCommandList = void*; // 透過型ハンドル（実際の型はバックエンドごとに異なる）
 
     class ICommandContext
@@ -55,12 +71,16 @@ namespace Cue::GraphicsCore
         virtual Result resource_barrier(const ResourceBarrierDesc& barrier) = 0;
         virtual Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) = 0;
         virtual Result clear_render_target(TextureHandle handle, const float clearColor[4]) = 0;
+        virtual Result copy_buffer_region(BufferHandle dstHandle, uint64_t dstByteOffset, BufferHandle srcHandle, uint64_t srcByteOffset, uint64_t byteSize) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
         virtual Result set_graphics_pipeline(PipelineStateHandle pipelineHandle, RootSignatureHandle rootSignatureHandle) = 0;
         virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, const DescriptorHandle& descriptorHandle) = 0;
         virtual Result set_primitive_topology_triangle_list() = 0;
+        virtual Result set_vertex_buffers(uint32_t startSlot, const VertexBufferBindDesc* buffers, uint32_t bufferCount) = 0;
+        virtual Result set_index_buffer(const IndexBufferBindDesc& buffer) = 0;
         virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
+        virtual Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) = 0;
     };
 
     class IQueueContext
@@ -79,6 +99,7 @@ namespace Cue::GraphicsCore
         virtual Result submit(ICommandContext& cmd) = 0;
         virtual Result signal(QueueSyncPoint& outPoint) = 0;
         virtual Result wait(const IQueueContext& producerQueue, const QueueSyncPoint& point) = 0;
+        virtual Result wait_for_point(const QueueSyncPoint& point) = 0;
         virtual bool is_complete(const QueueSyncPoint& point) const = 0;
     };
 

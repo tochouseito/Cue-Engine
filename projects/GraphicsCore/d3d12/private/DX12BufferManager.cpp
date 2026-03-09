@@ -4,6 +4,22 @@ namespace Cue::GraphicsCore::DX12
 {
     namespace
     {
+        [[nodiscard]] bool is_supported_buffer_type(BufferType type) noexcept
+        {
+            switch (type)
+            {
+            case BufferType::Vertex:
+            case BufferType::Index:
+            case BufferType::Constant:
+            case BufferType::Structured:
+            case BufferType::UnorderedAccess:
+            case BufferType::Raw:
+                return true;
+            default:
+                return false;
+            }
+        }
+
         D3D12_HEAP_TYPE convert_heap_type(ResourceHeapType heapType)
         {
             switch (heapType)
@@ -55,22 +71,25 @@ namespace Cue::GraphicsCore::DX12
             GpuBufferResource buffer{};
             BufferCreateDesc createDesc{};
             std::wstring resourceName = to_utf16(desc.name);
-            switch (desc.type)
+            if (!is_supported_buffer_type(desc.type))
             {
-            case BufferType::Vertex:
-                // 頂点バッファの作成
-                createDesc.name = resourceName;
-                createDesc.heapType = convert_heap_type(desc.heapType);
-                createDesc.initialState = convert_resource_state(desc.initialState);
-                createDesc.flags = D3D12_RESOURCE_FLAG_NONE;
-                createDesc.byteSize = desc.size;
-                createDesc.numElements = desc.elementCount;
-                createDesc.stride = desc.stride;
-                buffer.create_buffer(*m_renderDevice.get_d3d12_device(), createDesc);
-                break;
-            default:
-                break;
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Unsupported buffer type");
             }
+
+            // 1) バッファ種別ごとの差は descriptor 作成時に吸収し、実体生成は共通経路へ寄せる。
+            createDesc.name = resourceName;
+            createDesc.heapType = convert_heap_type(desc.heapType);
+            createDesc.initialState = convert_resource_state(desc.initialState);
+            createDesc.flags = D3D12_RESOURCE_FLAG_NONE;
+            createDesc.byteSize = desc.size;
+            createDesc.numElements = desc.elementCount;
+            createDesc.stride = desc.stride;
+            const Result createResult = buffer.create_buffer(*m_renderDevice.get_d3d12_device(), createDesc);
+            if (!createResult)
+            {
+                return createResult;
+            }
+
             BufferHandle handle = m_bufferRegistry.create(buffer);
             handles.push_back(handle);
         }
@@ -125,6 +144,59 @@ namespace Cue::GraphicsCore::DX12
         }
 
         outCount = static_cast<uint32_t>(it->second.size());
+        return Result::ok();
+    }
+    Result DX12BufferManager::write_buffer(const BufferHandle& handle, uint64_t byteOffset, const void* data, uint32_t byteSize)
+    {
+        // 1) UploadBuffer 以外への CPU 書き込みは backend 依存の誤用なので、その場で止める。
+        if (data == nullptr || byteSize == 0)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Buffer write source is invalid");
+        }
+
+        GpuBufferResource* buffer = nullptr;
+        const Result resolveResult = try_get_buffer(handle, buffer);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+
+        ID3D12Resource* resource = buffer->get_resource();
+        if (resource == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Buffer resource is null");
+        }
+        if ((byteOffset + byteSize) > buffer->get_byte_size())
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Buffer write range exceeds resource size");
+        }
+
+        D3D12_HEAP_PROPERTIES actualHeapProperties{};
+        D3D12_HEAP_FLAGS heapFlags = D3D12_HEAP_FLAG_NONE;
+        HRESULT hr = resource->GetHeapProperties(&actualHeapProperties, &heapFlags);
+        if (FAILED(hr))
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, static_cast<uint32_t>(hr), "Failed to query heap properties");
+        }
+        if (actualHeapProperties.Type != D3D12_HEAP_TYPE_UPLOAD)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Buffer is not created on upload heap");
+        }
+
+        void* mappedData = nullptr;
+        D3D12_RANGE readRange{ 0, 0 };
+        hr = resource->Map(0, &readRange, &mappedData);
+        if (FAILED(hr) || mappedData == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, static_cast<uint32_t>(hr), "Failed to map upload buffer");
+        }
+
+        std::memcpy(static_cast<std::byte*>(mappedData) + byteOffset, data, byteSize);
+
+        D3D12_RANGE writtenRange{};
+        writtenRange.Begin = static_cast<SIZE_T>(byteOffset);
+        writtenRange.End = static_cast<SIZE_T>(byteOffset + byteSize);
+        resource->Unmap(0, &writtenRange);
         return Result::ok();
     }
     Result DX12BufferManager::try_get_buffer(const BufferHandle& handle, GpuBufferResource*& outBuffer)

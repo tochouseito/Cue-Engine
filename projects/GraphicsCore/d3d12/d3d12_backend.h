@@ -26,6 +26,7 @@ namespace Cue::GraphicsCore::DX12
         Result render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
         Result present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
         Result create_frame_graph(std::unique_ptr<FrameGraph>& outFG) override;
+        StaticMeshBufferPool* get_static_mesh_buffer_pool() override;
         void set_win_platform(Platform::IPlatform* platform);
 
         // ImGui用

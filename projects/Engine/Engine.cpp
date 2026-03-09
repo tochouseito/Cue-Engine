@@ -46,6 +46,49 @@ namespace Cue
             render(),
             present());
 
+        GraphicsCore::StaticMeshAllocationHandle cubeAllocationHandle{};
+        {
+            // 4) TestPass が実メッシュを描けるよう、起動時に cube を生成して静的メッシュ pool へ upload する。
+            if (m_graphicsBackend == nullptr)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Graphics backend is null.");
+                return;
+            }
+
+            GraphicsCore::StaticMeshBufferPool* staticMeshBufferPool = m_graphicsBackend->get_static_mesh_buffer_pool();
+            if (staticMeshBufferPool == nullptr)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "StaticMeshBufferPool is not available.");
+                return;
+            }
+
+            Asset::ModelHandle cubeModelHandle{};
+            r = m_assetManager.create_cube_model(cubeModelHandle);
+            if (!r)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Failed to create cube model.");
+                return;
+            }
+
+            Core::Native::ModelData cubeModel{};
+            r = m_assetManager.get_model(cubeModelHandle, cubeModel);
+            if (!r)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Failed to resolve cube model data.");
+                return;
+            }
+
+            std::vector<GraphicsCore::StaticMeshAllocationHandle> allocations{};
+            r = staticMeshBufferPool->upload_model(cubeModel, allocations);
+            if (!r || allocations.empty())
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Failed to upload cube model to static mesh pool.");
+                return;
+            }
+
+            cubeAllocationHandle = allocations.front();
+        }
+
         m_graphicsBackend->create_frame_graph(m_frameGraph);
         m_graphicsBackend->create_frame_graph(m_presentFrameGraph);
         if (initInfo.editorPass)
@@ -54,8 +97,8 @@ namespace Cue
         }
         else
         {
-            // 4) Editor pass 未指定時でも描画経路を検証できるよう、最小の三角形描画 pass を既定登録する。
-            r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>());
+            // 5) Editor pass 未指定時でも静的メッシュ描画経路を検証できるよう、cube 描画 pass を既定登録する。
+            r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(cubeAllocationHandle));
         }
         r = m_frameGraph->build();
         r = m_presentFrameGraph->build();

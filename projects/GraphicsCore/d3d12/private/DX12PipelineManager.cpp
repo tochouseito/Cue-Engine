@@ -26,7 +26,10 @@ namespace
             d3dDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
             break;
         }
-        d3dDesc.AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+        d3dDesc.InputSlot = desc.inputSlot;
+        d3dDesc.AlignedByteOffset = desc.alignedByteOffset;
+        d3dDesc.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+        d3dDesc.InstanceDataStepRate = 0;
         return d3dDesc;
     }
 

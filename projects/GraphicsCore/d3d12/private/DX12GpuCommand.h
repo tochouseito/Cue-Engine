@@ -62,12 +62,16 @@ namespace Cue::GraphicsCore::DX12
         Result resource_barrier(const ResourceBarrierDesc& barrier) override;
         Result resource_barriers(const ResourceBarrierDesc* barriers, size_t count) override;
         Result clear_render_target(TextureHandle handle, const float clearColor[4]) override;
+        Result copy_buffer_region(BufferHandle dstHandle, uint64_t dstByteOffset, BufferHandle srcHandle, uint64_t srcByteOffset, uint64_t byteSize) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result set_graphics_pipeline(PipelineStateHandle pipelineHandle, RootSignatureHandle rootSignatureHandle) override;
         Result set_graphics_descriptor_table(uint32_t rootParameterIndex, const DescriptorHandle& descriptorHandle) override;
         Result set_primitive_topology_triangle_list() override;
+        Result set_vertex_buffers(uint32_t startSlot, const VertexBufferBindDesc* buffers, uint32_t bufferCount) override;
+        Result set_index_buffer(const IndexBufferBindDesc& buffer) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
+        Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;
     private:
         DX12BufferManager* m_bufferManager = nullptr;
         DX12TextureManager* m_textureManager = nullptr;
@@ -175,6 +179,7 @@ namespace Cue::GraphicsCore::DX12
         Result submit(ICommandContext& cmd) override;
         Result signal(QueueSyncPoint& outPoint) override;
         Result wait(const IQueueContext& producerQueue, const QueueSyncPoint& point) override;
+        Result wait_for_point(const QueueSyncPoint& point) override;
         bool is_complete(const QueueSyncPoint& point) const override;
         Result wait_for_last_signal();
         ID3D12CommandQueue* get_command_queue() const noexcept

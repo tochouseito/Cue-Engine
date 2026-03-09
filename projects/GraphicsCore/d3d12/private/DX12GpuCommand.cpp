@@ -54,6 +54,12 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12CommandContext::setup()
     {
+        // 1) copy command list は descriptor heap を扱えないため、setup は no-op で返す。
+        if (type() == CommandListType::Copy)
+        {
+            return Result::ok();
+        }
+
         if(!m_descriptorAllocator)
         {
             return Result::fail(
@@ -339,6 +345,51 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = false;
         return Result::ok();
     }
+    Result DX12CommandContext::copy_buffer_region(BufferHandle dstHandle, uint64_t dstByteOffset, BufferHandle srcHandle, uint64_t srcByteOffset, uint64_t byteSize)
+    {
+        // 1) copy 対象の handle を backend 実体へ解決し、上位が D3D12 resource を意識しなくて済むようにする。
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+        if (byteSize == 0)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Copy size must be greater than zero.");
+        }
+
+        GpuBufferResource* dstBuffer = nullptr;
+        const Result resolveDstResult = resolve_buffer_resource(dstHandle, dstBuffer);
+        if (!resolveDstResult)
+        {
+            return resolveDstResult;
+        }
+
+        GpuBufferResource* srcBuffer = nullptr;
+        const Result resolveSrcResult = resolve_buffer_resource(srcHandle, srcBuffer);
+        if (!resolveSrcResult)
+        {
+            return resolveSrcResult;
+        }
+
+        if ((dstByteOffset + byteSize) > dstBuffer->get_byte_size())
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Destination buffer range exceeds resource size.");
+        }
+        if ((srcByteOffset + byteSize) > srcBuffer->get_byte_size())
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Source buffer range exceeds resource size.");
+        }
+
+        // 2) CopyBufferRegion だけを封じ込め、後段は handle と offset/size を渡すだけに保つ。
+        m_commandList->CopyBufferRegion(
+            dstBuffer->get_resource(),
+            dstByteOffset,
+            srcBuffer->get_resource(),
+            srcByteOffset,
+            byteSize);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     Result DX12CommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
     {
         // 1) queue 種別を検証して RS state を設定する。
@@ -514,6 +565,92 @@ namespace Cue::GraphicsCore::DX12
         m_listEmpty = false;
         return Result::ok();
     }
+    Result DX12CommandContext::set_vertex_buffers(uint32_t startSlot, const VertexBufferBindDesc* buffers, uint32_t bufferCount)
+    {
+        // 1) graphics queue 専用の IA state なので、他 queue での誤用をここで止める。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Vertex buffers can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+        if (bufferCount == 0 || buffers == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Vertex buffer array is invalid.");
+        }
+        if ((startSlot + bufferCount) > D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Vertex buffer slot range exceeds D3D12 limit.");
+        }
+
+        std::array<D3D12_VERTEX_BUFFER_VIEW, D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT> views{};
+        for (uint32_t i = 0; i < bufferCount; ++i)
+        {
+            const VertexBufferBindDesc& bindDesc = buffers[i];
+            if (!bindDesc.buffer.valid() || bindDesc.byteSize == 0 || bindDesc.stride == 0)
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Vertex buffer bind description is invalid.");
+            }
+
+            GpuBufferResource* buffer = nullptr;
+            const Result resolveResult = resolve_buffer_resource(bindDesc.buffer, buffer);
+            if (!resolveResult)
+            {
+                return resolveResult;
+            }
+            if ((bindDesc.byteOffset + bindDesc.byteSize) > buffer->get_byte_size())
+            {
+                return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Vertex buffer range exceeds resource size.");
+            }
+
+            D3D12_VERTEX_BUFFER_VIEW& view = views[i];
+            view.BufferLocation = buffer->get_resource()->GetGPUVirtualAddress() + bindDesc.byteOffset;
+            view.SizeInBytes = bindDesc.byteSize;
+            view.StrideInBytes = bindDesc.stride;
+        }
+
+        // 2) bind 時にネイティブ view を組み立て、pool 側は handle と offset だけ保持すればよいようにする。
+        m_commandList->IASetVertexBuffers(startSlot, bufferCount, views.data());
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::set_index_buffer(const IndexBufferBindDesc& bufferDesc)
+    {
+        // 1) index buffer も IA state なので graphics queue 限定で扱う。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Index buffer can only be set on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+        if (!bufferDesc.buffer.valid() || bufferDesc.byteSize == 0)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Index buffer bind description is invalid.");
+        }
+
+        GpuBufferResource* buffer = nullptr;
+        const Result resolveResult = resolve_buffer_resource(bufferDesc.buffer, buffer);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+        if ((bufferDesc.byteOffset + bufferDesc.byteSize) > buffer->get_byte_size())
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Index buffer range exceeds resource size.");
+        }
+
+        D3D12_INDEX_BUFFER_VIEW view{};
+        view.BufferLocation = buffer->get_resource()->GetGPUVirtualAddress() + bufferDesc.byteOffset;
+        view.SizeInBytes = bufferDesc.byteSize;
+        view.Format = bufferDesc.format == IndexFormat::UInt16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+        m_commandList->IASetIndexBuffer(&view);
+        m_listEmpty = false;
+        return Result::ok();
+    }
     Result DX12CommandContext::draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation)
     {
         // 1) draw 呼び出しは graphics queue でのみ有効とし、compute/copy queue での誤発行を防ぐ。
@@ -528,6 +665,23 @@ namespace Cue::GraphicsCore::DX12
 
         // 2) 頂点/インスタンス範囲は呼び出し側の宣言どおりにそのまま発行し、pass 実装が draw パターンを選べるようにする。
         m_commandList->DrawInstanced(vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
+        m_listEmpty = false;
+        return Result::ok();
+    }
+    Result DX12CommandContext::draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation)
+    {
+        // 1) indexed draw は graphics queue 以外で意味を持たない。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Indexed draw can only be issued on a graphics command context.");
+        }
+        if (m_commandList == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Command list is null.");
+        }
+
+        // 2) index 範囲と base vertex は呼び出し側の宣言どおりにそのまま流し、mesh slice 単位の描画を許可する。
+        m_commandList->DrawIndexedInstanced(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
         m_listEmpty = false;
         return Result::ok();
     }
@@ -816,6 +970,16 @@ namespace Cue::GraphicsCore::DX12
         }
 
         return Result::ok();
+    }
+    Result DX12QueueContext::wait_for_point(const QueueSyncPoint& point)
+    {
+        // 1) 初期 upload は CPU 同期で完結させ、UploadBuffer を同フレーム内に安全に解放できるようにする。
+        if (point.queueType != type())
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Sync point queue type does not match queue type.");
+        }
+
+        return wait_for_fence_value(point.value);
     }
     bool DX12QueueContext::is_complete(const QueueSyncPoint& point) const
     {

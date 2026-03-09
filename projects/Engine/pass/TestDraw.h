@@ -1,6 +1,7 @@
 #pragma once
 #include <FrameGraph.h>
 #include <Logger.h>
+#include <StaticMeshBufferPool.h>
 #include <filesystem>
 
 namespace Cue::GraphicsCore::Pass
@@ -44,6 +45,11 @@ namespace Cue::GraphicsCore::Pass
     class TestDrawPass final : public FrameGraphPass
     {
     public:
+        explicit TestDrawPass(StaticMeshAllocationHandle meshHandle)
+            : m_meshHandle(meshHandle)
+        {
+        }
+
         [[nodiscard]] const char* name() const override
         {
             return "TestDrawPass";
@@ -66,7 +72,7 @@ namespace Cue::GraphicsCore::Pass
             rootSignatureDesc.name = "TestDraw.RootSignature";
             builder.use_root_signature(rootSignatureDesc);
 
-            // 4) 頂点バッファ無し描画用の VS/PS をコンパイル対象として宣言する。
+            // 4) SoA の position/uv/normal stream を受ける VS/PS をコンパイル対象として宣言する。
             ShaderCompileDesc vertexShaderDesc{};
             vertexShaderDesc.name = "TestDraw.VS";
             vertexShaderDesc.filePath = m_shaderFilePath;
@@ -89,6 +95,12 @@ namespace Cue::GraphicsCore::Pass
             pipelineDesc.depthStencilState.depthWriteMask = DepthWriteMask::Zero;
             pipelineDesc.primitiveTopologyType = PrimitiveTopologyType::Triangle;
             pipelineDesc.rtvFormats = { ColorFormat::R8G8B8A8_UNORM };
+            pipelineDesc.inputElements =
+            {
+                InputElementDesc{ "POSITION", 0, InputElementFormat::R32G32B32A32_Float, 0, 0 },
+                InputElementDesc{ "TEXCOORD", 0, InputElementFormat::R32G32_Float, 1, 0 },
+                InputElementDesc{ "NORMAL", 0, InputElementFormat::R32G32B32_Float, 2, 0 },
+            };
             builder.use_pipeline(pipelineDesc);
         }
 
@@ -109,16 +121,50 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            // 3) SV_VertexID で頂点を生成するため頂点バッファは bind せず、3頂点のインスタンス描画だけを発行する。
-            const Result drawResult = ctx.command_context().draw_instanced(3, 1, 0, 0);
+            // 3) SoA の 3 stream を slot 0-2 に bind し、mesh pool 上の slice をそのまま描画に使う。
+            StaticMeshAllocation meshAllocation{};
+            const Result getAllocationResult = ctx.static_mesh_buffer_pool().get_allocation(m_meshHandle, meshAllocation);
+            if (!getAllocationResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve static mesh allocation.\n");
+                return;
+            }
+
+            const VertexBufferBindDesc vertexBuffers[] =
+            {
+                VertexBufferBindDesc{ meshAllocation.positionBuffer.buffer, meshAllocation.positionBuffer.byteOffset, meshAllocation.positionBuffer.byteSize, meshAllocation.positionBuffer.stride },
+                VertexBufferBindDesc{ meshAllocation.uvBuffer.buffer, meshAllocation.uvBuffer.byteOffset, meshAllocation.uvBuffer.byteSize, meshAllocation.uvBuffer.stride },
+                VertexBufferBindDesc{ meshAllocation.normalBuffer.buffer, meshAllocation.normalBuffer.byteOffset, meshAllocation.normalBuffer.byteSize, meshAllocation.normalBuffer.stride },
+            };
+            const Result bindVertexBuffersResult = ctx.command_context().set_vertex_buffers(0, vertexBuffers, 3);
+            if (!bindVertexBuffersResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to bind vertex buffers.\n");
+                return;
+            }
+
+            const IndexBufferBindDesc indexBuffer{
+                meshAllocation.indexBuffer.buffer,
+                meshAllocation.indexBuffer.byteOffset,
+                meshAllocation.indexBuffer.byteSize,
+                meshAllocation.indexBuffer.format };
+            const Result bindIndexBufferResult = ctx.command_context().set_index_buffer(indexBuffer);
+            if (!bindIndexBufferResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to bind index buffer.\n");
+                return;
+            }
+
+            const Result drawResult = ctx.command_context().draw_indexed_instanced(meshAllocation.indexBuffer.indexCount, 1, 0, 0, 0);
             if (!drawResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to issue draw_instanced.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to issue draw_indexed_instanced.\n");
             }
         }
 
     private:
         GraphicsCore::TextureHandle m_backBuffer{};
         std::string m_shaderFilePath{};
+        StaticMeshAllocationHandle m_meshHandle{};
     };
 }

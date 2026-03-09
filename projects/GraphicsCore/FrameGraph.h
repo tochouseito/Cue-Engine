@@ -6,6 +6,7 @@
 #include "ShaderCompiler.h"
 #include "PipelineManager.h"
 #include "ViewManager.h"
+#include "StaticMeshBufferPool.h"
 
 namespace Cue::GraphicsCore
 {
@@ -213,6 +214,7 @@ namespace Cue::GraphicsCore
         }
 
         [[nodiscard]] IViewManager& view_manager() noexcept;
+        [[nodiscard]] StaticMeshBufferPool& static_mesh_buffer_pool() noexcept;
 
         [[nodiscard]] PipelineStateHandle pipeline_handle() const noexcept
         {
@@ -271,6 +273,7 @@ namespace Cue::GraphicsCore
             IBufferManager& bufferManager,
             ITextureManager& textureManager,
             IViewManager& viewManager,
+            StaticMeshBufferPool& staticMeshBufferPool,
             IPipelineManager& pipelineManager,
             uint32_t defaultBufferingCount = 1) noexcept
             : m_screenWidth(screenWidth)
@@ -278,6 +281,7 @@ namespace Cue::GraphicsCore
             , m_bufferManager(bufferManager)
             , m_textureManager(textureManager)
             , m_viewManager(viewManager)
+            , m_staticMeshBufferPool(staticMeshBufferPool)
             , m_pipelineManager(pipelineManager)
             , m_defaultBufferingCount((std::max)(defaultBufferingCount, 1u))
         {}
@@ -325,6 +329,11 @@ namespace Cue::GraphicsCore
         [[nodiscard]] IViewManager& view_manager() noexcept
         {
             return m_viewManager;
+        }
+
+        [[nodiscard]] StaticMeshBufferPool& static_mesh_buffer_pool() noexcept
+        {
+            return m_staticMeshBufferPool;
         }
 
     private:
@@ -423,6 +432,7 @@ namespace Cue::GraphicsCore
         IBufferManager& m_bufferManager;
         ITextureManager& m_textureManager;
         IViewManager& m_viewManager;
+        StaticMeshBufferPool& m_staticMeshBufferPool;
         IPipelineManager& m_pipelineManager;
         uint32_t m_defaultBufferingCount = 1;
         std::vector<LogicalResource> m_resources;
@@ -442,5 +452,9 @@ namespace Cue::GraphicsCore
     inline IViewManager& FrameGraphContext::view_manager() noexcept
     {
         return m_frameGraph.view_manager();
+    }
+    inline StaticMeshBufferPool& FrameGraphContext::static_mesh_buffer_pool() noexcept
+    {
+        return m_frameGraph.static_mesh_buffer_pool();
     }
 } // namespace Cue::GraphicsCore

@@ -5,6 +5,7 @@
 #include <functional>
 
 #include "Configuration.h"
+#include "asset/AssetManager.h"
 
 namespace Cue
 {
@@ -40,6 +41,7 @@ namespace Cue
     private:
         Platform::IPlatform* m_platform = nullptr;
         GraphicsCore::Backend* m_graphicsBackend = nullptr;
+        Asset::AssetManager m_assetManager{};
 
         EngineConfig m_engineConfig{};
 

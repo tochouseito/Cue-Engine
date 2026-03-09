@@ -44,6 +44,8 @@ namespace Cue::GraphicsCore
         std::string semanticName = {};
         uint32_t semanticIndex = 0;
         InputElementFormat format = InputElementFormat::R32G32B32A32_Float;
+        uint32_t inputSlot = 0;
+        uint32_t alignedByteOffset = 0;
     };
 
     enum class BlendMode : uint8_t

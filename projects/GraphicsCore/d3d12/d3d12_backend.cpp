@@ -37,6 +37,7 @@ namespace Cue::GraphicsCore::DX12
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr;
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
+        std::unique_ptr<StaticMeshBufferPool> m_staticMeshBufferPool = nullptr;
     };
 
     D3D12Backend::D3D12Backend()
@@ -96,7 +97,19 @@ namespace Cue::GraphicsCore::DX12
             *m_impl->m_viewManager,
             *m_impl->m_descriptorAllocator);
 
-        // 4) スワップチェーンを初期化する
+        // 4) 静的メッシュ用の巨大 VB/IB pool を backend 起動時に確保し、後段の asset upload 先を固定する。
+        m_impl->m_staticMeshBufferPool = std::make_unique<StaticMeshBufferPool>();
+        r = m_impl->m_staticMeshBufferPool->initialize(
+            info.staticMeshBufferPoolDesc,
+            *m_impl->m_bufferManager,
+            *m_impl->m_commandPool,
+            *m_impl->m_queuePool);
+        if (!r)
+        {
+            return r;
+        }
+
+        // 5) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
         QueueContextLease graphicsQueue;
         r = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
@@ -132,6 +145,11 @@ namespace Cue::GraphicsCore::DX12
 
         // 2) FrameGraph と SwapChain を止め、以後の render/present 経路を無効化する。
         m_impl->m_swapChain.reset();
+        if (m_impl->m_staticMeshBufferPool != nullptr)
+        {
+            m_impl->m_staticMeshBufferPool->shutdown();
+        }
+        m_impl->m_staticMeshBufferPool.reset();
 
         // 3) Queue/Command を manager より先に破棄し、pooled context の destructor が allocator 生存中に走るようにする。
         m_impl->m_queuePool.reset();
@@ -195,10 +213,15 @@ namespace Cue::GraphicsCore::DX12
             *m_impl->m_bufferManager,
             *m_impl->m_textureManager,
             *m_impl->m_viewManager,
+            *m_impl->m_staticMeshBufferPool,
             *m_impl->m_pipelineManager,
             m_setupInfo.bufferCount);
 
         return Result::ok();
+    }
+    StaticMeshBufferPool* D3D12Backend::get_static_mesh_buffer_pool()
+    {
+        return m_impl->m_staticMeshBufferPool.get();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {

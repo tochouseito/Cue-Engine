@@ -210,6 +210,22 @@ namespace Cue::GraphicsCore
         }
     }
 
+    enum class IndexFormat : uint8_t
+    {
+        UInt16,
+        UInt32,
+    };
+
+    inline const char* index_format_to_string(IndexFormat format) noexcept
+    {
+        switch (format)
+        {
+        case IndexFormat::UInt16: return "UInt16";
+        case IndexFormat::UInt32: return "UInt32";
+        default: return "Unknown";
+        }
+    }
+
     enum class TextureDimension : uint8_t
     {
         Texture2D,
