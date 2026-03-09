@@ -8,9 +8,15 @@ namespace Cue::GraphicsCore
     struct BufferDesc
     {
         std::string_view name;
-        // 0 means "use the FrameGraph default buffering count".
+        BufferType type = BufferType::Unknown;
+        ResourceHeapType heapType = ResourceHeapType::Default;
+        ResourceState initialState = ResourceState::Common;
         uint32_t bufferingCount = 0;
         ResourceInstanceSource instanceSource = ResourceInstanceSource::FrameResourceIndex;
+        uint32_t stride = 0; // StructuredBufferの要素サイズなど、リソースのインスタンスごとのサイズ
+        uint32_t elementCount = 0; // StructuredBufferの要素数など、リソースのインスタンスごとの要素数
+        uint32_t size = 0; // バッファ全体のサイズ（stride * インスタンス数など）
+        uint32_t alignment = 0; // バッファのアライメント要件
     };
 
     class IBufferManager

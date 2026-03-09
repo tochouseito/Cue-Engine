@@ -190,7 +190,7 @@ namespace Cue::GraphicsCore::DX12
         GpuBufferResource& operator=(GpuBufferResource&&) noexcept = default;
         // デストラクタ
         ~GpuBufferResource() override = default;
-    protected:
+    public:
         Result create_buffer(ID3D12Device& device, const BufferCreateDesc& desc)
         {
             // バイトサイズの整合性チェック
@@ -250,7 +250,6 @@ namespace Cue::GraphicsCore::DX12
                 nullptr,
                 desc.name);
         }
-    public:
         // 要素数の取得（StructuredBuffer 用）
         UINT get_num_elements() const { return m_numElements; }
         // ストライドの取得（StructuredBuffer 用）

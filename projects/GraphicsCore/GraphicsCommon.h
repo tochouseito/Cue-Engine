@@ -57,6 +57,22 @@ namespace Cue::GraphicsCore
         }
     }
 
+    enum class ResourceHeapType : uint8_t
+    {
+        Default,
+        Upload,
+    };
+
+    inline const char* resource_heap_type_to_string(ResourceHeapType type) noexcept
+    {
+        switch (type)
+        {
+        case ResourceHeapType::Default: return "Default";
+        case ResourceHeapType::Upload: return "Upload";
+        default: return "Unknown";
+        }
+    }
+
     enum class CommandListType : uint8_t
     {
         Graphics,
@@ -140,6 +156,48 @@ namespace Cue::GraphicsCore
         switch (format)
         {
         case DSVFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
+        default: return "Unknown";
+        }
+    }
+
+    enum class BufferType : uint8_t
+    {
+        Vertex,
+        Index,
+        Constant,
+        Structured,
+        UnorderedAccess,
+        Raw,
+        Unknown,
+    };
+
+    inline const char* buffer_type_to_string(BufferType type) noexcept
+    {
+        switch (type)
+        {
+        case BufferType::Vertex: return "Vertex";
+        case BufferType::Index: return "Index";
+        case BufferType::Constant: return "Constant";
+        case BufferType::Structured: return "Structured";
+        case BufferType::UnorderedAccess: return "UnorderedAccess";
+        case BufferType::Raw: return "Raw";
+        case BufferType::Unknown: return "Unknown";
+        default: return "Unknown";
+        }
+    }
+
+    enum class TextureDimension : uint8_t
+    {
+        Texture2D,
+        Texture3D,
+    };
+
+    inline const char* texture_dimension_to_string(TextureDimension dim) noexcept
+    {
+        switch (dim)
+        {
+        case TextureDimension::Texture2D: return "Texture2D";
+        case TextureDimension::Texture3D: return "Texture3D";
         default: return "Unknown";
         }
     }
