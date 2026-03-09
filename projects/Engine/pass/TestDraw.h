@@ -91,13 +91,19 @@ namespace Cue::GraphicsCore::Pass
             m_cameraConstantBuffer = builder.create_buffer(cameraBufferDesc.name, cameraBufferDesc);
             builder.bind_cbv(0, m_cameraConstantBuffer, ShaderVisibility::Vertex);
 
-            BufferDesc transformBufferDesc{};
-            transformBufferDesc.name = "TestDraw.TransformConstants";
-            transformBufferDesc.type = BufferType::Constant;
-            transformBufferDesc.heapType = ResourceHeapType::Upload;
-            transformBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(TransformConstants)));
-            m_transformConstantBuffer = builder.create_buffer(transformBufferDesc.name, transformBufferDesc);
-            builder.bind_cbv(1, m_transformConstantBuffer, ShaderVisibility::Vertex);
+            BufferDesc frontTransformBufferDesc{};
+            frontTransformBufferDesc.name = "TestDraw.FrontTransformConstants";
+            frontTransformBufferDesc.type = BufferType::Constant;
+            frontTransformBufferDesc.heapType = ResourceHeapType::Upload;
+            frontTransformBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(TransformConstants)));
+            m_frontTransformConstantBuffer = builder.create_buffer(frontTransformBufferDesc.name, frontTransformBufferDesc);
+
+            BufferDesc backTransformBufferDesc{};
+            backTransformBufferDesc.name = "TestDraw.BackTransformConstants";
+            backTransformBufferDesc.type = BufferType::Constant;
+            backTransformBufferDesc.heapType = ResourceHeapType::Upload;
+            backTransformBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(TransformConstants)));
+            m_backTransformConstantBuffer = builder.create_buffer(backTransformBufferDesc.name, backTransformBufferDesc);
 
             // 5) SoA の position/uv/normal stream を受ける VS/PS をコンパイル対象として宣言する。
             ShaderCompileDesc vertexShaderDesc{};
@@ -190,23 +196,6 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            const float rotationRadians = static_cast<float>(ctx.frame_no()) * 0.01f;
-            TransformConstants transformConstants{};
-            transformConstants.world = Math::make_affine_matrix(
-                Math::float3::one(),
-                Math::float3(rotationRadians, 0.0f, 0.0f),
-                Math::float3::zero());
-            const Result writeTransformResult = ctx.write_buffer(
-                m_transformConstantBuffer,
-                0,
-                &transformConstants,
-                static_cast<uint32_t>(sizeof(transformConstants)));
-            if (!writeTransformResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to update transform constants.\n");
-                return;
-            }
-
             // 5) SoA の 3 stream を slot 0-2 に bind し、mesh pool 上の slice をそのまま描画に使う。
             StaticMeshAllocation meshAllocation{};
             const Result getAllocationResult = ctx.static_mesh_buffer_pool().get_allocation(m_meshHandle, meshAllocation);
@@ -241,11 +230,118 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            // 6) 定数更新済みの mesh allocation を indexed draw し、pass の責務を 1 draw call に保つ。
-            const Result drawResult = ctx.command_context().draw_indexed_instanced(meshAllocation.indexBuffer.indexCount, 1, 0, 0, 0);
-            if (!drawResult)
+            BufferHandle resolvedFrontTransformBuffer{};
+            const Result resolveFrontTransformBufferResult = ctx.resolve_buffer(m_frontTransformConstantBuffer, resolvedFrontTransformBuffer);
+            if (!resolveFrontTransformBufferResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to issue draw_indexed_instanced.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve front transform buffer.\n");
+                return;
+            }
+
+            BufferHandle resolvedBackTransformBuffer{};
+            const Result resolveBackTransformBufferResult = ctx.resolve_buffer(m_backTransformConstantBuffer, resolvedBackTransformBuffer);
+            if (!resolveBackTransformBufferResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve back transform buffer.\n");
+                return;
+            }
+
+            BufferViewDesc transformViewDesc{};
+            transformViewDesc.type = ViewType::ConstantBuffer;
+            transformViewDesc.byteSize = static_cast<uint32_t>(sizeof(TransformConstants));
+
+            ViewHandle frontTransformView{};
+            const Result getFrontTransformViewResult = ctx.view_manager().get_buffer_view(resolvedFrontTransformBuffer, transformViewDesc, frontTransformView);
+            if (!getFrontTransformViewResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get front transform view.\n");
+                return;
+            }
+
+            DescriptorHandle frontTransformDescriptor{};
+            const Result getFrontTransformDescriptorResult = ctx.view_manager().get_descriptor_handle(frontTransformView, frontTransformDescriptor);
+            if (!getFrontTransformDescriptorResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get front transform descriptor.\n");
+                return;
+            }
+
+            ViewHandle backTransformView{};
+            const Result getBackTransformViewResult = ctx.view_manager().get_buffer_view(resolvedBackTransformBuffer, transformViewDesc, backTransformView);
+            if (!getBackTransformViewResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform view.\n");
+                return;
+            }
+
+            DescriptorHandle backTransformDescriptor{};
+            const Result getBackTransformDescriptorResult = ctx.view_manager().get_descriptor_handle(backTransformView, backTransformDescriptor);
+            if (!getBackTransformDescriptorResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform descriptor.\n");
+                return;
+            }
+
+            // 6) 手前の大きい cube を先に描き、深度無しで奥の cube が上書く不具合を観察しやすくする。
+            const float rotationRadians = static_cast<float>(ctx.frame_no()) * 0.01f;
+            TransformConstants frontTransformConstants{};
+            frontTransformConstants.world = Math::make_affine_matrix(
+                Math::float3(1.75f, 1.75f, 1.75f),
+                Math::float3(rotationRadians, 0.0f, 0.0f),
+                Math::float3(0.0f, 0.0f, 0.0f));
+            const Result writeFrontTransformResult = ctx.write_buffer(
+                m_frontTransformConstantBuffer,
+                0,
+                &frontTransformConstants,
+                static_cast<uint32_t>(sizeof(frontTransformConstants)));
+            if (!writeFrontTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to update front transform constants.\n");
+                return;
+            }
+
+            const Result bindFrontTransformResult = ctx.command_context().set_graphics_descriptor_table(1, frontTransformDescriptor);
+            if (!bindFrontTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to bind front transform descriptor.\n");
+                return;
+            }
+
+            const Result drawFrontResult = ctx.command_context().draw_indexed_instanced(meshAllocation.indexBuffer.indexCount, 1, 0, 0, 0);
+            if (!drawFrontResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to draw front cube.\n");
+                return;
+            }
+
+            // 7) 奥の小さい cube を後から描き、深度リソース未作成時に前景へ食い込むか確認する。
+            TransformConstants backTransformConstants{};
+            backTransformConstants.world = Math::make_affine_matrix(
+                Math::float3::one(),
+                Math::float3(rotationRadians, 0.0f, 0.0f),
+                Math::float3(0.0f, 0.0f, 2.0f));
+            const Result writeBackTransformResult = ctx.write_buffer(
+                m_backTransformConstantBuffer,
+                0,
+                &backTransformConstants,
+                static_cast<uint32_t>(sizeof(backTransformConstants)));
+            if (!writeBackTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to update back transform constants.\n");
+                return;
+            }
+
+            const Result bindBackTransformResult = ctx.command_context().set_graphics_descriptor_table(1, backTransformDescriptor);
+            if (!bindBackTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to bind back transform descriptor.\n");
+                return;
+            }
+
+            const Result drawBackResult = ctx.command_context().draw_indexed_instanced(meshAllocation.indexBuffer.indexCount, 1, 0, 0, 0);
+            if (!drawBackResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to draw back cube.\n");
             }
         }
 
@@ -262,7 +358,8 @@ namespace Cue::GraphicsCore::Pass
 
         GraphicsCore::TextureHandle m_backBuffer{};
         GraphicsCore::BufferHandle m_cameraConstantBuffer{};
-        GraphicsCore::BufferHandle m_transformConstantBuffer{};
+        GraphicsCore::BufferHandle m_frontTransformConstantBuffer{};
+        GraphicsCore::BufferHandle m_backTransformConstantBuffer{};
         std::string m_shaderFilePath{};
         StaticMeshAllocationHandle m_meshHandle{};
     };
