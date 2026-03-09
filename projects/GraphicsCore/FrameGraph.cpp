@@ -58,7 +58,7 @@ namespace Cue::GraphicsCore
     template <class HandleT>
     HandleT FrameGraph::declare_resource(std::string_view name, ResourceKind expectedKind)
     {
-        const ResourceNameId nameId = fnv1a64(name);
+        const ResourceNameId nameId = Core::fnv1a64(name);
         const auto found = m_resourceByNameId.find(nameId);
         if (found != m_resourceByNameId.end())
         {
@@ -93,7 +93,7 @@ namespace Cue::GraphicsCore
     template <class HandleT>
     HandleT FrameGraph::find_resource(std::string_view name, ResourceKind expectedKind) const
     {
-        const ResourceNameId nameId = fnv1a64(name);
+        const ResourceNameId nameId = Core::fnv1a64(name);
         const auto found = m_resourceByNameId.find(nameId);
         if (found == m_resourceByNameId.end())
         {
@@ -520,7 +520,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Pipeline logical name is empty");
         }
 
-        const ResourceNameId nameId = fnv1a64(desc.name);
+        const ResourceNameId nameId = Core::fnv1a64(desc.name);
         if (m_pipelineDecls.contains(nameId))
         {
             throw std::runtime_error("Duplicated pipeline logical name: " + std::string(desc.name));
@@ -545,7 +545,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Root signature logical name is empty");
         }
 
-        const ResourceNameId nameId = fnv1a64(desc.name);
+        const ResourceNameId nameId = Core::fnv1a64(desc.name);
         if (m_rootSignatureDecls.contains(nameId))
         {
             throw std::runtime_error("Duplicated root signature logical name: " + std::string(desc.name));
@@ -566,7 +566,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Shader logical name is empty");
         }
 
-        const ResourceNameId nameId = fnv1a64(desc.name);
+        const ResourceNameId nameId = Core::fnv1a64(desc.name);
         if (m_shaderDecls.contains(nameId))
         {
             throw std::runtime_error("Duplicated shader logical name: " + std::string(desc.name));
@@ -584,7 +584,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Pipeline is already declared for this pass");
         }
 
-        const ResourceNameId nameId = fnv1a64(name);
+        const ResourceNameId nameId = Core::fnv1a64(name);
         const auto it = m_pipelineDecls.find(nameId);
         if (it == m_pipelineDecls.end())
         {
@@ -601,7 +601,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Root signature is already declared for this pass");
         }
 
-        const ResourceNameId nameId = fnv1a64(name);
+        const ResourceNameId nameId = Core::fnv1a64(name);
         const auto it = m_rootSignatureDecls.find(nameId);
         if (it == m_rootSignatureDecls.end())
         {
@@ -613,7 +613,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::reference_shader(std::vector<ShaderBindingDecl>& outDecls, std::string_view name)
     {
-        const ResourceNameId nameId = fnv1a64(name);
+        const ResourceNameId nameId = Core::fnv1a64(name);
         const auto it = m_shaderDecls.find(nameId);
         if (it == m_shaderDecls.end())
         {

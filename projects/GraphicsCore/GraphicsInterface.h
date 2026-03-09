@@ -1,6 +1,5 @@
 #pragma once
 #include "GraphicsCommon.h"
-#include "ResourceHandle.h"
 #include <functional>
 
 namespace Cue::GraphicsCore

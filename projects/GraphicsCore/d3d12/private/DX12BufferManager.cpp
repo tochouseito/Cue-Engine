@@ -78,7 +78,7 @@ namespace Cue::GraphicsCore::DX12
         outHandle = handles.front();
         if (!desc.name.empty())
         {
-            m_bufferNameMap[fnv1a64(desc.name)] = std::move(handles);
+            m_bufferNameMap[Core::fnv1a64(desc.name)] = std::move(handles);
         }
 
         return Result::ok();

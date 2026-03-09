@@ -68,7 +68,7 @@ namespace Cue::GraphicsCore::DX12
         }
         Result import_back_buffers(DX12TextureManager& textureManager, std::string_view resourceName = "SwapChain.BackBuffer")
         {
-            const ResourceNameId nameId = fnv1a64(resourceName);
+            const ResourceNameId nameId = Core::fnv1a64(resourceName);
 
             for (uint32_t index = 0; index < static_cast<uint32_t>(m_backBuffers.size()); ++index)
             {

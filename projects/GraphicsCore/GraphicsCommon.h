@@ -33,6 +33,28 @@
 
 namespace Cue::GraphicsCore
 {
+    template <class Tag>
+    using Handle = Core::Handle<Tag>;
+
+    template <class Tag, class Record>
+    using Registry = Core::Registry<Tag, Record>;
+
+    using Core::ResourceNameId;
+
+    struct BufferTag {};
+    struct TextureTag {};
+    struct PipelineStateTag {};
+    struct RootSignatureTag {};
+    struct ShaderBlobTag {};
+    struct ViewTag {};
+
+    using BufferHandle = Handle<BufferTag>;
+    using TextureHandle = Handle<TextureTag>;
+    using PipelineStateHandle = Handle<PipelineStateTag>;
+    using RootSignatureHandle = Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Handle<ShaderBlobTag>;
+    using ViewHandle = Handle<ViewTag>;
+
     enum class ResourceState : uint8_t
     {
         Common,

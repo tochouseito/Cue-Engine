@@ -40,18 +40,8 @@ namespace Cue::Core
     };
 
     // リソースハンドルのタグ型
-    struct BufferTag {};
-    struct TextureTag {};
-    struct PipelineStateTag {};
-    struct RootSignatureTag {};
-    struct ShaderBlobTag {};
-    struct ViewTag {};
+    struct TestTag {};
 
     // エイリアス
-    using BufferHandle = Handle<BufferTag>;
-    using TextureHandle = Handle<TextureTag>;
-    using PipelineStateHandle = Handle<PipelineStateTag>;
-    using RootSignatureHandle = Handle<RootSignatureTag>;
-    using ShaderBlobHandle = Handle<ShaderBlobTag>;
-    using ViewHandle = Handle<ViewTag>;
+    using TestHande = Handle<TestTag>;
 }

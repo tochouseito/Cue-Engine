@@ -3,7 +3,6 @@
 #include "DescriptorAllocator.h"
 #include "DX12BufferManager.h"
 #include "DX12TextureManager.h"
-#include <Registry.h>
 #include <ViewManager.h>
 
 namespace Cue::GraphicsCore::DX12

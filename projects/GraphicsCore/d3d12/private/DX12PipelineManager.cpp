@@ -284,7 +284,7 @@ namespace Cue::GraphicsCore::DX12
         // 8) 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
         {
-            m_pipelineNameMap[fnv1a64(desc.name)] = handle;
+            m_pipelineNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
         // 9) 成功結果を返す。
@@ -393,7 +393,7 @@ namespace Cue::GraphicsCore::DX12
         // 6) 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
         {
-            m_rootSignatureNameMap[fnv1a64(desc.name)] = handle;
+            m_rootSignatureNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
         // 7) 成功結果を返す。
@@ -430,7 +430,7 @@ namespace Cue::GraphicsCore::DX12
         // 3) 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
         {
-            m_shaderBlobNameMap[fnv1a64(desc.name)] = handle;
+            m_shaderBlobNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
         // 4) 成功結果を返す。

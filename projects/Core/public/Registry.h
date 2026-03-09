@@ -126,24 +126,11 @@ namespace Cue::Core
         std::vector<uint32_t> m_freeList;
     };
 
-    struct BufferRecord
+    struct TestRecord final
     {
-        // バッファの実体（例: ID3D12Resource*）をここに持つ
-        // 例: Microsoft::WRL::ComPtr<ID3D12Resource> resource;
-    };
-
-    struct TextureRecord
-    {
-        // テクスチャの実体をここに持つ
-    };
-
-    struct PipelineRecord
-    {
-        // パイプラインの実体をここに持つ
+        int value = 0;
     };
 
     // 具体的なレジストリの型エイリアス
-    using BufferRegistry = Registry<BufferTag, BufferRecord>;
-    using TextureRegistry = Registry<TextureTag, TextureRecord>;
-    using PipelineRegistry = Registry<PipelineStateTag, PipelineRecord>;
+    using TestRegistry = Registry<TestTag, TestRecord>;
 }
