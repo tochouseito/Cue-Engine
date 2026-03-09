@@ -43,6 +43,11 @@ namespace Cue::GraphicsCore::DX12
                 return DXGI_FORMAT_D24_UNORM_S8_UINT;
             }
         }
+
+        [[nodiscard]] DXGI_FORMAT convert_color_texture_format(ColorFormat format) noexcept
+        {
+            return convert_color_format(format);
+        }
     }
 
     class IExternalTextureOwner
@@ -91,14 +96,14 @@ namespace Cue::GraphicsCore::DX12
             {
                 TextureEntry entry{};
                 entry.kind = TextureEntry::Kind::Owned;
+                if (desc.width == 0 || desc.height == 0)
+                {
+                    return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Texture size is invalid");
+                }
+
                 if (desc.usage == TextureUsage::DepthStencil)
                 {
                     // 2) depth texture は実体をここで確保し、FrameGraph が DSV として直ちに利用できる状態にする。
-                    if (desc.width == 0 || desc.height == 0)
-                    {
-                        return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Depth texture size is invalid");
-                    }
-
                     const Result createResult = entry.ownedTexture.create_depth_stencil_texture_2d(
                         *m_renderDevice.get_d3d12_device(),
                         desc.width,
@@ -113,6 +118,23 @@ namespace Cue::GraphicsCore::DX12
                         return createResult;
                     }
                 }
+                else
+                {
+                    // 3) カラー texture は render target として実体化し、後段 pass が SRV/RTV を同じ resource から引けるようにする。
+                    const Result createResult = entry.ownedTexture.create_render_target_texture_2d(
+                        *m_renderDevice.get_d3d12_device(),
+                        desc.width,
+                        desc.height,
+                        convert_color_texture_format(desc.colorFormat),
+                        convert_texture_resource_state(desc.initialState),
+                        desc.clearColor,
+                        to_utf16(desc.name));
+                    if (!createResult)
+                    {
+                        return createResult;
+                    }
+                }
+
                 handles.push_back(m_textureRegistry.create(entry));
             }
 

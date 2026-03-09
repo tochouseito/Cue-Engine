@@ -62,12 +62,17 @@ namespace Cue::GraphicsCore::Pass
 
         void setup(FrameGraphBuilder& builder) override
         {
-            // 1) SwapChain back buffer を render target として宣言し、この pass が Present 直前に色を書き込むことを明示する。
-            TextureDesc backBufferDesc{};
-            backBufferDesc.name = "SwapChain.BackBuffer";
-            backBufferDesc.instanceSource = ResourceInstanceSource::SwapchainImageIndex;
-            m_backBuffer = builder.import_texture(backBufferDesc.name, backBufferDesc, ResourceState::Present);
-            builder.render(m_backBuffer, ResourceState::Present);
+            // 1) 通常 FrameGraph 上に FinalColor を確保し、present graph が後段で SRV として読む契約にする。
+            TextureDesc finalColorDesc{};
+            finalColorDesc.name = "FinalColor";
+            finalColorDesc.usage = TextureUsage::RenderTarget;
+            finalColorDesc.colorFormat = ColorFormat::R8G8B8A8_UNORM;
+            finalColorDesc.clearColor[0] = 0.07f;
+            finalColorDesc.clearColor[1] = 0.11f;
+            finalColorDesc.clearColor[2] = 0.18f;
+            finalColorDesc.clearColor[3] = 1.0f;
+            m_finalColor = builder.create_texture(finalColorDesc.name, finalColorDesc);
+            builder.render(m_finalColor, ResourceState::ShaderResource);
 
             TextureDesc depthBufferDesc{};
             depthBufferDesc.name = "TestDraw.DepthBuffer";
@@ -156,20 +161,20 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            // 2) 描画前に現在の swapchain image を clear し、前フレームの色が残らないことを保証する。
-            TextureHandle resolvedBackBuffer{};
-            const Result resolveBackBufferResult = ctx.resolve_texture(m_backBuffer, resolvedBackBuffer);
-            if (!resolveBackBufferResult)
+            // 2) 描画前に FinalColor を clear し、前フレームの色が残らないことを保証する。
+            TextureHandle resolvedFinalColor{};
+            const Result resolveFinalColorResult = ctx.resolve_texture(m_finalColor, resolvedFinalColor);
+            if (!resolveFinalColorResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve back buffer.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve FinalColor.\n");
                 return;
             }
 
             constexpr float clearColor[4] = { 0.07f, 0.11f, 0.18f, 1.0f };
-            const Result clearResult = ctx.command_context().clear_render_target(resolvedBackBuffer, clearColor);
+            const Result clearResult = ctx.command_context().clear_render_target(resolvedFinalColor, clearColor);
             if (!clearResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to clear back buffer.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to clear FinalColor.\n");
                 return;
             }
 
@@ -381,7 +386,7 @@ namespace Cue::GraphicsCore::Pass
             Math::float4x4 world = Math::float4x4::identity();
         };
 
-        GraphicsCore::TextureHandle m_backBuffer{};
+        GraphicsCore::TextureHandle m_finalColor{};
         GraphicsCore::TextureHandle m_depthBuffer{};
         GraphicsCore::BufferHandle m_cameraConstantBuffer{};
         GraphicsCore::BufferHandle m_frontTransformConstantBuffer{};

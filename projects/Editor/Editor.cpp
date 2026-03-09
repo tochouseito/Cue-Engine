@@ -73,10 +73,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     initInfo.graphicsBackend = d3d12Backend.get();
     // std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
     // initInfo.editorPass = std::move(imguiPass);
-    engine.initialize(initInfo);
+    bool isRunning = engine.initialize(initInfo);
 
     // 5) メインループ
-    bool isRunning = true;
     while (isRunning)
     {
         // 5-1) メッセージの処理
@@ -174,6 +173,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 7) エンジンのシャットダウン
     engine.shutdown();
 
-    // 8) アプリケーションの終了
+    // 8) グラフィックスバックエンドのシャットダウン
+    d3d12Backend->shutdown();
+
+    // 9) プラットフォームのシャットダウン
+    win->shutdown();
+
+    // 10) アプリケーションの終了
     return 0;
 }

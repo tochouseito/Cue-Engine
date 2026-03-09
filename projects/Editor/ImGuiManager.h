@@ -229,21 +229,6 @@ namespace Cue::Editor
         {
             GraphicsCore::ICommandContext& commandContext = ctx.command_context();
 
-            GraphicsCore::TextureHandle resolvedBackBuffer{};
-            const Result resolveResult = ctx.resolve_texture(m_backBuffer, resolvedBackBuffer);
-            if (!resolveResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to resolve back buffer for swapchain image {}\n", ctx.swapchain_image_index());
-                return;
-            }
-            constexpr float clearColor[4] = { 0.07f, 0.11f, 0.18f, 1.0f };
-            const Result clearResult = commandContext.clear_render_target(resolvedBackBuffer, clearColor);
-            if (!clearResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to clear back buffer for swapchain image {}\n", ctx.swapchain_image_index());
-                return;
-            }
-
             /*GraphicsCore::TextureViewDesc rtvDesc{};
             rtvDesc.type = GraphicsCore::ViewType::RenderTarget;
             GraphicsCore::ViewHandle rtvHandle{};

@@ -23,7 +23,7 @@ namespace Cue
     public:
         Engine();
         ~Engine();
-        void initialize(EngineInitInfo& initInfo);
+        bool initialize(EngineInitInfo& initInfo);
         void tick();
         void shutdown();
 

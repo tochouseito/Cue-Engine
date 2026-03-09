@@ -27,9 +27,9 @@ VsOut vs_main(uint vertexId : SV_VertexID)
 }
 
 Texture2D<float4> gTexture : register(t0);
-SamplerState gSampler : register(s0);
 
 float4 ps_main(VsOut input) : SV_Target0
 {
-    return gTexture.Sample(gSampler, input.texcoord);
+    const uint2 pixel = uint2(input.position.xy);
+    return gTexture.Load(int3(pixel, 0));
 }

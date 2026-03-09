@@ -6,6 +6,7 @@ namespace Cue::GraphicsCore
     enum class TextureUsage : uint8_t
     {
         Unknown,
+        RenderTarget,
         DepthStencil,
     };
 
@@ -19,6 +20,8 @@ namespace Cue::GraphicsCore
         ResourceState initialState = ResourceState::Common;
         uint32_t width = 0;
         uint32_t height = 0;
+        ColorFormat colorFormat = ColorFormat::R8G8B8A8_UNORM;
+        float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
         DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
         float clearDepth = 1.0f;
         uint8_t clearStencil = 0;

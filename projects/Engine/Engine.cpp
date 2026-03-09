@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "pass/PresentToSwapChain.h"
 #include "pass/TestDraw.h"
 
 // === Core includes ===
@@ -20,7 +21,7 @@ namespace Cue
     Engine::~Engine()
     {
     }
-    void Engine::initialize(EngineInitInfo& initInfo)
+    bool Engine::initialize(EngineInitInfo& initInfo)
     {
         Result r = Result::ok();
 
@@ -52,14 +53,14 @@ namespace Cue
             if (m_graphicsBackend == nullptr)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Graphics backend is null.");
-                return;
+                return false;
             }
 
             GraphicsCore::StaticMeshBufferPool* staticMeshBufferPool = m_graphicsBackend->get_static_mesh_buffer_pool();
             if (staticMeshBufferPool == nullptr)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "StaticMeshBufferPool is not available.");
-                return;
+                return false;
             }
 
             Asset::ModelHandle cubeModelHandle{};
@@ -67,7 +68,7 @@ namespace Cue
             if (!r)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Failed to create cube model.");
-                return;
+                return false;
             }
 
             Core::Native::ModelData cubeModel{};
@@ -75,7 +76,7 @@ namespace Cue
             if (!r)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Failed to resolve cube model data.");
-                return;
+                return false;
             }
 
             std::vector<GraphicsCore::StaticMeshAllocationHandle> allocations{};
@@ -83,7 +84,7 @@ namespace Cue
             if (!r || allocations.empty())
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Failed to upload cube model to static mesh pool.");
-                return;
+                return false;
             }
 
             cubeAllocationHandle = allocations.front();
@@ -91,21 +92,50 @@ namespace Cue
 
         m_graphicsBackend->create_frame_graph(m_frameGraph);
         m_graphicsBackend->create_frame_graph(m_presentFrameGraph);
+
+        // 5) 通常描画は offscreen の FinalColor へ集約し、present graph へは screen copy だけを残す。
+        r = m_frameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(cubeAllocationHandle));
+        if (!r)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "Failed to add TestDrawPass to frame graph.");
+            return false;
+        }
+
+        r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::PresentToSwapChainPass>());
+        if (!r)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "Failed to add PresentToSwapChainPass to present frame graph.");
+            return false;
+        }
+
         if (initInfo.editorPass)
         {
             r = m_presentFrameGraph->add_pass(std::move(initInfo.editorPass));
+            if (!r)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Failed to add editor pass to present frame graph.");
+                return false;
+            }
         }
-        else
-        {
-            // 5) Editor pass 未指定時でも静的メッシュ描画経路を検証できるよう、cube 描画 pass を既定登録する。
-            r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(cubeAllocationHandle));
-        }
+
         r = m_frameGraph->build();
+        if (!r)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "Failed to build frame graph.");
+            return false;
+        }
+
         r = m_presentFrameGraph->build();
+        if (!r)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "Failed to build present frame graph.");
+            return false;
+        }
 
         m_platform->start();
 
         Core::Logger::log(Core::LogSink::debugConsole, "Engine initialized successfully.");
+        return true;
     }
     void Engine::tick()
     {
@@ -130,8 +160,6 @@ namespace Cue
 
         m_frameGraph.reset();
         m_presentFrameGraph.reset();
-        m_graphicsBackend->shutdown();
-        m_platform->shutdown();
         Core::Logger::log(Core::LogSink::debugConsole, "Engine shutdown completed.");
     }
     std::function<void(uint64_t, uint32_t)> Engine::update()
@@ -153,7 +181,11 @@ namespace Cue
                 (void)frameNo;
                 (void)index;
                 (void)this;
-                m_graphicsBackend->render(frameNo, index, *m_frameGraph);
+                Result r = m_graphicsBackend->render(frameNo, index, *m_frameGraph);
+                if (!r)
+                {
+                    Core::Logger::log(Core::LogSink::debugConsole, r.message);
+                }
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::present()
@@ -163,7 +195,11 @@ namespace Cue
         return [this](uint64_t frameNo, uint32_t index)
             {
                 (void)this;
-                m_graphicsBackend->present(frameNo, index, *m_presentFrameGraph);
+                Result r = m_graphicsBackend->present(frameNo, index, *m_presentFrameGraph);
+                if (!r)
+                {
+                    Core::Logger::log(Core::LogSink::debugConsole, r.message);
+                }
             };
     }
 

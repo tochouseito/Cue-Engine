@@ -1,4 +1,4 @@
-add_library(Engine STATIC "Engine.h" "Engine.cpp" "frame/FrameController.h" "frame/FrameController.cpp" "Configuration.h" "pass/BackBufferClear.h" "pass/TestDraw.h" "asset/AssetManager.h" "asset/AssetManager.cpp")
+add_library(Engine STATIC "Engine.h" "Engine.cpp" "frame/FrameController.h" "frame/FrameController.cpp" "Configuration.h" "pass/BackBufferClear.h" "pass/TestDraw.h" "pass/PresentToSwapChain.h" "asset/AssetManager.h" "asset/AssetManager.cpp")
 
 target_link_libraries(Engine PRIVATE cue_warnings)
 target_link_libraries(Engine PRIVATE cue_compile_options)

@@ -319,6 +319,39 @@ namespace Cue::GraphicsCore::DX12
 
             return create_texture(device, desc, initialState, &clearValue, name);
         }
+
+        Result create_render_target_texture_2d(
+            ID3D12Device& device,
+            uint32_t width,
+            uint32_t height,
+            DXGI_FORMAT format,
+            D3D12_RESOURCE_STATES initialState,
+            const float clearColor[4],
+            std::wstring_view name)
+        {
+            // 1) カラー render target は 2D 固定で確保し、RTV/SRV 両方の view 作成元として使う。
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Alignment = 0;
+            desc.Width = width;
+            desc.Height = height;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = format;
+            desc.SampleDesc = { 1, 0 };
+            desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+            // 2) 既定 clear 値を resource 作成時にも渡し、ClearRenderTargetView の最適化条件と一致させる。
+            D3D12_CLEAR_VALUE clearValue{};
+            clearValue.Format = format;
+            clearValue.Color[0] = clearColor[0];
+            clearValue.Color[1] = clearColor[1];
+            clearValue.Color[2] = clearColor[2];
+            clearValue.Color[3] = clearColor[3];
+
+            return create_texture(device, desc, initialState, &clearValue, name);
+        }
     private:
 
     };

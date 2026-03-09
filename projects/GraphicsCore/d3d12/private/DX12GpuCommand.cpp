@@ -294,6 +294,7 @@ namespace Cue::GraphicsCore::DX12
         {
             const ResourceBarrierDesc& barrier = barriers[i];
             ID3D12Resource* resource = nullptr;
+            D3D12_RESOURCE_STATES actualBeforeState = D3D12_RESOURCE_STATE_COMMON;
             if (barrier.kind == ResourceKind::Buffer)
             {
                 GpuBufferResource* buffer = nullptr;
@@ -303,6 +304,8 @@ namespace Cue::GraphicsCore::DX12
                     return resolveResult;
                 }
                 resource = buffer->get_resource();
+                actualBeforeState = buffer->get_use_state();
+                buffer->set_use_state(to_d3d12_resource_state(barrier.after));
             }
             else
             {
@@ -313,20 +316,31 @@ namespace Cue::GraphicsCore::DX12
                     return resolveResult;
                 }
                 resource = texture->get_resource();
+                actualBeforeState = texture->get_use_state();
+                texture->set_use_state(to_d3d12_resource_state(barrier.after));
+            }
+
+            const D3D12_RESOURCE_STATES actualAfterState = to_d3d12_resource_state(barrier.after);
+            if (actualBeforeState == actualAfterState)
+            {
+                continue;
             }
 
             D3D12_RESOURCE_BARRIER nativeBarrier{};
             nativeBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             nativeBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
             nativeBarrier.Transition.pResource = resource;
-            nativeBarrier.Transition.StateBefore = to_d3d12_resource_state(barrier.before);
-            nativeBarrier.Transition.StateAfter = to_d3d12_resource_state(barrier.after);
+            nativeBarrier.Transition.StateBefore = actualBeforeState;
+            nativeBarrier.Transition.StateAfter = actualAfterState;
             nativeBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             nativeBarriers.push_back(nativeBarrier);
         }
 
         // 3) 実バリアをコマンドリストへ記録し、後続の clear/draw が正しい状態を見るようにする。
-        m_commandList->ResourceBarrier(static_cast<UINT>(nativeBarriers.size()), nativeBarriers.data());
+        if (!nativeBarriers.empty())
+        {
+            m_commandList->ResourceBarrier(static_cast<UINT>(nativeBarriers.size()), nativeBarriers.data());
+        }
         m_listEmpty = false;
         return Result::ok();
     }
@@ -809,9 +823,12 @@ namespace Cue::GraphicsCore::DX12
             {
                 pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
+
+            // 3) retire_context を通らずに lease が破棄された場合は、未 close の command list が残る可能性がある。
+            //    その状態で pool へ戻すと次回 reset() が COMMAND_ALLOCATOR_CANNOT_RESET を起こすため、異常経路では破棄する。
             outContext = CommandContextLease(
                 pooled.release(),
-                [this](ICommandContext* raw) { m_graphicsContextPool.recycle(static_cast<DX12GraphicsCommandContext*>(raw)); });
+                [](ICommandContext* raw) { delete raw; });
             return Result::ok();
         }
         case CommandListType::Compute:
@@ -821,9 +838,11 @@ namespace Cue::GraphicsCore::DX12
             {
                 pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
+
+            // 3) 異常経路の lease 破棄では安全な recycle 条件を満たせないため、context は捨てて次回新規に取り直す。
             outContext = CommandContextLease(
                 pooled.release(),
-                [this](ICommandContext* raw) { m_computeContextPool.recycle(static_cast<DX12ComputeCommandContext*>(raw)); });
+                [](ICommandContext* raw) { delete raw; });
             return Result::ok();
         }
         case CommandListType::Copy:
@@ -833,9 +852,11 @@ namespace Cue::GraphicsCore::DX12
             {
                 pooled->bind_resources(*m_bufferManager, *m_textureManager, *m_pipelineManager, *m_viewManager, *m_descriptorAllocator);
             }
+
+            // 3) upload/copy 失敗で close 前に抜けても allocator 再利用事故を起こさないよう、pool へは即返却しない。
             outContext = CommandContextLease(
                 pooled.release(),
-                [this](ICommandContext* raw) { m_copyContextPool.recycle(static_cast<DX12CopyCommandContext*>(raw)); });
+                [](ICommandContext* raw) { delete raw; });
             return Result::ok();
         }
         default:

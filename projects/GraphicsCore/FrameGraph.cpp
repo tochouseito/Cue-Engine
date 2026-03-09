@@ -464,7 +464,9 @@ namespace Cue::GraphicsCore
 
                 if (!instanceCountResult)
                 {
-                    return instanceCountResult;
+                    // 2) build 時点で manager 未登録の外部 resource もあるため、宣言時の instanceCount を暫定採用して execute へ進める。
+                    resource.instanceCount = (std::max)(resource.instanceCount, 1u);
+                    continue;
                 }
 
                 resource.instanceCount = (std::max)(actualInstanceCount, 1u);
@@ -481,7 +483,9 @@ namespace Cue::GraphicsCore
                 }
 
                 BufferHandle createdHandle{};
-                const Result createResult = m_bufferManager.create_buffer(resource.bufferDesc, createdHandle);
+                BufferDesc resolvedDesc = resource.bufferDesc;
+                resolvedDesc.name = resource.debugName;
+                const Result createResult = m_bufferManager.create_buffer(resolvedDesc, createdHandle);
                 if (!createResult)
                 {
                     return createResult;
@@ -498,6 +502,7 @@ namespace Cue::GraphicsCore
 
             TextureHandle createdHandle{};
             TextureDesc resolvedDesc = resource.textureDesc;
+            resolvedDesc.name = resource.debugName;
             if (resolvedDesc.width == 0)
             {
                 resolvedDesc.width = m_screenWidth;
