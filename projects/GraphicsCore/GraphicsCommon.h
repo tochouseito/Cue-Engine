@@ -1,6 +1,6 @@
 #pragma once
 
-// === C++ standard library includes ===
+// c++ 標準ライブラリ include
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -13,19 +13,19 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
-// Container
+// コンテナ include
 #include <vector>
 #include <unordered_map>
 #include <deque>
 
-// === Base includes ===
+// base 関連 include
 #include <Result.h>
 #include <CueAssert.h>
 
-// === Math includes ===
+// math 関連 include
 #include <CueMath.h>
 
-// === Core includes ===
+// core 関連 include
 #include <Logger.h>
 #include <Pool.h>
 #include <Native/Handle.h>

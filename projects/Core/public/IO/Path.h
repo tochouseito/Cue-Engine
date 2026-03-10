@@ -1,10 +1,10 @@
 #pragma once
 
-// === C++ Standard Library ===
+// c++ 標準ライブラリ include
 #include <string>
 #include <string_view>
 
-// 内部パスはutf-8
+// 内部パスは utf-8
 // 区切りは '/' 固定
 
 namespace Cue::Core::IO
@@ -18,7 +18,7 @@ namespace Cue::Core::IO
         [[nodiscard]] const std::string& utf8() const noexcept;
 
         [[nodiscard]] bool is_empty() const noexcept;
-        [[nodiscard]] bool is_absolute() const noexcept; // VFS基準: "/" or "X:/"
+        [[nodiscard]] bool is_absolute() const noexcept; // vfs 基準: "/" or "x:/"
 
         [[nodiscard]] Path normalize() const noexcept;
 
@@ -32,4 +32,4 @@ namespace Cue::Core::IO
     private:
         std::string m_utf8;
     };
-}
+} // 名前空間 cue::core::io

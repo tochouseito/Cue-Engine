@@ -2,11 +2,11 @@
 #include "pass/PresentToSwapChain.h"
 #include "pass/TestDraw.h"
 
-// === Core includes ===
+// core 関連 include
 #include <Logger.h>
 #include <IO/IFileSystem.h>
 
-// === C++ Standard Library ===
+// c++ 標準ライブラリ include
 #include <limits>
 #include <span>
 #include <string>
@@ -23,19 +23,14 @@ namespace Cue
     }
     bool Engine::initialize(EngineInitInfo& initInfo)
     {
+        // 1) platform と backend 参照を保持して editor 向け context へ流す
         Result r = Result::ok();
-
         m_platform = initInfo.platform;
         m_graphicsBackend = initInfo.graphicsBackend;
         m_editorCommandContext.set_graphics_backend(m_graphicsBackend);
         m_editorQueryContext.set_graphics_backend(m_graphicsBackend);
 
-        // 1) Platform の初期化と関連リソースの取得を行う
-
-        // 2) EngineConfig の読み込み
-
-        // 3) GraphicsBackend をセットアップする
-
+        // 2) frame controller 初期設定を組み立てる
         FrameControllerDesc frameControllerDesc{};
         frameControllerDesc.m_bufferCount = 3;
         frameControllerDesc.m_maxFps = 120;
@@ -49,9 +44,9 @@ namespace Cue
             render(),
             present());
 
+        // 3) test draw 用 mesh を static mesh pool へ登録する
         GraphicsCore::StaticMeshAllocationHandle cubeAllocationHandle{};
         {
-            // 4) TestPass が実メッシュを描けるよう、起動時に cube を生成して静的メッシュ pool へ upload する。
             if (m_graphicsBackend == nullptr)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Graphics backend is null.");
@@ -92,10 +87,11 @@ namespace Cue
             cubeAllocationHandle = allocations.front();
         }
 
+        // 4) render graph と present graph を生成する
         m_graphicsBackend->create_frame_graph(m_frameGraph);
         m_graphicsBackend->create_frame_graph(m_presentFrameGraph);
 
-        // 5) 通常描画は offscreen の FinalColor へ集約し、present graph へは screen copy だけを残す。
+        // 5) pass 登録と graph build を行う
         r = m_frameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(cubeAllocationHandle));
         if (!r)
         {
@@ -136,6 +132,7 @@ namespace Cue
             return false;
         }
 
+        // 6) platform を開始して実行可能状態へ入れる
         m_platform->start();
 
         Core::Logger::log(Core::LogSink::debugConsole, "Engine initialized successfully.");
@@ -145,13 +142,14 @@ namespace Cue
     {
         m_platform->begin_frame();
 
-        // 1) Editor から積まれた command は tick の先頭で処理し、render/present 中の状態変更を避ける。
+        // 1) tick 先頭で editor command を排出
         const Result drainCommandsResult = m_editorBridge.drain_commands(m_editorCommandContext);
         if (!drainCommandsResult)
         {
             Core::Logger::log(Core::LogSink::debugConsole, drainCommandsResult.message);
         }
 
+        // 2) frame controller を進めて統計を採取する
         m_frameController->step();
         double fps = m_frameController->frame_counter().fps();
         uint32_t updateIndex = m_frameController->update_index();
@@ -161,34 +159,38 @@ namespace Cue
         Core::Logger::log(Core::LogSink::debugConsole, "Frame: {}, FPS: {:.2f}, UpdateIndex: {}, RenderIndex: {}, PresentIndex: {}",
             totalFrame, fps, updateIndex, renderIndex, presentIndex);
 
+        // 3) platform 側フレーム終了処理を流す
         m_platform->end_frame();
     }
     void Engine::shutdown()
     {
+        // 1) frame controller を停止する
         m_frameController.reset();
 
-        // 設定ファイルの保存
-
+        // 2) graph 実体を解放する
         m_frameGraph.reset();
         m_presentFrameGraph.reset();
+
+        // 3) 終了ログを出力する
         Core::Logger::log(Core::LogSink::debugConsole, "Engine shutdown completed.");
     }
     Result Engine::submit_editor_command(std::unique_ptr<CQRS::ICommand> command)
     {
-        // 1) command の受付口は Engine に一本化し、Editor から bridge 実体を直接触らせない。
+        // 1) editor command 受付を engine へ集約
         return m_editorBridge.submit_command(std::move(command));
     }
     Result Engine::execute_editor_query(const CQRS::IQuery& query, CQRS::IQueryResult& outResult) const
     {
-        // 1) query の実行も Engine 所有 context に固定し、backend 参照の責任を Engine 側へ集約する。
+        // 1) editor query 実行 context を engine 所有へ固定
         return m_editorBridge.execute_query(query, m_editorQueryContext, outResult);
     }
     std::function<void(uint64_t, uint32_t)> Engine::update()
     {
-        // 1) 更新処理のエントリポイントを返す
-        // 2) 現在は仮実装でパイプライン入力を埋める
+        // 1) 更新コールバック返却
+        // 2) 仮実装で入力だけ受理
         return [this](uint64_t frameNo, uint32_t index)
             {
+                // 1) 仮実装のため入力だけ受理
                 (void)frameNo;
                 (void)index;
                 (void)this;
@@ -196,9 +198,10 @@ namespace Cue
     }
     std::function<void(uint64_t, uint32_t)> Engine::render()
     {
-        // 2) 現在は仮実装でパイプライン入力を埋める
+        // 1) 仮実装 render コールバック返却
         return [this](uint64_t frameNo, uint32_t index)
             {
+                // 1) render graph を実行する
                 (void)frameNo;
                 (void)index;
                 (void)this;
@@ -211,10 +214,11 @@ namespace Cue
     }
     std::function<void(uint64_t, uint32_t)> Engine::present()
     {
-        // 1) Present 処理のエントリポイントを返す
-        // 2) 現在は仮実装でパイプライン入力を埋める
+        // 1) present コールバック返却
+        // 2) 仮実装で入力だけ受理
         return [this](uint64_t frameNo, uint32_t index)
             {
+                // 1) present graph を実行する
                 (void)this;
                 Result r = m_graphicsBackend->present(frameNo, index, *m_presentFrameGraph);
                 if (!r)
@@ -224,4 +228,4 @@ namespace Cue
             };
     }
 
-} // namespace Cue
+} // 名前空間 cue

@@ -6,7 +6,7 @@ namespace Cue::GraphicsCore
     {
         [[nodiscard]] Result make_default_buffer_view_desc(RootParameterType parameterType, BufferViewDesc& outDesc)
         {
-            // 1) FrameGraph の bind_* 宣言を whole-resource view の既定表現へ正規化する。
+            // 1) frame graph の bind_* 宣言を whole-resource view 既定表現へ正規化
             outDesc = {};
             switch (parameterType)
             {
@@ -26,7 +26,7 @@ namespace Cue::GraphicsCore
 
         [[nodiscard]] Result make_default_texture_view_desc(RootParameterType parameterType, TextureViewDesc& outDesc)
         {
-            // 1) texture descriptor も whole-resource view を既定値にし、特殊な mip/range 指定は後続拡張で表現する。
+            // 1) texture descriptor も whole-resource view 既定値へ正規化
             outDesc = {};
             switch (parameterType)
             {
@@ -45,11 +45,13 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::add_pass(std::unique_ptr<FrameGraphPass> pass)
     {
+        // 1) null pass を拒否
         if (pass == nullptr)
         {
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "FrameGraph pass is null");
         }
 
+        // 2) pass を保持して dirty 状態へ更新
         m_passes.push_back(CompiledPass{ std::move(pass), {} });
         m_isDirty = true;
         return Result::ok();
@@ -58,6 +60,7 @@ namespace Cue::GraphicsCore
     template <class HandleT>
     HandleT FrameGraph::declare_resource(std::string_view name, ResourceKind expectedKind)
     {
+        // 1) 論理名の重複を検査
         const ResourceNameId nameId = Core::fnv1a64(name);
         const auto found = m_resourceByNameId.find(nameId);
         if (found != m_resourceByNameId.end())
@@ -65,11 +68,13 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Duplicated logical resource name: " + std::string(name));
         }
 
+        // 2) resource 配列上限を検査
         if (m_resources.size() >= static_cast<size_t>((std::numeric_limits<uint32_t>::max)()))
         {
             throw std::overflow_error("FrameGraph resource index overflow");
         }
 
+        // 3) 既定設定付き論理 resource を登録
         const uint32_t index = static_cast<uint32_t>(m_resources.size());
 
         const ResourceRef ref{ expectedKind, index, 1 };
@@ -93,6 +98,7 @@ namespace Cue::GraphicsCore
     template <class HandleT>
     HandleT FrameGraph::find_resource(std::string_view name, ResourceKind expectedKind) const
     {
+        // 1) 論理名から resource 参照を検索
         const ResourceNameId nameId = Core::fnv1a64(name);
         const auto found = m_resourceByNameId.find(nameId);
         if (found == m_resourceByNameId.end())
@@ -100,25 +106,30 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Logical resource is not declared: " + std::string(name));
         }
 
+        // 2) kind を検証して handle 化
         validate_resource_ref(found->second, expectedKind);
         return HandleT{ found->second.index, found->second.generation };
     }
 
     uint32_t FrameGraph::resolve_buffering_count(uint32_t requestedCount) const noexcept
     {
+        // 1) 0 指定時は graph 既定値を採用
         if (requestedCount == 0)
         {
             return m_defaultBufferingCount;
         }
 
+        // 2) 1 以上へ正規化
         return (std::max)(requestedCount, 1u);
     }
 
     BufferHandle FrameGraph::create_buffer(std::string_view name, const BufferDesc& desc)
     {
+        // 1) 表示名を確定して論理 buffer を宣言
         const std::string_view resolvedName = desc.name.empty() ? name : desc.name;
         const BufferHandle handle = declare_resource<BufferHandle>(resolvedName, ResourceKind::Buffer);
 
+        // 2) desc と instance 情報を保存
         LogicalResource& resource = m_resources[handle.index];
         resource.bufferDesc = desc;
         resource.bufferDesc.name = resource.debugName;
@@ -131,9 +142,11 @@ namespace Cue::GraphicsCore
 
     TextureHandle FrameGraph::create_texture(std::string_view name, const TextureDesc& desc)
     {
+        // 1) 表示名を確定して論理 texture を宣言
         const std::string_view resolvedName = desc.name.empty() ? name : desc.name;
         const TextureHandle handle = declare_resource<TextureHandle>(resolvedName, ResourceKind::Texture);
 
+        // 2) desc と instance 情報を保存
         LogicalResource& resource = m_resources[handle.index];
         resource.textureDesc = desc;
         resource.textureDesc.name = resource.debugName;
@@ -147,9 +160,11 @@ namespace Cue::GraphicsCore
 
     BufferHandle FrameGraph::import_buffer(std::string_view name, const BufferDesc& desc, ResourceState initialState)
     {
+        // 1) 表示名を確定して外部 buffer を宣言
         const std::string_view resolvedName = desc.name.empty() ? name : desc.name;
         const BufferHandle handle = declare_resource<BufferHandle>(resolvedName, ResourceKind::Buffer);
 
+        // 2) 外部 resource 設定を保存
         LogicalResource& resource = m_resources[handle.index];
         resource.bufferDesc = desc;
         resource.bufferDesc.name = resource.debugName;
@@ -164,9 +179,11 @@ namespace Cue::GraphicsCore
 
     TextureHandle FrameGraph::import_texture(std::string_view name, const TextureDesc& desc, ResourceState initialState)
     {
+        // 1) 表示名を確定して外部 texture を宣言
         const std::string_view resolvedName = desc.name.empty() ? name : desc.name;
         const TextureHandle handle = declare_resource<TextureHandle>(resolvedName, ResourceKind::Texture);
 
+        // 2) 外部 resource 設定を保存
         LogicalResource& resource = m_resources[handle.index];
         resource.textureDesc = desc;
         resource.textureDesc.name = resource.debugName;
@@ -181,30 +198,36 @@ namespace Cue::GraphicsCore
 
     BufferHandle FrameGraph::get_buffer(std::string_view name)
     {
+        // 1) 論理名から buffer handle を取得
         return find_resource<BufferHandle>(name, ResourceKind::Buffer);
     }
 
     TextureHandle FrameGraph::get_texture(std::string_view name)
     {
+        // 1) 論理名から texture handle を取得
         return find_resource<TextureHandle>(name, ResourceKind::Texture);
     }
 
     void FrameGraph::validate_resource_handle(BufferHandle handle) const
     {
+        // 1) buffer handle を resource 参照として検証
         validate_resource_ref(to_resource_ref(handle), ResourceKind::Buffer);
     }
 
     void FrameGraph::validate_resource_handle(TextureHandle handle) const
     {
+        // 1) texture handle を resource 参照として検証
         validate_resource_ref(to_resource_ref(handle), ResourceKind::Texture);
     }
 
     void FrameGraph::validate_resource_ref(ResourceRef ref, ResourceKind expectedKind) const
     {
+        // 1) handle 有効性を検証
         if (!ref.valid())
         {
             throw std::runtime_error("FrameGraph resource handle is invalid");
         }
+        // 2) kind と index 範囲を検証
         if (ref.kind != expectedKind)
         {
             throw std::runtime_error("FrameGraph resource kind mismatch");
@@ -213,6 +236,7 @@ namespace Cue::GraphicsCore
         {
             throw std::runtime_error("FrameGraph resource handle is out of range");
         }
+        // 3) generation 一致を検証
         if (m_resources[ref.index].ref.generation != ref.generation)
         {
             throw std::runtime_error("FrameGraph resource generation mismatch");
@@ -221,17 +245,20 @@ namespace Cue::GraphicsCore
 
     const FrameGraph::LogicalResource& FrameGraph::get_logical_resource(ResourceRef ref) const
     {
+        // 1) resource 参照を検証して論理 resource を返す
         validate_resource_ref(ref, ref.kind);
         return m_resources[ref.index];
     }
 
     uint32_t FrameGraph::resolve_resource_instance_index(const LogicalResource& resource, uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept
     {
+        // 1) 単一実体なら index 0 固定
         if (resource.instanceCount <= 1)
         {
             return 0;
         }
 
+        // 2) instance source に応じて実体 index を選択
         switch (resource.instanceSource)
         {
         case ResourceInstanceSource::Fixed:
@@ -249,12 +276,15 @@ namespace Cue::GraphicsCore
     {
         try
         {
+            // 1) 論理 resource と instance index を解決
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
             const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
+            // 2) manager から物理 buffer を取得
             return m_bufferManager.get_buffer(resource.nameId, instanceIndex, outHandle);
         }
         catch (const std::exception& e)
         {
+            // 1) 例外内容をログ化して失敗へ変換
             Core::Logger::log(Core::LogSink::debugConsole, "[FrameGraph] resolve_buffer failed: {}\n", e.what());
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Failed to resolve logical buffer");
         }
@@ -264,12 +294,15 @@ namespace Cue::GraphicsCore
     {
         try
         {
+            // 1) 論理 resource と instance index を解決
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
             const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
+            // 2) manager から物理 texture を取得
             return m_textureManager.get_texture(resource.nameId, instanceIndex, outHandle);
         }
         catch (const std::exception& e)
         {
+            // 1) 例外内容をログ化して失敗へ変換
             Core::Logger::log(Core::LogSink::debugConsole, "[FrameGraph] resolve_texture failed: {}\n", e.what());
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Warning, 0, "Failed to resolve logical texture");
         }
@@ -277,7 +310,7 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
     {
-        // 1) 対象フレームの buffer index binding だけを descriptor table へ追加する。
+        // 1) 対象フレームの buffer index binding だけを追加
         if (binding.hasBufferIndex && binding.bufferIndex != frameResourceIndex)
         {
             return Result::fail(Facility::Graphics, Code::NotFound, Severity::Info, 0, "Descriptor binding is not active for this buffer index");
@@ -289,6 +322,7 @@ namespace Cue::GraphicsCore
 
         if (binding.resource.kind == ResourceKind::Buffer)
         {
+            // 2) buffer 実体と既定 view を解決
             BufferHandle physicalHandle{};
             const Result result = resolve_buffer(BufferHandle{ binding.resource.index, binding.resource.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
             if (!result)
@@ -310,9 +344,11 @@ namespace Cue::GraphicsCore
                 return viewResult;
             }
 
+            // 3) buffer view から descriptor handle を取得
             return m_viewManager.get_descriptor_handle(outBinding.viewHandle, outBinding.descriptorHandle);
         }
 
+        // 4) texture 実体と既定 view を解決
         if (binding.resource.kind != ResourceKind::Texture)
         {
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Unsupported descriptor resource kind");
@@ -339,17 +375,19 @@ namespace Cue::GraphicsCore
             return viewResult;
         }
 
+        // 5) texture view から descriptor handle を取得
         return m_viewManager.get_descriptor_handle(outBinding.viewHandle, outBinding.descriptorHandle);
     }
 
     Result FrameGraph::resolve_render_target_views(const std::vector<ResourceAccess>& accesses, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const
     {
-        // 1) graphics pass の output attachment は access 宣言からだけ導出し、pass 側へ backend 依存を漏らさない。
+        // 1) graphics pass の output attachment を access 宣言から導出
         outRenderTargetViews.clear();
         outDepthStencilView = {};
 
         for (const ResourceAccess& access : accesses)
         {
+            // 2) texture かつ render/depth access だけを対象にする
             if (access.handle.kind != ResourceKind::Texture)
             {
                 continue;
@@ -360,6 +398,7 @@ namespace Cue::GraphicsCore
                 continue;
             }
 
+            // 3) 実体 texture から attachment view を取得
             TextureHandle physicalHandle{};
             const Result resolveResult = resolve_texture(TextureHandle{ access.handle.index, access.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
             if (!resolveResult)
@@ -379,6 +418,7 @@ namespace Cue::GraphicsCore
 
             if (access.requiredState == ResourceState::RenderTarget)
             {
+                // 4) render target view の重複登録を避ける
                 const auto found = std::find(outRenderTargetViews.begin(), outRenderTargetViews.end(), viewHandle);
                 if (found == outRenderTargetViews.end())
                 {
@@ -387,6 +427,7 @@ namespace Cue::GraphicsCore
                 continue;
             }
 
+            // 5) depth view は 1 つだけ許可する
             if (outDepthStencilView.valid() && !(outDepthStencilView == viewHandle))
             {
                 return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Multiple depth stencil outputs are not supported");
@@ -400,11 +441,13 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const
     {
+        // 1) 前後 state を barrier へ転記
         outBarrier.before = event.before;
         outBarrier.after = event.after;
 
         if (event.handle.kind == ResourceKind::Buffer)
         {
+            // 2) buffer barrier 用の物理 handle を解決
             BufferHandle physicalHandle{};
             const Result result = resolve_buffer(BufferHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
             if (!result)
@@ -418,6 +461,7 @@ namespace Cue::GraphicsCore
             return Result::ok();
         }
 
+        // 3) texture barrier 用の物理 handle を解決
         TextureHandle physicalHandle{};
         const Result result = resolve_texture(TextureHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
         if (!result)
@@ -433,6 +477,7 @@ namespace Cue::GraphicsCore
 
     std::vector<ResourceState> FrameGraph::initial_resource_states() const
     {
+        // 1) 論理 resource 初期 state を配列へ展開
         std::vector<ResourceState> states;
         states.reserve(m_resources.size());
         for (const LogicalResource& resource : m_resources)
@@ -444,13 +489,12 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::materialize_declared_resources()
     {
-        // build() maps logical resources to manager-owned backend resources.
-        // External resources are imported and therefore skipped here.
+        // 1) 論理 resource を manager 所有の backend resource へ対応付け
         for (LogicalResource& resource : m_resources)
         {
             if (resource.external)
             {
-                // 1) external resource は manager 側の実体数を採用し、pass 側へ buffering 情報を漏らさない。
+                // 2) external resource は manager 側の実体数を優先
                 uint32_t actualInstanceCount = 0;
                 Result instanceCountResult = Result::ok();
                 if (resource.ref.kind == ResourceKind::Buffer)
@@ -464,7 +508,7 @@ namespace Cue::GraphicsCore
 
                 if (!instanceCountResult)
                 {
-                    // 2) build 時点で manager 未登録の外部 resource もあるため、宣言時の instanceCount を暫定採用して execute へ進める。
+                    // 3) 未登録時は宣言側 instance count を暫定採用
                     resource.instanceCount = (std::max)(resource.instanceCount, 1u);
                     continue;
                 }
@@ -475,6 +519,7 @@ namespace Cue::GraphicsCore
 
             if (resource.ref.kind == ResourceKind::Buffer)
             {
+                // 4) 内部 buffer は既存実体を再利用し未作成なら生成
                 BufferHandle existingHandle{};
                 const Result getResult = m_bufferManager.get_buffer(resource.nameId, 0, existingHandle);
                 if (getResult)
@@ -493,6 +538,7 @@ namespace Cue::GraphicsCore
                 continue;
             }
 
+            // 5) 内部 texture は画面サイズ補完後に未作成分だけ生成
             TextureHandle existingTexture{};
             const Result getResult = m_textureManager.get_texture(resource.nameId, 0, existingTexture);
             if (getResult)
@@ -524,6 +570,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::declare_pipeline(PipelineBindingDecl& outDecl, const GraphicsPipelineStateDesc& desc)
     {
+        // 1) 多重宣言と空名を拒否
         if (outDecl.declared)
         {
             throw std::runtime_error("Pipeline is already declared for this pass");
@@ -539,6 +586,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Duplicated pipeline logical name: " + std::string(desc.name));
         }
 
+        // 2) pass 側宣言と全体宣言テーブルを同期
         outDecl.declared = true;
         outDecl.nameId = nameId;
         outDecl.debugName = std::string(desc.name);
@@ -549,6 +597,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::declare_root_signature(RootSignatureBindingDecl& outDecl, const RootSignatureDesc& desc)
     {
+        // 1) 多重宣言と空名を拒否
         if (outDecl.declared)
         {
             throw std::runtime_error("Root signature is already declared for this pass");
@@ -564,6 +613,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Duplicated root signature logical name: " + std::string(desc.name));
         }
 
+        // 2) pass 側宣言と全体宣言テーブルを同期
         outDecl.declared = true;
         outDecl.nameId = nameId;
         outDecl.debugName = std::string(desc.name);
@@ -574,6 +624,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::declare_shader(std::vector<ShaderBindingDecl>& outDecls, const ShaderCompileDesc& desc)
     {
+        // 1) 空名と重複名を拒否
         if (desc.name.empty())
         {
             throw std::runtime_error("Shader logical name is empty");
@@ -585,6 +636,7 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Duplicated shader logical name: " + std::string(desc.name));
         }
 
+        // 2) pass 側宣言と全体宣言テーブルへ追加
         const ShaderBindingDecl decl{ nameId, desc, {} };
         outDecls.push_back(decl);
         m_shaderDecls.emplace(nameId, decl);
@@ -592,6 +644,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::reference_pipeline(PipelineBindingDecl& outDecl, std::string_view name)
     {
+        // 1) 多重参照を拒否して全体宣言から検索
         if (outDecl.declared)
         {
             throw std::runtime_error("Pipeline is already declared for this pass");
@@ -604,11 +657,13 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Pipeline logical name is not declared: " + std::string(name));
         }
 
+        // 2) pass 側宣言へ既存設定をコピー
         outDecl = it->second;
     }
 
     void FrameGraph::reference_root_signature(RootSignatureBindingDecl& outDecl, std::string_view name)
     {
+        // 1) 多重参照を拒否して全体宣言から検索
         if (outDecl.declared)
         {
             throw std::runtime_error("Root signature is already declared for this pass");
@@ -621,11 +676,13 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Root signature logical name is not declared: " + std::string(name));
         }
 
+        // 2) pass 側宣言へ既存設定をコピー
         outDecl = it->second;
     }
 
     void FrameGraph::reference_shader(std::vector<ShaderBindingDecl>& outDecls, std::string_view name)
     {
+        // 1) 全体宣言から shader を検索
         const ResourceNameId nameId = Core::fnv1a64(name);
         const auto it = m_shaderDecls.find(nameId);
         if (it == m_shaderDecls.end())
@@ -639,11 +696,13 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Shader is already referenced by this pass: " + std::string(name));
         }
 
+        // 2) pass 側宣言へ既存 shader を追加
         outDecls.push_back(it->second);
     }
 
     void FrameGraph::declare_descriptor(std::vector<DescriptorBindingDecl>& outDecls, const DescriptorBindingDecl& desc)
     {
+        // 1) register と visibility と buffer index の重複を検査
         const auto exists = std::find_if(
             outDecls.begin(),
             outDecls.end(),
@@ -661,12 +720,13 @@ namespace Cue::GraphicsCore
             throw std::runtime_error("Descriptor register is already declared for this pass");
         }
 
+        // 2) pass 側 descriptor 宣言へ追加
         outDecls.push_back(desc);
     }
 
     Result FrameGraph::resolve_pipeline_artifacts()
     {
-        // 1) RootSignature は name ベースで再利用し、未作成分だけ backend manager に生成させる。
+        // 1) root signature を name 単位で再利用
         for (auto& [nameId, rootSignatureDecl] : m_rootSignatureDecls)
         {
             Result result = m_pipelineManager.get_root_signature(nameId, rootSignatureDecl.handle);
@@ -680,7 +740,7 @@ namespace Cue::GraphicsCore
             }
         }
 
-        // 2) Shader も同様に name ベースで再利用し、未作成分だけコンパイルする。
+        // 2) shader も name 単位で再利用
         for (auto& [nameId, shaderDecl] : m_shaderDecls)
         {
             Result result = m_pipelineManager.get_shader(nameId, shaderDecl.handle);
@@ -694,7 +754,7 @@ namespace Cue::GraphicsCore
             }
         }
 
-        // 3) Pass ごとの宣言から PSO の未解決 handle を補完する。
+        // 3) pass 宣言から pso 未解決 handle を補完
         for (CompiledPass& compiledPass : m_passes)
         {
             if (compiledPass.rootSignatureDecl.declared)
@@ -734,7 +794,7 @@ namespace Cue::GraphicsCore
             }
         }
 
-        // 4) 補完済み PSO 設定を作成/再利用し、execute で直接 bind できる handle を確定する。
+        // 4) 補完済み pso 設定から handle を確定
         for (auto& [nameId, pipelineDecl] : m_pipelineDecls)
         {
             if (!pipelineDecl.desc.rootSignatureHandle.valid() || !pipelineDecl.desc.vsHandle.valid() || !pipelineDecl.desc.psHandle.valid())
@@ -753,7 +813,7 @@ namespace Cue::GraphicsCore
             }
         }
 
-        // 5) CompiledPass 側の handle を最終状態に同期する。
+        // 5) compiled pass 側 handle を同期
         for (CompiledPass& compiledPass : m_passes)
         {
             if (compiledPass.pipelineDecl.declared)
@@ -767,13 +827,13 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::topological_sort_by_resource_dependencies(std::vector<size_t>& outSorted) const
     {
-        // Derive pass order from resource hazards.
-        // Reads depend on the latest writer; writes depend on both readers and writers.
+        // 1) resource hazard 追跡用の隣接行列と入次数を初期化
         const size_t passCount = m_passes.size();
         std::vector<std::unordered_set<size_t>> adjacency(passCount);
         std::vector<size_t> indegree(passCount, 0);
         std::vector<ResourceHazardState> hazardByResource(m_resources.size());
 
+        // 2) 重複無しで依存 edge を追加する関数を用意
         auto add_edge = [&adjacency, &indegree](size_t from, size_t to)
             {
                 if (from == to)
@@ -787,6 +847,7 @@ namespace Cue::GraphicsCore
                 }
             };
 
+        // 3) read/write hazard から pass 依存 edge を構築
         for (size_t passIndex = 0; passIndex < passCount; ++passIndex)
         {
             for (const ResourceAccess& access : m_passes[passIndex].accesses)
@@ -821,6 +882,7 @@ namespace Cue::GraphicsCore
             }
         }
 
+        // 4) 入次数 0 の pass から処理開始
         std::deque<size_t> zeroIndegree;
         for (size_t i = 0; i < passCount; ++i)
         {
@@ -833,6 +895,7 @@ namespace Cue::GraphicsCore
         outSorted.clear();
         outSorted.reserve(passCount);
 
+        // 5) kahn 法で依存順を確定
         while (!zeroIndegree.empty())
         {
             const size_t node = zeroIndegree.front();
@@ -848,6 +911,7 @@ namespace Cue::GraphicsCore
             }
         }
 
+        // 6) 未処理 node が残る場合は循環依存として失敗
         if (outSorted.size() != passCount)
         {
             return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "FrameGraph has cyclic pass dependencies");
@@ -858,6 +922,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::reorder_compiled_passes(const std::vector<size_t>& sortedOrder)
     {
+        // 1) 依存順どおりに compiled pass 配列を再構築
         std::vector<CompiledPass> reordered;
         reordered.reserve(m_passes.size());
         for (size_t oldIndex : sortedOrder)
@@ -869,10 +934,11 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::build_execution_dependencies()
     {
-        // Build per-pass dependency lists used for cross-queue waits in execute().
+        // 1) execute() の cross queue wait 用依存配列を初期化
         m_dependenciesByPass.assign(m_passes.size(), {});
         std::vector<ResourceHazardState> hazardByResource(m_resources.size());
 
+        // 2) 重複無しで依存先を追加する関数を用意
         auto add_dependency = [this](size_t passIndex, size_t dependsOn)
             {
                 if (passIndex == dependsOn)
@@ -887,6 +953,7 @@ namespace Cue::GraphicsCore
                 }
             };
 
+        // 3) read/write hazard から pass ごとの依存先を抽出
         for (size_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
         {
             for (const ResourceAccess& access : m_passes[passIndex].accesses)
@@ -924,11 +991,11 @@ namespace Cue::GraphicsCore
 
     void FrameGraph::build_resource_barriers()
     {
-        // Walk required states and emit barriers before/after each pass.
-        // finalState covers cases where a pass must leave a resource in a known state.
+        // 1) pass ごとの barrier 蓄積先と追跡 state を初期化
         m_barriersByPass.clear();
         std::vector<ResourceState> trackedState = initial_resource_states();
 
+        // 2) access 宣言から実行前後 barrier を生成
         for (size_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
         {
             for (const ResourceAccess& access : m_passes[passIndex].accesses)
@@ -936,6 +1003,7 @@ namespace Cue::GraphicsCore
                 ResourceState& current = trackedState[access.handle.index];
                 if (current != access.requiredState)
                 {
+                    // 3) 実行前に required state へ遷移
                     m_barriersByPass[passIndex].push_back(BarrierEvent{
                         access.handle,
                         current,
@@ -948,6 +1016,7 @@ namespace Cue::GraphicsCore
                 {
                     if (access.hasFinalState && current != access.finalState)
                     {
+                        // 4) write 完了後に指定 final state へ遷移
                         m_barriersByPass[passIndex].push_back(BarrierEvent{
                             access.handle,
                             current,
@@ -957,6 +1026,7 @@ namespace Cue::GraphicsCore
                     }
                     else if (access.hasFinalState)
                     {
+                        // 5) barrier 不要でも追跡 state は final state へ更新
                         current = access.finalState;
                     }
                 }
@@ -968,8 +1038,7 @@ namespace Cue::GraphicsCore
     {
         try
         {
-            // build() reconstructs the graph from declarations every time.
-            // Order: setup() -> materialize/resolve -> sort -> dependency/barrier analysis.
+            // 1) 前回 build 結果を破棄して宣言テーブルを初期化
             m_resources.clear();
             m_resourceByNameId.clear();
             m_dependenciesByPass.clear();
@@ -978,6 +1047,7 @@ namespace Cue::GraphicsCore
             m_rootSignatureDecls.clear();
             m_shaderDecls.clear();
 
+            // 2) 各 pass の setup() を再実行して resource と pipeline 宣言を収集
             for (CompiledPass& compiledPass : m_passes)
             {
                 compiledPass.accesses.clear();
@@ -996,18 +1066,21 @@ namespace Cue::GraphicsCore
                 compiledPass.pass->setup(builder);
             }
 
+            // 3) 宣言済み resource を manager 実体へ対応付け
             const Result materializeResult = materialize_declared_resources();
             if (!materializeResult)
             {
                 return materializeResult;
             }
 
+            // 4) pipeline と root signature と shader の handle を解決
             const Result resolvePipelineResult = resolve_pipeline_artifacts();
             if (!resolvePipelineResult)
             {
                 return resolvePipelineResult;
             }
 
+            // 5) resource 依存から pass 順序を決定
             std::vector<size_t> sortedOrder;
             const Result sortResult = topological_sort_by_resource_dependencies(sortedOrder);
             if (!sortResult)
@@ -1015,10 +1088,12 @@ namespace Cue::GraphicsCore
                 return sortResult;
             }
 
+            // 6) 並び替え後の pass 群から実行依存と barrier を構築
             reorder_compiled_passes(sortedOrder);
             build_execution_dependencies();
             build_resource_barriers();
 
+            // 7) build 完了状態を記録して実行可能にする
             Core::Logger::log(Core::LogSink::debugConsole, "FrameGraph build succeeded with {} passes and {} resources\n", m_passes.size(), m_resources.size());
             for (size_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
             {
@@ -1031,6 +1106,7 @@ namespace Cue::GraphicsCore
         }
         catch (const std::exception& e)
         {
+            // 1) 例外内容をログへ残して build 失敗へ変換
             Core::Logger::log(Core::LogSink::debugConsole, "[FrameGraph] build failed: {}\n", e.what());
             m_isBuilt = false;
             return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "FrameGraph build failed");
@@ -1039,6 +1115,7 @@ namespace Cue::GraphicsCore
 
     Result FrameGraph::execute(uint64_t frameNo, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ICommandPool& commandPool, IQueuePool& queuePool)
     {
+        // 1) 未 build または dirty 状態なら実行前に再 build
         if (!m_isBuilt || m_isDirty)
         {
             const Result buildResult = build();
@@ -1048,6 +1125,7 @@ namespace Cue::GraphicsCore
             }
         }
 
+        // 2) queue 種別ごとの実行先を確保
         QueueContextLease graphicsQueue{};
         QueueContextLease computeQueue{};
         QueueContextLease copyQueue{};
@@ -1067,6 +1145,7 @@ namespace Cue::GraphicsCore
             return acquireResult;
         }
 
+        // 3) 実行中 state と実行概要を初期化
         std::vector<PassExecutionInfo> passExecution(m_passes.size());
         std::vector<ResourceState> runtimeTrackedState = initial_resource_states();
         ExecutionSummary summary{};
@@ -1075,6 +1154,7 @@ namespace Cue::GraphicsCore
         summary.swapchainImageIndex = swapchainImageIndex;
         summary.passCount = m_passes.size();
 
+        // 4) pass の queue 種別から実行 queue を引く関数を用意
         auto queue_for = [&graphicsQueue, &computeQueue, &copyQueue](CommandListType type) -> IQueueContext&
             {
                 switch (type)
@@ -1090,15 +1170,17 @@ namespace Cue::GraphicsCore
                 }
             };
 
-        // Convert the precomputed barrier plan into backend barriers for the current frame index.
+        // 5) 事前計算 barrier を現在 frame 用 backend barrier へ変換
         auto emit_barriers = [this, frameResourceIndex, swapchainImageIndex](ICommandContext& commandContext, size_t passIndex, bool beforePass, std::vector<ResourceState>& trackedState) -> Result
             {
+                // 1) pass に紐づく barrier 群を取得
                 const auto barrierIt = m_barriersByPass.find(passIndex);
                 if (barrierIt == m_barriersByPass.end())
                 {
                     return Result::ok();
                 }
 
+                // 2) 実行タイミング一致分だけ backend barrier を構築
                 std::vector<ResourceBarrierDesc> barriers;
                 for (const BarrierEvent& barrierEvent : barrierIt->second)
                 {
@@ -1117,21 +1199,25 @@ namespace Cue::GraphicsCore
                     trackedState[barrierEvent.handle.index] = barrierEvent.after;
                 }
 
+                // 3) 発行対象が無ければ処理を打ち切り
                 if (barriers.empty())
                 {
                     return Result::ok();
                 }
 
+                // 4) command context へ barrier を発行
                 return commandContext.resource_barriers(barriers.data(), barriers.size());
             };
 
+        // 6) 依存順に各 pass を記録コマンドへ変換
         for (size_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
         {
-            // Select the queue for this pass and inject waits when a dependency ran on another queue.
+            // 1) 実行対象 pass と queue を確定
             const CompiledPass& compiledPass = m_passes[passIndex];
             const CommandListType queueType = compiledPass.pass->queue_type();
             IQueueContext& queue = queue_for(queueType);
 
+            // 2) cross queue 依存があれば wait を注入
             if (passIndex < m_dependenciesByPass.size())
             {
                 for (size_t depPassIndex : m_dependenciesByPass[passIndex])
@@ -1156,6 +1242,7 @@ namespace Cue::GraphicsCore
                 }
             }
 
+            // 3) pass 記録用 command context を取得して初期化
             CommandContextLease commandContext{};
             const Result acquireContextResult = commandPool.acquire_context(queueType, commandContext);
             if (!acquireContextResult)
@@ -1169,12 +1256,14 @@ namespace Cue::GraphicsCore
                 return resetResult;
             }
 
+            // 4) 実行前 barrier で required state へ遷移
             const Result preBarrierResult = emit_barriers(*commandContext, passIndex, true, runtimeTrackedState);
             if (!preBarrierResult)
             {
                 return preBarrierResult;
             }
 
+            // 5) pass 実行用の shader と descriptor を解決
             commandContext->begin_event(compiledPass.pass->name());
             std::vector<ShaderBlobHandle> shaderHandles;
             shaderHandles.reserve(compiledPass.shaderDecls.size());
@@ -1200,6 +1289,8 @@ namespace Cue::GraphicsCore
                 }
                 descriptorBindings.push_back(resolvedBinding);
             }
+
+            // 6) デバッグ用実行概要へ bind 数を反映
             summary.descriptorCount += descriptorBindings.size();
             summary.shaderCount += shaderHandles.size();
             if (compiledPass.pipelineDecl.handle.valid())
@@ -1211,8 +1302,7 @@ namespace Cue::GraphicsCore
                 summary.rootSignatureHandle = compiledPass.rootSignatureDecl.handle;
             }
 
-            // Passes only see resolved runtime data here.
-            // They do not need to know about logical names or manager lookups.
+            // 7) pass へ渡す前に command context の記録準備を完了
             const Result setupResult = commandContext->setup();
             if (!setupResult)
             {
@@ -1223,7 +1313,7 @@ namespace Cue::GraphicsCore
                 && compiledPass.pipelineDecl.handle.valid()
                 && compiledPass.rootSignatureDecl.handle.valid())
             {
-                // 1) Graphics pass 実行前に PSO/RootSignature を command context へ設定し、pass は draw call だけに集中させる。
+                // 8) graphics pass は pso と root signature を先に bind
                 const Result bindPipelineResult = commandContext->set_graphics_pipeline(
                     compiledPass.pipelineDecl.handle,
                     compiledPass.rootSignatureDecl.handle);
@@ -1232,7 +1322,7 @@ namespace Cue::GraphicsCore
                     return bindPipelineResult;
                 }
 
-                // 2) FrameGraph が解決した descriptor を root parameter index へ反映し、backend 依存の bind を execute ループに集約する。
+                // 9) 解決済み descriptor を root parameter へ反映
                 for (const FrameGraphContext::ResolvedDescriptorBinding& descriptorBinding : descriptorBindings)
                 {
                     const Result bindDescriptorResult = commandContext->set_graphics_descriptor_table(
@@ -1245,6 +1335,7 @@ namespace Cue::GraphicsCore
                 }
             }
 
+            // 10) pass 実行用 context を構築
             FrameGraphContext context(
                 *this,
                 frameNo,
@@ -1257,14 +1348,14 @@ namespace Cue::GraphicsCore
                 std::move(descriptorBindings));
             if (queueType == CommandListType::Graphics)
             {
-                // 1) Graphics pass は画面全体を既定値にしてから実行し、viewport/scissor の設定漏れで描画が消えないようにする。
+                // 11) graphics pass は viewport と scissor を既定サイズへ設定
                 const Result viewportResult = commandContext->set_viewport_scissor(m_screenWidth, m_screenHeight);
                 if (!viewportResult)
                 {
                     return viewportResult;
                 }
 
-                // 2) render/depth access から attachment view を解決し、draw の直前に OM へ統一的に bind する。
+                // 12) render target と depth view を解決して om へ bind
                 std::vector<ViewHandle> renderTargetViews;
                 renderTargetViews.reserve(compiledPass.accesses.size());
                 ViewHandle depthStencilView{};
@@ -1283,15 +1374,19 @@ namespace Cue::GraphicsCore
                     return bindRenderTargetResult;
                 }
             }
+
+            // 13) pass 本体を実行
             compiledPass.pass->execute(context);
             commandContext->end_event();
 
+            // 14) 実行後 barrier を発行して最終 state を反映
             const Result postBarrierResult = emit_barriers(*commandContext, passIndex, false, runtimeTrackedState);
             if (!postBarrierResult)
             {
                 return postBarrierResult;
             }
 
+            // 15) command list を close して queue へ submit
             const Result closeResult = commandContext->close();
             if (!closeResult)
             {
@@ -1304,6 +1399,7 @@ namespace Cue::GraphicsCore
                 return submitResult;
             }
 
+            // 16) 完了点を signal して context 退役条件へ渡す
             QueueSyncPoint signalPoint{};
             const Result signalResult = queue.signal(signalPoint);
             if (!signalResult)
@@ -1320,6 +1416,7 @@ namespace Cue::GraphicsCore
             passExecution[passIndex] = PassExecutionInfo{ queueType, &queue, signalPoint, true };
         }
 
+        // 7) 集計済み barrier 数を反映して直近実行概要を更新
         size_t barrierCount = 0;
         for (const auto& [passIndex, barriers] : m_barriersByPass)
         {
@@ -1334,162 +1431,191 @@ namespace Cue::GraphicsCore
 
     BufferHandle FrameGraphBuilder::create_buffer(std::string_view name, const BufferDesc& desc)
     {
+        // 1) buffer 作成宣言を frame graph 本体へ移譲
         return m_frameGraph.create_buffer(name, desc);
     }
 
     TextureHandle FrameGraphBuilder::create_texture(std::string_view name, const TextureDesc& desc)
     {
+        // 1) texture 作成宣言を frame graph 本体へ移譲
         return m_frameGraph.create_texture(name, desc);
     }
 
     BufferHandle FrameGraphBuilder::import_buffer(std::string_view name, const BufferDesc& desc, ResourceState initialState)
     {
+        // 1) 外部 buffer 取込宣言を frame graph 本体へ移譲
         return m_frameGraph.import_buffer(name, desc, initialState);
     }
 
     TextureHandle FrameGraphBuilder::import_texture(std::string_view name, const TextureDesc& desc, ResourceState initialState)
     {
+        // 1) 外部 texture 取込宣言を frame graph 本体へ移譲
         return m_frameGraph.import_texture(name, desc, initialState);
     }
 
     BufferHandle FrameGraphBuilder::get_buffer(std::string_view name)
     {
+        // 1) 宣言済み buffer 参照を frame graph 本体へ移譲
         return m_frameGraph.get_buffer(name);
     }
 
     TextureHandle FrameGraphBuilder::get_texture(std::string_view name)
     {
+        // 1) 宣言済み texture 参照を frame graph 本体へ移譲
         return m_frameGraph.get_texture(name);
     }
 
     void FrameGraphBuilder::read(BufferHandle handle)
     {
+        // 1) buffer handle を検証して read access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Read, ResourceState::ShaderResource });
     }
 
     void FrameGraphBuilder::read(TextureHandle handle)
     {
+        // 1) texture handle を検証して read access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Read, ResourceState::ShaderResource });
     }
 
     void FrameGraphBuilder::write(BufferHandle handle)
     {
+        // 1) buffer handle を検証して uav write access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::UnorderedAccess });
     }
 
     void FrameGraphBuilder::write(TextureHandle handle)
     {
+        // 1) texture handle を検証して uav write access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::UnorderedAccess });
     }
 
     void FrameGraphBuilder::write(BufferHandle handle, ResourceState finalState)
     {
+        // 1) buffer handle を検証して最終 state 付き write access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::UnorderedAccess, true, finalState });
     }
 
     void FrameGraphBuilder::write(TextureHandle handle, ResourceState finalState)
     {
+        // 1) texture handle を検証して最終 state 付き write access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::UnorderedAccess, true, finalState });
     }
 
     void FrameGraphBuilder::render(TextureHandle handle)
     {
+        // 1) texture handle を検証して render target 書き込みを記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::RenderTarget });
     }
 
     void FrameGraphBuilder::render(TextureHandle handle, ResourceState finalState)
     {
+        // 1) texture handle を検証して最終 state 付き render target 書き込みを記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::RenderTarget, true, finalState });
     }
 
     void FrameGraphBuilder::depth_write(TextureHandle handle)
     {
+        // 1) texture handle を検証して depth 書き込みを記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::DepthWrite });
     }
 
     void FrameGraphBuilder::depth_write(TextureHandle handle, ResourceState finalState)
     {
+        // 1) texture handle を検証して最終 state 付き depth 書き込みを記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::DepthWrite, true, finalState });
     }
 
     void FrameGraphBuilder::cpy_src(BufferHandle handle)
     {
+        // 1) buffer handle を検証して copy source access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Read, ResourceState::CopySource });
     }
 
     void FrameGraphBuilder::cpy_src(TextureHandle handle)
     {
+        // 1) texture handle を検証して copy source access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Read, ResourceState::CopySource });
     }
 
     void FrameGraphBuilder::cpy_dst(BufferHandle handle)
     {
+        // 1) buffer handle を検証して copy dest access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::CopyDest });
     }
 
     void FrameGraphBuilder::cpy_dst(TextureHandle handle)
     {
+        // 1) texture handle を検証して copy dest access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::CopyDest });
     }
 
     void FrameGraphBuilder::cpy_dst(BufferHandle handle, ResourceState finalState)
     {
+        // 1) buffer handle を検証して最終 state 付き copy dest access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::CopyDest, true, finalState });
     }
 
     void FrameGraphBuilder::cpy_dst(TextureHandle handle, ResourceState finalState)
     {
+        // 1) texture handle を検証して最終 state 付き copy dest access を記録
         m_frameGraph.validate_resource_handle(handle);
         m_accesses.push_back(ResourceAccess{ to_resource_ref(handle), ResourceAccessType::Write, ResourceState::CopyDest, true, finalState });
     }
 
     void FrameGraphBuilder::use_pipeline(const GraphicsPipelineStateDesc& desc)
     {
+        // 1) pipeline 宣言を compiled pass へ記録
         m_frameGraph.declare_pipeline(m_pipelineDecl, desc);
     }
 
     void FrameGraphBuilder::get_pipeline(std::string_view name)
     {
+        // 1) pipeline 参照を compiled pass へ記録
         m_frameGraph.reference_pipeline(m_pipelineDecl, name);
     }
 
     void FrameGraphBuilder::use_root_signature(const RootSignatureDesc& desc)
     {
+        // 1) root signature 宣言を compiled pass へ記録
         m_frameGraph.declare_root_signature(m_rootSignatureDecl, desc);
     }
 
     void FrameGraphBuilder::get_root_signature(std::string_view name)
     {
+        // 1) root signature 参照を compiled pass へ記録
         m_frameGraph.reference_root_signature(m_rootSignatureDecl, name);
     }
 
     void FrameGraphBuilder::compile_shader(const ShaderCompileDesc& desc)
     {
+        // 1) shader compile 宣言を compiled pass へ記録
         m_frameGraph.declare_shader(m_shaderDecls, desc);
     }
 
     void FrameGraphBuilder::get_shader(std::string_view name)
     {
+        // 1) shader 参照を compiled pass へ記録
         m_frameGraph.reference_shader(m_shaderDecls, name);
     }
 
     void FrameGraphBuilder::bind_cbv(uint32_t shaderRegister, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) buffer handle を検証して cbv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::CBV,
@@ -1503,6 +1629,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_cbv_at(uint32_t shaderRegister, uint32_t bufferIndex, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) frame index 条件付き cbv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::CBV,
@@ -1516,6 +1643,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_srv(uint32_t shaderRegister, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) buffer handle を検証して srv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::SRV,
@@ -1529,6 +1657,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_srv(uint32_t shaderRegister, TextureHandle handle, ShaderVisibility visibility)
     {
+        // 1) texture handle を検証して srv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::SRV,
@@ -1542,6 +1671,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_srv_at(uint32_t shaderRegister, uint32_t bufferIndex, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) frame index 条件付き buffer srv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::SRV,
@@ -1555,6 +1685,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_srv_at(uint32_t shaderRegister, uint32_t bufferIndex, TextureHandle handle, ShaderVisibility visibility)
     {
+        // 1) frame index 条件付き texture srv bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::SRV,
@@ -1568,6 +1699,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_uav(uint32_t shaderRegister, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) buffer handle を検証して uav bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::UAV,
@@ -1581,6 +1713,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_uav(uint32_t shaderRegister, TextureHandle handle, ShaderVisibility visibility)
     {
+        // 1) texture handle を検証して uav bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::UAV,
@@ -1594,6 +1727,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_uav_at(uint32_t shaderRegister, uint32_t bufferIndex, BufferHandle handle, ShaderVisibility visibility)
     {
+        // 1) frame index 条件付き buffer uav bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::UAV,
@@ -1607,6 +1741,7 @@ namespace Cue::GraphicsCore
 
     void FrameGraphBuilder::bind_uav_at(uint32_t shaderRegister, uint32_t bufferIndex, TextureHandle handle, ShaderVisibility visibility)
     {
+        // 1) frame index 条件付き texture uav bind 宣言を登録
         m_frameGraph.validate_resource_handle(handle);
         m_frameGraph.declare_descriptor(m_descriptorDecls, DescriptorBindingDecl{
             RootParameterType::UAV,
@@ -1620,11 +1755,13 @@ namespace Cue::GraphicsCore
 
     Result FrameGraphContext::resolve_buffer(BufferHandle logicalHandle, BufferHandle& outHandle) const
     {
+        // 1) 現在 frame index で論理 buffer を物理解決
         return m_frameGraph.resolve_buffer(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
     }
 
     Result FrameGraphContext::resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const
     {
+        // 1) 現在 frame index で論理 texture を物理解決
         return m_frameGraph.resolve_texture(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
     }
-} // namespace Cue::GraphicsCore
+} // 名前空間 cue::graphicscore

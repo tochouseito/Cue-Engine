@@ -10,20 +10,20 @@ namespace Cue::GraphicsCore::DX12
         ~DX12RenderDevice() = default;
         // 初期化
         Result initialize(bool enableDebugLayer = false) override;
-        // D3D12デバイス取得
+        // d3d12 デバイス取得
         [[nodiscard]] ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
-        // DXGIFactory取得
+        // dxgi factory 取得
         [[nodiscard]] IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
 
     private:
-        // DXGIファクトリ生成
+        // dxgi ファクトリ生成
         [[nodiscard]] Result create_dxgi_factory([[maybe_unused]] bool enableDebugLayer);
-        // D3D12デバイス生成
+        // d3d12 デバイス生成
         [[nodiscard]] Result create_d3d12_device();
     private:
-        ComPtr<IDXGIFactory7> m_dxgiFactory;// DXGIファクトリ
-        ComPtr<ID3D12Device> m_d3d12Device; // D3D12デバイス
-        DXGI_ADAPTER_DESC3 m_adapterDesc = {};// アダプタ情報
-        D3D_FEATURE_LEVEL m_featureLevel = {};// 機能レベル
+        ComPtr<IDXGIFactory7> m_dxgiFactory; // dxgi ファクトリ
+        ComPtr<ID3D12Device> m_d3d12Device; // d3d12 デバイス
+        DXGI_ADAPTER_DESC3 m_adapterDesc = {}; // アダプタ情報
+        D3D_FEATURE_LEVEL m_featureLevel = {}; // 機能レベル
     };
-} // namespace Cue::Graphics::DX12
+} // 名前空間 cue::graphicscore::dx12

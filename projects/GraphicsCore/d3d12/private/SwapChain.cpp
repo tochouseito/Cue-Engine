@@ -8,14 +8,14 @@ namespace Cue::GraphicsCore::DX12
         m_width = width;
         m_height = height;
         DXGI_SWAP_CHAIN_DESC1 desc{};
-        desc.Width = width;// 画面の幅。ウィンドウのクライアント領域を同じものにしておく
-        desc.Height = height;// 画面の高さ。ウィンドウのクライアント領域を同じものにしておく
-        desc.Format = format;// 色の形式
-        desc.SampleDesc.Count = 1;// マルチサンプルしない
-        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;// 描画のターゲットとして利用する
-        desc.BufferCount = bufferCount;// バッファ数
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;// モニタにうつしたら、中身を破棄
-        desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;// ティアリングサポート
+        desc.Width = width; // クライアント幅設定
+        desc.Height = height; // クライアント高さ設定
+        desc.Format = format; // バックバッファ形式設定
+        desc.SampleDesc.Count = 1; // 単一サンプル設定
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 描画用途設定
+        desc.BufferCount = bufferCount; // バッファ数設定
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // flip discard 設定
+        desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // tearing 許可
 
         ComPtr<IDXGISwapChain1> swapChain1;
 
@@ -31,8 +31,8 @@ namespace Cue::GraphicsCore::DX12
 
         SetDXGIName(m_swapChain.Get(), L"Main SwapChain");
 
-        // リフレッシュレートを整数値で取得する。
-        // ウィンドウがあるモニターを取得
+        // リフレッシュレート取得
+        // ウィンドウ対応モニター取得
         HMONITOR hMonitor = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFOEX mi{};
         mi.cbSize = sizeof(mi);
@@ -40,7 +40,7 @@ namespace Cue::GraphicsCore::DX12
         {
             Assert::cue_assert(false, "Failed to get monitor info for refresh rate.");
         }
-        // mi.szDeviceに対応するディスプレイ設定を取得
+        // 対応ディスプレイ設定取得
         DEVMODE dm{};
         dm.dmSize = sizeof(dm);
         if (!EnumDisplaySettings(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
@@ -49,15 +49,15 @@ namespace Cue::GraphicsCore::DX12
         }
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
-        // VSync 共存型 FPS 固定としてレイテンシを 1 に設定する
+        // vsync 併用向けレイテンシ設定
         m_swapChain->SetMaximumFrameLatency(bufferCount);
 
-        // OS の Alt+Enter フルスクリーン遷移を無効化する
+        // os 標準 full screen 遷移無効化
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
             m_hWnd,
             DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
 
-        // RTV作成
+        // rtv 作成
         m_rtvTableIDs.resize(bufferCount);
         m_backBuffers.resize(bufferCount);
         for (uint32_t i = 0; i < bufferCount; ++i)
@@ -79,7 +79,7 @@ namespace Cue::GraphicsCore::DX12
     Result SwapChain::present(bool vsync)
     {
         HRESULT hr = S_OK;
-        // 1) VSync の有無で Present の引数を切り替える
+        // 1) vsync 設定で present 引数切替
         if (vsync)
         {
             hr = m_swapChain->Present(1, 0);
@@ -95,4 +95,4 @@ namespace Cue::GraphicsCore::DX12
         }
         return Result::ok();
     }
-} // namespace Cue::GraphicsCore::DX12
+} // 名前空間 cue::graphicscore::dx12

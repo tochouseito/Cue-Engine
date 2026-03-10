@@ -1,11 +1,11 @@
 #pragma once
-// C++ standard library includes
+// c++ 標準ライブラリ include
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
 
-// Cue engine includes
+// cue engine 関連 include
 #include "Result.h"
 #include "win_native.h"
 
@@ -29,11 +29,16 @@ namespace Cue::Platform::Win
         [[nodiscard]] Result show_window(bool isMaximized);
         /// @brief ウィンドウのメッセージポンプ
         [[nodiscard]] bool pump_messages();
+        /// @brief native window handle 取得
         [[nodiscard]] NativeWindowHandle get_native_window_handle() const noexcept;
+        /// @brief メッセージハンドラ登録
         [[nodiscard]] uint64_t register_message_handler(MessageHandler handler);
+        /// @brief メッセージハンドラ解除
         bool unregister_message_handler(uint64_t handlerId);
 
+        /// @brief ウィンドウ幅取得
         uint32_t get_window_width() const noexcept;
+        /// @brief ウィンドウ高さ取得
         uint32_t get_window_height() const noexcept;
     private:
         struct Impl;

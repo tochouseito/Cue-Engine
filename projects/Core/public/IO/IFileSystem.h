@@ -1,16 +1,16 @@
 #pragma once
 
-// === C++ Standard Library ===
+// c++ 標準ライブラリ include
 #include <cstdint>
 #include <cstddef>
 #include <vector>
 #include <memory>
 #include <span>
 
-// === Base includes ===
+// base 関連 include
 #include <Result.h>
 
-// === Core includes ===
+// core 関連 include
 #include "Path.h"
 
 namespace Cue::Core::IO
@@ -56,9 +56,9 @@ namespace Cue::Core::IO
     {
         none = 0,
         append = 1u << 0, // 末尾追記（write時）
-        sequential = 1u << 1, // OSヒント（最適化用）
-        random = 1u << 2, // OSヒント（最適化用）
-        no_buffer = 1u << 3, // 直I/O系（対応しない実装もOK）
+        sequential = 1u << 1, // os ヒント
+        random = 1u << 2, // os ヒント
+        no_buffer = 1u << 3, // 直 i/o 系
     };
 
     [[nodiscard]] constexpr OpenFlags operator|(OpenFlags a, OpenFlags b) noexcept
@@ -130,4 +130,4 @@ namespace Cue::Core::IO
         virtual Result read_all(const Path& path, std::vector<std::byte>* out_data) noexcept = 0;
         virtual Result write_all(const Path& path, std::span<const std::byte> data, bool create_parent_dirs) noexcept = 0;
     };
-}
+} // 名前空間 cue::core::io

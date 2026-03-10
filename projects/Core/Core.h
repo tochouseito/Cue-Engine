@@ -1,7 +1,7 @@
-// Core.h : 標準のシステム インクルード ファイル用のインクルード ファイル、
-// または、プロジェクト専用のインクルード ファイル。
+// core 共通 include
+// プロジェクト専用 include
 
 #pragma once
 #include <cstdint>
 
-// TODO: プログラムに必要な追加ヘッダーをここで参照します。
+// 追加 include

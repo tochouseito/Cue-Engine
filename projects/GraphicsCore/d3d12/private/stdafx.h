@@ -1,10 +1,10 @@
 #pragma once
 
-// Macro definitions
+// マクロ定義
 #define WIN32_LEAN_AND_MEAN             // Windows ヘッダーからあまり使われない部分を除外する
 #define NOMINMAX                        // min と max マクロの定義を防止する
 
-// C++ standard library includes
+// c++ 標準ライブラリ include
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -13,7 +13,7 @@
 #include <array>
 #include <unordered_map>
 
-// DirectX includes
+// directx 関連 include
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <dxcapi.h>
@@ -23,20 +23,20 @@
 #include <d3d12sdklayers.h>
 #endif
 
-// Microsoft WRL includes
+// microsoft wrl 関連 include
 #include <wrl.h>
 
-// Base includes
+// base 関連 include
 #include <Result.h>
 #include <CueAssert.h>
 
-// Core includes
+// core 関連 include
 #include <Logger.h>
 
-// Math includes
+// math 関連 include
 #include <CueMath.h>
 
-// GraphicsCore includes
+// graphics core 関連 include
 #include <GraphicsCommon.h>
 #include <GraphicsInterface.h>
 

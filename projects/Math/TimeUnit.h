@@ -21,7 +21,7 @@ namespace Cue::Math
         }
 
         // --------------------
-        // Integer conversions (truncate)
+        // 整数変換
         // --------------------
         int64_t nano() const noexcept
         {
@@ -44,7 +44,7 @@ namespace Cue::Math
         }
 
         // --------------------
-        // Floating-point conversions (no truncate)
+        // 浮動小数変換
         // --------------------
         double nano_f64() const noexcept
         {
@@ -71,7 +71,7 @@ namespace Cue::Math
         }
 
         // --------------------
-        // Integer cast helpers (truncate)
+        // 整数変換補助
         // --------------------
         static int64_t to_nanoseconds(int64_t v, TimeUnit u) noexcept
         {
@@ -109,9 +109,9 @@ namespace Cue::Math
         }
 
         // --------------------
-        // Floating cast helpers (no truncate)
-        //   ※整数の ns へ一旦変換するとオーバーフローし得るので、
-        //     直接スケールして秒へ落としてから目的単位へ変換する。
+        // 浮動小数変換補助
+        // 1) 整数 ns 経由の overflow 回避
+        // 2) 秒へ落としてから目的単位へ変換
         // --------------------
         static double to_seconds_f64(int64_t v, TimeUnit u) noexcept
         {

@@ -68,12 +68,12 @@ namespace Cue::Platform::Win
     }
     NativeWindowHandle WinPlatform::get_native_window_handle() const noexcept
     {
-        // 1) Win32 実体型は WinApp 側へ閉じ込め、透過ハンドルとして公開する
+        // 1) win32 実体型を透過ハンドルへ変換
         return impl->app.get_native_window_handle();
     }
     uint64_t WinPlatform::register_message_handler(MessageHandler handler)
     {
-        // 1) WinPlatform では型変換のみを担当し、実際の登録管理は WinApp へ委譲する。
+        // 1) 型変換だけ行って win app へ移譲
         if (!handler)
         {
             return 0;
@@ -95,7 +95,7 @@ namespace Cue::Platform::Win
     }
     bool WinPlatform::unregister_message_handler(uint64_t handlerId)
     {
-        // 1) WinApp の解除結果をそのまま返す。
+        // 1) win app の解除結果を返却
         return impl->app.unregister_message_handler(handlerId);
     }
     uint32_t WinPlatform::window_width() const noexcept
@@ -106,4 +106,4 @@ namespace Cue::Platform::Win
     {
         return impl->app.get_window_height();
     }
-} // namespace Cue
+} // 名前空間 cue::platform::win

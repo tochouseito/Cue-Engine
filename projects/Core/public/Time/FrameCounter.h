@@ -1,9 +1,9 @@
 #pragma once
 
-// === C++ Standard Library ===
+// c++ 標準ライブラリ include
 #include <cstdint>
 
-// === Core ===
+// core 関連 include
 #include "IClock.h"
 #include "IWaiter.h"
 #include "Timer.h"
@@ -27,7 +27,7 @@ namespace Cue::Core::Time
         ~FrameCounter() noexcept = default;
 
         // --------------------
-        // Main API (new)
+        // 主 api
         // --------------------
         void tick() noexcept
         {
@@ -40,14 +40,14 @@ namespace Cue::Core::Time
                 return;
             }
 
-            // 2) FPS制限（待ちをdeltaに含めるため、lap前に待つ）
+            // 2) fps 制限待機
             if (m_maxFps > 0)
             {
                 cap_fps_();
             }
 
-            // 3) delta計測（待ち含む）
-            //    lap_seconds() は内部の基準点(m_last)を更新する
+            // 3) 待機込み delta 計測
+            //    lap_seconds() で内部基準点を更新
             m_deltaTime = m_timer.lap_seconds();
             if (m_deltaTime > 0.0)
             {
@@ -62,7 +62,7 @@ namespace Cue::Core::Time
             m_totalFrames += 1;
             m_produceFrame += 1;
 
-            // 5) 次のcap判定の基準Tick更新
+            // 5) 次回 cap 判定基準 tick 更新
             m_capBaseTick = m_clock->now_ns();
         }
 
@@ -104,17 +104,17 @@ namespace Cue::Core::Time
     private:
         void cap_fps_() noexcept
         {
-            // 1) cap無し
+            // 1) cap 無効時は終了
             if (m_maxFps == 0)
             {
                 return;
             }
 
-            // 2) 1フレーム(ns)（丸め）
+            // 2) 1 フレーム分 ns 計算
             const Math::TimeSpan frameNs = { static_cast<int64_t>((1'000'000'000.0 / static_cast<double>(m_maxFps)) + 0.5), Math::TimeUnit::nanoseconds };
 
-            // 3) 低FPS帯はスピン予算を増やして sleep 起床遅れを吸収する。
-            //    60FPS(16.6ms)では約1msの最終スピンにしてジッタを抑える。
+            // 3) 低 fps 帯用スピン予算計算
+            //    60 fps 付近では約 1 ms を最終スピンへ使用
             constexpr int64_t minSpinNs = 250'000LL;
             constexpr int64_t maxSpinNs = 1'000'000LL;
             int64_t spinBudgetNs = frameNs.nano() / 8;
@@ -128,18 +128,18 @@ namespace Cue::Core::Time
             }
             const Math::TimeSpan spinNs = { spinBudgetNs, Math::TimeUnit::nanoseconds };
 
-            // 4) 今フレームの目標時刻（前回tick基準 + 1フレーム）
+            // 4) 今フレーム目標時刻計算
             const Math::TimeSpan now0 = m_clock->now_ns();
             const Math::TimeSpan targetTick = m_capBaseTick + frameNs;
 
-            // 5) 既に遅れているなら待たない（次フレームを短くして取り戻さない）
+            // 5) 遅延時は待機省略
             if (now0 >= targetTick)
             {
                 return;
             }
 
-            // 6) 高FPS(短フレーム)では sleep の粒度誤差が支配的なので、フルスピンへ切替
-            //    目安: 2ms以下(500FPS以上)は sleep を使わない。
+            // 6) 高 fps 帯は sleep を省略
+            //    2 ms 以下はフルスピンへ切替
             constexpr int64_t fullSpinThresholdNs = 2'000'000LL;
             if (frameNs.nano() > fullSpinThresholdNs)
             {
@@ -150,7 +150,7 @@ namespace Cue::Core::Time
                 }
             }
 
-            // 7) 最後だけ短スピン（yieldは禁止。精度が落ちる）
+            // 7) 目標時刻まで短スピン
             while (m_clock->now_ns() < targetTick)
             {
                 m_waiter->relax();
@@ -164,7 +164,7 @@ namespace Cue::Core::Time
 
         bool m_initialized = false;
 
-        // FPS cap判定用の基準（前回tickの終端Tick）
+        // fps cap 判定基準 tick
         Math::TimeSpan m_capBaseTick = Math::TimeSpan::zero();
 
         double m_deltaTime = 0.0;
@@ -176,4 +176,4 @@ namespace Cue::Core::Time
         std::uint64_t m_totalFrames = 0;
         std::uint64_t m_produceFrame = 0;
     };
-}
+} // 名前空間 cue::core::time

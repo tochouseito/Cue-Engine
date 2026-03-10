@@ -50,7 +50,7 @@ namespace Cue::GraphicsCore::DX12
     HLSLCompiler::HLSLCompiler()
     {
         HRESULT hr = S_OK;
-        // DXC ユーティリティの生成
+        // dxc utility 生成
         hr = DxcCreateInstance(
             CLSID_DxcUtils,
             IID_PPV_ARGS(&m_dxcUtils)
@@ -59,7 +59,7 @@ namespace Cue::GraphicsCore::DX12
         {
             Assert::cue_assert(false, "Failed to create DxcUtils instance.");
         }
-        // DXC コンパイラの生成
+        // dxc compiler 生成
         hr = DxcCreateInstance(
             CLSID_DxcCompiler,
             IID_PPV_ARGS(&m_dxcCompiler)
@@ -68,7 +68,7 @@ namespace Cue::GraphicsCore::DX12
         {
             Assert::cue_assert(false, "Failed to create DxcCompiler instance.");
         }
-        // インクルードハンドラの生成
+        // include handler 生成
         hr = m_dxcUtils->CreateDefaultIncludeHandler(&m_dxcIncludeHandler);
         if (FAILED(hr))
         {
@@ -96,39 +96,39 @@ namespace Cue::GraphicsCore::DX12
         sourceBuffer.Size = pSource->GetBufferSize();
         sourceBuffer.Encoding = DXC_CP_UTF8;
         LPCWSTR arguments[] = {
-            filePath.c_str(),              //コンパイル対象のhlslファイル名
-            L"-E",entryPoint.c_str(),                      // エントリーポイントの指定。基本的にmain以外にはしない
-            L"-T",targetProfile.c_str(),         // ShaderProfileの設定
-            L"-Zi",L"-Qembed_debug",            // デバッグ用の情報を埋め込む
-            L"-Od",                             // 最適化を外しておく
-            L"-Zpr",                            // メモリレイアウトは行優先
+            filePath.c_str(), // コンパイル対象 hlsl ファイル名
+            L"-E", entryPoint.c_str(), // エントリーポイント指定
+            L"-T", targetProfile.c_str(), // shader profile 設定
+            L"-Zi", L"-Qembed_debug", // デバッグ情報埋込
+            L"-Od", // 最適化無効
+            L"-Zpr", // 行優先メモリレイアウト
         };
 
         std::vector<LPCWCH> args;
-        args.push_back(filePath.c_str());// コンパイル対象のhlslファイル名
+        args.push_back(filePath.c_str()); // コンパイル対象 hlsl ファイル名
         args.push_back(L"-E");
-        args.push_back(entryPoint.c_str());// エントリーポイントの指定。基本的にmain以外にはしない
+        args.push_back(entryPoint.c_str()); // エントリーポイント指定
         args.push_back(L"-T");
-        args.push_back(targetProfile.c_str());// ShaderProfileの設定
-        args.push_back(L"-Zpr");// メモリレイアウトは行優先
+        args.push_back(targetProfile.c_str()); // shader profile 設定
+        args.push_back(L"-Zpr"); // 行優先メモリレイアウト
         if (desc.enableDebugInfo)
         {
             args.push_back(L"-Zi");
-            args.push_back(L"-Qembed_debug");// デバッグ情報埋め込み
-            args.push_back(L"-Od");// デバッグビルドなら最適化外す
+            args.push_back(L"-Qembed_debug"); // デバッグ情報埋込
+            args.push_back(L"-Od"); // デバッグビルド最適化無効
         }
         else
         {
-            args.push_back(L"-O3");// リリースビルドなら最適化最大
+            args.push_back(L"-O3"); // リリースビルド最適化最大
         }
 
         ComPtr<IDxcResult> pResult = nullptr;
         hr = m_dxcCompiler.Get()->Compile(
-            &sourceBuffer,			// 読み込んだファイル
-            arguments,				// コンパイルオプション
-            _countof(arguments),	// コンパイル結果
-            m_dxcIncludeHandler.Get(),// includeが含まれた諸々
-            IID_PPV_ARGS(&pResult)	// コンパイル結果
+            &sourceBuffer, // 読込済みソース
+            arguments, // コンパイル引数
+            _countof(arguments), // 引数数
+            m_dxcIncludeHandler.Get(), // include handler
+            IID_PPV_ARGS(&pResult) // コンパイル結果
         );
         if (FAILED(hr))
         {

@@ -4,31 +4,31 @@
 
 #include <Result.h>
 
-// Platform
+// platform 関連 include
 #ifdef PLATFORM_WIN
-#define WIN32_LEAN_AND_MEAN             // Windows ヘッダーからあまり使われない部分を除外する
-#define NOMINMAX                        // min と max マクロの定義を防止する
+#define WIN32_LEAN_AND_MEAN             // windows ヘッダー軽量化
+#define NOMINMAX                        // min と max マクロ抑止
 #include <Windows.h>
 #include <win_platform.h>
 #endif
 
-// Graphics
+// graphics 関連 include
 #include <d3d12_backend.h>
 
-// Engine
+// engine 関連 include
 #include <Engine.h>
 
-// Editor
+// editor 関連 include
 #include "ImGuiManager.h"
 
-// Windowsアプリでのエントリーポイント(main関数)
+// windows アプリのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     // 1) プラットフォームとグラフィックスバックエンドの作成
     auto win = std::make_unique<Cue::Platform::Win::WinPlatform>();
     auto d3d12Backend = std::make_unique<Cue::GraphicsCore::DX12::D3D12Backend>();
 
-    // 2) WinPlatformをD3D12Backendにセット
+    // 2) win platform を d3d12 backend へ設定
     d3d12Backend->set_win_platform(win.get());
 
     win->setup();
@@ -39,7 +39,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     backendSetupInfo.screenHeight = win->window_height();
     d3d12Backend->initialize(backendSetupInfo);
 
-    // 4) Editorの初期化
+    // 4) editor 初期化
     Cue::Editor::ImGuiManager imguiManager;
     Cue::Editor::imgui_setup_info imguiSetupInfo;
     imguiSetupInfo.hwnd = static_cast<HWND>(win->get_native_window_handle());
@@ -83,11 +83,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 5-1) メッセージの処理
         isRunning = win->poll_message();
 
-        // 5-1.5) ImGuiのフレーム開始
+        // 5-1.5) imgui フレーム開始
         if (imguiManager.begin_frame())
         {
-            ImGui::Begin("Hello, ImGui!"); // ウィンドウを作成
-            ImGui::Text("This is a simple text in the ImGui window."); // テキストを表示
+            ImGui::Begin("Hello, ImGui!"); // ウィンドウ開始
+            ImGui::Text("This is a simple text in the ImGui window."); // テキスト表示
             Cue::FrameController& frameController = engine.frame_controller();
             const uint64_t totalFrame = frameController.total_frame();
             const float fps = static_cast<float>(frameController.frame_counter().fps());
@@ -135,7 +135,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 ImGui::SetScrollHereY(1.0f);
             }
             ImGui::EndChild();
-            // ボタンを押したら最高fpsと最低fpsを表示
+            // fps 詳細表示切替
             static bool showFpsDetails = false;
             static float maxFps = 0;
             static float minFps = 0;
@@ -159,7 +159,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 ImGui::Text("Min FPS: %.1f", minFps);
             }
 
-            // 2) present graph が今フレームで読む FinalColor を SRV として取得し、Hello ウィンドウで preview できるようにする。
+            // 2) 現在フレームの final color srv を取得
             Cue::CQRS::Queries::FinalColorPreviewQuery finalColorPreviewQuery(finalColorPreviewIndex);
             Cue::CQRS::Queries::TexturePreviewQueryResult finalColorPreviewResult{};
             const Cue::Result getFinalColorDescriptorResult = engine.execute_editor_query(finalColorPreviewQuery, finalColorPreviewResult);
@@ -203,7 +203,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         (void)win->unregister_message_handler(imguiMessageHandlerId);
     }
 
-    // 6) Editorのシャットダウン
+    // 6) editor シャットダウン
     imguiManager.shutdown();
 
     // 7) エンジンのシャットダウン

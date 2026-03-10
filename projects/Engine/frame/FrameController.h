@@ -1,6 +1,6 @@
 #pragma once
 
-// === C++ Standard Library ===
+// c++ 標準ライブラリ include
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -9,7 +9,7 @@
 #include <memory>
 #include <mutex>
 
-// === Engine ===
+// engine 関連 include
 #include <Threading/IThread.h>
 #include <Threading/IThreadFactory.h>
 #include <Time/FrameCounter.h>
@@ -42,12 +42,16 @@ namespace Cue
         using Thread = Core::Threading::IThread;
         using StopToken = Core::Threading::StopToken;
 
+        /// @brief スレッド開始
         bool start(ThreadFactory& factory, const char* name, JobFunc func);
 
+        /// @brief 実行要求投入
         void kick(uint64_t frameNo, uint32_t index);
 
+        /// @brief 完了フレーム取得
         uint64_t get_finished_frame() const;
 
+        /// @brief 停止
         void stop();
 
     private:
@@ -76,6 +80,7 @@ namespace Cue
         using IWaiter = Core::Time::IWaiter;
         using ThreadFactory = Core::Threading::IThreadFactory;
     public:
+        /// @brief 生成
         FrameController(const FrameControllerDesc& config, ThreadFactory& threadFactory, const Clock& clock, IWaiter& waiter,
             const UpdateFunc& updateFunc, const RenderFunc& renderFunc, const PresentFunc& presentFunc)
             : m_config(config)
@@ -89,28 +94,36 @@ namespace Cue
             // 1) 初期化はメンバ初期化リストで完結させる
         }
 
+        /// @brief 破棄
         ~FrameController();
 
+        /// @brief 1 ステップ進行
         void step();
+        /// @brief リサイズ要求反映
         void poll_resize_request();
 
+        /// @brief frame counter 取得
         Core::Time::FrameCounter& frame_counter() noexcept
         {
             return m_frameCounter;
         }
 
+        /// @brief 総フレーム数取得
         uint64_t total_frame() const noexcept
         {
             return m_frameCounter.total_frames();
         }
+        /// @brief update index 取得
         uint32_t update_index() const noexcept
         {
             return m_updateIndex;
         }
+        /// @brief render index 取得
         uint32_t render_index() const noexcept
         {
             return m_renderIndex;
         }
+        /// @brief present index 取得
         uint32_t present_index() const noexcept
         {
             return m_presentIndex;
@@ -141,24 +154,34 @@ namespace Cue
             uint64_t m_currentFrame = 0;
         };
 
+        /// @brief パイプライン起動
         bool start_pipeline();
+        /// @brief ジョブ停止
         void stop_jobs();
 
+        /// @brief 各段 index 計算
         void compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex,
             uint32_t& renderIndex, uint32_t& presentIndex);
 
+        /// @brief present 実行
         void present_frame(uint64_t frameNo);
 
+        /// @brief 次フレーム向けリサイズ反映
         void apply_resize_for_next_frame(uint64_t nextFrameNo);
 
+        /// @brief バッファ初期充填
         void fill_buffers(uint64_t frameNo);
 
+        /// @brief single buffer 進行
         bool step_single_buffer();
 
+        /// @brief fixed 進行
         bool step_fixed();
 
+        /// @brief mailbox 進行
         bool step_mailbox();
 
+        /// @brief backpressure 進行
         bool step_backpressure();
 
         FrameControllerDesc m_config;

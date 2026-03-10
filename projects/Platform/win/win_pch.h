@@ -1,7 +1,7 @@
 #pragma once
 
-#define WIN32_LEAN_AND_MEAN             // Windows ヘッダーからあまり使われない部分を除外する
-#define NOMINMAX                        // min と max マクロの定義を防止する
+#define WIN32_LEAN_AND_MEAN             // windows ヘッダー軽量化
+#define NOMINMAX                        // min と max マクロ抑止
 #include <Windows.h>
 #include <process.h>
 #include <new>

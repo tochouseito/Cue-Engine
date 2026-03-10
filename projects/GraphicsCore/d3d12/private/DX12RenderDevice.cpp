@@ -5,13 +5,13 @@ namespace Cue::GraphicsCore::DX12
     Result DX12RenderDevice::initialize(bool enableDebugLayer)
     {
         Result r;
-        // 1) DXGIファクトリ生成
+        // 1) dxgi ファクトリ生成
         r = create_dxgi_factory(enableDebugLayer);
         if (!r)
         {
             return r;
         }
-        // 2) D3D12デバイス生成
+        // 2) d3d12 デバイス生成
         r = create_d3d12_device();
         if (!r)
         {
@@ -21,8 +21,8 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12RenderDevice::create_dxgi_factory(bool enableDebugLayer)
     {
-        // 1) デバッグ時は検証を強めて問題の早期発見を狙う
-        // 2) DXGI ファクトリを生成して基盤を確立する
+        // 1) デバッグ検証設定
+        // 2) dxgi ファクトリ生成
 #ifndef CUE_RELEASE
         /*
         [ INITIALIZATION MESSAGE #1016: CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS]
@@ -33,10 +33,10 @@ namespace Cue::GraphicsCore::DX12
         {
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
             {
-                // デバッグレイヤーを有効化する
+                // デバッグレイヤー有効化
                 debugController->EnableDebugLayer();
 
-                // さらにGPU側でもチェックを行うようにする
+                // gpu 側検証有効化
                 debugController->SetEnableGPUBasedValidation(true);
             }
         }
@@ -63,20 +63,20 @@ namespace Cue::GraphicsCore::DX12
     }
     Result DX12RenderDevice::create_d3d12_device()
     {
-        // 1) 高性能 GPU を優先してアダプタを探索する
-        // 2) 利用可能な機能レベルでデバイスを生成する
+        // 1) 高性能 gpu 優先でアダプタ探索
+        // 2) 利用可能機能レベルでデバイス生成
         HRESULT hr;
 
-        // 未選択状態として nullptr で初期化する
+        // 未選択状態で初期化
         Microsoft::WRL::ComPtr < IDXGIAdapter4> useAdapter = nullptr;
 
-        // 優先度順でアダプタを列挙する
+        // 優先度順でアダプタ列挙
         for (UINT i = 0; m_dxgiFactory->EnumAdapterByGpuPreference(i,
             DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) !=
             DXGI_ERROR_NOT_FOUND; ++i)
         {
 
-            // 条件判定用にアダプタ情報を取得する
+            // 条件判定用アダプタ情報取得
             hr = useAdapter->GetDesc3(&m_adapterDesc);
 
             if (FAILED(hr))
@@ -89,15 +89,15 @@ namespace Cue::GraphicsCore::DX12
                     "Failed to get adapter description.");
             }
 
-            // ソフトウェアアダプタは避けたいのでスキップする
+            // ソフトウェアアダプタを除外
             if (!(m_adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE))
             {
                 break;
             }
-            // 使えない場合は次の候補へ進む
+            // 次候補へ移動
             useAdapter = nullptr;
         }
-        // 適切なアダプタが見つからなかったので起動できない
+        // 適切なアダプタ未検出
         if (useAdapter == nullptr)
         {
             Result::fail(
@@ -108,7 +108,7 @@ namespace Cue::GraphicsCore::DX12
                 "Failed to find a suitable GPU adapter.");
         }
 
-        // 選択可能な機能レベルを高い順に用意する
+        // 候補機能レベル列挙
         D3D_FEATURE_LEVEL featureLevels[] = {
             D3D_FEATURE_LEVEL_12_2,
             D3D_FEATURE_LEVEL_12_1,
@@ -120,21 +120,21 @@ namespace Cue::GraphicsCore::DX12
             "12.0"
         };
 
-        // できるだけ高い機能レベルを確保する
+        // 高機能レベル優先で生成
         for (size_t i = 0; i < _countof(featureLevels); ++i)
         {
 
-            // 採用したアダプターでデバイスを生成する
+            // 候補アダプタでデバイス生成
             hr = D3D12CreateDevice(useAdapter.Get(), featureLevels[i], IID_PPV_ARGS(&m_d3d12Device));
 
-            // 生成できたらそこで確定する
+            // 成功時に採用確定
             if (SUCCEEDED(hr))
             {
                 m_featureLevel = featureLevels[i];
                 break;
             }
         }
-        // デバイスの生成がうまくいかなかったので起動できない
+        // デバイス生成失敗
         if (m_d3d12Device == nullptr)
         {
             return Result::fail(
@@ -145,36 +145,36 @@ namespace Cue::GraphicsCore::DX12
                 "Failed to create D3D12 Device.");
         }
 
-        // デバッグ用に名前を付ける
+        // デバッグ名設定
         SetD3D12Name(m_d3d12Device.Get(), L"RenderDevice_D3D12Device");
 #ifndef CUE_RELEASE
         ComPtr<ID3D12InfoQueue> infoQueue;
-        // 重要メッセージが欠落しないよう一時的にフィルタを調整する
+        // 重要メッセージ保持用フィルタ設定
 
         if (SUCCEEDED(m_d3d12Device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
         {
-            // ヤバいエラー時に止まる
+            // 致命エラーで停止
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
 
-            // エラー時に止まる
+            // エラーで停止
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
 
-            // 警告時に止まる
+            // 警告で停止
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
 
             infoQueue->SetBreakOnID(D3D12_MESSAGE_ID_FENCE_ZERO_WAIT, TRUE);
 
-            // 抑制するメッセージのID
+            // 抑制対象 message id
             D3D12_MESSAGE_ID denyIds[] = {
 
-                // Windows11でのDXGIデバッグレイヤーとDX12デバッグレイヤーの相互作用バグによるエラーメッセージ
+                // windows 11 の dxgi と dx12 デバッグレイヤー相互作用エラー
                 // https://stackoverflow.com/questions/69805245/directx-12-application-is-crashing-in-windows-11
                 D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE,
                 D3D12_MESSAGE_ID_GPU_BASED_VALIDATION_RESOURCE_STATE_IMPRECISE,  // = 1044 相当
-                D3D12_MESSAGE_ID_FENCE_ZERO_WAIT // ImGuiが原因で出る。無視してよい
+                D3D12_MESSAGE_ID_FENCE_ZERO_WAIT // imgui 起因メッセージ
             };
 
-            // 抑制するレベル
+            // 抑制対象レベル
             D3D12_MESSAGE_SEVERITY severities[] = { D3D12_MESSAGE_SEVERITY_INFO };
             D3D12_INFO_QUEUE_FILTER filter{};
             filter.DenyList.NumIDs = _countof(denyIds);
@@ -182,7 +182,7 @@ namespace Cue::GraphicsCore::DX12
             filter.DenyList.NumSeverities = _countof(severities);
             filter.DenyList.pSeverityList = severities;
 
-            // 指定したメッセージの表示を抑制する
+            // 指定メッセージ表示抑制
             infoQueue->PushStorageFilter(&filter);
         }
 #endif // DEBUG
