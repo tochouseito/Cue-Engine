@@ -269,4 +269,43 @@ namespace Cue::GraphicsCore::DX12
 
         return result;
     }
+    Result D3D12Backend::get_texture_shader_resource_descriptor(std::string_view resourceName, uint32_t textureIndex, DescriptorHandle& outHandle)
+    {
+        // 1) 名前付き texture を manager から解決し、Editor 側が FrameGraph 内部 handle を知らずに済むようにする。
+        outHandle = {};
+        if (m_impl->m_textureManager == nullptr || m_impl->m_viewManager == nullptr)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Texture/View manager is not initialized.");
+        }
+
+        TextureHandle textureHandle{};
+        const Result getTextureResult = m_impl->m_textureManager->get_texture(Core::fnv1a64(resourceName), textureIndex, textureHandle);
+        if (!getTextureResult)
+        {
+            return getTextureResult;
+        }
+
+        // 2) SRV view を取得して shader-visible descriptor へ変換し、ImGui::Image に渡せる形にする。
+        TextureViewDesc viewDesc{};
+        viewDesc.type = ViewType::ShaderResource;
+
+        ViewHandle viewHandle{};
+        const Result getViewResult = m_impl->m_viewManager->get_texture_view(textureHandle, viewDesc, viewHandle);
+        if (!getViewResult)
+        {
+            return getViewResult;
+        }
+
+        const Result getDescriptorResult = m_impl->m_viewManager->get_descriptor_handle(viewHandle, outHandle);
+        if (!getDescriptorResult)
+        {
+            return getDescriptorResult;
+        }
+        if (!outHandle.shaderVisible || outHandle.gpuPtr == 0)
+        {
+            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, 0, "Texture descriptor is not shader-visible.");
+        }
+
+        return Result::ok();
+    }
 } // namespace Cue::Graphics::DX12

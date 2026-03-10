@@ -71,8 +71,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::EngineInitInfo initInfo;
     initInfo.platform = win.get();
     initInfo.graphicsBackend = d3d12Backend.get();
-    // std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
-    // initInfo.editorPass = std::move(imguiPass);
+    std::unique_ptr<Cue::Editor::ImGuiPass> imguiPass = std::make_unique<Cue::Editor::ImGuiPass>(imguiManager);
+    initInfo.editorPass = std::move(imguiPass);
     bool isRunning = engine.initialize(initInfo);
 
     // 5) メインループ
@@ -92,6 +92,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             const uint32_t updateIndex = frameController.update_index();
             const uint32_t renderIndex = frameController.render_index();
             const uint32_t presentIndex = frameController.present_index();
+            constexpr uint32_t kFrameBufferingCount = 3;
+            const uint32_t finalColorPreviewIndex = static_cast<uint32_t>(totalFrame % kFrameBufferingCount);
             struct FrameLogLine final
             {
                 uint64_t totalFrame = 0;
@@ -141,7 +143,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 maxFps = fps;
                 minFps = fps;
             }
-            if(showFpsDetails)
+            if (showFpsDetails)
             {
                 if (fps > maxFps)
                 {
@@ -153,6 +155,40 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 }
                 ImGui::Text("Max FPS: %.1f", maxFps);
                 ImGui::Text("Min FPS: %.1f", minFps);
+            }
+
+            // 2) present graph が今フレームで読む FinalColor を SRV として取得し、Hello ウィンドウで preview できるようにする。
+            Cue::GraphicsCore::DescriptorHandle finalColorDescriptor{};
+            const auto getFinalColorDescriptorResult = d3d12Backend->get_texture_shader_resource_descriptor(
+                "FinalColor",
+                finalColorPreviewIndex,
+                finalColorDescriptor);
+            if (getFinalColorDescriptorResult && finalColorDescriptor.shaderVisible)
+            {
+                const float viewportWidth = static_cast<float>(win->window_width());
+                const float viewportHeight = static_cast<float>(win->window_height());
+                const float aspectRatio = (viewportHeight > 0.0f) ? (viewportWidth / viewportHeight) : 1.0f;
+                ImVec2 imageSize = ImGui::GetContentRegionAvail();
+                if (imageSize.x <= 0.0f)
+                {
+                    imageSize.x = 320.0f;
+                }
+                imageSize.y = imageSize.x / aspectRatio;
+                if (imageSize.y > 320.0f)
+                {
+                    imageSize.y = 320.0f;
+                    imageSize.x = imageSize.y * aspectRatio;
+                }
+
+                ImGui::Separator();
+                ImGui::Text("FinalColor Preview");
+                ImGui::Image(static_cast<ImTextureID>(finalColorDescriptor.gpuPtr), imageSize);
+            }
+            else
+            {
+                ImGui::Separator();
+                ImGui::Text("FinalColor Preview");
+                ImGui::Text("FinalColor descriptor is not ready.");
             }
             ImGui::End();
             imguiManager.end_frame();

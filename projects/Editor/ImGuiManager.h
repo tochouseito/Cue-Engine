@@ -78,6 +78,7 @@ namespace Cue::Editor
             initInfo.NumFramesInFlight = setupInfo.bufferingCount;
             initInfo.RTVFormat = setupInfo.rtvFormat;
             initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // DSV フォーマットは未使用値に設定する
+            initInfo.SrvDescriptorHeap = setupInfo.srvDescHeap;
             initInfo.LegacySingleSrvCpuDescriptor = setupInfo.fontSrvCpuDescHandle;
             initInfo.LegacySingleSrvGpuDescriptor = setupInfo.fontSrvGpuDescHandle;
             ImGui_ImplDX12_Init(&initInfo);
@@ -216,7 +217,14 @@ namespace Cue::Editor
 
         void setup(GraphicsCore::FrameGraphBuilder& builder) override
         {
-            // 1) バックバッファへ描画するパスを宣言する。
+            // 1) FinalColor を SRV 読みとして宣言し、ImGui が preview で読む texture の依存関係を graph に明示する。
+            GraphicsCore::TextureDesc finalColorDesc{};
+            finalColorDesc.name = "FinalColor";
+            finalColorDesc.instanceSource = GraphicsCore::ResourceInstanceSource::FrameResourceIndex;
+            m_finalColor = builder.import_texture(finalColorDesc.name, finalColorDesc, GraphicsCore::ResourceState::ShaderResource);
+            builder.read(m_finalColor);
+
+            // 2) バックバッファへ描画するパスを宣言する。
             //    これにより、ImGuiが他のパスの後で確実に描画されるようになる。
             GraphicsCore::TextureDesc desc{};
             desc.name = "SwapChain.BackBuffer";
@@ -229,16 +237,20 @@ namespace Cue::Editor
         {
             GraphicsCore::ICommandContext& commandContext = ctx.command_context();
 
-            /*GraphicsCore::TextureViewDesc rtvDesc{};
-            rtvDesc.type = GraphicsCore::ViewType::RenderTarget;
-            GraphicsCore::ViewHandle rtvHandle{};
-            const Result getViewResult = ctx.view_manager().get_texture_view(resolvedBackBuffer, rtvDesc, rtvHandle);
-            if (!getViewResult)
+            GraphicsCore::TextureHandle resolvedBackBuffer{};
+            const Result resolveResult = ctx.resolve_texture(m_backBuffer, resolvedBackBuffer);
+            if (!resolveResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[ImGuiPass] failed to get texture view for swapchain image {}\n", ctx.swapchain_image_index());
+                Core::Logger::log(Core::LogSink::debugConsole, "[BackBufferClearPass] failed to resolve back buffer for swapchain image {}\n", ctx.swapchain_image_index());
                 return;
-            }*/
+            }
 
+            constexpr float clearColor[4] = { 0.07f, 0.11f, 0.18f, 1.0f };
+            const Result clearResult = ctx.command_context().clear_render_target(resolvedBackBuffer, clearColor);
+            if (!clearResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[BackBufferClearPass] failed to clear back buffer for swapchain image {}\n", ctx.swapchain_image_index());
+            }
 
             GraphicsCore::NativeCommandList nativeCommandList = commandContext.native_command_list();
             ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);
@@ -246,6 +258,7 @@ namespace Cue::Editor
         }
     private:
         ImGuiManager& m_imguiManager;
+        GraphicsCore::TextureHandle m_finalColor;
         GraphicsCore::TextureHandle m_backBuffer;
     };
 }

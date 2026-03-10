@@ -120,7 +120,22 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            // 3) 3 頂点だけ描き、FinalColor 全体を swapchain back buffer へコピーする。
+            // 3) BackBufferのクリア
+            TextureHandle resolvedBackBuffer{};
+            const Result resolveResult = ctx.resolve_texture(m_backBuffer, resolvedBackBuffer);
+            if (!resolveResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[BackBufferClearPass] failed to resolve back buffer for swapchain image {}\n", ctx.swapchain_image_index());
+                return;
+            }
+            constexpr float clearColor[4] = { 0.07f, 0.11f, 0.18f, 1.0f };
+            const Result clearResult = ctx.command_context().clear_render_target(resolvedBackBuffer, clearColor);
+            if (!clearResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[BackBufferClearPass] failed to clear back buffer for swapchain image {}\n", ctx.swapchain_image_index());
+            }
+
+            // 4) 3 頂点だけ描き、FinalColor 全体を swapchain back buffer へコピーする。
             const Result drawResult = ctx.command_context().draw_instanced(3, 1, 0, 0);
             if (!drawResult)
             {

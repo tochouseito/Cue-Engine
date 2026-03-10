@@ -101,19 +101,21 @@ namespace Cue
             return false;
         }
 
-        r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::PresentToSwapChainPass>());
-        if (!r)
-        {
-            Core::Logger::log(Core::LogSink::debugConsole, "Failed to add PresentToSwapChainPass to present frame graph.");
-            return false;
-        }
-
         if (initInfo.editorPass)
         {
             r = m_presentFrameGraph->add_pass(std::move(initInfo.editorPass));
             if (!r)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "Failed to add editor pass to present frame graph.");
+                return false;
+            }
+        }
+        else
+        {
+            r = m_presentFrameGraph->add_pass(std::make_unique<GraphicsCore::Pass::PresentToSwapChainPass>());
+            if (!r)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "Failed to add PresentToSwapChainPass to present frame graph.");
                 return false;
             }
         }
