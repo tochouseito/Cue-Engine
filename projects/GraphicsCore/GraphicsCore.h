@@ -3,6 +3,7 @@
 #include "FrameGraph.h"
 #include "StaticMeshBufferPool.h"
 #include "ViewManager.h"
+#include <string_view>
 
 namespace Cue::GraphicsCore
 {
@@ -25,6 +26,7 @@ namespace Cue::GraphicsCore
         virtual Result present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) = 0;
         virtual Result create_frame_graph(std::unique_ptr<FrameGraph>& outFG) = 0;
         virtual StaticMeshBufferPool* get_static_mesh_buffer_pool() = 0;
+        virtual Result get_texture_shader_resource_descriptor(std::string_view resourceName, uint32_t textureIndex, DescriptorHandle& outHandle) = 0;
     protected:
         backend_setup_info m_setupInfo{};
     };

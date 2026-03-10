@@ -27,6 +27,8 @@ namespace Cue
 
         m_platform = initInfo.platform;
         m_graphicsBackend = initInfo.graphicsBackend;
+        m_editorCommandContext.set_graphics_backend(m_graphicsBackend);
+        m_editorQueryContext.set_graphics_backend(m_graphicsBackend);
 
         // 1) Platform の初期化と関連リソースの取得を行う
 
@@ -143,6 +145,13 @@ namespace Cue
     {
         m_platform->begin_frame();
 
+        // 1) Editor から積まれた command は tick の先頭で処理し、render/present 中の状態変更を避ける。
+        const Result drainCommandsResult = m_editorBridge.drain_commands(m_editorCommandContext);
+        if (!drainCommandsResult)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, drainCommandsResult.message);
+        }
+
         m_frameController->step();
         double fps = m_frameController->frame_counter().fps();
         uint32_t updateIndex = m_frameController->update_index();
@@ -163,6 +172,16 @@ namespace Cue
         m_frameGraph.reset();
         m_presentFrameGraph.reset();
         Core::Logger::log(Core::LogSink::debugConsole, "Engine shutdown completed.");
+    }
+    Result Engine::submit_editor_command(std::unique_ptr<CQRS::ICommand> command)
+    {
+        // 1) command の受付口は Engine に一本化し、Editor から bridge 実体を直接触らせない。
+        return m_editorBridge.submit_command(std::move(command));
+    }
+    Result Engine::execute_editor_query(const CQRS::IQuery& query, CQRS::IQueryResult& outResult) const
+    {
+        // 1) query の実行も Engine 所有 context に固定し、backend 参照の責任を Engine 側へ集約する。
+        return m_editorBridge.execute_query(query, m_editorQueryContext, outResult);
     }
     std::function<void(uint64_t, uint32_t)> Engine::update()
     {

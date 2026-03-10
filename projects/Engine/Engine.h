@@ -6,6 +6,9 @@
 
 #include "Configuration.h"
 #include "asset/AssetManager.h"
+#include "cqrs/cqrs.h"
+#include "cqrs/Commands.h"
+#include "cqrs/Queries.h"
 
 namespace Cue
 {
@@ -26,6 +29,8 @@ namespace Cue
         bool initialize(EngineInitInfo& initInfo);
         void tick();
         void shutdown();
+        Result submit_editor_command(std::unique_ptr<CQRS::ICommand> command);
+        Result execute_editor_query(const CQRS::IQuery& query, CQRS::IQueryResult& outResult) const;
 
         FrameController& frame_controller() noexcept
         {
@@ -48,5 +53,8 @@ namespace Cue
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<GraphicsCore::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<GraphicsCore::FrameGraph> m_presentFrameGraph = nullptr;
+        CQRS::Bridge m_editorBridge{};
+        CQRS::Commands::EngineCommandContext m_editorCommandContext{};
+        CQRS::Queries::EngineQueryContext m_editorQueryContext{};
     };
 } // namespace Cue

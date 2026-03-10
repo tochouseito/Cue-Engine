@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <deque>
 
+#include <Result.h>
+
 // Platform
 #ifdef PLATFORM_WIN
 #define WIN32_LEAN_AND_MEAN             // Windows ヘッダーからあまり使われない部分を除外する
@@ -158,12 +160,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             }
 
             // 2) present graph が今フレームで読む FinalColor を SRV として取得し、Hello ウィンドウで preview できるようにする。
-            Cue::GraphicsCore::DescriptorHandle finalColorDescriptor{};
-            const auto getFinalColorDescriptorResult = d3d12Backend->get_texture_shader_resource_descriptor(
-                "FinalColor",
-                finalColorPreviewIndex,
-                finalColorDescriptor);
-            if (getFinalColorDescriptorResult && finalColorDescriptor.shaderVisible)
+            Cue::CQRS::Queries::FinalColorPreviewQuery finalColorPreviewQuery(finalColorPreviewIndex);
+            Cue::CQRS::Queries::TexturePreviewQueryResult finalColorPreviewResult{};
+            const Cue::Result getFinalColorDescriptorResult = engine.execute_editor_query(finalColorPreviewQuery, finalColorPreviewResult);
+            if (getFinalColorDescriptorResult && finalColorPreviewResult.descriptorHandle.shaderVisible)
             {
                 const float viewportWidth = static_cast<float>(win->window_width());
                 const float viewportHeight = static_cast<float>(win->window_height());
@@ -182,7 +182,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
                 ImGui::Separator();
                 ImGui::Text("FinalColor Preview");
-                ImGui::Image(static_cast<ImTextureID>(finalColorDescriptor.gpuPtr), imageSize);
+                ImGui::Image(static_cast<ImTextureID>(finalColorPreviewResult.descriptorHandle.gpuPtr), imageSize);
             }
             else
             {
