@@ -3,6 +3,8 @@
 #include "DX12RenderDevice.h"
 #include "GpuBuffer.h"
 #include <TextureManager.h>
+#include <deque>
+#include <mutex>
 
 namespace Cue::GraphicsCore::DX12
 {
@@ -78,6 +80,13 @@ namespace Cue::GraphicsCore::DX12
         TextureEntry& operator=(TextureEntry&&) noexcept = default;
     };
 
+    struct PendingTextureWrite final
+    {
+        TextureHandle handle{};
+        const IQueueContext* queueContext = nullptr;
+        QueueSyncPoint completionPoint{};
+    };
+
     class DX12TextureManager final : public ITextureManager
     {
     public:
@@ -89,6 +98,7 @@ namespace Cue::GraphicsCore::DX12
         Result create_texture(const TextureDesc& desc, TextureHandle& outHandle) override
         {
             // 1) bufferingCount 分の実体スロットを確保し、論理 texture 名から複数実体へ解決できるようにする。
+            std::lock_guard<std::mutex> lock(m_mutex);
             const uint32_t textureCount = (std::max)(desc.bufferingCount, 1u);
             std::vector<TextureHandle> handles;
             handles.reserve(textureCount);
@@ -147,6 +157,7 @@ namespace Cue::GraphicsCore::DX12
         }
         Result destroy_texture(const TextureHandle& handle) override
         {
+            std::lock_guard<std::mutex> lock(m_mutex);
             if (!m_textureRegistry.destroy(handle))
             {
                 return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Texture handle is not alive");
@@ -162,6 +173,7 @@ namespace Cue::GraphicsCore::DX12
         }
         Result get_texture(ResourceNameId nameId, uint32_t textureIndex, TextureHandle& outHandle) override
         {
+            std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_textureNameMap.find(nameId);
             if (it == m_textureNameMap.end())
             {
@@ -177,8 +189,38 @@ namespace Cue::GraphicsCore::DX12
             outHandle = handles[textureIndex];
             return Result::ok();
         }
+        Result get_texture(ResourceNameId nameId, TextureHandle& outHandle) override
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto pendingIt = m_pendingWritesByName.find(nameId);
+            if (pendingIt == m_pendingWritesByName.end())
+            {
+                return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Completed texture write is not published");
+            }
+
+            auto& pendingWrites = pendingIt->second;
+            for (auto it = pendingWrites.rbegin(); it != pendingWrites.rend(); ++it)
+            {
+                const PendingTextureWrite& pendingWrite = *it;
+                if (pendingWrite.queueContext == nullptr)
+                {
+                    continue;
+                }
+
+                if (!pendingWrite.queueContext->is_complete(pendingWrite.completionPoint))
+                {
+                    continue;
+                }
+
+                outHandle = pendingWrite.handle;
+                return Result::ok();
+            }
+
+            return Result::fail(Facility::Graphics, Code::NotFound, Severity::Warning, 0, "Completed texture write is not published");
+        }
         Result get_texture_instance_count(ResourceNameId nameId, uint32_t& outCount) override
         {
+            std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_textureNameMap.find(nameId);
             if (it == m_textureNameMap.end())
             {
@@ -188,10 +230,25 @@ namespace Cue::GraphicsCore::DX12
             outCount = static_cast<uint32_t>(it->second.size());
             return Result::ok();
         }
+        void publish_written_texture(ResourceNameId nameId, const TextureHandle& handle, const IQueueContext& queueContext, const QueueSyncPoint& completionPoint) override
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            auto& pendingWrites = m_pendingWritesByName[nameId];
+            pendingWrites.push_back(PendingTextureWrite{
+                handle,
+                &queueContext,
+                completionPoint });
+
+            if (pendingWrites.size() > 8)
+            {
+                pendingWrites.pop_front();
+            }
+        }
 
         Result import_external_texture(ResourceNameId nameId, IExternalTextureOwner& owner, uint32_t ownerIndex, TextureHandle& outHandle)
         {
             // 1) 実体所有は owner に残し、ここでは解決情報だけを登録する
+            std::lock_guard<std::mutex> lock(m_mutex);
             TextureEntry entry{};
             entry.kind = TextureEntry::Kind::External;
             entry.owner = &owner;
@@ -251,7 +308,9 @@ namespace Cue::GraphicsCore::DX12
         }
     private:
         DX12RenderDevice& m_renderDevice; // RenderDeviceへの参照
+        mutable std::mutex m_mutex;
         Registry<TextureTag, TextureEntry> m_textureRegistry;
         std::unordered_map<ResourceNameId, std::vector<TextureHandle>> m_textureNameMap;
+        std::unordered_map<ResourceNameId, std::deque<PendingTextureWrite>> m_pendingWritesByName;
     };
 } // namespace Cue::GraphicsCore::DX12

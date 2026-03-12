@@ -1,5 +1,6 @@
 #pragma once
 #include "GraphicsCommon.h"
+#include "GraphicsInterface.h"
 
 namespace Cue::GraphicsCore
 {
@@ -35,6 +36,8 @@ namespace Cue::GraphicsCore
         virtual Result create_texture(const TextureDesc& desc, TextureHandle& outHandle) = 0;
         virtual Result destroy_texture(const TextureHandle& handle) = 0;
         virtual Result get_texture(ResourceNameId nameId, uint32_t textureIndex, TextureHandle& outHandle) = 0;
+        virtual Result get_texture(ResourceNameId nameId, TextureHandle& outHandle) = 0;
         virtual Result get_texture_instance_count(ResourceNameId nameId, uint32_t& outCount) = 0;
+        virtual void publish_written_texture(ResourceNameId nameId, const TextureHandle& handle, const IQueueContext& queueContext, const QueueSyncPoint& completionPoint) = 0;
     };
 } // namespace Cue::GraphicsCore

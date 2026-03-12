@@ -21,6 +21,8 @@
 
 // === Editor include ===
 #include "ImGuiManager.h"
+#include "Statistics.h"
+#include "DebugView.h"
 
 // === C++ include ===
 #include <memory>
@@ -84,6 +86,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return false;
         });
 
+
     // 5) エンジンの初期化
 
     // 5-1) 初期化情報構築
@@ -98,6 +101,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::Engine engine;
     bool isRunning = engine.initialize(initInfo);
 
+    // 5-3) debug view 作成
+    Cue::Editor::DebugView debugView(*win, engine);
+
+    // 5-4) statistics 作成
+    Cue::Editor::Statistics statistics(engine.frame_controller());
+
     // 6) メインループ
     while (isRunning)
     {
@@ -109,108 +118,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             ImGui::Begin("Hello, ImGui!"); // ウィンドウ開始
             ImGui::Text("This is a simple text in the ImGui window."); // テキスト表示
-            Cue::FrameController& frameController = engine.frame_controller();
-            const uint64_t totalFrame = frameController.total_frame();
-            const float fps = static_cast<float>(frameController.frame_counter().fps());
-            const uint32_t updateIndex = frameController.update_index();
-            const uint32_t renderIndex = frameController.render_index();
-            const uint32_t presentIndex = frameController.present_index();
-            constexpr uint32_t kFrameBufferingCount = 3;
-            const uint32_t finalColorPreviewIndex = static_cast<uint32_t>(totalFrame % kFrameBufferingCount);
-            struct FrameLogLine final
-            {
-                uint64_t totalFrame = 0;
-                float fps = 0.0f;
-                uint32_t updateIndex = 0;
-                uint32_t renderIndex = 0;
-                uint32_t presentIndex = 0;
-            };
-            static std::deque<FrameLogLine> frameLogs{};
-            constexpr size_t kMaxFrameLogs = 120;
-            if (frameLogs.empty() || frameLogs.back().totalFrame != totalFrame)
-            {
-                frameLogs.push_back(FrameLogLine{
-                    totalFrame,
-                    fps,
-                    updateIndex,
-                    renderIndex,
-                    presentIndex });
-                if (frameLogs.size() > kMaxFrameLogs)
-                {
-                    frameLogs.pop_front();
-                }
-            }
-            ImGui::BeginChild("FrameLogConsole", ImVec2(0.0f, 140.0f), true);
-            for (const FrameLogLine& line : frameLogs)
-            {
-                ImGui::Text(
-                    "Frame: %llu, FPS: %.2f, UpdateIndex: %u, RenderIndex: %u, PresentIndex: %u",
-                    static_cast<unsigned long long>(line.totalFrame),
-                    line.fps,
-                    line.updateIndex,
-                    line.renderIndex,
-                    line.presentIndex);
-            }
-            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
-            {
-                ImGui::SetScrollHereY(1.0f);
-            }
-            ImGui::EndChild();
-            // fps 詳細表示切替
-            static bool showFpsDetails = false;
-            static float maxFps = 0;
-            static float minFps = 0;
-            if (ImGui::Button("Show FPS Details"))
-            {
-                showFpsDetails = !showFpsDetails;
-                maxFps = fps;
-                minFps = fps;
-            }
-            if (showFpsDetails)
-            {
-                if (fps > maxFps)
-                {
-                    maxFps = fps;
-                }
-                if (fps < minFps)
-                {
-                    minFps = fps;
-                }
-                ImGui::Text("Max FPS: %.1f", maxFps);
-                ImGui::Text("Min FPS: %.1f", minFps);
-            }
 
-            // 2) 現在フレームの final color srv を取得
-            Cue::CQRS::Queries::FinalColorPreviewQuery finalColorPreviewQuery(finalColorPreviewIndex);
-            Cue::CQRS::Queries::TexturePreviewQueryResult finalColorPreviewResult{};
-            const Cue::Result getFinalColorDescriptorResult = engine.execute_editor_query(finalColorPreviewQuery, finalColorPreviewResult);
-            if (getFinalColorDescriptorResult && finalColorPreviewResult.descriptorHandle.shaderVisible)
-            {
-                const float viewportWidth = static_cast<float>(win->window_width());
-                const float viewportHeight = static_cast<float>(win->window_height());
-                const float aspectRatio = (viewportHeight > 0.0f) ? (viewportWidth / viewportHeight) : 1.0f;
-                ImVec2 imageSize = ImGui::GetContentRegionAvail();
-                if (imageSize.x <= 0.0f)
-                {
-                    imageSize.x = 320.0f;
-                }
-                imageSize.y = imageSize.x / aspectRatio;
-                if (imageSize.y > 320.0f)
-                {
-                    imageSize.y = 320.0f;
-                    imageSize.x = imageSize.y * aspectRatio;
-                }
+            debugView.update(); // debug view 更新
+            statistics.update();
 
-                ImGui::Separator();
-                ImGui::Text("FinalColor Preview");
-                ImGui::Image(static_cast<ImTextureID>(finalColorPreviewResult.descriptorHandle.gpuPtr), imageSize);
-            }
-            else
-            {
-                ImGui::Separator();
-                ImGui::Text("FinalColor Preview");
-                ImGui::Text("FinalColor descriptor is not ready.");
-            }
             ImGui::End();
             imguiManager.end_frame();
         }

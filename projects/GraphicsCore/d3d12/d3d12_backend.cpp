@@ -269,9 +269,9 @@ namespace Cue::GraphicsCore::DX12
 
         return result;
     }
-    Result D3D12Backend::get_texture_shader_resource_descriptor(std::string_view resourceName, uint32_t textureIndex, DescriptorHandle& outHandle)
+    Result D3D12Backend::get_texture_shader_resource_descriptor(std::string_view resourceName, DescriptorHandle& outHandle)
     {
-        // 1) 名前付き texture を manager から解決し、Editor 側が FrameGraph 内部 handle を知らずに済むようにする。
+        // 1) 名前付き texture の latest completed 実体を manager から解決する。
         outHandle = {};
         if (m_impl->m_textureManager == nullptr || m_impl->m_viewManager == nullptr)
         {
@@ -279,7 +279,7 @@ namespace Cue::GraphicsCore::DX12
         }
 
         TextureHandle textureHandle{};
-        const Result getTextureResult = m_impl->m_textureManager->get_texture(Core::fnv1a64(resourceName), textureIndex, textureHandle);
+        const Result getTextureResult = m_impl->m_textureManager->get_texture(Core::fnv1a64(resourceName), textureHandle);
         if (!getTextureResult)
         {
             return getTextureResult;

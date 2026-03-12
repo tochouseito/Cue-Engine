@@ -32,15 +32,13 @@ namespace Cue::Editor
         {}
         ~Statistics() = default;
 
-        void Update()
+        void update()
         {
             const uint64_t totalFrame = frameController.total_frame();
             const float fps = static_cast<float>(frameController.frame_counter().fps());
             const uint32_t updateIndex = frameController.update_index();
             const uint32_t renderIndex = frameController.render_index();
             const uint32_t presentIndex = frameController.present_index();
-            constexpr uint32_t kFrameBufferingCount = 3;
-            const uint32_t finalColorPreviewIndex = static_cast<uint32_t>(totalFrame % kFrameBufferingCount);
             constexpr size_t kMaxFrameLogs = 120;
             if (frameLogs.empty() || frameLogs.back().totalFrame != totalFrame)
             {

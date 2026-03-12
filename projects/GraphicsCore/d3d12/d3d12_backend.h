@@ -34,7 +34,7 @@ namespace Cue::GraphicsCore::DX12
         ID3D12CommandQueue* get_graphics_command_queue() const;
         DXGI_FORMAT get_rtv_format() const;
         font_srv_for_imgui get_font_srv_for_imgui() const;
-        Result get_texture_shader_resource_descriptor(std::string_view resourceName, uint32_t textureIndex, DescriptorHandle& outHandle) override;
+        Result get_texture_shader_resource_descriptor(std::string_view resourceName, DescriptorHandle& outHandle) override;
     private:
         struct Impl;
         std::unique_ptr<Impl> m_impl;

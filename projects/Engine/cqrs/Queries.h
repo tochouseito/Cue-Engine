@@ -15,7 +15,6 @@ namespace Cue::CQRS::Queries
 
         Result resolve_texture_shader_resource_descriptor(
             std::string_view resourceName,
-            uint32_t textureIndex,
             GraphicsCore::DescriptorHandle& outHandle) const
         {
             // 1) backend 未設定を先に検出し、Editor からの query を明確な失敗として返す。
@@ -26,7 +25,7 @@ namespace Cue::CQRS::Queries
             }
 
             // 2) 実際の descriptor 解決は backend 協力者へ委譲し、Editor から実装差分を隠蔽する。
-            return m_graphicsBackend->get_texture_shader_resource_descriptor(resourceName, textureIndex, outHandle);
+            return m_graphicsBackend->get_texture_shader_resource_descriptor(resourceName, outHandle);
         }
 
     private:
@@ -41,10 +40,7 @@ namespace Cue::CQRS::Queries
     class FinalColorPreviewQuery final : public IQuery
     {
     public:
-        explicit FinalColorPreviewQuery(uint32_t textureIndex) noexcept
-            : m_textureIndex(textureIndex)
-        {
-        }
+        FinalColorPreviewQuery() = default;
 
         Result execute(const IQueryContext& queryContext, IQueryResult& outResult) const override
         {
@@ -65,11 +61,7 @@ namespace Cue::CQRS::Queries
             // 3) FinalColor の descriptor 解決だけを query に閉じ込め、Editor 側から backend 直呼びをなくす。
             return engineQueryContext->resolve_texture_shader_resource_descriptor(
                 "FinalColor",
-                m_textureIndex,
                 texturePreviewResult->descriptorHandle);
         }
-
-    private:
-        uint32_t m_textureIndex = 0;
     };
 }

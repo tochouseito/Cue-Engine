@@ -1,5 +1,5 @@
 
-add_executable(Editor WIN32 "Editor.cpp"  "ImGuiManager.h" "ImGuiManager.cpp" "Statistics.h")
+add_executable(Editor WIN32 "Editor.cpp"  "ImGuiManager.h" "ImGuiManager.cpp" "Statistics.h" "DebugView.h")
 
 target_link_libraries(Editor PRIVATE cue_warnings)
 target_link_libraries(Editor PRIVATE cue_compile_options)

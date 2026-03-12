@@ -1413,6 +1413,35 @@ namespace Cue::GraphicsCore
                 return retireContextResult;
             }
 
+            // 17) 書き込み完了点付きで latest completed texture 候補を publish
+            std::unordered_set<ResourceNameId> publishedTextureNameIds;
+            for (const ResourceAccess& access : compiledPass.accesses)
+            {
+                if (access.type != ResourceAccessType::Write || access.handle.kind != ResourceKind::Texture)
+                {
+                    continue;
+                }
+
+                const LogicalResource& resource = get_logical_resource(access.handle);
+                if (!publishedTextureNameIds.insert(resource.nameId).second)
+                {
+                    continue;
+                }
+
+                TextureHandle physicalHandle{};
+                const Result resolveTextureResult = resolve_texture(
+                    TextureHandle{ access.handle.index, access.handle.generation },
+                    frameResourceIndex,
+                    swapchainImageIndex,
+                    physicalHandle);
+                if (!resolveTextureResult)
+                {
+                    return resolveTextureResult;
+                }
+
+                m_textureManager.publish_written_texture(resource.nameId, physicalHandle, queue, signalPoint);
+            }
+
             passExecution[passIndex] = PassExecutionInfo{ queueType, &queue, signalPoint, true };
         }
 
