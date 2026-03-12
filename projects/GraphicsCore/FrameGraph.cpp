@@ -250,7 +250,15 @@ namespace Cue::GraphicsCore
         return m_resources[ref.index];
     }
 
-    uint32_t FrameGraph::resolve_resource_instance_index(const LogicalResource& resource, uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept
+    ResourceResolveContext FrameGraph::make_resolve_context(uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept
+    {
+        // 1) 実行時 index 群を instance 解決 context へ束ねる
+        return ResourceResolveContext{
+            frameResourceIndex,
+            swapchainImageIndex };
+    }
+
+    uint32_t FrameGraph::resolve_resource_instance_index(const LogicalResource& resource, const ResourceResolveContext& resolveContext) const noexcept
     {
         // 1) 単一実体なら index 0 固定
         if (resource.instanceCount <= 1)
@@ -264,21 +272,28 @@ namespace Cue::GraphicsCore
         case ResourceInstanceSource::Fixed:
             return 0;
         case ResourceInstanceSource::FrameResourceIndex:
-            return frameResourceIndex % resource.instanceCount;
+            return resolveContext.frameResourceIndex % resource.instanceCount;
         case ResourceInstanceSource::SwapchainImageIndex:
-            return swapchainImageIndex % resource.instanceCount;
+            return resolveContext.swapchainImageIndex % resource.instanceCount;
+        case ResourceInstanceSource::LatestCompleted:
+            return 0;
         default:
             return 0;
         }
     }
 
-    Result FrameGraph::resolve_buffer(BufferHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, BufferHandle& outHandle) const
+    Result FrameGraph::resolve_buffer(BufferHandle logicalHandle, const ResourceResolveContext& resolveContext, BufferHandle& outHandle) const
     {
         try
         {
             // 1) 論理 resource と instance index を解決
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
-            const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
+            if (resource.instanceSource == ResourceInstanceSource::LatestCompleted)
+            {
+                return Result::fail(Facility::Graphics, Code::Unsupported, Severity::Error, 0, "latest completed is not supported for buffer resources");
+            }
+
+            const uint32_t instanceIndex = resolve_resource_instance_index(resource, resolveContext);
             // 2) manager から物理 buffer を取得
             return m_bufferManager.get_buffer(resource.nameId, instanceIndex, outHandle);
         }
@@ -290,14 +305,19 @@ namespace Cue::GraphicsCore
         }
     }
 
-    Result FrameGraph::resolve_texture(TextureHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, TextureHandle& outHandle) const
+    Result FrameGraph::resolve_texture(TextureHandle logicalHandle, const ResourceResolveContext& resolveContext, TextureHandle& outHandle) const
     {
         try
         {
-            // 1) 論理 resource と instance index を解決
+            // 1) latest completed 指定時は texture manager の完了済み解決を使う
             const LogicalResource& resource = get_logical_resource(to_resource_ref(logicalHandle));
-            const uint32_t instanceIndex = resolve_resource_instance_index(resource, frameResourceIndex, swapchainImageIndex);
-            // 2) manager から物理 texture を取得
+            if (resource.instanceSource == ResourceInstanceSource::LatestCompleted)
+            {
+                return m_textureManager.get_texture(resource.nameId, outHandle);
+            }
+
+            // 2) index ベースの resource は実行 context から物理 texture を取得
+            const uint32_t instanceIndex = resolve_resource_instance_index(resource, resolveContext);
             return m_textureManager.get_texture(resource.nameId, instanceIndex, outHandle);
         }
         catch (const std::exception& e)
@@ -308,10 +328,10 @@ namespace Cue::GraphicsCore
         }
     }
 
-    Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
+    Result FrameGraph::resolve_descriptor_binding(const DescriptorBindingDecl& binding, const ResourceResolveContext& resolveContext, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const
     {
         // 1) 対象フレームの buffer index binding だけを追加
-        if (binding.hasBufferIndex && binding.bufferIndex != frameResourceIndex)
+        if (binding.hasBufferIndex && binding.bufferIndex != resolveContext.frameResourceIndex)
         {
             return Result::fail(Facility::Graphics, Code::NotFound, Severity::Info, 0, "Descriptor binding is not active for this buffer index");
         }
@@ -324,7 +344,7 @@ namespace Cue::GraphicsCore
         {
             // 2) buffer 実体と既定 view を解決
             BufferHandle physicalHandle{};
-            const Result result = resolve_buffer(BufferHandle{ binding.resource.index, binding.resource.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+            const Result result = resolve_buffer(BufferHandle{ binding.resource.index, binding.resource.generation }, resolveContext, physicalHandle);
             if (!result)
             {
                 return result;
@@ -355,7 +375,7 @@ namespace Cue::GraphicsCore
         }
 
         TextureHandle physicalHandle{};
-        const Result result = resolve_texture(TextureHandle{ binding.resource.index, binding.resource.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+        const Result result = resolve_texture(TextureHandle{ binding.resource.index, binding.resource.generation }, resolveContext, physicalHandle);
         if (!result)
         {
             return result;
@@ -379,7 +399,7 @@ namespace Cue::GraphicsCore
         return m_viewManager.get_descriptor_handle(outBinding.viewHandle, outBinding.descriptorHandle);
     }
 
-    Result FrameGraph::resolve_render_target_views(const std::vector<ResourceAccess>& accesses, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const
+    Result FrameGraph::resolve_render_target_views(const std::vector<ResourceAccess>& accesses, const ResourceResolveContext& resolveContext, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const
     {
         // 1) graphics pass の output attachment を access 宣言から導出
         outRenderTargetViews.clear();
@@ -400,7 +420,7 @@ namespace Cue::GraphicsCore
 
             // 3) 実体 texture から attachment view を取得
             TextureHandle physicalHandle{};
-            const Result resolveResult = resolve_texture(TextureHandle{ access.handle.index, access.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+            const Result resolveResult = resolve_texture(TextureHandle{ access.handle.index, access.handle.generation }, resolveContext, physicalHandle);
             if (!resolveResult)
             {
                 return resolveResult;
@@ -439,7 +459,7 @@ namespace Cue::GraphicsCore
         return Result::ok();
     }
 
-    Result FrameGraph::make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const
+    Result FrameGraph::make_barrier_desc(const BarrierEvent& event, const ResourceResolveContext& resolveContext, ResourceBarrierDesc& outBarrier) const
     {
         // 1) 前後 state を barrier へ転記
         outBarrier.before = event.before;
@@ -449,7 +469,7 @@ namespace Cue::GraphicsCore
         {
             // 2) buffer barrier 用の物理 handle を解決
             BufferHandle physicalHandle{};
-            const Result result = resolve_buffer(BufferHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+            const Result result = resolve_buffer(BufferHandle{ event.handle.index, event.handle.generation }, resolveContext, physicalHandle);
             if (!result)
             {
                 return result;
@@ -463,7 +483,7 @@ namespace Cue::GraphicsCore
 
         // 3) texture barrier 用の物理 handle を解決
         TextureHandle physicalHandle{};
-        const Result result = resolve_texture(TextureHandle{ event.handle.index, event.handle.generation }, frameResourceIndex, swapchainImageIndex, physicalHandle);
+        const Result result = resolve_texture(TextureHandle{ event.handle.index, event.handle.generation }, resolveContext, physicalHandle);
         if (!result)
         {
             return result;
@@ -1125,7 +1145,10 @@ namespace Cue::GraphicsCore
             }
         }
 
-        // 2) queue 種別ごとの実行先を確保
+        // 2) 実行時 instance 解決 context を組み立てる
+        const ResourceResolveContext resolveContext = make_resolve_context(frameResourceIndex, swapchainImageIndex);
+
+        // 3) queue 種別ごとの実行先を確保
         QueueContextLease graphicsQueue{};
         QueueContextLease computeQueue{};
         QueueContextLease copyQueue{};
@@ -1145,7 +1168,7 @@ namespace Cue::GraphicsCore
             return acquireResult;
         }
 
-        // 3) 実行中 state と実行概要を初期化
+        // 4) 実行中 state と実行概要を初期化
         std::vector<PassExecutionInfo> passExecution(m_passes.size());
         std::vector<ResourceState> runtimeTrackedState = initial_resource_states();
         ExecutionSummary summary{};
@@ -1154,7 +1177,7 @@ namespace Cue::GraphicsCore
         summary.swapchainImageIndex = swapchainImageIndex;
         summary.passCount = m_passes.size();
 
-        // 4) pass の queue 種別から実行 queue を引く関数を用意
+        // 5) pass の queue 種別から実行 queue を引く関数を用意
         auto queue_for = [&graphicsQueue, &computeQueue, &copyQueue](CommandListType type) -> IQueueContext&
             {
                 switch (type)
@@ -1170,8 +1193,8 @@ namespace Cue::GraphicsCore
                 }
             };
 
-        // 5) 事前計算 barrier を現在 frame 用 backend barrier へ変換
-        auto emit_barriers = [this, frameResourceIndex, swapchainImageIndex](ICommandContext& commandContext, size_t passIndex, bool beforePass, std::vector<ResourceState>& trackedState) -> Result
+        // 6) 事前計算 barrier を現在 frame 用 backend barrier へ変換
+        auto emit_barriers = [this, &resolveContext](ICommandContext& commandContext, size_t passIndex, bool beforePass, std::vector<ResourceState>& trackedState) -> Result
             {
                 // 1) pass に紐づく barrier 群を取得
                 const auto barrierIt = m_barriersByPass.find(passIndex);
@@ -1190,7 +1213,7 @@ namespace Cue::GraphicsCore
                     }
 
                     ResourceBarrierDesc barrierDesc{};
-                    const Result buildBarrierResult = make_barrier_desc(barrierEvent, frameResourceIndex, swapchainImageIndex, barrierDesc);
+                    const Result buildBarrierResult = make_barrier_desc(barrierEvent, resolveContext, barrierDesc);
                     if (!buildBarrierResult)
                     {
                         return buildBarrierResult;
@@ -1209,7 +1232,7 @@ namespace Cue::GraphicsCore
                 return commandContext.resource_barriers(barriers.data(), barriers.size());
             };
 
-        // 6) 依存順に各 pass を記録コマンドへ変換
+        // 7) 依存順に各 pass を記録コマンドへ変換
         for (size_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
         {
             // 1) 実行対象 pass と queue を確定
@@ -1276,13 +1299,13 @@ namespace Cue::GraphicsCore
             descriptorBindings.reserve(compiledPass.descriptorDecls.size());
             for (const DescriptorBindingDecl& descriptorDecl : compiledPass.descriptorDecls)
             {
-                if (descriptorDecl.hasBufferIndex && descriptorDecl.bufferIndex != frameResourceIndex)
+                if (descriptorDecl.hasBufferIndex && descriptorDecl.bufferIndex != resolveContext.frameResourceIndex)
                 {
                     continue;
                 }
 
                 FrameGraphContext::ResolvedDescriptorBinding resolvedBinding{};
-                const Result resolveDescriptorResult = resolve_descriptor_binding(descriptorDecl, frameResourceIndex, swapchainImageIndex, resolvedBinding);
+                const Result resolveDescriptorResult = resolve_descriptor_binding(descriptorDecl, resolveContext, resolvedBinding);
                 if (!resolveDescriptorResult)
                 {
                     return resolveDescriptorResult;
@@ -1339,8 +1362,7 @@ namespace Cue::GraphicsCore
             FrameGraphContext context(
                 *this,
                 frameNo,
-                frameResourceIndex,
-                swapchainImageIndex,
+                resolveContext,
                 *commandContext,
                 compiledPass.pipelineDecl.handle,
                 compiledPass.rootSignatureDecl.handle,
@@ -1359,7 +1381,7 @@ namespace Cue::GraphicsCore
                 std::vector<ViewHandle> renderTargetViews;
                 renderTargetViews.reserve(compiledPass.accesses.size());
                 ViewHandle depthStencilView{};
-                const Result resolveRenderTargetResult = resolve_render_target_views(compiledPass.accesses, frameResourceIndex, swapchainImageIndex, renderTargetViews, depthStencilView);
+                const Result resolveRenderTargetResult = resolve_render_target_views(compiledPass.accesses, resolveContext, renderTargetViews, depthStencilView);
                 if (!resolveRenderTargetResult)
                 {
                     return resolveRenderTargetResult;
@@ -1431,8 +1453,7 @@ namespace Cue::GraphicsCore
                 TextureHandle physicalHandle{};
                 const Result resolveTextureResult = resolve_texture(
                     TextureHandle{ access.handle.index, access.handle.generation },
-                    frameResourceIndex,
-                    swapchainImageIndex,
+                    resolveContext,
                     physicalHandle);
                 if (!resolveTextureResult)
                 {
@@ -1785,12 +1806,12 @@ namespace Cue::GraphicsCore
     Result FrameGraphContext::resolve_buffer(BufferHandle logicalHandle, BufferHandle& outHandle) const
     {
         // 1) 現在 frame index で論理 buffer を物理解決
-        return m_frameGraph.resolve_buffer(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
+        return m_frameGraph.resolve_buffer(logicalHandle, m_resolveContext, outHandle);
     }
 
     Result FrameGraphContext::resolve_texture(TextureHandle logicalHandle, TextureHandle& outHandle) const
     {
         // 1) 現在 frame index で論理 texture を物理解決
-        return m_frameGraph.resolve_texture(logicalHandle, m_frameResourceIndex, m_swapchainImageIndex, outHandle);
+        return m_frameGraph.resolve_texture(logicalHandle, m_resolveContext, outHandle);
     }
 } // 名前空間 cue::graphicscore

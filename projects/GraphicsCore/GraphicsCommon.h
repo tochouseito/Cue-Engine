@@ -142,6 +142,7 @@ namespace Cue::GraphicsCore
         Fixed,
         FrameResourceIndex,
         SwapchainImageIndex,
+        LatestCompleted,
     };
 
     inline const char* resource_kind_to_string(ResourceKind kind) noexcept

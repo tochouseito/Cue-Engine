@@ -51,10 +51,10 @@ namespace Cue::GraphicsCore::Pass
 
         void setup(FrameGraphBuilder& builder) override
         {
-            // 1) render graph が生成した FinalColor を frame resource 単位の外部 texture として受け取る。
+            // 1) render graph が最後に書き込み完了した FinalColor を外部 texture として受け取る。
             TextureDesc finalColorDesc{};
             finalColorDesc.name = "FinalColor";
-            finalColorDesc.instanceSource = ResourceInstanceSource::FrameResourceIndex;
+            finalColorDesc.instanceSource = ResourceInstanceSource::LatestCompleted;
             m_finalColor = builder.import_texture(finalColorDesc.name, finalColorDesc, ResourceState::ShaderResource);
             builder.read(m_finalColor);
 

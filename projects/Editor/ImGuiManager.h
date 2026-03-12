@@ -230,10 +230,10 @@ namespace Cue::Editor
         /// @brief setup
         void setup(GraphicsCore::FrameGraphBuilder& builder) override
         {
-            // 1) final color を srv 読みで宣言
+            // 1) render graph が最後に書き込み完了した final color を srv 読みで宣言
             GraphicsCore::TextureDesc finalColorDesc{};
             finalColorDesc.name = "FinalColor";
-            finalColorDesc.instanceSource = GraphicsCore::ResourceInstanceSource::FrameResourceIndex;
+            finalColorDesc.instanceSource = GraphicsCore::ResourceInstanceSource::LatestCompleted;
             m_finalColor = builder.import_texture(finalColorDesc.name, finalColorDesc, GraphicsCore::ResourceState::ShaderResource);
             builder.read(m_finalColor);
 

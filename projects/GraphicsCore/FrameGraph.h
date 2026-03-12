@@ -85,6 +85,12 @@ namespace Cue::GraphicsCore
         ResourceRef resource{};
     };
 
+    struct ResourceResolveContext final
+    {
+        uint32_t frameResourceIndex = 0;
+        uint32_t swapchainImageIndex = 0;
+    };
+
     class FrameGraph;
 
     class FrameGraphBuilder final
@@ -211,8 +217,7 @@ namespace Cue::GraphicsCore
         FrameGraphContext(
             FrameGraph& frameGraph,
             uint64_t frameNo,
-            uint32_t frameResourceIndex,
-            uint32_t swapchainImageIndex,
+            ResourceResolveContext resolveContext,
             ICommandContext& commandContext,
             PipelineStateHandle pipelineHandle,
             RootSignatureHandle rootSignatureHandle,
@@ -220,8 +225,7 @@ namespace Cue::GraphicsCore
             std::vector<ResolvedDescriptorBinding> descriptorBindings) noexcept
             : m_frameGraph(frameGraph)
             , m_frameNo(frameNo)
-            , m_frameResourceIndex(frameResourceIndex)
-            , m_swapchainImageIndex(swapchainImageIndex)
+            , m_resolveContext(resolveContext)
             , m_commandContext(commandContext)
             , m_pipelineHandle(pipelineHandle)
             , m_rootSignatureHandle(rootSignatureHandle)
@@ -244,13 +248,13 @@ namespace Cue::GraphicsCore
         /// @brief frame resource index 取得
         [[nodiscard]] uint32_t frame_resource_index() const noexcept
         {
-            return m_frameResourceIndex;
+            return m_resolveContext.frameResourceIndex;
         }
 
         /// @brief swapchain image index 取得
         [[nodiscard]] uint32_t swapchain_image_index() const noexcept
         {
-            return m_swapchainImageIndex;
+            return m_resolveContext.swapchainImageIndex;
         }
 
         /// @brief command context 取得
@@ -306,8 +310,7 @@ namespace Cue::GraphicsCore
     private:
         FrameGraph& m_frameGraph;
         uint64_t m_frameNo = 0;
-        uint32_t m_frameResourceIndex = 0;
-        uint32_t m_swapchainImageIndex = 0;
+        ResourceResolveContext m_resolveContext{};
         ICommandContext& m_commandContext;
         PipelineStateHandle m_pipelineHandle = {};
         RootSignatureHandle m_rootSignatureHandle = {};
@@ -488,18 +491,20 @@ namespace Cue::GraphicsCore
         /// @brief 宣言済み texture 取得実体
         [[nodiscard]] TextureHandle get_texture(std::string_view name);
 
+        /// @brief 実行時 instance 解決 context 正規化
+        [[nodiscard]] ResourceResolveContext make_resolve_context(uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept;
         /// @brief 実体 index 解決
-        [[nodiscard]] uint32_t resolve_resource_instance_index(const LogicalResource& resource, uint32_t frameResourceIndex, uint32_t swapchainImageIndex) const noexcept;
+        [[nodiscard]] uint32_t resolve_resource_instance_index(const LogicalResource& resource, const ResourceResolveContext& resolveContext) const noexcept;
         /// @brief 論理 buffer から物理 buffer 解決
-        [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, BufferHandle& outHandle) const;
+        [[nodiscard]] Result resolve_buffer(BufferHandle logicalHandle, const ResourceResolveContext& resolveContext, BufferHandle& outHandle) const;
         /// @brief 論理 texture から物理 texture 解決
-        [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, TextureHandle& outHandle) const;
+        [[nodiscard]] Result resolve_texture(TextureHandle logicalHandle, const ResourceResolveContext& resolveContext, TextureHandle& outHandle) const;
         /// @brief descriptor bind 解決
-        [[nodiscard]] Result resolve_descriptor_binding(const DescriptorBindingDecl& binding, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const;
+        [[nodiscard]] Result resolve_descriptor_binding(const DescriptorBindingDecl& binding, const ResourceResolveContext& resolveContext, FrameGraphContext::ResolvedDescriptorBinding& outBinding) const;
         /// @brief render target と depth view 解決
-        [[nodiscard]] Result resolve_render_target_views(const std::vector<ResourceAccess>& accesses, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const;
+        [[nodiscard]] Result resolve_render_target_views(const std::vector<ResourceAccess>& accesses, const ResourceResolveContext& resolveContext, std::vector<ViewHandle>& outRenderTargetViews, ViewHandle& outDepthStencilView) const;
         /// @brief barrier 記述子生成
-        [[nodiscard]] Result make_barrier_desc(const BarrierEvent& event, uint32_t frameResourceIndex, uint32_t swapchainImageIndex, ResourceBarrierDesc& outBarrier) const;
+        [[nodiscard]] Result make_barrier_desc(const BarrierEvent& event, const ResourceResolveContext& resolveContext, ResourceBarrierDesc& outBarrier) const;
 
         /// @brief buffer handle 検証
         void validate_resource_handle(BufferHandle handle) const;
