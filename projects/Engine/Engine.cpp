@@ -132,7 +132,10 @@ namespace Cue
             return false;
         }
 
-        // 6) platform を開始して実行可能状態へ入れる
+        // 6) GameCore を初期化する
+        m_gameCore = std::make_unique<Cue::GameCore>();
+
+        // 7) platform を開始して実行可能状態へ入れる
         m_platform->start();
 
         Core::Logger::log(Core::LogSink::debugConsole, "Engine initialized successfully.");
@@ -191,9 +194,7 @@ namespace Cue
         return [this](uint64_t frameNo, uint32_t index)
             {
                 // 1) 仮実装のため入力だけ受理
-                (void)frameNo;
-                (void)index;
-                (void)this;
+                m_gameCore->update(frameNo, index);
             };
     }
     std::function<void(uint64_t, uint32_t)> Engine::render()

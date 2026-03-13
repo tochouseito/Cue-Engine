@@ -25,4 +25,16 @@ namespace Cue::Core::Native
     {
         std::vector<MeshData> meshes; // メッシュデータ配列
     };
+
+    struct LocalTransform
+    {
+        Math::float3 position{ 0.0f, 0.0f, 0.0f }; // ローカル位置
+        Math::float3 rotation{ 0.0f, 0.0f, 0.0f }; // ローカル回転（オイラー角）
+        Math::float3 scale{ 1.0f, 1.0f, 1.0f };    // ローカルスケール
+    };
+
+    struct ObjectTransformGpu
+    {
+        Math::float4x4 worldMatrix; // ワールド変換行列
+    };
 }

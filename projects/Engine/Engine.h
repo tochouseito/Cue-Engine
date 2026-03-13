@@ -9,6 +9,7 @@
 #include "cqrs/cqrs.h"
 #include "cqrs/Commands.h"
 #include "cqrs/Queries.h"
+#include "gamecore/GameCore.h"
 
 namespace Cue
 {
@@ -64,5 +65,6 @@ namespace Cue
         CQRS::Bridge m_editorBridge{};
         CQRS::Commands::EngineCommandContext m_editorCommandContext{};
         CQRS::Queries::EngineQueryContext m_editorQueryContext{};
+        std::unique_ptr<GameCore> m_gameCore = nullptr;
     };
 } // 名前空間 cue

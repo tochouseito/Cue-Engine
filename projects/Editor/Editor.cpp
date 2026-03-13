@@ -65,10 +65,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imguiSetupInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;            // ImGui_ImplDX12_Init へ渡すために フォント用 SRV の CPU デスクリプタハンドルを取得
     imguiSetupInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;            // ImGui_ImplDX12_Init へ渡すために フォント用 SRV の GPU デスクリプタハンドルを取得
 
+    // 4-2) ImGuiManager を初期化
     Cue::Editor::ImGuiManager imguiManager;
     imguiManager.initialize(imguiSetupInfo);
 
-    // 4-2) ImGuiMessageHandler を登録
+    // 4-3) ImGuiMessageHandler を登録
     const uint64_t imguiMessageHandlerId = win->register_message_handler(
         [](Cue::Platform::Win::NativeWindowHandle hwnd, uint32_t msg, std::uintptr_t wParam, std::intptr_t lParam, std::intptr_t& outResult)
         {
