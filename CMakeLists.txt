@@ -69,6 +69,7 @@ add_library(cue_compile_options INTERFACE)
 target_compile_options(cue_compile_options INTERFACE
     /utf-8 # ソースファイルの文字エンコードをUTF-8に設定
     /MP # 複数プロセスでのビルドを有効化
+    /Zc:preprocessor # 標準準拠のプリプロセッサを使用
 )
 
 target_compile_definitions(cue_compile_options INTERFACE

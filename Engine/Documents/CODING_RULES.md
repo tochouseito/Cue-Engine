@@ -34,10 +34,10 @@
 - ファイル、フォルダ名は**大文字始まり**（PascalCase）
 - フォルダ構成:
   ```
-  projects/
-  ├── include/    # ヘッダファイル
-  ├── source/     # ソースファイル
-  └── shader/     # シェーダファイル
+  Projects/
+  ├── Include/    # ヘッダファイル
+  ├── Source/     # ソースファイル
+  └── Shader/     # シェーダファイル
   ```
 
 ---
