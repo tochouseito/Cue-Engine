@@ -1,5 +1,10 @@
 #pragma once
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace Cue::GraphicsCore
@@ -9,6 +14,10 @@ namespace Cue::GraphicsCore
     {
         // Tがトリビアルコピーであることを静的アサート
         static_assert(std::is_trivially_copyable_v<T>, "SlotUploadBuffer requires trivial types");
+        [[nodiscard]] static constexpr size_t round_up_to_multiple(size_t value, size_t alignment) noexcept
+        {
+            return alignment == 0 ? value : ((value + alignment - 1u) / alignment) * alignment;
+        }
     public:
         SlotUploader() = default;
         ~SlotUploader() = default;
@@ -25,7 +34,7 @@ namespace Cue::GraphicsCore
             m_capacity = capacity;
             m_alignment = alignment;
             m_stride = sizeof(T);
-            m_alignedStride = Math::round_up_to_multiple(m_stride, m_alignment);
+            m_alignedStride = round_up_to_multiple(m_stride, m_alignment);
             m_mappedData = mappedData;
 
             // 3) キュー準備

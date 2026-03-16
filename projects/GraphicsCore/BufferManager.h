@@ -26,6 +26,7 @@ namespace Cue::GraphicsCore
         virtual Result destroy_buffer(const BufferHandle& handle) = 0;
         virtual Result get_buffer(ResourceNameId nameId, uint32_t bufferIndex, BufferHandle& outHandle) = 0;
         virtual Result get_buffer_instance_count(ResourceNameId nameId, uint32_t& outCount) = 0;
+        virtual Result map_upload_buffer(const BufferHandle& handle, std::byte*& outMappedData) = 0;
         virtual Result write_buffer(const BufferHandle& handle, uint64_t byteOffset, const void* data, uint32_t byteSize) = 0;
     };
 } // namespace Cue::GraphicsCore

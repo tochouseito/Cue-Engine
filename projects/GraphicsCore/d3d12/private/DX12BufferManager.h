@@ -20,6 +20,7 @@ namespace Cue::GraphicsCore::DX12
         Result destroy_buffer(const BufferHandle& handle) override;
         Result get_buffer(ResourceNameId nameId, uint32_t bufferIndex, BufferHandle& outHandle) override;
         Result get_buffer_instance_count(ResourceNameId nameId, uint32_t& outCount) override;
+        Result map_upload_buffer(const BufferHandle& handle, std::byte*& outMappedData) override;
         Result write_buffer(const BufferHandle& handle, uint64_t byteOffset, const void* data, uint32_t byteSize) override;
         Result try_get_buffer(const BufferHandle& handle, GpuBufferResource*& outBuffer);
     private:

@@ -38,6 +38,7 @@ namespace Cue::GraphicsCore::DX12
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr;
         std::unique_ptr<SwapChain> m_swapChain = nullptr;
         std::unique_ptr<StaticMeshBufferPool> m_staticMeshBufferPool = nullptr;
+        std::unique_ptr<TransformBufferPool> m_transformBufferPool = nullptr;
     };
 
     D3D12Backend::D3D12Backend()
@@ -109,7 +110,20 @@ namespace Cue::GraphicsCore::DX12
             return r;
         }
 
-        // 5) スワップチェーンを初期化する
+        // 5) transform 用の upload/default ring buffer を確保し、update thread の SlotUploader 更新先を固定する。
+        TransformBufferPoolDesc transformPoolDesc = info.transformBufferPoolDesc;
+        if (transformPoolDesc.bufferingCount == 0)
+        {
+            transformPoolDesc.bufferingCount = info.bufferCount;
+        }
+        m_impl->m_transformBufferPool = std::make_unique<TransformBufferPool>();
+        r = m_impl->m_transformBufferPool->initialize(transformPoolDesc, *m_impl->m_bufferManager);
+        if (!r)
+        {
+            return r;
+        }
+
+        // 6) スワップチェーンを初期化する
         m_impl->m_swapChain = std::make_unique<SwapChain>(*m_impl->m_renderDevice, *m_impl->m_descriptorAllocator);
         QueueContextLease graphicsQueue;
         r = m_impl->m_queuePool->acquire_queue(CommandListType::Graphics, graphicsQueue);
@@ -145,6 +159,11 @@ namespace Cue::GraphicsCore::DX12
 
         // 2) FrameGraph と SwapChain を止め、以後の render/present 経路を無効化する。
         m_impl->m_swapChain.reset();
+        if (m_impl->m_transformBufferPool != nullptr)
+        {
+            m_impl->m_transformBufferPool->shutdown();
+        }
+        m_impl->m_transformBufferPool.reset();
         if (m_impl->m_staticMeshBufferPool != nullptr)
         {
             m_impl->m_staticMeshBufferPool->shutdown();
@@ -222,6 +241,10 @@ namespace Cue::GraphicsCore::DX12
     StaticMeshBufferPool* D3D12Backend::get_static_mesh_buffer_pool()
     {
         return m_impl->m_staticMeshBufferPool.get();
+    }
+    TransformBufferPool* D3D12Backend::get_transform_buffer_pool()
+    {
+        return m_impl->m_transformBufferPool.get();
     }
     void D3D12Backend::set_win_platform(Platform::IPlatform* platform)
     {

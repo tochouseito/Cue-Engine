@@ -2,6 +2,7 @@
 #include <FrameGraph.h>
 #include <Logger.h>
 #include <StaticMeshBufferPool.h>
+#include <TransformBufferPool.h>
 #include <filesystem>
 
 namespace Cue::GraphicsCore::Pass
@@ -50,8 +51,15 @@ namespace Cue::GraphicsCore::Pass
     class TestDrawPass final : public FrameGraphPass
     {
     public:
-        explicit TestDrawPass(StaticMeshAllocationHandle meshHandle)
+        explicit TestDrawPass(
+            StaticMeshAllocationHandle meshHandle,
+            TransformBufferPool& transformBufferPool,
+            TransformSlotHandle frontCubeTransformSlot,
+            TransformSlotHandle backCubeTransformSlot)
             : m_meshHandle(meshHandle)
+            , m_transformBufferPool(transformBufferPool)
+            , m_frontCubeTransformSlot(frontCubeTransformSlot)
+            , m_backCubeTransformSlot(backCubeTransformSlot)
         {
         }
 
@@ -97,7 +105,7 @@ namespace Cue::GraphicsCore::Pass
             };
             builder.use_root_signature(rootSignatureDesc);
 
-            // 4) Camera/Transform の upload heap constant buffer を frame resource ごとに確保し、execute では CPU 書き込みだけにする。
+            // 4) Camera 定数だけは pass 内 local buffer を使い、Transform は外部 pool の default buffer から bind する。
             BufferDesc cameraBufferDesc{};
             cameraBufferDesc.name = "TestDraw.CameraConstants";
             cameraBufferDesc.type = BufferType::Constant;
@@ -105,20 +113,6 @@ namespace Cue::GraphicsCore::Pass
             cameraBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(CameraConstants)));
             m_cameraConstantBuffer = builder.create_buffer(cameraBufferDesc.name, cameraBufferDesc);
             builder.bind_cbv(0, m_cameraConstantBuffer, ShaderVisibility::Vertex);
-
-            BufferDesc frontTransformBufferDesc{};
-            frontTransformBufferDesc.name = "TestDraw.FrontTransformConstants";
-            frontTransformBufferDesc.type = BufferType::Constant;
-            frontTransformBufferDesc.heapType = ResourceHeapType::Upload;
-            frontTransformBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(TransformConstants)));
-            m_frontTransformConstantBuffer = builder.create_buffer(frontTransformBufferDesc.name, frontTransformBufferDesc);
-
-            BufferDesc backTransformBufferDesc{};
-            backTransformBufferDesc.name = "TestDraw.BackTransformConstants";
-            backTransformBufferDesc.type = BufferType::Constant;
-            backTransformBufferDesc.heapType = ResourceHeapType::Upload;
-            backTransformBufferDesc.size = align_constant_buffer_size(static_cast<uint32_t>(sizeof(TransformConstants)));
-            m_backTransformConstantBuffer = builder.create_buffer(backTransformBufferDesc.name, backTransformBufferDesc);
 
             // 5) SoA の position/uv/normal stream を受ける VS/PS をコンパイル対象として宣言する。
             ShaderCompileDesc vertexShaderDesc{};
@@ -260,28 +254,80 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            BufferHandle resolvedFrontTransformBuffer{};
-            const Result resolveFrontTransformBufferResult = ctx.resolve_buffer(m_frontTransformConstantBuffer, resolvedFrontTransformBuffer);
-            if (!resolveFrontTransformBufferResult)
+            BufferHandle uploadTransformBuffer{};
+            const Result getUploadTransformBufferResult = m_transformBufferPool.get_upload_buffer(ctx.buffer_index(), uploadTransformBuffer);
+            if (!getUploadTransformBufferResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve front transform buffer.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get upload transform buffer.\n");
                 return;
             }
 
-            BufferHandle resolvedBackTransformBuffer{};
-            const Result resolveBackTransformBufferResult = ctx.resolve_buffer(m_backTransformConstantBuffer, resolvedBackTransformBuffer);
-            if (!resolveBackTransformBufferResult)
+            BufferHandle defaultTransformBuffer{};
+            const Result getDefaultTransformBufferResult = m_transformBufferPool.get_default_buffer(ctx.buffer_index(), defaultTransformBuffer);
+            if (!getDefaultTransformBufferResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to resolve back transform buffer.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get default transform buffer.\n");
+                return;
+            }
+
+            // 6) render index に対応する upload slot を default buffer へ転送し、draw 側は default heap だけを見る。
+            ResourceBarrierDesc barrierToCopyDest{};
+            barrierToCopyDest.kind = ResourceKind::Buffer;
+            barrierToCopyDest.index = defaultTransformBuffer.index;
+            barrierToCopyDest.generation = defaultTransformBuffer.generation;
+            barrierToCopyDest.before = ResourceState::Common;
+            barrierToCopyDest.after = ResourceState::CopyDest;
+            const Result barrierToCopyDestResult = ctx.command_context().resource_barrier(barrierToCopyDest);
+            if (!barrierToCopyDestResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to transition transform buffer to copy dest.\n");
+                return;
+            }
+
+            const uint64_t frontTransformByteOffset = m_transformBufferPool.slot_byte_offset(m_frontCubeTransformSlot);
+            const uint64_t backTransformByteOffset = m_transformBufferPool.slot_byte_offset(m_backCubeTransformSlot);
+            const uint64_t transformByteSize = static_cast<uint64_t>(m_transformBufferPool.slot_byte_size());
+            const Result copyFrontTransformResult = ctx.command_context().copy_buffer_region(
+                defaultTransformBuffer,
+                frontTransformByteOffset,
+                uploadTransformBuffer,
+                frontTransformByteOffset,
+                transformByteSize);
+            if (!copyFrontTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to copy front transform buffer.\n");
+                return;
+            }
+
+            const Result copyBackTransformResult = ctx.command_context().copy_buffer_region(
+                defaultTransformBuffer,
+                backTransformByteOffset,
+                uploadTransformBuffer,
+                backTransformByteOffset,
+                transformByteSize);
+            if (!copyBackTransformResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to copy back transform buffer.\n");
+                return;
+            }
+
+            ResourceBarrierDesc barrierToCommon = barrierToCopyDest;
+            barrierToCommon.before = ResourceState::CopyDest;
+            barrierToCommon.after = ResourceState::Common;
+            const Result barrierToCommonResult = ctx.command_context().resource_barrier(barrierToCommon);
+            if (!barrierToCommonResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to transition transform buffer to common.\n");
                 return;
             }
 
             BufferViewDesc transformViewDesc{};
             transformViewDesc.type = ViewType::ConstantBuffer;
-            transformViewDesc.byteSize = static_cast<uint32_t>(sizeof(TransformConstants));
+            transformViewDesc.byteSize = static_cast<uint32_t>(sizeof(Core::Native::ObjectTransformGpu));
 
             ViewHandle frontTransformView{};
-            const Result getFrontTransformViewResult = ctx.view_manager().get_buffer_view(resolvedFrontTransformBuffer, transformViewDesc, frontTransformView);
+            transformViewDesc.byteOffset = frontTransformByteOffset;
+            const Result getFrontTransformViewResult = ctx.view_manager().get_buffer_view(defaultTransformBuffer, transformViewDesc, frontTransformView);
             if (!getFrontTransformViewResult)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get front transform view.\n");
@@ -293,40 +339,6 @@ namespace Cue::GraphicsCore::Pass
             if (!getFrontTransformDescriptorResult)
             {
                 Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get front transform descriptor.\n");
-                return;
-            }
-
-            ViewHandle backTransformView{};
-            const Result getBackTransformViewResult = ctx.view_manager().get_buffer_view(resolvedBackTransformBuffer, transformViewDesc, backTransformView);
-            if (!getBackTransformViewResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform view.\n");
-                return;
-            }
-
-            DescriptorHandle backTransformDescriptor{};
-            const Result getBackTransformDescriptorResult = ctx.view_manager().get_descriptor_handle(backTransformView, backTransformDescriptor);
-            if (!getBackTransformDescriptorResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform descriptor.\n");
-                return;
-            }
-
-            // 6) 手前の大きい cube を先に描き、深度無しで奥の cube が上書く不具合を観察しやすくする。
-            const float rotationRadians = static_cast<float>(ctx.frame_no()) * 0.01f;
-            TransformConstants frontTransformConstants{};
-            frontTransformConstants.world = Math::make_affine_matrix(
-                Math::float3(1.75f, 1.75f, 1.75f),
-                Math::float3(rotationRadians, 0.0f, 0.0f),
-                Math::float3(0.0f, 0.0f, 0.0f));
-            const Result writeFrontTransformResult = ctx.write_buffer(
-                m_frontTransformConstantBuffer,
-                0,
-                &frontTransformConstants,
-                static_cast<uint32_t>(sizeof(frontTransformConstants)));
-            if (!writeFrontTransformResult)
-            {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to update front transform constants.\n");
                 return;
             }
 
@@ -344,20 +356,20 @@ namespace Cue::GraphicsCore::Pass
                 return;
             }
 
-            // 7) 奥の小さい cube を後から描き、深度リソース未作成時に前景へ食い込むか確認する。
-            TransformConstants backTransformConstants{};
-            backTransformConstants.world = Math::make_affine_matrix(
-                Math::float3::one(),
-                Math::float3(rotationRadians, 0.0f, 0.0f),
-                Math::float3(0.0f, 0.0f, 2.0f));
-            const Result writeBackTransformResult = ctx.write_buffer(
-                m_backTransformConstantBuffer,
-                0,
-                &backTransformConstants,
-                static_cast<uint32_t>(sizeof(backTransformConstants)));
-            if (!writeBackTransformResult)
+            ViewHandle backTransformView{};
+            transformViewDesc.byteOffset = backTransformByteOffset;
+            const Result getBackTransformViewResult = ctx.view_manager().get_buffer_view(defaultTransformBuffer, transformViewDesc, backTransformView);
+            if (!getBackTransformViewResult)
             {
-                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to update back transform constants.\n");
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform view.\n");
+                return;
+            }
+
+            DescriptorHandle backTransformDescriptor{};
+            const Result getBackTransformDescriptorResult = ctx.view_manager().get_descriptor_handle(backTransformView, backTransformDescriptor);
+            if (!getBackTransformDescriptorResult)
+            {
+                Core::Logger::log(Core::LogSink::debugConsole, "[TestDrawPass] failed to get back transform descriptor.\n");
                 return;
             }
 
@@ -381,17 +393,13 @@ namespace Cue::GraphicsCore::Pass
             Math::float4x4 viewProjection = Math::float4x4::identity();
         };
 
-        struct TransformConstants final
-        {
-            Math::float4x4 world = Math::float4x4::identity();
-        };
-
         GraphicsCore::TextureHandle m_finalColor{};
         GraphicsCore::TextureHandle m_depthBuffer{};
         GraphicsCore::BufferHandle m_cameraConstantBuffer{};
-        GraphicsCore::BufferHandle m_frontTransformConstantBuffer{};
-        GraphicsCore::BufferHandle m_backTransformConstantBuffer{};
         std::string m_shaderFilePath{};
         StaticMeshAllocationHandle m_meshHandle{};
+        TransformBufferPool& m_transformBufferPool;
+        TransformSlotHandle m_frontCubeTransformSlot{};
+        TransformSlotHandle m_backCubeTransformSlot{};
     };
 }

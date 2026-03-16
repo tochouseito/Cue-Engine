@@ -87,12 +87,32 @@ namespace Cue
             cubeAllocationHandle = allocations.front();
         }
 
-        // 4) render graph と present graph を生成する
+        GraphicsCore::TransformBufferPool* transformBufferPool = m_graphicsBackend->get_transform_buffer_pool();
+        if (transformBufferPool == nullptr)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "TransformBufferPool is not available.");
+            return false;
+        }
+
+        // 4) GameCore を初期化し、update thread が書く transform slot と upload buffer を先に用意する。
+        m_gameCore = std::make_unique<Cue::GameCore>();
+        r = m_gameCore->initialize(*transformBufferPool);
+        if (!r)
+        {
+            Core::Logger::log(Core::LogSink::debugConsole, "Failed to initialize GameCore transform slots.");
+            return false;
+        }
+
+        // 5) render graph と present graph を生成する
         m_graphicsBackend->create_frame_graph(m_frameGraph);
         m_graphicsBackend->create_frame_graph(m_presentFrameGraph);
 
-        // 5) pass 登録と graph build を行う
-        r = m_frameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(cubeAllocationHandle));
+        // 6) pass 登録と graph build を行う
+        r = m_frameGraph->add_pass(std::make_unique<GraphicsCore::Pass::TestDrawPass>(
+            cubeAllocationHandle,
+            *transformBufferPool,
+            m_gameCore->front_cube_transform_slot(),
+            m_gameCore->back_cube_transform_slot()));
         if (!r)
         {
             Core::Logger::log(Core::LogSink::debugConsole, "Failed to add TestDrawPass to frame graph.");
@@ -131,9 +151,6 @@ namespace Cue
             Core::Logger::log(Core::LogSink::debugConsole, "Failed to build present frame graph.");
             return false;
         }
-
-        // 6) GameCore を初期化する
-        m_gameCore = std::make_unique<Cue::GameCore>();
 
         // 7) platform を開始して実行可能状態へ入れる
         m_platform->start();
@@ -189,11 +206,10 @@ namespace Cue
     }
     std::function<void(uint64_t, uint32_t)> Engine::update()
     {
-        // 1) 更新コールバック返却
-        // 2) 仮実装で入力だけ受理
+        // 1) 更新コールバックを返し、GameCore の simulation を update thread から進める。
         return [this](uint64_t frameNo, uint32_t index)
             {
-                // 1) 仮実装のため入力だけ受理
+                // 1) frame index ごとの transform queue を更新し、render thread が別 slot を安全に読めるようにする。
                 m_gameCore->update(frameNo, index);
             };
     }

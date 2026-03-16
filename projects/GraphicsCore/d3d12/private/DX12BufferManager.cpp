@@ -149,6 +149,20 @@ namespace Cue::GraphicsCore::DX12
         outCount = static_cast<uint32_t>(it->second.size());
         return Result::ok();
     }
+    Result DX12BufferManager::map_upload_buffer(const BufferHandle& handle, std::byte*& outMappedData)
+    {
+        // 1) UploadBuffer の永続 map は buffer 実体側へ委譲し、上位はポインタだけ受け取る。
+        outMappedData = nullptr;
+
+        GpuBufferResource* buffer = nullptr;
+        const Result resolveResult = try_get_buffer(handle, buffer);
+        if (!resolveResult)
+        {
+            return resolveResult;
+        }
+
+        return buffer->map_upload_buffer(outMappedData);
+    }
     Result DX12BufferManager::write_buffer(const BufferHandle& handle, uint64_t byteOffset, const void* data, uint32_t byteSize)
     {
         // 1) UploadBuffer 以外への CPU 書き込みは backend 依存の誤用なので、その場で止める。
@@ -186,20 +200,14 @@ namespace Cue::GraphicsCore::DX12
             return Result::fail(Facility::Graphics, Code::InvalidArg, Severity::Error, 0, "Buffer is not created on upload heap");
         }
 
-        void* mappedData = nullptr;
-        D3D12_RANGE readRange{ 0, 0 };
-        hr = resource->Map(0, &readRange, &mappedData);
-        if (FAILED(hr) || mappedData == nullptr)
+        std::byte* mappedData = nullptr;
+        const Result mapResult = buffer->map_upload_buffer(mappedData);
+        if (!mapResult)
         {
-            return Result::fail(Facility::Graphics, Code::InvalidState, Severity::Error, static_cast<uint32_t>(hr), "Failed to map upload buffer");
+            return mapResult;
         }
 
-        std::memcpy(static_cast<std::byte*>(mappedData) + byteOffset, data, byteSize);
-
-        D3D12_RANGE writtenRange{};
-        writtenRange.Begin = static_cast<SIZE_T>(byteOffset);
-        writtenRange.End = static_cast<SIZE_T>(byteOffset + byteSize);
-        resource->Unmap(0, &writtenRange);
+        std::memcpy(mappedData + byteOffset, data, byteSize);
         return Result::ok();
     }
     Result DX12BufferManager::try_get_buffer(const BufferHandle& handle, GpuBufferResource*& outBuffer)

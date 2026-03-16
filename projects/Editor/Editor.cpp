@@ -50,6 +50,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     backendSetupInfo.bufferCount = 3;
     backendSetupInfo.screenWidth = win->window_width();
     backendSetupInfo.screenHeight = win->window_height();
+    backendSetupInfo.transformBufferPoolDesc.slotCapacity = 2;
     d3d12Backend->initialize(backendSetupInfo);
 
     // 4) editor 初期化

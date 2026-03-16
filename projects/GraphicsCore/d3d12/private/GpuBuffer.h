@@ -256,9 +256,84 @@ namespace Cue::GraphicsCore::DX12
         UINT get_stride() const { return m_stride; }
         // バイトサイズの取得（RawBuffer 用）
         UINT64 get_byte_size() const { return get_resource_desc().Width; }
+        Result map_upload_buffer(std::byte*& outMappedData)
+        {
+            // 1) upload heap は永続 map して SlotUploader から毎フレーム再利用できる形にする。
+            outMappedData = nullptr;
+            ID3D12Resource* resource = get_resource();
+            if (resource == nullptr)
+            {
+                return Result::fail(
+                    Facility::GraphicsCore,
+                    Code::InvalidState,
+                    Severity::Error,
+                    false,
+                    "Buffer resource is null.");
+            }
+
+            D3D12_HEAP_PROPERTIES actualHeapProperties{};
+            D3D12_HEAP_FLAGS heapFlags = D3D12_HEAP_FLAG_NONE;
+            const HRESULT heapResult = resource->GetHeapProperties(&actualHeapProperties, &heapFlags);
+            if (FAILED(heapResult))
+            {
+                return Result::fail(
+                    Facility::GraphicsCore,
+                    Code::InvalidState,
+                    Severity::Error,
+                    static_cast<uint32_t>(heapResult),
+                    "Failed to query heap properties.");
+            }
+            if (actualHeapProperties.Type != D3D12_HEAP_TYPE_UPLOAD)
+            {
+                return Result::fail(
+                    Facility::GraphicsCore,
+                    Code::InvalidArg,
+                    Severity::Error,
+                    false,
+                    "Buffer is not created on upload heap.");
+            }
+
+            if (m_mappedData == nullptr)
+            {
+                void* mapped = nullptr;
+                const D3D12_RANGE readRange{ 0, 0 };
+                const HRESULT mapResult = resource->Map(0, &readRange, &mapped);
+                if (FAILED(mapResult) || mapped == nullptr)
+                {
+                    return Result::fail(
+                        Facility::GraphicsCore,
+                        Code::InvalidState,
+                        Severity::Error,
+                        static_cast<uint32_t>(mapResult),
+                        "Failed to map upload buffer.");
+                }
+
+                m_mappedData = static_cast<std::byte*>(mapped);
+            }
+
+            outMappedData = m_mappedData;
+            return Result::ok();
+        }
+        bool destroy() override
+        {
+            // 1) 永続 map を先に閉じ、destroy 時に upload buffer の生ポインタが残らないようにする。
+            if (m_mappedData != nullptr)
+            {
+                ID3D12Resource* resource = get_resource();
+                if (resource != nullptr)
+                {
+                    const D3D12_RANGE writtenRange{ 0, 0 };
+                    resource->Unmap(0, &writtenRange);
+                }
+                m_mappedData = nullptr;
+            }
+
+            return GpuResource::destroy();
+        }
     private:
         UINT m_numElements = 0;
         UINT m_stride = 0;
+        std::byte* m_mappedData = nullptr;
     };
 
     class GpuTextureResource : public GpuResource
