@@ -11,7 +11,8 @@
 // === Engine includes ===
 #include <Engine.h>
 
-int main()
+// windows アプリのエントリーポイント
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
 
 

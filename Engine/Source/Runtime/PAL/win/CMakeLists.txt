@@ -1,7 +1,7 @@
 # windows platform の CMakeLists.txt
 
 # スタティックライブラリを作成
-add_library(win_platform STATIC "win_platform.h" "win_platform.cpp")
+add_library(win_platform STATIC "win_platform.h" "win_platform.cpp" "App/WinApp.h" "App/WinApp.cpp" "IO/WinFileSystem.h" "IO/WinFileSystem.cpp" "Threading/WinThread.h" "Threading/WinThread.cpp" "Threading/WinThreadFactory.h" "Threading/WinThreadFactory.cpp" "Time/WinQpcClock.h" "Time/WinQpcClock.cpp" "Time/WInWaiter.h" "Time/WinWaiter.cpp" "stdafx.h")
 
 # リンクするライブラリの指定
 target_link_libraries(win_platform PUBLIC

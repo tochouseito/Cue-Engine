@@ -3,6 +3,9 @@
 // === PAL include ===
 #include <PAL.h>
 
+// === Windows API include ===
+#include "stdafx.h"
+
 namespace Cue::PAL::Win
 {
     class WinPlatform final : public IPlatform
