@@ -1,10 +1,19 @@
-#include <iostream>
-#define CUE_PLATFORM_WINDOWS
+// === Base includes ===
+#include <Result.h>
 #include <CueAssert.h>
+
+// === Windows includes ===
+#include <win_platform.h>
+
+// === d3d12_backend includes ===
+#include <d3d12_backend.h>
+
+// === Engine includes ===
+#include <Engine.h>
 
 int main()
 {
-    std::cout << "Hello, Editor!" << std::endl;
-    CUE_ASSERTF(false, "Test assertion failed %d", 42);
+
+
     return 0;
 }

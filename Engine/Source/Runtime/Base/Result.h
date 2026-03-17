@@ -54,7 +54,7 @@ namespace Cue
         // 成功のデフォルト値を返す
         static Result ok() noexcept
         {
-            return {};
+            return Result{};
         }
 
         // エラーを作成

@@ -5,6 +5,22 @@
 #include <cstdint>
 #include <source_location>
 
+/*
+%d → int
+
+%u → unsigned int
+
+%f → float / double
+
+%c → 1文字
+
+%s → 文字列（C文字列）
+
+%x → 16進数
+
+%p → ポインタ
+*/
+
 namespace Cue
 {
     // アサート失敗のコンテキスト情報
