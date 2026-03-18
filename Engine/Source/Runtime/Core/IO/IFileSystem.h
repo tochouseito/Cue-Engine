@@ -105,9 +105,10 @@ namespace Cue::Core::IO
     public:
         IFileSystem() = default;
         virtual ~IFileSystem() = default;
-
+        // コピー禁止
         IFileSystem(const IFileSystem&) = delete;
         IFileSystem& operator=(const IFileSystem&) = delete;
+        // ムーブ禁止
         IFileSystem(IFileSystem&&) = delete;
         IFileSystem& operator=(IFileSystem&&) = delete;
 

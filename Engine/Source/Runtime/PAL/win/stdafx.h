@@ -4,3 +4,8 @@
 #include <Windows.h>
 #include <process.h>
 #include <new>
+#include <timeapi.h>
+#include <wrl.h>
+#ifdef CUE_DEBUG
+#include <debugapi.h>
+#endif

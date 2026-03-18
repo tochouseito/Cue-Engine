@@ -13,6 +13,12 @@ namespace Cue::PAL
 
     };
 
+    enum class PlatformMessage : uint8_t
+    {
+        None = 0,
+        Quit,
+    };
+
     class IPlatform
     {
     public:
@@ -22,6 +28,6 @@ namespace Cue::PAL
         virtual Result shutdown() = 0;
         virtual Result begin_frame() = 0;
         virtual Result end_frame() = 0;
-        virtual Result poll_message() = 0;
+        virtual PlatformMessage poll_message() = 0;
     };
 }

@@ -27,6 +27,12 @@ namespace Cue::Core::Threading
     {
     public:
         virtual ~IThread() = default;
+        // コピー禁止
+        IThread(const IThread&) = delete;
+        IThread& operator=(const IThread&) = delete;
+        // ムーブは実装側で定義しても良いが、ここでは禁止しておく
+        IThread(IThread&&) = delete;
+        IThread& operator=(IThread&&) = delete;
 
         virtual bool joinable() const noexcept = 0;
         virtual Result join() noexcept = 0;

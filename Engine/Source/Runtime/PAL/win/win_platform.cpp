@@ -1,4 +1,5 @@
 #include "win_platform.h"
+#include "ConvertHresult.h"
 
 namespace Cue::PAL
 {
@@ -11,13 +12,32 @@ namespace Cue::PAL
 namespace Cue::PAL::Win
 {
     WinPlatform::WinPlatform()
-    {}
+    {
+        
+    }
     WinPlatform::~WinPlatform()
-    {}
+    {
+        
+    }
     Result WinPlatform::initialize(const platform_setup_info & info)
     {
-        info;
-        return Result();
+        // COM を初期化する
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (success(convert_hresult_code(hr)))
+        {
+            m_isComInitialized = true;
+        }
+        else
+        {
+            return Result::fail(
+                convert_hresult_code(hr), Severity::Fatal,
+                "Failed to initialize COM.");
+        }
+
+        // タイムスライスの精度を上げる
+        ::timeBeginPeriod(1);
+
+        return Result::ok();
     }
     Result WinPlatform::start()
     {
@@ -25,6 +45,16 @@ namespace Cue::PAL::Win
     }
     Result WinPlatform::shutdown()
     {
+        // COM を終了する
+        if (m_isComInitialized)
+        {
+            CoUninitialize();
+            m_isComInitialized = false;
+        }
+
+        // タイムスライスの精度を元に戻す
+        ::timeEndPeriod(1);
+
         return Result();
     }
     Result WinPlatform::begin_frame()
@@ -35,8 +65,8 @@ namespace Cue::PAL::Win
     {
         return Result();
     }
-    Result WinPlatform::poll_message()
+    PlatformMessage WinPlatform::poll_message()
     {
-        return Result();
+        return PlatformMessage::None;
     }
 }

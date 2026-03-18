@@ -18,6 +18,8 @@ namespace Cue::PAL::Win
         Result shutdown() override;
         Result begin_frame() override;
         Result end_frame() override;
-        Result poll_message() override;
+        PlatformMessage poll_message() override;
+    private:
+        bool m_isComInitialized = false; // COM 初期化フラグ
     };
 }
