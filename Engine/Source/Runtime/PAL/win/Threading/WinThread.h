@@ -62,5 +62,7 @@ namespace Cue::PAL::Win
     private:
         void* m_handle = nullptr; // スレッドハンドル
         uint32_t m_threadId = 0; // スレッドID
+        std::unique_ptr<StartContext> m_ctx{};
+        bool m_joinable = false;
     };
 }

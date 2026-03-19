@@ -26,6 +26,7 @@ namespace Cue::Core::Threading
     class IThread
     {
     public:
+        IThread() noexcept = default;
         virtual ~IThread() = default;
         // コピー禁止
         IThread(const IThread&) = delete;
