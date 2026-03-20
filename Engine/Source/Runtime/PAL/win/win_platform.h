@@ -2,9 +2,14 @@
 
 // === PAL include ===
 #include <PAL.h>
+#include <PlatformMessage.h>
+
+// === C++ include ===
+#include <memory>
 
 // === Windows API include ===
 #include "stdafx.h"
+#include "App/WinApp.h"
 
 namespace Cue::PAL::Win
 {
@@ -21,5 +26,6 @@ namespace Cue::PAL::Win
         PlatformMessage poll_message() override;
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
+        std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ
     };
 }

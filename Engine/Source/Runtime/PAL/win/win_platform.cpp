@@ -1,5 +1,6 @@
 #include "win_platform.h"
 #include "ConvertHresult.h"
+#include "ConvertUTF.h"
 
 namespace Cue::PAL
 {
@@ -13,7 +14,7 @@ namespace Cue::PAL::Win
 {
     WinPlatform::WinPlatform()
     {
-        
+        m_app = std::make_unique<WinApp>();
     }
     WinPlatform::~WinPlatform()
     {
@@ -37,11 +38,36 @@ namespace Cue::PAL::Win
         // タイムスライスの精度を上げる
         ::timeBeginPeriod(1);
 
+        // ウィンドウを作成する
+        std::wstring wideClassName;
+        Result r = utf8_to_wide(info.className, &wideClassName);
+        if(!r)
+        {
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to convert window class name from UTF-8 to wide char.");
+        }
+        std::wstring wideTitle;
+        r = utf8_to_wide(info.title, &wideTitle);
+        if(!r)
+        {
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to convert window title from UTF-8 to wide char.");
+        }
+        r = m_app->create_window(info.width, info.height, wideClassName.c_str(), wideTitle.c_str());
+        if(!r)
+        {
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to create window.");
+        }
+
         return Result::ok();
     }
     Result WinPlatform::start()
     {
-        return Result();
+        return m_app->show_window();
     }
     Result WinPlatform::shutdown()
     {
@@ -67,6 +93,6 @@ namespace Cue::PAL::Win
     }
     PlatformMessage WinPlatform::poll_message()
     {
-        return PlatformMessage::None;
+        return m_app->pump_message();
     }
 }

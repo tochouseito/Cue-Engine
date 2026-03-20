@@ -8,6 +8,7 @@ target_link_libraries(win_platform PUBLIC
     cue_warnings
     cue_compile_options
     Base
+    CueMath
     Core
     PAL
 )

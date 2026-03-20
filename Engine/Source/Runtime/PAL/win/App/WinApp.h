@@ -9,7 +9,8 @@
 #include <memory>
 
 // === Windows API include ===
-#include "win_platform.h"
+#include "stdafx.h"
+#include "PlatformMessage.h"
 
 namespace Cue::PAL::Win
 {
@@ -44,7 +45,7 @@ namespace Cue::PAL::Win
         // --- ウィンドウ操作 ---
         Result create_window(uint32_t width, uint32_t height, const wchar_t* className, const wchar_t* titleName);
         void destroy_window();
-        void show_window(ShowWindowFlag flag = ShowWindowFlag::Normal);
+        Result show_window(ShowWindowFlag flag = ShowWindowFlag::Normal);
         PlatformMessage pump_message();
 
         // --- サイズ取得 ---

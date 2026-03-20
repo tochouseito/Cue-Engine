@@ -5,18 +5,16 @@
 
 // === PAL includes ===
 #include "PlatformFactory.h"
+#include "PlatformMessage.h"
 
 namespace Cue::PAL
 {
     struct platform_setup_info final
     {
-
-    };
-
-    enum class PlatformMessage : uint8_t
-    {
-        None = 0,
-        Quit,
+        uint32_t width = 0; // ウィンドウ幅
+        uint32_t height = 0; // ウィンドウ高さ
+        const char* className = nullptr; // ウィンドウクラス名
+        const char* title = nullptr; // ウィンドウタイトル
     };
 
     class IPlatform

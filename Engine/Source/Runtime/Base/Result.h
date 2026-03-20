@@ -24,7 +24,28 @@ namespace Cue
         UnknownError,       // 不明なエラー
     };
 
-    bool success(const Code& code) noexcept
+    // Codeを文字列に変換するユーティリティ関数
+    [[nodiscard]] inline const char* to_string(Code code) noexcept
+    {
+        switch (code)
+        {
+        case Code::OK: return "OK";
+        case Code::InvalidArgument: return "InvalidArgument";
+        case Code::NotFound: return "NotFound";
+        case Code::Unsupported: return "Unsupported";
+        case Code::OutOfMemory: return "OutOfMemory";
+        case Code::AccessDenied: return "AccessDenied";
+        case Code::DeviceLost: return "DeviceLost";
+        case Code::InitializeFailed: return "InitializeFailed";
+        case Code::CreateFailed: return "CreateFailed";
+        case Code::GetFailed: return "GetFailed";
+        case Code::InternalError: return "InternalError";
+        case Code::UnknownError: return "UnknownError";
+        default: return "UnknownCode";
+        }
+    }
+
+    inline bool success(const Code& code) noexcept
     {
         return code == Code::OK;
     }
@@ -37,6 +58,19 @@ namespace Cue
         Error,
         Fatal,
     };
+
+    // Severityを文字列に変換するユーティリティ関数
+    [[nodiscard]] inline const char* to_string(Severity severity) noexcept
+    {
+        switch (severity)
+        {
+        case Severity::Info: return "Info";
+        case Severity::Warning: return "Warning";
+        case Severity::Error: return "Error";
+        case Severity::Fatal: return "Fatal";
+        default: return "UnknownSeverity";
+        }
+    }
 
     // 結果構造体
     struct Result final

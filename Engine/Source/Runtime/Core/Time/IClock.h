@@ -1,6 +1,10 @@
 #pragma once
-#include <cstdint>
+
+// === Math Includes ===
 #include <TimeUnit.h>
+
+// === C++ Includes ===
+#include <cstdint>
 
 namespace Cue::Core::Time
 {

@@ -41,6 +41,13 @@ namespace Cue::PAL::Win
         wc.hInstance = hInstance;
         wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
 
+        if (!::RegisterClassExW(&wc))
+        {
+            return Result::fail(
+                Code::CreateFailed, Severity::Fatal,
+                "Failed to register window class.");
+        }
+
         // クライアントサイズ維持でウィンドウの作成
         RECT rc = { 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) };
         ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
@@ -68,23 +75,28 @@ namespace Cue::PAL::Win
             m_hwnd = nullptr;
         }
     }
-    void WinApp::show_window(ShowWindowFlag flag)
+    Result WinApp::show_window(ShowWindowFlag flag)
     {
         if (!m_hwnd)
         {
-            return;
+            return Result::fail(
+                Code::InvalidArgument, Severity::Error,
+                "Window handle is null.");
         }
 
         switch (flag)
         {
         case Cue::PAL::Win::ShowWindowFlag::Normal:
             ::ShowWindow(m_hwnd, SW_SHOW);
+            return Result::ok();
             break;
         case Cue::PAL::Win::ShowWindowFlag::Maximized:
             ::ShowWindow(m_hwnd, SW_MAXIMIZE);
+            return Result::ok();
             break;
         default:
             ::ShowWindow(m_hwnd, SW_SHOW);
+            return Result::ok();
             break;
         }
     }

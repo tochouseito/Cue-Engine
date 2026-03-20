@@ -1,7 +1,7 @@
 # Platform Abstraction Layer
 
 # スタティックライブラリを作成
-add_library(PAL STATIC "PAL.cpp" "PAL.h" "PlatformFactory.h")
+add_library(PAL STATIC "PAL.cpp" "PAL.h" "PlatformFactory.h" "PlatformMessage.h")
 
 # リンクするライブラリの指定
 target_link_libraries(PAL PUBLIC
@@ -9,6 +9,9 @@ target_link_libraries(PAL PUBLIC
     cue_compile_options
     Base
     Core
+)
+target_link_libraries(PAL PRIVATE
+    winmm
 )
 
 # インクルードディレクトリの追加
