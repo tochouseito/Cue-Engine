@@ -52,6 +52,12 @@ namespace Cue::PAL::Win
         [[nodiscard]] WindowSize get_client_size() const noexcept;
         [[nodiscard]] WindowSize get_window_size() const noexcept;
 
+        // ウィンドウハンドルの取得
+        [[nodiscard]] HWND get_window_handle() const noexcept
+        {
+            return m_hwnd;
+        }
+
         // --- メッセージハンドラ管理 ---
         LRESULT on_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
         static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

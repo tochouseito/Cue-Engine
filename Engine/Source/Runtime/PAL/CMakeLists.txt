@@ -10,9 +10,6 @@ target_link_libraries(PAL PUBLIC
     Base
     Core
 )
-target_link_libraries(PAL PRIVATE
-    winmm
-)
 
 # インクルードディレクトリの追加
 target_include_directories(PAL PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -9,6 +9,8 @@
 
 // === Windows API include ===
 #include "stdafx.h"
+#include "ConvertHresult.h"
+#include "ConvertUTF.h"
 #include "App/WinApp.h"
 
 namespace Cue::PAL::Win
@@ -24,6 +26,10 @@ namespace Cue::PAL::Win
         Result begin_frame() override;
         Result end_frame() override;
         PlatformMessage poll_message() override;
+        HWND get_window_handle() const noexcept
+        {
+            return m_app ? m_app->get_window_handle() : nullptr;
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ

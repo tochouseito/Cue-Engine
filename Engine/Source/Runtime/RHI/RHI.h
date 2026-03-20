@@ -1,14 +1,7 @@
 #pragma once
 
-// === Base includes ===
-#include <Result.h>
-
 // === RHI includes ===
-#include "BackendFactory.h"
-#include "FrameGraph.h"
-
-// === C++ includes ===
-#include <cstdint>
+#include "RHICommon.h"
 
 namespace Cue::RHI
 {

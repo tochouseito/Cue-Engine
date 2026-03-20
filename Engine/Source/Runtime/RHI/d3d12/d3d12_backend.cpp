@@ -4,24 +4,31 @@ namespace Cue::RHI
 {
     std::unique_ptr<IBackend> create_backend()
     {
-        return std::make_unique<D3D12::D3D12Backend>();
+        return std::make_unique<DX12::D3D12Backend>();
     }
 }
 
-namespace Cue::RHI::D3D12
+namespace Cue::RHI::DX12
 {
-    D3D12Backend::D3D12Backend()
-    {}
-    D3D12Backend::~D3D12Backend()
-    {}
     Result D3D12Backend::initialize(const backend_setup_info & info)
     {
-        info;
-        return Result();
+        // レンダーデバイスの初期化
+        m_renderDevice = std::make_unique<DX12::DX12RenderDevice>();
+        Result r = m_renderDevice->initialize(info.enableDebugLayer);
+        if (!r)
+        {
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to initialize D3D12 render device.");
+        }
+
+        return Result::ok();
     }
     Result D3D12Backend::shutdown()
     {
-        return Result();
+        m_renderDevice.reset();
+
+        return Result::ok();
     }
     Result D3D12Backend::render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph)
     {

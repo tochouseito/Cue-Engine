@@ -74,7 +74,7 @@ namespace Cue::PAL::Win
         // COM を終了する
         if (m_isComInitialized)
         {
-            CoUninitialize();
+            ::CoUninitialize();
             m_isComInitialized = false;
         }
 

@@ -12,6 +12,14 @@ target_link_libraries(win_platform PUBLIC
     Core
     PAL
 )
+target_link_libraries(win_platform PRIVATE
+    winmm
+)
 
 # インクルードディレクトリの追加
 target_include_directories(win_platform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# マクロ
+target_compile_definitions(win_platform PRIVATE
+    CUE_PLATFORM_WINDOWS
+)

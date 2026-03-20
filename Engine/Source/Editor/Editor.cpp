@@ -33,6 +33,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.file, r.line, r.function);
     }
 
+    // レンダリングバックエンドの作成
+    auto backend = std::make_unique<RHI::DX12::D3D12Backend>();
+    backend->set_win_platform(platform.get());
+
+    // レンダリングバックエンドの初期化
+    RHI::backend_setup_info backendInfo{};
+    backendInfo.enableDebugLayer = true;
+    backendInfo.width = platformInfo.width;
+    backendInfo.height = platformInfo.height;
+    r = backend->initialize(backendInfo);
+    if (!r)
+    {
+        CUE_ASSERTF(false, "Failed to initialize rendering backend: %s (code: %s, severity: %s) at %s:%u in function %s",
+            r.message.data(), to_string(r.code), to_string(r.severity),
+            r.file, r.line, r.function);
+    }
+
     // プラットフォームの開始
     r = platform->start();
 
@@ -46,6 +63,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             isRunning = false;
         }
     }
+
+    // レンダリングバックエンドのシャットダウン
+    backend->shutdown();
 
     // プラットフォームのシャットダウン
     platform->shutdown();
