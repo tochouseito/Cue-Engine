@@ -34,5 +34,8 @@ namespace Cue::RHI
 
         /// @brief 指定フレームの提示処理を実行します。
         virtual Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) = 0;
+
+        /// @brief FrameGraph の生成
+        virtual Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
     };
 }

@@ -1,0 +1,180 @@
+#include "HLSLCompiler.h"
+#include <CueAssert.h>
+
+namespace Cue::RHI::DX12
+{
+    namespace
+    {
+        std::wstring shader_profile_to_wstring(D3D_SHADER_MODEL model)
+        {
+            switch (model)
+            {
+            case D3D_SHADER_MODEL_NONE:
+                return L"Unknown Model";
+                break;
+            case D3D_SHADER_MODEL_5_1:
+                return L"5_1";
+                break;
+            case D3D_SHADER_MODEL_6_0:
+                return L"6_0";
+                break;
+            case D3D_SHADER_MODEL_6_1:
+                return L"6_1";
+                break;
+            case D3D_SHADER_MODEL_6_2:
+                return L"6_2";
+                break;
+            case D3D_SHADER_MODEL_6_3:
+                return L"6_3";
+                break;
+            case D3D_SHADER_MODEL_6_4:
+                return L"6_4";
+                break;
+            case D3D_SHADER_MODEL_6_5:
+                return L"6_5";
+                break;
+            case D3D_SHADER_MODEL_6_6:
+                return L"6_6";
+                break;
+            case D3D_SHADER_MODEL_6_7:
+                return L"6_7";
+                break;
+            case D3D_SHADER_MODEL_6_8:
+                return L"6_8";
+                break;
+            case D3D_SHADER_MODEL_6_9:
+                return L"6_9";
+                break;
+            default:
+                return L"Unknown Model";
+                break;
+            }
+        }
+    }
+
+    HLSLCompiler::HLSLCompiler()
+    {
+        HRESULT hr = S_OK;
+        // dxc utility 生成
+        hr = DxcCreateInstance(
+            CLSID_DxcUtils,
+            IID_PPV_ARGS(&m_dxcUtils)
+        );
+        if (FAILED(hr))
+        {
+            CUE_ASSERT_MSG(false, "Failed to create DxcUtils instance.");
+        }
+        // dxc compiler 生成
+        hr = DxcCreateInstance(
+            CLSID_DxcCompiler,
+            IID_PPV_ARGS(&m_dxcCompiler)
+        );
+        if (FAILED(hr))
+        {
+            CUE_ASSERT_MSG(false, "Failed to create DxcCompiler instance.");
+        }
+        // include handler 生成
+        hr = m_dxcUtils->CreateDefaultIncludeHandler(&m_dxcIncludeHandler);
+        if (FAILED(hr))
+        {
+            CUE_ASSERT_MSG(false, "Failed to create default include handler.");
+        }
+    }
+    ComPtr<IDxcBlob> HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc)
+    {
+        HRESULT hr = {};
+        Result r{};
+        ComPtr<IDxcBlobEncoding> pSource = nullptr;
+
+        // utf-8 からワイド文字列へ変換
+        std::wstring name = L"";
+        r = PAL::Win::utf8_to_wide(desc.name, &name);
+        std::wstring filePath = L"";
+        r = PAL::Win::utf8_to_wide(desc.filePath, &filePath);
+        std::wstring entryPoint = L"";
+        r = PAL::Win::utf8_to_wide(desc.entryPoint, &entryPoint);
+        std::wstring targetProfile = L"";
+        r = PAL::Win::utf8_to_wide(desc.targetProfile, &targetProfile);
+
+        // シェーダーファイルの読み込み
+        hr = m_dxcUtils.Get()->LoadFile(filePath.c_str(), nullptr, &pSource);
+        if (FAILED(hr))
+        {
+            std::string filePathUtf8 = "";
+            r = PAL::Win::wide_to_utf8(filePath, &filePathUtf8);
+            std::string errorMessage = "Failed to load shader file: " + filePathUtf8 + " (HRESULT: 0x" + std::to_string(hr) + ")";
+            CUE_ASSERT_MSG(false, errorMessage.c_str());
+        }
+
+        // コンパイル引数の設定
+        DxcBuffer sourceBuffer;
+        sourceBuffer.Ptr = pSource->GetBufferPointer();
+        sourceBuffer.Size = pSource->GetBufferSize();
+        sourceBuffer.Encoding = DXC_CP_UTF8;
+        LPCWSTR arguments[] = {
+            filePath.c_str(), // コンパイル対象 hlsl ファイル名
+            L"-E", entryPoint.c_str(), // エントリーポイント指定
+            L"-T", targetProfile.c_str(), // shader profile 設定
+            L"-Zi", L"-Qembed_debug", // デバッグ情報埋込
+            L"-Od", // 最適化無効
+            L"-Zpr", // 行優先メモリレイアウト
+        };
+
+        // 可読性のために引数をベクターで管理
+        std::vector<LPCWCH> args;
+        args.push_back(filePath.c_str()); // コンパイル対象 hlsl ファイル名
+        args.push_back(L"-E");
+        args.push_back(entryPoint.c_str()); // エントリーポイント指定
+        args.push_back(L"-T");
+        args.push_back(targetProfile.c_str()); // shader profile 設定
+        args.push_back(L"-Zpr"); // 行優先メモリレイアウト
+        if (desc.enableDebugInfo)
+        {
+            args.push_back(L"-Zi");
+            args.push_back(L"-Qembed_debug"); // デバッグ情報埋込
+            args.push_back(L"-Od"); // デバッグビルド最適化無効
+        }
+        else
+        {
+            args.push_back(L"-O3"); // リリースビルド最適化最大
+        }
+
+        // シェーダーのコンパイル
+        ComPtr<IDxcResult> pResult = nullptr;
+        hr = m_dxcCompiler.Get()->Compile(
+            &sourceBuffer, // 読込済みソース
+            arguments, // コンパイル引数
+            _countof(arguments), // 引数数
+            m_dxcIncludeHandler.Get(), // include handler
+            IID_PPV_ARGS(&pResult) // コンパイル結果
+        );
+        if (FAILED(hr))
+        {
+            std::string filePathUtf8 = "";
+            r = PAL::Win::wide_to_utf8(filePath, &filePathUtf8);
+            std::string errorMessage = "Failed to compile shader: " + filePathUtf8 + " (HRESULT: 0x" + std::to_string(hr) + ")";
+            CUE_ASSERT_MSG(false, errorMessage.c_str());
+        }
+
+        // コンパイルエラーの取得
+        ComPtr<IDxcBlobUtf8> pErrors = nullptr;
+        ComPtr<IDxcBlobUtf16> pErrorsUtf16;
+        hr = pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);
+        if (pErrors != nullptr && pErrors->GetStringLength() != 0)
+        {
+            std::string str = pErrors->GetStringPointer();
+            CUE_ASSERT_MSG(false, ("Shader compilation failed with errors:" + str).c_str());
+
+        }
+
+        // コンパイル結果からシェーダーオブジェクトを取得
+        IDxcBlob* pShader = nullptr;
+        hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pErrorsUtf16);
+        if (FAILED(hr))
+        {
+            CUE_ASSERT_MSG(false, "Failed to get compiled shader object.");
+        }
+
+        return pShader;
+    }
+}

@@ -1,7 +1,7 @@
 # Rendering Hardware Interface
 
 # スタティックライブラリを作成
-add_library(RHI STATIC "RHI.cpp" "RHI.h" "BackendFactory.h" "FrameGraph.h" "FrameGraph.cpp" "Interfaces.h" "RHICommon.h")
+add_library(RHI STATIC "RHI.cpp" "RHI.h" "BackendFactory.h" "FrameGraph.h" "FrameGraph.cpp" "Interfaces.h" "RHICommon.h" "ShaderCompiler.h")
 
 # リンクするライブラリの指定
 target_link_libraries(RHI PUBLIC

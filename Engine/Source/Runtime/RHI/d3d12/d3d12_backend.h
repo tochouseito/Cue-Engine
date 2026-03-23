@@ -8,6 +8,8 @@
 
 // === DirectX 12 includes ===
 #include "stdafx.h"
+#include "ResourceLeakChecker.h"
+#include "HLSLCompiler.h"
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
 
@@ -31,11 +33,16 @@ namespace Cue::RHI::DX12
         /// @brief 指定フレームの提示処理を実行します。
         Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
+        /// @brief FrameGraph を生成します。
+        Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
+
         /// @brief 利用する Windows プラットフォームを設定します。
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
 
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
+        std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー
+        std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>(); // HLSL コンパイラ
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
         std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
     };

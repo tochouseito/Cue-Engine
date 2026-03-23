@@ -1,7 +1,7 @@
 # DirectX12 モジュールの CMakeLists.txt
 
 # Static ライブラリを作成
-add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "stdafx.h" "DX12RenderDevice.h" "DX12RenderDevice.cpp" "DescriptorAllocator.h" "DescriptorAllocator.cpp")
+add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "stdafx.h" "DX12RenderDevice.h" "DX12RenderDevice.cpp" "DescriptorAllocator.h" "DescriptorAllocator.cpp" "ResourceLeakChecker.h" "HLSLCompiler.h" "HLSLCompiler.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(d3d12_backend PUBLIC

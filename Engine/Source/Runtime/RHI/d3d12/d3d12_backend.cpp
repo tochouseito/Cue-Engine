@@ -56,4 +56,10 @@ namespace Cue::RHI::DX12
         a_frameGraph;
         return Result();
     }
+
+    Result D3D12Backend::create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph)
+    {
+        a_outFrameGraph;
+        return Result();
+    }
 }
