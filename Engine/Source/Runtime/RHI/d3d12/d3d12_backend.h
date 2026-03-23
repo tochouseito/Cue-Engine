@@ -9,6 +9,7 @@
 // === DirectX 12 include ===
 #include "stdafx.h"
 #include "DX12RenderDevice.h"
+#include "DescriptorAllocator.h"
 
 namespace Cue::RHI::DX12
 {
@@ -25,5 +26,6 @@ namespace Cue::RHI::DX12
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
+        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
     };
 }

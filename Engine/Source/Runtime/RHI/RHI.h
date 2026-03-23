@@ -11,6 +11,10 @@ namespace Cue::RHI
         bool enableDebugLayer = false;
         uint32_t width{};
         uint32_t height{};
+        uint32_t textureCapacity = 256;
+        uint32_t bufferCapacity = 256;
+        uint32_t renderTargetCapacity = 16;
+        uint32_t depthStencilCapacity = 16;
     };
 
     // レンダリングバックエンドのインターフェース

@@ -19,6 +19,7 @@
 | 型 (class/struct/enum) | PascalCase | `RenderEngine` |
 | 型名エイリアス | lowerCamelCase | `float4x4` |
 | 関数 | snake_case | `get_device()` |
+| 引数 | a_ + camelCase | `a_deviceContext` |
 | 変数 | camelCase | `frameCount` |
 | メンバ変数 | m_ + camelCase | `m_frameCount` |
 | 定数 | k_ + camelCase | `k_maxBufferSize` |
@@ -75,6 +76,13 @@
 - コメントは **Why（なぜ）** を書く（Whatはコードで表現）
 - 公開APIのみ **Doxygen形式** で記述
 - 関数は処理の流れや内容を分かりやすいようにする
+- include のコメントは // === *** === で区切る
+- include の順番は:
+  1. 自分のヘッダ
+  2. 標準ライブラリ
+  3. 外部ライブラリ
+- 複数の関数のコメントは // --- *** --- で区切る
+- 単体は // *** で区切る
 - 英語と日本語は半角スペースで区切る
 - 言語:
   - C++/その他: **日本語**

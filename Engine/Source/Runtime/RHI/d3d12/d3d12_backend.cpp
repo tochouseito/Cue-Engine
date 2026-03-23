@@ -22,10 +22,19 @@ namespace Cue::RHI::DX12
                 "Failed to initialize D3D12 render device.");
         }
 
+        // デスクリプタアロケータの初期化
+        m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_renderDevice->get_d3d12_device());
+        m_descriptorAllocator->initialize(
+            info.textureCapacity,
+            info.bufferCapacity,
+            info.renderTargetCapacity,
+            info.depthStencilCapacity);
+
         return Result::ok();
     }
     Result D3D12Backend::shutdown()
     {
+        m_descriptorAllocator.reset();
         m_renderDevice.reset();
 
         return Result::ok();
