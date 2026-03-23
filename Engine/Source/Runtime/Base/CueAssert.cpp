@@ -1,15 +1,14 @@
+// === Base includes ===
 #include "CueAssert.h"
 
 #ifdef CUE_DEBUG
 
-// C++ includes
+// === C++ includes ===
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <string>
 
-// Windows API
+// === Windows API includes ===
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -23,49 +22,49 @@
 
 namespace
 {
-    constexpr size_t k_message_buffer_size = 2048;
+    constexpr size_t k_messageBufferSize = 2048;
 
     static void format_user_message(
-        char* dst,
-        size_t dstSize,
-        const char* format,
-        va_list args) noexcept
+        char* a_destination,
+        size_t a_destinationSize,
+        const char* a_format,
+        va_list a_args) noexcept
     {
         // 1) 出力先を検証する
-        if (dst == nullptr || dstSize == 0)
+        if (a_destination == nullptr || a_destinationSize == 0)
         {
             return;
         }
 
-        // 2) format が無ければ空文字にする
-        if (format == nullptr)
+        // 2) フォーマットが無ければ空文字にする
+        if (a_format == nullptr)
         {
-            dst[0] = '\0';
+            a_destination[0] = '\0';
             return;
         }
 
         // 3) 可変長引数を安全側で整形する
-        const int result = std::vsnprintf(dst, dstSize, format, args);
+        const int result = std::vsnprintf(a_destination, a_destinationSize, a_format, a_args);
         if (result < 0)
         {
-            dst[0] = '\0';
+            a_destination[0] = '\0';
             return;
         }
 
         // 4) 念のため終端を保証する
-        dst[dstSize - 1] = '\0';
+        a_destination[a_destinationSize - 1] = '\0';
     }
 }
 
 namespace Cue
 {
-    [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& context) noexcept
+    [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& a_context) noexcept
     {
         // 1) 表示文の組み立て
-        char buffer[k_message_buffer_size];
+        char messageBuffer[k_messageBufferSize];
         std::snprintf(
-            buffer,
-            sizeof(buffer),
+            messageBuffer,
+            sizeof(messageBuffer),
             "Assertion failed!\n\n"
             "Expression : %s\n"
             "Message    : %s\n"
@@ -75,19 +74,19 @@ namespace Cue
             "Abort  = terminate process\n"
             "Retry  = break into debugger\n"
             "Ignore = continue execution",
-            context.expression,
-            context.message,
-            context.file,
-            context.line,
-            context.function);
+            a_context.expression,
+            a_context.message,
+            a_context.file,
+            a_context.line,
+            a_context.function);
 
         // 2) デバッガ出力
-        ::OutputDebugStringA(buffer);
+        ::OutputDebugStringA(messageBuffer);
 
         // 3) メッセージボックスの表示
         const int result = MessageBoxA(
             nullptr,
-            buffer,
+            messageBuffer,
             "Cue Assert Failed!",
             MB_ABORTRETRYIGNORE | MB_ICONERROR);
 
@@ -109,21 +108,21 @@ namespace Cue
     }
 
     [[noreturn]] void assert_fail_format(
-        const char* expression,
-        const std::source_location& location,
-        const char* format,
+        const char* a_expression,
+        const std::source_location& a_location,
+        const char* a_format,
         ...) noexcept
     {
         // 1) フォーマットされたメッセージの作成
-        char message[k_message_buffer_size];
+        char message[k_messageBufferSize];
 
         va_list args;
-        va_start(args, format);
-        format_user_message(message, sizeof(message), format, args);
+        va_start(args, a_format);
+        format_user_message(message, sizeof(message), a_format, args);
         va_end(args);
 
         // 2) アサート失敗のコンテキストを作成する
-        const AssertContext context = make_assert_context(expression, message, location);
+        const AssertContext context = make_assert_context(a_expression, message, a_location);
 
         // 3) アサート失敗の処理関数を呼び出す
         assert_fail(context);

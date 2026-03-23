@@ -1,13 +1,13 @@
 #pragma once
 
-// C++ includes
+// === C++ includes ===
 #include <cstdint>
-#include <string_view>
 #include <source_location>
+#include <string_view>
 
 namespace Cue
 {
-    // 結果コード
+    /// @brief 処理結果の種別です。
     enum class Code : uint16_t
     {
         OK = 0,             // 成功
@@ -24,10 +24,12 @@ namespace Cue
         UnknownError,       // 不明なエラー
     };
 
-    // Codeを文字列に変換するユーティリティ関数
-    [[nodiscard]] inline const char* to_string(Code code) noexcept
+    /// @brief 結果コードを文字列へ変換します。
+    /// @param a_code 変換対象の結果コードです。
+    /// @return 結果コード名です。
+    [[nodiscard]] inline const char* to_string(Code a_code) noexcept
     {
-        switch (code)
+        switch (a_code)
         {
         case Code::OK: return "OK";
         case Code::InvalidArgument: return "InvalidArgument";
@@ -45,12 +47,15 @@ namespace Cue
         }
     }
 
-    inline bool success(const Code& code) noexcept
+    /// @brief 結果コードが成功かを返します。
+    /// @param a_code 判定対象の結果コードです。
+    /// @return 成功なら `true` です。
+    inline bool success(const Code& a_code) noexcept
     {
-        return code == Code::OK;
+        return a_code == Code::OK;
     }
 
-    // 結果の重大度
+    /// @brief 結果の重大度です。
     enum class Severity : uint8_t
     {
         Info = 0,
@@ -59,10 +64,12 @@ namespace Cue
         Fatal,
     };
 
-    // Severityを文字列に変換するユーティリティ関数
-    [[nodiscard]] inline const char* to_string(Severity severity) noexcept
+    /// @brief 重大度を文字列へ変換します。
+    /// @param a_severity 変換対象の重大度です。
+    /// @return 重大度名です。
+    [[nodiscard]] inline const char* to_string(Severity a_severity) noexcept
     {
-        switch (severity)
+        switch (a_severity)
         {
         case Severity::Info: return "Info";
         case Severity::Warning: return "Warning";
@@ -72,7 +79,7 @@ namespace Cue
         }
     }
 
-    // 結果構造体
+    /// @brief エラー情報を保持する結果構造体です。
     struct Result final
     {
         // 暗黙変換禁止
@@ -91,32 +98,39 @@ namespace Cue
         const char* function = "";
         uint32_t line = 0;
 
-        // 成功のデフォルト値を返す
+        /// @brief 成功結果を返します。
+        /// @return 既定の成功結果です。
         static Result ok() noexcept
         {
             return Result{};
         }
 
-        // エラーを作成
+        /// @brief 失敗結果を構築します。
+        /// @param a_code 結果コードです。
+        /// @param a_severity 重大度です。
+        /// @param a_message メッセージです。
+        /// @param a_location 呼び出し位置です。
+        /// @return 構築した失敗結果です。
         static Result fail(
-            Code c, Severity s, std::string_view msg,
-            const std::source_location& loc = std::source_location::current()
+            Code a_code,
+            Severity a_severity,
+            std::string_view a_message,
+            const std::source_location& a_location = std::source_location::current()
         ) noexcept
         {
             // 1) 結果を組み立てる
-            Result r{};
-            r.code = c;
-            r.severity = s;
-            r.message = msg;
-            r.file = loc.file_name();
-            r.function = loc.function_name();
-            r.line = static_cast<uint32_t>(loc.line());
-            return r;
+            Result result{};
+            result.code = a_code;
+            result.severity = a_severity;
+            result.message = a_message;
+            result.file = a_location.file_name();
+            result.function = a_location.function_name();
+            result.line = static_cast<uint32_t>(a_location.line());
+            return result;
         }
 
-        // bool 変換
-        // -- OK なら true、それ以外は false
-        // -- 暗黙変換禁止
+        /// @brief 成否を bool として返します。
+        /// @return `Code::OK` の場合のみ `true` です。
         explicit operator bool() const noexcept
         {
             return code == Code::OK;

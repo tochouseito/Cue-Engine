@@ -1,7 +1,10 @@
 #pragma once
 
+// === C++ includes ===
+#include <cstdlib>
+
 #ifdef CUE_DEBUG
-// C++ includes
+// === C++ includes ===
 #include <cstdint>
 #include <source_location>
 
@@ -23,7 +26,7 @@
 
 namespace Cue
 {
-    // アサート失敗のコンテキスト情報
+    /// @brief アサート失敗時に記録するコンテキストです。
     struct AssertContext final
     {
         const char* expression = "";
@@ -33,41 +36,49 @@ namespace Cue
         uint_least32_t line = 0;
     };
 
-    // アサートコンテキストを作成するユーティリティ関数
+    /// @brief アサート失敗コンテキストを構築します。
+    /// @param a_expression 失敗した式文字列です。
+    /// @param a_message 追加メッセージです。
+    /// @param a_location 呼び出し位置です。
+    /// @return 構築したコンテキストです。
     [[nodiscard]] inline AssertContext make_assert_context(
-        const char* expression,
-        const char* message = "",
-        const std::source_location& location = std::source_location::current()) noexcept
+        const char* a_expression,
+        const char* a_message = "",
+        const std::source_location& a_location = std::source_location::current()) noexcept
     {
         // 1) null を空文字へ正規化
-        if (expression == nullptr)
+        if (a_expression == nullptr)
         {
-            expression = "";
+            a_expression = "";
         }
 
-        if (message == nullptr)
+        if (a_message == nullptr)
         {
-            message = "";
+            a_message = "";
         }
 
         // 2) 失敗情報を組み立てる
         return AssertContext{
-            expression,
-            message,
-            location.file_name(),
-            location.function_name(),
-            location.line()
+            a_expression,
+            a_message,
+            a_location.file_name(),
+            a_location.function_name(),
+            a_location.line()
         };
     }
 
-    // アサート失敗の処理関数
-    [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& context) noexcept;
+    /// @brief アサート失敗時の共通処理です。
+    /// @param a_context 失敗コンテキストです。
+    [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& a_context) noexcept;
 
-    // フォーマット付きアサート失敗の処理関数
+    /// @brief 整形メッセージ付きでアサート失敗処理を行います。
+    /// @param a_expression 失敗した式文字列です。
+    /// @param a_location 呼び出し位置です。
+    /// @param a_format 整形文字列です。
     [[noreturn]] void assert_fail_format(
-        const char* expression,
-        const std::source_location& location,
-        const char* format,
+        const char* a_expression,
+        const std::source_location& a_location,
+        const char* a_format,
         ...) noexcept;
 } // namespace Cue
 
@@ -111,7 +122,7 @@ namespace Cue
 #define CUE_ASSERT(expr) \
         do                                                                       \
         {                                                                        \
-            if(!(expr))                                                       \
+            if (!(expr))                                                          \
             {                                                                    \
                 std::abort();                                                    \
             }                                                                    \
@@ -120,7 +131,7 @@ namespace Cue
 #define CUE_ASSERT_MSG(expr, message) \
         do                                                                       \
         {                                                                        \
-            if(!(expr))                                                       \
+            if (!(expr))                                                          \
             {                                                                    \
                 std::abort();                                                    \
             }                                                                    \
@@ -129,7 +140,7 @@ namespace Cue
 #define CUE_ASSERTF(expr, format, ...) \
         do                                                                       \
         {                                                                        \
-            if(!(expr))                                                       \
+            if (!(expr))                                                          \
             {                                                                    \
                 std::abort();                                                    \
             }                                                                    \
