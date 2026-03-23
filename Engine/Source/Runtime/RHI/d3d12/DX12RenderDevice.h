@@ -13,18 +13,27 @@ namespace Cue::RHI::DX12
     public:
         DX12RenderDevice() = default;
         ~DX12RenderDevice() = default;
-        // 初期化
-        Result initialize(bool enableDebugLayer = false) override;
-        // d3d12 デバイス取得
+
+        /// <summary>
+        /// D3D12 レンダーデバイスを初期化します。
+        /// </summary>
+        Result initialize(bool a_enableDebugLayer = false) override;
+
+        /// <summary>
+        /// D3D12 デバイスを取得します。
+        /// </summary>
         ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
-        // dxgi factory 取得
+
+        /// <summary>
+        /// DXGI ファクトリを取得します。
+        /// </summary>
         IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
 
     private:
-        // dxgi ファクトリ生成
-        Result create_dxgi_factory([[maybe_unused]] bool enableDebugLayer);
-        // d3d12 デバイス生成
+        // --- 内部初期化 ---
+        Result create_dxgi_factory([[maybe_unused]] bool a_enableDebugLayer);
         Result create_d3d12_device();
+
     private:
         ComPtr<IDXGIFactory7> m_dxgiFactory = nullptr; // dxgi ファクトリ
         ComPtr<ID3D12Device> m_d3d12Device = nullptr; // d3d12 デバイス

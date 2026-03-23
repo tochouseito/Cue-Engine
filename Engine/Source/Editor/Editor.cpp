@@ -25,11 +25,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     platformInfo.height = 720;
     platformInfo.className = "CueEditorWindowClass";
     platformInfo.title = "Cue Editor";
-    Result r = platform->initialize(platformInfo);
+    Cue::Result r = platform->initialize(platformInfo);
     if (!r)
     {
         CUE_ASSERTF(false, "Failed to initialize platform: %s (code: %s, severity: %s) at %s:%u in function %s",
-            r.message.data(), to_string(r.code), to_string(r.severity),
+            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
             r.file, r.line, r.function);
     }
 
@@ -38,7 +38,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     backend->set_win_platform(platform.get());
 
     // レンダリングバックエンドの初期化
-    RHI::backend_setup_info backendInfo{};
+    Cue::RHI::BackendSetupInfo backendInfo{};
     backendInfo.enableDebugLayer = true;
     backendInfo.width = platformInfo.width;
     backendInfo.height = platformInfo.height;
@@ -46,7 +46,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERTF(false, "Failed to initialize rendering backend: %s (code: %s, severity: %s) at %s:%u in function %s",
-            r.message.data(), to_string(r.code), to_string(r.severity),
+            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
             r.file, r.line, r.function);
     }
 

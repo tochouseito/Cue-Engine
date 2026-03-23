@@ -38,22 +38,22 @@ namespace Cue::RHI::DX12
     template<typename T>
     using ComPtr = Microsoft::WRL::ComPtr<T>;
 
-    inline void SetDXGIName([[maybe_unused]] IDXGIObject* obj, [[maybe_unused]] const wchar_t* name)
+    inline void set_dxgi_name([[maybe_unused]] IDXGIObject* a_obj, [[maybe_unused]] const wchar_t* a_name)
     {
-        if (obj)
+        if (a_obj)
         {
-            obj->SetPrivateData(
+            a_obj->SetPrivateData(
                 WKPDID_D3DDebugObjectName,
-                static_cast<UINT>((wcslen(name) + 1) * sizeof(wchar_t)),
-                name);
+                static_cast<UINT>((wcslen(a_name) + 1) * sizeof(wchar_t)),
+                a_name);
         }
     }
 
-    inline void SetD3D12Name([[maybe_unused]] ID3D12Object* obj, [[maybe_unused]] const wchar_t* name)
+    inline void set_d3d12_name([[maybe_unused]] ID3D12Object* a_obj, [[maybe_unused]] const wchar_t* a_name)
     {
-        if (obj)
+        if (a_obj)
         {
-            obj->SetName(name);
+            a_obj->SetName(a_name);
         }
     }
 }

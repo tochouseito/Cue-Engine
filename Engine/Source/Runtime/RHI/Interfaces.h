@@ -5,6 +5,9 @@
 
 namespace Cue::RHI
 {
+    /// <summary>
+    /// レンダーデバイスの共通インターフェースです。
+    /// </summary>
     class IRenderDevice
     {
     public:
@@ -17,10 +20,15 @@ namespace Cue::RHI
         IRenderDevice& operator=(IRenderDevice&&) = default;
         virtual ~IRenderDevice() = default;
 
-        // 初期化
-        virtual Result initialize(bool enableDebugLayer = false) = 0;
+        /// <summary>
+        /// レンダーデバイスを初期化します。
+        /// </summary>
+        virtual Result initialize(bool a_enableDebugLayer = false) = 0;
     };
 
+    /// <summary>
+    /// コマンドコンテキストの共通インターフェースです。
+    /// </summary>
     class ICommandContext
     {
     public:
@@ -34,6 +42,9 @@ namespace Cue::RHI
         virtual ~ICommandContext() = default;
     };
 
+    /// <summary>
+    /// キューコンテキストの共通インターフェースです。
+    /// </summary>
     class IQueueContext
     {
     public:
@@ -47,6 +58,9 @@ namespace Cue::RHI
         virtual ~IQueueContext() = default;
     };
 
+    /// <summary>
+    /// コマンドプールの共通インターフェースです。
+    /// </summary>
     class ICommandPool
     {
     public:
@@ -60,6 +74,9 @@ namespace Cue::RHI
         virtual ~ICommandPool() = default;
     };
 
+    /// <summary>
+    /// キュープールの共通インターフェースです。
+    /// </summary>
     class IQueuePool
     {
     public:
@@ -71,6 +88,5 @@ namespace Cue::RHI
         IQueuePool(IQueuePool&&) = default;
         IQueuePool& operator=(IQueuePool&&) = default;
         virtual ~IQueuePool() = default;
-        
     };
 }

@@ -1,12 +1,12 @@
 #pragma once
 
-// === RHI include ===
+// === RHI includes ===
 #include <RHI.h>
 
-// === PAL include ===
+// === PAL includes ===
 #include <win/win_platform.h>
 
-// === DirectX 12 include ===
+// === DirectX 12 includes ===
 #include "stdafx.h"
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
@@ -18,11 +18,32 @@ namespace Cue::RHI::DX12
     public:
         D3D12Backend() = default;
         ~D3D12Backend() override = default;
-        Result initialize(const backend_setup_info& info) override;
+
+        /// <summary>
+        /// D3D12 バックエンドを初期化します。
+        /// </summary>
+        Result initialize(const BackendSetupInfo& a_info) override;
+
+        /// <summary>
+        /// D3D12 バックエンドを終了します。
+        /// </summary>
         Result shutdown() override;
-        Result render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
-        Result present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) override;
-        void set_win_platform(PAL::Win::WinPlatform* platform) noexcept { m_platform = platform; }
+
+        /// <summary>
+        /// 指定フレームの描画処理を実行します。
+        /// </summary>
+        Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
+
+        /// <summary>
+        /// 指定フレームの提示処理を実行します。
+        /// </summary>
+        Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
+
+        /// <summary>
+        /// 利用する Windows プラットフォームを設定します。
+        /// </summary>
+        void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
+
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス

@@ -1,12 +1,12 @@
 #pragma once
 
-// === RHI include ===
+// === RHI includes ===
 #include <RHICommon.h>
 
-// === C++ include ===
+// === C++ includes ===
 #include <array>
 
-// === DirectX 12 include ===
+// === DirectX 12 includes ===
 #include "stdafx.h"
 
 namespace Cue::RHI::DX12
@@ -45,10 +45,11 @@ namespace Cue::RHI::DX12
     class DescriptorAllocator final
     {
     public:
-        DescriptorAllocator(ID3D12Device& device):
-            m_device(device)
+        explicit DescriptorAllocator(ID3D12Device& a_device) :
+            m_device(a_device)
         {
         }
+
         // コピー禁止
         DescriptorAllocator(const DescriptorAllocator&) = delete;
         DescriptorAllocator& operator=(const DescriptorAllocator&) = delete;
@@ -57,25 +58,50 @@ namespace Cue::RHI::DX12
         DescriptorAllocator& operator=(DescriptorAllocator&&) = delete;
         ~DescriptorAllocator() = default;
 
-        // 初期化
-        Result initialize(uint32_t texCap, uint32_t bufCap, uint32_t rtvCap, uint32_t dsvCap);
+        /// <summary>
+        /// デスクリプタヒープと各テーブルを初期化します。
+        /// </summary>
+        Result initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap);
 
-        // --- 割り当て/解放 ---
-        [[nodiscard]] TableID allocate(TableKind k);
-        void free_table(TableID id);
+        /// <summary>
+        /// 指定種類のテーブルスロットを割り当てます。
+        /// </summary>
+        [[nodiscard]] TableID allocate(TableKind a_kind);
 
-        // --- handle 取得 ---
-        D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind k);
-        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_handle(TableID id);
-        D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle_gpu_visible(TableID id);
-        D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID id);
+        /// <summary>
+        /// 割り当て済みテーブルスロットを解放します。
+        /// </summary>
+        void free_table(TableID a_id);
 
-        // --- heap 取得 ---
-        ID3D12DescriptorHeap* get_descriptor_heap(HeapType type) const noexcept;
+        /// <summary>
+        /// テーブル先頭の GPU ハンドルを取得します。
+        /// </summary>
+        D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind a_kind);
+
+        /// <summary>
+        /// 指定テーブル ID の GPU ハンドルを取得します。
+        /// </summary>
+        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_handle(TableID a_id);
+
+        /// <summary>
+        /// GPU 可視ヒープ上の CPU ハンドルを取得します。
+        /// </summary>
+        D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle_gpu_visible(TableID a_id);
+
+        /// <summary>
+        /// CPU ヒープ上のハンドルを取得します。
+        /// </summary>
+        D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID a_id);
+
+        /// <summary>
+        /// 指定ヒープ種別に対応するヒープを取得します。
+        /// </summary>
+        ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
+
     private:
         // --- DescriptorHeap 作成 ---
         Result compute_descriptor_sizes();
-        Result create_descriptor_heap(HeapType heapType, uint32_t size, bool shader_visible);
+        Result create_descriptor_heap(HeapType a_heapType, uint32_t a_size, bool a_shaderVisible);
 
         // テーブル内部情報
         struct Table final
@@ -88,9 +114,11 @@ namespace Cue::RHI::DX12
         };
 
         // --- テーブル管理 ---
-        Table& get_table(TableKind k);
+        Table& get_table(TableKind a_kind);
+
         // GPU ヒープへのコピー
-        void copy_to_gpu_heap(TableID id);
+        void copy_to_gpu_heap(TableID a_id);
+
     private:
         ID3D12Device& m_device;
 

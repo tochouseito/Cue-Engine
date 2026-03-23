@@ -1,13 +1,15 @@
 #include "DescriptorAllocator.h"
+
+// === C++ includes ===
 #include <string>
 
 namespace Cue::RHI::DX12
 {
     namespace
     {
-        D3D12_DESCRIPTOR_HEAP_TYPE to_d3d12_heap_type(HeapType heapType)
+        D3D12_DESCRIPTOR_HEAP_TYPE to_d3d12_heap_type(HeapType a_heapType)
         {
-            switch (heapType)
+            switch (a_heapType)
             {
             case HeapType::CBV_SRV_UAV:
                 return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -23,9 +25,9 @@ namespace Cue::RHI::DX12
             }
         }
 
-        std::wstring to_string(HeapType heapType)
+        std::wstring to_string(HeapType a_heapType)
         {
-            switch (heapType)
+            switch (a_heapType)
             {
             case HeapType::CBV_SRV_UAV:
                 return L"CBV_SRV_UAV";
@@ -42,69 +44,61 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DescriptorAllocator::initialize(uint32_t texCap, uint32_t bufCap, uint32_t rtvCap, uint32_t dsvCap)
+    Result DescriptorAllocator::initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap)
     {
+        // 1) 先にヒープを確保しておくことで、実行時の断片化や再確保コストを避けます。
         for (size_t i = 0; i < static_cast<size_t>(TableKind::DepthStencils) + 1; ++i)
         {
             HeapType heapType = static_cast<HeapType>(i);
             switch (heapType)
             {
             case HeapType::CBV_SRV_UAV:
-                // CBV/SRV/UAV ヒープを作成します（シェーダー非表示）
-                create_descriptor_heap(heapType, texCap + bufCap, false);
-                // CBV/SRV/UAV ヒープを作成します（シェーダー表示）
-                create_descriptor_heap(heapType, texCap + bufCap, true);
+                create_descriptor_heap(heapType, a_texCap + a_bufCap, false);
+                create_descriptor_heap(heapType, a_texCap + a_bufCap, true);
 
-                // テクスチャとバッファのテーブルを初期化します
+                // 2) テーブルごとに固定領域へ切ることで、GPU 可視ヒープとの対応関係を単純化します。
                 m_textures.m_heapType = heapType;
-                m_textures.m_capacity = texCap;
+                m_textures.m_capacity = a_texCap;
                 m_textures.m_baseIndex = 0;
-                m_textures.m_freeList.reserve(texCap);
-                for (uint32_t j = 0; j < texCap; ++j)
+                m_textures.m_freeList.reserve(a_texCap);
+                for (uint32_t j = 0; j < a_texCap; ++j)
                 {
-                    m_textures.m_freeList.push_back(texCap - 1u - j);
+                    m_textures.m_freeList.push_back(a_texCap - 1u - j);
                 }
                 
                 m_buffers.m_heapType = heapType;
-                m_buffers.m_capacity = bufCap;
-                m_buffers.m_baseIndex = texCap;// テクスチャの後ろにバッファを配置
-                m_buffers.m_freeList.reserve(bufCap);
-                for (uint32_t j = 0; j < bufCap; ++j)
+                m_buffers.m_capacity = a_bufCap;
+                m_buffers.m_baseIndex = a_texCap; // テクスチャの後ろにバッファを配置
+                m_buffers.m_freeList.reserve(a_bufCap);
+                for (uint32_t j = 0; j < a_bufCap; ++j)
                 {
-                    m_buffers.m_freeList.push_back(bufCap - 1u - j);
+                    m_buffers.m_freeList.push_back(a_bufCap - 1u - j);
                 }
                 break;
             case HeapType::SAMPLER:
-                /*
-                サンプラーヒープは未実装
-                */
                 break;
             case HeapType::RTV:
-                // RTV ヒープを作成します（シェーダー非表示）
-                create_descriptor_heap(heapType, rtvCap, false);
+                create_descriptor_heap(heapType, a_rtvCap, false);
 
-                // レンダーターゲットのテーブルを初期化します
                 m_renderTargets.m_heapType = heapType;
-                m_renderTargets.m_capacity = rtvCap;
+                m_renderTargets.m_capacity = a_rtvCap;
                 m_renderTargets.m_baseIndex = 0;
-                m_renderTargets.m_freeList.reserve(rtvCap);
-                for (uint32_t j = 0; j < rtvCap; ++j)
+                m_renderTargets.m_freeList.reserve(a_rtvCap);
+                for (uint32_t j = 0; j < a_rtvCap; ++j)
                 {
-                    m_renderTargets.m_freeList.push_back(rtvCap - 1u - j);
+                    m_renderTargets.m_freeList.push_back(a_rtvCap - 1u - j);
                 }
                 break;
             case HeapType::DSV:
-                // DSV ヒープを作成します（シェーダー非表示）
-                create_descriptor_heap(heapType, dsvCap, false);
+                create_descriptor_heap(heapType, a_dsvCap, false);
 
-                // デプスステンシルのテーブルを初期化します
                 m_depthStencils.m_heapType = heapType;
-                m_depthStencils.m_capacity = dsvCap;
+                m_depthStencils.m_capacity = a_dsvCap;
                 m_depthStencils.m_baseIndex = 0;
-                m_depthStencils.m_freeList.reserve(dsvCap);
-                for (uint32_t j = 0; j < dsvCap; ++j)
+                m_depthStencils.m_freeList.reserve(a_dsvCap);
+                for (uint32_t j = 0; j < a_dsvCap; ++j)
                 {
-                    m_depthStencils.m_freeList.push_back(dsvCap - 1u - j);
+                    m_depthStencils.m_freeList.push_back(a_dsvCap - 1u - j);
                 }
                 break;
             case HeapType::kCount:
@@ -116,137 +110,122 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    TableID DescriptorAllocator::allocate(TableKind k)
+    TableID DescriptorAllocator::allocate(TableKind a_kind)
     {
-        // 対象テーブルを取得して空き状況を確認する
-        // 空きがあれば割り当て済みインデックスを返す
-        Table& t = get_table(k);
+        // 1) 空きを先に確認しないと、テーブル枯渇を正常な失敗として返せません。
+        Table& t = get_table(a_kind);
         if (t.m_freeList.empty())
         {
             CUE_ASSERT_MSG(false, "Descriptor table full, need to expand.");
-            return TableID{ k, t.m_generation, TableID::kInvalid };
+            return TableID{ a_kind, t.m_generation, TableID::kInvalid };
         }
 
-        // 空きがあるので割り当てる
+        // 2) LIFO で返すと最近使った領域を再利用しやすく、管理も最小です。
         uint32_t idx = t.m_freeList.back();
         t.m_freeList.pop_back();
-        return TableID{ k, t.m_generation, idx };
+        return TableID{ a_kind, t.m_generation, idx };
     }
-    void DescriptorAllocator::free_table(TableID id)
+    void DescriptorAllocator::free_table(TableID a_id)
     {
-        // 無効 ID を弾いて再利用ミスを防ぐ
-        // 空きリストに戻して再割り当て可能にする
-        if (!id.valid())
+        // 1) 無効 ID を弾いて、二重解放や未初期化値の混入を防ぎます。
+        if (!a_id.valid())
         {
             return;
         }
 
-        Table& t = get_table(id.m_kind);
-        t.m_freeList.push_back(id.m_index);
+        // 2) 空きリストへ戻して、次回割り当て時に再利用可能にします。
+        Table& t = get_table(a_id.m_kind);
+        t.m_freeList.push_back(a_id.m_index);
     }
-    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_table_base_gpu(TableKind k)
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_table_base_gpu(TableKind a_kind)
     {
-        // テーブル情報を取得する
-        Table& t = get_table(k);
+        // 1) テーブル単位の基点を返すことで、呼び出し側が相対インデックスだけで扱えます。
+        Table& t = get_table(a_kind);
 
-        // ヒープ種別に応じて GPU ハンドルを返す
         D3D12_GPU_DESCRIPTOR_HANDLE baseHandle{};
         if (t.m_heapType == HeapType::CBV_SRV_UAV)
         {
-            // CBV_SRV_UAV テーブルは GPU 可視ヒープからのオフセットで返す
             baseHandle = m_gpuSrvUavDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
         }
         else
         {
-            // その他のテーブルは対応するヒープからのオフセットで返す
             baseHandle = m_descriptorHeaps[static_cast<size_t>(t.m_heapType)]->GetGPUDescriptorHandleForHeapStart();
         }
 
-        // テーブルの先頭スロットのオフセットを加算して返す
         baseHandle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex);
 
         return baseHandle;
     }
-    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_gpu_handle(TableID id)
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_gpu_handle(TableID a_id)
     {
-        // ID の妥当性を確認する
-        if (!id.valid())
+        // 1) 無効 ID をそのまま GPU へ流すとクラッシュ検知が遅れるため、ここで止めます。
+        if (!a_id.valid())
         {
             return D3D12_GPU_DESCRIPTOR_HANDLE_NULL;
         }
 
-        // テーブル情報を取得する
-        Table& t = get_table(id.m_kind);
+        // 2) CPU/GPU で同じスロット計算式を使うため、ここでテーブル情報へ正規化します。
+        Table& t = get_table(a_id.m_kind);
 
-        // ヒープ種別に応じて GPU ハンドルを返す
         D3D12_GPU_DESCRIPTOR_HANDLE handle{};
         if (t.m_heapType == HeapType::CBV_SRV_UAV)
         {
-            // CBV_SRV_UAV テーブルは GPU 可視ヒープからのオフセットで返す
             handle = m_gpuSrvUavDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
         }
         else
         {
-            // その他のテーブルは対応するヒープからのオフセットで返す
             handle = m_descriptorHeaps[static_cast<size_t>(t.m_heapType)]->GetGPUDescriptorHandleForHeapStart();
         }
 
-        // テーブルの先頭スロットのオフセットとテーブル内のインデックスのオフセットを加算して返す
-        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + id.m_index);
+        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + a_id.m_index);
 
         return handle;
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle_gpu_visible(TableID id)
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle_gpu_visible(TableID a_id)
     {
-        // ID の妥当性を確認する
-        if (!id.valid())
+        // 1) GPU 可視ヒープでも、無効 ID を通すとコピー先計算を壊すため先に除外します。
+        if (!a_id.valid())
         {
             return D3D12_CPU_DESCRIPTOR_HANDLE_NULL;
         }
 
-        // テーブル情報を取得する
-        Table& t = get_table(id.m_kind);
+        Table& t = get_table(a_id.m_kind);
 
-        // GPU 可視ヒープからのオフセットで CPU ハンドルを返す
         D3D12_CPU_DESCRIPTOR_HANDLE handle = m_gpuSrvUavDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + id.m_index);
+        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + a_id.m_index);
 
         return handle;
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle(TableID id)
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle(TableID a_id)
     {
-        // ID の妥当性を確認する
-        if (!id.valid())
+        // 1) CPU ヒープでも同じ ID 検証を揃えて、呼び出し側の前提を簡潔にします。
+        if (!a_id.valid())
         {
             return D3D12_CPU_DESCRIPTOR_HANDLE_NULL;
         }
 
-        // テーブル情報を取得する
-        Table& t = get_table(id.m_kind);
+        Table& t = get_table(a_id.m_kind);
 
-        // ヒープ種別に応じて CPU ハンドルを返す
         D3D12_CPU_DESCRIPTOR_HANDLE handle{};
         handle = m_descriptorHeaps[static_cast<size_t>(t.m_heapType)]->GetCPUDescriptorHandleForHeapStart();
-        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + id.m_index);
+        handle.ptr += static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(t.m_heapType)]) * (t.m_baseIndex + a_id.m_index);
 
         return handle;
     }
 
-    // --- heap 取得 ---
-    ID3D12DescriptorHeap* DescriptorAllocator::get_descriptor_heap(HeapType type) const noexcept
+    ID3D12DescriptorHeap* DescriptorAllocator::get_descriptor_heap(HeapType a_type) const noexcept
     {
-        // GPU 可視ヒープが必要な種別を先に判定する
-        // 対応する CPU/CPU&GPU ヒープを返す
-        if (type == HeapType::CBV_SRV_UAV)
+        // 1) GPU 可視 heap を要求する種別だけ分岐させると、呼び出し側の条件分岐を減らせます。
+        if (a_type == HeapType::CBV_SRV_UAV)
         {
-            // CBV_SRV_UAV は GPU 可視ヒープを返す
             return m_gpuSrvUavDescriptorHeap.Get();
         }
-        return m_descriptorHeaps[static_cast<size_t>(type)].Get();
+        return m_descriptorHeaps[static_cast<size_t>(a_type)].Get();
     }
+
     Result DescriptorAllocator::compute_descriptor_sizes()
     {
-        // 各 descriptor heap タイプのディスクリプタサイズを取得して保存します
+        // 1) ヒープごとの増分サイズを先に固定しておくと、後続のハンドル計算を整数演算だけで済ませられます。
         for (size_t i = 0; i < static_cast<size_t>(HeapType::kCount); ++i)
         {
             HeapType heapType = static_cast<HeapType>(i);
@@ -258,32 +237,33 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DescriptorAllocator::create_descriptor_heap(HeapType heapType, uint32_t size, bool shader_visible)
+    Result DescriptorAllocator::create_descriptor_heap(HeapType a_heapType, uint32_t a_size, bool a_shaderVisible)
     {
-        D3D12_DESCRIPTOR_HEAP_TYPE d3dHeapType = to_d3d12_heap_type(heapType);
+        // 1) 抽象 enum をここで D3D12 型へ落とし込むと、呼び出し側を API 非依存に保てます。
+        D3D12_DESCRIPTOR_HEAP_TYPE d3dHeapType = to_d3d12_heap_type(a_heapType);
         D3D12_DESCRIPTOR_HEAP_DESC desc{};
 
         desc.Type = d3dHeapType;
-        desc.NumDescriptors = size;
-        if (shader_visible && heapType == HeapType::CBV_SRV_UAV)
+        desc.NumDescriptors = a_size;
+        if (a_shaderVisible && a_heapType == HeapType::CBV_SRV_UAV)
         {
             desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
             m_device.CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_gpuSrvUavDescriptorHeap));
-            SetD3D12Name(m_gpuSrvUavDescriptorHeap.Get(), (L"GPU " + to_string(heapType) + L" Descriptor Heap").c_str());
+            set_d3d12_name(m_gpuSrvUavDescriptorHeap.Get(), (L"GPU " + to_string(a_heapType) + L" Descriptor Heap").c_str());
         }
         else
         {
             desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            m_device.CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_descriptorHeaps[static_cast<size_t>(heapType)]));
-            SetD3D12Name(m_descriptorHeaps[static_cast<size_t>(heapType)].Get(), (L"CPU " + to_string(heapType) + L" Descriptor Heap").c_str());
+            m_device.CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_descriptorHeaps[static_cast<size_t>(a_heapType)]));
+            set_d3d12_name(m_descriptorHeaps[static_cast<size_t>(a_heapType)].Get(), (L"CPU " + to_string(a_heapType) + L" Descriptor Heap").c_str());
         }
 
         return Result::ok();
     }
-    DescriptorAllocator::Table& DescriptorAllocator::get_table(TableKind k)
+    DescriptorAllocator::Table& DescriptorAllocator::get_table(TableKind a_kind)
     {
-        // 種類に応じてテーブルを返す
-        switch (k)
+        // 1) テーブル選択を集約しておくと、呼び出し側で分岐が散らばりません。
+        switch (a_kind)
         {
         case TableKind::Textures:
             return m_textures;
@@ -298,42 +278,37 @@ namespace Cue::RHI::DX12
             break;
         }
 
-        // 無効なテーブルを返す
         return m_textures; // どれでもいいので返す
     }
-    void DescriptorAllocator::copy_to_gpu_heap(TableID id)
+    void DescriptorAllocator::copy_to_gpu_heap(TableID a_id)
     {
-        // ID の妥当性を確認する
-        if (!id.valid())
+        // 1) 無効 ID を早期に捨てて、ヒープ外アクセスの原因をここで止めます。
+        if (!a_id.valid())
         {
             return;
         }
 
-        // テーブル情報を取得する
-        Table& t = get_table(id.m_kind);
+        Table& t = get_table(a_id.m_kind);
 
-        // GPU 可視ヒープへコピーする（CBV_SRV_UAV テーブルのみ）
+        // 2) GPU 可視ヒープに意味があるのは CBV/SRV/UAV だけなので、それ以外は処理しません。
         if (t.m_heapType != HeapType::CBV_SRV_UAV)
         {
             return;
         }
 
-        // コピー元とコピー先のハンドルを取得する
-        D3D12_CPU_DESCRIPTOR_HANDLE srcHandle = get_cpu_handle(id);
+        D3D12_CPU_DESCRIPTOR_HANDLE srcHandle = get_cpu_handle(a_id);
         D3D12_CPU_DESCRIPTOR_HANDLE dst = m_gpuSrvUavDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 
-        // コピー先のオフセットを計算する
         const SIZE_T inc =
             static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(HeapType::CBV_SRV_UAV)]);
-        const uint32_t slotIndex = t.m_baseIndex + id.m_index;
+        const uint32_t slotIndex = t.m_baseIndex + a_id.m_index;
 
         dst.ptr += inc * slotIndex;
 
-        // コピー
         m_device.CopyDescriptorsSimple(
             1,
-            dst,        // コピー先 (GPU ヒープ)
-            srcHandle,  // コピー元 (CPU ヒープ)
+            dst,
+            srcHandle,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 }

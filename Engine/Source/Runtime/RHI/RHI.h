@@ -5,8 +5,10 @@
 
 namespace Cue::RHI
 {
-    // バックエンド初期化情報
-    struct backend_setup_info final
+    /// <summary>
+    /// バックエンド初期化時に必要な設定です。
+    /// </summary>
+    struct BackendSetupInfo final
     {
         bool enableDebugLayer = false;
         uint32_t width{};
@@ -17,14 +19,32 @@ namespace Cue::RHI
         uint32_t depthStencilCapacity = 16;
     };
 
-    // レンダリングバックエンドのインターフェース
+    /// <summary>
+    /// レンダリングバックエンドの共通インターフェースです。
+    /// </summary>
     class IBackend
     {
     public:
         virtual ~IBackend() = default;
-        virtual Result initialize(const backend_setup_info& info) = 0;
+
+        /// <summary>
+        /// バックエンドを初期化します。
+        /// </summary>
+        virtual Result initialize(const BackendSetupInfo& a_info) = 0;
+
+        /// <summary>
+        /// バックエンドを終了します。
+        /// </summary>
         virtual Result shutdown() = 0;
-        virtual Result render(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) = 0;
-        virtual Result present(uint64_t frameNo, uint32_t index, FrameGraph& frameGraph) = 0;
+
+        /// <summary>
+        /// 指定フレームの描画を実行します。
+        /// </summary>
+        virtual Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) = 0;
+
+        /// <summary>
+        /// 指定フレームの提示処理を実行します。
+        /// </summary>
+        virtual Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) = 0;
     };
 }
