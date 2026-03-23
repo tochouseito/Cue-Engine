@@ -2,11 +2,15 @@
 
 namespace Cue::PAL::Win
 {
-    Result WinThreadFactory::create_thread(const Core::Threading::ThreadDesc& desc, Core::Threading::ThreadProc proc, void* user, std::unique_ptr<Core::Threading::IThread>& outThread) noexcept
+    Result WinThreadFactory::create_thread(
+        const Core::Threading::ThreadDesc& a_desc,
+        Core::Threading::ThreadProc a_proc,
+        void* a_user,
+        std::unique_ptr<Core::Threading::IThread>& a_outThread) noexcept
     {
         // WinThread を nothrow で確保する
-        auto th = std::unique_ptr<WinThread>(new (std::nothrow) WinThread{});
-        if (!th)
+        auto thread = std::unique_ptr<WinThread>(new (std::nothrow) WinThread{});
+        if (!thread)
         {
             return Result::fail(
                 Code::OutOfMemory, Severity::Error,
@@ -14,14 +18,14 @@ namespace Cue::PAL::Win
         }
 
         // 実スレッド生成
-        const auto r = WinThread::create(desc, proc, user, *th);
-        if (!r)
+        const auto result = WinThread::create(a_desc, a_proc, a_user, *thread);
+        if (!result)
         {
-            return r;
+            return result;
         }
 
         // baseへ移譲
-        outThread = std::move(th);
+        a_outThread = std::move(thread);
         return Result::ok();
     }
 }

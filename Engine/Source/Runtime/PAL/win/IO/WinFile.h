@@ -6,33 +6,33 @@
 // === C++ includes ===
 #include <cstdint>
 #include <memory>
-#include <vector>
 #include <span>
 
-// === Windows API include ===
-#include "stdafx.h"
+// === Windows API includes ===
 #include "ConvertHresult.h"
 #include "ConvertUTF.h"
+#include "stdafx.h"
 
 namespace Cue::PAL::Win
 {
+    /// @brief Windows の `HANDLE` を使うファイル実装です。
     class WinFile final : public Cue::Core::IO::IFile
     {
     public:
-        // 暗黙変換禁止
-        explicit WinFile(HANDLE h) noexcept;
+        /// @brief ファイルハンドルからインスタンスを構築します。
+        explicit WinFile(HANDLE a_handle) noexcept;
 
         ~WinFile() override;
 
-        Result read(std::span<std::byte> dst, uint64_t* out_read) noexcept override;
+        Result read(std::span<std::byte> a_destination, uint64_t* a_outRead) noexcept override;
 
-        Result write(std::span<const std::byte> src, uint64_t* out_written) noexcept override;
+        Result write(std::span<const std::byte> a_source, uint64_t* a_outWritten) noexcept override;
 
-        Result seek(int64_t offset, Cue::Core::IO::SeekOrigin origin) noexcept override;
+        Result seek(int64_t a_offset, Cue::Core::IO::SeekOrigin a_origin) noexcept override;
 
-        Result tell(uint64_t* out_pos) noexcept override;
+        Result tell(uint64_t* a_outPosition) noexcept override;
 
-        Result size(uint64_t* out_size) noexcept override;
+        Result size(uint64_t* a_outSize) noexcept override;
 
         Result flush() noexcept override;
 

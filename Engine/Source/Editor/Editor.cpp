@@ -20,7 +20,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     auto platform = std::make_unique<PAL::Win::WinPlatform>();
 
     // プラットフォームの初期化
-    PAL::platform_setup_info platformInfo{};
+    PAL::PlatformSetupInfo platformInfo{};
     platformInfo.width = 1280;
     platformInfo.height = 720;
     platformInfo.className = "CueEditorWindowClass";

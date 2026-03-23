@@ -4,16 +4,16 @@
 
 namespace Cue::PAL::Win
 {
-    [[nodiscard]] static void to_native_seps(std::wstring* s) noexcept
+    [[nodiscard]] static void to_native_seps(std::wstring* a_text) noexcept
     {
         // 1) nullptr ガード
-        if (s == nullptr)
+        if (a_text == nullptr)
         {
             return;
         }
 
         // 2) '/' -> '\'
-        for (wchar_t& c : *s)
+        for (wchar_t& c : *a_text)
         {
             if (c == L'/')
             {
@@ -22,23 +22,23 @@ namespace Cue::PAL::Win
         }
 
         // 3) UNC: 先頭が "//" なら "\\"
-        if (s->size() >= 2 && (*s)[0] == L'\\' && (*s)[1] == L'\\')
+        if (a_text->size() >= 2 && (*a_text)[0] == L'\\' && (*a_text)[1] == L'\\')
         {
             return;
         }
-        if (s->size() >= 2 && (*s)[0] == L'/' && (*s)[1] == L'/')
+        if (a_text->size() >= 2 && (*a_text)[0] == L'/' && (*a_text)[1] == L'/')
         {
-            (*s)[0] = L'\\';
-            (*s)[1] = L'\\';
+            (*a_text)[0] = L'\\';
+            (*a_text)[1] = L'\\';
         }
     }
 
-    [[nodiscard]] static int64_t filetime_to_unix_ns(const FILETIME ft) noexcept
+    [[nodiscard]] static int64_t filetime_to_unix_ns(const FILETIME a_fileTime) noexcept
     {
         // 1) FILETIME(100ns, 1601-01-01) -> uint64
         ULARGE_INTEGER u{};
-        u.LowPart = ft.dwLowDateTime;
-        u.HighPart = ft.dwHighDateTime;
+        u.LowPart = a_fileTime.dwLowDateTime;
+        u.HighPart = a_fileTime.dwHighDateTime;
 
         // 2) 1970-01-01 までの差（100ns単位）
         //    116444736000000000 = 1601->1970 の 100ns
@@ -60,10 +60,10 @@ namespace Cue::PAL::Win
         return static_cast<int64_t>(unixNs);
     }
 
-    [[nodiscard]] static Result get_attrs(const std::wstring& path, WIN32_FILE_ATTRIBUTE_DATA* out) noexcept
+    [[nodiscard]] static Result get_attrs(const std::wstring& a_path, WIN32_FILE_ATTRIBUTE_DATA* a_outData) noexcept
     {
         // 1) 引数チェック
-        if (out == nullptr)
+        if (a_outData == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -71,7 +71,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 取得
-        if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, out) == FALSE)
+        if (::GetFileAttributesExW(a_path.c_str(), GetFileExInfoStandard, a_outData) == FALSE)
         {
             return Result::fail(
                 convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
@@ -81,10 +81,10 @@ namespace Cue::PAL::Win
         return Result::ok();
     }
 
-    [[nodiscard]] static Result build_find_pattern(const std::wstring& dir, std::wstring* outPattern) noexcept
+    [[nodiscard]] static Result build_find_pattern(const std::wstring& a_directory, std::wstring* a_outPattern) noexcept
     {
         // 1) 引数チェック
-        if (outPattern == nullptr)
+        if (a_outPattern == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -92,21 +92,21 @@ namespace Cue::PAL::Win
         }
 
         // 2) 末尾に "\*" を付ける
-        *outPattern = dir;
+        *a_outPattern = a_directory;
 
-        if (!outPattern->empty() && outPattern->back() != L'\\')
+        if (!a_outPattern->empty() && a_outPattern->back() != L'\\')
         {
-            outPattern->push_back(L'\\');
+            a_outPattern->push_back(L'\\');
         }
-        outPattern->push_back(L'*');
+        a_outPattern->push_back(L'*');
 
         return Result::ok();
     }
 
-    [[nodiscard]] static Result create_dir_if_needed(const std::wstring& p) noexcept
+    [[nodiscard]] static Result create_dir_if_needed(const std::wstring& a_path) noexcept
     {
         // 1) CreateDirectoryW
-        if (::CreateDirectoryW(p.c_str(), nullptr) != FALSE)
+        if (::CreateDirectoryW(a_path.c_str(), nullptr) != FALSE)
         {
             return Result::ok();
         }
@@ -123,19 +123,19 @@ namespace Cue::PAL::Win
             "Failed to create directory.");
     }
 
-    [[nodiscard]] static Result split_unc_root(std::wstring_view s, size_t* outRootLen) noexcept
+    [[nodiscard]] static Result split_unc_root(std::wstring_view a_text, size_t* a_outRootLength) noexcept
     {
         // 1) //server/share/...
-        if (outRootLen == nullptr)
+        if (a_outRootLength == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *outRootLen = 0;
+        *a_outRootLength = 0;
 
         // 2) 先頭 "\\"
-        if (s.size() < 2 || s[0] != L'\\' || s[1] != L'\\')
+        if (a_text.size() < 2 || a_text[0] != L'\\' || a_text[1] != L'\\')
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -146,11 +146,11 @@ namespace Cue::PAL::Win
         size_t i = 2;
 
         // server
-        while (i < s.size() && s[i] != L'\\')
+        while (i < a_text.size() && a_text[i] != L'\\')
         {
             ++i;
         }
-        if (i >= s.size())
+        if (i >= a_text.size())
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -159,39 +159,39 @@ namespace Cue::PAL::Win
         ++i;
 
         // share
-        while (i < s.size() && s[i] != L'\\')
+        while (i < a_text.size() && a_text[i] != L'\\')
         {
             ++i;
         }
 
         // share 末尾の "\" まで含める（あれば）
-        if (i < s.size() && s[i] == L'\\')
+        if (i < a_text.size() && a_text[i] == L'\\')
         {
             ++i;
         }
 
-        *outRootLen = i;
+        *a_outRootLength = i;
         return Result::ok();
     }
 }
 
 namespace Cue::PAL::Win
 {
-    Result WinFileSystem::exists(const Core::IO::Path& path, bool* out_exists) noexcept
+    Result WinFileSystem::exists(const Core::IO::Path& a_path, bool* a_outExists) noexcept
     {
         // 引数チェック
-        if (out_exists == nullptr)
+        if (a_outExists == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_exists = false; // デフォルトは存在しないとする
+        *a_outExists = false; // デフォルトは存在しないとする
         
         // 変換
         std::wstring wpath;
-        Result r = path_to_native_w(path, &wpath);
-        if(!r)
+        Result r = path_to_native_w(a_path, &wpath);
+        if (!r)
         {
             return r; // 変換に失敗したらエラーを返す
         }
@@ -203,7 +203,7 @@ namespace Cue::PAL::Win
             const DWORD e = ::GetLastError();
             if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
             {
-                *out_exists = false;
+                *a_outExists = false;
                 return Result::ok();
             }
             return Result::fail(
@@ -211,24 +211,25 @@ namespace Cue::PAL::Win
                 "Failed to get file attributes.");
         }
 
-        *out_exists = true;
+        *a_outExists = true;
 
         return Result::ok();
     }
-    Result WinFileSystem::stat(const Core::IO::Path& path, Core::IO::FileStat* out_stat) noexcept
+
+    Result WinFileSystem::stat(const Core::IO::Path& a_path, Core::IO::FileStat* a_outStat) noexcept
     {
         // 引数チェック
-        if (out_stat == nullptr)
+        if (a_outStat == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_stat = {};
+        *a_outStat = {};
 
         // 変換
         std::wstring wpath{};
-        Result r = path_to_native_w(path, &wpath);
+        Result r = path_to_native_w(a_path, &wpath);
         if (!r)
         {
             return r;
@@ -245,28 +246,29 @@ namespace Cue::PAL::Win
         // 種別
         if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0u)
         {
-            out_stat->type = Cue::Core::IO::FileType::directory;
-            out_stat->size_bytes = 0;
+            a_outStat->type = Cue::Core::IO::FileType::directory;
+            a_outStat->size_bytes = 0;
         }
         else
         {
-            out_stat->type = Cue::Core::IO::FileType::regular;
+            a_outStat->type = Cue::Core::IO::FileType::regular;
             ULARGE_INTEGER sz{};
             sz.LowPart = data.nFileSizeLow;
             sz.HighPart = data.nFileSizeHigh;
-            out_stat->size_bytes = sz.QuadPart;
+            a_outStat->size_bytes = sz.QuadPart;
         }
 
         // mtime
-        out_stat->mtime_ns = filetime_to_unix_ns(data.ftLastWriteTime);
+        a_outStat->mtime_ns = filetime_to_unix_ns(data.ftLastWriteTime);
 
         return Result::ok();
     }
-    Result WinFileSystem::create_directories(const Core::IO::Path& path) noexcept
+
+    Result WinFileSystem::create_directories(const Core::IO::Path& a_path) noexcept
     {
         // 変換
         std::wstring wpath{};
-        Result r = path_to_native_w(path, &wpath);
+        Result r = path_to_native_w(a_path, &wpath);
         if (!r)
         {
             return r;
@@ -349,20 +351,21 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
-    Result WinFileSystem::list_directory(const Core::IO::Path& path, std::vector<Core::IO::Path>* out_entries) noexcept
+
+    Result WinFileSystem::list_directory(const Core::IO::Path& a_path, std::vector<Core::IO::Path>* a_outEntries) noexcept
     {
         // 引数チェック
-        if (out_entries == nullptr)
+        if (a_outEntries == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        out_entries->clear();
+        a_outEntries->clear();
 
         // native path
         std::wstring wdir{};
-        Result r = path_to_native_w(path, &wdir);
+        Result r = path_to_native_w(a_path, &wdir);
         if (!r)
         {
             return r;
@@ -422,7 +425,7 @@ namespace Cue::PAL::Win
                         }
                     }
 
-                    out_entries->push_back(Cue::Core::IO::Path{ std::move(utf8) }.normalize());
+                    a_outEntries->push_back(Cue::Core::IO::Path{ std::move(utf8) }.normalize());
                 }
             }
 
@@ -438,24 +441,25 @@ namespace Cue::PAL::Win
                 }
                 return Result::fail(
                     convert_hresult_code(HRESULT_FROM_WIN32(e)), Severity::Error,
-                    "Failed to list directory.");
+                "Failed to list directory.");
             }
         }
     }
-    Result WinFileSystem::remove(const Core::IO::Path& path, bool* out_removed) noexcept
+
+    Result WinFileSystem::remove(const Core::IO::Path& a_path, bool* a_outRemoved) noexcept
     {
         // 引数チェック
-        if (out_removed == nullptr)
+        if (a_outRemoved == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_removed = false;
+        *a_outRemoved = false;
 
         // native
         std::wstring wpath{};
-        Result r = path_to_native_w(path, &wpath);
+        Result r = path_to_native_w(a_path, &wpath);
         if (!r)
         {
             return r;
@@ -468,7 +472,7 @@ namespace Cue::PAL::Win
             const DWORD e = ::GetLastError();
             if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
             {
-                *out_removed = false;
+                *a_outRemoved = false;
                 return Result::ok();
             }
             return Result::fail(
@@ -492,26 +496,27 @@ namespace Cue::PAL::Win
             {
                 return Result::fail(
                     convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
-                    "Failed to remove file.");
+                "Failed to remove file.");
             }
         }
 
-        *out_removed = true;
+        *a_outRemoved = true;
         return Result::ok();
     }
-    Result WinFileSystem::rename(const Core::IO::Path& from, const Core::IO::Path& to) noexcept
+
+    Result WinFileSystem::rename(const Core::IO::Path& a_from, const Core::IO::Path& a_to) noexcept
     {
         // 変換
         std::wstring wfrom{};
         std::wstring wto{};
 
-        Result r = path_to_native_w(from, &wfrom);
+        Result r = path_to_native_w(a_from, &wfrom);
         if (!r)
         {
             return r;
         }
 
-        r = path_to_native_w(to, &wto);
+        r = path_to_native_w(a_to, &wto);
         if (!r)
         {
             return r;
@@ -528,33 +533,35 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
-    Result WinFileSystem::path_to_native_w(const Core::IO::Path& path, std::wstring* out) noexcept
+
+    Result WinFileSystem::path_to_native_w(const Core::IO::Path& a_path, std::wstring* a_outText) noexcept
     {
         // UTF-8 -> UTF-16
-        Result r = utf8_to_wide(path.utf8(), out);
+        Result r = utf8_to_wide(a_path.utf8(), a_outText);
         if (!r)
         {
             return r;
         }
 
         // 区切りを Win に合わせる
-        to_native_seps(out);
+        to_native_seps(a_outText);
 
         return Result::ok();
     }
-    Result WinFileSystem::open(const Core::IO::Path& path, const Core::IO::FileOpenDesc& desc, std::unique_ptr<Core::IO::IFile>* out_file) noexcept
+
+    Result WinFileSystem::open(const Core::IO::Path& a_path, const Core::IO::FileOpenDesc& a_desc, std::unique_ptr<Core::IO::IFile>* a_outFile) noexcept
     {
         // 引数チェック
-        if (out_file == nullptr)
+        if (a_outFile == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        out_file->reset();
+        a_outFile->reset();
 
         // no_buffer 指定は unsupported を返す（整列制約は未対応）
-        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::no_buffer))
+        if (Cue::Core::IO::has_flag(a_desc.flags, Cue::Core::IO::OpenFlags::no_buffer))
         {
             return Result::fail(
                 Code::Unsupported, Severity::Error,
@@ -563,7 +570,7 @@ namespace Cue::PAL::Win
 
         // 変換
         std::wstring wpath{};
-        Result r = path_to_native_w(path, &wpath);
+        Result r = path_to_native_w(a_path, &wpath);
         if (!r)
         {
             return r;
@@ -571,7 +578,7 @@ namespace Cue::PAL::Win
 
         // DesiredAccess
         DWORD desired = 0;
-        switch (desc.access)
+        switch (a_desc.access)
         {
         case Cue::Core::IO::OpenAccess::read:
             desired = GENERIC_READ;
@@ -589,7 +596,7 @@ namespace Cue::PAL::Win
         }
 
         // append
-        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::append))
+        if (Cue::Core::IO::has_flag(a_desc.flags, Cue::Core::IO::OpenFlags::append))
         {
             // 書き込み時は FILE_APPEND_DATA を足す（GENERIC_WRITE でも動くが意図が明確）
             desired |= FILE_APPEND_DATA;
@@ -597,7 +604,7 @@ namespace Cue::PAL::Win
 
         // CreationDisposition
         DWORD disposition = OPEN_EXISTING;
-        switch (desc.create)
+        switch (a_desc.create)
         {
         case Cue::Core::IO::OpenCreate::open_existing:
             disposition = OPEN_EXISTING;
@@ -622,11 +629,11 @@ namespace Cue::PAL::Win
 
         // FlagsAndAttributes（ヒント）
         DWORD flags = FILE_ATTRIBUTE_NORMAL;
-        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::sequential))
+        if (Cue::Core::IO::has_flag(a_desc.flags, Cue::Core::IO::OpenFlags::sequential))
         {
             flags |= FILE_FLAG_SEQUENTIAL_SCAN;
         }
-        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::random))
+        if (Cue::Core::IO::has_flag(a_desc.flags, Cue::Core::IO::OpenFlags::random))
         {
             flags |= FILE_FLAG_RANDOM_ACCESS;
         }
@@ -652,7 +659,7 @@ namespace Cue::PAL::Win
         }
 
         // append の場合、末尾へ
-        if (Cue::Core::IO::has_flag(desc.flags, Cue::Core::IO::OpenFlags::append))
+        if (Cue::Core::IO::has_flag(a_desc.flags, Cue::Core::IO::OpenFlags::append))
         {
             LARGE_INTEGER zero{};
             zero.QuadPart = 0;
@@ -669,19 +676,20 @@ namespace Cue::PAL::Win
         }
 
         // wrap
-        *out_file = std::unique_ptr<Cue::Core::IO::IFile>(new WinFile(h));
+        *a_outFile = std::unique_ptr<Cue::Core::IO::IFile>(new WinFile(h));
         return Result::ok();
     }
-    Result WinFileSystem::read_all(const Core::IO::Path& path, std::vector<std::byte>* out_data) noexcept
+
+    Result WinFileSystem::read_all(const Core::IO::Path& a_path, std::vector<std::byte>* a_outData) noexcept
     {
         // 引数チェック
-        if (out_data == nullptr)
+        if (a_outData == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        out_data->clear();
+        a_outData->clear();
 
         // open
         Cue::Core::IO::FileOpenDesc d{};
@@ -690,7 +698,7 @@ namespace Cue::PAL::Win
         d.flags = Cue::Core::IO::OpenFlags::sequential;
 
         std::unique_ptr<Cue::Core::IO::IFile> f{};
-        Result r = open(path, d, &f);
+        Result r = open(a_path, d, &f);
         if (!r)
         {
             return r;
@@ -714,32 +722,33 @@ namespace Cue::PAL::Win
         }
 
         // 読み込み
-        out_data->resize(static_cast<size_t>(sz));
+        a_outData->resize(static_cast<size_t>(sz));
 
         uint64_t got = 0;
-        r = f->read(std::span<std::byte>{ out_data->data(), out_data->size() }, & got);
+        r = f->read(std::span<std::byte>{ a_outData->data(), a_outData->size() }, &got);
         if (!r)
         {
             (void)f->close();
-            out_data->clear();
+            a_outData->clear();
             return r;
         }
 
         // 期待サイズ未満なら詰める
-        if (got < static_cast<uint64_t>(out_data->size()))
+        if (got < static_cast<uint64_t>(a_outData->size()))
         {
-            out_data->resize(static_cast<size_t>(got));
+            a_outData->resize(static_cast<size_t>(got));
         }
 
         (void)f->close();
         return Result::ok();
     }
-    Result WinFileSystem::write_all(const Core::IO::Path& path, std::span<const std::byte> data, bool create_parent_dirs) noexcept
+
+    Result WinFileSystem::write_all(const Core::IO::Path& a_path, std::span<const std::byte> a_data, bool a_createParentDirs) noexcept
     {
         // 親ディレクトリ作成
-        if (create_parent_dirs)
+        if (a_createParentDirs)
         {
-            const Cue::Core::IO::Path parent = path.parent();
+            const Cue::Core::IO::Path parent = a_path.parent();
             if (!parent.is_empty())
             {
                 const Result r0 = create_directories(parent);
@@ -757,7 +766,7 @@ namespace Cue::PAL::Win
         d.flags = Cue::Core::IO::OpenFlags::sequential;
 
         std::unique_ptr<Cue::Core::IO::IFile> f{};
-        Result r = open(path, d, &f);
+        Result r = open(a_path, d, &f);
         if (!r)
         {
             return r;
@@ -765,14 +774,14 @@ namespace Cue::PAL::Win
 
         // write
         uint64_t written = 0;
-        r = f->write(data, &written);
+        r = f->write(a_data, &written);
         if (!r)
         {
             (void)f->close();
             return r;
         }
 
-        if (written != static_cast<uint64_t>(data.size()))
+        if (written != static_cast<uint64_t>(a_data.size()))
         {
             (void)f->close();
             return Result::fail(

@@ -1,26 +1,28 @@
 #pragma once
 
-// === Base Includes ===
-#include <Result.h>
+// === C++ includes ===
+#include <cstdint>
 
-// === Core Includes ===
+// === Core includes ===
 #include <Time/IClock.h>
 
-// === Windows API Includes ===
+// === Windows API includes ===
 #include "stdafx.h"
 
 namespace Cue::PAL::Win
 {
+    /// @brief Query Performance Counter ベースのクロックです。
     class WinQpcClock : public Core::Time::IClock
     {
     public:
         WinQpcClock() noexcept = default;
         ~WinQpcClock() override = default;
 
-        // ナノ秒単位の現在時刻を取得する
+        /// @brief ナノ秒単位の現在時刻を返します。
         [[nodiscard]] Math::TimeSpan now_ns() const noexcept override;
+
     private:
         [[nodiscard]] static std::int64_t query_frequency_hz() noexcept;
-        [[nodiscard]] static std::int64_t ticks_to_ns(const std::int64_t ticks, const std::int64_t freq) noexcept;
+        [[nodiscard]] static std::int64_t ticks_to_ns(std::int64_t a_ticks, std::int64_t a_frequency) noexcept;
     };
 }

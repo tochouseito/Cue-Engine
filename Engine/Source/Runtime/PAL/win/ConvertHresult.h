@@ -3,21 +3,21 @@
 // === Base includes ===
 #include <Result.h>
 
-// === Windows API include ===
+// === Windows API includes ===
 #include "stdafx.h"
 
 namespace Cue::PAL::Win
 {
-    [[nodiscard]] inline Code convert_hresult_code(HRESULT hr)
+    [[nodiscard]] inline Code convert_hresult_code(HRESULT a_hresult)
     {
         // 成功なら OK を返す
-        if (SUCCEEDED(hr))
+        if (SUCCEEDED(a_hresult))
         {
             return Code::OK;
         }
 
         // HRESULT を Result に変換する
-        switch (hr)
+        switch (a_hresult)
         {
         case E_INVALIDARG:
         {

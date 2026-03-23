@@ -6,16 +6,16 @@
 // === C++ includes ===
 #include <string>
 
-// === Windows API include ===
-#include "stdafx.h"
+// === Windows API includes ===
 #include "ConvertHresult.h"
+#include "stdafx.h"
 
 namespace Cue::PAL::Win
 {
-    [[nodiscard]] static Result utf8_to_wide(std::string_view s, std::wstring* out) noexcept
+    [[nodiscard]] static Result utf8_to_wide(std::string_view a_text, std::wstring* a_outText) noexcept
     {
         // 1) 引数チェック
-        if (out == nullptr)
+        if (a_outText == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -23,14 +23,14 @@ namespace Cue::PAL::Win
         }
 
         // 2) 空文字
-        if (s.empty())
+        if (a_text.empty())
         {
-            out->clear();
+            a_outText->clear();
             return Result::ok();
         }
 
         // 3) 必要サイズ
-        const int needed = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+        const int needed = ::MultiByteToWideChar(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), nullptr, 0);
         if (needed <= 0)
         {
             return Result::fail(
@@ -39,8 +39,8 @@ namespace Cue::PAL::Win
         }
 
         // 4) 変換
-        out->assign(static_cast<size_t>(needed), L'\0');
-        const int written = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out->data(), needed);
+        a_outText->assign(static_cast<size_t>(needed), L'\0');
+        const int written = ::MultiByteToWideChar(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), a_outText->data(), needed);
         if (written != needed)
         {
             return Result::fail(
@@ -51,10 +51,10 @@ namespace Cue::PAL::Win
         return Result::ok();
     }
 
-    [[nodiscard]] static Result wide_to_utf8(std::wstring_view s, std::string* out) noexcept
+    [[nodiscard]] static Result wide_to_utf8(std::wstring_view a_text, std::string* a_outText) noexcept
     {
         // 1) 引数チェック
-        if (out == nullptr)
+        if (a_outText == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -62,14 +62,14 @@ namespace Cue::PAL::Win
         }
 
         // 2) 空文字
-        if (s.empty())
+        if (a_text.empty())
         {
-            out->clear();
+            a_outText->clear();
             return Result::ok();
         }
 
         // 3) 必要サイズ
-        const int needed = ::WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
+        const int needed = ::WideCharToMultiByte(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), nullptr, 0, nullptr, nullptr);
         if (needed <= 0)
         {
             return Result::fail(
@@ -78,8 +78,8 @@ namespace Cue::PAL::Win
         }
 
         // 4) 変換
-        out->assign(static_cast<size_t>(needed), '\0');
-        const int written = ::WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out->data(), needed, nullptr, nullptr);
+        a_outText->assign(static_cast<size_t>(needed), '\0');
+        const int written = ::WideCharToMultiByte(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), a_outText->data(), needed, nullptr, nullptr);
         if (written != needed)
         {
             return Result::fail(

@@ -8,29 +8,31 @@
 #include <Threading/StopToken.h>
 
 // === C++ includes ===
+#include <atomic>
 #include <cstdint>
 #include <memory>
 
-// === Windows API include ===
+// === Windows API includes ===
 #include "stdafx.h"
 
 namespace Cue::PAL::Win
 {
+    /// @brief Windows スレッド実装です。
     class WinThread final : public Core::Threading::IThread
     {
     public:
         WinThread() noexcept = default;
         ~WinThread() override;
         // ムーブを許可する
-        WinThread(WinThread&& other) noexcept;
-        WinThread& operator=(WinThread&& other) noexcept;
+        WinThread(WinThread&& a_other) noexcept;
+        WinThread& operator=(WinThread&& a_other) noexcept;
 
-        // --- Thread creation ---
+        // --- スレッド生成 ---
         static Result create(
-            const Core::Threading::ThreadDesc& desc,
-            Core::Threading::ThreadProc proc,
-            void* user,
-            WinThread& out_thread) noexcept;
+            const Core::Threading::ThreadDesc& a_desc,
+            Core::Threading::ThreadProc a_proc,
+            void* a_user,
+            WinThread& a_outThread) noexcept;
 
         // --- スレッド管理 ---
         bool joinable() const noexcept override;
@@ -50,13 +52,13 @@ namespace Cue::PAL::Win
             StartContext(const StartContext&) = delete;
             StartContext& operator=(const StartContext&) = delete;
 
-            Core::Threading::ThreadProc proc = nullptr;
-            void* user = nullptr;
-            Core::Threading::StopSource stopSource{};
-            std::atomic<uint32_t> exitCode{ 0 }; // スレッド終了コード
+            Core::Threading::ThreadProc m_proc = nullptr;
+            void* m_user = nullptr;
+            Core::Threading::StopSource m_stopSource{};
+            std::atomic<uint32_t> m_exitCode{ 0 }; // スレッド終了コード
         };
 
-        static unsigned __stdcall thread_entry(void* p) noexcept;
+        static unsigned __stdcall thread_entry(void* a_context) noexcept;
 
         void close_handle_no_wait() noexcept;
     private:

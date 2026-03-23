@@ -6,10 +6,10 @@ namespace Cue::PAL::Win
 {
     namespace
     {
-        static void set_thread_name_if_possible(HANDLE hThread, std::string_view name) noexcept
+        static void set_thread_name_if_possible(HANDLE a_threadHandle, std::string_view a_name) noexcept
         {
             // 1) 空なら何もしない
-            if (name.empty())
+            if (a_name.empty())
             {
                 return;
             }
@@ -17,13 +17,13 @@ namespace Cue::PAL::Win
             // 2) 動的解決（SDK/Windows差でビルドが死ぬのを避ける）
             using Fn = HRESULT(WINAPI*)(HANDLE, PCWSTR);
 
-            HMODULE hKernel = ::GetModuleHandleW(L"kernel32.dll");
-            if (hKernel == nullptr)
+            HMODULE kernelModule = ::GetModuleHandleW(L"kernel32.dll");
+            if (kernelModule == nullptr)
             {
                 return;
             }
 
-            auto fn = reinterpret_cast<Fn>(::GetProcAddress(hKernel, "SetThreadDescription"));
+            auto fn = reinterpret_cast<Fn>(::GetProcAddress(kernelModule, "SetThreadDescription"));
             if (fn == nullptr)
             {
                 return;
@@ -31,8 +31,8 @@ namespace Cue::PAL::Win
 
             // 3) UTF-8 -> UTF-16
             std::wstring w;
-            const Result r = utf8_to_wide(name, &w);
-            if (!r)
+            const Result result = utf8_to_wide(a_name, &w);
+            if (!result)
             {
                 return;
             }
@@ -42,21 +42,21 @@ namespace Cue::PAL::Win
             }
 
             // 4) 失敗しても無視
-            (void)fn(hThread, w.c_str());
+            (void)fn(a_threadHandle, w.c_str());
         }
 
-        static void apply_thread_options(HANDLE hThread, const Cue::Core::Threading::ThreadDesc& desc) noexcept
+        static void apply_thread_options(HANDLE a_threadHandle, const Cue::Core::Threading::ThreadDesc& a_desc) noexcept
         {
             // 1) 優先度（0なら触らない）
-            if (desc.priority != 0)
+            if (a_desc.priority != 0)
             {
-                ::SetThreadPriority(hThread, desc.priority);
+                ::SetThreadPriority(a_threadHandle, a_desc.priority);
             }
 
             // 2) アフィニティ（0なら触らない）
-            if (desc.affinityMask != 0)
+            if (a_desc.affinityMask != 0)
             {
-                ::SetThreadAffinityMask(hThread, static_cast<DWORD_PTR>(desc.affinityMask));
+                ::SetThreadAffinityMask(a_threadHandle, static_cast<DWORD_PTR>(a_desc.affinityMask));
             }
         }
     }
@@ -76,15 +76,16 @@ namespace Cue::PAL::Win
         // コンテキスト破棄
         m_ctx.reset();
     }
-    WinThread::WinThread(WinThread&& other) noexcept
+    WinThread::WinThread(WinThread&& a_other) noexcept
     {
         // ムーブ
-        *this = std::move(other);
+        *this = std::move(a_other);
     }
-    WinThread& WinThread::operator=(WinThread && other) noexcept
+
+    WinThread& WinThread::operator=(WinThread&& a_other) noexcept
     {
         // 自己代入防止
-        if (this != &other)
+        if (this != &a_other)
         {
             // 自分の後始末
             if (m_joinable)
@@ -96,23 +97,28 @@ namespace Cue::PAL::Win
             m_ctx.reset();
 
             // 所有権を移す（StartContextはポインタだけ移す）
-            m_handle = other.m_handle;
-            m_threadId = other.m_threadId;
-            m_ctx = std::move(other.m_ctx);
-            m_joinable = other.m_joinable;
+            m_handle = a_other.m_handle;
+            m_threadId = a_other.m_threadId;
+            m_ctx = std::move(a_other.m_ctx);
+            m_joinable = a_other.m_joinable;
 
             // 相手を無効化
-            other.m_handle = nullptr;
-            other.m_threadId = 0;
-            other.m_joinable = false;
+            a_other.m_handle = nullptr;
+            a_other.m_threadId = 0;
+            a_other.m_joinable = false;
         }
 
         return *this;
     }
-    Result WinThread::create(const Core::Threading::ThreadDesc& desc, Core::Threading::ThreadProc proc, void* user, WinThread& out_thread) noexcept
+
+    Result WinThread::create(
+        const Core::Threading::ThreadDesc& a_desc,
+        Core::Threading::ThreadProc a_proc,
+        void* a_user,
+        WinThread& a_outThread) noexcept
     {
         // 1) 引数チェック
-        if (proc == nullptr)
+        if (a_proc == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -120,11 +126,11 @@ namespace Cue::PAL::Win
         }
 
         // 2) outThread 初期化
-        out_thread = WinThread{};
+        a_outThread = WinThread{};
 
         // 3) StartContext を nothrow でヒープ確保する
-        out_thread.m_ctx.reset(new (std::nothrow) StartContext{});
-        if (!out_thread.m_ctx)
+        a_outThread.m_ctx.reset(new (std::nothrow) StartContext{});
+        if (!a_outThread.m_ctx)
         {
             return Result::fail(
                 Code::OutOfMemory, Severity::Error,
@@ -132,46 +138,48 @@ namespace Cue::PAL::Win
         }
 
         // 4) コンテキスト設定
-        out_thread.m_ctx->proc = proc;
-        out_thread.m_ctx->user = user;
-        out_thread.m_ctx->stopSource.reset();
-        out_thread.m_ctx->exitCode.store(0, std::memory_order_relaxed);
+        a_outThread.m_ctx->m_proc = a_proc;
+        a_outThread.m_ctx->m_user = a_user;
+        a_outThread.m_ctx->m_stopSource.reset();
+        a_outThread.m_ctx->m_exitCode.store(0, std::memory_order_relaxed);
 
         // 5) スレッド生成（_beginthreadex）
         unsigned int tid = 0;
-        const uintptr_t h = ::_beginthreadex(
+        const uintptr_t threadHandle = ::_beginthreadex(
             nullptr,
-            static_cast<unsigned int>(desc.stackSizeBytes),
+            static_cast<unsigned int>(a_desc.stackSizeBytes),
             &WinThread::thread_entry,
-            out_thread.m_ctx.get(),
+            a_outThread.m_ctx.get(),
             0,
             &tid);
 
-        if (h == 0)
+        if (threadHandle == 0)
         {
             return Result::fail(
                 convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
                 "Failed to create thread.");
         }
 
-        out_thread.m_handle = reinterpret_cast<void*>(h);
-        out_thread.m_threadId = static_cast<uint32_t>(tid);
-        out_thread.m_joinable = true;
+        a_outThread.m_handle = reinterpret_cast<void*>(threadHandle);
+        a_outThread.m_threadId = static_cast<uint32_t>(tid);
+        a_outThread.m_joinable = true;
 
         // 6) スレッドオプション適用
         {
-            HANDLE hh = reinterpret_cast<HANDLE>(out_thread.m_handle);
-            set_thread_name_if_possible(hh, desc.name);
-            apply_thread_options(hh, desc);
+            HANDLE threadHandleValue = reinterpret_cast<HANDLE>(a_outThread.m_handle);
+            set_thread_name_if_possible(threadHandleValue, a_desc.name);
+            apply_thread_options(threadHandleValue, a_desc);
         }
 
         return Result::ok();
     }
+
     bool WinThread::joinable() const noexcept
     {
         // 1) join可能か
         return m_joinable;
     }
+
     Result WinThread::join() noexcept
     {
         // 1) join不可なら成功
@@ -181,9 +189,9 @@ namespace Cue::PAL::Win
         }
 
         // 2) 待機
-        HANDLE hh = reinterpret_cast<HANDLE>(m_handle);
-        const DWORD r = ::WaitForSingleObject(hh, INFINITE);
-        if (r != WAIT_OBJECT_0)
+        HANDLE threadHandle = reinterpret_cast<HANDLE>(m_handle);
+        const DWORD waitResult = ::WaitForSingleObject(threadHandle, INFINITE);
+        if (waitResult != WAIT_OBJECT_0)
         {
             return Result::fail(
                 convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
@@ -195,6 +203,7 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
+
     void WinThread::request_stop() noexcept
     {
         // 1) ctx が無ければ何もしない
@@ -204,8 +213,9 @@ namespace Cue::PAL::Win
         }
 
         // 2) 停止要求
-        m_ctx->stopSource.request_stop();
+        m_ctx->m_stopSource.request_stop();
     }
+
     Core::Threading::StopToken WinThread::stop_token() const noexcept
     {
         // 1) ctx が無ければ空トークン
@@ -215,13 +225,15 @@ namespace Cue::PAL::Win
         }
 
         // 2) トークンを返す
-        return m_ctx->stopSource.token();
+        return m_ctx->m_stopSource.token();
     }
+
     uint32_t WinThread::thread_id() const noexcept
     {
         // 1) スレッドID
         return m_threadId;
     }
+
     uint32_t WinThread::exit_code() const noexcept
     {
         // 1) ctx が無ければ0
@@ -231,29 +243,31 @@ namespace Cue::PAL::Win
         }
 
         // 2) 終了コード取得
-        return m_ctx->exitCode.load(std::memory_order_relaxed);
+        return m_ctx->m_exitCode.load(std::memory_order_relaxed);
     }
-    unsigned __stdcall WinThread::thread_entry(void* p) noexcept
+
+    unsigned __stdcall WinThread::thread_entry(void* a_context) noexcept
     {
         // 1) コンテキスト取得
-        StartContext* ctx = static_cast<StartContext*>(p);
-        if (ctx == nullptr)
+        StartContext* context = static_cast<StartContext*>(a_context);
+        if (context == nullptr)
         {
             ::_endthreadex(0);
             return 0;
         }
 
         // 2) StopToken を作ってユーザー処理を実行
-        const Cue::Core::Threading::StopToken token = ctx->stopSource.token();
-        const uint32_t code = ctx->proc(token, ctx->user);
+        const Cue::Core::Threading::StopToken token = context->m_stopSource.token();
+        const uint32_t code = context->m_proc(token, context->m_user);
 
         // 3) 終了コード保存
-        ctx->exitCode.store(code, std::memory_order_relaxed);
+        context->m_exitCode.store(code, std::memory_order_relaxed);
 
         // 4) 終了
         ::_endthreadex(code);
         return code;
     }
+
     void WinThread::close_handle_no_wait() noexcept
     {
         // 1) ハンドルがあれば閉じる

@@ -1,11 +1,11 @@
 #pragma once
 
-// C++ includes
+// === C++ includes ===
 #include <cstdint>
 
 namespace Cue::PAL
 {
-    // プラットフォームからのメッセージ
+    /// @brief プラットフォーム層から返るメッセージ種別です。
     enum class PlatformMessage : uint8_t
     {
         None = 0,

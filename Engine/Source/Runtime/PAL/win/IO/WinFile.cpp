@@ -2,10 +2,10 @@
 
 namespace Cue::PAL::Win
 {
-    // 暗黙変換禁止
-    WinFile::WinFile(HANDLE h) noexcept
-        : m_handle(h)
+    WinFile::WinFile(HANDLE a_handle) noexcept
+        : m_handle(a_handle)
     {}
+
     WinFile::~WinFile()
     {
         // 1) close を呼ばれていなくてもリークさせない
@@ -15,16 +15,17 @@ namespace Cue::PAL::Win
             m_handle = INVALID_HANDLE_VALUE;
         }
     }
-    Result WinFile::read(std::span<std::byte> dst, uint64_t* out_read) noexcept
+
+    Result WinFile::read(std::span<std::byte> a_destination, uint64_t* a_outRead) noexcept
     {
         // 1) 引数チェック
-        if (out_read == nullptr)
+        if (a_outRead == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_read = 0;
+        *a_outRead = 0;
 
         if (m_handle == INVALID_HANDLE_VALUE)
         {
@@ -34,7 +35,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 0バイト
-        if (dst.size() == 0)
+        if (a_destination.size() == 0)
         {
             return Result::ok();
         }
@@ -43,13 +44,13 @@ namespace Cue::PAL::Win
         uint64_t total = 0;
         size_t offset = 0;
 
-        while (offset < dst.size())
+        while (offset < a_destination.size())
         {
-            const size_t remain = dst.size() - offset;
+            const size_t remain = a_destination.size() - offset;
             const DWORD chunk = (remain > static_cast<size_t>(MAXDWORD)) ? MAXDWORD : static_cast<DWORD>(remain);
 
             DWORD readBytes = 0;
-            if (::ReadFile(m_handle, dst.data() + offset, chunk, &readBytes, nullptr) == FALSE)
+            if (::ReadFile(m_handle, a_destination.data() + offset, chunk, &readBytes, nullptr) == FALSE)
             {
                 return Result::fail(
                     convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
@@ -66,19 +67,20 @@ namespace Cue::PAL::Win
             }
         }
 
-        *out_read = total;
+        *a_outRead = total;
         return Result::ok();
     }
-    Result WinFile::write(std::span<const std::byte> src, uint64_t* out_written) noexcept
+
+    Result WinFile::write(std::span<const std::byte> a_source, uint64_t* a_outWritten) noexcept
     {
         // 1) 引数チェック
-        if (out_written == nullptr)
+        if (a_outWritten == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_written = 0;
+        *a_outWritten = 0;
 
         if (m_handle == INVALID_HANDLE_VALUE)
         {
@@ -88,7 +90,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 0バイト
-        if (src.size() == 0)
+        if (a_source.size() == 0)
         {
             return Result::ok();
         }
@@ -97,13 +99,13 @@ namespace Cue::PAL::Win
         uint64_t total = 0;
         size_t offset = 0;
 
-        while (offset < src.size())
+        while (offset < a_source.size())
         {
-            const size_t remain = src.size() - offset;
+            const size_t remain = a_source.size() - offset;
             const DWORD chunk = (remain > static_cast<size_t>(MAXDWORD)) ? MAXDWORD : static_cast<DWORD>(remain);
 
             DWORD written = 0;
-            if (::WriteFile(m_handle, src.data() + offset, chunk, &written, nullptr) == FALSE)
+            if (::WriteFile(m_handle, a_source.data() + offset, chunk, &written, nullptr) == FALSE)
             {
                 return Result::fail(
                     convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())), Severity::Error,
@@ -122,10 +124,11 @@ namespace Cue::PAL::Win
             }
         }
 
-        *out_written = total;
+        *a_outWritten = total;
         return Result::ok();
     }
-    Result WinFile::seek(int64_t offset, Cue::Core::IO::SeekOrigin origin) noexcept
+
+    Result WinFile::seek(int64_t a_offset, Cue::Core::IO::SeekOrigin a_origin) noexcept
     {
         // 1) ハンドルチェック
         if (m_handle == INVALID_HANDLE_VALUE)
@@ -137,7 +140,7 @@ namespace Cue::PAL::Win
 
         // 2) origin
         DWORD moveMethod = FILE_BEGIN;
-        switch (origin)
+        switch (a_origin)
         {
         case Cue::Core::IO::SeekOrigin::begin:
             moveMethod = FILE_BEGIN;
@@ -156,7 +159,7 @@ namespace Cue::PAL::Win
 
         // 3) SetFilePointerEx
         LARGE_INTEGER li{};
-        li.QuadPart = offset;
+        li.QuadPart = a_offset;
 
         LARGE_INTEGER newPos{};
         if (::SetFilePointerEx(m_handle, li, &newPos, moveMethod) == FALSE)
@@ -168,16 +171,17 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
-    Result WinFile::tell(uint64_t* out_pos) noexcept
+
+    Result WinFile::tell(uint64_t* a_outPosition) noexcept
     {
         // 1) 引数チェック
-        if (out_pos == nullptr)
+        if (a_outPosition == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_pos = 0;
+        *a_outPosition = 0;
 
         if (m_handle == INVALID_HANDLE_VALUE)
         {
@@ -205,19 +209,20 @@ namespace Cue::PAL::Win
                 "Failed to get current file position (negative position).");
         }
 
-        *out_pos = static_cast<uint64_t>(newPos.QuadPart);
+        *a_outPosition = static_cast<uint64_t>(newPos.QuadPart);
         return Result::ok();
     }
-    Result WinFile::size(uint64_t* out_size) noexcept
+
+    Result WinFile::size(uint64_t* a_outSize) noexcept
     {
         // 1) 引数チェック
-        if (out_size == nullptr)
+        if (a_outSize == nullptr)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
                 "Output parameter must not be null.");
         }
-        *out_size = 0;
+        *a_outSize = 0;
 
         if (m_handle == INVALID_HANDLE_VALUE)
         {
@@ -242,9 +247,10 @@ namespace Cue::PAL::Win
                 "Failed to get file size (negative size).");
         }
 
-        *out_size = static_cast<uint64_t>(sz.QuadPart);
+        *a_outSize = static_cast<uint64_t>(sz.QuadPart);
         return Result::ok();
     }
+
     Result WinFile::flush() noexcept
     {
         // 1) ハンドルチェック
@@ -265,6 +271,7 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
+
     Result WinFile::close() noexcept
     {
         // 1) 既に閉じている

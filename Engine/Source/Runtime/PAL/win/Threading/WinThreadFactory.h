@@ -10,12 +10,12 @@
 #include <memory>
 #include <new>
 
-// === Windows API include ===
-#include "stdafx.h"
+// === Windows API includes ===
 #include "WinThread.h"
 
 namespace Cue::PAL::Win
 {
+    /// @brief Windows スレッド生成ファクトリです。
     class WinThreadFactory final : public Core::Threading::IThreadFactory
     {
     public:
@@ -24,9 +24,9 @@ namespace Cue::PAL::Win
 
         // --- スレッド生成 ---
         Result create_thread(
-            const Core::Threading::ThreadDesc& desc,
-            Core::Threading::ThreadProc proc,
-            void* user,
-            std::unique_ptr<Core::Threading::IThread>& outThread) noexcept override;
+            const Core::Threading::ThreadDesc& a_desc,
+            Core::Threading::ThreadProc a_proc,
+            void* a_user,
+            std::unique_ptr<Core::Threading::IThread>& a_outThread) noexcept override;
     };
 }

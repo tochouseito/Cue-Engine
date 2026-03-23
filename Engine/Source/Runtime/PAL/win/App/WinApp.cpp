@@ -2,20 +2,22 @@
 
 namespace
 {
-    constexpr uint32_t minimum_window_width = 100;
-    constexpr uint32_t minimum_window_height = 100;
+    constexpr uint32_t k_minimumWindowWidth = 100;
+    constexpr uint32_t k_minimumWindowHeight = 100;
 }
 
 namespace Cue::PAL::Win
 {
     WinApp::WinApp()
     {}
+
     WinApp::~WinApp()
     {}
-    Result WinApp::create_window(uint32_t width, uint32_t height, const wchar_t* className, const wchar_t* titleName)
+
+    Result WinApp::create_window(uint32_t a_width, uint32_t a_height, const wchar_t* a_className, const wchar_t* a_titleName)
     {
         // 引数チェック
-        if (!className || !titleName)
+        if (!a_className || !a_titleName)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -23,7 +25,7 @@ namespace Cue::PAL::Win
         }
 
         // サイズチェック
-        if( width < minimum_window_width || height < minimum_window_height)
+        if ((a_width < k_minimumWindowWidth) || (a_height < k_minimumWindowHeight))
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
@@ -37,7 +39,7 @@ namespace Cue::PAL::Win
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = &window_proc;
-        wc.lpszClassName = className;
+        wc.lpszClassName = a_className;
         wc.hInstance = hInstance;
         wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
 
@@ -49,15 +51,15 @@ namespace Cue::PAL::Win
         }
 
         // クライアントサイズ維持でウィンドウの作成
-        RECT rc = { 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) };
+        RECT rc = { 0, 0, static_cast<LONG>(a_width), static_cast<LONG>(a_height) };
         ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
         m_hwnd = ::CreateWindowExW(
-            0, className, titleName,
+            0, a_className, a_titleName,
             WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
             rc.right - rc.left, rc.bottom - rc.top,
             nullptr, nullptr, hInstance, this);
 
-        if(!m_hwnd)
+        if (!m_hwnd)
         {
             return Result::fail(
                 Code::CreateFailed, Severity::Fatal,
@@ -66,16 +68,18 @@ namespace Cue::PAL::Win
 
         return Result::ok();
     }
+
     void WinApp::destroy_window()
     {
         // ウィンドウが存在する場合は破棄する
-        if(m_hwnd)
+        if (m_hwnd)
         {
             ::DestroyWindow(m_hwnd);
             m_hwnd = nullptr;
         }
     }
-    Result WinApp::show_window(ShowWindowFlag flag)
+
+    Result WinApp::show_window(ShowWindowFlag a_flag)
     {
         if (!m_hwnd)
         {
@@ -84,22 +88,20 @@ namespace Cue::PAL::Win
                 "Window handle is null.");
         }
 
-        switch (flag)
+        switch (a_flag)
         {
         case Cue::PAL::Win::ShowWindowFlag::Normal:
             ::ShowWindow(m_hwnd, SW_SHOW);
             return Result::ok();
-            break;
         case Cue::PAL::Win::ShowWindowFlag::Maximized:
             ::ShowWindow(m_hwnd, SW_MAXIMIZE);
             return Result::ok();
-            break;
         default:
             ::ShowWindow(m_hwnd, SW_SHOW);
             return Result::ok();
-            break;
         }
     }
+
     PlatformMessage WinApp::pump_message()
     {
         MSG msg{};
@@ -160,7 +162,7 @@ namespace Cue::PAL::Win
     }
 
     // メッセージハンドラ
-    LRESULT WinApp::on_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
         // 1) 外部登録ハンドラを先に評価
         for (const MessageHandlerEntry& entry : m_messageHandlers)
@@ -171,7 +173,7 @@ namespace Cue::PAL::Win
             }
 
             LRESULT handledResult = 0;
-            const bool isHandled = entry.m_handler(hwnd, msg, wParam, lParam, handledResult);
+            const bool isHandled = entry.m_handler(a_hwnd, a_message, a_wParam, a_lParam, handledResult);
             if (isHandled)
             {
                 return handledResult;
@@ -179,7 +181,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 未処理メッセージを既定処理へ移譲
-        switch (msg)
+        switch (a_message)
         {
         case WM_CLOSE:
             // 1) 破棄は engine 終了手順へ移譲
@@ -196,32 +198,32 @@ namespace Cue::PAL::Win
             ::PostQuitMessage(0);
             return 0;
         }
-        return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+        return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
     }
 
     // ウィンドウプロシージャ
-    LRESULT WinApp::window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    LRESULT WinApp::window_proc(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
         WinApp* self = nullptr;
 
-        if (msg == WM_NCCREATE)
+        if (a_message == WM_NCCREATE)
         {
-            auto cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+            auto cs = reinterpret_cast<CREATESTRUCTW*>(a_lParam);
             self = static_cast<WinApp*>(cs->lpCreateParams);
 
-            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-            self->m_hwnd = hwnd;
+            ::SetWindowLongPtrW(a_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            self->m_hwnd = a_hwnd;
 
             // wm_nccreate は既定処理へ移譲
-            return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+            return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
         }
 
-        self = reinterpret_cast<WinApp*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        self = reinterpret_cast<WinApp*>(::GetWindowLongPtrW(a_hwnd, GWLP_USERDATA));
         if (self)
         {
-            return self->on_message(hwnd, msg, wParam, lParam);
+            return self->on_message(a_hwnd, a_message, a_wParam, a_lParam);
         }
 
-        return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+        return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
     }
 }

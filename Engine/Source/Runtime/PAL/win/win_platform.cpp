@@ -1,6 +1,4 @@
 #include "win_platform.h"
-#include "ConvertHresult.h"
-#include "ConvertUTF.h"
 
 namespace Cue::PAL
 {
@@ -16,22 +14,23 @@ namespace Cue::PAL::Win
     {
         m_app = std::make_unique<WinApp>();
     }
+
     WinPlatform::~WinPlatform()
     {
-        
     }
-    Result WinPlatform::initialize(const platform_setup_info & info)
+
+    Result WinPlatform::initialize(const PlatformSetupInfo& a_info)
     {
         // COM を初期化する
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (success(convert_hresult_code(hr)))
+        const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (success(convert_hresult_code(result)))
         {
             m_isComInitialized = true;
         }
         else
         {
             return Result::fail(
-                convert_hresult_code(hr), Severity::Fatal,
+                convert_hresult_code(result), Severity::Fatal,
                 "Failed to initialize COM.");
         }
 
@@ -40,35 +39,37 @@ namespace Cue::PAL::Win
 
         // ウィンドウを作成する
         std::wstring wideClassName;
-        Result r = utf8_to_wide(info.className, &wideClassName);
-        if(!r)
+        Result resultValue = utf8_to_wide(a_info.className, &wideClassName);
+        if (!resultValue)
         {
             return Result::fail(
-                r.code, Severity::Fatal,
+                resultValue.code, Severity::Fatal,
                 "Failed to convert window class name from UTF-8 to wide char.");
         }
         std::wstring wideTitle;
-        r = utf8_to_wide(info.title, &wideTitle);
-        if(!r)
+        resultValue = utf8_to_wide(a_info.title, &wideTitle);
+        if (!resultValue)
         {
             return Result::fail(
-                r.code, Severity::Fatal,
+                resultValue.code, Severity::Fatal,
                 "Failed to convert window title from UTF-8 to wide char.");
         }
-        r = m_app->create_window(info.width, info.height, wideClassName.c_str(), wideTitle.c_str());
-        if(!r)
+        resultValue = m_app->create_window(a_info.width, a_info.height, wideClassName.c_str(), wideTitle.c_str());
+        if (!resultValue)
         {
             return Result::fail(
-                r.code, Severity::Fatal,
+                resultValue.code, Severity::Fatal,
                 "Failed to create window.");
         }
 
         return Result::ok();
     }
+
     Result WinPlatform::start()
     {
         return m_app->show_window();
     }
+
     Result WinPlatform::shutdown()
     {
         // COM を終了する
@@ -83,14 +84,17 @@ namespace Cue::PAL::Win
 
         return Result();
     }
+
     Result WinPlatform::begin_frame()
     {
         return Result();
     }
+
     Result WinPlatform::end_frame()
     {
         return Result();
     }
+
     PlatformMessage WinPlatform::poll_message()
     {
         return m_app->pump_message();

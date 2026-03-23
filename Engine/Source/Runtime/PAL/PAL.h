@@ -1,5 +1,8 @@
 #pragma once
 
+// === C++ includes ===
+#include <cstdint>
+
 // === Base includes ===
 #include <Result.h>
 
@@ -9,7 +12,8 @@
 
 namespace Cue::PAL
 {
-    struct platform_setup_info final
+    /// @brief プラットフォーム初期化時の設定です。
+    struct PlatformSetupInfo final
     {
         uint32_t width = 0; // ウィンドウ幅
         uint32_t height = 0; // ウィンドウ高さ
@@ -17,15 +21,24 @@ namespace Cue::PAL
         const char* title = nullptr; // ウィンドウタイトル
     };
 
+    /// @brief プラットフォーム実装の共通インターフェースです。
     class IPlatform
     {
     public:
         virtual ~IPlatform() = default;
-        virtual Result initialize(const platform_setup_info& info) = 0;
+
+        /// @brief プラットフォーム実装を初期化します。
+        /// @param a_info 初期化設定です。
+        virtual Result initialize(const PlatformSetupInfo& a_info) = 0;
+        /// @brief 実行開始処理を行います。
         virtual Result start() = 0;
+        /// @brief 終了処理を行います。
         virtual Result shutdown() = 0;
+        /// @brief フレーム開始処理を行います。
         virtual Result begin_frame() = 0;
+        /// @brief フレーム終了処理を行います。
         virtual Result end_frame() = 0;
+        /// @brief プラットフォームメッセージを 1 件取得します。
         virtual PlatformMessage poll_message() = 0;
     };
 }
