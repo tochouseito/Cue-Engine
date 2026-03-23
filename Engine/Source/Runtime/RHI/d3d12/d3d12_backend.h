@@ -19,29 +19,19 @@ namespace Cue::RHI::DX12
         D3D12Backend() = default;
         ~D3D12Backend() override = default;
 
-        /// <summary>
-        /// D3D12 バックエンドを初期化します。
-        /// </summary>
+        /// @brief D3D12 バックエンドを初期化します。
         Result initialize(const BackendSetupInfo& a_info) override;
 
-        /// <summary>
-        /// D3D12 バックエンドを終了します。
-        /// </summary>
+        /// @brief D3D12 バックエンドを終了します。
         Result shutdown() override;
 
-        /// <summary>
-        /// 指定フレームの描画処理を実行します。
-        /// </summary>
+        /// @brief 指定フレームの描画処理を実行します。
         Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
-        /// <summary>
-        /// 指定フレームの提示処理を実行します。
-        /// </summary>
+        /// @brief 指定フレームの提示処理を実行します。
         Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
-        /// <summary>
-        /// 利用する Windows プラットフォームを設定します。
-        /// </summary>
+        /// @brief 利用する Windows プラットフォームを設定します。
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
 
     private:

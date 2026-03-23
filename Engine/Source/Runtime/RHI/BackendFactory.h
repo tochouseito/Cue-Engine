@@ -7,8 +7,6 @@ namespace Cue::RHI
 {
     class IBackend;
 
-    /// <summary>
-    /// 利用可能な RHI バックエンドを生成します。
-    /// </summary>
+    /// @brief 利用可能な RHI バックエンドを生成します。
     std::unique_ptr<IBackend> create_backend();
 }

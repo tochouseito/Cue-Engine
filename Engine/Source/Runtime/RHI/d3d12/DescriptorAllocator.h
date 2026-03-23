@@ -58,44 +58,28 @@ namespace Cue::RHI::DX12
         DescriptorAllocator& operator=(DescriptorAllocator&&) = delete;
         ~DescriptorAllocator() = default;
 
-        /// <summary>
-        /// デスクリプタヒープと各テーブルを初期化します。
-        /// </summary>
+        /// @brief デスクリプタヒープと各テーブルを初期化します。
         Result initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap);
 
-        /// <summary>
-        /// 指定種類のテーブルスロットを割り当てます。
-        /// </summary>
+        /// @brief 指定種類のテーブルスロットを割り当てます。
         [[nodiscard]] TableID allocate(TableKind a_kind);
 
-        /// <summary>
-        /// 割り当て済みテーブルスロットを解放します。
-        /// </summary>
+        /// @brief 割り当て済みテーブルスロットを解放します。
         void free_table(TableID a_id);
 
-        /// <summary>
-        /// テーブル先頭の GPU ハンドルを取得します。
-        /// </summary>
+        /// @brief テーブル先頭の GPU ハンドルを取得します。
         D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind a_kind);
 
-        /// <summary>
-        /// 指定テーブル ID の GPU ハンドルを取得します。
-        /// </summary>
+        /// @brief 指定テーブル ID の GPU ハンドルを取得します。
         D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_handle(TableID a_id);
 
-        /// <summary>
-        /// GPU 可視ヒープ上の CPU ハンドルを取得します。
-        /// </summary>
+        /// @brief GPU 可視ヒープ上の CPU ハンドルを取得します。
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle_gpu_visible(TableID a_id);
 
-        /// <summary>
-        /// CPU ヒープ上のハンドルを取得します。
-        /// </summary>
+        /// @brief CPU ヒープ上のハンドルを取得します。
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID a_id);
 
-        /// <summary>
-        /// 指定ヒープ種別に対応するヒープを取得します。
-        /// </summary>
+        /// @brief 指定ヒープ種別に対応するヒープを取得します。
         ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
 
     private:
