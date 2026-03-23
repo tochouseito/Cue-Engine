@@ -1,6 +1,9 @@
 #pragma once
+
+// === Math includes ===
 #include "MathStructAllowedList.h"
 
+// === C++ includes ===
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -75,7 +78,7 @@ namespace Cue::Math
         }
 
         /// @brief 転置（非破壊）
-        [[nodiscard]] static constexpr Matrix4 transpose(const Matrix4& value) noexcept
+        [[nodiscard]] static constexpr Matrix4 transpose(const Matrix4& a_value) noexcept
         {
             // 1) 転置した結果を新しい行列として作る
             Matrix4 result;
@@ -83,14 +86,14 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = value.m_values[col][row];
+                    result.m_values[row][col] = a_value.m_values[col][row];
                 }
             }
             return result;
         }
 
-        /// @brief 行列積（result = this * other）
-        [[nodiscard]] constexpr Matrix4 multiply(const Matrix4& other) const noexcept
+        /// @brief 行列積（result = this * a_other）
+        [[nodiscard]] constexpr Matrix4 multiply(const Matrix4& a_other) const noexcept
         {
             // 1) 行列積の行ごとの計算を行う
             Matrix4 result{};
@@ -100,24 +103,24 @@ namespace Cue::Math
                 {
                     const T aik = static_cast<T>(m_values[row][k]);
                     // 2) 行の要素を列へ加算する
-                    result.m_values[row][0] += aik * other.m_values[k][0];
-                    result.m_values[row][1] += aik * other.m_values[k][1];
-                    result.m_values[row][2] += aik * other.m_values[k][2];
-                    result.m_values[row][3] += aik * other.m_values[k][3];
+                    result.m_values[row][0] += aik * a_other.m_values[k][0];
+                    result.m_values[row][1] += aik * a_other.m_values[k][1];
+                    result.m_values[row][2] += aik * a_other.m_values[k][2];
+                    result.m_values[row][3] += aik * a_other.m_values[k][3];
                 }
             }
             return result;
         }
 
-        [[nodiscard]] constexpr Matrix4 operator*(const Matrix4& other) const noexcept
+        [[nodiscard]] constexpr Matrix4 operator*(const Matrix4& a_other) const noexcept
         {
             // 1) 行列積の実装を再利用する
-            return multiply(other);
+            return multiply(a_other);
         }
 
         // --- スカラー演算 ---
 
-        [[nodiscard]] constexpr Matrix4 operator+(const Matrix4& other) const noexcept
+        [[nodiscard]] constexpr Matrix4 operator+(const Matrix4& a_other) const noexcept
         {
             // 1) 成分ごとの加算結果を返す
             Matrix4 result;
@@ -125,13 +128,13 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] + other.m_values[row][col];
+                    result.m_values[row][col] = m_values[row][col] + a_other.m_values[row][col];
                 }
             }
             return result;
         }
 
-        [[nodiscard]] constexpr Matrix4 operator-(const Matrix4& other) const noexcept
+        [[nodiscard]] constexpr Matrix4 operator-(const Matrix4& a_other) const noexcept
         {
             // 1) 成分ごとの減算結果を返す
             Matrix4 result;
@@ -139,13 +142,13 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] - other.m_values[row][col];
+                    result.m_values[row][col] = m_values[row][col] - a_other.m_values[row][col];
                 }
             }
             return result;
         }
 
-        [[nodiscard]] constexpr Matrix4 operator*(T scalar) const noexcept
+        [[nodiscard]] constexpr Matrix4 operator*(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
             Matrix4 result;
@@ -153,7 +156,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] * scalar;
+                    result.m_values[row][col] = m_values[row][col] * a_scalar;
                 }
             }
             return result;
@@ -175,9 +178,9 @@ namespace Cue::Math
 
         // --- 比較（浮動小数向けの相対＋絶対誤差） ---
 
-        [[nodiscard]] constexpr bool nearly_equal(const Matrix4& other,
-            T absEps = T(1e-6),
-            T relEps = T(1e-5)) const noexcept
+        [[nodiscard]] constexpr bool nearly_equal(const Matrix4& a_other,
+            T a_absEps = T(1e-6),
+            T a_relEps = T(1e-5)) const noexcept
         {
             // 1) 各成分の誤差が許容範囲か判定する
             for (int row = 0; row < 4; ++row)
@@ -185,10 +188,10 @@ namespace Cue::Math
                 for (int col = 0; col < 4; ++col)
                 {
                     const T a = m_values[row][col];
-                    const T b = other.m_values[row][col];
+                    const T b = a_other.m_values[row][col];
                     const T diff = (a > b) ? (a - b) : (b - a);
                     const T scale = std::max<T>(std::abs(a), std::abs(b));
-                    if (diff > absEps + relEps * scale)
+                    if (diff > a_absEps + a_relEps * scale)
                     {
                         return false;
                     }
@@ -197,18 +200,18 @@ namespace Cue::Math
             return true;
         }
 
-        [[nodiscard]] constexpr bool operator==(const Matrix4& other) const noexcept
+        [[nodiscard]] constexpr bool operator==(const Matrix4& a_other) const noexcept
         {
             // 1) 型に応じた既定epsilonで近似比較する
-            return nearly_equal(other,
+            return nearly_equal(a_other,
                 T(10) * std::numeric_limits<T>::epsilon(),
                 T(100) * std::numeric_limits<T>::epsilon());
         }
 
-        [[nodiscard]] constexpr bool operator!=(const Matrix4& other) const noexcept
+        [[nodiscard]] constexpr bool operator!=(const Matrix4& a_other) const noexcept
         {
             // 1) 等価判定の否定を返す
-            return !(*this == other);
+            return !(*this == a_other);
         }
 
         // --- 逆行列（浮動小数型にのみ提供） ---
@@ -236,10 +239,10 @@ namespace Cue::Math
                 int maxIndex = k;
                 for (int row = k + 1; row < size; ++row)
                 {
-                    const U value = std::abs(sweep[row][k]);
-                    if (value > maxValue)
+                    const U pivotValue = std::abs(sweep[row][k]);
+                    if (pivotValue > maxValue)
                     {
-                        maxValue = value;
+                        maxValue = pivotValue;
                         maxIndex = row;
                     }
                 }
@@ -289,29 +292,29 @@ namespace Cue::Math
         }
 
         template <class U = T, std::enable_if_t<std::is_floating_point_v<U>, int> = 0>
-        [[nodiscard]] static Matrix4 inverse(const Matrix4& value) noexcept
+        [[nodiscard]] static Matrix4 inverse(const Matrix4& a_value) noexcept
         {
             // 1) コピーして破壊的な逆行列を避ける
-            Matrix4 result = value;
+            Matrix4 result = a_value;
             result.inverse();
             return result;
         }
 
-        // --- 配列との相互変換（row-major: out[row*4+col]） ---
+        // --- 配列との相互変換（row-major: a_out[row*4+col]） ---
 
-        constexpr void to_array16(T out[16]) const noexcept
+        constexpr void to_array16(T a_out[16]) const noexcept
         {
             // 1) row-major で配列へ書き出す
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    out[row * 4 + col] = m_values[row][col];
+                    a_out[row * 4 + col] = m_values[row][col];
                 }
             }
         }
 
-        [[nodiscard]] static constexpr Matrix4 from_array16(const T in[16]) noexcept
+        [[nodiscard]] static constexpr Matrix4 from_array16(const T a_in[16]) noexcept
         {
             // 1) row-major の配列から行列を構成する
             Matrix4 result;
@@ -319,19 +322,19 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = in[row * 4 + col];
+                    result.m_values[row][col] = a_in[row * 4 + col];
                 }
             }
             return result;
         }
 
-        // --- 検算：inv が mat の逆行列か（?mat*inv - I?∞ を評価） ---
+        // --- 検算：a_inv が a_mat の逆行列かを評価 ---
         template <class U = T, std::enable_if_t<std::is_floating_point_v<U>, int> = 0>
-        [[nodiscard]] static bool check_inverse(const Matrix4& mat,
-            const Matrix4& inv,
-            U tol = U(1e-9)) noexcept
+        [[nodiscard]] static bool check_inverse(const Matrix4& a_mat,
+            const Matrix4& a_inv,
+            U a_tol = U(1e-9)) noexcept
         {
-            // 1) mat * inv が単位行列に近いかを評価する
+            // 1) a_mat * a_inv が単位行列に近いかを評価する
             U maxAbsErr = U{ 0 };
             for (int row = 0; row < 4; ++row)
             {
@@ -340,8 +343,8 @@ namespace Cue::Math
                     U sum = U{ 0 };
                     for (int k = 0; k < 4; ++k)
                     {
-                        sum += static_cast<U>(mat.m_values[row][k]) *
-                            static_cast<U>(inv.m_values[k][col]);
+                        sum += static_cast<U>(a_mat.m_values[row][k]) *
+                            static_cast<U>(a_inv.m_values[k][col]);
                     }
 
                     const U ideal = (row == col) ? U{ 1 } : U{ 0 };
@@ -352,7 +355,7 @@ namespace Cue::Math
                     }
                 }
             }
-            return maxAbsErr <= tol;
+            return maxAbsErr <= a_tol;
         }
     };
 

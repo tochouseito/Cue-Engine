@@ -1,6 +1,9 @@
 #pragma once
+
+// === Math includes ===
 #include "MathStructAllowedList.h"
 
+// === C++ includes ===
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -30,7 +33,7 @@ namespace Cue::Math
             T m_v[2];
         };
 
-        /*================ コンストラクタ ================*/
+        // --- コンストラクタ ---
         /// @brief デフォルトコンストラクタ
         constexpr Vector2() noexcept
             : m_x(static_cast<T>(0))
@@ -38,12 +41,12 @@ namespace Cue::Math
         {}
 
         /// @brief 引数付きコンストラクタ
-        constexpr Vector2(T x, T y) noexcept
-            : m_x(x)
-            , m_y(y)
+        constexpr Vector2(T a_x, T a_y) noexcept
+            : m_x(a_x)
+            , m_y(a_y)
         {}
 
-        /*================ 判定/初期化 ================*/
+        // --- 判定/初期化 ---
         /// @brief ゼロベクトルか判定
         constexpr bool is_zero() const noexcept
         {
@@ -59,7 +62,7 @@ namespace Cue::Math
             m_y = static_cast<T>(0);
         }
 
-        /*================ 変換演算子 ================*/
+        // --- 変換演算子 ---
         /// @brief bool型への変換（ゼロでなければtrue）
         explicit constexpr operator bool() const noexcept
         {
@@ -67,30 +70,30 @@ namespace Cue::Math
             return !is_zero();
         }
 
-        /*================ 配列アクセス ================*/
+        // --- 配列アクセス ---
         /// @brief 配列アクセス（読み書き）0:x(=r),1:y(=g)
-        constexpr T& operator[](std::size_t i) noexcept
+        constexpr T& operator[](std::size_t a_index) noexcept
         {
             // 1) デバッグ時のみ範囲外アクセスを検出する
 #ifdef _DEBUG
-            assert(i < 2);
+            assert(a_index < 2);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[i];
+            return m_v[a_index];
         }
 
         /// @brief 配列アクセス（読み取り専用）0:x(=r),1:y(=g)
-        constexpr const T& operator[](std::size_t i) const noexcept
+        constexpr const T& operator[](std::size_t a_index) const noexcept
         {
             // 1) デバッグ時のみ範囲外アクセスを検出する
 #ifdef _DEBUG
-            assert(i < 2);
+            assert(a_index < 2);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[i];
+            return m_v[a_index];
         }
 
-        /*================ 符号演算子 ================*/
+        // --- 符号演算子 ---
         /// @brief 単項プラス
         constexpr Vector2 operator+() const noexcept
         {
@@ -105,73 +108,73 @@ namespace Cue::Math
             return { -m_x, -m_y };
         }
 
-        /*================ 二項演算子 ================*/
+        // --- 二項演算子 ---
         /// @brief 加算
-        constexpr Vector2 operator+(const Vector2& other) const noexcept
+        constexpr Vector2 operator+(const Vector2& a_other) const noexcept
         {
             // 1) 成分ごとの加算結果を返す
-            return { m_x + other.m_x, m_y + other.m_y };
+            return { m_x + a_other.m_x, m_y + a_other.m_y };
         }
 
         /// @brief 減算
-        constexpr Vector2 operator-(const Vector2& other) const noexcept
+        constexpr Vector2 operator-(const Vector2& a_other) const noexcept
         {
             // 1) 成分ごとの減算結果を返す
-            return { m_x - other.m_x, m_y - other.m_y };
+            return { m_x - a_other.m_x, m_y - a_other.m_y };
         }
 
         /// @brief スカラー乗算
-        constexpr Vector2 operator*(T scalar) const noexcept
+        constexpr Vector2 operator*(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            return { m_x * scalar, m_y * scalar };
+            return { m_x * a_scalar, m_y * a_scalar };
         }
 
         /// @brief スカラー除算
-        constexpr Vector2 operator/(T scalar) const noexcept
+        constexpr Vector2 operator/(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            return { m_x / scalar, m_y / scalar };
+            return { m_x / a_scalar, m_y / a_scalar };
         }
 
-        /*================ 複合代入演算子 ================*/
+        // --- 複合代入演算子 ---
         /// @brief 加算代入
-        constexpr Vector2& operator+=(const Vector2& other) noexcept
+        constexpr Vector2& operator+=(const Vector2& a_other) noexcept
         {
             // 1) 成分を加算して自身に反映する
-            m_x += other.m_x;
-            m_y += other.m_y;
+            m_x += a_other.m_x;
+            m_y += a_other.m_y;
             return *this;
         }
 
         /// @brief 減算代入
-        constexpr Vector2& operator-=(const Vector2& other) noexcept
+        constexpr Vector2& operator-=(const Vector2& a_other) noexcept
         {
             // 1) 成分を減算して自身に反映する
-            m_x -= other.m_x;
-            m_y -= other.m_y;
+            m_x -= a_other.m_x;
+            m_y -= a_other.m_y;
             return *this;
         }
 
         /// @brief 乗算代入
-        constexpr Vector2& operator*=(T scalar) noexcept
+        constexpr Vector2& operator*=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            m_x *= scalar;
-            m_y *= scalar;
+            m_x *= a_scalar;
+            m_y *= a_scalar;
             return *this;
         }
 
         /// @brief 除算代入
-        constexpr Vector2& operator/=(T scalar) noexcept
+        constexpr Vector2& operator/=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            m_x /= scalar;
-            m_y /= scalar;
+            m_x /= a_scalar;
+            m_y /= a_scalar;
             return *this;
         }
 
-        /*================ インクリメント/デクリメント ================*/
+        // --- インクリメント/デクリメント ---
         /// @brief 前置インクリメント
         constexpr Vector2& operator++() noexcept
         {
@@ -210,50 +213,50 @@ namespace Cue::Math
             return temp;
         }
 
-        /*================ 比較演算子 ================*/
+        // --- 比較演算子 ---
         /// @brief 等価（全成分一致）
-        constexpr bool operator==(const Vector2& other) const noexcept
+        constexpr bool operator==(const Vector2& a_other) const noexcept
         {
             // 1) 全成分が一致するか判定する
-            return m_x == other.m_x && m_y == other.m_y;
+            return m_x == a_other.m_x && m_y == a_other.m_y;
         }
 
         /// @brief 非等価
-        constexpr bool operator!=(const Vector2& other) const noexcept
+        constexpr bool operator!=(const Vector2& a_other) const noexcept
         {
             // 1) 等価判定の否定を返す
-            return !(*this == other);
+            return !(*this == a_other);
         }
 
         /// @brief 小なり（全成分）
-        constexpr bool operator<(const Vector2& other) const noexcept
+        constexpr bool operator<(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x < other.m_x) && (m_y < other.m_y);
+            return (m_x < a_other.m_x) && (m_y < a_other.m_y);
         }
 
         /// @brief 小なりイコール（全成分）
-        constexpr bool operator<=(const Vector2& other) const noexcept
+        constexpr bool operator<=(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x <= other.m_x) && (m_y <= other.m_y);
+            return (m_x <= a_other.m_x) && (m_y <= a_other.m_y);
         }
 
         /// @brief 大なり（全成分）
-        constexpr bool operator>(const Vector2& other) const noexcept
+        constexpr bool operator>(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x > other.m_x) && (m_y > other.m_y);
+            return (m_x > a_other.m_x) && (m_y > a_other.m_y);
         }
 
         /// @brief 大なりイコール（全成分）
-        constexpr bool operator>=(const Vector2& other) const noexcept
+        constexpr bool operator>=(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x >= other.m_x) && (m_y >= other.m_y);
+            return (m_x >= a_other.m_x) && (m_y >= a_other.m_y);
         }
 
-        /*================ 計算メンバ関数 ================*/
+        // --- 計算メンバ関数 ---
         /// @brief 長さ
         T length() const noexcept
         {
@@ -283,57 +286,57 @@ namespace Cue::Math
         }
 
         /// @brief 内積
-        constexpr T dot(const Vector2& other) const noexcept
+        constexpr T dot(const Vector2& a_other) const noexcept
         {
             // 1) 2次元の内積を計算する
-            return m_x * other.m_x + m_y * other.m_y;
+            return m_x * a_other.m_x + m_y * a_other.m_y;
         }
 
-        /*================ Epsilon 比較 ================*/
+        // --- Epsilon 比較 ---
         /// @brief Epsilonを用いた等価判定（全成分）
-        constexpr bool equals_epsilon(const Vector2& other, T epsilon) const noexcept
+        constexpr bool equals_epsilon(const Vector2& a_other, T a_epsilon) const noexcept
         {
             // 1) 浮動小数点なら許容誤差で比較する
             if constexpr (std::is_floating_point_v<T>)
             {
-                auto abs_value = [](T value)
+                auto abs_value = [](T a_value)
                     {
-                        return value >= T(0) ? value : -value;
+                        return a_value >= T(0) ? a_value : -a_value;
                     };
-                return abs_value(m_x - other.m_x) <= epsilon &&
-                    abs_value(m_y - other.m_y) <= epsilon;
+                return abs_value(m_x - a_other.m_x) <= a_epsilon &&
+                    abs_value(m_y - a_other.m_y) <= a_epsilon;
             }
             // 2) それ以外は完全一致で判定する
             else
             {
-                return (*this == other);
+                return (*this == a_other);
             }
         }
 
         /// @brief 既定Epsilonでの等価判定（浮動小数点は 10*epsilon）
-        constexpr bool equals_epsilon(const Vector2& other) const noexcept
+        constexpr bool equals_epsilon(const Vector2& a_other) const noexcept
         {
             // 1) 浮動小数点のみ既定値で比較する
             if constexpr (std::is_floating_point_v<T>)
             {
-                return equals_epsilon(other, T(10) * std::numeric_limits<T>::epsilon());
+                return equals_epsilon(a_other, T(10) * std::numeric_limits<T>::epsilon());
             }
             // 2) それ以外は完全一致で判定する
             else
             {
-                return (*this == other);
+                return (*this == a_other);
             }
         }
 
-        /*================ ユーティリティ ================*/
+        // --- ユーティリティ ---
         /// @brief スカラー×ベクトル（左掛け）
-        friend constexpr Vector2 operator*(T scalar, const Vector2& value) noexcept
+        friend constexpr Vector2 operator*(T a_scalar, const Vector2& a_value) noexcept
         {
             // 1) 右辺の乗算を再利用する
-            return value * scalar;
+            return a_value * a_scalar;
         }
 
-        /*================ 静的メンバ関数 ================*/
+        // --- 静的メンバ関数 ---
         /// @brief 零ベクトル取得
         static constexpr Vector2 zero() noexcept
         {
@@ -377,19 +380,19 @@ namespace Cue::Math
         }
 
         /// @brief 正規化済みベクトル取得
-        static Vector2 normalize(const Vector2& value) noexcept
+        static Vector2 normalize(const Vector2& a_value) noexcept
         {
             // 1) コピーして破壊的変更を避ける
-            Vector2 result = value;
+            Vector2 result = a_value;
             result.normalize();
             return result;
         }
 
         /// @brief 内積計算
-        static constexpr T dot(const Vector2& left, const Vector2& right) noexcept
+        static constexpr T dot(const Vector2& a_left, const Vector2& a_right) noexcept
         {
             // 1) メンバ関数の内積を再利用する
-            return left.dot(right);
+            return a_left.dot(a_right);
         }
     };
 

@@ -1,5 +1,8 @@
 #pragma once
 
+// === C++ includes ===
+#include <cstdint>
+
 namespace Cue::Math
 {
     enum class TimeUnit : uint8_t
@@ -73,27 +76,27 @@ namespace Cue::Math
         // --------------------
         // 整数変換補助
         // --------------------
-        static int64_t to_nanoseconds(int64_t v, TimeUnit u) noexcept
+        static int64_t to_nanoseconds(int64_t a_value, TimeUnit a_unit) noexcept
         {
-            switch (u)
+            switch (a_unit)
             {
             case TimeUnit::seconds:
-                return v * 1'000'000'000LL;
+                return a_value * 1'000'000'000LL;
             case TimeUnit::milliseconds:
-                return v * 1'000'000LL;
+                return a_value * 1'000'000LL;
             case TimeUnit::microseconds:
-                return v * 1'000LL;
+                return a_value * 1'000LL;
             case TimeUnit::nanoseconds:
-                return v;
+                return a_value;
             default:
                 return 0;
             }
         }
 
-        static int64_t unit_cast(TimeSpan v, TimeUnit targetUnit) noexcept
+        static int64_t unit_cast(TimeSpan a_value, TimeUnit a_targetUnit) noexcept
         {
-            const int64_t ns = to_nanoseconds(v.value, v.unit);
-            switch (targetUnit)
+            const int64_t ns = to_nanoseconds(a_value.value, a_value.unit);
+            switch (a_targetUnit)
             {
             case TimeUnit::seconds:
                 return ns / 1'000'000'000LL;
@@ -113,30 +116,30 @@ namespace Cue::Math
         // 1) 整数 ns 経由の overflow 回避
         // 2) 秒へ落としてから目的単位へ変換
         // --------------------
-        static double to_seconds_f64(int64_t v, TimeUnit u) noexcept
+        static double to_seconds_f64(int64_t a_value, TimeUnit a_unit) noexcept
         {
-            switch (u)
+            switch (a_unit)
             {
             case TimeUnit::seconds:
-                return static_cast<double>(v);
+                return static_cast<double>(a_value);
             case TimeUnit::milliseconds:
-                return static_cast<double>(v) * 1e-3;
+                return static_cast<double>(a_value) * 1e-3;
             case TimeUnit::microseconds:
-                return static_cast<double>(v) * 1e-6;
+                return static_cast<double>(a_value) * 1e-6;
             case TimeUnit::nanoseconds:
-                return static_cast<double>(v) * 1e-9;
+                return static_cast<double>(a_value) * 1e-9;
             default:
                 return 0.0;
             }
         }
 
-        static double unit_cast_f64(TimeSpan v, TimeUnit targetUnit) noexcept
+        static double unit_cast_f64(TimeSpan a_value, TimeUnit a_targetUnit) noexcept
         {
             // 1) まず秒(double)へ
-            const double sec = to_seconds_f64(v.value, v.unit);
+            const double sec = to_seconds_f64(a_value.value, a_value.unit);
 
             // 2) 秒から目的単位へ
-            switch (targetUnit)
+            switch (a_targetUnit)
             {
             case TimeUnit::seconds:
                 return sec;
@@ -152,158 +155,158 @@ namespace Cue::Math
         }
 
         // 比較
-        bool operator==(const TimeSpan& other) const noexcept
+        bool operator==(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接比較
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return value == other.value;
+                return value == a_other.value;
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して比較
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return thisNs == otherNs;
         }
-        bool operator==(const int64_t other) const noexcept
+        bool operator==(const int64_t a_other) const noexcept
         {
             // 1) 単位がナノ秒なら直接比較
             if (unit == TimeUnit::nanoseconds)
             {
-                return value == other;
+                return value == a_other;
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して比較
             const int64_t thisNs = to_nanoseconds(value, unit);
-            return thisNs == other;
+            return thisNs == a_other;
         }
-        bool operator!=(const TimeSpan& other) const noexcept
+        bool operator!=(const TimeSpan& a_other) const noexcept
         {
-            return !(*this == other);
+            return !(*this == a_other);
         }
-        bool operator<(const TimeSpan& other) const noexcept
+        bool operator<(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接比較
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return value < other.value;
+                return value < a_other.value;
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して比較
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return thisNs < otherNs;
         }
-        bool operator<=(const TimeSpan& other) const noexcept
+        bool operator<=(const TimeSpan& a_other) const noexcept
         {
-            return (*this < other) || (*this == other);
+            return (*this < a_other) || (*this == a_other);
         }
-        bool operator>(const TimeSpan& other) const noexcept
+        bool operator>(const TimeSpan& a_other) const noexcept
         {
-            return !(*this <= other);
+            return !(*this <= a_other);
         }
-        bool operator>=(const TimeSpan& other) const noexcept
+        bool operator>=(const TimeSpan& a_other) const noexcept
         {
-            return !(*this < other);
+            return !(*this < a_other);
         }
 
         // 加算・減算
-        TimeSpan operator+(const TimeSpan& other) const noexcept
+        TimeSpan operator+(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接加算
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return { value + other.value, unit };
+                return { value + a_other.value, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して加算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return { thisNs + otherNs, TimeUnit::nanoseconds };
         }
 
-        TimeSpan operator+(int64_t other) const noexcept
+        TimeSpan operator+(int64_t a_other) const noexcept
         {
             // 1) 単位がナノ秒なら直接加算
             if (unit == TimeUnit::nanoseconds)
             {
-                return { value + other, unit };
+                return { value + a_other, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して加算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            return { thisNs + other, TimeUnit::nanoseconds };
+            return { thisNs + a_other, TimeUnit::nanoseconds };
         }
 
-        TimeSpan operator-(const TimeSpan& other) const noexcept
+        TimeSpan operator-(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接減算
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return { value - other.value, unit };
+                return { value - a_other.value, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して減算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return { thisNs - otherNs, TimeUnit::nanoseconds };
         }
 
-        TimeSpan operator-(int64_t other) const noexcept
+        TimeSpan operator-(int64_t a_other) const noexcept
         {
             // 1) 単位がナノ秒なら直接減算
             if (unit == TimeUnit::nanoseconds)
             {
-                return { value - other, unit };
+                return { value - a_other, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して減算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            return { thisNs - other, TimeUnit::nanoseconds };
+            return { thisNs - a_other, TimeUnit::nanoseconds };
         }
 
         // 乗算
-        TimeSpan operator*(const TimeSpan& other) const noexcept
+        TimeSpan operator*(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接乗算
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return { value * other.value, unit };
+                return { value * a_other.value, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して乗算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return { thisNs * otherNs, TimeUnit::nanoseconds };
         }
 
         // スカラー倍
-        TimeSpan operator*(int64_t scalar) const noexcept
+        TimeSpan operator*(int64_t a_scalar) const noexcept
         {
-            return { value * scalar, unit };
+            return { value * a_scalar, unit };
         }
 
         // 除算
-        TimeSpan operator/(const TimeSpan& other) const noexcept
+        TimeSpan operator/(const TimeSpan& a_other) const noexcept
         {
             // 1) 単位が同じなら値を直接除算
-            if (unit == other.unit)
+            if (unit == a_other.unit)
             {
-                return { value / other.value, unit };
+                return { value / a_other.value, unit };
             }
             // 2) 単位が違うなら、両方をナノ秒に換算して除算
             const int64_t thisNs = to_nanoseconds(value, unit);
-            const int64_t otherNs = to_nanoseconds(other.value, other.unit);
+            const int64_t otherNs = to_nanoseconds(a_other.value, a_other.unit);
             return { thisNs / otherNs, TimeUnit::nanoseconds };
         }
 
         // スカラー除算
-        TimeSpan operator/(int64_t scalar) const noexcept
+        TimeSpan operator/(int64_t a_scalar) const noexcept
         {
-            return { value / scalar, unit };
+            return { value / a_scalar, unit };
         }
 
         // 代入演算子
-        TimeSpan& operator+=(const TimeSpan& other) noexcept
+        TimeSpan& operator+=(const TimeSpan& a_other) noexcept
         {
-            *this = *this + other;
+            *this = *this + a_other;
             return *this;
         }
-        TimeSpan& operator-=(const TimeSpan& other) noexcept
+        TimeSpan& operator-=(const TimeSpan& a_other) noexcept
         {
-            *this = *this - other;
+            *this = *this - a_other;
             return *this;
         }
     };
