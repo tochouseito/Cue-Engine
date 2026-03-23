@@ -9,7 +9,7 @@
 
 namespace Cue::Core::IO
 {
-    void out_debug_console(std::string_view a_message)
+    void out_debug_console([[maybe_unused]] std::string_view a_message)
     {
 #ifdef CUE_DEBUG
         ::OutputDebugStringA(a_message.data());

@@ -62,6 +62,11 @@ namespace Cue::PAL::Win
                 "Failed to create window.");
         }
 
+        // スレッドファクトリ、クロック、ウェイタを生成する
+        m_threadFactory = std::make_unique<WinThreadFactory>();
+        m_clock = std::make_unique<WinQpcClock>();
+        m_waiter = std::make_unique<WinWaiter>(*m_clock.get());
+
         return Result::ok();
     }
 

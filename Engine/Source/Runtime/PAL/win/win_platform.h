@@ -9,6 +9,10 @@
 
 // === Windows API includes ===
 #include "App/WinApp.h"
+#include "Threading/WinThread.h"
+#include "Threading/WinThreadFactory.h"
+#include "Time/WinQpcClock.h"
+#include "Time/WinWaiter.h"
 #include "ConvertHresult.h"
 #include "ConvertUTF.h"
 #include "stdafx.h"
@@ -40,9 +44,25 @@ namespace Cue::PAL::Win
         {
             return m_app ? m_app->get_window_handle() : nullptr;
         }
-
+    public:
+        // --- 取得 --- 
+        Core::Threading::IThreadFactory& thread_factory() override
+        {
+            return *m_threadFactory.get();
+        }
+        Core::Time::IClock& clock() override
+        {
+            return *m_clock.get();
+        }
+        Core::Time::IWaiter& waiter() override
+        {
+            return *m_waiter.get();
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ
+        std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ
+        std::unique_ptr<WinQpcClock> m_clock = nullptr; // クロック
+        std::unique_ptr<WinWaiter> m_waiter = nullptr; // ウェイタ
     };
 }

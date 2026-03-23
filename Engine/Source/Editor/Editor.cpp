@@ -50,6 +50,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.file, r.line, r.function);
     }
 
+    // エンジンの初期化
+    EngineSetupInfo engineInfo{};
+    engineInfo.platform = platform.get();
+    engineInfo.backend = backend.get();
+    engineInfo.bufferCount = 3;
+    std::unique_ptr<Engine> engine = std::make_unique<Engine>();
+    r = engine->initialize(engineInfo);
+
     // プラットフォームの開始
     r = platform->start();
 
@@ -57,12 +65,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     bool isRunning = true;
     while (isRunning)
     {
+        // プラットフォームのメッセージを処理
         PAL::PlatformMessage msg = platform->poll_message();
         if (msg == PAL::PlatformMessage::Quit)
         {
             isRunning = false;
+            break;
         }
+
+        // エンジンのフレーム開始処理
+        r = engine->begin_frame();
+
+        // エンジンのティック処理
+        r = engine->tick();
+
+        // エンジンのフレーム終了処理
+        r = engine->end_frame();
     }
+
+    // エンジンのシャットダウン
+    engine->shutdown();
 
     // レンダリングバックエンドのシャットダウン
     backend->shutdown();

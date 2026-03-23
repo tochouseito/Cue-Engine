@@ -6,6 +6,13 @@
 // === Base includes ===
 #include <Result.h>
 
+// === Core includes ===
+#include <Threading/IThread.h>
+#include <Threading/IThreadFactory.h>
+#include <Time/IClock.h>
+#include <Time/IWaiter.h>
+#include <Time/Timer.h>
+
 // === PAL includes ===
 #include "PlatformFactory.h"
 #include "PlatformMessage.h"
@@ -40,5 +47,10 @@ namespace Cue::PAL
         virtual Result end_frame() = 0;
         /// @brief プラットフォームメッセージを 1 件取得します。
         virtual PlatformMessage poll_message() = 0;
+    public:
+        // --- 取得 ---
+        virtual Core::Threading::IThreadFactory& thread_factory() = 0;
+        virtual Core::Time::IClock& clock() = 0;
+        virtual Core::Time::IWaiter& waiter() = 0;
     };
 }
