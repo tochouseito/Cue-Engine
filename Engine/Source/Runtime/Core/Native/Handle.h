@@ -1,23 +1,29 @@
 #pragma once
+
+// === C++ includes ===
 #include <cstdint>
 #include <string_view>
 
 namespace Cue::Core
 {
-    // 文字列を整数へ変換するハッシュ関数
+    /// @brief リソース名を整数 ID へ変換するハッシュ値です。
     using ResourceNameId = uint64_t;
-    constexpr ResourceNameId fnv1a64(std::string_view text) noexcept
+
+    /// @brief UTF-8 文字列から FNV-1a 64bit ハッシュを計算します。
+    /// @param a_text ハッシュ化する文字列です。
+    /// @return 計算したハッシュ値です。
+    constexpr ResourceNameId fnv1a64(std::string_view a_text) noexcept
     {
         ResourceNameId hash = 14695981039346656037ull;
-        for (char c : text)
+        for (char currentChar : a_text)
         {
-            hash ^= static_cast<unsigned char>(c);
+            hash ^= static_cast<unsigned char>(currentChar);
             hash *= 1099511628211ull;
         }
         return hash;
     }
 
-    // 汎用リソースハンドル
+    /// @brief 世代付きの汎用リソースハンドルです。
     template <class Tag>
     struct Handle final
     {
@@ -26,16 +32,19 @@ namespace Cue::Core
         uint32_t index = k_invalid; // リソースのインデックス
         uint32_t generation = 0; // 世代管理用のカウンタ
 
-        // ハンドルが有効かどうかをチェックする関数
+        /// @brief ハンドルが有効かを返します。
+        /// @return インデックスが無効値でなければ `true` です。
         [[nodiscard]] bool valid() const noexcept
         {
             return index != k_invalid;
         }
 
-        // ハンドル同士の比較演算子
-        bool operator==(const Handle& other) const noexcept
+        /// @brief ハンドル同士が同一かを比較します。
+        /// @param a_other 比較対象のハンドルです。
+        /// @return インデックスと世代が一致すれば `true` です。
+        bool operator==(const Handle& a_other) const noexcept
         {
-            return (index == other.index) && (generation == other.generation);
+            return (index == a_other.index) && (generation == a_other.generation);
         }
     };
 
@@ -43,5 +52,5 @@ namespace Cue::Core
     struct TestTag {};
 
     // エイリアス
-    using TestHande = Handle<TestTag>;
+    using TestHandle = Handle<TestTag>;
 }

@@ -1,19 +1,21 @@
+// === Core includes ===
 #include "Core_pch.h"
 #include "Path.h"
 
+// === C++ includes ===
 #include <cctype>
 #include <vector>
 
 namespace
 {
-    [[nodiscard]] static bool is_sep(const char c) noexcept
+    [[nodiscard]] static bool is_sep(const char a_char) noexcept
     {
-        return (c == '/') || (c == '\\');
+        return (a_char == '/') || (a_char == '\\');
     }
 
-    [[nodiscard]] static bool is_alpha_ascii(const char c) noexcept
+    [[nodiscard]] static bool is_alpha_ascii(const char a_char) noexcept
     {
-        const unsigned char uc = static_cast<unsigned char>(c);
+        const unsigned char uc = static_cast<unsigned char>(a_char);
         return (uc >= 'A' && uc <= 'Z') || (uc >= 'a' && uc <= 'z');
     }
 
@@ -24,10 +26,10 @@ namespace
         bool is_unc;          // "//" 始まり
     };
 
-    [[nodiscard]] static Prefix parse_prefix_and_sanitize(std::string& s) noexcept
+    [[nodiscard]] static Prefix parse_prefix_and_sanitize(std::string& a_text) noexcept
     {
         // 1) 区切りを "/" に統一
-        for (char& c : s)
+        for (char& c : a_text)
         {
             if (c == '\\')
             {
@@ -37,27 +39,27 @@ namespace
 
         // 2) prefix 判定
         Prefix p{};
-        if (s.size() >= 2 && is_alpha_ascii(s[0]) && s[1] == ':')
+        if (a_text.size() >= 2 && is_alpha_ascii(a_text[0]) && a_text[1] == ':')
         {
-            p.text.push_back(s[0]);
+            p.text.push_back(a_text[0]);
             p.text.push_back(':');
 
             // ドライブレター + '/' 形式のみ absolute として扱う
-            if (s.size() >= 3 && s[2] == '/')
+            if (a_text.size() >= 3 && a_text[2] == '/')
             {
                 p.has_root_slash = true;
             }
             return p;
         }
 
-        if (s.size() >= 2 && s[0] == '/' && s[1] == '/')
+        if (a_text.size() >= 2 && a_text[0] == '/' && a_text[1] == '/')
         {
             p.is_unc = true;
             p.has_root_slash = true;
             return p;
         }
 
-        if (!s.empty() && s[0] == '/')
+        if (!a_text.empty() && a_text[0] == '/')
         {
             p.has_root_slash = true;
             return p;
@@ -66,75 +68,75 @@ namespace
         return p;
     }
 
-    [[nodiscard]] static std::string build_normalized(const Prefix& p, const std::vector<std::string_view>& parts) noexcept
+    [[nodiscard]] static std::string build_normalized(const Prefix& a_prefix, const std::vector<std::string_view>& a_parts) noexcept
     {
         // 1) 先頭（prefix + root）
         std::string out{};
         out.reserve(64);
 
-        if (!p.text.empty())
+        if (!a_prefix.text.empty())
         {
-            out += p.text;
+            out += a_prefix.text;
         }
 
-        if (p.is_unc)
+        if (a_prefix.is_unc)
         {
             out += "//";
         }
-        else if (p.has_root_slash)
+        else if (a_prefix.has_root_slash)
         {
             out += "/";
         }
 
         // 2) パーツ結合
-        for (size_t i = 0; i < parts.size(); ++i)
+        for (size_t i = 0; i < a_parts.size(); ++i)
         {
             if (!out.empty() && out.back() != '/' && out.back() != ':')
             {
                 out += "/";
             }
-            out.append(parts[i].data(), parts[i].size());
+            out.append(a_parts[i].data(), a_parts[i].size());
         }
 
         // 3) 空なら "." ではなく "" を返す（VFSキーとして扱いやすい）
         return out;
     }
 
-    [[nodiscard]] static std::string_view skip_prefix_view(std::string_view s, const Prefix& p) noexcept
+    [[nodiscard]] static std::string_view skip_prefix_view(std::string_view a_text, const Prefix& a_prefix) noexcept
     {
         // 1) "C:" をスキップ
-        if (!p.text.empty())
+        if (!a_prefix.text.empty())
         {
-            if (s.size() >= 2)
+            if (a_text.size() >= 2)
             {
-                s.remove_prefix(2);
+                a_text.remove_prefix(2);
             }
         }
 
         // 2) UNC/絶対の "/" をスキップ（先頭の区切りは正規化で処理）
-        if (p.is_unc)
+        if (a_prefix.is_unc)
         {
-            if (s.size() >= 2)
+            if (a_text.size() >= 2)
             {
-                s.remove_prefix(2); // "//"
+                a_text.remove_prefix(2); // "//"
             }
         }
-        else if (p.has_root_slash)
+        else if (a_prefix.has_root_slash)
         {
-            if (!s.empty() && s[0] == '/')
+            if (!a_text.empty() && a_text[0] == '/')
             {
-                s.remove_prefix(1);
+                a_text.remove_prefix(1);
             }
         }
 
-        return s;
+        return a_text;
     }
 }
 
 namespace Cue::Core::IO
 {
-    Path::Path(std::string utf8) noexcept
-        : m_utf8(std::move(utf8))
+    Path::Path(std::string a_utf8) noexcept
+        : m_utf8(std::move(a_utf8))
     {}
 
     const std::string& Path::utf8() const noexcept
@@ -230,27 +232,27 @@ namespace Cue::Core::IO
         return Path{ build_normalized(p, stack) };
     }
 
-    Path Path::join(const Path& a, const Path& b) noexcept
+    Path Path::join(const Path& a_left, const Path& a_right) noexcept
     {
-        // 1) b が絶対なら b を優先
-        if (b.is_absolute())
+        // 1) a_right が絶対なら a_right を優先
+        if (a_right.is_absolute())
         {
-            return b.normalize();
+            return a_right.normalize();
         }
 
-        // 2) a が空なら b
-        if (a.m_utf8.empty())
+        // 2) a_left が空なら a_right
+        if (a_left.m_utf8.empty())
         {
-            return b.normalize();
+            return a_right.normalize();
         }
 
         // 3) "/" を挟んで結合（normalize が整える）
-        std::string out = a.m_utf8;
+        std::string out = a_left.m_utf8;
         if (!out.empty() && !is_sep(out.back()))
         {
             out.push_back('/');
         }
-        out += b.m_utf8;
+        out += a_right.m_utf8;
 
         return Path{ std::move(out) }.normalize();
     }
@@ -261,7 +263,7 @@ namespace Cue::Core::IO
         const Path n = normalize();
         const std::string& s = n.m_utf8;
 
-        // 2) 空 or ルートはそのまま
+        // 2) 空またはルートはそのまま
         if (s.empty())
         {
             return Path{};

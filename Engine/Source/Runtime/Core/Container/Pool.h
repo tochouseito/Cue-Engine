@@ -1,4 +1,7 @@
 #pragma once
+
+// === C++ includes ===
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -6,7 +9,10 @@
 
 namespace Cue::Core
 {
-    template<typename T, typename ResetFunc>
+    /// @brief 再利用可能なオブジェクトを保持するプールです。
+    /// @tparam T 管理対象の型です。
+    /// @tparam ResetFunc 返却時の状態リセット関数です。
+    template <typename T, typename ResetFunc>
     class Pool
     {
     public:
@@ -16,43 +22,52 @@ namespace Cue::Core
         {
             Pool* pool = nullptr;
 
-            void operator()(T* p) const noexcept
+            void operator()(T* a_ptr) const noexcept
             {
                 // 1) pool が無ければ普通に delete
                 if (pool == nullptr)
                 {
-                    delete p;
+                    delete a_ptr;
                     return;
                 }
 
                 // 2) pool に返却
-                pool->release(std::unique_ptr<T>(p));
+                pool->release(std::unique_ptr<T>(a_ptr));
             }
         };
 
         using pooled_ptr = std::unique_ptr<T, Deleter>;
 
     public:
-        Pool(size_t maxCached, ResetFunc resetFunc)
+        /// @brief デフォルト生成関数付きのプールを構築します。
+        /// @param a_maxCached キャッシュする最大個数です。
+        /// @param a_resetFunc 返却時のリセット関数です。
+        Pool(size_t a_maxCached, ResetFunc a_resetFunc)
             : Pool(
-                maxCached,
-                std::move(resetFunc),
+                a_maxCached,
+                std::move(a_resetFunc),
                 []()
                 {
                     return std::make_unique<T>();
                 })
         {}
 
-        Pool(size_t maxCached, ResetFunc resetFunc, create_func createFunc)
-            : m_maxCached(maxCached)
-            , m_resetFunc(std::move(resetFunc))
-            , m_createFunc(std::move(createFunc))
+        /// @brief 生成関数を指定してプールを構築します。
+        /// @param a_maxCached キャッシュする最大個数です。
+        /// @param a_resetFunc 返却時のリセット関数です。
+        /// @param a_createFunc 新規生成関数です。
+        Pool(size_t a_maxCached, ResetFunc a_resetFunc, create_func a_createFunc)
+            : m_maxCached(a_maxCached)
+            , m_resetFunc(std::move(a_resetFunc))
+            , m_createFunc(std::move(a_createFunc))
         {}
 
         Pool(const Pool&) = delete;
         Pool& operator=(const Pool&) = delete;
 
     public:
+        /// @brief オブジェクトを取得します。
+        /// @return プール返却付きのスマートポインタです。
         pooled_ptr acquire()
         {
             // 1) キャッシュがあれば取り出す
@@ -69,20 +84,24 @@ namespace Cue::Core
             return pooled_ptr(obj.release(), Deleter{ this });
         }
 
-        void recycle(T* raw) noexcept
+        /// @brief 生ポインタをプールへ戻します。
+        /// @param a_raw 非所有の返却対象です。
+        void recycle(T* a_raw) noexcept
         {
-            if (raw == nullptr)
+            if (a_raw == nullptr)
             {
                 return;
             }
 
-            release(std::unique_ptr<T>(raw));
+            release(std::unique_ptr<T>(a_raw));
         }
 
-        void prewarm(size_t totalCount)
+        /// @brief 指定数まで事前確保します。
+        /// @param a_totalCount 総確保数の目標値です。
+        void prewarm(size_t a_totalCount)
         {
-            // 1) 総確保数が totalCount になるまで作る
-            while (m_totalAllocated < totalCount)
+            // 1) 総確保数が a_totalCount になるまで作る
+            while (m_totalAllocated < a_totalCount)
             {
                 if (m_cached.size() >= m_maxCached)
                 {
@@ -94,21 +113,25 @@ namespace Cue::Core
             }
         }
 
+        /// @brief 現在キャッシュされている個数を返します。
+        /// @return キャッシュ済み個数です。
         size_t cached_count() const noexcept
         {
             return m_cached.size();
         }
 
+        /// @brief これまでに確保した総数を返します。
+        /// @return 総確保数です。
         size_t total_allocated() const noexcept
         {
             return m_totalAllocated;
         }
 
     private:
-        void release(std::unique_ptr<T> obj) noexcept
+        void release(std::unique_ptr<T> a_object) noexcept
         {
             // 1) 状態リセット
-            m_resetFunc(*obj);
+            m_resetFunc(*a_object);
 
             // 2) キャッシュ上限超過なら捨てる
             if (m_cached.size() >= m_maxCached)
@@ -117,7 +140,7 @@ namespace Cue::Core
             }
 
             // 3) 戻す（LIFO）
-            m_cached.push_back(std::move(obj));
+            m_cached.push_back(std::move(a_object));
         }
 
     private:
@@ -127,13 +150,14 @@ namespace Cue::Core
         std::vector<std::unique_ptr<T>> m_cached{};
         size_t m_totalAllocated = 0;
     };
-    // 何もしないリセット（デフォルト用）
+
+    /// @brief 返却時に何もしない既定リセットです。
     template <typename T>
     struct NoReset
     {
         void operator()(T&) const noexcept
         {
-            // 1) no-op
+            // 1) 既定動作では状態変更を行わない
         }
     };
 }

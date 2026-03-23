@@ -1,20 +1,27 @@
 #pragma once
 
+// === C++ includes ===
 #include <cstddef>
+
+// === Core includes ===
 #include "IClock.h"
 
 namespace Cue::Core::Time
 {
+    /// @brief クロックを使って経過時間を計測するタイマーです。
     class Timer final
     {
     public:
-        explicit Timer(const IClock& clock) noexcept
-            : m_clock(&clock)
+        /// @brief クロック参照でタイマーを初期化します。
+        /// @param a_clock 計測に使うクロックです。
+        explicit Timer(const IClock& a_clock) noexcept
+            : m_clock(&a_clock)
         {
             // 1) 初期化
             reset();
         }
 
+        /// @brief 計測状態を初期化します。
         void reset() noexcept
         {
             // 1) 状態初期化
@@ -24,6 +31,7 @@ namespace Cue::Core::Time
             m_last = m_clock->now_ns();
         }
 
+        /// @brief タイマー計測を開始します。
         void start() noexcept
         {
             // 1) すでに動いているなら何もしない
@@ -37,6 +45,7 @@ namespace Cue::Core::Time
             m_running = true;
         }
 
+        /// @brief タイマー計測を停止します。
         void stop() noexcept
         {
             // 1) 動いていないなら何もしない
@@ -51,12 +60,16 @@ namespace Cue::Core::Time
             m_running = false;
         }
 
+        /// @brief 現在動作中かを返します。
+        /// @return 動作中なら `true` です。
         bool is_running() const noexcept
         {
             // 1) 動作中フラグを返す
             return m_running;
         }
 
+        /// @brief 経過時間を tick 単位で返します。
+        /// @return 積算経過時間です。
         Math::TimeSpan elapsed_ticks() const noexcept
         {
             // 1) 既に積算した分を基準にする
@@ -72,6 +85,8 @@ namespace Cue::Core::Time
             return total;
         }
 
+        /// @brief 経過時間を秒で返します。
+        /// @return 積算経過秒です。
         double elapsed_seconds() const noexcept
         {
             // 1) Tickを取得
@@ -81,7 +96,8 @@ namespace Cue::Core::Time
             return ticks.s_f64();
         }
 
-        // フレーム計測用：前回呼び出しからの差分Tick（動作中/停止中に関係なく計測）
+        /// @brief 前回呼び出しからの差分 tick を返します。
+        /// @return 差分時間です。
         Math::TimeSpan lap_ticks() noexcept
         {
             // 1) 現在Tickを取得
@@ -94,6 +110,8 @@ namespace Cue::Core::Time
             return dt;
         }
 
+        /// @brief 前回呼び出しからの差分秒を返します。
+        /// @return 差分秒です。
         double lap_seconds() noexcept
         {
             // 1) 差分Tickを得る

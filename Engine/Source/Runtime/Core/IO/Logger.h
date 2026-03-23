@@ -1,8 +1,10 @@
 #pragma once
+
+// === C++ includes ===
 #include <format>
 #include <source_location>
-#include <type_traits>
 #include <string_view>
+#include <type_traits>
 
 namespace Cue::Core::IO
 {
@@ -14,46 +16,47 @@ namespace Cue::Core::IO
     };
 
     // 1) enum class 用のビット演算子
-    constexpr LogSink operator|(LogSink a, LogSink b) noexcept
+    constexpr LogSink operator|(LogSink a_left, LogSink a_right) noexcept
     {
         using U = std::underlying_type_t<LogSink>;
-        return static_cast<LogSink>(static_cast<U>(a) | static_cast<U>(b));
+        return static_cast<LogSink>(static_cast<U>(a_left) | static_cast<U>(a_right));
     }
 
-    constexpr LogSink operator&(LogSink a, LogSink b) noexcept
+    constexpr LogSink operator&(LogSink a_left, LogSink a_right) noexcept
     {
         using U = std::underlying_type_t<LogSink>;
-        return static_cast<LogSink>(static_cast<U>(a) & static_cast<U>(b));
+        return static_cast<LogSink>(static_cast<U>(a_left) & static_cast<U>(a_right));
     }
 
-    constexpr LogSink& operator|=(LogSink& a, LogSink b) noexcept
+    constexpr LogSink& operator|=(LogSink& a_left, LogSink a_right) noexcept
     {
-        a = (a | b);
-        return a;
+        a_left = (a_left | a_right);
+        return a_left;
     }
 
-    constexpr bool has_sink(LogSink mask, LogSink bit) noexcept
+    constexpr bool has_sink(LogSink a_mask, LogSink a_bit) noexcept
     {
         using U = std::underlying_type_t<LogSink>;
-        return (static_cast<U>(mask & bit) != 0);
+        return (static_cast<U>(a_mask & a_bit) != 0);
     }
 
-    // ログ出力
+    /// @brief 指定 sink へ整形済みログを出力します。
     template <typename... Args>
-    void log(LogSink sink, std::string_view fmt, Args&&... args)
+    void log(LogSink a_sink, std::string_view a_format, Args&&... a_args)
     {
-        std::string message = std::vformat(fmt, std::make_format_args(args...));
+        std::string message = std::vformat(a_format, std::make_format_args(a_args...));
         // 2) 末尾改行を保証（既に改行があるなら足さない）
         if (message.empty() || message.back() != '\n')
         {
             message += "\n"; // Windowsでも大抵これでOK（気になるなら "\r\n"）
         }
-        if (has_sink(sink, LogSink::debugConsole))
+        if (has_sink(a_sink, LogSink::debugConsole))
         {
             // デバッグコンソールに出力
             out_debug_console(message);
         }
     }
 
-    void out_debug_console(std::string_view message);
+    /// @brief デバッグコンソールへ文字列を出力します。
+    void out_debug_console(std::string_view a_message);
 }

@@ -1,12 +1,14 @@
 #pragma once
 
-// c++ 標準ライブラリ include
+// === C++ includes ===
 #include <cstdint>
 
-// core 関連 include
+// === Core includes ===
 #include "IClock.h"
 #include "IWaiter.h"
 #include "Timer.h"
+
+// === Math includes ===
 #include <TimeUnit.h>
 
 namespace Cue::Core::Time
@@ -15,10 +17,11 @@ namespace Cue::Core::Time
     class FrameCounter final
     {
     public:
-        explicit FrameCounter(const IClock& clock, IWaiter& waiter) noexcept
-            : m_clock(&clock)
-            , m_timer(clock)
-            , m_waiter(&waiter)
+        /// @brief クロックと待機器でフレームカウンターを初期化します。
+        explicit FrameCounter(const IClock& a_clock, IWaiter& a_waiter) noexcept
+            : m_clock(&a_clock)
+            , m_timer(a_clock)
+            , m_waiter(&a_waiter)
         {
             // 1) 初期化
             m_timer.reset();
@@ -26,9 +29,8 @@ namespace Cue::Core::Time
 
         ~FrameCounter() noexcept = default;
 
-        // --------------------
-        // 主 api
-        // --------------------
+        // --- 主 API ---
+        /// @brief 1 フレーム分の統計を更新します。
         void tick() noexcept
         {
             // 1) 初回のみ：基準点だけ作る
@@ -66,36 +68,43 @@ namespace Cue::Core::Time
             m_capBaseTick = m_clock->now_ns();
         }
 
+        /// @brief 前フレームからの経過秒を返します。
         double delta_time() const noexcept
         {
             return m_deltaTime;
         }
 
+        /// @brief 現在の fps を返します。
         double fps() const noexcept
         {
             return m_fps;
         }
 
-        void set_max_fps(std::uint32_t maxFps) noexcept
+        /// @brief 上限 fps を設定します。
+        void set_max_fps(std::uint32_t a_maxFps) noexcept
         {
-            m_maxFps = maxFps;
+            m_maxFps = a_maxFps;
         }
 
-        void set_max_lead(std::uint32_t maxLead) noexcept
+        /// @brief 最大先行フレーム数を設定します。
+        void set_max_lead(std::uint32_t a_maxLead) noexcept
         {
-            m_maxLead = maxLead;
+            m_maxLead = a_maxLead;
         }
 
+        /// @brief 最大先行フレーム数を返します。
         std::uint32_t max_lead() const noexcept
         {
             return m_maxLead;
         }
 
+        /// @brief 総フレーム数を返します。
         std::uint64_t total_frames() const noexcept
         {
             return m_totalFrames;
         }
 
+        /// @brief 生成済みフレーム数を返します。
         std::uint64_t produce_frame() const noexcept
         {
             return m_produceFrame;
@@ -115,16 +124,16 @@ namespace Cue::Core::Time
 
             // 3) 低 fps 帯用スピン予算計算
             //    60 fps 付近では約 1 ms を最終スピンへ使用
-            constexpr int64_t minSpinNs = 250'000LL;
-            constexpr int64_t maxSpinNs = 1'000'000LL;
+            constexpr int64_t k_minSpinNs = 250'000LL;
+            constexpr int64_t k_maxSpinNs = 1'000'000LL;
             int64_t spinBudgetNs = frameNs.nano() / 8;
-            if (spinBudgetNs < minSpinNs)
+            if (spinBudgetNs < k_minSpinNs)
             {
-                spinBudgetNs = minSpinNs;
+                spinBudgetNs = k_minSpinNs;
             }
-            else if (spinBudgetNs > maxSpinNs)
+            else if (spinBudgetNs > k_maxSpinNs)
             {
-                spinBudgetNs = maxSpinNs;
+                spinBudgetNs = k_maxSpinNs;
             }
             const Math::TimeSpan spinNs = { spinBudgetNs, Math::TimeUnit::nanoseconds };
 
@@ -140,8 +149,8 @@ namespace Cue::Core::Time
 
             // 6) 高 fps 帯は sleep を省略
             //    2 ms 以下はフルスピンへ切替
-            constexpr int64_t fullSpinThresholdNs = 2'000'000LL;
-            if (frameNs.nano() > fullSpinThresholdNs)
+            constexpr int64_t k_fullSpinThresholdNs = 2'000'000LL;
+            if (frameNs.nano() > k_fullSpinThresholdNs)
             {
                 const Math::TimeSpan sleepUntilNs = targetTick - spinNs;
                 if (sleepUntilNs > now0)

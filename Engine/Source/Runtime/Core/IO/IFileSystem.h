@@ -1,16 +1,16 @@
 #pragma once
 
-// c++ 標準ライブラリ include
+// === C++ includes ===
 #include <cstdint>
 #include <cstddef>
-#include <vector>
 #include <memory>
 #include <span>
+#include <vector>
 
-// base 関連 include
+// === Base includes ===
 #include <Result.h>
 
-// core 関連 include
+// === Core includes ===
 #include "Path.h"
 
 namespace Cue::Core::IO
@@ -61,14 +61,14 @@ namespace Cue::Core::IO
         no_buffer = 1u << 3, // 直 i/o 系
     };
 
-    [[nodiscard]] constexpr OpenFlags operator|(OpenFlags a, OpenFlags b) noexcept
+    [[nodiscard]] constexpr OpenFlags operator|(OpenFlags a_left, OpenFlags a_right) noexcept
     {
-        return static_cast<OpenFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<OpenFlags>(static_cast<uint32_t>(a_left) | static_cast<uint32_t>(a_right));
     }
 
-    [[nodiscard]] constexpr bool has_flag(OpenFlags v, OpenFlags f) noexcept
+    [[nodiscard]] constexpr bool has_flag(OpenFlags a_value, OpenFlags a_flag) noexcept
     {
-        return (static_cast<uint32_t>(v) & static_cast<uint32_t>(f)) != 0u;
+        return (static_cast<uint32_t>(a_value) & static_cast<uint32_t>(a_flag)) != 0u;
     }
 
     struct FileOpenDesc
@@ -78,6 +78,7 @@ namespace Cue::Core::IO
         OpenFlags  flags = OpenFlags::none;
     };
 
+    /// @brief 単一ファイルの入出力インターフェースです。
     class IFile
     {
     public:
@@ -89,17 +90,25 @@ namespace Cue::Core::IO
         IFile(IFile&&) = delete;
         IFile& operator=(IFile&&) = delete;
 
-        virtual Result read(std::span<std::byte> dst, uint64_t* out_read) noexcept = 0;
-        virtual Result write(std::span<const std::byte> src, uint64_t* out_written) noexcept = 0;
+        /// @brief ファイルからバイト列を読み込みます。
+        virtual Result read(std::span<std::byte> a_destination, uint64_t* a_outRead) noexcept = 0;
+        /// @brief ファイルへバイト列を書き込みます。
+        virtual Result write(std::span<const std::byte> a_source, uint64_t* a_outWritten) noexcept = 0;
 
-        virtual Result seek(int64_t offset, SeekOrigin origin) noexcept = 0;
-        virtual Result tell(uint64_t* out_pos) noexcept = 0;
-        virtual Result size(uint64_t* out_size) noexcept = 0;
+        /// @brief ファイル位置を移動します。
+        virtual Result seek(int64_t a_offset, SeekOrigin a_origin) noexcept = 0;
+        /// @brief 現在位置を取得します。
+        virtual Result tell(uint64_t* a_outPosition) noexcept = 0;
+        /// @brief ファイルサイズを取得します。
+        virtual Result size(uint64_t* a_outSize) noexcept = 0;
 
+        /// @brief バッファ済みデータを永続化します。
         virtual Result flush() noexcept = 0;
+        /// @brief ファイルを閉じます。
         virtual Result close() noexcept = 0;
     };
 
+    /// @brief ファイルシステム操作を抽象化するインターフェースです。
     class IFileSystem
     {
     public:
@@ -113,22 +122,31 @@ namespace Cue::Core::IO
         IFileSystem& operator=(IFileSystem&&) = delete;
 
         // --- 基本メタデータ ---
-        virtual Result exists(const Path& path, bool* out_exists) noexcept = 0;
-        virtual Result stat(const Path& path, FileStat* out_stat) noexcept = 0;
+        /// @brief パスの存在有無を取得します。
+        virtual Result exists(const Path& a_path, bool* a_outExists) noexcept = 0;
+        /// @brief ファイル情報を取得します。
+        virtual Result stat(const Path& a_path, FileStat* a_outStat) noexcept = 0;
 
         // --- ディレクトリ操作 ---
-        virtual Result create_directories(const Path& path) noexcept = 0;
-        virtual Result list_directory(const Path& path, std::vector<Path>* out_entries) noexcept = 0;
+        /// @brief ディレクトリを再帰的に作成します。
+        virtual Result create_directories(const Path& a_path) noexcept = 0;
+        /// @brief ディレクトリ内容を列挙します。
+        virtual Result list_directory(const Path& a_path, std::vector<Path>* a_outEntries) noexcept = 0;
 
         // --- 変更操作 ---
-        virtual Result remove(const Path& path, bool* out_removed) noexcept = 0;
-        virtual Result rename(const Path& from, const Path& to) noexcept = 0;
+        /// @brief ファイルまたはディレクトリを削除します。
+        virtual Result remove(const Path& a_path, bool* a_outRemoved) noexcept = 0;
+        /// @brief パスをリネームします。
+        virtual Result rename(const Path& a_from, const Path& a_to) noexcept = 0;
 
         // --- ファイルI/O ---
-        virtual Result open(const Path& path, const FileOpenDesc& desc, std::unique_ptr<IFile>* out_file) noexcept = 0;
+        /// @brief ファイルを開きます。
+        virtual Result open(const Path& a_path, const FileOpenDesc& a_desc, std::unique_ptr<IFile>* a_outFile) noexcept = 0;
 
         // --- 便利関数（必要なら実装側で最適化しても良い）---
-        virtual Result read_all(const Path& path, std::vector<std::byte>* out_data) noexcept = 0;
-        virtual Result write_all(const Path& path, std::span<const std::byte> data, bool create_parent_dirs) noexcept = 0;
+        /// @brief ファイル全体を読み込みます。
+        virtual Result read_all(const Path& a_path, std::vector<std::byte>* a_outData) noexcept = 0;
+        /// @brief ファイル全体を書き込みます。
+        virtual Result write_all(const Path& a_path, std::span<const std::byte> a_data, bool a_createParentDirs) noexcept = 0;
     };
 } // 名前空間 cue::core::io
