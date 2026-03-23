@@ -1,0 +1,10 @@
+{
+  "name": "cue-engine",
+  "version-string": "0.1.0",
+  "dependencies": [
+    {
+      "name": "directx-dxc",
+      "host": true
+    }
+  ]
+}
