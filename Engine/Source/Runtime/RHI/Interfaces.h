@@ -22,6 +22,19 @@ namespace Cue::RHI
         virtual Result initialize(bool a_enableDebugLayer = false) = 0;
     };
 
+    class GpuResource
+    {
+    public:
+        GpuResource() = default;
+        // コピー禁止
+        GpuResource(const GpuResource&) = delete;
+        GpuResource& operator=(const GpuResource&) = delete;
+        // ムーブは許可
+        GpuResource(GpuResource&&) = default;
+        GpuResource& operator=(GpuResource&&) = default;
+        virtual ~GpuResource() = default;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェースです。
     class ICommandContext
     {

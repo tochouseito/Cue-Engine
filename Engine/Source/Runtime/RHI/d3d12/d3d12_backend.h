@@ -12,6 +12,7 @@
 #include "HLSLCompiler.h"
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
+#include "DX12BufferManager.h"
 
 namespace Cue::RHI::DX12
 {
@@ -39,11 +40,15 @@ namespace Cue::RHI::DX12
         /// @brief 利用する Windows プラットフォームを設定します。
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
 
+        // --- バックエンドのシステムへのアクセス ---
+        IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
+
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー
         std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>(); // HLSL コンパイラ
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
         std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
+        std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
     };
 }

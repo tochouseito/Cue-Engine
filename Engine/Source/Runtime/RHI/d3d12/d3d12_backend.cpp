@@ -30,6 +30,9 @@ namespace Cue::RHI::DX12
             a_info.renderTargetCapacity,
             a_info.depthStencilCapacity);
 
+        // バッファマネージャの初期化
+        m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
+
         return Result::ok();
     }
 

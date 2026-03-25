@@ -37,5 +37,8 @@ namespace Cue::RHI
 
         /// @brief FrameGraph の生成
         virtual Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
+
+        // --- バックエンドのシステムへのアクセス ---
+        virtual IBufferManager* get_buffer_manager() = 0;
     };
 }

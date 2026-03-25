@@ -56,4 +56,30 @@ namespace Cue::RHI::DX12
             a_obj->SetName(a_name);
         }
     }
+
+    D3D12_RESOURCE_STATES convert_resource_state(ResourceState state)
+    {
+        switch (state)
+        {
+        case ResourceState::Common:
+            return D3D12_RESOURCE_STATE_COMMON;
+        case ResourceState::CopySource:
+            return D3D12_RESOURCE_STATE_COPY_SOURCE;
+        case ResourceState::CopyDest:
+            return D3D12_RESOURCE_STATE_COPY_DEST;
+        case ResourceState::RenderTarget:
+            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+        case ResourceState::UnorderedAccess:
+            return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        case ResourceState::ShaderResource:
+            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        case ResourceState::DepthWrite:
+            return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        case ResourceState::Present:
+            return D3D12_RESOURCE_STATE_PRESENT;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid resource state.");
+            return D3D12_RESOURCE_STATE_COMMON;
+        }
+    }
 }
