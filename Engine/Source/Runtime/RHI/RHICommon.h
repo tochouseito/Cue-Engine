@@ -16,6 +16,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <string_view>
 
 // === RHI includes ===
 #include "BackendFactory.h"
@@ -24,5 +25,25 @@
 
 namespace Cue::RHI
 {
+    template<class Tag>
+    using Handle = Core::Handle<Tag>;
 
+    template<class Tag, class RecordType>
+    using Registry = Core::Registry<Tag, RecordType>;
+
+    using ResourceNameId = Core::ResourceNameId;
+
+    struct BufferTag {};
+    struct TextureTag {};
+    struct ViewTag {};
+    struct PipelineTag {};
+    struct RootSignatureTag {};
+    struct ShaderBlobTag {};
+
+    using BufferHandle = Handle<BufferTag>;
+    using TextureHandle = Handle<TextureTag>;
+    using ViewHandle = Handle<ViewTag>;
+    using PipelineHandle = Handle<PipelineTag>;
+    using RootSignatureHandle = Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Handle<ShaderBlobTag>;
 }
