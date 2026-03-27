@@ -47,6 +47,14 @@ namespace Cue::RHI
         ICommandContext(ICommandContext&&) = default;
         ICommandContext& operator=(ICommandContext&&) = default;
         virtual ~ICommandContext() = default;
+
+        virtual Result reset() = 0;
+        virtual Result close() = 0;
+        virtual CommandListType type() const = 0;
+
+        // --- GPU プロファイリング用のイベントマーカー ---
+        virtual void begin_event(const char* name) = 0;
+        virtual void end_event() = 0;
     };
 
     /// @brief キューコンテキストの共通インターフェースです。
@@ -61,6 +69,12 @@ namespace Cue::RHI
         IQueueContext(IQueueContext&&) = default;
         IQueueContext& operator=(IQueueContext&&) = default;
         virtual ~IQueueContext() = default;
+
+        virtual CommandListType type() const = 0;
+        virtual Result submit(std::vector<ICommandContext*>& contexts) = 0;
+        virtual Result signal() = 0;
+        virtual Result wait() = 0;
+        virtual Result wait_for_queue(IQueueContext& queue) = 0;
     };
 
     /// @brief コマンドプールの共通インターフェースです。

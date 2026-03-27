@@ -106,4 +106,36 @@ namespace Cue::RHI::DX12
             return DXGI_FORMAT_D24_UNORM_S8_UINT;
         }
     }
+
+    inline D3D12_COMMAND_LIST_TYPE convert_command_list_type(CommandListType type)
+    {
+        switch (type)
+        {
+        case CommandListType::Graphics:
+            return D3D12_COMMAND_LIST_TYPE_DIRECT;
+        case CommandListType::Compute:
+            return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+        case CommandListType::Copy:
+            return D3D12_COMMAND_LIST_TYPE_COPY;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid command list type.");
+            return D3D12_COMMAND_LIST_TYPE_DIRECT;
+        }
+    }
+
+    inline CommandListType convert_command_list_type(D3D12_COMMAND_LIST_TYPE type)
+    {
+        switch (type)
+        {
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            return CommandListType::Graphics;
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            return CommandListType::Compute;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            return CommandListType::Copy;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid D3D12 command list type.");
+            return CommandListType::Graphics;
+        }
+    }
 }
