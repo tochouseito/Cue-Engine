@@ -25,7 +25,7 @@ namespace Cue::Math
     /// @param a_value 切り上げる値。
     /// @param a_step 切り上げ先の倍数。0の場合は無効です。
     /// @return 指定された倍数に切り上げられた値。
-    [[nodiscard]] static constexpr uint32_t round_up_to_multiple(uint32_t a_value, uint32_t a_step) noexcept;
+    [[nodiscard]]  uint32_t round_up_to_multiple(uint32_t a_value, uint32_t a_step) noexcept;
 
     /// @brief スケール行列を構築します。
     [[nodiscard]] float4x4 scale_matrix(float3 a_scale) noexcept;

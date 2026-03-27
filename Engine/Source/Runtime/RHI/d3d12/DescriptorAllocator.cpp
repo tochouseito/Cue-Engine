@@ -335,10 +335,20 @@ namespace Cue::RHI::DX12
             return Result::fail(Code::InvalidArgument, Severity::Error, "CBV byte offset is out of range.");
         }
 
-        const uint64_t resolvedSize = byteSize == 0 ? (bufferSize - byteOffset) : static_cast<uint64_t>(byteSize);
-        if (resolvedSize == 0 || byteOffset + resolvedSize > bufferSize)
+        const uint64_t resolvedSize =
+            byteSize == 0 ? (bufferSize - byteOffset) : static_cast<uint64_t>(byteSize);
+
+        if (resolvedSize == 0)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "CBV byte range is invalid.");
+        }
+
+        const uint64_t alignedSize =
+            static_cast<uint64_t>((static_cast<UINT>(resolvedSize) + 255u) & ~255u);
+
+        if (byteOffset + alignedSize > bufferSize)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "CBV aligned byte range exceedsbuffer size.");
         }
 
         D3D12_CONSTANT_BUFFER_VIEW_DESC desc{};

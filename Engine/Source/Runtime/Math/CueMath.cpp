@@ -5,7 +5,7 @@
 namespace Cue::Math
 {
     [[nodiscard]]
-    constexpr uint32_t round_up_to_multiple(uint32_t a_value, uint32_t a_step) noexcept
+    uint32_t round_up_to_multiple(uint32_t a_value, uint32_t a_step) noexcept
     {
         uint32_t out = 0;
 

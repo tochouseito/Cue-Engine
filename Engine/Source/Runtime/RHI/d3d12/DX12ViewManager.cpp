@@ -35,7 +35,7 @@ namespace Cue::RHI::DX12
         {
             // Buffer の実体を取得する
             DX12BufferRecord* bufferRecord = nullptr;
-            if (!m_bufferManager.try_get_record(desc.bufferHandle, bufferRecord))
+            if (!m_bufferManager.try_get_record(desc.bufferHandle, &bufferRecord))
             {
                 return Result::fail(
                     Code::NotFound,

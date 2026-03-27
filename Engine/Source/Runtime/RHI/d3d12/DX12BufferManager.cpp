@@ -24,7 +24,7 @@ namespace Cue::RHI::DX12
             heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT; // デフォルトヒープは GPU 専用のヒープタイプ
             D3D12_RESOURCE_DESC resourceDesc = {};
             resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            resourceDesc.Width = desc.size;
+            resourceDesc.Width = desc.type == BufferType::Constant ? Math::round_up_to_multiple(desc.size, 256) : desc.size; // 定数バッファはサイズを 256 バイト境界に揃える
             resourceDesc.Height = 1;
             resourceDesc.DepthOrArraySize = 1;
             resourceDesc.MipLevels = 1;
@@ -59,7 +59,7 @@ namespace Cue::RHI::DX12
             heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD; // アップロードヒープは CPU アクセス可能なヒープタイプ
             D3D12_RESOURCE_DESC resourceDesc = {};
             resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            resourceDesc.Width = desc.size;
+            resourceDesc.Width = desc.type == BufferType::Constant ? Math::round_up_to_multiple(desc.size, 256) : desc.size; // 定数バッファはサイズを 256 バイト境界に揃える
             resourceDesc.Height = 1;
             resourceDesc.DepthOrArraySize = 1;
             resourceDesc.MipLevels = 1;
@@ -190,19 +190,11 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    bool DX12BufferManager::try_get_record(BufferHandle handle, DX12BufferRecord* outRecord)
+    bool DX12BufferManager::try_get_record(BufferHandle handle, DX12BufferRecord** outRecord)
     {
-        return m_bufferRegistry.with(handle, [outRecord](const DX12BufferRecord& record)
-        {
-            *outRecord = record;
-            if (outRecord)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        });
+        // ハンドルの解決とレコードの取得
+        *outRecord = nullptr;
+        *outRecord = m_bufferRegistry.get(handle);
+        return *outRecord != nullptr;
     }
 }

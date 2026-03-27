@@ -129,6 +129,25 @@ namespace Cue::Core
             return true;
         }
 
+        /// @brief レコードを参照取得します。
+        /// @param a_handle 対象ハンドルです。
+        /// @return ハンドルが有効な場合はレコードへの参照を返します。無効な場合は `nullptr` です。
+        [[nodiscard]] Record* get(handle_type a_handle)
+        {
+            if (!is_alive(a_handle))
+            {
+                return nullptr;
+            }
+            return &m_records[a_handle.index];
+        }
+        [[nodiscard]] const Record* get(handle_type a_handle) const
+        {
+            if (!is_alive(a_handle))
+            {
+                return nullptr;
+            }
+            return &m_records[a_handle.index];
+        }
     private:
         [[nodiscard]] bool is_alive(handle_type a_handle) const noexcept
         {

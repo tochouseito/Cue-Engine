@@ -29,7 +29,7 @@ namespace Cue::RHI::DX12
         ~DX12BufferManager() override = default;
         Result create_buffer(const BufferDesc& desc, BufferHandle& out) override;
         Result destroy_buffer(BufferHandle handle) override;
-        bool try_get_record(BufferHandle handle, DX12BufferRecord* outRecord);
+        bool try_get_record(BufferHandle handle, DX12BufferRecord** outRecord);
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         Core::Registry<BufferTag, DX12BufferRecord> m_bufferRegistry; // 論理バッファリソースのレジストリ

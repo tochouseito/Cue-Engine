@@ -35,7 +35,7 @@ namespace Cue
         bufferDesc.uploadHeapCount = 3;
         bufferDesc.initialState = RHI::ResourceState::Common;
         bufferDesc.stride = sizeof(Core::Native::ObjectTransformGpu);
-        bufferDesc.elementCount = 1000;
+        bufferDesc.elementCount = 1;
         bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
         bufferDesc.alignment = 256;
         RHI::BufferHandle bufferHandle{};
@@ -44,6 +44,23 @@ namespace Cue
         {
             CUE_ASSERT(false);
         }
+        auto viewManager = m_backend->get_view_manager();
+        RHI::ViewDesc viewDesc{};
+        viewDesc.name = "TestView";
+        viewDesc.type = RHI::ViewType::ConstantBuffer;
+        viewDesc.bufferKind = RHI::BufferKind::Buffer;
+        viewDesc.bufferHandle = bufferHandle;
+        viewDesc.byteOffset = 0;
+        viewDesc.byteSize = bufferDesc.size;
+        viewDesc.structureByteStride = bufferDesc.stride;
+        viewDesc.numElements = bufferDesc.elementCount;
+        RHI::ViewHandle viewHandle{};
+        result = viewManager->create_view(viewDesc, viewHandle);
+        if (!result)
+        {
+            CUE_ASSERT(false);
+        }
+        viewManager->destroy_view(viewHandle);
         bufferManager->destroy_buffer(bufferHandle);
 
         return Result::ok();
