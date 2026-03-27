@@ -32,12 +32,17 @@ namespace Cue::RHI::DX12
 
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
+        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
+        m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
 
         return Result::ok();
     }
 
     Result D3D12Backend::shutdown()
     {
+        m_viewManager.reset();
+        m_textureManager.reset();
+        m_bufferManager.reset();
         m_descriptorAllocator.reset();
         m_renderDevice.reset();
 

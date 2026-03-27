@@ -67,6 +67,7 @@ namespace Cue::RHI::DX12
             // メンバ変数の設定
             m_currentState = initialState;
             m_resourceDesc = desc;
+            m_bufferSize = static_cast<uint64_t>(desc.Width);
             return Result::ok();
         }
 
@@ -80,11 +81,36 @@ namespace Cue::RHI::DX12
             }
             return false;
         }
+
+        ID3D12Resource* get_resource() const noexcept
+        {
+            return m_resource.Get();
+        }
+
+        D3D12_GPU_VIRTUAL_ADDRESS get_gpu_virtual_address() const noexcept
+        {
+            if (!m_resource)
+            {
+                return D3D12_GPU_VIRTUAL_ADDRESS_NULL;
+            }
+            return m_resource->GetGPUVirtualAddress();
+        }
+
+        const D3D12_RESOURCE_DESC& get_resource_desc() const noexcept
+        {
+            return m_resourceDesc;
+        }
+
+        uint64_t get_buffer_size() const noexcept
+        {
+            return m_bufferSize;
+        }
     private:
         ComPtr<ID3D12Resource> m_resource = nullptr;
         D3D12_RESOURCE_STATES m_currentState = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_DESC m_resourceDesc{};
         ComPtr<ID3D12Fence> m_fence = nullptr;
         uint64_t m_fenceValue = 0;
+        uint64_t m_bufferSize = 0;
     };
 }

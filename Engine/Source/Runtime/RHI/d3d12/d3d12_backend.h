@@ -13,6 +13,8 @@
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
 #include "DX12BufferManager.h"
+#include "DX12TextureManager.h"
+#include "DX12ViewManager.h"
 
 namespace Cue::RHI::DX12
 {
@@ -42,6 +44,8 @@ namespace Cue::RHI::DX12
 
         // --- バックエンドのシステムへのアクセス ---
         IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
+        ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
+        IViewManager* get_view_manager() override { return m_viewManager.get(); }
 
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
@@ -50,5 +54,7 @@ namespace Cue::RHI::DX12
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
         std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
+        std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
+        std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
     };
 }

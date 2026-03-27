@@ -29,6 +29,7 @@ namespace Cue::RHI::DX12
         ~DX12TextureManager() override = default;
         Result create_texture(const TextureDesc& desc, TextureHandle& out) override;
         Result destroy_texture(TextureHandle handle) override;
+        bool try_get_record(TextureHandle handle, DX12TextureRecord*& outRecord);
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         Core::Registry<TextureTag, DX12TextureRecord> m_textureRegistry; // 論理テクスチャリソースのレジストリ

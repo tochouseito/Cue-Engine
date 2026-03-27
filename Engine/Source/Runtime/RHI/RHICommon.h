@@ -4,6 +4,9 @@
 #include <Result.h>
 #include <CueAssert.h>
 
+// === Math includes ===
+#include <CueMath.h>
+
 // === Core includes ===
 #include <Native/Handle.h>
 #include <Native/EngineNativeStruct.h>
@@ -76,6 +79,14 @@ namespace Cue::RHI
         }
     }
 
+    enum class BufferKind : uint8_t
+    {
+        Texture,
+        Buffer,
+        RenderTarget,
+        DepthStencil
+    };
+
     enum class BufferType : uint8_t
     {
         Vertex,
@@ -101,6 +112,19 @@ namespace Cue::RHI
         default: return "Unknown";
         }
     }
+
+    enum class ViewType : uint8_t
+    {
+        ConstantBuffer,
+        ShaderResourceBuffer,
+        ShaderResourceRawBuffer,
+        UnorderedAccessBuffer,
+        UnorderedAccessRawBuffer,
+        ShaderResourceTexture2D,
+        UnorderedAccessTexture2D,
+        RenderTarget,
+        DepthStencil,
+    };
 
     enum class ResourceState : uint8_t
     {

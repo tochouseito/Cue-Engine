@@ -7,7 +7,24 @@ namespace Cue::RHI
 {
     struct ViewDesc
     {
-        std::string_view name;
+        std::string_view name = {};
+        ViewType type = ViewType::ShaderResourceBuffer;
+        BufferKind bufferKind = BufferKind::Buffer;
+        uint32_t resourceIndex = 0;
+
+        BufferHandle bufferHandle = {};
+        TextureHandle textureHandle = {};
+
+        uint64_t byteOffset = 0;
+        uint32_t byteSize = 0;
+        uint32_t firstElement = 0;
+        uint32_t numElements = 0;
+        uint32_t structureByteStride = 0;
+
+        ColorFormat colorFormat = ColorFormat::R8G8B8A8_UNORM;
+        DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
+        uint32_t mipSlice = 0;
+        uint32_t mipLevels = 1;
     };
 
     class IViewManager

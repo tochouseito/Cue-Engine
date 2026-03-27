@@ -8,6 +8,7 @@
 
 // === DirectX 12 includes ===
 #include "stdafx.h"
+#include "DX12GpuResource.h"
 
 namespace Cue::RHI::DX12
 {
@@ -81,6 +82,9 @@ namespace Cue::RHI::DX12
 
         /// @brief 指定ヒープ種別に対応するヒープを取得します。
         ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
+
+        // --- View の作成 ---
+        Result create_cbv(TableID id, DX12GpuResource* resource, uint64_t byteOffset, uint32_t byteSize);
 
     private:
         // --- DescriptorHeap 作成 ---

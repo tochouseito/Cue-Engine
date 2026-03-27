@@ -7,6 +7,11 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
+        UINT align_constant_buffer_size(UINT a_size)
+        {
+            return (a_size + 255u) & ~255u;
+        }
+
         D3D12_DESCRIPTOR_HEAP_TYPE to_d3d12_heap_type(HeapType a_heapType)
         {
             switch (a_heapType)
@@ -310,5 +315,39 @@ namespace Cue::RHI::DX12
             dst,
             srcHandle,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    Result DescriptorAllocator::create_cbv(TableID id, DX12GpuResource* resource, uint64_t byteOffset, uint32_t byteSize)
+    {
+        // 定数バッファ view の範囲を実体サイズへ合わせる。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Buffer resource is null.");
+        }
+
+        const uint64_t bufferSize = resource->get_buffer_size();
+        if (byteOffset > bufferSize)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "CBV byte offset is out of range.");
+        }
+
+        const uint64_t resolvedSize = byteSize == 0 ? (bufferSize - byteOffset) : static_cast<uint64_t>(byteSize);
+        if (resolvedSize == 0 || byteOffset + resolvedSize > bufferSize)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "CBV byte range is invalid.");
+        }
+
+        D3D12_CONSTANT_BUFFER_VIEW_DESC desc{};
+        desc.BufferLocation = resource->get_resource()->GetGPUVirtualAddress() + byteOffset;
+        desc.SizeInBytes = (static_cast<UINT>(resolvedSize) + 255u) & ~255u;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateConstantBufferView(&desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
     }
 }

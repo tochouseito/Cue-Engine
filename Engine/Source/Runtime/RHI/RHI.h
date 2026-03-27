@@ -4,6 +4,8 @@
 #include "RHICommon.h"
 #include "FrameGraph.h"
 #include "BufferManager.h"
+#include "TextureManager.h"
+#include "ViewManager.h"
 
 namespace Cue::RHI
 {
@@ -42,5 +44,7 @@ namespace Cue::RHI
 
         // --- バックエンドのシステムへのアクセス ---
         virtual IBufferManager* get_buffer_manager() = 0;
+        virtual ITextureManager* get_texture_manager() = 0;
+        virtual IViewManager* get_view_manager() = 0;
     };
 }

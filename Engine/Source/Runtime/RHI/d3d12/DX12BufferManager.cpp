@@ -189,4 +189,20 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
+    bool DX12BufferManager::try_get_record(BufferHandle handle, DX12BufferRecord* outRecord)
+    {
+        return m_bufferRegistry.with(handle, [outRecord](const DX12BufferRecord& record)
+        {
+            *outRecord = record;
+            if (outRecord)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        });
+    }
 }
