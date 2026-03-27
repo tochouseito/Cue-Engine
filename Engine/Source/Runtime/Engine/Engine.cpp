@@ -26,6 +26,26 @@ namespace Cue
             m_platform->waiter(),
             update(), render(), present());
 
+        // テスト
+        auto bufferManager = m_backend->get_buffer_manager();
+        RHI::BufferDesc bufferDesc{};
+        bufferDesc.name = "TestBuffer";
+        bufferDesc.type = RHI::BufferType::Constant;
+        bufferDesc.defaultHeapCount = 3;
+        bufferDesc.uploadHeapCount = 3;
+        bufferDesc.initialState = RHI::ResourceState::Common;
+        bufferDesc.stride = sizeof(Core::Native::ObjectTransformGpu);
+        bufferDesc.elementCount = 1000;
+        bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
+        bufferDesc.alignment = 256;
+        RHI::BufferHandle bufferHandle{};
+        Result result = bufferManager->create_buffer(bufferDesc, bufferHandle);
+        if (!result)
+        {
+            CUE_ASSERT(false);
+        }
+        bufferManager->destroy_buffer(bufferHandle);
+
         return Result::ok();
     }
 

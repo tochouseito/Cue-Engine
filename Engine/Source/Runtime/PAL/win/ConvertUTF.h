@@ -12,7 +12,7 @@
 
 namespace Cue::PAL::Win
 {
-    [[nodiscard]] static Result utf8_to_wide(std::string_view a_text, std::wstring* a_outText) noexcept
+    static Result utf8_to_wide(std::string_view a_text, std::wstring* a_outText) noexcept
     {
         // 1) 引数チェック
         if (a_outText == nullptr)
@@ -51,7 +51,7 @@ namespace Cue::PAL::Win
         return Result::ok();
     }
 
-    [[nodiscard]] static Result wide_to_utf8(std::wstring_view a_text, std::string* a_outText) noexcept
+    static Result wide_to_utf8(std::wstring_view a_text, std::string* a_outText) noexcept
     {
         // 1) 引数チェック
         if (a_outText == nullptr)

@@ -21,11 +21,6 @@
 // === RHI includes ===
 #include "BackendFactory.h"
 #include "Interfaces.h"
-#include "FrameGraph.h"
-#include "BufferManager.h"
-#include "TextureManager.h"
-#include "PipelineManager.h"
-#include "ViewManager.h"
 
 namespace Cue::RHI
 {
@@ -47,9 +42,39 @@ namespace Cue::RHI
     using BufferHandle = Handle<BufferTag>;
     using TextureHandle = Handle<TextureTag>;
     using ViewHandle = Handle<ViewTag>;
-    using PipelineHandle = Handle<PipelineTag>;
+    using PipelineStateHandle = Handle<PipelineTag>;
     using RootSignatureHandle = Handle<RootSignatureTag>;
     using ShaderBlobHandle = Handle<ShaderBlobTag>;
+
+    enum class ColorFormat : uint8_t
+    {
+        R8G8B8A8_UNORM,
+        R8G8B8A8_UNORM_SRGB,
+    };
+
+    inline const char* color_format_to_string(ColorFormat format) noexcept
+    {
+        switch (format)
+        {
+        case ColorFormat::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
+        case ColorFormat::R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
+        default: return "Unknown";
+        }
+    }
+
+    enum class DSVFormat : uint8_t
+    {
+        D24_UNorm_S8_UInt,
+    };
+
+    inline const char* dsv_format_to_string(DSVFormat format) noexcept
+    {
+        switch (format)
+        {
+        case DSVFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
+        default: return "Unknown";
+        }
+    }
 
     enum class BufferType : uint8_t
     {

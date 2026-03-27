@@ -57,7 +57,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    D3D12_RESOURCE_STATES convert_resource_state(ResourceState state)
+    inline D3D12_RESOURCE_STATES convert_resource_state(ResourceState state)
     {
         switch (state)
         {
@@ -80,6 +80,30 @@ namespace Cue::RHI::DX12
         default:
             CUE_ASSERT_MSG(false, "Invalid resource state.");
             return D3D12_RESOURCE_STATE_COMMON;
+        }
+    }
+
+    inline DXGI_FORMAT convert_color_format(ColorFormat format)
+    {
+        switch (format)
+        {
+        case ColorFormat::R8G8B8A8_UNORM:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case ColorFormat::R8G8B8A8_UNORM_SRGB:
+            return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        default:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        }
+    }
+
+    inline DXGI_FORMAT convert_dsv_format(DSVFormat format)
+    {
+        switch (format)
+        {
+        case DSVFormat::D24_UNorm_S8_UInt:
+            return DXGI_FORMAT_D24_UNORM_S8_UINT;
+        default:
+            return DXGI_FORMAT_D24_UNORM_S8_UINT;
         }
     }
 }

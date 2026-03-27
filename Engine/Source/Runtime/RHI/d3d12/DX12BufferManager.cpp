@@ -46,7 +46,7 @@ namespace Cue::RHI::DX12
                 nullptr,
                 name);
             // 成功したらレコードに追加
-            record.resources.emplace_back(std::move(resource));
+            record.defaultResources.emplace_back(std::move(resource));
         }
 
         // アップロードヒープバッファの作成
@@ -81,14 +81,112 @@ namespace Cue::RHI::DX12
                 nullptr,
                 name);
             // 成功したらレコードに追加
-            record.resources.emplace_back(std::move(resource));
+            record.uploadResources.emplace_back(std::move(resource));
         }
+
+        // レコードの保存
+        record.desc = desc;
+        BufferHandle handle = m_bufferRegistry.create(record);
+        if (!desc.name.empty())
+        {
+            m_nameToHandlesMap[Core::fnv1a64(desc.name)] = handle;
+        }
+
+        out = std::move(handle);
 
         return Result::ok();
     }
     Result DX12BufferManager::destroy_buffer(BufferHandle handle)
     {
-        handle;
-        return Result();
+        // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
+        Result result = Result::ok();
+
+        const bool found = m_bufferRegistry.with(handle, [this, handle, &result](DX12BufferRecord&
+            record)
+            {
+                for (const DX12GpuResource& resource : record.defaultResources)
+                {
+                    if (resource.is_in_use())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+
+                for (const DX12GpuResource& resource : record.uploadResources)
+                {
+                    if (resource.is_in_use())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+
+                // 名前テーブルを先に外して、破棄後に古い名前引きを残さない
+                if (!record.desc.name.empty())
+                {
+                    const Core::ResourceNameId nameId = Core::fnv1a64(record.desc.name);
+                    const auto it = m_nameToHandlesMap.find(nameId);
+                    if (it != m_nameToHandlesMap.end() && it->second == handle)
+                    {
+                        m_nameToHandlesMap.erase(it);
+                    }
+                }
+
+                // 実リソースを順に破棄する
+                for (DX12GpuResource& resource : record.defaultResources)
+                {
+                    if (!resource.destroy())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+
+                for (DX12GpuResource& resource : record.uploadResources)
+                {
+                    if (!resource.destroy())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+            });
+
+        if (!found)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Failed to destroy buffer because the handle was not found.");
+        }
+
+        if (!result)
+        {
+            return result;
+        }
+
+        // 論理レコードを削除してハンドルを無効化する
+        if (!m_bufferRegistry.destroy(handle))
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to remove buffer record from registry.");
+        }
+
+        return Result::ok();
     }
 }

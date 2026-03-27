@@ -2,6 +2,8 @@
 
 // === RHI includes ===
 #include "RHICommon.h"
+#include "FrameGraph.h"
+#include "BufferManager.h"
 
 namespace Cue::RHI
 {

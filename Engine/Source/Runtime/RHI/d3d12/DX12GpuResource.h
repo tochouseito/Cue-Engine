@@ -9,6 +9,10 @@ namespace Cue::RHI::DX12
     {
     public:
         DX12GpuResource() = default;
+        DX12GpuResource(const DX12GpuResource&) = delete;
+        DX12GpuResource& operator=(const DX12GpuResource&) = delete;
+        DX12GpuResource(DX12GpuResource&&) noexcept = default;
+        DX12GpuResource& operator=(DX12GpuResource&&) noexcept = default;
         ~DX12GpuResource() override = default;
 
         operator bool() const { return m_resource != nullptr; }

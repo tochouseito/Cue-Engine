@@ -18,7 +18,8 @@ namespace Cue::RHI::DX12
     struct DX12BufferRecord final
     {
         BufferDesc desc; // バッファの記述
-        std::vector<DX12GpuResource> resources; // バッファリソースの実体(バッファリング対応)
+        std::vector<DX12GpuResource> defaultResources; // デフォルトヒープバッファリソースの実体
+        std::vector<DX12GpuResource> uploadResources; // アップロード用バッファリソースの実体
     };
 
     class DX12BufferManager final : public IBufferManager
