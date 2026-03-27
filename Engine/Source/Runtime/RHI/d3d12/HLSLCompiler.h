@@ -16,7 +16,7 @@ namespace Cue::RHI::DX12
         /// @brief デストラクタ
         ~HLSLCompiler() override = default;
 
-        ComPtr<IDxcBlob> compile_shader_raw(const ShaderCompileDesc& desc);
+        Result compile_shader_raw(const ShaderCompileDesc& desc, ComPtr<IDxcBlob>* outBlob);
     private:
         ComPtr<IDxcUtils> m_dxcUtils = nullptr;
         ComPtr<IDxcCompiler3> m_dxcCompiler = nullptr;

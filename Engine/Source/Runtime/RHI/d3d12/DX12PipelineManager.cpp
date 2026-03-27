@@ -254,6 +254,7 @@ namespace Cue::RHI::DX12
 
         // 作成したパイプラインステートをRegistryに登録する。
         record.pipelineState = pipelineState;
+        record.desc = desc;
         PipelineStateHandle handle = m_pipelineRegistry.create(record);
 
         // 名前が指定されていれば名前マップに登録する。
@@ -416,10 +417,15 @@ namespace Cue::RHI::DX12
     }
     Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
-        // HLSLCompilerを使ってシェーダーをコンパイルする。
-        ComPtr<IDxcBlob> blob = m_hlslCompiler.compile_shader_raw(desc);
+        // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない。
+        ComPtr<IDxcBlob> blob = nullptr;
+        Result result = m_hlslCompiler.compile_shader_raw(desc, &blob);
+        if (!result)
+        {
+            return result;
+        }
 
-        // コンパイル結果をShaderBlobRegistryに登録する。
+        // コンパイル成功時だけレジストリと名前引きを更新する。
         ShaderBlobHandle handle = m_shaderBlobRegistry.create(blob);
 
         // 名前が指定されていれば名前マップに登録する。

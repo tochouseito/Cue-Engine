@@ -80,30 +80,65 @@ namespace Cue::RHI::DX12
             CUE_ASSERT_MSG(false, "Failed to create default include handler.");
         }
     }
-    ComPtr<IDxcBlob> HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc)
+    Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc, ComPtr<IDxcBlob>* outBlob)
     {
         HRESULT hr = {};
         Result r{};
         ComPtr<IDxcBlobEncoding> pSource = nullptr;
 
-        // utf-8 からワイド文字列へ変換
+        // 入力と出力先を検証し、失敗時は呼び出し側で扱える Result に正規化する。
+        if (outBlob == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Shader blob output must not be null.");
+        }
+
+        if (!desc)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Shader compile description is invalid.");
+        }
+
+        outBlob->Reset();
+
+        // utf-8 からワイド文字列へ変換し、前段の入力不備を DXC 呼び出し前に止める。
         std::wstring name = L"";
         r = PAL::Win::utf8_to_wide(desc.name, &name);
+        if (!r)
+        {
+            return r;
+        }
         std::wstring filePath = L"";
         r = PAL::Win::utf8_to_wide(desc.filePath, &filePath);
+        if (!r)
+        {
+            return r;
+        }
         std::wstring entryPoint = L"";
         r = PAL::Win::utf8_to_wide(desc.entryPoint, &entryPoint);
+        if (!r)
+        {
+            return r;
+        }
         std::wstring targetProfile = L"";
         r = PAL::Win::utf8_to_wide(desc.targetProfile, &targetProfile);
+        if (!r)
+        {
+            return r;
+        }
 
-        // シェーダーファイルの読み込み
+        // シェーダーファイルの読込とコンパイルを行い、DXC の失敗を Result で返す。
         hr = m_dxcUtils.Get()->LoadFile(filePath.c_str(), nullptr, &pSource);
         if (FAILED(hr))
         {
-            std::string filePathUtf8 = "";
-            r = PAL::Win::wide_to_utf8(filePath, &filePathUtf8);
-            std::string errorMessage = "Failed to load shader file: " + filePathUtf8 + " (HRESULT: 0x" + std::to_string(hr) + ")";
-            CUE_ASSERT_MSG(false, errorMessage.c_str());
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to load shader file.");
         }
 
         // コンパイル引数の設定
@@ -150,31 +185,43 @@ namespace Cue::RHI::DX12
         );
         if (FAILED(hr))
         {
-            std::string filePathUtf8 = "";
-            r = PAL::Win::wide_to_utf8(filePath, &filePathUtf8);
-            std::string errorMessage = "Failed to compile shader: " + filePathUtf8 + " (HRESULT: 0x" + std::to_string(hr) + ")";
-            CUE_ASSERT_MSG(false, errorMessage.c_str());
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to compile shader.");
         }
 
-        // コンパイルエラーの取得
+        // コンパイル結果を検証し、成功時のみブロブを返す。
         ComPtr<IDxcBlobUtf8> pErrors = nullptr;
         ComPtr<IDxcBlobUtf16> pErrorsUtf16;
         hr = pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to read shader compiler errors.");
+        }
         if (pErrors != nullptr && pErrors->GetStringLength() != 0)
         {
-            std::string str = pErrors->GetStringPointer();
-            CUE_ASSERT_MSG(false, ("Shader compilation failed with errors:" + str).c_str());
-
+            return Result::fail(
+                Code::CreateFailed,
+                Severity::Error,
+                "Shader compilation failed.");
         }
 
         // コンパイル結果からシェーダーオブジェクトを取得
-        IDxcBlob* pShader = nullptr;
-        hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pErrorsUtf16);
+        ComPtr<IDxcBlob> shaderBlob = nullptr;
+        hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), &pErrorsUtf16);
         if (FAILED(hr))
         {
-            CUE_ASSERT_MSG(false, "Failed to get compiled shader object.");
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to get compiled shader object.");
         }
 
-        return pShader;
+        *outBlob = shaderBlob;
+        return Result::ok();
     }
 }
