@@ -2,6 +2,11 @@
 
 namespace Cue::RHI::DX12
 {
+    namespace
+    {
+        constexpr UINT k_eventMetadataAnsi = 1u;
+    }
+
     DX12GpuCommandContext::DX12GpuCommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         // コマンドアロケータの作成
@@ -70,6 +75,36 @@ namespace Cue::RHI::DX12
     CommandListType DX12GpuCommandContext::type() const
     {
         return m_type;
+    }
+    void DX12GpuCommandContext::begin_event(const char* name)
+    {
+        // コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る。
+        if (m_commandList == nullptr)
+        {
+            return;
+        }
+
+        // 空名はデバッグ時の識別性を落とすため、既定名に置き換える。
+        const char* eventName = name;
+        if (eventName == nullptr || eventName[0] == '\0')
+        {
+            eventName = "UnnamedEvent";
+        }
+
+        // metadata と size を文字列形式に合わせて指定し、デバッグレイヤーの破損判定を回避する。
+        const UINT eventNameBytes = static_cast<UINT>((std::char_traits<char>::length(eventName) + 1) * sizeof(eventName[0]));
+        m_commandList->BeginEvent(k_eventMetadataAnsi, eventName, eventNameBytes);
+    }
+    void DX12GpuCommandContext::end_event()
+    {
+        // コマンドリスト未初期化時は end marker を積めないため、何もせず戻る。
+        if (m_commandList == nullptr)
+        {
+            return;
+        }
+
+        // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
+        m_commandList->EndEvent();
     }
     Result DX12GpuCommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
@@ -201,7 +236,24 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandQueue::wait_for_queue(IQueueContext& queue)
     {
-        return Result();
+        DX12GpuCommandQueue& dx12Queue = static_cast<DX12GpuCommandQueue&>(queue);
+        if (!m_fence || !dx12Queue.m_fence)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "Fence is not initialized.");
+        }
+        const HRESULT hr = m_commandQueue->Wait(dx12Queue.m_fence.Get(), dx12Queue.m_fenceValue);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to wait for another queue.");
+        }
+
+        return Result::ok();
     }
     Result DX12GpuCommandQueue::create_fence(ID3D12Device& device)
     {
@@ -250,6 +302,148 @@ namespace Cue::RHI::DX12
                 "Failed to create CommandQueue.");
         }
         set_d3d12_name(m_commandQueue.Get(), L"QueueContext CommandQueue");
+        return Result::ok();
+    }
+    Result DX12CommandPool::get_command_context(CommandListType type, CommandContextLease& outContext)
+    {
+        switch (type)
+        {
+        case Cue::RHI::CommandListType::Graphics:
+        {
+            std::lock_guard lock(m_graphicsPoolMutex);
+            // グラフィックスコマンドコンテキストをプールから取得
+            auto context = m_graphicsContextPool.acquire();
+            outContext = CommandContextLease(
+                context.release(),
+                [](ICommandContext* raw) {delete raw; });
+        }
+            break;
+        case Cue::RHI::CommandListType::Compute:
+        {
+            std::lock_guard lock(m_computePoolMutex);
+            // コンピュートコマンドコンテキストをプールから取得
+                auto context = m_computeContextPool.acquire();
+                outContext = CommandContextLease(
+                    context.release(),
+                    [](ICommandContext* raw) {delete raw; });
+        }
+            break;
+        case Cue::RHI::CommandListType::Copy:
+        {
+            std::lock_guard lock(m_copyPoolMutex);
+            // コピーコマンドコンテキストをプールから取得
+                auto context = m_copyContextPool.acquire();
+                outContext = CommandContextLease(
+                    context.release(),
+                    [](ICommandContext* raw) {delete raw; });
+        }
+            break;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid command list type.");
+            break;
+        }
+        return Result::ok();
+    }
+    Result DX12CommandPool::return_command_context(CommandContextLease& context)
+    {
+        CommandListType type = context->type();
+        switch (type)
+        {
+        case Cue::RHI::CommandListType::Graphics:
+        {
+            // グラフィックスコマンドコンテキストをプールへ返却
+            std::lock_guard lock(m_graphicsPoolMutex);
+            m_graphicsContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+        }
+            break;
+        case Cue::RHI::CommandListType::Compute:
+        {
+            // コンピュートコマンドコンテキストをプールへ返却
+            std::lock_guard lock(m_computePoolMutex);
+            m_computeContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+        }
+            break;
+        case Cue::RHI::CommandListType::Copy:
+        {
+            // コピーコマンドコンテキストをプールへ返却
+            std::lock_guard lock(m_copyPoolMutex);
+            m_copyContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+        }
+            break;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid command list type.");
+            break;
+        }
+        return Result::ok();
+    }
+    Result DX12QueuePool::get_queue_context(CommandListType type, QueueContextLease& outContext)
+    {
+        switch (type)
+        {
+        case Cue::RHI::CommandListType::Graphics:
+        {
+            std::lock_guard lock(m_graphicsPoolMutex);
+            // グラフィックスコマンドキューコンテキストをプールから取得
+            auto context = m_graphicsQueuePool.acquire();
+            outContext = QueueContextLease(
+                context.release(),
+                [](IQueueContext* raw) {delete raw; });
+        }
+            break;
+        case Cue::RHI::CommandListType::Compute:
+        {
+            std::lock_guard lock(m_computePoolMutex);
+            // コンピュートコマンドキューコンテキストをプールから取得
+                auto context = m_computeQueuePool.acquire();
+                outContext = QueueContextLease(
+                    context.release(),
+                    [](IQueueContext* raw) {delete raw; });
+        }
+            break;
+        case Cue::RHI::CommandListType::Copy:
+        {
+            std::lock_guard lock(m_copyPoolMutex);
+            // コピーコマンドキューコンテキストをプールから取得
+                auto context = m_copyQueuePool.acquire();
+                outContext = QueueContextLease(
+                    context.release(),
+                    [](IQueueContext* raw) {delete raw; });
+        }
+            break;
+        default:
+            break;
+        }
+        return Result::ok();
+    }
+    Result DX12QueuePool::return_queue_context(QueueContextLease& context)
+    {
+        CommandListType type = context->type();
+        switch (type)
+        {
+        case Cue::RHI::CommandListType::Graphics:
+        {
+            // グラフィックスコマンドキューコンテキストをプールへ返却
+            std::lock_guard lock(m_graphicsPoolMutex);
+            m_graphicsQueuePool.recycle(static_cast<DX12GpuCommandQueue*>(context.release()));
+        }
+            break;
+        case Cue::RHI::CommandListType::Compute:
+        {
+            // コンピュートコマンドキューコンテキストをプールへ返却
+            std::lock_guard lock(m_computePoolMutex);
+            m_computeQueuePool.recycle(static_cast<DX12GpuCommandQueue*>(context.release()));
+        }
+            break;
+        case Cue::RHI::CommandListType::Copy:
+        {
+            // コピーコマンドキューコンテキストをプールへ返却
+            std::lock_guard lock(m_copyPoolMutex);
+            m_copyQueuePool.recycle(static_cast<DX12GpuCommandQueue*>(context.release()));
+        }
+            break;
+        default:
+            break;
+        }
         return Result::ok();
     }
 }

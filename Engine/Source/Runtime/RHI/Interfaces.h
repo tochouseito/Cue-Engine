@@ -3,8 +3,20 @@
 // === Base includes ===
 #include <Result.h>
 
+// === C++ includes ===
+#include <memory>
+#include <functional>
+#include <vector>
+
 namespace Cue::RHI
 {
+    enum class CommandListType : uint8_t
+    {
+        Graphics,
+        Compute,
+        Copy
+    };
+
     /// @brief レンダーデバイスの共通インターフェースです。
     class IRenderDevice
     {
@@ -76,6 +88,9 @@ namespace Cue::RHI
         virtual Result wait() = 0;
         virtual Result wait_for_queue(IQueueContext& queue) = 0;
     };
+
+    using CommandContextLease = std::unique_ptr<ICommandContext, std::function<void(ICommandContext*)>>;
+    using QueueContextLease = std::unique_ptr<IQueueContext, std::function<void(IQueueContext*)>>;
 
     /// @brief コマンドプールの共通インターフェースです。
     class ICommandPool

@@ -42,6 +42,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     backendInfo.enableDebugLayer = true;
     backendInfo.width = platformInfo.width;
     backendInfo.height = platformInfo.height;
+    backendInfo.bufferCount = 3;
     r = backend->initialize(backendInfo);
     if (!r)
     {
@@ -54,7 +55,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
-    engineInfo.bufferCount = 3;
+    engineInfo.bufferCount = backendInfo.bufferCount;
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
 

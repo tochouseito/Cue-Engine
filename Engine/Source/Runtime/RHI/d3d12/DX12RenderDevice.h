@@ -27,7 +27,6 @@ namespace Cue::RHI::DX12
         // --- 内部初期化 ---
         Result create_dxgi_factory([[maybe_unused]] bool a_enableDebugLayer);
         Result create_d3d12_device();
-
     private:
         ComPtr<IDXGIFactory7> m_dxgiFactory = nullptr; // dxgi ファクトリ
         ComPtr<ID3D12Device> m_d3d12Device = nullptr; // d3d12 デバイス

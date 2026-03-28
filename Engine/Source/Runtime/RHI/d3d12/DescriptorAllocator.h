@@ -85,6 +85,7 @@ namespace Cue::RHI::DX12
 
         // --- View の作成 ---
         Result create_cbv(TableID id, DX12GpuResource* resource, uint64_t byteOffset, uint32_t byteSize);
+        Result create_rtv(TableID id, ID3D12Resource* resource, DXGI_FORMAT format);
 
     private:
         // --- DescriptorHeap 作成 ---

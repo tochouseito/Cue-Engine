@@ -30,6 +30,15 @@ namespace Cue::RHI::DX12
             a_info.renderTargetCapacity,
             a_info.depthStencilCapacity);
 
+        // コマンドプールの初期化
+        m_commandPool = std::make_unique<DX12CommandPool>(*m_renderDevice);
+
+        // コマンドキュープールの初期化
+        m_queuePool = std::make_unique<DX12QueuePool>(*m_renderDevice);
+
+        // スワップチェインの初期化
+        m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_descriptorAllocator);
+
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
         m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);

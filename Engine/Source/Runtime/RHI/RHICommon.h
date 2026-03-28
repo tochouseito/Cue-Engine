@@ -151,11 +151,4 @@ namespace Cue::RHI
         default: return "Unknown";
         }
     }
-
-    enum class CommandListType : uint8_t
-    {
-        Graphics,
-        Compute,
-        Copy
-    };
 }

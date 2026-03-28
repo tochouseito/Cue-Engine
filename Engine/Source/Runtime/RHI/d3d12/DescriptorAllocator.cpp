@@ -360,4 +360,27 @@ namespace Cue::RHI::DX12
         copy_to_gpu_heap(id);
         return Result::ok();
     }
+
+    Result DescriptorAllocator::create_rtv(TableID id, ID3D12Resource* resource, DXGI_FORMAT format)
+    {
+        // ID の妥当性を確認する
+        if (!id.valid())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Invalid TableID.");
+        }
+
+        // レンダーターゲットビューの記述子を作成する
+        D3D12_RENDER_TARGET_VIEW_DESC desc = {};
+        desc.Format = format;
+        desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D; // 2D テクスチャとして書き込む
+
+        // CPU ヒープへ登録する
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateRenderTargetView(resource, &desc, cpuH);
+
+        return Result::ok();
+    }
 }
