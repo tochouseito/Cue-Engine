@@ -41,6 +41,7 @@ namespace Cue::RHI
     struct PipelineTag {};
     struct RootSignatureTag {};
     struct ShaderBlobTag {};
+    struct StaticMeshTag {};
 
     using BufferHandle = Handle<BufferTag>;
     using TextureHandle = Handle<TextureTag>;
@@ -48,6 +49,7 @@ namespace Cue::RHI
     using PipelineStateHandle = Handle<PipelineTag>;
     using RootSignatureHandle = Handle<RootSignatureTag>;
     using ShaderBlobHandle = Handle<ShaderBlobTag>;
+    using StaticMeshHandle = Handle<StaticMeshTag>;
 
     enum class ColorFormat : uint8_t
     {
@@ -148,6 +150,22 @@ namespace Cue::RHI
         case ResourceState::ShaderResource: return "ShaderResource";
         case ResourceState::DepthWrite: return "DepthWrite";
         case ResourceState::Present: return "Present";
+        default: return "Unknown";
+        }
+    }
+
+    enum class IndexFormat : uint8_t
+    {
+        UInt16,
+        UInt32,
+    };
+
+    inline const char* index_format_to_string(IndexFormat format) noexcept
+    {
+        switch (format)
+        {
+        case IndexFormat::UInt16: return "UInt16";
+        case IndexFormat::UInt32: return "UInt32";
         default: return "Unknown";
         }
     }

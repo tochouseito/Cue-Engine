@@ -26,12 +26,14 @@ namespace Cue::RHI::DX12
             }
             if (m_resource)
             {
+                unmap_if_needed();
                 m_resource.Reset();
             }
             m_currentState = D3D12_RESOURCE_STATE_COMMON;
             m_resourceDesc = {};
             m_fence = nullptr;
             m_fenceValue = 0;
+            m_mappedData = nullptr;
             return true;
         }
 
@@ -71,6 +73,52 @@ namespace Cue::RHI::DX12
             return Result::ok();
         }
 
+        Result map_persistent()
+        {
+            // 1) 未生成リソースへの Map を防ぎ、呼び出し順の破綻を早期に止める。
+            if (!m_resource)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Cannot map a null D3D12 resource.");
+            }
+
+            // 2) 既に Map 済みなら同じ CPU ポインタを再利用して多重 Map を避ける。
+            if (m_mappedData != nullptr)
+            {
+                return Result::ok();
+            }
+
+            // 3) CPU 書き込み専用として永続 Map し、以後の uploader 初期化に使う。
+            D3D12_RANGE readRange{};
+            void* mappedData = nullptr;
+            const HRESULT hr = m_resource->Map(0, &readRange, &mappedData);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to map D3D12 resource.");
+            }
+
+            m_mappedData = static_cast<std::byte*>(mappedData);
+            return Result::ok();
+        }
+
+        void unmap_if_needed() noexcept
+        {
+            // 1) 永続 Map を破棄前に閉じて、外部に残った CPU ポインタを無効化する。
+            if (!m_resource || m_mappedData == nullptr)
+            {
+                return;
+            }
+
+            // 2) 書き込み専用運用なので書き戻し範囲は nullptr で十分。
+            m_resource->Unmap(0, nullptr);
+            m_mappedData = nullptr;
+        }
+
         // リソースが使用中かどうか
         bool is_in_use() const
         {
@@ -105,6 +153,11 @@ namespace Cue::RHI::DX12
         {
             return m_bufferSize;
         }
+
+        std::byte* mapped_data() const noexcept
+        {
+            return m_mappedData;
+        }
     private:
         ComPtr<ID3D12Resource> m_resource = nullptr;
         D3D12_RESOURCE_STATES m_currentState = D3D12_RESOURCE_STATE_COMMON;
@@ -112,5 +165,6 @@ namespace Cue::RHI::DX12
         ComPtr<ID3D12Fence> m_fence = nullptr;
         uint64_t m_fenceValue = 0;
         uint64_t m_bufferSize = 0;
+        std::byte* m_mappedData = nullptr;
     };
 }

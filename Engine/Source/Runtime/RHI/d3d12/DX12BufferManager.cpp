@@ -80,6 +80,11 @@ namespace Cue::RHI::DX12
                 D3D12_RESOURCE_STATE_GENERIC_READ, // アップロードヒープは常に GENERIC_READ で作成
                 nullptr,
                 name);
+            Result mapResult = resource.map_persistent();
+            if (!mapResult)
+            {
+                return mapResult;
+            }
             // 成功したらレコードに追加
             record.uploadResources.emplace_back(std::move(resource));
         }
@@ -93,6 +98,69 @@ namespace Cue::RHI::DX12
         }
 
         out = std::move(handle);
+
+        return Result::ok();
+    }
+    Result DX12BufferManager::get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView)
+    {
+        // 1) ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む。
+        DX12BufferRecord* record = nullptr;
+        outView = {};
+        if (!try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record not found for the given handle.");
+        }
+
+        // 2) SlotUploader の初期化に必要な容量・アラインメント・stride を検証する。
+        if (record->desc.elementCount == 0 || record->desc.alignment == 0 || record->desc.stride == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Buffer description is not valid for slot uploaders.");
+        }
+        if (record->uploadResources.empty())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Upload heap resources were not created for the given buffer.");
+        }
+
+        const uint64_t alignedStride = Math::round_up_to_multiple(
+            static_cast<uint64_t>(record->desc.stride),
+            static_cast<uint64_t>(record->desc.alignment));
+        const uint64_t requiredBytes = alignedStride * static_cast<uint64_t>(record->desc.elementCount);
+
+        // 3) 各 upload heap の map 済み CPU ポインタを集め、範囲不足をここで弾く。
+        outView.alignment = record->desc.alignment;
+        outView.stride = record->desc.stride;
+        outView.elementCount = record->desc.elementCount;
+        outView.mappedDatas.reserve(record->uploadResources.size());
+        for (DX12GpuResource& resource : record->uploadResources)
+        {
+            if (resource.mapped_data() == nullptr)
+            {
+                outView = {};
+                return Result::fail(
+                    Code::InternalError,
+                    Severity::Error,
+                    "Upload heap resource is not mapped.");
+            }
+            if (resource.get_buffer_size() < requiredBytes)
+            {
+                outView = {};
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Upload heap resource is smaller than the requested slot upload range.");
+            }
+
+            outView.mappedDatas.emplace_back(resource.mapped_data());
+        }
 
         return Result::ok();
     }
