@@ -2,6 +2,7 @@
 
 // === RHI Includes ===
 #include "RHICommon.h"
+#include "SlotUploader.h"
 
 namespace Cue::RHI
 {
@@ -33,5 +34,8 @@ namespace Cue::RHI
         // --- バッファの生成と破棄 ---
         virtual Result create_buffer(const BufferDesc& desc, BufferHandle& out) = 0;
         virtual Result destroy_buffer(BufferHandle handle) = 0;
+
+        // --- アップローダーの作成 ---
+
     };
 }
