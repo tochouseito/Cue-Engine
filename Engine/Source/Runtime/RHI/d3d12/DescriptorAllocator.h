@@ -85,7 +85,16 @@ namespace Cue::RHI::DX12
 
         // --- View の作成 ---
         Result create_cbv(TableID id, DX12GpuResource* resource, uint64_t byteOffset, uint32_t byteSize);
+        Result create_srv_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride);
+        Result create_srv_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements);
+        Result create_uav_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride);
+        Result create_uav_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements);
+
+        Result create_srv_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice, uint32_t mipLevels);
+        Result create_uav_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice);
+        Result create_rtv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice);
         Result create_rtv(TableID id, ID3D12Resource* resource, DXGI_FORMAT format);
+        Result create_dsv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice);
 
     private:
         // --- DescriptorHeap 作成 ---

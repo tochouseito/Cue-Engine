@@ -361,6 +361,207 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
+    Result DescriptorAllocator::create_srv_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride)
+    {
+        // Structured SRV は element 単位の範囲指定を受け取り、同一 buffer から複数 view を切り出せるようにする。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Buffer resource is null.");
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
+        desc.Format = DXGI_FORMAT_UNKNOWN;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        desc.Buffer.FirstElement = static_cast<UINT64>(firstElement);
+        desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+        desc.Buffer.NumElements = static_cast<UINT>(numElements);
+        desc.Buffer.StructureByteStride = static_cast<UINT>(structureByteStride);
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateShaderResourceView(resource->get_resource(), &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_srv_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements)
+    {
+        // 1) Raw SRV は 32-bit 要素として切るので、byte size から有効範囲を導出する。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Buffer resource is null.");
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
+        desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        desc.Buffer.FirstElement = static_cast<UINT64>(firstElement);
+        desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        desc.Buffer.NumElements = static_cast<UINT>(numElements);
+        desc.Buffer.StructureByteStride = 0;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateShaderResourceView(resource->get_resource(), &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_uav_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride)
+    {
+        // 1) Structured UAV も range 指定対応にして、同一 buffer の別領域へ独立した書き込み view を張れるようにする。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Buffer resource is null.");
+        }
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
+        desc.Format = DXGI_FORMAT_UNKNOWN;
+        desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        desc.Buffer.FirstElement = static_cast<UINT64>(firstElement);
+        desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+        desc.Buffer.NumElements = static_cast<UINT>(numElements);
+        desc.Buffer.StructureByteStride = static_cast<UINT>(structureByteStride);
+        desc.Buffer.CounterOffsetInBytes = 0;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateUnorderedAccessView(resource->get_resource(), nullptr, &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_uav_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements)
+    {
+        // 1) Raw UAV も SRV と同じ 32-bit 要素単位で扱い、buffer 全体と部分 view の両方を許可する。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Buffer resource is null.");
+        }
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
+        desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        desc.Buffer.FirstElement = static_cast<UINT64>(firstElement);
+        desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        desc.Buffer.NumElements = static_cast<UINT>(numElements);
+        desc.Buffer.StructureByteStride = 0;
+        desc.Buffer.CounterOffsetInBytes = 0;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateUnorderedAccessView(resource->get_resource(), nullptr, &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_srv_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice, uint32_t mipLevels)
+    {
+        // 1) texture SRV は mip 単位で切れるようにし、1 リソースから複数の表示レベルを作れるようにする。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Texture resource is null.");
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
+        desc.Format = format;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc.Texture2D.MostDetailedMip = mipSlice;
+        desc.Texture2D.MipLevels = mipLevels;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateShaderResourceView(resource->get_resource(), &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_uav_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
+    {
+        // 1) UAV texture は単一 mip に対してだけ張れるので、対象 slice のみを受け付ける。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Texture resource is null.");
+        }
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC desc{};
+        desc.Format = format;
+        desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        desc.Texture2D.MipSlice = mipSlice;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateUnorderedAccessView(resource->get_resource(), nullptr, &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_rtv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
+    {
+        // 1) RTV も mip ごとに切れるようにして、将来の downsample pass でも再利用できるようにする。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Texture resource is null.");
+        }
+
+        D3D12_RENDER_TARGET_VIEW_DESC desc = {};
+        desc.Format = format;
+        desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        desc.Texture2D.MipSlice = mipSlice;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateRenderTargetView(resource->get_resource(), &desc, cpuH);
+        return Result::ok();
+    }
+
+    Result DescriptorAllocator::create_dsv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
+    {
+        // 1) DSV の mip 指定範囲を検証する。
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Texture resource is null.");
+        }
+
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+        dsvDesc.Format = format;
+        dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+        dsvDesc.Texture2D.MipSlice = mipSlice;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateDepthStencilView(resource->get_resource(), &dsvDesc, cpuH);
+        return Result::ok();
+    }
+
     Result DescriptorAllocator::create_rtv(TableID id, ID3D12Resource* resource, DXGI_FORMAT format)
     {
         // ID の妥当性を確認する

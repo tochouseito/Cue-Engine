@@ -6,6 +6,7 @@
 #include "BufferManager.h"
 #include "TextureManager.h"
 #include "ViewManager.h"
+#include "StaticMeshPool.h"
 
 namespace Cue::RHI
 {
@@ -47,5 +48,6 @@ namespace Cue::RHI
         virtual IBufferManager* get_buffer_manager() = 0;
         virtual ITextureManager* get_texture_manager() = 0;
         virtual IViewManager* get_view_manager() = 0;
+        virtual IStaticMeshPool* get_static_mesh_pool() = 0;
     };
 }

@@ -50,6 +50,7 @@ namespace Cue::RHI::DX12
         IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
         ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
         IViewManager* get_view_manager() override { return m_viewManager.get(); }
+        IStaticMeshPool* get_static_mesh_pool() override { return m_staticMeshPool.get(); }
 
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
