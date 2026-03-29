@@ -38,11 +38,33 @@ namespace Cue::RHI::DX12
 
         // スワップチェインの初期化
         m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_descriptorAllocator);
+        QueueContextLease queueContext{};
+        r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
+        if (!r)
+        {
+            return Result::fail(
+                Code::GetFailed,
+                Severity::Fatal,
+                "Failed to get graphics queue context for swap chain initialization.");
+        }
+        m_swapChain->create(
+            m_platform->get_window_handle(),
+            a_info.width,
+            a_info.height,
+            a_info.bufferCount,
+            *static_cast<DX12GpuCommandQueue*>(queueContext.get()));
 
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
         m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
         m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+
+        // リソースアップローダの初期化
+        m_resourceUploader = std::make_unique<ResourceUploader>(*m_bufferManager, *m_commandPool, *m_queuePool);
+
+        // 静的メッシュプールの初期化
+        StaticMeshPoolDesc meshPoolDesc{};
+        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_resourceUploader);
 
         return Result::ok();
     }

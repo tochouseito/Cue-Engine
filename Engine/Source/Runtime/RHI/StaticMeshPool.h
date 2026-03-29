@@ -8,6 +8,7 @@ namespace Cue::RHI
     struct StaticMeshPoolDesc final
     {
         uint32_t maxVertexCount = 16u * 1024u * 1024u; // プール内の最大頂点数
+        uint32_t maxIndexCount = 48u * 1024u * 1024u; // プール内の最大インデックス数
         std::string_view positionBufferName = "StaticMeshPool.Position";
         std::string_view uvBufferName = "StaticMeshPool.Uv";
         std::string_view normalBufferName = "StaticMeshPool.Normal";
