@@ -4,6 +4,7 @@
 #include <RHICommon.h>
 
 // === C++ includes ===
+#include <condition_variable>
 #include <mutex>
 
 // === DirectX 12 includes ===
@@ -83,8 +84,8 @@ namespace Cue::RHI::DX12
         }
         ~DX12CommandPool() override = default;
 
-        Result get_command_context(CommandListType type, CommandContextLease& outContext);
-        Result return_command_context(CommandContextLease& context);
+        Result get_command_context(CommandListType type, CommandContextLease& outContext) override;
+        Result return_command_context(CommandContextLease& context) override;
     private:
         DX12RenderDevice& m_renderDevice;
         Core::Pool<DX12GpuCommandContext, std::function<void(DX12GpuCommandContext&)>> m_graphicsContextPool;
@@ -165,12 +166,14 @@ namespace Cue::RHI::DX12
         {
         }
         ~DX12QueuePool() override = default;
-         Result get_queue_context(CommandListType type, QueueContextLease& outContext);
-         Result return_queue_context(QueueContextLease& context);
+         Result get_queue_context(CommandListType type, QueueContextLease& outContext) override;
+         Result return_queue_context(QueueContextLease& context) override;
     private:
         DX12RenderDevice& m_renderDevice;
         Core::Pool<DX12GpuCommandQueue, std::function<void(DX12GpuCommandQueue&)>> m_graphicsQueuePool;
         std::mutex m_graphicsPoolMutex;
+        std::condition_variable m_graphicsPoolCv;
+        bool m_graphicsQueueCheckedOut = false;
         Core::Pool<DX12GpuCommandQueue, std::function<void(DX12GpuCommandQueue&)>> m_computeQueuePool;
         std::mutex m_computePoolMutex;
         Core::Pool<DX12GpuCommandQueue, std::function<void(DX12GpuCommandQueue&)>> m_copyQueuePool;

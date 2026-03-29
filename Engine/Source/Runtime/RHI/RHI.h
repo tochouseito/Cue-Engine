@@ -7,6 +7,7 @@
 #include "TextureManager.h"
 #include "ViewManager.h"
 #include "StaticMeshPool.h"
+#include "ClearBackBufferPass.h"
 
 namespace Cue::RHI
 {

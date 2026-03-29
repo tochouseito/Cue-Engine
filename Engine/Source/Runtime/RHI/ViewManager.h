@@ -3,6 +3,9 @@
 // === RHI Includes ===
 #include "RHICommon.h"
 
+// === C++ includes ===
+#include <array>
+
 namespace Cue::RHI
 {
     struct ViewDesc
@@ -25,6 +28,8 @@ namespace Cue::RHI
         DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
         uint32_t mipSlice = 0;
         uint32_t mipLevels = 1;
+        uint32_t firstArraySlice = 0;
+        uint32_t arraySize = 1;
     };
 
     class IViewManager
@@ -42,5 +47,10 @@ namespace Cue::RHI
         // --- ビューの生成と破棄 ---
         virtual Result create_view(const ViewDesc& desc, ViewHandle& out) = 0;
         virtual Result destroy_view(ViewHandle handle) = 0;
+        virtual Result clear_render_target(
+            ICommandContext& commandContext,
+            ViewHandle handle,
+            uint32_t frameIndex,
+            const std::array<float, 4>& clearColor) = 0;
     };
 }

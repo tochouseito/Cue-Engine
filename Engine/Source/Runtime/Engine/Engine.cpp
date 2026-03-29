@@ -26,49 +26,40 @@ namespace Cue
             m_platform->waiter(),
             update(), render(), present());
 
-        // テスト
-        auto bufferManager = m_backend->get_buffer_manager();
-        RHI::BufferDesc bufferDesc{};
-        bufferDesc.name = "TestBuffer";
-        bufferDesc.type = RHI::BufferType::Constant;
-        bufferDesc.defaultHeapCount = 3;
-        bufferDesc.uploadHeapCount = 3;
-        bufferDesc.initialState = RHI::ResourceState::Common;
-        bufferDesc.stride = sizeof(Core::Native::ObjectTransformGpu);
-        bufferDesc.elementCount = 1;
-        bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
-        bufferDesc.alignment = 256;
-        RHI::BufferHandle bufferHandle{};
-        Result result = bufferManager->create_buffer(bufferDesc, bufferHandle);
-        if (!result)
+        // FrameGraph の生成
+        Result r = m_backend->create_frame_graph(m_frameGraph);
+        if (!r)
         {
-            CUE_ASSERT(false);
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to create frame graph from backend.");
         }
-        auto viewManager = m_backend->get_view_manager();
-        RHI::ViewDesc viewDesc{};
-        viewDesc.name = "TestView";
-        viewDesc.type = RHI::ViewType::ConstantBuffer;
-        viewDesc.bufferKind = RHI::BufferKind::Buffer;
-        viewDesc.bufferHandle = bufferHandle;
-        viewDesc.byteOffset = 0;
-        viewDesc.byteSize = bufferDesc.size;
-        viewDesc.structureByteStride = bufferDesc.stride;
-        viewDesc.numElements = bufferDesc.elementCount;
-        RHI::ViewHandle viewHandle{};
-        result = viewManager->create_view(viewDesc, viewHandle);
-        if (!result)
+        r = m_backend->create_frame_graph(m_presentFrameGraph);
+        if (!r)
         {
-            CUE_ASSERT(false);
+            return Result::fail(
+                r.code, Severity::Fatal,
+                "Failed to create present frame graph from backend.");
         }
-        viewManager->destroy_view(viewHandle);
-        bufferManager->destroy_buffer(bufferHandle);
+
+        m_presentFrameGraph->add_pass(std::make_unique<RHI::ClearBackBufferPass>());
+        m_presentFrameGraph->build();
 
         return Result::ok();
     }
 
     void Engine::shutdown()
     {
-        
+        // 1) 先にフレーム実行系を止めて、render/present ジョブが backend へ入らない状態にします。
+        m_frameController.reset();
+
+        // 2) FrameGraph を先に破棄して、view/pipeline の解放を backend shutdown より前に終わらせます。
+        m_presentFrameGraph.reset();
+        m_frameGraph.reset();
+
+        // 3) 外部所有ポインタはここでは解放せず、参照だけ明示的に切ります。
+        m_backend = nullptr;
+        m_platform = nullptr;
     }
 
     Result Engine::begin_frame()
@@ -100,7 +91,7 @@ namespace Cue
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
             {
-                a_frameNo; a_index;
+                m_backend->render(a_frameNo, a_index, *m_frameGraph);
             };
     }
 
@@ -108,7 +99,7 @@ namespace Cue
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
             {
-                a_frameNo; a_index;
+                m_backend->present(a_frameNo, a_index, *m_presentFrameGraph);
             };
     }
 }

@@ -298,6 +298,90 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
+
+    Result DX12PipelineManager::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
+    {
+        // 1) compute PSO に必要な root signature と shader blob を resolve します。
+        ComPtr<ID3D12RootSignature> rootSignature{};
+        if (!m_rootSignatureRegistry.try_get(desc.rootSignatureHandle, rootSignature))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Root signature not found for the given compute pipeline handle.");
+        }
+
+        ComPtr<IDxcBlob> csBlob{};
+        if (!m_shaderBlobRegistry.try_get(desc.csHandle, csBlob))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute shader blob not found for the given handle.");
+        }
+
+        // 2) DX12 compute pipeline state を生成して registry に登録します。
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc{};
+        psoDesc.pRootSignature = rootSignature.Get();
+        psoDesc.CS.pShaderBytecode = csBlob->GetBufferPointer();
+        psoDesc.CS.BytecodeLength = csBlob->GetBufferSize();
+
+        ComPtr<ID3D12PipelineState> pipelineState{};
+        const HRESULT hr = m_renderDevice.get_d3d12_device()->CreateComputePipelineState(
+            &psoDesc,
+            IID_PPV_ARGS(&pipelineState));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create compute pipeline state.");
+        }
+
+        DX12ComputePipelineRecord record{};
+        record.desc = desc;
+        record.pipelineState = pipelineState;
+        PipelineStateHandle handle = m_computePipelineRegistry.create(record);
+        if (!desc.name.empty())
+        {
+            m_computePipelineNameMap[Core::fnv1a64(desc.name)] = handle;
+        }
+
+        out = handle;
+        return Result::ok();
+    }
+
+    Result DX12PipelineManager::destroy_compute_pipeline(PipelineStateHandle handle)
+    {
+        // 1) 名前表と registry を同期して、古い compute PSO handle を残しません。
+        if (!handle.valid())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Invalid compute pipeline state handle.");
+        }
+
+        for (auto it = m_computePipelineNameMap.begin(); it != m_computePipelineNameMap.end(); ++it)
+        {
+            if (it->second == handle)
+            {
+                m_computePipelineNameMap.erase(it);
+                break;
+            }
+        }
+
+        if (!m_computePipelineRegistry.destroy(handle))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute pipeline state not found for the given handle.");
+        }
+
+        return Result::ok();
+    }
+
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
         // D3D12_ROOT_SIGNATURE_DESC を構築する。
@@ -469,5 +553,25 @@ namespace Cue::RHI::DX12
         }
 
         return Result::ok();
+    }
+
+    bool DX12PipelineManager::try_get_graphics_pipeline(PipelineStateHandle handle, const DX12GraphicsPipelineRecord*& outRecord) const
+    {
+        // 1) graphics pass 実行時に DX12 PSO 実体を短期参照で引けるようにします。
+        outRecord = m_pipelineRegistry.get(handle);
+        return outRecord != nullptr;
+    }
+
+    bool DX12PipelineManager::try_get_compute_pipeline(PipelineStateHandle handle, const DX12ComputePipelineRecord*& outRecord) const
+    {
+        // 1) compute pass 実行時に DX12 PSO 実体を短期参照で引けるようにします。
+        outRecord = m_computePipelineRegistry.get(handle);
+        return outRecord != nullptr;
+    }
+
+    bool DX12PipelineManager::try_get_root_signature(RootSignatureHandle handle, ComPtr<ID3D12RootSignature>& outRootSignature) const
+    {
+        // 1) root signature 実体の解決経路を manager に集約します。
+        return m_rootSignatureRegistry.try_get(handle, outRootSignature);
     }
 }

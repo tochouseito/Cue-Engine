@@ -310,9 +310,10 @@ namespace Cue::RHI::DX12
         {
         case Cue::RHI::CommandListType::Graphics:
         {
-            std::lock_guard lock(m_graphicsPoolMutex);
-            // グラフィックスコマンドコンテキストをプールから取得
-            auto context = m_graphicsContextPool.acquire();
+            // 1) swapchain backbuffer を触る graphics command list は再利用せず、毎回新規生成して参照履歴を持ち越しません。
+            auto context = std::make_unique<DX12GpuCommandContext>(
+                *m_renderDevice.get_d3d12_device(),
+                D3D12_COMMAND_LIST_TYPE_DIRECT);
             outContext = CommandContextLease(
                 context.release(),
                 [](ICommandContext* raw) {delete raw; });
@@ -351,9 +352,8 @@ namespace Cue::RHI::DX12
         {
         case Cue::RHI::CommandListType::Graphics:
         {
-            // グラフィックスコマンドコンテキストをプールへ返却
-            std::lock_guard lock(m_graphicsPoolMutex);
-            m_graphicsContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+            // 1) graphics command list は再利用せず破棄して、swapchain buffer の参照状態を完全にリセットします。
+            delete context.release();
         }
             break;
         case Cue::RHI::CommandListType::Compute:
@@ -382,9 +382,14 @@ namespace Cue::RHI::DX12
         {
         case Cue::RHI::CommandListType::Graphics:
         {
-            std::lock_guard lock(m_graphicsPoolMutex);
-            // グラフィックスコマンドキューコンテキストをプールから取得
+            // 1) SwapChain と同じ graphics queue を必ず単独利用にして、複数 queue へ分岐しないようにします。
+            std::unique_lock lock(m_graphicsPoolMutex);
+            m_graphicsPoolCv.wait(lock, [this]()
+                {
+                    return !m_graphicsQueueCheckedOut;
+                });
             auto context = m_graphicsQueuePool.acquire();
+            m_graphicsQueueCheckedOut = true;
             outContext = QueueContextLease(
                 context.release(),
                 [](IQueueContext* raw) {delete raw; });
@@ -422,10 +427,12 @@ namespace Cue::RHI::DX12
         {
         case Cue::RHI::CommandListType::Graphics:
         {
-            // グラフィックスコマンドキューコンテキストをプールへ返却
+            // 1) graphics queue を返却して待機中の実行を再開し、swapchain 作業を 1 本へ直列化します。
             std::lock_guard lock(m_graphicsPoolMutex);
             m_graphicsQueuePool.recycle(static_cast<DX12GpuCommandQueue*>(context.release()));
+            m_graphicsQueueCheckedOut = false;
         }
+            m_graphicsPoolCv.notify_one();
             break;
         case Cue::RHI::CommandListType::Compute:
         {
