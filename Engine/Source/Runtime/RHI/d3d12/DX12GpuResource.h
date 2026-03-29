@@ -154,6 +154,16 @@ namespace Cue::RHI::DX12
             return m_bufferSize;
         }
 
+        D3D12_RESOURCE_STATES current_state() const noexcept
+        {
+            return m_currentState;
+        }
+
+        void set_current_state(D3D12_RESOURCE_STATES a_state) noexcept
+        {
+            m_currentState = a_state;
+        }
+
         std::byte* mapped_data() const noexcept
         {
             return m_mappedData;
