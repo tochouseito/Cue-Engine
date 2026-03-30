@@ -56,6 +56,7 @@ namespace Cue::RHI::DX12
 
         // rtv 作成
         m_rtvTableIDs.resize(bufferCount);
+        std::vector<DX12GpuResource> m_backBuffers;
         for (uint32_t i = 0; i < bufferCount; ++i)
         {
             ComPtr<ID3D12Resource> pResource;
@@ -67,7 +68,20 @@ namespace Cue::RHI::DX12
             TableID rtvTableID = m_descriptorAllocator.allocate(TableKind::RenderTargets);
             m_descriptorAllocator.create_rtv(rtvTableID, pResource.Get(), format);
             m_rtvTableIDs[i] = rtvTableID;
+            
+            DX12GpuResource backBuffer(pResource, D3D12_RESOURCE_STATE_PRESENT);
+            m_backBuffers.push_back(std::move(backBuffer));
         }
+
+        // バックバッファリソースをTextureManagerに登録
+        DX12TextureRecord record{};
+        record.desc.name = "SwapChain BackBuffer";
+        record.desc.width = width;
+        record.desc.height = height;
+        record.desc.format = ColorFormat::R8G8B8A8_UNORM;
+        record.desc.bufferCount = bufferCount;
+        record.defaultResources = std::move(m_backBuffers);
+        m_textureManager.register_external_texture(record, m_backBufferTextureHandle);
 
         return Result::ok();
     }

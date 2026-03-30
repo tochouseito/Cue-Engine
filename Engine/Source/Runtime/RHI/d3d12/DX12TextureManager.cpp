@@ -163,4 +163,18 @@ namespace Cue::RHI::DX12
         *outRecord = m_textureRegistry.get(handle);
         return *outRecord != nullptr;
     }
+
+    Result DX12TextureManager::register_external_texture(DX12TextureRecord& record, TextureHandle& out)
+    {
+        // レコードの保存
+        TextureHandle handle = m_textureRegistry.create(record);
+        if (!record.desc.name.empty())
+        {
+            m_nameToHandlesMap[Core::fnv1a64(record.desc.name)] = handle;
+        }
+
+        out = std::move(handle);
+
+        return Result::ok();
+    }
 }

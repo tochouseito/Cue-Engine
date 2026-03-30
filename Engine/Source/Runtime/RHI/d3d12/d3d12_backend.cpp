@@ -36,8 +36,13 @@ namespace Cue::RHI::DX12
         // コマンドキュープールの初期化
         m_queuePool = std::make_unique<DX12QueuePool>(*m_renderDevice);
 
+        // バッファマネージャの初期化
+        m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
+        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
+        m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+
         // スワップチェインの初期化
-        m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_descriptorAllocator);
+        m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_descriptorAllocator, *m_textureManager);
         QueueContextLease queueContext{};
         r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
         if (!r)
@@ -53,11 +58,6 @@ namespace Cue::RHI::DX12
             a_info.height,
             a_info.bufferCount,
             *static_cast<DX12GpuCommandQueue*>(queueContext.get()));
-
-        // バッファマネージャの初期化
-        m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
-        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
-        m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
 
         // リソースアップローダの初期化
         m_resourceUploader = std::make_unique<ResourceUploader>(*m_bufferManager, *m_commandPool, *m_queuePool);
