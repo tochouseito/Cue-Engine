@@ -228,7 +228,7 @@ namespace Cue::RHI::DX12
         psoDesc.BlendState = blendDesc;
         psoDesc.RasterizerState = rasterizerDesc;
         psoDesc.DepthStencilState = depthStencilDesc;
-        psoDesc.DSVFormat = convert_dsv_format(desc.dsvFormat);
+        psoDesc.DSVFormat = convert_color_format(desc.dsvFormat);
         psoDesc.PrimitiveTopologyType = convert_primitive_topology_type(desc.primitiveTopologyType);
         psoDesc.NumRenderTargets = static_cast<UINT>(desc.rtvFormats.size());
         for (size_t i = 0; i < desc.rtvFormats.size() && i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)

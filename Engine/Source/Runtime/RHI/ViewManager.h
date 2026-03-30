@@ -22,7 +22,6 @@ namespace Cue::RHI
         uint32_t structureByteStride = 0;
 
         ColorFormat colorFormat = ColorFormat::R8G8B8A8_UNORM;
-        DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
         uint32_t mipSlice = 0;
         uint32_t mipLevels = 1;
     };

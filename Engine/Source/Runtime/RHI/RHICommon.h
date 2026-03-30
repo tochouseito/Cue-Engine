@@ -55,6 +55,7 @@ namespace Cue::RHI
     {
         R8G8B8A8_UNORM,
         R8G8B8A8_UNORM_SRGB,
+        D24_UNorm_S8_UInt
     };
 
     inline const char* color_format_to_string(ColorFormat format) noexcept
@@ -63,20 +64,7 @@ namespace Cue::RHI
         {
         case ColorFormat::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
         case ColorFormat::R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
-        default: return "Unknown";
-        }
-    }
-
-    enum class DSVFormat : uint8_t
-    {
-        D24_UNorm_S8_UInt,
-    };
-
-    inline const char* dsv_format_to_string(DSVFormat format) noexcept
-    {
-        switch (format)
-        {
-        case DSVFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
+        case ColorFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
         default: return "Unknown";
         }
     }
@@ -127,32 +115,6 @@ namespace Cue::RHI
         RenderTarget,
         DepthStencil,
     };
-
-    enum class ResourceState : uint8_t
-    {
-        Common,
-        CopySource,
-        CopyDest,
-        RenderTarget,
-        UnorderedAccess,
-        ShaderResource,
-        DepthWrite,
-        Present
-    };
-
-    inline const char* resource_state_to_string(ResourceState state) noexcept
-    {
-        switch (state)
-        {
-        case ResourceState::Common: return "Common";
-        case ResourceState::RenderTarget: return "RenderTarget";
-        case ResourceState::UnorderedAccess: return "UnorderedAccess";
-        case ResourceState::ShaderResource: return "ShaderResource";
-        case ResourceState::DepthWrite: return "DepthWrite";
-        case ResourceState::Present: return "Present";
-        default: return "Unknown";
-        }
-    }
 
     enum class IndexFormat : uint8_t
     {

@@ -19,7 +19,6 @@ namespace Cue::RHI::DX12
     {
         TextureDesc desc; // テクスチャの記述
         std::vector<DX12GpuResource> defaultResources; // デフォルトヒープテクスチャリソースの実体
-        std::vector<DX12GpuResource> uploadResources; // アップロード用テクスチャリソースの実体
     };
 
     class DX12TextureManager final : public ITextureManager
@@ -29,7 +28,7 @@ namespace Cue::RHI::DX12
         ~DX12TextureManager() override = default;
         Result create_texture(const TextureDesc& desc, TextureHandle& out) override;
         Result destroy_texture(TextureHandle handle) override;
-        bool try_get_record(TextureHandle handle, DX12TextureRecord*& outRecord);
+        bool try_get_record(TextureHandle handle, DX12TextureRecord** outRecord);
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         Core::Registry<TextureTag, DX12TextureRecord> m_textureRegistry; // 論理テクスチャリソースのレジストリ

@@ -124,19 +124,10 @@ namespace Cue::RHI::DX12
             return DXGI_FORMAT_R8G8B8A8_UNORM;
         case ColorFormat::R8G8B8A8_UNORM_SRGB:
             return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        case ColorFormat::D24_UNorm_S8_UInt:
+            return DXGI_FORMAT_D24_UNORM_S8_UINT;
         default:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
-        }
-    }
-
-    inline DXGI_FORMAT convert_dsv_format(DSVFormat format)
-    {
-        switch (format)
-        {
-        case DSVFormat::D24_UNorm_S8_UInt:
-            return DXGI_FORMAT_D24_UNORM_S8_UINT;
-        default:
-            return DXGI_FORMAT_D24_UNORM_S8_UINT;
         }
     }
 

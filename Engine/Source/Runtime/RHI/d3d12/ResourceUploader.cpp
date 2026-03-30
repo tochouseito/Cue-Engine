@@ -137,7 +137,7 @@ namespace Cue::RHI::DX12
             }
             if (needsRestore)
             {
-                transitions.push_back({ dstResource, dstResource->current_state() });
+                transitions.push_back({ dstResource, dstResource->get_current_d3d12_state()});
             }
 
             result = transition_resource(*commandList, *dstResource, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -254,7 +254,7 @@ namespace Cue::RHI::DX12
         D3D12_RESOURCE_STATES a_newState)
     {
         // 1) 同一 state への遷移は無駄なので、既に目的 state なら何もしない。
-        const D3D12_RESOURCE_STATES oldState = a_resource.current_state();
+        const D3D12_RESOURCE_STATES oldState = a_resource.get_current_d3d12_state();
         if (oldState == a_newState)
         {
             return Result::ok();

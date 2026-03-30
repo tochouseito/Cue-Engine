@@ -109,7 +109,7 @@ namespace Cue::RHI
         std::vector<BlendMode> blendMode = { BlendMode::None };
         RasterizerStateDesc rasterizerState = {};
         DepthStencilStateDesc depthStencilState = {};
-        DSVFormat dsvFormat = DSVFormat::D24_UNorm_S8_UInt;
+        ColorFormat dsvFormat = ColorFormat::D24_UNorm_S8_UInt;
         PrimitiveTopologyType primitiveTopologyType = PrimitiveTopologyType::Triangle;
         std::vector<ColorFormat> rtvFormats = {};
     };

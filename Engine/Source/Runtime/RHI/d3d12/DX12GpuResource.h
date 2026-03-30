@@ -15,11 +15,6 @@ namespace Cue::RHI::DX12
         DX12GpuResource& operator=(DX12GpuResource&&) noexcept = default;
         ~DX12GpuResource() override = default;
 
-        ResourceState current_state() const override
-        {
-            return convert_resource_state(m_currentState);
-        }
-
         operator bool() const { return m_resource != nullptr; }
 
         // 破棄
@@ -159,7 +154,12 @@ namespace Cue::RHI::DX12
             return m_bufferSize;
         }
 
-        D3D12_RESOURCE_STATES current_state() const noexcept
+        ResourceState current_state() const noexcept override
+        {
+            return convert_resource_state(m_currentState);
+        }
+
+        D3D12_RESOURCE_STATES get_current_d3d12_state() const noexcept
         {
             return m_currentState;
         }

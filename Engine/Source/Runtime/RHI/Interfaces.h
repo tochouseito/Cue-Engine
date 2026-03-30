@@ -17,6 +17,32 @@ namespace Cue::RHI
         Copy
     };
 
+    enum class ResourceState : uint8_t
+    {
+        Common,
+        CopySource,
+        CopyDest,
+        RenderTarget,
+        UnorderedAccess,
+        ShaderResource,
+        DepthWrite,
+        Present
+    };
+
+    inline const char* resource_state_to_string(ResourceState state) noexcept
+    {
+        switch (state)
+        {
+        case ResourceState::Common: return "Common";
+        case ResourceState::RenderTarget: return "RenderTarget";
+        case ResourceState::UnorderedAccess: return "UnorderedAccess";
+        case ResourceState::ShaderResource: return "ShaderResource";
+        case ResourceState::DepthWrite: return "DepthWrite";
+        case ResourceState::Present: return "Present";
+        default: return "Unknown";
+        }
+    }
+
     /// @brief レンダーデバイスの共通インターフェースです。
     class IRenderDevice
     {
@@ -45,7 +71,7 @@ namespace Cue::RHI
         GpuResource(GpuResource&&) = default;
         GpuResource& operator=(GpuResource&&) = default;
         virtual ~GpuResource() = default;
-        virtual ResourceState current_state() const = 0;
+        virtual ResourceState current_state() const noexcept = 0;
     };
 
     /// @brief コマンドコンテキストの共通インターフェースです。
