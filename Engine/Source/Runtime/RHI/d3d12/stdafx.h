@@ -83,6 +83,39 @@ namespace Cue::RHI::DX12
         }
     }
 
+    inline ResourceState convert_resource_state(D3D12_RESOURCE_STATES state)
+    {
+        if (state & D3D12_RESOURCE_STATE_RENDER_TARGET)
+        {
+            return ResourceState::RenderTarget;
+        }
+        if (state & D3D12_RESOURCE_STATE_DEPTH_WRITE)
+        {
+            return ResourceState::DepthWrite;
+        }
+        if (state & D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        {
+            return ResourceState::UnorderedAccess;
+        }
+        if (state & (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE))
+        {
+            return ResourceState::ShaderResource;
+        }
+        if (state & D3D12_RESOURCE_STATE_COPY_SOURCE)
+        {
+            return ResourceState::CopySource;
+        }
+        if (state & D3D12_RESOURCE_STATE_COPY_DEST)
+        {
+            return ResourceState::CopyDest;
+        }
+        if (state & D3D12_RESOURCE_STATE_PRESENT)
+        {
+            return ResourceState::Present;
+        }
+        return ResourceState::Common;
+    }
+
     inline DXGI_FORMAT convert_color_format(ColorFormat format)
     {
         switch (format)

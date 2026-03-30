@@ -45,6 +45,7 @@ namespace Cue::RHI
         GpuResource(GpuResource&&) = default;
         GpuResource& operator=(GpuResource&&) = default;
         virtual ~GpuResource() = default;
+        virtual ResourceState current_state() const = 0;
     };
 
     /// @brief コマンドコンテキストの共通インターフェースです。

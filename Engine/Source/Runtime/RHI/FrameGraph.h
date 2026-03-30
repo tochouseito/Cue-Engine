@@ -20,6 +20,18 @@ namespace Cue::RHI
 
     };
 
+    class FrameGraphContext final
+    {
+    public:
+
+    };
+
+    class FrameGraphPass
+    {
+    public:
+
+    };
+
     /// @brief フレーム単位の描画依存関係を保持するプレースホルダーです。
     class FrameGraph final
     {

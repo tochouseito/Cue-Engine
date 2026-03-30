@@ -15,6 +15,11 @@ namespace Cue::RHI::DX12
         DX12GpuResource& operator=(DX12GpuResource&&) noexcept = default;
         ~DX12GpuResource() override = default;
 
+        ResourceState current_state() const override
+        {
+            return convert_resource_state(m_currentState);
+        }
+
         operator bool() const { return m_resource != nullptr; }
 
         // 破棄
