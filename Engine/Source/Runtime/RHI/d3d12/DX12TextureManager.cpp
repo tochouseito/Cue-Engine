@@ -156,6 +156,22 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
+    Result DX12TextureManager::get_texture(std::string_view name, TextureHandle& out)
+    {
+        if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
+        {
+            out = m_nameToHandlesMap[Core::fnv1a64(name)];
+            return Result::ok();
+        }
+        else
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Texture not found for the given name.");
+        }
+    }
+
     bool DX12TextureManager::try_get_record(TextureHandle handle, DX12TextureRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得

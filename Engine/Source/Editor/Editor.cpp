@@ -86,12 +86,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // エンジンのシャットダウン
     engine->shutdown();
+    engine.reset();
 
     // レンダリングバックエンドのシャットダウン
     backend->shutdown();
+    backend.reset();
 
     // プラットフォームのシャットダウン
     platform->shutdown();
+    platform.reset();
 
     return 0;
 }

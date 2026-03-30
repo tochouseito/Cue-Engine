@@ -4,17 +4,22 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
-        TableKind convert_buffer_kind(BufferKind kind)
+        TableKind convert_view_kind(ViewType type)
         {
-            switch (kind)
+            switch (type)
             {
-            case BufferKind::Texture:
-                return TableKind::Textures;
-            case BufferKind::Buffer:
+            case ViewType::ConstantBuffer:
+            case ViewType::ShaderResourceBuffer:
+            case ViewType::ShaderResourceRawBuffer:
+            case ViewType::UnorderedAccessBuffer:
+            case ViewType::UnorderedAccessRawBuffer:
                 return TableKind::Buffers;
-            case BufferKind::RenderTarget:
+            case ViewType::ShaderResourceTexture2D:
+            case ViewType::UnorderedAccessTexture2D:
+                return TableKind::Textures;
+            case ViewType::RenderTarget:
                 return TableKind::RenderTargets;
-            case BufferKind::DepthStencil:
+            case ViewType::DepthStencil:
                 return TableKind::DepthStencils;
             default:
                 return TableKind::Buffers; // デフォルトはバッファ用テーブルとする
@@ -29,9 +34,9 @@ namespace Cue::RHI::DX12
 
         // View の作成
         Result result;
-        switch (desc.type)
+        switch (desc.bufferKind)
         {
-        case ViewType::ConstantBuffer:
+        case BufferKind::Buffer:
         {
             // Buffer の実体を取得する
             DX12BufferRecord* bufferRecord = nullptr;
@@ -42,20 +47,10 @@ namespace Cue::RHI::DX12
                     Severity::Error,
                     "Buffer not found for the given handle.");
             }
-
-            // テーブルスロットを割り当てて CBV を作成する
             // Default Resource
-            if (!bufferRecord)
-            {
-                return Result::fail(
-                    Code::NotFound,
-                    Severity::Error,
-                    "Buffer record not found for the given handle.");
-            }
             for (auto& resource : bufferRecord->defaultResources)
             {
-                TableID tableId = m_descriptorAllocator.allocate(convert_buffer_kind(desc.bufferKind));
-                result = m_descriptorAllocator.create_cbv(tableId, &resource, desc.byteOffset, desc.byteSize);
+                result = create_view_impl(desc, resource, record.defaultTableIds);
                 if (!result)
                 {
                     return Result::fail(
@@ -63,13 +58,11 @@ namespace Cue::RHI::DX12
                         Severity::Error,
                         "Failed to create CBV for default resource.");
                 }
-                record.uploadTableIds.emplace_back(tableId);
             }
             // Upload Resource
             for (auto& resource : bufferRecord->uploadResources)
             {
-                TableID tableId = m_descriptorAllocator.allocate(convert_buffer_kind(desc.bufferKind));
-                result = m_descriptorAllocator.create_cbv(tableId, &resource, desc.byteOffset, desc.byteSize);
+                result = create_view_impl(desc, resource, record.uploadTableIds);
                 if (!result)
                 {
                     return Result::fail(
@@ -77,10 +70,34 @@ namespace Cue::RHI::DX12
                         Severity::Error,
                         "Failed to create CBV for upload resource.");
                 }
-                record.uploadTableIds.emplace_back(tableId);
             }
-            break;
         }
+            break;
+        case BufferKind::Texture:
+        {
+            // Texture の実体を取得する
+            DX12TextureRecord* textureRecord = nullptr;
+            if (!m_textureManager.try_get_record(desc.textureHandle, &textureRecord))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Texture not found for the given handle.");
+            }
+            // Default Resource
+            for (auto& resource : textureRecord->defaultResources)
+            {
+                result = create_view_impl(desc, resource, record.defaultTableIds);
+                if (!result)
+                {
+                    return Result::fail(
+                        Code::CreateFailed,
+                        Severity::Error,
+                        "Failed to create view for default resource.");
+                }
+            }
+        }
+            break;
         default:
             break;
         }
@@ -128,5 +145,157 @@ namespace Cue::RHI::DX12
         }
 
         return Result::ok();
+    }
+    bool DX12ViewManager::try_get_record(ViewHandle handle, DX12ViewRecord** outRecord)
+    {
+        // ハンドルの解決とレコードの取得
+        *outRecord = nullptr;
+        *outRecord = m_viewRegistry.get(handle);
+        return *outRecord != nullptr;
+    }
+    Result DX12ViewManager::create_view_impl(const ViewDesc& desc, DX12GpuResource& resource, std::vector<TableID>& ids)
+    {
+        switch (desc.type)
+        {
+        case ViewType::ConstantBuffer:
+        {
+            // CBV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_cbv(tableId, &resource, desc.byteOffset, desc.byteSize);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create CBV for the resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::ShaderResourceBuffer:
+        case ViewType::ShaderResourceRawBuffer:
+        {
+            // SRV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_srv_buffer(tableId, &resource, desc.firstElement, desc.numElements, desc.structureByteStride);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create SRV for the resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::UnorderedAccessBuffer:
+        {
+            // UAV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_uav_buffer(tableId, &resource, desc.firstElement, desc.numElements, desc.structureByteStride);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create UAV for the resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::UnorderedAccessRawBuffer:
+        {
+            // RAW UAV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_uav_raw_buffer(tableId, &resource, desc.firstElement, desc.numElements);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create RAW UAV for the resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::ShaderResourceTexture2D:
+        {
+            // SRV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_srv_texture_2d(tableId, &resource, convert_color_format(desc.colorFormat), desc.mipSlice, desc.mipLevels);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create SRV for the texture resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::UnorderedAccessTexture2D:
+        {
+            // UAV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_uav_texture_2d(tableId, &resource, convert_color_format(desc.colorFormat), desc.mipSlice);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create UAV for the texture resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::RenderTarget:
+        {
+            // RTV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_rtv(tableId, &resource, convert_color_format(desc.colorFormat), desc.mipSlice);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create RTV for the texture resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::DepthStencil:
+        {
+            // DSV を作成する
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_dsv(tableId, &resource, convert_color_format(desc.colorFormat), desc.mipSlice);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create DSV for the texture resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        default:
+            break;
+        }
+        return Result::ok();
+    }
+    Result DX12ViewManager::get_view(std::string_view name, ViewHandle& out)
+    {
+        if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
+        {
+            out = m_nameToHandlesMap[Core::fnv1a64(name)];
+            return Result::ok();
+        }
+        else
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View with the given name was not found.");
+        }
     }
 }

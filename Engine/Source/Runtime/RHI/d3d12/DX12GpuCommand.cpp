@@ -7,7 +7,18 @@ namespace Cue::RHI::DX12
         constexpr UINT k_eventMetadataAnsi = 1u;
     }
 
-    DX12GpuCommandContext::DX12GpuCommandContext(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+    DX12GpuCommandContext::DX12GpuCommandContext(ID3D12Device& device,
+        DescriptorAllocator& descriptorAllocator,
+        DX12BufferManager& bufferManager,
+        DX12TextureManager& textureManager,
+        DX12ViewManager& viewManager,
+        DX12PipelineManager& pipelineManager,
+        D3D12_COMMAND_LIST_TYPE type)
+        : m_descriptorAllocator(descriptorAllocator),
+          m_bufferManager(bufferManager),
+          m_textureManager(textureManager),
+          m_viewManager(viewManager),
+          m_pipelineManager(pipelineManager)
     {
         // コマンドアロケータの作成
         create_command_allocator(device, type);
@@ -15,6 +26,19 @@ namespace Cue::RHI::DX12
         create_command_list(device, type);
 
         m_type = convert_command_list_type(type);
+    }
+    Result DX12GpuCommandContext::setup(uint32_t frameIndex)
+    {
+        // copy command list は descriptor heap を扱えないため、setup は no-op で返す。
+        if (type() == CommandListType::Copy)
+        {
+            return Result::ok();
+        }
+
+        m_frameIndex = frameIndex;
+        auto srvHeap = m_descriptorAllocator.get_descriptor_heap(HeapType::CBV_SRV_UAV);
+        m_commandList->SetDescriptorHeaps(1, &srvHeap);
+        return Result::ok();
     }
     Result DX12GpuCommandContext::reset()
     {
@@ -105,6 +129,279 @@ namespace Cue::RHI::DX12
 
         // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
         m_commandList->EndEvent();
+    }
+    Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
+    {
+        // ハンドルからリソースを取得する
+        DX12BufferRecord* record = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given handle.");
+        }
+        DX12GpuResource* resource = &record->defaultResources[m_frameIndex];
+        ID3D12Resource* d3dResource = resource->get_resource();
+        if (d3dResource == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "D3D12 resource was not found for the given buffer handle.");
+        }
+
+        D3D12_RESOURCE_BARRIER d3d12Barrier{};
+        d3d12Barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        d3d12Barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        d3d12Barrier.Transition.pResource = d3dResource;
+        d3d12Barrier.Transition.StateBefore = convert_resource_state(desc.before);
+        d3d12Barrier.Transition.StateAfter = convert_resource_state(desc.after);
+        d3d12Barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        m_commandList->ResourceBarrier(1, &d3d12Barrier);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc)
+    {
+        // ハンドルからリソースを取得する
+        DX12TextureRecord* record = nullptr;
+        if (!m_textureManager.try_get_record(handle, &record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Texture record was not found for the given handle.");
+        }
+        DX12GpuResource* resource = &record->defaultResources[m_frameIndex];
+        ID3D12Resource* d3dResource = resource->get_resource();
+        if (d3dResource == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "D3D12 resource was not found for the given texture handle.");
+        }
+
+        D3D12_RESOURCE_BARRIER d3d12Barrier{};
+        d3d12Barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        d3d12Barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        d3d12Barrier.Transition.pResource = d3dResource;
+        d3d12Barrier.Transition.StateBefore = convert_resource_state(desc.before);
+        d3d12Barrier.Transition.StateAfter = convert_resource_state(desc.after);
+        d3d12Barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        m_commandList->ResourceBarrier(1, &d3d12Barrier);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
+    {
+        // ハンドルからビューを取得する
+        DX12ViewRecord* record = nullptr;
+        if (!m_viewManager.try_get_record(handle, &record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View record was not found for the given handle.");
+        }
+
+        // 正しいビュータイプか確認する
+        if (record->desc.type != ViewType::RenderTarget)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The view type of the given handle is not RenderTarget.");
+        }
+        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
+
+        // RenderTarget のクリア
+        m_commandList->ClearRenderTargetView(cpuHandle, clearColor, 0, nullptr);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
+    {
+        // ハンドルからビューを取得する
+        DX12ViewRecord* record = nullptr;
+        if (!m_viewManager.try_get_record(handle, &record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View record was not found for the given handle.");
+        }
+
+        // 正しいビュータイプか確認する
+        if (record->desc.type != ViewType::DepthStencil)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The view type of the given handle is not DepthStencil.");
+        }
+
+        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
+
+        // DepthStencil のクリア
+        m_commandList->ClearDepthStencilView(
+            cpuHandle,
+            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+            depth,
+            stencil,
+            0,
+            nullptr);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
+    {
+        // queue 種別を検証して RS state を設定する。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Viewport and scissor can only be set on graphics command lists.");
+        }
+
+        // ビューポートとシザー矩形の設定
+        D3D12_VIEWPORT viewport{};
+        viewport.TopLeftX = 0.0f;
+        viewport.TopLeftY = 0.0f;
+        viewport.Width = static_cast<float>(width);
+        viewport.Height = static_cast<float>(height);
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        D3D12_RECT scissorRect{};
+        scissorRect.left = 0;
+        scissorRect.top = 0;
+        scissorRect.right = static_cast<LONG>(width);
+        scissorRect.bottom = static_cast<LONG>(height);
+
+        m_commandList->RSSetViewports(1, &viewport);
+        m_commandList->RSSetScissorRects(1, &scissorRect);
+        
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_primitive_topology(PrimitiveTopologyType topology)
+    {
+        // queue 種別を検証して IA state を設定する。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Primitive topology can only be set on graphics command lists.");
+        }
+
+        D3D12_PRIMITIVE_TOPOLOGY d3dTopology = convert_primitive_topology(topology);
+
+        m_commandList->IASetPrimitiveTopology(d3dTopology);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
+    {
+        // queue 種別を検証して OM state を設定する。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Render targets can only be set on graphics command lists.");
+        }
+
+        // RTV ハンドルを CPU デスクリプタハンドルに変換する。
+        std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvHandles;
+        rtvHandles.reserve(renderTargetCount);
+        rtvHandles.resize(renderTargetCount);
+        for (uint32_t i = 0; i < renderTargetCount; ++i)
+        {
+            DX12ViewRecord* rtvRecord = nullptr;
+            if (!m_viewManager.try_get_record(renderTargetViews[i], &rtvRecord))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "View record was not found for the given render target handle.");
+            }
+            if (rtvRecord->desc.type != ViewType::RenderTarget)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "The view type of the given render target handle is not RenderTarget.");
+            }
+            rtvHandles[i] = m_descriptorAllocator.get_cpu_handle(rtvRecord->defaultTableIds[m_frameIndex]);
+        }
+
+        // DSV ハンドルを CPU デスクリプタハンドルに変換する。
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
+        if (depthStencilView.valid())
+        {
+            DX12ViewRecord* dsvRecord = nullptr;
+            if (!m_viewManager.try_get_record(depthStencilView, &dsvRecord))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "View record was not found for the given depth stencil handle.");
+            }
+            if (dsvRecord->desc.type != ViewType::DepthStencil)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "The view type of the given depth stencil handle is not DepthStencil.");
+            }
+            dsvHandle = m_descriptorAllocator.get_cpu_handle(dsvRecord->defaultTableIds[m_frameIndex]);
+        }
+
+        // レンダーターゲットとデプスステンシルをセットする。
+        m_commandList->OMSetRenderTargets(
+            renderTargetCount,
+            rtvHandles.data(),
+            false,
+            depthStencilView.valid() ? &dsvHandle : nullptr);
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation)
+    {
+        // draw 呼び出しは graphics queue でのみ有効とし、compute/copy queue での誤発行を防ぐ。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Draw can only be issued on a graphics command context.");
+        }
+
+        // 頂点/インスタンス範囲は呼び出し側の宣言どおりにそのまま発行し、pass 実装が draw パターンを選べるようにする。
+        m_commandList->DrawInstanced(vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
+        
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation)
+    {
+        // indexed draw は graphics queue 以外で意味を持たない。
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Indexed draw can only be issued on a graphics command context.");
+        }
+
+        // index 範囲と base vertex は呼び出し側の宣言どおりにそのまま流し、mesh slice 単位の描画を許可する。
+        m_commandList->DrawIndexedInstanced(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
+        
+        return Result::ok();
     }
     Result DX12GpuCommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
@@ -444,6 +741,16 @@ namespace Cue::RHI::DX12
         default:
             break;
         }
+        return Result::ok();
+    }
+    Result DX12QueuePool::wait_for_graphics_queue()
+    {
+        std::lock_guard lock(m_graphicsPoolMutex);
+        // グラフィックスコマンドキューコンテキストをプールから取得
+        auto context = m_graphicsQueuePool.acquire();
+        context->signal();
+        context->wait();
+        m_graphicsQueuePool.recycle(context.release());
         return Result::ok();
     }
 }

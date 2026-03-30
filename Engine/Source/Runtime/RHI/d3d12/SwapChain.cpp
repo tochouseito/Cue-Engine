@@ -4,6 +4,8 @@ namespace Cue::RHI::DX12
 {
     Result SwapChain::create(HWND a_hwnd, uint32_t width, uint32_t height, uint32_t bufferCount, DX12GpuCommandQueue& commandQueue, DXGI_FORMAT format)
     {
+        m_width = width;
+        m_height = height;
         // SwapChainの設定
         DXGI_SWAP_CHAIN_DESC1 desc{};
         desc.Width = width; // クライアント幅設定
@@ -22,11 +24,14 @@ namespace Cue::RHI::DX12
             a_hwnd,
             &desc,
             nullptr, nullptr,
-            reinterpret_cast<IDXGISwapChain1**>(m_swapChain.GetAddressOf()));
+            swapChain1.GetAddressOf());
 
         CUE_ASSERTF(SUCCEEDED(hr), "Failed to create SwapChain. HRESULT: {:#X}", static_cast<uint32_t>(hr));
 
-        set_dxgi_name(m_swapChain.Get(), L"Main SwapChain");
+        set_dxgi_name(swapChain1.Get(), L"Main SwapChain");
+
+        // IDXGISwapChain4 へキャスト
+        swapChain1->QueryInterface(IID_PPV_ARGS(&m_swapChain));
 
         // リフレッシュレート取得
         // ウィンドウ対応モニター取得
@@ -54,8 +59,6 @@ namespace Cue::RHI::DX12
             a_hwnd,
             DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
 
-        // rtv 作成
-        m_rtvTableIDs.resize(bufferCount);
         std::vector<DX12GpuResource> m_backBuffers;
         for (uint32_t i = 0; i < bufferCount; ++i)
         {
@@ -65,23 +68,28 @@ namespace Cue::RHI::DX12
             {
                 CUE_ASSERTF(false, "Failed to get SwapChain back buffer. HRESULT: {:#X}", static_cast<uint32_t>(hr));
             }
-            TableID rtvTableID = m_descriptorAllocator.allocate(TableKind::RenderTargets);
-            m_descriptorAllocator.create_rtv(rtvTableID, pResource.Get(), format);
-            m_rtvTableIDs[i] = rtvTableID;
-            
             DX12GpuResource backBuffer(pResource, D3D12_RESOURCE_STATE_PRESENT);
             m_backBuffers.push_back(std::move(backBuffer));
         }
 
         // バックバッファリソースをTextureManagerに登録
         DX12TextureRecord record{};
-        record.desc.name = "SwapChain BackBuffer";
+        record.desc.name = "BackBuffer";
         record.desc.width = width;
         record.desc.height = height;
         record.desc.format = ColorFormat::R8G8B8A8_UNORM;
         record.desc.bufferCount = bufferCount;
         record.defaultResources = std::move(m_backBuffers);
         m_textureManager.register_external_texture(record, m_backBufferTextureHandle);
+
+        // バックバッファの RTV ビューを ViewManager に登録
+        ViewDesc viewDesc{};
+        viewDesc.name = "BackBufferRTV";
+        viewDesc.type = ViewType::RenderTarget;
+        viewDesc.textureHandle = m_backBufferTextureHandle;
+        viewDesc.bufferKind = BufferKind::Texture;
+        viewDesc.colorFormat = convert_color_format(format);
+        m_viewManager.create_view(viewDesc, m_rtvViewHandle);
 
         return Result::ok();
     }
@@ -104,5 +112,18 @@ namespace Cue::RHI::DX12
                 "Failed to present SwapChain.");
         }
         return Result::ok();
+    }
+    void SwapChain::shutdown()
+    {
+        // バックバッファの RTV ビューを ViewManager から破棄
+        m_viewManager.destroy_view(m_rtvViewHandle);
+        m_rtvViewHandle = {};
+
+        // バックバッファリソースを TextureManager から破棄
+        m_textureManager.destroy_texture(m_backBufferTextureHandle);
+        m_backBufferTextureHandle = {};
+
+        // SwapChain を破棄
+        m_swapChain.Reset();
     }
 }

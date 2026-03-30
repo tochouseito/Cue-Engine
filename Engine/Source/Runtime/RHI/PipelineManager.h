@@ -94,11 +94,6 @@ namespace Cue::RHI
         ComparisonFunc depthFunc = ComparisonFunc::LessEqual;
     };
 
-    enum class PrimitiveTopologyType : uint8_t
-    {
-        Triangle,
-    };
-
     struct GraphicsPipelineStateDesc
     {
         std::string_view name = {};

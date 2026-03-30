@@ -28,6 +28,7 @@ namespace Cue::RHI::DX12
         ~DX12TextureManager() override = default;
         Result create_texture(const TextureDesc& desc, TextureHandle& out) override;
         Result destroy_texture(TextureHandle handle) override;
+        Result get_texture(std::string_view name, TextureHandle& out) override;
         bool try_get_record(TextureHandle handle, DX12TextureRecord** outRecord);
 
         // 外部テクスチャを登録

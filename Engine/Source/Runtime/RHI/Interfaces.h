@@ -2,14 +2,52 @@
 
 // === Base includes ===
 #include <Result.h>
+#include <CueAssert.h>
+
+// === Math includes ===
+#include <CueMath.h>
+
+// === Core includes ===
+#include <Native/Handle.h>
+#include <Native/EngineNativeStruct.h>
+#include <IO/Logger.h>
+#include <Container/Pool.h>
+#include <Container/Registry.h>
 
 // === C++ includes ===
+#include <cstdint>
 #include <memory>
-#include <functional>
 #include <vector>
+#include <string>
+#include <string_view>
+#include <functional>
 
 namespace Cue::RHI
 {
+    template<class Tag>
+    using Handle = Core::Handle<Tag>;
+
+    template<class Tag, class RecordType>
+    using Registry = Core::Registry<Tag, RecordType>;
+
+    using ResourceNameId = Core::ResourceNameId;
+
+    struct BufferTag {};
+    struct TextureTag {};
+    struct ViewTag {};
+    struct PipelineTag {};
+    struct RootSignatureTag {};
+    struct ShaderBlobTag {};
+    struct StaticMeshTag {};
+
+    using BufferHandle = Handle<BufferTag>;
+    using TextureHandle = Handle<TextureTag>;
+    using ViewHandle = Handle<ViewTag>;
+    using PipelineStateHandle = Handle<PipelineTag>;
+    using RootSignatureHandle = Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Handle<ShaderBlobTag>;
+    using StaticMeshHandle = Handle<StaticMeshTag>;
+
     enum class CommandListType : uint8_t
     {
         Graphics,
@@ -43,6 +81,13 @@ namespace Cue::RHI
         }
     }
 
+    enum class PrimitiveTopologyType : uint8_t
+    {
+        Point,
+        Line,
+        Triangle,
+    };
+
     /// @brief レンダーデバイスの共通インターフェースです。
     class IRenderDevice
     {
@@ -74,6 +119,12 @@ namespace Cue::RHI
         virtual ResourceState current_state() const noexcept = 0;
     };
 
+    struct ResourceBarrierDesc final
+    {
+        ResourceState before = ResourceState::Common;
+        ResourceState after = ResourceState::Common;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェースです。
     class ICommandContext
     {
@@ -87,6 +138,7 @@ namespace Cue::RHI
         ICommandContext& operator=(ICommandContext&&) = default;
         virtual ~ICommandContext() = default;
 
+        virtual Result setup(uint32_t frameIndex) = 0;
         virtual Result reset() = 0;
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
@@ -94,6 +146,17 @@ namespace Cue::RHI
         // --- GPU プロファイリング用のイベントマーカー ---
         virtual void begin_event(const char* name) = 0;
         virtual void end_event() = 0;
+
+        // --- Commaonds ---
+        virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
+        virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
+        virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
+        virtual Result set_primitive_topology(PrimitiveTopologyType topology) = 0;
+        virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
+        virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
+        virtual Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) = 0;
     };
 
     /// @brief キューコンテキストの共通インターフェースです。
@@ -131,6 +194,11 @@ namespace Cue::RHI
         ICommandPool(ICommandPool&&) = default;
         ICommandPool& operator=(ICommandPool&&) = default;
         virtual ~ICommandPool() = default;
+
+        /// @brief コマンドコンテキストをプールから取得します。
+        virtual Result get_command_context(CommandListType type, CommandContextLease& outContext) = 0;
+        /// @brief コマンドコンテキストをプールへ返却します。
+        virtual Result return_command_context(CommandContextLease& context) = 0;
     };
 
     /// @brief キュープールの共通インターフェースです。
@@ -145,5 +213,12 @@ namespace Cue::RHI
         IQueuePool(IQueuePool&&) = default;
         IQueuePool& operator=(IQueuePool&&) = default;
         virtual ~IQueuePool() = default;
+
+        /// @brief キューコンテキストをプールから取得します。
+        virtual Result get_queue_context(CommandListType type, QueueContextLease& outContext) = 0;
+        /// @brief キューコンテキストをプールへ返却します。
+        virtual Result return_queue_context(QueueContextLease& context) = 0;
+        /// @brief graphics キューへ待機させます。
+        virtual Result wait_for_graphics_queue() = 0;
     };
 }

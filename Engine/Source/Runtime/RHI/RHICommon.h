@@ -1,56 +1,11 @@
 #pragma once
 
-// === Base includes ===
-#include <Result.h>
-#include <CueAssert.h>
-
-// === Math includes ===
-#include <CueMath.h>
-
-// === Core includes ===
-#include <Native/Handle.h>
-#include <Native/EngineNativeStruct.h>
-#include <IO/Logger.h>
-#include <Container/Pool.h>
-#include <Container/Registry.h>
-
-// === C++ includes ===
-#include <cstdint>
-#include <memory>
-#include <vector>
-#include <string>
-#include <string_view>
-
 // === RHI includes ===
 #include "BackendFactory.h"
 #include "Interfaces.h"
 
 namespace Cue::RHI
 {
-    template<class Tag>
-    using Handle = Core::Handle<Tag>;
-
-    template<class Tag, class RecordType>
-    using Registry = Core::Registry<Tag, RecordType>;
-
-    using ResourceNameId = Core::ResourceNameId;
-
-    struct BufferTag {};
-    struct TextureTag {};
-    struct ViewTag {};
-    struct PipelineTag {};
-    struct RootSignatureTag {};
-    struct ShaderBlobTag {};
-    struct StaticMeshTag {};
-
-    using BufferHandle = Handle<BufferTag>;
-    using TextureHandle = Handle<TextureTag>;
-    using ViewHandle = Handle<ViewTag>;
-    using PipelineStateHandle = Handle<PipelineTag>;
-    using RootSignatureHandle = Handle<RootSignatureTag>;
-    using ShaderBlobHandle = Handle<ShaderBlobTag>;
-    using StaticMeshHandle = Handle<StaticMeshTag>;
-
     enum class ColorFormat : uint8_t
     {
         R8G8B8A8_UNORM,
@@ -73,8 +28,6 @@ namespace Cue::RHI
     {
         Texture,
         Buffer,
-        RenderTarget,
-        DepthStencil
     };
 
     enum class BufferType : uint8_t

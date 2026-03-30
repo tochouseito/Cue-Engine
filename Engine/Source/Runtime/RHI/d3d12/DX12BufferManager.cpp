@@ -101,6 +101,23 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
+    Result DX12BufferManager::get_buffer(std::string_view name, BufferHandle& out)
+    {
+        if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
+        {
+            out = m_nameToHandlesMap[Core::fnv1a64(name)];
+            return Result::ok();
+        }
+        else
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer with the given name was not found.");
+        }
+    }
+
     Result DX12BufferManager::get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView)
     {
         // 1) ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む。

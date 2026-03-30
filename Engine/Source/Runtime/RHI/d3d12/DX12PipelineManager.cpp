@@ -125,17 +125,6 @@ namespace Cue::RHI::DX12
             return d3dDesc;
         }
 
-        D3D12_PRIMITIVE_TOPOLOGY_TYPE convert_primitive_topology_type(PrimitiveTopologyType type)
-        {
-            switch (type)
-            {
-            case PrimitiveTopologyType::Triangle:
-                return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-            default:
-                return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-            }
-        }
-
         D3D12_DESCRIPTOR_RANGE_TYPE convert_descriptor_range_type(RootParameterType type)
         {
             switch (type)

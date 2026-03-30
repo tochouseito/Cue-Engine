@@ -35,6 +35,10 @@ namespace Cue::RHI::DX12
         ~DX12ViewManager() override = default;
         Result create_view(const ViewDesc& desc, ViewHandle& out) override;
         Result destroy_view(ViewHandle handle) override;
+        Result get_view(std::string_view name, ViewHandle& out) override;
+        bool try_get_record(ViewHandle handle, DX12ViewRecord** outRecord);
+    private:
+        Result create_view_impl(const ViewDesc& desc, DX12GpuResource& resource, std::vector<TableID>& ids);
     private:
         DX12BufferManager& m_bufferManager;
         DX12TextureManager& m_textureManager;

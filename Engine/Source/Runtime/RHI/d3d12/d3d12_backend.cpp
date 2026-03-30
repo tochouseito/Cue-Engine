@@ -30,19 +30,20 @@ namespace Cue::RHI::DX12
             a_info.renderTargetCapacity,
             a_info.depthStencilCapacity);
 
-        // コマンドプールの初期化
-        m_commandPool = std::make_unique<DX12CommandPool>(*m_renderDevice);
-
-        // コマンドキュープールの初期化
-        m_queuePool = std::make_unique<DX12QueuePool>(*m_renderDevice);
-
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
         m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
         m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
+        m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_renderDevice, *m_hlslCompiler);
+
+        // コマンドプールの初期化
+        m_commandPool = std::make_unique<DX12CommandPool>(*m_renderDevice, *m_descriptorAllocator, *m_bufferManager, *m_textureManager, *m_viewManager, *m_pipelineManager);
+
+        // コマンドキュープールの初期化
+        m_queuePool = std::make_unique<DX12QueuePool>(*m_renderDevice);
 
         // スワップチェインの初期化
-        m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_descriptorAllocator, *m_textureManager);
+        m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_textureManager, *m_viewManager);
         QueueContextLease queueContext{};
         r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
         if (!r)
@@ -58,6 +59,7 @@ namespace Cue::RHI::DX12
             a_info.height,
             a_info.bufferCount,
             *static_cast<DX12GpuCommandQueue*>(queueContext.get()));
+        r = m_queuePool->return_queue_context(queueContext);
 
         // リソースアップローダの初期化
         m_resourceUploader = std::make_unique<ResourceUploader>(*m_bufferManager, *m_commandPool, *m_queuePool);
@@ -71,6 +73,9 @@ namespace Cue::RHI::DX12
 
     Result D3D12Backend::shutdown()
     {
+        // graphics キューの完了を待ってからリソースを解放します。
+        m_queuePool->wait_for_graphics_queue();
+
         m_viewManager.reset();
         m_textureManager.reset();
         m_bufferManager.reset();
@@ -83,22 +88,31 @@ namespace Cue::RHI::DX12
     Result D3D12Backend::render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph)
     {
         a_frameNo;
-        a_index;
-        a_frameGraph;
-        return Result();
+        return a_frameGraph.execute(a_index);
     }
 
-    Result D3D12Backend::present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph)
+    Result D3D12Backend::present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph)
     {
         a_frameNo;
         a_index;
-        a_frameGraph;
-        return Result();
+        a_frameGraph.execute(m_swapChain->get_current_back_buffer_index());
+        return m_swapChain->present(vsync);
     }
 
     Result D3D12Backend::create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph)
     {
-        a_outFrameGraph;
-        return Result();
+        FrameGraphDesc desc{};
+        desc.bufferManager = m_bufferManager.get();
+        desc.textureManager = m_textureManager.get();
+        desc.pipelineManager = m_pipelineManager.get();
+        desc.viewManager = m_viewManager.get();
+        desc.staticMeshPool = m_staticMeshPool.get();
+        desc.commandPool = m_commandPool.get();
+        desc.queuePool = m_queuePool.get();
+        desc.width = m_swapChain->width();
+        desc.height = m_swapChain->height();
+
+        a_outFrameGraph = std::make_unique<FrameGraph>(desc);
+        return Result::ok();
     }
 }

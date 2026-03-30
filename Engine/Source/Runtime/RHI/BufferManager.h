@@ -43,6 +43,9 @@ namespace Cue::RHI
         virtual Result create_buffer(const BufferDesc& desc, BufferHandle& out) = 0;
         virtual Result destroy_buffer(BufferHandle handle) = 0;
 
+        // --- 名前からバッファハンドルの取得 ---
+        virtual Result get_buffer(std::string_view name, BufferHandle& out) = 0;
+
         // --- アップローダーの作成 ---
         virtual Result get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView) = 0;
 

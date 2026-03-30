@@ -17,6 +17,7 @@
 #include "DX12BufferManager.h"
 #include "DX12TextureManager.h"
 #include "DX12ViewManager.h"
+#include "DX12PipelineManager.h"
 #include "ResourceUploader.h"
 #include "DX12StaticMeshPool.h"
 
@@ -38,7 +39,7 @@ namespace Cue::RHI::DX12
         Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
         /// @brief 指定フレームの提示処理を実行します。
-        Result present(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
+        Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
 
         /// @brief FrameGraph を生成します。
         Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
@@ -64,6 +65,7 @@ namespace Cue::RHI::DX12
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
         std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
+        std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
         std::unique_ptr<ResourceUploader> m_resourceUploader = nullptr; // リソースアップローダ
         std::unique_ptr<DX12StaticMeshPool> m_staticMeshPool = nullptr; // 静的メッシュプール
     };

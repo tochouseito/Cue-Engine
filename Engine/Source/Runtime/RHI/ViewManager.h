@@ -41,5 +41,8 @@ namespace Cue::RHI
         // --- ビューの生成と破棄 ---
         virtual Result create_view(const ViewDesc& desc, ViewHandle& out) = 0;
         virtual Result destroy_view(ViewHandle handle) = 0;
+
+        // --- 名前からビューのハンドルの取得 ---
+        virtual Result get_view(std::string_view name, ViewHandle& out) = 0;
     };
 }

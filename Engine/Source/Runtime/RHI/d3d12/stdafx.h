@@ -131,6 +131,22 @@ namespace Cue::RHI::DX12
         }
     }
 
+    inline ColorFormat convert_color_format(DXGI_FORMAT format)
+    {
+        switch (format)
+        {
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+            return ColorFormat::R8G8B8A8_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+            return ColorFormat::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+            return ColorFormat::D24_UNorm_S8_UInt;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid DXGI format for color format conversion.");
+            return ColorFormat::R8G8B8A8_UNORM;
+        }
+    }
+
     inline D3D12_COMMAND_LIST_TYPE convert_command_list_type(CommandListType type)
     {
         switch (type)
@@ -160,6 +176,38 @@ namespace Cue::RHI::DX12
         default:
             CUE_ASSERT_MSG(false, "Invalid D3D12 command list type.");
             return CommandListType::Graphics;
+        }
+    }
+
+    inline D3D12_PRIMITIVE_TOPOLOGY_TYPE convert_primitive_topology_type(PrimitiveTopologyType type)
+    {
+        switch (type)
+        {
+        case PrimitiveTopologyType::Point:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        case PrimitiveTopologyType::Line:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        case PrimitiveTopologyType::Triangle:
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid primitive topology type.");
+            return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+        }
+    }
+
+    inline D3D12_PRIMITIVE_TOPOLOGY convert_primitive_topology(PrimitiveTopologyType type)
+    {
+        switch (type)
+        {
+        case PrimitiveTopologyType::Point:
+            return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        case PrimitiveTopologyType::Line:
+            return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+        case PrimitiveTopologyType::Triangle:
+            return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        default:
+            CUE_ASSERT_MSG(false, "Invalid primitive topology type.");
+            return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
         }
     }
 }
