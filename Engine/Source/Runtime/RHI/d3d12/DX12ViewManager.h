@@ -35,15 +35,6 @@ namespace Cue::RHI::DX12
         ~DX12ViewManager() override = default;
         Result create_view(const ViewDesc& desc, ViewHandle& out) override;
         Result destroy_view(ViewHandle handle) override;
-        Result clear_render_target(
-            ICommandContext& commandContext,
-            ViewHandle handle,
-            uint32_t frameIndex,
-            const std::array<float, 4>& clearColor) override;
-        bool try_get_record(ViewHandle handle, const DX12ViewRecord*& outRecord) const;
-        bool try_get_default_table(ViewHandle handle, uint32_t frameIndex, TableID& outTable) const;
-        bool try_get_upload_table(ViewHandle handle, uint32_t frameIndex, TableID& outTable) const;
-        DescriptorAllocator& descriptor_allocator() noexcept { return m_descriptorAllocator; }
     private:
         DX12BufferManager& m_bufferManager;
         DX12TextureManager& m_textureManager;

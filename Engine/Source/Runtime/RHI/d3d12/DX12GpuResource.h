@@ -73,46 +73,6 @@ namespace Cue::RHI::DX12
             return Result::ok();
         }
 
-        Result adopt_existing(
-            ComPtr<ID3D12Resource>&& resource,
-            D3D12_RESOURCE_STATES initialState,
-            std::wstring_view name)
-        {
-            // 1) 外部リソースの受け取り前に既存参照を消して、二重所有を避けます。
-            if (m_resource)
-            {
-                const bool destroyed = destroy();
-                if (!destroyed)
-                {
-                    return Result::fail(
-                        Code::AccessDenied,
-                        Severity::Error,
-                        "Failed to replace an in-use D3D12 resource.");
-                }
-            }
-
-            // 2) 受け取った外部リソースをこの wrapper の管理対象へ切り替えます。
-            m_resource = std::move(resource);
-            if (!m_resource)
-            {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "Cannot adopt a null D3D12 resource.");
-            }
-
-            // 3) 状態と記述子を同期して、通常生成リソースと同じ経路で扱えるようにします。
-            if (!name.empty())
-            {
-                std::wstring nameStr(name);
-                m_resource->SetName(nameStr.c_str());
-            }
-            m_currentState = initialState;
-            m_resourceDesc = m_resource->GetDesc();
-            m_bufferSize = static_cast<uint64_t>(m_resourceDesc.Width);
-            return Result::ok();
-        }
-
         Result map_persistent()
         {
             // 1) 未生成リソースへの Map を防ぎ、呼び出し順の破綻を早期に止める。

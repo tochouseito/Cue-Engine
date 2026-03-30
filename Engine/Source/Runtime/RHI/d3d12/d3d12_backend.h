@@ -16,7 +16,6 @@
 #include "SwapChain.h"
 #include "DX12BufferManager.h"
 #include "DX12TextureManager.h"
-#include "DX12PipelineManager.h"
 #include "DX12ViewManager.h"
 #include "ResourceUploader.h"
 #include "DX12StaticMeshPool.h"
@@ -64,10 +63,8 @@ namespace Cue::RHI::DX12
         std::unique_ptr<SwapChain> m_swapChain = nullptr; // スワップチェイン
         std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
         std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
-        std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
         std::unique_ptr<ResourceUploader> m_resourceUploader = nullptr; // リソースアップローダ
         std::unique_ptr<DX12StaticMeshPool> m_staticMeshPool = nullptr; // 静的メッシュプール
-        TextureHandle m_swapChainTextureHandle = {};
     };
 }

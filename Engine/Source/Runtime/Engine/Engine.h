@@ -58,7 +58,5 @@ namespace Cue
         PAL::IPlatform* m_platform = nullptr;
         RHI::IBackend* m_backend = nullptr;
         std::unique_ptr<FrameController> m_frameController = nullptr;
-        std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
-        std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
     };
 }

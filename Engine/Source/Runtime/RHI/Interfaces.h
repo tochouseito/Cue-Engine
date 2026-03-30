@@ -104,9 +104,6 @@ namespace Cue::RHI
         ICommandPool(ICommandPool&&) = default;
         ICommandPool& operator=(ICommandPool&&) = default;
         virtual ~ICommandPool() = default;
-
-        virtual Result get_command_context(CommandListType type, CommandContextLease& outContext) = 0;
-        virtual Result return_command_context(CommandContextLease& context) = 0;
     };
 
     /// @brief キュープールの共通インターフェースです。
@@ -121,8 +118,5 @@ namespace Cue::RHI
         IQueuePool(IQueuePool&&) = default;
         IQueuePool& operator=(IQueuePool&&) = default;
         virtual ~IQueuePool() = default;
-
-        virtual Result get_queue_context(CommandListType type, QueueContextLease& outContext) = 0;
-        virtual Result return_queue_context(QueueContextLease& context) = 0;
     };
 }

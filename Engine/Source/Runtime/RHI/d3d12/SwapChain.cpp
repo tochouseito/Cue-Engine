@@ -46,6 +46,9 @@ namespace Cue::RHI::DX12
         }
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
+        // vsync 併用向けレイテンシ設定
+        m_swapChain->SetMaximumFrameLatency(bufferCount);
+
         // os 標準 full screen 遷移無効化
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
             a_hwnd,
@@ -53,7 +56,6 @@ namespace Cue::RHI::DX12
 
         // rtv 作成
         m_rtvTableIDs.resize(bufferCount);
-        m_backBuffers.resize(bufferCount);
         for (uint32_t i = 0; i < bufferCount; ++i)
         {
             ComPtr<ID3D12Resource> pResource;
@@ -65,7 +67,6 @@ namespace Cue::RHI::DX12
             TableID rtvTableID = m_descriptorAllocator.allocate(TableKind::RenderTargets);
             m_descriptorAllocator.create_rtv(rtvTableID, pResource.Get(), format);
             m_rtvTableIDs[i] = rtvTableID;
-            m_backBuffers[i] = pResource;
         }
 
         return Result::ok();
@@ -89,16 +90,5 @@ namespace Cue::RHI::DX12
                 "Failed to present SwapChain.");
         }
         return Result::ok();
-    }
-
-    uint32_t SwapChain::current_back_buffer_index() const
-    {
-        // 1) DXGI が管理する現在の backbuffer index を FrameGraph import 解決に使います。
-        if (!m_swapChain)
-        {
-            return 0;
-        }
-
-        return m_swapChain->GetCurrentBackBufferIndex();
     }
 }
