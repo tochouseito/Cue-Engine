@@ -109,6 +109,8 @@ namespace Cue::Editor
 
             // バックバッファをクリアしておく。これがないと imgui の一部が描画されないことがある。
             commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
+            commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
+            commandContext->set_viewport_scissor(context.width(), context.height());
 
             // 3) native command list へ imgui 描画を流す
             void* nativeCommandList = commandContext->native_command_list();
