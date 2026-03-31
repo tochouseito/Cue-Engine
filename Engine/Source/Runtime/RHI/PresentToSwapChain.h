@@ -53,7 +53,7 @@ namespace Cue::RHI
             // コピー元になる finalColor を用意し、スワップチェインとは異なる色でクリアできるようにする。
             TextureDesc finalColorDesc{};
             finalColorDesc.name = "FinalColor";
-            finalColorDesc.bufferCount = builder.buffer_count();
+            finalColorDesc.bufferCount = 1;
             finalColorDesc.kind = TextureKind::RenderTarget;
             finalColorDesc.width = builder.width();
             finalColorDesc.height = builder.height();

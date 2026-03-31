@@ -63,6 +63,7 @@ namespace Cue::RHI::DX12
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
     private:
         DescriptorAllocator& m_descriptorAllocator; // デスクリプタアロケータへの参照
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照

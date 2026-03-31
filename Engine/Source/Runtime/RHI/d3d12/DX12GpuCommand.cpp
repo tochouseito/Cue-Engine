@@ -141,7 +141,16 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Buffer record was not found for the given handle.");
         }
-        DX12GpuResource* resource = &record->defaultResources[m_frameIndex];
+        uint32_t resourceIndex = 0;
+        Result result = resolve_slice_index(record->defaultResources.size(), resourceIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve buffer slice index for the current frame.");
+        }
+        DX12GpuResource* resource = &record->defaultResources[resourceIndex];
         ID3D12Resource* d3dResource = resource->get_resource();
         if (d3dResource == nullptr)
         {
@@ -175,7 +184,16 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Texture record was not found for the given handle.");
         }
-        DX12GpuResource* resource = &record->defaultResources[m_frameIndex];
+        uint32_t resourceIndex = 0;
+        Result result = resolve_slice_index(record->defaultResources.size(), resourceIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve texture slice index for the current frame.");
+        }
+        DX12GpuResource* resource = &record->defaultResources[resourceIndex];
         ID3D12Resource* d3dResource = resource->get_resource();
         if (d3dResource == nullptr)
         {
@@ -218,7 +236,16 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "The view type of the given handle is not RenderTarget.");
         }
-        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
+        uint32_t descriptorIndex = 0;
+        Result result = resolve_slice_index(record->defaultTableIds.size(), descriptorIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve render target descriptor index for the current frame.");
+        }
+        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[descriptorIndex]);
 
         // RenderTarget のクリア
         m_commandList->ClearRenderTargetView(cpuHandle, clearColor, 0, nullptr);
@@ -246,7 +273,16 @@ namespace Cue::RHI::DX12
                 "The view type of the given handle is not DepthStencil.");
         }
 
-        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
+        uint32_t descriptorIndex = 0;
+        Result result = resolve_slice_index(record->defaultTableIds.size(), descriptorIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve depth stencil descriptor index for the current frame.");
+        }
+        auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[descriptorIndex]);
 
         // DepthStencil のクリア
         m_commandList->ClearDepthStencilView(
@@ -357,15 +393,17 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "View record was not found for the given handle.");
         }
-        if (m_frameIndex >= viewRecord->defaultTableIds.size())
+        uint32_t descriptorIndex = 0;
+        Result result = resolve_slice_index(viewRecord->defaultTableIds.size(), descriptorIndex);
+        if (!result)
         {
             return Result::fail(
-                Code::InvalidArgument,
+                result.code,
                 Severity::Error,
-                "Frame index is out of range for the descriptor table.");
+                "Failed to resolve descriptor table index for the current frame.");
         }
 
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorAllocator.get_gpu_handle(viewRecord->defaultTableIds[m_frameIndex]);
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorAllocator.get_gpu_handle(viewRecord->defaultTableIds[descriptorIndex]);
         m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
         return Result::ok();
     }
@@ -401,7 +439,16 @@ namespace Cue::RHI::DX12
                     Severity::Error,
                     "The view type of the given render target handle is not RenderTarget.");
             }
-            rtvHandles[i] = m_descriptorAllocator.get_cpu_handle(rtvRecord->defaultTableIds[m_frameIndex]);
+            uint32_t descriptorIndex = 0;
+            Result result = resolve_slice_index(rtvRecord->defaultTableIds.size(), descriptorIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve render target descriptor index for the current frame.");
+            }
+            rtvHandles[i] = m_descriptorAllocator.get_cpu_handle(rtvRecord->defaultTableIds[descriptorIndex]);
         }
 
         // DSV ハンドルを CPU デスクリプタハンドルに変換する。
@@ -423,7 +470,16 @@ namespace Cue::RHI::DX12
                     Severity::Error,
                     "The view type of the given depth stencil handle is not DepthStencil.");
             }
-            dsvHandle = m_descriptorAllocator.get_cpu_handle(dsvRecord->defaultTableIds[m_frameIndex]);
+            uint32_t descriptorIndex = 0;
+            Result result = resolve_slice_index(dsvRecord->defaultTableIds.size(), descriptorIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve depth stencil descriptor index for the current frame.");
+            }
+            dsvHandle = m_descriptorAllocator.get_cpu_handle(dsvRecord->defaultTableIds[descriptorIndex]);
         }
 
         // レンダーターゲットとデプスステンシルをセットする。
@@ -482,6 +538,34 @@ namespace Cue::RHI::DX12
         }
         set_d3d12_name(m_commandAllocator.Get(), L"CommandContext CommandAllocator");
 
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const
+    {
+        if (sliceCount == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Slice count must be greater than 0.");
+        }
+
+        // 単一実体のリソースは全フレームで index 0 を共有し、frame-local 実体だけ m_frameIndex で切り替える。
+        if (sliceCount == 1)
+        {
+            outIndex = 0;
+            return Result::ok();
+        }
+
+        if (m_frameIndex >= sliceCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Frame index is out of range for the requested resource slice.");
+        }
+
+        outIndex = m_frameIndex;
         return Result::ok();
     }
     Result DX12GpuCommandContext::create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
