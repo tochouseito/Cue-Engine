@@ -37,17 +37,28 @@ namespace Cue::Editor
         initInfo.LegacySingleSrvCpuDescriptor = a_info.fontSrvCpuDescHandle;
         initInfo.LegacySingleSrvGpuDescriptor = a_info.fontSrvGpuDescHandle;
         ImGui_ImplDX12_Init(&initInfo);
+        m_isInitialized = true;
     }
     ImGuiManager::~ImGuiManager()
-    {}
+    {
+        shutdown();
+    }
     void ImGuiManager::shutdown()
     {
+        if (!m_isInitialized)
+        {
+            return;
+        }
+
+        m_isBeginFrameCalled = false;
+
         // プラットフォーム/レンダラーのシャットダウン
         ImGui_ImplDX12_Shutdown();
         ImGui_ImplWin32_Shutdown();
 
         // imgui コンテキスト破棄
         ImGui::DestroyContext();
+        m_isInitialized = false;
     }
     Result ImGuiManager::begin_frame()
     {

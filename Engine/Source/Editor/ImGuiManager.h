@@ -53,6 +53,7 @@ namespace Cue::Editor
         Result render(ID3D12GraphicsCommandList* commandList);
     private:
         std::atomic_bool m_isBeginFrameCalled = false;
+        bool m_isInitialized = false;
         const char* m_layoutFilePath = "config/imgui_layout.ini";
     };
 

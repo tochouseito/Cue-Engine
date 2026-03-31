@@ -130,6 +130,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engine.reset();
 
     // ImGui マネージャのシャットダウン
+    imGuiManager->shutdown();
     imGuiManager.reset();
 
     // ImGui メッセージハンドラの解除
