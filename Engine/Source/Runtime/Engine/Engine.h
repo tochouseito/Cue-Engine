@@ -17,7 +17,6 @@ namespace Cue
     {
         PAL::IPlatform* platform = nullptr;
         RHI::IBackend* backend = nullptr;
-        uint32_t bufferCount = 0;
         uint32_t maxFps = 60;
     };
 

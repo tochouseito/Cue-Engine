@@ -2,7 +2,7 @@
 
 namespace Cue::RHI::DX12
 {
-    Result SwapChain::create(HWND a_hwnd, uint32_t width, uint32_t height, uint32_t bufferCount, DX12GpuCommandQueue& commandQueue, DXGI_FORMAT format)
+    Result SwapChain::create(HWND a_hwnd, uint32_t width, uint32_t height, const uint32_t& bufferCount, DX12GpuCommandQueue& commandQueue, DXGI_FORMAT format)
     {
         m_width = width;
         m_height = height;

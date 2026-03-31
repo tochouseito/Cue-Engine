@@ -12,6 +12,9 @@ namespace Cue::RHI::DX12
 {
     Result D3D12Backend::initialize(const BackendSetupInfo& a_info)
     {
+        // バッファ数を保存
+        m_bufferCount = a_info.bufferCount;
+
         // バックエンドが使うデバイスを先に確定しないと後続リソースを構築できません。
         m_renderDevice = std::make_unique<DX12::DX12RenderDevice>();
         Result r = m_renderDevice->initialize(a_info.enableDebugLayer);
@@ -112,7 +115,7 @@ namespace Cue::RHI::DX12
         desc.width = m_swapChain->width();
         desc.height = m_swapChain->height();
 
-        a_outFrameGraph = std::make_unique<FrameGraph>(desc);
+        a_outFrameGraph = std::make_unique<FrameGraph>(desc, m_bufferCount);
         return Result::ok();
     }
 }

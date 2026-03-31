@@ -32,6 +32,36 @@ namespace Cue::RHI
         return m_frameGraph.m_desc.viewManager->get_view(name, out);
     }
 
+    Result FrameGraphBuilder::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->create_root_signature(desc, out);
+    }
+
+    Result FrameGraphBuilder::get_root_signature(std::string_view name, RootSignatureHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->get_root_signature(name, out);
+    }
+
+    Result FrameGraphBuilder::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->create_shader_blob(desc, out);
+    }
+
+    Result FrameGraphBuilder::get_shader_blob(std::string_view name, ShaderBlobHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->get_shader_blob(name, out);
+    }
+
+    Result FrameGraphBuilder::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->create_graphics_pipeline(desc, out);
+    }
+
+    Result FrameGraphBuilder::get_graphics_pipeline(std::string_view name, PipelineStateHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->get_graphics_pipeline(name, out);
+    }
+
     Result FrameGraphBuilder::render(const TextureHandle* handles, size_t count)
     {
         m_renderTargets.clear();
@@ -49,8 +79,23 @@ namespace Cue::RHI
         return Result::ok();
     }
 
-    FrameGraph::FrameGraph(const FrameGraphDesc& desc)
-        : m_desc(desc)
+    uint32_t FrameGraphBuilder::width() const noexcept
+    {
+        return m_frameGraph.m_desc.width;
+    }
+
+    uint32_t FrameGraphBuilder::height() const noexcept
+    {
+        return m_frameGraph.m_desc.height;
+    }
+
+    const uint32_t& FrameGraphBuilder::buffer_count() const noexcept
+    {
+        return m_frameGraph.m_bufferCount;
+    }
+
+    FrameGraph::FrameGraph(const FrameGraphDesc& desc, const uint32_t& bufferCount)
+        : m_desc(desc), m_bufferCount(bufferCount)
     {
 
     }
@@ -60,7 +105,11 @@ namespace Cue::RHI
         for (auto& compiledPass : m_passes)
         {
             FrameGraphBuilder builder(*this);
-            compiledPass.pass->setup(builder);
+            Result result = compiledPass.pass->setup(builder);
+            if (!result)
+            {
+                return result;
+            }
         }
         return Result::ok();
     }

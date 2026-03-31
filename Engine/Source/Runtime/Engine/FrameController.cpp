@@ -135,13 +135,13 @@ namespace Cue
         }
 
         bool isRunning = true;
-        if (m_config.m_bufferCount == 1)
+        if (m_desc.m_bufferCount == 1)
         {
             isRunning = step_single_buffer();
         }
         else
         {
-            switch (m_config.m_mode)
+            switch (m_desc.m_mode)
             {
             case ControllerMode::Fixed:
                 isRunning = step_fixed();
@@ -171,20 +171,20 @@ namespace Cue
     {
         // 設定値を検証する
         // 初期バッファを設定して開始状態を作る
-        CUE_ASSERT_MSG((m_config.m_bufferCount >= 1), "bufferCount < 1");
+        CUE_ASSERT_MSG((m_desc.m_bufferCount >= 1), "bufferCount < 1");
         CUE_ASSERT_MSG(static_cast<bool>(m_updateFunc), "updateFunc is null.");
         CUE_ASSERT_MSG(static_cast<bool>(m_renderFunc), "renderFunc is null.");
         CUE_ASSERT_MSG(static_cast<bool>(m_presentFunc), "presentFunc is null.");
-        m_frameCounter.set_max_fps(m_config.m_maxFps);
-        m_frameCounter.set_max_lead(m_config.m_bufferCount - 1);
-        m_maxLead = static_cast<uint64_t>(m_config.m_bufferCount - 1);
+        m_frameCounter.set_max_fps(m_desc.m_maxFps);
+        m_frameCounter.set_max_lead(m_desc.m_bufferCount - 1);
+        m_maxLead = static_cast<uint64_t>(m_desc.m_bufferCount - 1);
         m_backBufferBase = 0;
         m_fixedState = FixedState{};
         m_mailboxState = MailboxState{};
         m_backpressureState = BackpressureState{};
         m_singleState = SingleBufferState{};
 
-        if (m_config.m_bufferCount > 1)
+        if (m_desc.m_bufferCount > 1)
         {
             fill_buffers(0);
         }
@@ -252,7 +252,7 @@ namespace Cue
         uint32_t updateIndex = 0;
         uint32_t renderIndex = 0;
         uint32_t presentIndex = 0;
-        compute_indices(frameNo, m_config.m_bufferCount, updateIndex, renderIndex, presentIndex);
+        compute_indices(frameNo, m_desc.m_bufferCount, updateIndex, renderIndex, presentIndex);
         (void)updateIndex;
         (void)renderIndex;
 
@@ -263,7 +263,7 @@ namespace Cue
     {
         // リサイズ後にインデックスが揃うよう基準を合わせる
         // 次フレームの基準位置を更新する
-        const uint32_t bufferCount = m_config.m_bufferCount;
+        const uint32_t bufferCount = m_desc.m_bufferCount;
         const uint32_t mod = static_cast<uint32_t>(nextFrameNo % bufferCount);
         m_backBufferBase = (bufferCount - mod) % bufferCount;
     }
@@ -271,7 +271,7 @@ namespace Cue
     {
         // 全バッファを走査して更新する
         // 初回 Present で欠けが出ないよう順に埋める
-        for (uint32_t i = 0; i < m_config.m_bufferCount; ++i)
+        for (uint32_t i = 0; i < m_desc.m_bufferCount; ++i)
         {
             m_updateFunc(frameNo, i);
         }
@@ -289,7 +289,7 @@ namespace Cue
         uint32_t updateIndex = 0;
         uint32_t renderIndex = 0;
         uint32_t presentIndex = 0;
-        compute_indices(m_singleState.m_currentFrame, m_config.m_bufferCount, updateIndex, renderIndex, presentIndex);
+        compute_indices(m_singleState.m_currentFrame, m_desc.m_bufferCount, updateIndex, renderIndex, presentIndex);
         (void)presentIndex;
 
         m_updateFunc(m_singleState.m_currentFrame, updateIndex);
@@ -318,7 +318,7 @@ namespace Cue
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_fixedState.m_produceFrame, m_config.m_bufferCount, updateIndex, renderIndex, presentIndex);
+            compute_indices(m_fixedState.m_produceFrame, m_desc.m_bufferCount, updateIndex, renderIndex, presentIndex);
             (void)presentIndex;
 
             m_updateJob.kick(m_fixedState.m_produceFrame, updateIndex);
@@ -368,7 +368,7 @@ namespace Cue
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_mailboxState.m_produceFrame, m_config.m_bufferCount, updateIndex, renderIndex, presentIndex);
+            compute_indices(m_mailboxState.m_produceFrame, m_desc.m_bufferCount, updateIndex, renderIndex, presentIndex);
             (void)presentIndex;
 
             m_updateJob.kick(m_mailboxState.m_produceFrame, updateIndex);
@@ -427,7 +427,7 @@ namespace Cue
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_backpressureState.m_currentFrame, m_config.m_bufferCount,
+            compute_indices(m_backpressureState.m_currentFrame, m_desc.m_bufferCount,
                 updateIndex, renderIndex, presentIndex);
             (void)presentIndex;
 

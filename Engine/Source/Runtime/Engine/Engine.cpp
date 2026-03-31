@@ -16,8 +16,7 @@ namespace Cue
         m_backend = a_info.backend;
 
         // フレームコントローラーの生成
-        FrameControllerDesc desc{};
-        desc.m_bufferCount = a_info.bufferCount;
+        FrameControllerDesc desc(m_backend->buffer_count());
         desc.m_mode = ControllerMode::Fixed;
         desc.m_maxFps = a_info.maxFps;
         m_frameController = std::make_unique<FrameController>(
@@ -39,7 +38,14 @@ namespace Cue
 
         m_presentFrameGraph->add_pass(std::make_unique<RHI::PresentToSwapChainPass>());
 
-        m_presentFrameGraph->build();
+        result = m_presentFrameGraph->build();
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Fatal,
+                "Failed to build present frame graph.");
+        }
 
         return Result::ok();
     }

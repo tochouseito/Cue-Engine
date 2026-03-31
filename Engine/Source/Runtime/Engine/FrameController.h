@@ -29,7 +29,11 @@ namespace Cue
 
     struct FrameControllerDesc final
     {
-        uint32_t m_bufferCount = 1;
+        FrameControllerDesc(const uint32_t& a_bufferCount)
+            : m_bufferCount(a_bufferCount)
+        {
+        }
+        const uint32_t& m_bufferCount;
         uint32_t m_maxFps = 60;
         ControllerMode m_mode = ControllerMode::Fixed;
     };
@@ -83,7 +87,7 @@ namespace Cue
         /// @brief 生成
         FrameController(const FrameControllerDesc& config, ThreadFactory& threadFactory, const Clock& clock, Waiter& waiter,
             const UpdateFunc& updateFunc, const RenderFunc& renderFunc, const PresentFunc& presentFunc)
-            : m_config(config)
+            : m_desc(config)
             , m_threadFactory(threadFactory)
             , m_waiter(waiter)
             , m_frameCounter(clock, waiter)
@@ -185,7 +189,7 @@ namespace Cue
         /// @brief backpressure 進行
         bool step_backpressure();
 
-        FrameControllerDesc m_config;
+        FrameControllerDesc m_desc;
         ThreadFactory& m_threadFactory;
         Waiter& m_waiter;
         Core::Time::FrameCounter m_frameCounter;

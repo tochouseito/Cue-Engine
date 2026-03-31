@@ -28,7 +28,7 @@ namespace Cue::RHI::DX12
             HWND a_hwnd,
             uint32_t width,
             uint32_t height,
-            uint32_t bufferCount,
+            const uint32_t& bufferCount,
             DX12GpuCommandQueue& commandQueue,
             DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM);
 

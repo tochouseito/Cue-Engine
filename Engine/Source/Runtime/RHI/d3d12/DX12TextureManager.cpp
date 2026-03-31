@@ -45,13 +45,25 @@ namespace Cue::RHI::DX12
             resourceDesc.Flags = desc.kind == TextureKind::RenderTarget ? D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET :
                                  desc.kind == TextureKind::DepthStencil ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL :
                                  D3D12_RESOURCE_FLAG_NONE;
-            // クリア値の設定
+            // RenderTarget / DepthStencil には最適化クリア値を渡して、Clear 時のデバッグ警告を抑止する。
             D3D12_CLEAR_VALUE clearValue = {};
-            clearValue.Format = convert_color_format(desc.format);
-            clearValue.Color[0] = desc.clearColor[0];
-            clearValue.Color[1] = desc.clearColor[1];
-            clearValue.Color[2] = desc.clearColor[2];
-            clearValue.Color[3] = desc.clearColor[3];
+            const D3D12_CLEAR_VALUE* clearValuePtr = nullptr;
+            if (desc.kind == TextureKind::RenderTarget)
+            {
+                clearValue.Format = convert_color_format(desc.format);
+                clearValue.Color[0] = desc.clearColor[0];
+                clearValue.Color[1] = desc.clearColor[1];
+                clearValue.Color[2] = desc.clearColor[2];
+                clearValue.Color[3] = desc.clearColor[3];
+                clearValuePtr = &clearValue;
+            }
+            else if (desc.kind == TextureKind::DepthStencil)
+            {
+                clearValue.Format = convert_color_format(desc.format);
+                clearValue.DepthStencil.Depth = desc.clearDepth;
+                clearValue.DepthStencil.Stencil = desc.clearStencil;
+                clearValuePtr = &clearValue;
+            }
 
             // ヒーププロパティの設定
             D3D12_HEAP_PROPERTIES heapProperties = {};
@@ -68,7 +80,7 @@ namespace Cue::RHI::DX12
                 heapFlags,
                 resourceDesc,
                 D3D12_RESOURCE_STATE_COMMON,
-                nullptr,
+                clearValuePtr,
                 name);
             // 成功したらレコードに追加
             record.defaultResources.emplace_back(std::move(resource));

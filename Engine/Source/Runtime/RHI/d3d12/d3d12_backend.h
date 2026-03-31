@@ -53,6 +53,11 @@ namespace Cue::RHI::DX12
         IViewManager* get_view_manager() override { return m_viewManager.get(); }
         IStaticMeshPool* get_static_mesh_pool() override { return m_staticMeshPool.get(); }
 
+        // --- パラメーターの取得 ---
+        const uint32_t& buffer_count() const noexcept override
+        {
+            return m_bufferCount;
+        }
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー
@@ -68,5 +73,6 @@ namespace Cue::RHI::DX12
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
         std::unique_ptr<ResourceUploader> m_resourceUploader = nullptr; // リソースアップローダ
         std::unique_ptr<DX12StaticMeshPool> m_staticMeshPool = nullptr; // 静的メッシュプール
+        uint32_t m_bufferCount = 0; // バッファ数
     };
 }

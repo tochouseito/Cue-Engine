@@ -42,9 +42,25 @@ namespace Cue::RHI
         Result create_view(const ViewDesc& desc, ViewHandle& out);
         /// @brief 宣言済み view 取得
         Result get_view(std::string_view name, ViewHandle& out);
+        /// @brief ルートシグネチャ作成宣言
+        Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out);
+        /// @brief 宣言済みルートシグネチャ取得
+        Result get_root_signature(std::string_view name, RootSignatureHandle& out);
+        /// @brief シェーダーブロブ作成宣言
+        Result create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out);
+        /// @brief 宣言済みシェーダーブロブ取得
+        Result get_shader_blob(std::string_view name, ShaderBlobHandle& out);
+        /// @brief グラフィックスパイプライン作成宣言
+        Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out);
+        /// @brief 宣言済みグラフィックスパイプライン取得
+        Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out);
 
         /// @brief render target 書き込み宣言
         Result render(const TextureHandle* handles, size_t count);
+
+        uint32_t width() const noexcept;
+        uint32_t height() const noexcept;
+        const uint32_t& buffer_count() const noexcept;
     private:
         FrameGraph& m_frameGraph;
         std::vector<TextureHandle> m_renderTargets;
@@ -99,7 +115,7 @@ namespace Cue::RHI
         friend class FrameGraphBuilder;
         friend class FrameGraphContext;
     public:
-        FrameGraph(const FrameGraphDesc& desc);
+        FrameGraph(const FrameGraphDesc& desc, const uint32_t& bufferCount);
         // コピー禁止
         FrameGraph(const FrameGraph&) = delete;
         FrameGraph& operator=(const FrameGraph&) = delete;
@@ -129,7 +145,8 @@ namespace Cue::RHI
             std::unique_ptr<FrameGraphPass> pass = nullptr;
         };
     private:
-        FrameGraphDesc m_desc{};
+        FrameGraphDesc m_desc;
+        const uint32_t& m_bufferCount;
         std::vector<CompiledPass> m_passes;
     };
 }

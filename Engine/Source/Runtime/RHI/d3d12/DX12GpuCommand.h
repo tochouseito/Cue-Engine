@@ -55,6 +55,8 @@ namespace Cue::RHI::DX12
         Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
+        Result set_graphics_pipeline(PipelineStateHandle handle) override;
+        Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
         Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;
