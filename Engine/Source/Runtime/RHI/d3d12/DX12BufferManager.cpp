@@ -279,7 +279,7 @@ namespace Cue::RHI::DX12
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
-        *outRecord = m_bufferRegistry.get(handle);
+        *outRecord = m_bufferRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
 }

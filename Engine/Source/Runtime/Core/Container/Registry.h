@@ -119,7 +119,7 @@ namespace Cue::Core
         /// @param a_handle 対象ハンドルです。
         /// @param a_outRecord 取得先です。
         /// @return ハンドルが有効な場合は `true` です。
-        [[nodiscard]] bool try_get(handle_type a_handle, Record& a_outRecord) const
+        [[nodiscard]] bool try_copy_get(handle_type a_handle, Record& a_outRecord) const
         {
             if (!is_alive(a_handle))
             {
@@ -132,7 +132,7 @@ namespace Cue::Core
         /// @brief レコードを参照取得します。
         /// @param a_handle 対象ハンドルです。
         /// @return ハンドルが有効な場合はレコードへの参照を返します。無効な場合は `nullptr` です。
-        [[nodiscard]] Record* get(handle_type a_handle)
+        [[nodiscard]] Record* ref_get(handle_type a_handle)
         {
             if (!is_alive(a_handle))
             {
@@ -140,7 +140,7 @@ namespace Cue::Core
             }
             return &m_records[a_handle.index];
         }
-        [[nodiscard]] const Record* get(handle_type a_handle) const
+        [[nodiscard]] const Record* ref_get(handle_type a_handle) const
         {
             if (!is_alive(a_handle))
             {

@@ -123,11 +123,14 @@ namespace Cue::RHI
 
         virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out) = 0;
         virtual Result destroy_graphics_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out) = 0;
 
         virtual Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out) = 0;
         virtual Result destroy_root_signature(RootSignatureHandle handle) = 0;
+        virtual Result get_root_signature(std::string_view name, RootSignatureHandle& out) = 0;
 
         virtual Result create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out) = 0;
         virtual Result destroy_shader_blob(ShaderBlobHandle handle) = 0;
+        virtual Result get_shader_blob(std::string_view name, ShaderBlobHandle& out) = 0;
     };
 }

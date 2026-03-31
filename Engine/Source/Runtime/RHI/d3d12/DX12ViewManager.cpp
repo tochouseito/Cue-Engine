@@ -150,7 +150,7 @@ namespace Cue::RHI::DX12
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
-        *outRecord = m_viewRegistry.get(handle);
+        *outRecord = m_viewRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
     Result DX12ViewManager::create_view_impl(const ViewDesc& desc, DX12GpuResource& resource, std::vector<TableID>& ids)

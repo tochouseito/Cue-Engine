@@ -591,7 +591,7 @@ namespace Cue::RHI::DX12
     {
         // 1) レコードを解決して、常駐領域と名前引きをまとめて巻き戻す。
         StaticMeshRecord record{};
-        if (!m_meshRegistry.try_get(handle, record))
+        if (!m_meshRegistry.try_copy_get(handle, record))
         {
             return Result::fail(
                 Code::NotFound,

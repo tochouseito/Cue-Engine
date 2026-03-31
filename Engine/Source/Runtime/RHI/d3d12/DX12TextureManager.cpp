@@ -176,7 +176,7 @@ namespace Cue::RHI::DX12
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
-        *outRecord = m_textureRegistry.get(handle);
+        *outRecord = m_textureRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
 

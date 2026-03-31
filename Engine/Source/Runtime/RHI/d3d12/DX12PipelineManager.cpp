@@ -176,9 +176,8 @@ namespace Cue::RHI::DX12
         D3D12_DEPTH_STENCIL_DESC depthStencilDesc = convert_depth_stencil_state(desc.depthStencilState);
 
         // ルートシグネチャをRegistryから取得する。
-        ComPtr<ID3D12RootSignature> rootSignature;
-        bool result = m_rootSignatureRegistry.try_get(desc.rootSignatureHandle, rootSignature);
-        if (!result)
+        RootSignatureRecord* rootSignatureRecord = m_rootSignatureRegistry.ref_get(desc.rootSignatureHandle);
+        if (!rootSignatureRecord)
         {
             return Result::fail(
                 Code::NotFound,
@@ -187,18 +186,16 @@ namespace Cue::RHI::DX12
         }
 
         // シェーダーブロブをRegistryから取得する。
-        ComPtr<IDxcBlob> vsBlob;
-        result = m_shaderBlobRegistry.try_get(desc.vsHandle, vsBlob);
-        if (!result)
+        ShaderBlobRecord* vsBlobRecord = m_shaderBlobRegistry.ref_get(desc.vsHandle);
+        if (!vsBlobRecord)
         {
             return Result::fail(
                 Code::NotFound,
                 Severity::Error,
                 "Vertex shader blob not found for the given handle.");
         }
-        ComPtr<IDxcBlob> psBlob;
-        result = m_shaderBlobRegistry.try_get(desc.psHandle, psBlob);
-        if (!result)
+        ShaderBlobRecord* psBlobRecord = m_shaderBlobRegistry.ref_get(desc.psHandle);
+        if (!psBlobRecord)
         {
             return Result::fail(
                 Code::NotFound,
@@ -208,11 +205,11 @@ namespace Cue::RHI::DX12
 
         // D3D12_GRAPHICS_PIPELINE_STATE_DESC を構築する。
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
-        psoDesc.pRootSignature = rootSignature.Get();
-        psoDesc.VS.pShaderBytecode = vsBlob->GetBufferPointer();
-        psoDesc.VS.BytecodeLength = vsBlob->GetBufferSize();
-        psoDesc.PS.pShaderBytecode = psBlob->GetBufferPointer();
-        psoDesc.PS.BytecodeLength = psBlob->GetBufferSize();
+        psoDesc.pRootSignature = rootSignatureRecord->rootSignature.Get();
+        psoDesc.VS.pShaderBytecode = vsBlobRecord->shaderBlob->GetBufferPointer();
+        psoDesc.VS.BytecodeLength = vsBlobRecord->shaderBlob->GetBufferSize();
+        psoDesc.PS.pShaderBytecode = psBlobRecord->shaderBlob->GetBufferPointer();
+        psoDesc.PS.BytecodeLength = psBlobRecord->shaderBlob->GetBufferSize();
         psoDesc.InputLayout = inputLayoutDesc;
         psoDesc.BlendState = blendDesc;
         psoDesc.RasterizerState = rasterizerDesc;
@@ -287,6 +284,18 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
+    Result DX12PipelineManager::get_graphics_pipeline(std::string_view name, PipelineStateHandle& out)
+    {
+        if (!m_pipelineNameMap.contains(Core::fnv1a64(name)))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Pipeline state not found for the given name.");
+        }
+        out = m_pipelineNameMap[Core::fnv1a64(name)];
+        return Result::ok();
+    }
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
         // D3D12_ROOT_SIGNATURE_DESC を構築する。
@@ -346,12 +355,12 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Failed to serialize root signature");
         }
-        ComPtr<ID3D12RootSignature> rootSignature;
+        RootSignatureRecord rootSigRecord{};
         hr = m_renderDevice.get_d3d12_device()->CreateRootSignature(
             0,
             serializedRootSig->GetBufferPointer(),
             serializedRootSig->GetBufferSize(),
-            IID_PPV_ARGS(&rootSignature));
+            IID_PPV_ARGS(&rootSigRecord.rootSignature));
         if (FAILED(hr))
         {
             return Result::fail(
@@ -361,7 +370,7 @@ namespace Cue::RHI::DX12
         }
 
         // 作成したルートシグネチャをRegistryに登録する。
-        RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSignature);
+        RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSigRecord);
 
         // 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
@@ -404,18 +413,30 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
+    Result DX12PipelineManager::get_root_signature(std::string_view name, RootSignatureHandle& out)
+    {
+        if (!m_rootSignatureNameMap.contains(Core::fnv1a64(name)))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Root signature not found for the given name.");
+        }
+        out = m_rootSignatureNameMap[Core::fnv1a64(name)];
+        return Result::ok();
+    }
     Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
         // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない。
-        ComPtr<IDxcBlob> blob = nullptr;
-        Result result = m_hlslCompiler.compile_shader_raw(desc, &blob);
+        ShaderBlobRecord blobRecord{};
+        Result result = m_hlslCompiler.compile_shader_raw(desc, &blobRecord.shaderBlob);
         if (!result)
         {
             return result;
         }
 
         // コンパイル成功時だけレジストリと名前引きを更新する。
-        ShaderBlobHandle handle = m_shaderBlobRegistry.create(blob);
+        ShaderBlobHandle handle = m_shaderBlobRegistry.create(blobRecord);
 
         // 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
@@ -458,5 +479,41 @@ namespace Cue::RHI::DX12
         }
 
         return Result::ok();
+    }
+    Result DX12PipelineManager::get_shader_blob(std::string_view name, ShaderBlobHandle& out)
+    {
+        if (m_shaderBlobNameMap.contains(Core::fnv1a64(name)))
+        {
+            out = m_shaderBlobNameMap[Core::fnv1a64(name)];
+            return Result::ok();
+        }
+        else
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer with the given name was not found.");
+        }
+    }
+    bool DX12PipelineManager::try_get_graphics_pipeline(PipelineStateHandle handle, DX12GraphicsPipelineRecord** outRecord)
+    {
+        // ハンドルの解決とレコードの取得
+        *outRecord = nullptr;
+        *outRecord = m_pipelineRegistry.ref_get(handle);
+        return *outRecord != nullptr;
+    }
+    bool DX12PipelineManager::try_get_root_signature(RootSignatureHandle handle, RootSignatureRecord** outRecord)
+    {
+        // ハンドルの解決とルートシグネチャの取得
+        *outRecord = nullptr;
+        *outRecord = m_rootSignatureRegistry.ref_get(handle);
+        return *outRecord != nullptr;
+    }
+    bool DX12PipelineManager::try_get_shader_blob(ShaderBlobHandle handle, ShaderBlobRecord** outRecord)
+    {
+        // ハンドルの解決とシェーダーブロブの取得
+        *outRecord = nullptr;
+        *outRecord = m_shaderBlobRegistry.ref_get(handle);
+        return *outRecord != nullptr;
     }
 }
