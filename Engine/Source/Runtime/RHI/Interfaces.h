@@ -138,7 +138,7 @@ namespace Cue::RHI
         ICommandContext& operator=(ICommandContext&&) = default;
         virtual ~ICommandContext() = default;
 
-        virtual Result setup(uint32_t frameIndex) = 0;
+        virtual Result setup(uint32_t frameIndex, uint32_t bufferCount) = 0;
         virtual Result reset() = 0;
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;

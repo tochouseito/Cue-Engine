@@ -124,7 +124,7 @@ namespace Cue::RHI
 
             // コマンドコンテキストをセットアップ
             commandContext->reset();
-            commandContext->setup(frameIndex);
+            commandContext->setup(frameIndex, m_bufferCount);
 
             // パスの実行
             FrameGraphContext context{ FrameGraphContextDesc{ m_desc.width, m_desc.height, frameIndex, commandContext.get()}};

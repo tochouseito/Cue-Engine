@@ -27,15 +27,18 @@ namespace Cue::RHI::DX12
 
         m_type = convert_command_list_type(type);
     }
-    Result DX12GpuCommandContext::setup(uint32_t frameIndex)
+    Result DX12GpuCommandContext::setup(uint32_t frameIndex, uint32_t bufferCount)
     {
         // copy command list は descriptor heap を扱えないため、setup は no-op で返す。
         if (type() == CommandListType::Copy)
         {
+            m_frameIndex = frameIndex;
+            m_bufferCount = bufferCount;
             return Result::ok();
         }
 
         m_frameIndex = frameIndex;
+        m_bufferCount = bufferCount;
         auto srvHeap = m_descriptorAllocator.get_descriptor_heap(HeapType::CBV_SRV_UAV);
         m_commandList->SetDescriptorHeaps(1, &srvHeap);
         return Result::ok();
@@ -555,6 +558,14 @@ namespace Cue::RHI::DX12
         {
             outIndex = 0;
             return Result::ok();
+        }
+
+        if (sliceCount != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Slice count must be 1 or match the global buffer count.");
         }
 
         if (m_frameIndex >= sliceCount)

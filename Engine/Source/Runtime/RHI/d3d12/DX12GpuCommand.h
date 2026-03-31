@@ -35,7 +35,7 @@ namespace Cue::RHI::DX12
         DX12GpuCommandContext& operator=(DX12GpuCommandContext&&) = default;
         ~DX12GpuCommandContext() override = default;
 
-        Result setup(uint32_t frameIndex) override;
+        Result setup(uint32_t frameIndex, uint32_t bufferCount) override;
         Result reset() override;
         Result close() override;
         CommandListType type() const override;
@@ -74,6 +74,7 @@ namespace Cue::RHI::DX12
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
         CommandListType m_type = CommandListType::Graphics;
         uint32_t m_frameIndex = 0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
+        uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
     };
 
     class DX12CommandPool final : public ICommandPool
