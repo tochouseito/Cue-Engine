@@ -39,6 +39,7 @@ namespace Cue::RHI::DX12
         Result reset() override;
         Result close() override;
         CommandListType type() const override;
+        void* native_command_list() const override { return m_commandList.Get(); }
 
         // --- 取得 ---
         ID3D12GraphicsCommandList* d3d12_command_list() const { return m_commandList.Get(); }

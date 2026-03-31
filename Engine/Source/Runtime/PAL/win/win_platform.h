@@ -23,6 +23,8 @@ namespace Cue::PAL::Win
     class WinPlatform final : public IPlatform
     {
     public:
+        using MessageHandler = std::function<LRESULT(HWND, UINT, WPARAM, LPARAM)>;
+
         WinPlatform();
         ~WinPlatform() override;
 
@@ -44,6 +46,10 @@ namespace Cue::PAL::Win
         {
             return m_app ? m_app->get_window_handle() : nullptr;
         }
+
+        [[nodiscard]] uint64_t register_message_handler(MessageHandler handler);
+        /// @brief メッセージハンドラ解除
+        bool unregister_message_handler(uint64_t handlerId);
     public:
         // --- 取得 --- 
         Core::Threading::IThreadFactory& thread_factory() override

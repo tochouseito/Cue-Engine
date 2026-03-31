@@ -104,4 +104,19 @@ namespace Cue::PAL::Win
     {
         return m_app->pump_message();
     }
+    uint64_t WinPlatform::register_message_handler(MessageHandler handler)
+    {
+        // 型変換だけ行って win app へ移譲
+        if (!handler)
+        {
+            return 0;
+        }
+
+        return m_app->register_message_handler(handler);
+    }
+    bool WinPlatform::unregister_message_handler(uint64_t handlerId)
+    {
+        // win app の解除結果を返却
+        return m_app->unregister_message_handler(handlerId);
+    }
 }

@@ -67,6 +67,10 @@ namespace Cue::PAL::Win
         }
 
         // --- メッセージハンドラ管理 ---
+        /// @brief メッセージハンドラ登録
+        [[nodiscard]] uint64_t register_message_handler(MessageHandler handler);
+        /// @brief メッセージハンドラ解除
+        bool unregister_message_handler(uint64_t handlerId);
         /// @brief ウィンドウメッセージを処理します。
         LRESULT on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam);
         /// @brief Win32 から呼ばれる静的ウィンドウプロシージャです。

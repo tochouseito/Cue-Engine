@@ -3,7 +3,7 @@
 
 namespace Cue
 {
-    Result Engine::initialize(const EngineSetupInfo& a_info)
+    Result Engine::initialize(EngineSetupInfo& a_info)
     {
         // 引数の検査
         if (!a_info.platform || !a_info.backend)
@@ -36,7 +36,14 @@ namespace Cue
                 "Failed to create present frame graph.");
         }
 
-        m_presentFrameGraph->add_pass(std::make_unique<RHI::PresentToSwapChainPass>());
+        if (a_info.editorPass)
+        {
+            m_presentFrameGraph->add_pass(std::move(a_info.editorPass));
+        }
+        else
+        {
+            m_presentFrameGraph->add_pass(std::make_unique<RHI::PresentToSwapChainPass>());
+        }
 
         result = m_presentFrameGraph->build();
         if (!result)

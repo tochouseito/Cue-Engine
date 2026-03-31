@@ -11,6 +11,9 @@
 // === Engine includes ===
 #include <Engine.h>
 
+// === Editor includes ===
+#include "ImGuiManager.h"
+
 using namespace Cue;
 
 // windows アプリのエントリーポイント
@@ -51,6 +54,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.file, r.line, r.function);
     }
 
+    // ImGui マネージャの初期化
+    Editor::ImGuiSetupInfo imGuiInfo(backend->buffer_count());
+    imGuiInfo.hwnd = platform->get_window_handle();
+    imGuiInfo.device = backend->get_device();
+    imGuiInfo.commandQueue = backend->get_graphics_command_queue();
+    RHI::DX12::ImGuiFontSRVInfo fontSrvInfo = backend->get_font_srv_for_imgui();
+    imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
+    imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
+    imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
+    std::unique_ptr<Editor::ImGuiManager> imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
+
+    // ImGuiMessageHandler を登録
+    const uint64_t imguiMessageHandlerId = platform->register_message_handler(
+        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, std::intptr_t& outResult)
+        {
+            const bool handled = ImGui_ImplWin32_WndProcHandler(
+                reinterpret_cast<HWND>(hwnd),
+                static_cast<UINT>(msg),
+                static_cast<WPARAM>(wParam),
+                static_cast<LPARAM>(lParam));
+            if (handled)
+            {
+                outResult = 1;
+                return true;
+            }
+
+            return false;
+        });
+
     // エンジンの初期化
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
@@ -73,6 +105,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             break;
         }
 
+        // ImGui マネージャのフレーム開始処理
+        if (imGuiManager->begin_frame())
+        {
+            ImGui::Begin("Hello, ImGui!");
+            ImGui::Text("This is a sample ImGui window in Cue Editor.");
+            ImGui::End();
+        }
+
         // エンジンのフレーム開始処理
         r = engine->begin_frame();
 
@@ -86,6 +126,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // エンジンのシャットダウン
     engine->shutdown();
     engine.reset();
+
+    // ImGui マネージャのシャットダウン
+    imGuiManager.reset();
 
     // レンダリングバックエンドのシャットダウン
     backend->shutdown();

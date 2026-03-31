@@ -90,6 +90,7 @@ namespace Cue::RHI
     class FrameGraphPass
     {
     public:
+        virtual ~FrameGraphPass() = default;
         virtual const char* name() const noexcept = 0;
         virtual CommandListType type() const noexcept = 0;
         virtual Result setup(FrameGraphBuilder& builder) = 0;

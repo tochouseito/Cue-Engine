@@ -142,6 +142,7 @@ namespace Cue::RHI
         virtual Result reset() = 0;
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
+        virtual void* native_command_list() const = 0;
 
         // --- GPU プロファイリング用のイベントマーカー ---
         virtual void begin_event(const char* name) = 0;

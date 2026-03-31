@@ -18,6 +18,8 @@ namespace Cue
         PAL::IPlatform* platform = nullptr;
         RHI::IBackend* backend = nullptr;
         uint32_t maxFps = 60;
+
+        std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
     };
 
     /// @brief Runtime 全体の統合窓口です。
@@ -34,7 +36,7 @@ namespace Cue
         ~Engine() = default;
 
         /// @brief 初期化
-        Result initialize(const EngineSetupInfo& a_info);
+        Result initialize(EngineSetupInfo& a_info);
 
         /// @brief 終了
         void shutdown();

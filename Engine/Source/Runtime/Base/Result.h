@@ -20,6 +20,7 @@ namespace Cue
         InitializeFailed,   // 初期化失敗
         CreateFailed,       // 作成失敗
         GetFailed,          // 取得失敗
+        InvalidState,       // 無効な状態
         InternalError,      // 内部エラー
         UnknownError,       // 不明なエラー
     };

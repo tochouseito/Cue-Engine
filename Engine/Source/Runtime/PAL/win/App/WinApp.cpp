@@ -161,6 +161,43 @@ namespace Cue::PAL::Win
         return size;
     }
 
+    uint64_t WinApp::register_message_handler(MessageHandler handler)
+    {
+        // 空ハンドラは無効 id を返却
+        if (!handler)
+        {
+            return 0;
+        }
+
+        // 一意 id を採番して保持
+        const uint64_t handlerId = m_nextMessageHandlerId++;
+        m_messageHandlers.push_back(MessageHandlerEntry{ handlerId, std::move(handler) });
+        return handlerId;
+    }
+
+    bool WinApp::unregister_message_handler(uint64_t handlerId)
+    {
+        // 無効 id は即時失敗
+        if (handlerId == 0)
+        {
+            return false;
+        }
+
+        // 該当ハンドラだけ削除
+        for (auto it = m_messageHandlers.begin(); it != m_messageHandlers.end(); ++it)
+        {
+            if (it->m_id != handlerId)
+            {
+                continue;
+            }
+
+            m_messageHandlers.erase(it);
+            return true;
+        }
+
+        return false;
+    }
+
     // メッセージハンドラ
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {

@@ -1,9 +1,10 @@
 # Editor モジュールの CMake 設定
 
 find_package(directx-dxc CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 # ターゲットの追加
-add_executable(Editor WIN32 "Editor.cpp")
+add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -13,6 +14,7 @@ target_link_libraries(Editor PRIVATE
     win_platform
     d3d12_backend
     Engine
+    imgui::imgui
 )
 
 # インクルードディレクトリの追加

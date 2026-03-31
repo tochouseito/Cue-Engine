@@ -5,6 +5,14 @@
     {
       "name": "directx-dxc",
       "host": true
+    },
+    {
+      "name": "imgui",
+      "features": [
+        "win32-binding",
+        "dx12-binding",
+        "docking-experimental"
+      ]
     }
   ]
 }

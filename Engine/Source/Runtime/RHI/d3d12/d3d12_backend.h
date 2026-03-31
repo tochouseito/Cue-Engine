@@ -23,6 +23,13 @@
 
 namespace Cue::RHI::DX12
 {
+    struct ImGuiFontSRVInfo final
+    {
+        ID3D12DescriptorHeap* srvDescHeap = nullptr;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle = {};
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle = {};
+    };
+
     class D3D12Backend final : public IBackend
     {
     public:
@@ -57,6 +64,39 @@ namespace Cue::RHI::DX12
         const uint32_t& buffer_count() const noexcept override
         {
             return m_bufferCount;
+        }
+
+        // --- ImGui 用 ---
+        ID3D12Device* get_device() const { return m_renderDevice->get_d3d12_device(); }
+        ID3D12CommandQueue* get_graphics_command_queue() const
+        {
+            QueueContextLease queueContext{};
+            Result r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
+            if (!r)
+            {
+                return nullptr;
+            }
+            auto* d3d12QueuePtr = static_cast<DX12GpuCommandQueue*>(queueContext.get());
+            ID3D12CommandQueue* commandQueue = d3d12QueuePtr->command_queue();
+            r = m_queuePool->return_queue_context(queueContext);
+            return r ? commandQueue : nullptr;
+        }
+        ImGuiFontSRVInfo get_font_srv_for_imgui() const
+        {
+            ImGuiFontSRVInfo result{};
+            if (!m_descriptorAllocator)
+            {
+                CUE_ASSERT_MSG(false, "DescriptorAllocator is not initialized in D3D12Backend.");
+            }
+            else
+            {
+                TableID fontTable = m_descriptorAllocator->allocate(TableKind::Textures);
+                result.srvDescHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
+                result.cpuDescHandle = m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
+                result.gpuDescHandle = m_descriptorAllocator->get_gpu_handle(fontTable);
+            }
+
+            return result;
         }
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム

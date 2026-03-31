@@ -1,0 +1,115 @@
+#include "ImGuiManager.h"
+
+namespace Cue::Editor
+{
+    ImGuiManager::ImGuiManager(const ImGuiSetupInfo& a_info)
+    {
+        // imgui バージョン確認
+        IMGUI_CHECKVERSION();
+        std::string version = ImGui::GetVersion();
+        Core::IO::log(Core::IO::LogSink::debugConsole, "ImGui version: %s", version.c_str());
+
+        // imgui コンテキストの作成
+        ImGui::CreateContext();
+
+        // オプションの設定
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = m_layoutFilePath; // レイアウト保存先設定
+        io.ConfigFlags |= a_info.enableDocking ? ImGuiConfigFlags_DockingEnable : 0;
+        io.ConfigFlags |= a_info.enableMultiViewport ? ImGuiConfigFlags_ViewportsEnable : 0;
+        io.ConfigFlags |= a_info.enableKeyboardNavigation ? ImGuiConfigFlags_NavEnableKeyboard : 0;
+
+        // スタイルの設定
+        ImGui::StyleColorsDark();
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.TreeLinesFlags = ImGuiTreeNodeFlags_DrawLinesFull; // ツリーノード線描画
+
+        // プラットフォーム/レンダラーの初期化
+        ImGui_ImplWin32_Init(a_info.hwnd);
+
+        ImGui_ImplDX12_InitInfo initInfo = {};
+        initInfo.Device = a_info.device;
+        initInfo.CommandQueue = a_info.commandQueue;
+        initInfo.NumFramesInFlight = a_info.bufferCount;
+        initInfo.RTVFormat = a_info.rtvFormat;
+        initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // dsv フォーマット未使用値設定
+        initInfo.SrvDescriptorHeap = a_info.srvDescHeap;
+        initInfo.LegacySingleSrvCpuDescriptor = a_info.fontSrvCpuDescHandle;
+        initInfo.LegacySingleSrvGpuDescriptor = a_info.fontSrvGpuDescHandle;
+        ImGui_ImplDX12_Init(&initInfo);
+    }
+    ImGuiManager::~ImGuiManager()
+    {}
+    void ImGuiManager::shutdown()
+    {
+        // プラットフォーム/レンダラーのシャットダウン
+        ImGui_ImplDX12_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+
+        // imgui コンテキスト破棄
+        ImGui::DestroyContext();
+    }
+    Result ImGuiManager::begin_frame()
+    {
+        // すでにフレームが開始されているならエラー
+        if (m_isBeginFrameCalled)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Frame already begun. Call end_frame() before beginning a new frame.");
+        }
+
+        // フレーム開始
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        m_isBeginFrameCalled = true;
+        return Result::ok();
+    }
+    Result ImGuiManager::end_frame()
+    {
+        // フレームが開始されていないならエラー
+        if (!m_isBeginFrameCalled)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Frame not begun. Call begin_frame() before ending the frame.");
+        }
+
+        // フレーム終了
+        ImGui::EndFrame();
+        return Result::ok();
+    }
+    Result ImGuiManager::render(ID3D12GraphicsCommandList* commandList)
+    {
+        // フレームが開始されていないならエラー
+        if (!m_isBeginFrameCalled)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Frame not begun. Call begin_frame() before rendering the frame.");
+        }
+
+        // 描画コマンドを生成
+        ImGui::Render();
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+        }
+
+        // 描画データ取得
+        ImDrawData* drawData = ImGui::GetDrawData();
+        if (drawData != nullptr && drawData->CmdListsCount != 0)
+        {
+            ImGui_ImplDX12_RenderDrawData(drawData, commandList);
+        }
+        m_isBeginFrameCalled = false; // フレーム終了状態へ更新
+
+        return Result::ok();
+    }
+}
