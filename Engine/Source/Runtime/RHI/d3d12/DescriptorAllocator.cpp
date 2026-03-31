@@ -51,7 +51,14 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap)
     {
-        // 1) 先にヒープを確保しておくことで、実行時の断片化や再確保コストを避けます。
+        // デスクリプタサイズを取得しておきます。
+        Result result = compute_descriptor_sizes();
+        if (!result)
+        {
+            return result;
+        }
+
+        // 先にヒープを確保しておくことで、実行時の断片化や再確保コストを避けます。
         for (size_t i = 0; i < static_cast<size_t>(TableKind::DepthStencils) + 1; ++i)
         {
             HeapType heapType = static_cast<HeapType>(i);
@@ -61,7 +68,7 @@ namespace Cue::RHI::DX12
                 create_descriptor_heap(heapType, a_texCap + a_bufCap, false);
                 create_descriptor_heap(heapType, a_texCap + a_bufCap, true);
 
-                // 2) テーブルごとに固定領域へ切ることで、GPU 可視ヒープとの対応関係を単純化します。
+                // テーブルごとに固定領域へ切ることで、GPU 可視ヒープとの対応関係を単純化します。
                 m_textures.m_heapType = heapType;
                 m_textures.m_capacity = a_texCap;
                 m_textures.m_baseIndex = 0;
