@@ -40,6 +40,9 @@ namespace Cue::Core::IO
         return (static_cast<U>(a_mask & a_bit) != 0);
     }
 
+    /// @brief デバッグコンソールへ文字列を出力します。
+    void out_debug_console(std::string_view a_message);
+
     /// @brief 指定 sink へ整形済みログを出力します。
     template <typename... Args>
     void log(LogSink a_sink, std::string_view a_format, Args&&... a_args)
@@ -56,7 +59,4 @@ namespace Cue::Core::IO
             out_debug_console(message);
         }
     }
-
-    /// @brief デバッグコンソールへ文字列を出力します。
-    void out_debug_console(std::string_view a_message);
 }

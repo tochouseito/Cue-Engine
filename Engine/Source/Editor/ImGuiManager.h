@@ -106,6 +106,9 @@ namespace Cue::Editor
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
             }
 
+            // バックバッファをクリアしておく。これがないと imgui の一部が描画されないことがある。
+            commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
+
             // 3) native command list へ imgui 描画を流す
             void* nativeCommandList = commandContext->native_command_list();
             ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);
@@ -120,6 +123,7 @@ namespace Cue::Editor
             }
         }
     private:
+        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};

@@ -87,6 +87,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
+    engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
 
@@ -129,6 +130,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // ImGui マネージャのシャットダウン
     imGuiManager.reset();
+
+    // ImGui メッセージハンドラの解除
+    platform->unregister_message_handler(imguiMessageHandlerId);
 
     // レンダリングバックエンドのシャットダウン
     backend->shutdown();

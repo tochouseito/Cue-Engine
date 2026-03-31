@@ -23,7 +23,7 @@ namespace Cue::PAL::Win
     class WinPlatform final : public IPlatform
     {
     public:
-        using MessageHandler = std::function<LRESULT(HWND, UINT, WPARAM, LPARAM)>;
+        using MessageHandler = WinApp::MessageHandler;
 
         WinPlatform();
         ~WinPlatform() override;
