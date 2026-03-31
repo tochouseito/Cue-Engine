@@ -198,7 +198,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
-        // ハンドルからビューを取得する
+        // 1) ハンドルからビューを取得して、RTV 以外の誤使用を先に止めます。
         DX12ViewRecord* record = nullptr;
         if (!m_viewManager.try_get_record(handle, &record))
         {
@@ -216,12 +216,79 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "The view type of the given handle is not RenderTarget.");
         }
+
+        // 2) swapchain backbuffer のような multi-buffer texture は、使用直前に current frame の実体へ RTV を張り直します。
+        if (record->desc.bufferKind == BufferKind::Texture)
+        {
+            DX12TextureRecord* textureRecord = nullptr;
+            if (!m_textureManager.try_get_record(record->desc.textureHandle, &textureRecord))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Texture record was not found for the given render target view.");
+            }
+            if (m_frameIndex >= textureRecord->defaultResources.size())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Frame index is out of range for the render target texture.");
+            }
+            if (m_frameIndex >= record->defaultTableIds.size())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Frame index is out of range for the render target descriptor.");
+            }
+
+            Result result = m_descriptorAllocator.create_rtv(
+                record->defaultTableIds[m_frameIndex],
+                &textureRecord->defaultResources[m_frameIndex],
+                convert_color_format(record->desc.colorFormat),
+                record->desc.mipSlice);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to refresh render target descriptor for the current frame.");
+            }
+        }
+
+        // 3) current frame へ張り直した RTV を使って clear を発行します。
         auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
 
         // RenderTarget のクリア
         m_commandList->ClearRenderTargetView(cpuHandle, clearColor, 0, nullptr);
 
         return Result::ok();
+
+        //// ハンドルからビューを取得する
+        //DX12ViewRecord* record = nullptr;
+        //if (!m_viewManager.try_get_record(handle, &record))
+        //{
+        //    return Result::fail(
+        //        Code::NotFound,
+        //        Severity::Error,
+        //        "View record was not found for the given handle.");
+        //}
+
+        //// 正しいビュータイプか確認する
+        //if (record->desc.type != ViewType::RenderTarget)
+        //{
+        //    return Result::fail(
+        //        Code::InvalidArgument,
+        //        Severity::Error,
+        //        "The view type of the given handle is not RenderTarget.");
+        //}
+        //auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[m_frameIndex]);
+
+        //// RenderTarget のクリア
+        //m_commandList->ClearRenderTargetView(cpuHandle, clearColor, 0, nullptr);
+
+        //return Result::ok();
     }
     Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
     {
