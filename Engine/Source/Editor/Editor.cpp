@@ -112,6 +112,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             ImGui::Begin("Hello, ImGui!");
             ImGui::Text("This is a sample ImGui window in Cue Editor.");
             ImGui::End();
+            imGuiManager->end_frame();
         }
 
         // エンジンのフレーム開始処理
