@@ -4,7 +4,7 @@ find_package(directx-dxc CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 
 # ターゲットの追加
-add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp")
+add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Statistics.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE

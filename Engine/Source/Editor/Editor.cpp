@@ -13,6 +13,7 @@
 
 // === Editor includes ===
 #include "ImGuiManager.h"
+#include "Statistics.h"
 
 using namespace Cue;
 
@@ -87,6 +88,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
+    engineInfo.maxFps = 0; // 無制限
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
@@ -96,6 +98,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // プラットフォームの開始
     r = platform->start();
+
+    // 統計表示の作成
+    Editor::Statistics statistics(engine->frame_controller());
 
     // メインループ
     bool isRunning = true;
@@ -129,6 +134,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             }
 
             ImGui::End();
+
+            statistics.update();
+
             imGuiManager->end_frame();
         }
 

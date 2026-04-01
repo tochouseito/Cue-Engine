@@ -49,6 +49,8 @@ namespace Cue
 
         /// @brief ティック処理
         Result tick();
+
+        FrameController& frame_controller() noexcept { return *m_frameController; }
     private:
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
