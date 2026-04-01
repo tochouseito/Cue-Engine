@@ -59,6 +59,8 @@ namespace Cue::RHI::DX12
         ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
         IViewManager* get_view_manager() override { return m_viewManager.get(); }
         IStaticMeshPool* get_static_mesh_pool() override { return m_staticMeshPool.get(); }
+        uint32_t width() const noexcept override { return m_swapChain ? m_swapChain->width() : 0; }
+        uint32_t height() const noexcept override { return m_swapChain ? m_swapChain->height() : 0; }
 
         // --- パラメーターの取得 ---
         const uint32_t& buffer_count() const noexcept override

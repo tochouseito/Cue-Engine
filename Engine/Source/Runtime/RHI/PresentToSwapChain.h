@@ -51,7 +51,7 @@ namespace Cue::RHI
             }
 
             // コピー元になる finalColor を用意し、スワップチェインとは異なる色でクリアできるようにする。
-            TextureDesc finalColorDesc{};
+            /*TextureDesc finalColorDesc{};
             finalColorDesc.name = "FinalColor";
             finalColorDesc.bufferCount = 1;
             finalColorDesc.kind = TextureKind::RenderTarget;
@@ -109,6 +109,30 @@ namespace Cue::RHI
                     result.code,
                     Severity::Error,
                     "Failed to create final color SRV for present pass.");
+            }*/
+            result = builder.get_texture("FinalColor", m_finalColorHandle);
+            if(!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color texture handle for present pass.");
+            }
+            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color RTV view handle for present pass.");
+            }
+            result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
+            if(!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color SRV view handle for present pass.");
             }
 
             RootSignatureDesc rootSignatureDesc{};

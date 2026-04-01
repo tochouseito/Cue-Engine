@@ -87,7 +87,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
-    engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
+    // engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
 
@@ -110,7 +110,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (imGuiManager->begin_frame())
         {
             ImGui::Begin("Hello, ImGui!");
-            ImGui::Text("This is a sample ImGui window in Cue Editor.");
+            
             ImGui::End();
             imGuiManager->end_frame();
         }

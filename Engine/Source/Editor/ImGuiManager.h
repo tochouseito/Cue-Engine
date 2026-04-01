@@ -93,12 +93,54 @@ namespace Cue::Editor
                     "Failed to get back buffer RTV view handle for present pass.");
             }
 
+            // finalColor を取得
+            result = builder.get_texture("FinalColor", m_finalColorHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color texture handle for present pass.");
+            }
+            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color RTV view handle for present pass.");
+            }
+            result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get final color SRV view handle for present pass.");
+            }
+
             return Result::ok();
         }
 
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
+
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.before = RHI::ResourceState::Common;
+                barrierDesc.after = RHI::ResourceState::RenderTarget;
+                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
+            }
+
+            commandContext->clear_render_target(m_finalColorRtvHandle, k_swapChainClearColor.data());
+
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.before = RHI::ResourceState::RenderTarget;
+                barrierDesc.after = RHI::ResourceState::ShaderResource;
+                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
+            }
 
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
@@ -124,11 +166,21 @@ namespace Cue::Editor
                 barrierDesc.after = RHI::ResourceState::Present;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
             }
+
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.before = RHI::ResourceState::ShaderResource;
+                barrierDesc.after = RHI::ResourceState::Common;
+                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
+            }
         }
     private:
         static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
+        RHI::TextureHandle m_finalColorHandle{};
+        RHI::ViewHandle m_finalColorRtvHandle{};
+        RHI::ViewHandle m_finalColorSrvHandle{};
     };
 }

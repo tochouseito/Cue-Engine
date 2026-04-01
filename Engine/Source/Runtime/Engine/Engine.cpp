@@ -26,6 +26,40 @@ namespace Cue
             m_platform->waiter(),
             update(), render(), present());
 
+        // FinalColor を作成
+        RHI::TextureDesc finalColorDesc{};
+        finalColorDesc.name = "FinalColor";
+        finalColorDesc.bufferCount = 1;
+        finalColorDesc.kind = RHI::TextureKind::RenderTarget;
+        finalColorDesc.width = m_backend->width();
+        finalColorDesc.height = m_backend->height();
+        finalColorDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
+        finalColorDesc.clearColor[0] = 0.0f;
+        finalColorDesc.clearColor[1] = 0.5f;
+        finalColorDesc.clearColor[2] = 0.0f;
+        finalColorDesc.clearColor[3] = 1.0f;
+        RHI::TextureHandle finalColorHandle{};
+        auto textureManager = m_backend->get_texture_manager();
+        textureManager->create_texture(finalColorDesc, finalColorHandle);
+        RHI::ViewDesc finalColorRtvDesc{};
+        finalColorRtvDesc.name = "FinalColorRTV";
+        finalColorRtvDesc.type = RHI::ViewType::RenderTarget;
+        finalColorRtvDesc.bufferKind = RHI::BufferKind::Texture;
+        finalColorRtvDesc.textureHandle = finalColorHandle;
+        finalColorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
+        RHI::ViewHandle finalColorRtvHandle{};
+        auto viewManager = m_backend->get_view_manager();
+        viewManager->create_view(finalColorRtvDesc, finalColorRtvHandle);
+        RHI::ViewDesc finalColorSrvDesc{};
+        finalColorSrvDesc.name = "FinalColorSRV";
+        finalColorSrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
+        finalColorSrvDesc.bufferKind = RHI::BufferKind::Texture;
+        finalColorSrvDesc.textureHandle = finalColorHandle;
+        finalColorSrvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
+        finalColorSrvDesc.mipLevels = 1;
+        RHI::ViewHandle finalColorSrvHandle{};
+        viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
+
         // present 用 FrameGraph の生成
         Result result = m_backend->create_frame_graph(m_presentFrameGraph);
         if (!result)

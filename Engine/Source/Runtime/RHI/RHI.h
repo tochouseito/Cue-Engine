@@ -49,6 +49,8 @@ namespace Cue::RHI
         virtual ITextureManager* get_texture_manager() = 0;
         virtual IViewManager* get_view_manager() = 0;
         virtual IStaticMeshPool* get_static_mesh_pool() = 0;
+        virtual uint32_t width() const noexcept = 0;
+        virtual uint32_t height() const noexcept = 0;
 
         // --- パラメーターの取得 ---
         virtual const uint32_t& buffer_count() const noexcept = 0;
