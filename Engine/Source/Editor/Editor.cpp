@@ -87,9 +87,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
-    // engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
+    engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
+
+    RHI::ViewHandle finalColorSrvHandle{};
+    r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);
 
     // プラットフォームの開始
     r = platform->start();
@@ -110,7 +113,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (imGuiManager->begin_frame())
         {
             ImGui::Begin("Hello, ImGui!");
-            
+
+            D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle = backend->get_gpu_descriptor_handle(
+                finalColorSrvHandle,
+                backend->current_back_buffer_index(),
+                backend->buffer_count());
+            if (finalColorSrvGpuDescHandle.ptr != 0)
+            {
+                const float finalColorWidth = 640.0f;
+                const float aspectRatio = static_cast<float>(backend->height()) / static_cast<float>(backend->width());
+                ImGui::Text("FinalColor");
+                ImGui::Image(
+                    static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
+                    ImVec2(finalColorWidth, finalColorWidth * aspectRatio));
+            }
+
             ImGui::End();
             imGuiManager->end_frame();
         }

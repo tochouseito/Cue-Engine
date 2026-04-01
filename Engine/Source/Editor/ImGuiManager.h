@@ -133,7 +133,7 @@ namespace Cue::Editor
                 commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
             }
 
-            commandContext->clear_render_target(m_finalColorRtvHandle, k_swapChainClearColor.data());
+            commandContext->clear_render_target(m_finalColorRtvHandle, k_finalColorClearColor.data());
 
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
@@ -175,6 +175,7 @@ namespace Cue::Editor
             }
         }
     private:
+        static constexpr std::array<float, 4> k_finalColorClearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
         static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};

@@ -67,39 +67,16 @@ namespace Cue::RHI::DX12
         {
             return m_bufferCount;
         }
+        uint32_t current_back_buffer_index() const noexcept
+        {
+            return m_swapChain ? m_swapChain->get_current_back_buffer_index() : 0;
+        }
 
         // --- ImGui 用 ---
         ID3D12Device* get_device() const { return m_renderDevice->get_d3d12_device(); }
-        ID3D12CommandQueue* get_graphics_command_queue() const
-        {
-            QueueContextLease queueContext{};
-            Result r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
-            if (!r)
-            {
-                return nullptr;
-            }
-            auto* d3d12QueuePtr = static_cast<DX12GpuCommandQueue*>(queueContext.get());
-            ID3D12CommandQueue* commandQueue = d3d12QueuePtr->command_queue();
-            r = m_queuePool->return_queue_context(queueContext);
-            return r ? commandQueue : nullptr;
-        }
-        ImGuiFontSRVInfo get_font_srv_for_imgui() const
-        {
-            ImGuiFontSRVInfo result{};
-            if (!m_descriptorAllocator)
-            {
-                CUE_ASSERT_MSG(false, "DescriptorAllocator is not initialized in D3D12Backend.");
-            }
-            else
-            {
-                TableID fontTable = m_descriptorAllocator->allocate(TableKind::Textures);
-                result.srvDescHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
-                result.cpuDescHandle = m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
-                result.gpuDescHandle = m_descriptorAllocator->get_gpu_handle(fontTable);
-            }
-
-            return result;
-        }
+        ID3D12CommandQueue* get_graphics_command_queue() const;
+        ImGuiFontSRVInfo get_font_srv_for_imgui() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー

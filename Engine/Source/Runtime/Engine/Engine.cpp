@@ -125,7 +125,7 @@ namespace Cue
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
             {
-                a_frameNo; a_index;
+                m_backend->render(a_frameNo, a_index, *m_frameGraph);
             };
     }
 

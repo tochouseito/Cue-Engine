@@ -91,7 +91,9 @@ namespace Cue::RHI::DX12
     Result D3D12Backend::render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph)
     {
         a_frameNo;
-        return a_frameGraph.execute(a_index);
+        a_index;
+        a_frameGraph;
+        return Result::ok();
     }
 
     Result D3D12Backend::present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph)
@@ -117,5 +119,68 @@ namespace Cue::RHI::DX12
 
         a_outFrameGraph = std::make_unique<FrameGraph>(desc, m_bufferCount);
         return Result::ok();
+    }
+
+    ID3D12CommandQueue* D3D12Backend::get_graphics_command_queue() const
+    {
+        QueueContextLease queueContext{};
+        Result r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
+        if (!r)
+        {
+            return nullptr;
+        }
+        auto* d3d12QueuePtr = static_cast<DX12GpuCommandQueue*>(queueContext.get());
+        ID3D12CommandQueue* commandQueue = d3d12QueuePtr->command_queue();
+        r = m_queuePool->return_queue_context(queueContext);
+        return r ? commandQueue : nullptr;
+    }
+
+    ImGuiFontSRVInfo D3D12Backend::get_font_srv_for_imgui() const
+    {
+        ImGuiFontSRVInfo result{};
+        if (!m_descriptorAllocator)
+        {
+            CUE_ASSERT_MSG(false, "DescriptorAllocator is not initialized in D3D12Backend.");
+        }
+        else
+        {
+            TableID fontTable = m_descriptorAllocator->allocate(TableKind::Textures);
+            result.srvDescHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
+            result.cpuDescHandle = m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
+            result.gpuDescHandle = m_descriptorAllocator->get_gpu_handle(fontTable);
+        }
+        return result;
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE result{};
+        if (!m_viewManager || !m_descriptorAllocator || !a_viewHandle.valid())
+        {
+            return result;
+        }
+
+        DX12ViewRecord* record = nullptr;
+        if (!m_viewManager->try_get_record(a_viewHandle, &record) || record == nullptr || record->defaultTableIds.empty())
+        {
+            return result;
+        }
+
+        uint32_t descriptorIndex = 0;
+        if (record->defaultTableIds.size() == 1)
+        {
+            descriptorIndex = 0;
+        }
+        else
+        {
+            if (record->defaultTableIds.size() != a_bufferCount || a_frameIndex >= record->defaultTableIds.size())
+            {
+                return result;
+            }
+
+            descriptorIndex = a_frameIndex;
+        }
+
+        return m_descriptorAllocator->get_gpu_handle(record->defaultTableIds[descriptorIndex]);
     }
 }
