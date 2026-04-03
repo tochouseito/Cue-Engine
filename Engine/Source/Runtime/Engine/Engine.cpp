@@ -74,7 +74,7 @@ namespace Cue
         }
 
         RHI::BufferDesc renderObjectCountBufferDesc{};
-        renderObjectCountBufferDesc.name = "RenderObjectCountBuffer";
+        renderObjectCountBufferDesc.name = "VisibleObjectCountBuffer";
         renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
         renderObjectCountBufferDesc.defaultHeapCount = 1;
         renderObjectCountBufferDesc.uploadHeapCount = 1;
@@ -85,6 +85,59 @@ namespace Cue
         renderObjectCountBufferDesc.alignment = alignof(uint32_t);
         RHI::BufferHandle renderObjectCountBufferHandle{};
         result = bufferManager->create_buffer(renderObjectCountBufferDesc, renderObjectCountBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        auto* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        RHI::ViewDesc objectInfoBufferSrvDesc{};
+        objectInfoBufferSrvDesc.name = "ObjectInfoBufferSRV";
+        objectInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        objectInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        objectInfoBufferSrvDesc.bufferHandle = objectInfoBufferHandle;
+        objectInfoBufferSrvDesc.firstElement = 0;
+        objectInfoBufferSrvDesc.numElements = objectInfoBufferDesc.elementCount;
+        objectInfoBufferSrvDesc.structureByteStride = objectInfoBufferDesc.stride;
+        RHI::ViewHandle objectInfoBufferSrvHandle{};
+        result = viewManager->create_view(objectInfoBufferSrvDesc, objectInfoBufferSrvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::ViewDesc renderObjectBufferUavDesc{};
+        renderObjectBufferUavDesc.name = "RenderObjectBufferUAV";
+        renderObjectBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
+        renderObjectBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
+        renderObjectBufferUavDesc.bufferHandle = renderObjectBufferHandle;
+        renderObjectBufferUavDesc.firstElement = 0;
+        renderObjectBufferUavDesc.numElements = renderObjectBufferDesc.elementCount;
+        renderObjectBufferUavDesc.structureByteStride = renderObjectBufferDesc.stride;
+        RHI::ViewHandle renderObjectBufferUavHandle{};
+        result = viewManager->create_view(renderObjectBufferUavDesc, renderObjectBufferUavHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::ViewDesc renderObjectCountBufferUavDesc{};
+        renderObjectCountBufferUavDesc.name = "VisibleObjectCountBufferUAV";
+        renderObjectCountBufferUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+        renderObjectCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
+        renderObjectCountBufferUavDesc.bufferHandle = renderObjectCountBufferHandle;
+        renderObjectCountBufferUavDesc.firstElement = 0;
+        renderObjectCountBufferUavDesc.numElements = renderObjectCountBufferDesc.size / sizeof(uint32_t);
+        RHI::ViewHandle renderObjectCountBufferUavHandle{};
+        result = viewManager->create_view(renderObjectCountBufferUavDesc, renderObjectCountBufferUavHandle);
         if (!result)
         {
             return result;
@@ -112,7 +165,6 @@ namespace Cue
         finalColorRtvDesc.textureHandle = finalColorHandle;
         finalColorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
         RHI::ViewHandle finalColorRtvHandle{};
-        auto viewManager = m_backend->get_view_manager();
         viewManager->create_view(finalColorRtvDesc, finalColorRtvHandle);
         RHI::ViewDesc finalColorSrvDesc{};
         finalColorSrvDesc.name = "FinalColorSRV";

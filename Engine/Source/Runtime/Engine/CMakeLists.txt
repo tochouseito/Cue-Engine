@@ -1,7 +1,7 @@
 # Engine の CMakeLists.txt
 
 # Static ライブラリを作成
-add_library(Engine STATIC "Engine.h" "Engine.cpp" "FrameController.h" "FrameController.cpp" "GpuData/Transform.h" "GpuData/Batching.h")
+add_library(Engine STATIC "Engine.h" "Engine.cpp" "FrameController.h" "FrameController.cpp" "GpuData/Transform.h" "GpuData/Batching.h" "passes/GenerateVisivleList.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC
