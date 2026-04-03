@@ -32,5 +32,8 @@ add_custom_command(
             "$<TARGET_FILE:Microsoft::DirectXShaderCompiler>"
             "$<TARGET_FILE:Microsoft::DXIL>"
             "$<TARGET_FILE_DIR:Editor>"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders"
+            "$<TARGET_FILE_DIR:Editor>/Shaders"
     VERBATIM
 )

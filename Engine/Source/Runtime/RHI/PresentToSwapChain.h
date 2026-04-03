@@ -5,7 +5,6 @@
 
 // === C++ includes ===
 #include <array>
-#include <filesystem>
 
 namespace Cue::RHI
 {
@@ -50,66 +49,6 @@ namespace Cue::RHI
                     "Failed to get back buffer RTV view handle for present pass.");
             }
 
-            // コピー元になる finalColor を用意し、スワップチェインとは異なる色でクリアできるようにする。
-            /*TextureDesc finalColorDesc{};
-            finalColorDesc.name = "FinalColor";
-            finalColorDesc.bufferCount = 1;
-            finalColorDesc.kind = TextureKind::RenderTarget;
-            finalColorDesc.width = builder.width();
-            finalColorDesc.height = builder.height();
-            finalColorDesc.format = ColorFormat::R8G8B8A8_UNORM;
-            finalColorDesc.clearColor[0] = k_finalColorClearColor[0];
-            finalColorDesc.clearColor[1] = k_finalColorClearColor[1];
-            finalColorDesc.clearColor[2] = k_finalColorClearColor[2];
-            finalColorDesc.clearColor[3] = k_finalColorClearColor[3];
-            result = builder.create_texture(finalColorDesc, m_finalColorHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
-                    "Failed to create final color texture for present pass.");
-            }
-
-            result = builder.render(&m_finalColorHandle, 1);
-            if (!result)
-            {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
-                    "Failed to declare final color render target for present pass.");
-            }
-
-            ViewDesc finalColorRtvDesc{};
-            finalColorRtvDesc.name = "FinalColorRTV";
-            finalColorRtvDesc.type = ViewType::RenderTarget;
-            finalColorRtvDesc.bufferKind = BufferKind::Texture;
-            finalColorRtvDesc.textureHandle = m_finalColorHandle;
-            finalColorRtvDesc.colorFormat = ColorFormat::R8G8B8A8_UNORM;
-            result = builder.create_view(finalColorRtvDesc, m_finalColorRtvHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
-                    "Failed to create final color RTV for present pass.");
-            }
-
-            ViewDesc finalColorSrvDesc{};
-            finalColorSrvDesc.name = "FinalColorSRV";
-            finalColorSrvDesc.type = ViewType::ShaderResourceTexture2D;
-            finalColorSrvDesc.bufferKind = BufferKind::Texture;
-            finalColorSrvDesc.textureHandle = m_finalColorHandle;
-            finalColorSrvDesc.colorFormat = ColorFormat::R8G8B8A8_UNORM;
-            finalColorSrvDesc.mipLevels = 1;
-            result = builder.create_view(finalColorSrvDesc, m_finalColorSrvHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
-                    "Failed to create final color SRV for present pass.");
-            }*/
             result = builder.get_texture("FinalColor", m_finalColorHandle);
             if(!result)
             {
@@ -147,7 +86,7 @@ namespace Cue::RHI
                     "Failed to create root signature for screen copy pass.");
             }
 
-            const std::string shaderFilePath = find_screen_copy_shader_path();
+            const std::string shaderFilePath = "Shaders/ScreenCopy.hlsl";
             if (shaderFilePath.empty())
             {
                 return Result::fail(
@@ -247,29 +186,6 @@ namespace Cue::RHI
                 barrierDesc.after = ResourceState::Present;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
             }
-        }
-    private:
-        static std::string find_screen_copy_shader_path()
-        {
-            namespace fs = std::filesystem;
-
-            fs::path current = fs::current_path();
-            for (size_t i = 0; i < 8; ++i)
-            {
-                fs::path candidate = current / "Engine" / "Shaders" / "D3D12" / "ScreenCopy.hlsl";
-                if (fs::exists(candidate))
-                {
-                    return candidate.string();
-                }
-
-                if (!current.has_parent_path())
-                {
-                    break;
-                }
-                current = current.parent_path();
-            }
-
-            return {};
         }
     private:
         static constexpr std::array<float, 4> k_finalColorClearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
