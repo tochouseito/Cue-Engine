@@ -9,7 +9,7 @@ StructuredBuffer<ObjectInfo> g_objectInfos : register(t0);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
 RWByteAddressBuffer g_renderObjectCount : register(u1);
 
-[[numthreads(64, 1, 1)]]
+[numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint objectId = dispatchThreadId.x;

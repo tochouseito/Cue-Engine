@@ -75,7 +75,7 @@ namespace Cue
 
         objectInfoUploaders[0].begin_frame();
         if (!objectInfoUploaders[0].push(0, GpuData::ObjectInfo{ .objectId = 0, .visible = 1, .meshId = 0, .transformId = 0 }) ||
-            !objectInfoUploaders[0].push(1, GpuData::ObjectInfo{ .objectId = 1, .visible = 1, .meshId = 0, .transformId = 1 }) ||
+            !objectInfoUploaders[0].push(1, GpuData::ObjectInfo{ .objectId = 1, .visible = 0, .meshId = 0, .transformId = 1 }) ||
             !objectInfoUploaders[0].push(2, GpuData::ObjectInfo{ .objectId = 2, .visible = 1, .meshId = 0, .transformId = 2 }) ||
             !objectInfoUploaders[0].commit())
         {

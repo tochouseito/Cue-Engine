@@ -50,7 +50,7 @@ uint count_instances(uint startObjectIndex, uint meshId)
     return instanceCount;
 }
 
-[[numthreads(64, 1, 1)]]
+[numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint objectId = dispatchThreadId.x;

@@ -207,7 +207,7 @@ namespace Cue::RHI::DX12
             return Result::fail(
                 Code::CreateFailed,
                 Severity::Error,
-                "Shader compilation failed.");
+                pErrors->GetStringPointer());
         }
 
         // コンパイル結果からシェーダーオブジェクトを取得

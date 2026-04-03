@@ -18,6 +18,22 @@ namespace Cue::RHI::DX12
 
             return Result::ok();
         }
+
+        [[nodiscard]] D3D12_RESOURCE_STATES normalize_resource_state_for_command_list(
+            CommandListType commandListType,
+            D3D12_RESOURCE_STATES state) noexcept
+        {
+            if (commandListType == CommandListType::Compute)
+            {
+                if ((state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) != 0)
+                {
+                    state &= ~D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                    state |= D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                }
+            }
+
+            return state;
+        }
     }
 
     DX12GpuCommandContext::DX12GpuCommandContext(ID3D12Device& device,
@@ -180,9 +196,15 @@ namespace Cue::RHI::DX12
         d3d12Barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         d3d12Barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
         d3d12Barrier.Transition.pResource = d3dResource;
-        d3d12Barrier.Transition.StateBefore = resource->get_current_d3d12_state();
-        d3d12Barrier.Transition.StateAfter = convert_resource_state(desc.after);
+        d3d12Barrier.Transition.StateBefore = normalize_resource_state_for_command_list(type(), resource->get_current_d3d12_state());
+        d3d12Barrier.Transition.StateAfter = normalize_resource_state_for_command_list(type(), convert_resource_state(desc.after));
         d3d12Barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        if (d3d12Barrier.Transition.StateBefore == d3d12Barrier.Transition.StateAfter)
+        {
+            resource->set_current_state(d3d12Barrier.Transition.StateAfter);
+            return Result::ok();
+        }
 
         m_commandList->ResourceBarrier(1, &d3d12Barrier);
         resource->set_current_state(d3d12Barrier.Transition.StateAfter);
@@ -223,9 +245,15 @@ namespace Cue::RHI::DX12
         d3d12Barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         d3d12Barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
         d3d12Barrier.Transition.pResource = d3dResource;
-        d3d12Barrier.Transition.StateBefore = resource->get_current_d3d12_state();
-        d3d12Barrier.Transition.StateAfter = convert_resource_state(desc.after);
+        d3d12Barrier.Transition.StateBefore = normalize_resource_state_for_command_list(type(), resource->get_current_d3d12_state());
+        d3d12Barrier.Transition.StateAfter = normalize_resource_state_for_command_list(type(), convert_resource_state(desc.after));
         d3d12Barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        if (d3d12Barrier.Transition.StateBefore == d3d12Barrier.Transition.StateAfter)
+        {
+            resource->set_current_state(d3d12Barrier.Transition.StateAfter);
+            return Result::ok();
+        }
 
         m_commandList->ResourceBarrier(1, &d3d12Barrier);
         resource->set_current_state(d3d12Barrier.Transition.StateAfter);
@@ -1203,6 +1231,7 @@ namespace Cue::RHI::DX12
                 "Failed to create CommandQueue.");
         }
         set_d3d12_name(m_commandQueue.Get(), L"QueueContext CommandQueue");
+        m_type = convert_command_list_type(type);
         return Result::ok();
     }
     Result DX12CommandPool::get_command_context(CommandListType type, CommandContextLease& outContext)
