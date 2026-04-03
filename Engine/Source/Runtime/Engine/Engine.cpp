@@ -39,6 +39,7 @@ namespace Cue
         }
 
         constexpr uint32_t k_maxObjectCount = 1000; // TODO: 実際のオブジェクト数管理へ置き換える
+        constexpr uint32_t k_initialObjectCount = 3;
 
         RHI::BufferDesc objectInfoBufferDesc{};
         objectInfoBufferDesc.name = "ObjectInfoBuffer";
@@ -55,6 +56,32 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        std::vector<RHI::SlotUploader<GpuData::ObjectInfo>> objectInfoUploaders{};
+        result = bufferManager->create_slot_uploaders(objectInfoBufferHandle, 1, objectInfoUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (objectInfoUploaders.size() != 1)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "ObjectInfoBuffer uploader was not created.");
+        }
+
+        objectInfoUploaders[0].begin_frame();
+        if (!objectInfoUploaders[0].push(0, GpuData::ObjectInfo{ .objectId = 0, .visible = 1, .meshId = 0, .transformId = 0 }) ||
+            !objectInfoUploaders[0].push(1, GpuData::ObjectInfo{ .objectId = 1, .visible = 1, .meshId = 0, .transformId = 1 }) ||
+            !objectInfoUploaders[0].push(2, GpuData::ObjectInfo{ .objectId = 2, .visible = 1, .meshId = 0, .transformId = 2 }) ||
+            !objectInfoUploaders[0].commit())
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "Failed to write initial object infos by SlotUploader.");
         }
 
         RHI::BufferDesc renderObjectBufferDesc{};
@@ -187,7 +214,7 @@ namespace Cue
                 "Failed to create render frame graph.");
         }
 
-        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(k_maxObjectCount));
+        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(k_initialObjectCount));
         result = m_frameGraph->build();
         if (!result)
         {
