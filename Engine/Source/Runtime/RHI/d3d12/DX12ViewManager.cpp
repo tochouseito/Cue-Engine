@@ -25,6 +25,19 @@ namespace Cue::RHI::DX12
                 return TableKind::Buffers; // デフォルトはバッファ用テーブルとする
             }
         }
+
+        [[nodiscard]] bool supports_upload_buffer_view(ViewType type) noexcept
+        {
+            switch (type)
+            {
+            case ViewType::ConstantBuffer:
+            case ViewType::ShaderResourceBuffer:
+            case ViewType::ShaderResourceRawBuffer:
+                return true;
+            default:
+                return false;
+            }
+        }
     }
 
     Result DX12ViewManager::create_view(const ViewDesc& desc, ViewHandle& out)
@@ -62,6 +75,11 @@ namespace Cue::RHI::DX12
             // Upload Resource
             for (auto& resource : bufferRecord->uploadResources)
             {
+                if (!supports_upload_buffer_view(desc.type))
+                {
+                    continue;
+                }
+
                 result = create_view_impl(desc, resource, record.uploadTableIds);
                 if (!result)
                 {

@@ -131,24 +131,93 @@ namespace Cue::RHI
             // コマンドコンテキストをプールから取得
             CommandContextLease commandContext;
             Result result = m_desc.commandPool->get_command_context(compiledPass.pass->type(), commandContext);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to get command context for frame graph pass.");
+            }
 
             // コマンドコンテキストをセットアップ
-            commandContext->reset();
-            commandContext->setup(frameIndex, m_bufferCount);
+            result = commandContext->reset();
+            if (!result)
+            {
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to reset command context for frame graph pass.");
+            }
+
+            result = commandContext->setup(frameIndex, m_bufferCount);
+            if (!result)
+            {
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to setup command context for frame graph pass.");
+            }
 
             // パスの実行
             FrameGraphContext context{ FrameGraphContextDesc{ m_desc.width, m_desc.height, frameIndex, commandContext.get()}};
+            commandContext->begin_event(compiledPass.pass->name());
             compiledPass.pass->execute(context);
+            commandContext->end_event();
 
             // コマンドコンテキストをクローズして GPU に送信
-            commandContext->close();
+            result = commandContext->close();
+            if (!result)
+            {
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to close command context for frame graph pass.");
+            }
 
             QueueContextLease queueContext;
             result = m_desc.queuePool->get_queue_context(compiledPass.pass->type(), queueContext);
+            if (!result)
+            {
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to get queue context for frame graph pass.");
+            }
             std::vector<ICommandContext*> commandContexts { commandContext.get() };
-            queueContext->submit(commandContexts);
-            queueContext->signal();
-            queueContext->wait();
+            result = queueContext->submit(commandContexts);
+            if (!result)
+            {
+                m_desc.queuePool->return_queue_context(queueContext);
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to submit frame graph pass.");
+            }
+            result = queueContext->signal();
+            if (!result)
+            {
+                m_desc.queuePool->return_queue_context(queueContext);
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to signal queue after frame graph pass submission.");
+            }
+            result = queueContext->wait();
+            if (!result)
+            {
+                m_desc.queuePool->return_queue_context(queueContext);
+                m_desc.commandPool->return_command_context(commandContext);
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to wait for frame graph pass completion.");
+            }
             m_desc.queuePool->return_queue_context(queueContext);
             m_desc.commandPool->return_command_context(commandContext);
         }

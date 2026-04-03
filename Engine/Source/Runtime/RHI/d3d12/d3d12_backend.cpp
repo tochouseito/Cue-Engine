@@ -88,16 +88,18 @@ namespace Cue::RHI::DX12
     Result D3D12Backend::render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph)
     {
         a_frameNo;
-        a_index;
-        a_frameGraph;
-        return Result::ok();
+        return a_frameGraph.execute(a_index);
     }
 
     Result D3D12Backend::present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph)
     {
         a_frameNo;
         a_index;
-        a_frameGraph.execute(m_swapChain->get_current_back_buffer_index());
+        Result result = a_frameGraph.execute(m_swapChain->get_current_back_buffer_index());
+        if (!result)
+        {
+            return result;
+        }
         return m_swapChain->present(vsync);
     }
 
