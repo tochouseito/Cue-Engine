@@ -57,6 +57,10 @@ namespace Cue::RHI::DX12
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
         Result set_graphics_pipeline(PipelineStateHandle handle) override;
+        Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) override;
+        Result set_cbv(uint32_t rootParameterIndex, BufferHandle handle) override;
+        Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) override;
+        Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
@@ -65,6 +69,7 @@ namespace Cue::RHI::DX12
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
+        Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
     private:
         DescriptorAllocator& m_descriptorAllocator; // デスクリプタアロケータへの参照
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照

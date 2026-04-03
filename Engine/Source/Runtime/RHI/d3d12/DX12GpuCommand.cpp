@@ -5,6 +5,19 @@ namespace Cue::RHI::DX12
     namespace
     {
         constexpr UINT k_eventMetadataAnsi = 1u;
+
+        [[nodiscard]] Result validate_root_binding_command_type(CommandListType type, const char* bindTarget)
+        {
+            if (type == CommandListType::Copy)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    bindTarget);
+            }
+
+            return Result::ok();
+        }
     }
 
     DX12GpuCommandContext::DX12GpuCommandContext(ID3D12Device& device,
@@ -378,6 +391,138 @@ namespace Cue::RHI::DX12
         m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_32bit_constant(uint32_t rootParameterIndex, uint32_t value)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "32-bit constants can only be bound on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        if (type() == CommandListType::Graphics)
+        {
+            m_commandList->SetGraphicsRoot32BitConstant(rootParameterIndex, value, 0);
+        }
+        else
+        {
+            m_commandList->SetComputeRoot32BitConstant(rootParameterIndex, value, 0);
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, BufferHandle handle)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "CBV can only be bound on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* resource = nullptr;
+        result = resolve_root_descriptor_buffer(handle, &resource);
+        if (!result)
+        {
+            return result;
+        }
+
+        const D3D12_GPU_VIRTUAL_ADDRESS gpuAddress = resource->get_gpu_virtual_address();
+        if (gpuAddress == D3D12_GPU_VIRTUAL_ADDRESS_NULL)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "GPU virtual address for CBV buffer was not found.");
+        }
+
+        if (type() == CommandListType::Graphics)
+        {
+            m_commandList->SetGraphicsRootConstantBufferView(rootParameterIndex, gpuAddress);
+        }
+        else
+        {
+            m_commandList->SetComputeRootConstantBufferView(rootParameterIndex, gpuAddress);
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, BufferHandle handle)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "SRV can only be bound on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* resource = nullptr;
+        result = resolve_root_descriptor_buffer(handle, &resource);
+        if (!result)
+        {
+            return result;
+        }
+
+        const D3D12_GPU_VIRTUAL_ADDRESS gpuAddress = resource->get_gpu_virtual_address();
+        if (gpuAddress == D3D12_GPU_VIRTUAL_ADDRESS_NULL)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "GPU virtual address for SRV buffer was not found.");
+        }
+
+        if (type() == CommandListType::Graphics)
+        {
+            m_commandList->SetGraphicsRootShaderResourceView(rootParameterIndex, gpuAddress);
+        }
+        else
+        {
+            m_commandList->SetComputeRootShaderResourceView(rootParameterIndex, gpuAddress);
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, BufferHandle handle)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "UAV can only be bound on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* resource = nullptr;
+        result = resolve_root_descriptor_buffer(handle, &resource);
+        if (!result)
+        {
+            return result;
+        }
+
+        const D3D12_GPU_VIRTUAL_ADDRESS gpuAddress = resource->get_gpu_virtual_address();
+        if (gpuAddress == D3D12_GPU_VIRTUAL_ADDRESS_NULL)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "GPU virtual address for UAV buffer was not found.");
+        }
+
+        if (type() == CommandListType::Graphics)
+        {
+            m_commandList->SetGraphicsRootUnorderedAccessView(rootParameterIndex, gpuAddress);
+        }
+        else
+        {
+            m_commandList->SetComputeRootUnorderedAccessView(rootParameterIndex, gpuAddress);
+        }
+
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle)
     {
         if (type() != CommandListType::Graphics)
@@ -578,6 +723,56 @@ namespace Cue::RHI::DX12
 
         outIndex = m_frameIndex;
         return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const
+    {
+        *outResource = nullptr;
+
+        DX12BufferRecord* record = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given handle.");
+        }
+
+        if (!record->defaultResources.empty())
+        {
+            uint32_t resourceIndex = 0;
+            Result result = resolve_slice_index(record->defaultResources.size(), resourceIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve default buffer slice index for root descriptor binding.");
+            }
+
+            *outResource = const_cast<DX12GpuResource*>(&record->defaultResources[resourceIndex]);
+            return Result::ok();
+        }
+
+        if (!record->uploadResources.empty())
+        {
+            uint32_t resourceIndex = 0;
+            Result result = resolve_slice_index(record->uploadResources.size(), resourceIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve upload buffer slice index for root descriptor binding.");
+            }
+
+            *outResource = const_cast<DX12GpuResource*>(&record->uploadResources[resourceIndex]);
+            return Result::ok();
+        }
+
+        return Result::fail(
+            Code::NotFound,
+            Severity::Error,
+            "No bindable buffer resource was found for the given handle.");
     }
     Result DX12GpuCommandContext::create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
