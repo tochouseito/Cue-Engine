@@ -13,6 +13,12 @@ namespace Cue::RHI::DX12
         ComPtr<ID3D12PipelineState> pipelineState; // グラフィックスパイプラインステートオブジェクトの実体
     };
 
+    struct DX12ComputePipelineRecord final
+    {
+        ComputePipelineStateDesc desc; // コンピュートパイプラインステートの記述
+        ComPtr<ID3D12PipelineState> pipelineState; // コンピュートパイプラインステートオブジェクトの実体
+    };
+
     struct RootSignatureRecord final
     {
         RootSignatureDesc desc; // ルートシグネチャの記述
@@ -33,6 +39,9 @@ namespace Cue::RHI::DX12
         Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out) override;
         Result destroy_graphics_pipeline(PipelineStateHandle handle) override;
         Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out) override;
+        Result create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out) override;
+        Result destroy_compute_pipeline(PipelineStateHandle handle) override;
+        Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out) override;
         Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out) override;
         Result destroy_root_signature(RootSignatureHandle handle) override;
         Result get_root_signature(std::string_view name, RootSignatureHandle& out) override;
@@ -40,6 +49,7 @@ namespace Cue::RHI::DX12
         Result destroy_shader_blob(ShaderBlobHandle handle) override;
         Result get_shader_blob(std::string_view name, ShaderBlobHandle& out) override;
         bool try_get_graphics_pipeline(PipelineStateHandle handle, DX12GraphicsPipelineRecord** outRecord);
+        bool try_get_compute_pipeline(PipelineStateHandle handle, DX12ComputePipelineRecord** outRecord);
         bool try_get_root_signature(RootSignatureHandle handle, RootSignatureRecord** outRecord);
         bool try_get_shader_blob(ShaderBlobHandle handle, ShaderBlobRecord** outRecord);
     private:
@@ -47,6 +57,8 @@ namespace Cue::RHI::DX12
         HLSLCompiler& m_hlslCompiler;
         Registry<PipelineTag, DX12GraphicsPipelineRecord> m_pipelineRegistry; // グラフィックスパイプラインステートのレジストリ
         std::unordered_map<Core::ResourceNameId, PipelineStateHandle> m_pipelineNameMap; // 名前からグラフィックスパイプラインステートハンドルへのマッピング
+        Registry<PipelineTag, DX12ComputePipelineRecord> m_computePipelineRegistry; // コンピュートパイプラインステートのレジストリ
+        std::unordered_map<Core::ResourceNameId, PipelineStateHandle> m_computePipelineNameMap; // 名前からコンピュートパイプラインステートハンドルへのマッピング
         Registry<RootSignatureTag, RootSignatureRecord> m_rootSignatureRegistry; // ルートシグネチャのレジストリ
         std::unordered_map<Core::ResourceNameId, RootSignatureHandle> m_rootSignatureNameMap; // 名前からルートシグネチャハンドルへのマッピング
         Registry<ShaderBlobTag, ShaderBlobRecord> m_shaderBlobRegistry; // シェーダーブロブのレジストリ

@@ -11,6 +11,9 @@ namespace Cue::RHI
         CBV,
         SRV,
         UAV,
+        DescriptorTableCBV,
+        DescriptorTableSRV,
+        DescriptorTableUAV,
         _32BitConstants
     };
 
@@ -109,6 +112,13 @@ namespace Cue::RHI
         std::vector<ColorFormat> rtvFormats = {};
     };
 
+    struct ComputePipelineStateDesc
+    {
+        std::string_view name = {};
+        RootSignatureHandle rootSignatureHandle = {};
+        ShaderBlobHandle csHandle = {};
+    };
+
     class IPipelineManager
     {
     public:
@@ -124,6 +134,9 @@ namespace Cue::RHI
         virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out) = 0;
         virtual Result destroy_graphics_pipeline(PipelineStateHandle handle) = 0;
         virtual Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out) = 0;
+        virtual Result create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out) = 0;
+        virtual Result destroy_compute_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out) = 0;
 
         virtual Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out) = 0;
         virtual Result destroy_root_signature(RootSignatureHandle handle) = 0;

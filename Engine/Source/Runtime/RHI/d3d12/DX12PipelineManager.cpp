@@ -129,14 +129,42 @@ namespace Cue::RHI::DX12
         {
             switch (type)
             {
-            case RootParameterType::CBV:
+            case RootParameterType::DescriptorTableCBV:
                 return D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-            case RootParameterType::SRV:
+            case RootParameterType::DescriptorTableSRV:
                 return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-            case RootParameterType::UAV:
+            case RootParameterType::DescriptorTableUAV:
                 return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
             default:
                 return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+            }
+        }
+
+        [[nodiscard]] bool is_descriptor_table_parameter(RootParameterType type) noexcept
+        {
+            switch (type)
+            {
+            case RootParameterType::DescriptorTableCBV:
+            case RootParameterType::DescriptorTableSRV:
+            case RootParameterType::DescriptorTableUAV:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        [[nodiscard]] D3D12_ROOT_PARAMETER_TYPE convert_root_parameter_type(RootParameterType type) noexcept
+        {
+            switch (type)
+            {
+            case RootParameterType::CBV:
+                return D3D12_ROOT_PARAMETER_TYPE_CBV;
+            case RootParameterType::SRV:
+                return D3D12_ROOT_PARAMETER_TYPE_SRV;
+            case RootParameterType::UAV:
+                return D3D12_ROOT_PARAMETER_TYPE_UAV;
+            default:
+                return D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
             }
         }
 
@@ -296,6 +324,98 @@ namespace Cue::RHI::DX12
         out = m_pipelineNameMap[Core::fnv1a64(name)];
         return Result::ok();
     }
+    Result DX12PipelineManager::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
+    {
+        DX12ComputePipelineRecord record{};
+
+        RootSignatureRecord* rootSignatureRecord = m_rootSignatureRegistry.ref_get(desc.rootSignatureHandle);
+        if (!rootSignatureRecord)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Root signature not found for the given compute pipeline.");
+        }
+
+        ShaderBlobRecord* csBlobRecord = m_shaderBlobRegistry.ref_get(desc.csHandle);
+        if (!csBlobRecord)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute shader blob not found for the given handle.");
+        }
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc{};
+        psoDesc.pRootSignature = rootSignatureRecord->rootSignature.Get();
+        psoDesc.CS.pShaderBytecode = csBlobRecord->shaderBlob->GetBufferPointer();
+        psoDesc.CS.BytecodeLength = csBlobRecord->shaderBlob->GetBufferSize();
+
+        ComPtr<ID3D12PipelineState> pipelineState;
+        HRESULT hr = m_renderDevice.get_d3d12_device()->CreateComputePipelineState(
+            &psoDesc,
+            IID_PPV_ARGS(&pipelineState));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create compute pipeline state.");
+        }
+
+        record.pipelineState = pipelineState;
+        record.desc = desc;
+        PipelineStateHandle handle = m_computePipelineRegistry.create(record);
+        if (!desc.name.empty())
+        {
+            m_computePipelineNameMap[Core::fnv1a64(desc.name)] = handle;
+        }
+
+        out = handle;
+        return Result::ok();
+    }
+    Result DX12PipelineManager::destroy_compute_pipeline(PipelineStateHandle handle)
+    {
+        if (!handle.valid())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Invalid compute pipeline state handle.");
+        }
+
+        for (auto it = m_computePipelineNameMap.begin(); it != m_computePipelineNameMap.end(); ++it)
+        {
+            if (it->second == handle)
+            {
+                m_computePipelineNameMap.erase(it);
+                break;
+            }
+        }
+
+        if (!m_computePipelineRegistry.destroy(handle))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute pipeline state not found for the given handle.");
+        }
+
+        return Result::ok();
+    }
+    Result DX12PipelineManager::get_compute_pipeline(std::string_view name, PipelineStateHandle& out)
+    {
+        if (!m_computePipelineNameMap.contains(Core::fnv1a64(name)))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute pipeline state not found for the given name.");
+        }
+
+        out = m_computePipelineNameMap[Core::fnv1a64(name)];
+        return Result::ok();
+    }
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
         // D3D12_ROOT_SIGNATURE_DESC を構築する。
@@ -322,17 +442,26 @@ namespace Cue::RHI::DX12
                 continue;
             }
 
-            D3D12_DESCRIPTOR_RANGE descriptorRange{};
-            descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
-            descriptorRange.NumDescriptors = 1;
-            descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
-            descriptorRange.RegisterSpace = 0;
-            descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-            d3dDescriptorRanges.push_back(descriptorRange);
+            if (is_descriptor_table_parameter(parmDesc.type))
+            {
+                D3D12_DESCRIPTOR_RANGE descriptorRange{};
+                descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
+                descriptorRange.NumDescriptors = 1;
+                descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
+                descriptorRange.RegisterSpace = 0;
+                descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+                d3dDescriptorRanges.push_back(descriptorRange);
 
-            d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-            d3dParam.DescriptorTable.NumDescriptorRanges = 1;
-            d3dParam.DescriptorTable.pDescriptorRanges = &d3dDescriptorRanges.back();
+                d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+                d3dParam.DescriptorTable.NumDescriptorRanges = 1;
+                d3dParam.DescriptorTable.pDescriptorRanges = &d3dDescriptorRanges.back();
+                d3dParameters.push_back(d3dParam);
+                continue;
+            }
+
+            d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
+            d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
+            d3dParam.Descriptor.RegisterSpace = 0;
             d3dParameters.push_back(d3dParam);
         }
 
@@ -500,6 +629,12 @@ namespace Cue::RHI::DX12
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
         *outRecord = m_pipelineRegistry.ref_get(handle);
+        return *outRecord != nullptr;
+    }
+    bool DX12PipelineManager::try_get_compute_pipeline(PipelineStateHandle handle, DX12ComputePipelineRecord** outRecord)
+    {
+        *outRecord = nullptr;
+        *outRecord = m_computePipelineRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
     bool DX12PipelineManager::try_get_root_signature(RootSignatureHandle handle, RootSignatureRecord** outRecord)

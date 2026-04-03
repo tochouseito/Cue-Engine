@@ -54,6 +54,10 @@ namespace Cue::RHI
         Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out);
         /// @brief 宣言済みグラフィックスパイプライン取得
         Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out);
+        /// @brief コンピュートパイプライン作成宣言
+        Result create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out);
+        /// @brief 宣言済みコンピュートパイプライン取得
+        Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out);
 
         /// @brief render target 書き込み宣言
         Result render(const TextureHandle* handles, size_t count);

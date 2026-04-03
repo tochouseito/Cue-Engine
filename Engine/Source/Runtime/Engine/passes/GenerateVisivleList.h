@@ -8,6 +8,11 @@ namespace Cue
     class GenerateVisibleListPass final : public RHI::FrameGraphPass
     {
     public:
+        explicit GenerateVisibleListPass(uint32_t a_objectCount)
+            : m_objectCount(a_objectCount)
+        {
+        }
+
         const char* name() const noexcept override
         {
             return "GenerateVisibleList";
@@ -15,7 +20,7 @@ namespace Cue
 
         RHI::CommandListType type() const noexcept override
         {
-            return RHI::CommandListType::Graphics;
+            return RHI::CommandListType::Compute;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -51,17 +56,103 @@ namespace Cue
             {
                 return result;
             }
+
+            RHI::RootSignatureDesc rootSignatureDesc{};
+            rootSignatureDesc.name = "GenerateVisibleListRootSignature";
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            result = builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to create root signature for GenerateVisibleList pass.");
+            }
+
+            RHI::ShaderCompileDesc computeShaderDesc{};
+            computeShaderDesc.name = "GenerateVisibleObjectListCS";
+            computeShaderDesc.filePath = "Shaders/D3D12/GenerateVisibleObjectList.hlsl";
+            computeShaderDesc.entryPoint = "CSMain";
+            computeShaderDesc.targetProfile = "cs_6_0";
+            result = builder.create_shader_blob(computeShaderDesc, m_computeShaderHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to compile GenerateVisibleObjectList compute shader.");
+            }
+
+            RHI::ComputePipelineStateDesc pipelineDesc{};
+            pipelineDesc.name = "GenerateVisibleListPipeline";
+            pipelineDesc.rootSignatureHandle = m_rootSignatureHandle;
+            pipelineDesc.csHandle = m_computeShaderHandle;
+            result = builder.create_compute_pipeline(pipelineDesc, m_pipelineHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to create compute pipeline for GenerateVisibleList pass.");
+            }
+
             return Result::ok();
         }
 
         void execute(RHI::FrameGraphContext& context) override
-        {}
+        {
+            RHI::ICommandContext* commandContext = context.commandContext();
+            if (commandContext == nullptr)
+            {
+                return;
+            }
+
+            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
+
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::ShaderResource;
+                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
+            }
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
+                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
+            }
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+            }
+
+            commandContext->clear_unordered_access_uint(m_visibleObjectCountBufferUavHandle, clearValues);
+            if (m_objectCount == 0)
+            {
+                return;
+            }
+
+            commandContext->set_compute_pipeline(m_pipelineHandle);
+            commandContext->set_32bit_constant(0, m_objectCount);
+            commandContext->set_srv(1, m_objectInfoBufferHandle);
+            commandContext->set_uav(2, m_renderObjectBufferHandle);
+            commandContext->set_uav(3, m_visibleObjectCountBufferHandle);
+
+            const uint32_t groupCountX = (m_objectCount + 63u) / 64u;
+            commandContext->dispatch(groupCountX, 1, 1);
+        }
     private:
+        uint32_t m_objectCount = 0;
         RHI::BufferHandle m_objectInfoBufferHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
         RHI::ViewHandle m_objectInfoBufferSrvHandle{};
         RHI::ViewHandle m_renderObjectBufferUavHandle{};
         RHI::ViewHandle m_visibleObjectCountBufferUavHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_computeShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 }

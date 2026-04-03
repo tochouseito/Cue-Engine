@@ -76,7 +76,7 @@ namespace Cue::RHI
 
             RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "ScreenCopyRootSignature";
-            rootSignatureDesc.parameters.push_back(RootParameterDesc{ RootParameterType::SRV, ShaderVisibility::Pixel, 0 });
+            rootSignatureDesc.parameters.push_back(RootParameterDesc{ RootParameterType::DescriptorTableSRV, ShaderVisibility::Pixel, 0 });
             result = builder.create_root_signature(rootSignatureDesc, m_screenCopyRootSignatureHandle);
             if (!result)
             {
@@ -86,7 +86,7 @@ namespace Cue::RHI
                     "Failed to create root signature for screen copy pass.");
             }
 
-            const std::string shaderFilePath = "Shaders/ScreenCopy.hlsl";
+            const std::string shaderFilePath = "Shaders/D3D12/ScreenCopy.hlsl";
             if (shaderFilePath.empty())
             {
                 return Result::fail(

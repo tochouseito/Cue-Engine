@@ -62,6 +62,16 @@ namespace Cue::RHI
         return m_frameGraph.m_desc.pipelineManager->get_graphics_pipeline(name, out);
     }
 
+    Result FrameGraphBuilder::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->create_compute_pipeline(desc, out);
+    }
+
+    Result FrameGraphBuilder::get_compute_pipeline(std::string_view name, PipelineStateHandle& out)
+    {
+        return m_frameGraph.m_desc.pipelineManager->get_compute_pipeline(name, out);
+    }
+
     Result FrameGraphBuilder::render(const TextureHandle* handles, size_t count)
     {
         m_renderTargets.clear();

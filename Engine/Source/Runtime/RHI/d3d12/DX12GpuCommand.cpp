@@ -311,6 +311,117 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4])
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "UAV clear can only be issued on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12ViewRecord* viewRecord = nullptr;
+        if (!m_viewManager.try_get_record(handle, &viewRecord) || viewRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View record was not found for the given UAV handle.");
+        }
+        if (viewRecord->desc.type != ViewType::UnorderedAccessBuffer &&
+            viewRecord->desc.type != ViewType::UnorderedAccessRawBuffer)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The view type of the given handle is not a UAV buffer.");
+        }
+
+        DX12BufferRecord* bufferRecord = nullptr;
+        if (!m_bufferManager.try_get_record(viewRecord->desc.bufferHandle, &bufferRecord) || bufferRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given UAV view handle.");
+        }
+
+        if (!viewRecord->defaultTableIds.empty() && !bufferRecord->defaultResources.empty())
+        {
+            uint32_t descriptorIndex = 0;
+            result = resolve_slice_index(viewRecord->defaultTableIds.size(), descriptorIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve default UAV descriptor index for the current frame.");
+            }
+
+            uint32_t resourceIndex = 0;
+            result = resolve_slice_index(bufferRecord->defaultResources.size(), resourceIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve default UAV buffer slice index for the current frame.");
+            }
+
+            DX12GpuResource& resource = bufferRecord->defaultResources[resourceIndex];
+            const D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorAllocator.get_gpu_handle(viewRecord->defaultTableIds[descriptorIndex]);
+            const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_descriptorAllocator.get_cpu_handle(viewRecord->defaultTableIds[descriptorIndex]);
+            m_commandList->ClearUnorderedAccessViewUint(
+                gpuHandle,
+                cpuHandle,
+                resource.get_resource(),
+                const_cast<uint32_t*>(clearValues),
+                0,
+                nullptr);
+            return Result::ok();
+        }
+
+        if (!viewRecord->uploadTableIds.empty() && !bufferRecord->uploadResources.empty())
+        {
+            uint32_t descriptorIndex = 0;
+            result = resolve_slice_index(viewRecord->uploadTableIds.size(), descriptorIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve upload UAV descriptor index for the current frame.");
+            }
+
+            uint32_t resourceIndex = 0;
+            result = resolve_slice_index(bufferRecord->uploadResources.size(), resourceIndex);
+            if (!result)
+            {
+                return Result::fail(
+                    result.code,
+                    Severity::Error,
+                    "Failed to resolve upload UAV buffer slice index for the current frame.");
+            }
+
+            DX12GpuResource& resource = bufferRecord->uploadResources[resourceIndex];
+            const D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorAllocator.get_gpu_handle(viewRecord->uploadTableIds[descriptorIndex]);
+            const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_descriptorAllocator.get_cpu_handle(viewRecord->uploadTableIds[descriptorIndex]);
+            m_commandList->ClearUnorderedAccessViewUint(
+                gpuHandle,
+                cpuHandle,
+                resource.get_resource(),
+                const_cast<uint32_t*>(clearValues),
+                0,
+                nullptr);
+            return Result::ok();
+        }
+
+        return Result::fail(
+            Code::NotFound,
+            Severity::Error,
+            "No clearable UAV resource was found for the given handle.");
+    }
     Result DX12GpuCommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
     {
         // queue 種別を検証して RS state を設定する。
@@ -388,6 +499,38 @@ namespace Cue::RHI::DX12
         }
 
         m_commandList->SetGraphicsRootSignature(rootSignatureRecord->rootSignature.Get());
+        m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "Compute pipeline can only be set on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12ComputePipelineRecord* pipelineRecord = nullptr;
+        if (!m_pipelineManager.try_get_compute_pipeline(handle, &pipelineRecord))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Compute pipeline was not found for the given handle.");
+        }
+
+        RootSignatureRecord* rootSignatureRecord = nullptr;
+        if (!m_pipelineManager.try_get_root_signature(pipelineRecord->desc.rootSignatureHandle, &rootSignatureRecord))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Root signature was not found for the given compute pipeline.");
+        }
+
+        m_commandList->SetComputeRootSignature(rootSignatureRecord->rootSignature.Get());
         m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
         return Result::ok();
     }
@@ -553,6 +696,19 @@ namespace Cue::RHI::DX12
 
         D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorAllocator.get_gpu_handle(viewRecord->defaultTableIds[descriptorIndex]);
         m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
+    {
+        Result result = validate_root_binding_command_type(
+            type(),
+            "Dispatch can only be issued on graphics or compute command contexts.");
+        if (!result)
+        {
+            return result;
+        }
+
+        m_commandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         return Result::ok();
     }
     Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)

@@ -54,14 +54,17 @@ namespace Cue::RHI::DX12
         Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) override;
         Result clear_render_target(ViewHandle handle, const float clearColor[4]) override;
         Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) override;
+        Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
         Result set_graphics_pipeline(PipelineStateHandle handle) override;
+        Result set_compute_pipeline(PipelineStateHandle handle) override;
         Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) override;
         Result set_cbv(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) override;
+        Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
         Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;

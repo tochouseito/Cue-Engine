@@ -1,5 +1,6 @@
 #include "Engine.h"
 #include "GpuData/Batching.h"
+#include "passes/GenerateVisivleList.h"
 #include <PresentToSwapChain.h>
 
 namespace Cue
@@ -37,7 +38,7 @@ namespace Cue
                 "Failed to get buffer manager from backend.");
         }
 
-        uint32_t k_maxObjectCount = 1000; // TODO: 定数化
+        constexpr uint32_t k_maxObjectCount = 1000; // TODO: 実際のオブジェクト数管理へ置き換える
 
         RHI::BufferDesc objectInfoBufferDesc{};
         objectInfoBufferDesc.name = "ObjectInfoBuffer";
@@ -175,6 +176,26 @@ namespace Cue
         finalColorSrvDesc.mipLevels = 1;
         RHI::ViewHandle finalColorSrvHandle{};
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
+
+        // render 用 FrameGraph の生成
+        result = m_backend->create_frame_graph(m_frameGraph);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Fatal,
+                "Failed to create render frame graph.");
+        }
+
+        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(k_maxObjectCount));
+        result = m_frameGraph->build();
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Fatal,
+                "Failed to build render frame graph.");
+        }
 
         // present 用 FrameGraph の生成
         result = m_backend->create_frame_graph(m_presentFrameGraph);

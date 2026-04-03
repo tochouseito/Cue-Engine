@@ -2,6 +2,21 @@
 
 namespace Cue::RHI::DX12
 {
+    namespace
+    {
+        [[nodiscard]] D3D12_RESOURCE_FLAGS get_default_buffer_resource_flags(const BufferDesc& desc) noexcept
+        {
+            switch (desc.type)
+            {
+            case BufferType::UnorderedAccess:
+            case BufferType::Raw:
+                return D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            default:
+                return D3D12_RESOURCE_FLAG_NONE;
+            }
+        }
+    }
+
     Result DX12BufferManager::create_buffer(const BufferDesc& desc, BufferHandle& out)
     {
         DX12BufferRecord record{};
@@ -33,7 +48,7 @@ namespace Cue::RHI::DX12
             resourceDesc.SampleDesc = { 1, 0 };
             resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
             resourceDesc.Alignment = 0;
-            resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+            resourceDesc.Flags = get_default_buffer_resource_flags(desc);
             // リソース名の変換
             std::wstring name = L"";
             PAL::Win::utf8_to_wide(desc.name, &name);
