@@ -19,6 +19,7 @@ namespace Cue::RHI::DX12
         {
             // バッファの初期化処理
             DX12GpuResource resource;
+            const D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON; // デフォルトヒープは初期状態を COMMON にすることが多いが、必要に応じて変更する
             D3D12_HEAP_FLAGS heapFlags = D3D12_HEAP_FLAG_NONE;
             D3D12_HEAP_PROPERTIES heapProperties = {};
             heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT; // デフォルトヒープは GPU 専用のヒープタイプ
@@ -42,7 +43,7 @@ namespace Cue::RHI::DX12
                 heapProperties,
                 heapFlags,
                 resourceDesc,
-                convert_resource_state(desc.initialState),
+                initialState,
                 nullptr,
                 name);
             // 成功したらレコードに追加

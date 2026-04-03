@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "GpuData/Batching.h"
 #include <PresentToSwapChain.h>
 
 namespace Cue
@@ -25,6 +26,69 @@ namespace Cue
             m_platform->clock(),
             m_platform->waiter(),
             update(), render(), present());
+
+        // GenerateVisibleObjectList 用バッファを作成
+        auto* bufferManager = m_backend->get_buffer_manager();
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get buffer manager from backend.");
+        }
+
+        uint32_t k_maxObjectCount = 1000; // TODO: 定数化
+
+        RHI::BufferDesc objectInfoBufferDesc{};
+        objectInfoBufferDesc.name = "ObjectInfoBuffer";
+        objectInfoBufferDesc.type = RHI::BufferType::Structured;
+        objectInfoBufferDesc.defaultHeapCount = 1;
+        objectInfoBufferDesc.uploadHeapCount = 1;
+        objectInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        objectInfoBufferDesc.stride = sizeof(GpuData::ObjectInfo);
+        objectInfoBufferDesc.elementCount = k_maxObjectCount;
+        objectInfoBufferDesc.size = objectInfoBufferDesc.stride * objectInfoBufferDesc.elementCount;
+        objectInfoBufferDesc.alignment = alignof(GpuData::ObjectInfo);
+        RHI::BufferHandle objectInfoBufferHandle{};
+        Result result = bufferManager->create_buffer(objectInfoBufferDesc, objectInfoBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::BufferDesc renderObjectBufferDesc{};
+        renderObjectBufferDesc.name = "RenderObjectBuffer";
+        renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
+        renderObjectBufferDesc.defaultHeapCount = 1;
+        renderObjectBufferDesc.uploadHeapCount = 0;
+        renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
+        renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
+        renderObjectBufferDesc.elementCount = k_maxObjectCount;
+        renderObjectBufferDesc.size = renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
+        renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
+        RHI::BufferHandle renderObjectBufferHandle{};
+        result = bufferManager->create_buffer(renderObjectBufferDesc, renderObjectBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::BufferDesc renderObjectCountBufferDesc{};
+        renderObjectCountBufferDesc.name = "RenderObjectCountBuffer";
+        renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
+        renderObjectCountBufferDesc.defaultHeapCount = 1;
+        renderObjectCountBufferDesc.uploadHeapCount = 1;
+        renderObjectCountBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
+        renderObjectCountBufferDesc.stride = sizeof(uint32_t);
+        renderObjectCountBufferDesc.elementCount = 1;
+        renderObjectCountBufferDesc.size = sizeof(uint32_t);
+        renderObjectCountBufferDesc.alignment = alignof(uint32_t);
+        RHI::BufferHandle renderObjectCountBufferHandle{};
+        result = bufferManager->create_buffer(renderObjectCountBufferDesc, renderObjectCountBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
 
         // FinalColor を作成
         RHI::TextureDesc finalColorDesc{};
@@ -61,7 +125,7 @@ namespace Cue
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
 
         // present 用 FrameGraph の生成
-        Result result = m_backend->create_frame_graph(m_presentFrameGraph);
+        result = m_backend->create_frame_graph(m_presentFrameGraph);
         if (!result)
         {
             return Result::fail(
