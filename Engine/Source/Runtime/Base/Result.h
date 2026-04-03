@@ -136,6 +136,6 @@ namespace Cue
         {
             return code == Code::OK;
         }
-    };
+    };   
 
 } // namespace Cue

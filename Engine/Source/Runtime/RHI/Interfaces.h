@@ -125,6 +125,17 @@ namespace Cue::RHI
         ResourceState after = ResourceState::Common;
     };
 
+    struct BufferCopyRegion final
+    {
+        BufferHandle srcBufferHandle = {};
+        uint32_t srcUploadResourceIndex = 0;
+        uint64_t srcByteOffset = 0;
+        BufferHandle dstBufferHandle = {};
+        uint32_t dstDefaultResourceIndex = 0;
+        uint64_t dstByteOffset = 0;
+        uint64_t byteSize = 0;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェースです。
     class ICommandContext
     {
@@ -151,6 +162,7 @@ namespace Cue::RHI
         // --- Commaonds ---
         virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
         virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
         virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
         virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;

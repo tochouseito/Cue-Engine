@@ -232,6 +232,54 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::copy_buffer_region(const BufferCopyRegion& region)
+    {
+        if (region.byteSize == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy buffer region byte size must be greater than 0.");
+        }
+
+        DX12GpuResource* srcResource = nullptr;
+        Result result = resolve_upload_buffer(region.srcBufferHandle, region.srcUploadResourceIndex, &srcResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* dstResource = nullptr;
+        result = resolve_default_buffer(region.dstBufferHandle, region.dstDefaultResourceIndex, &dstResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (region.srcByteOffset + region.byteSize > srcResource->get_buffer_size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy source range exceeds the source buffer size.");
+        }
+        if (region.dstByteOffset + region.byteSize > dstResource->get_buffer_size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy destination range exceeds the destination buffer size.");
+        }
+
+        m_commandList->CopyBufferRegion(
+            dstResource->get_resource(),
+            region.dstByteOffset,
+            srcResource->get_resource(),
+            region.srcByteOffset,
+            region.byteSize);
+
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
         // ハンドルからビューを取得する
@@ -929,6 +977,52 @@ namespace Cue::RHI::DX12
             Code::NotFound,
             Severity::Error,
             "No bindable buffer resource was found for the given handle.");
+    }
+    Result DX12GpuCommandContext::resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    {
+        *outResource = nullptr;
+
+        DX12BufferRecord* record = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Source buffer record was not found.");
+        }
+        if (resourceIndex >= record->uploadResources.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Source upload resource index is out of range.");
+        }
+
+        *outResource = const_cast<DX12GpuResource*>(&record->uploadResources[resourceIndex]);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    {
+        *outResource = nullptr;
+
+        DX12BufferRecord* record = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Destination buffer record was not found.");
+        }
+        if (resourceIndex >= record->defaultResources.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Destination default resource index is out of range.");
+        }
+
+        *outResource = const_cast<DX12GpuResource*>(&record->defaultResources[resourceIndex]);
+        return Result::ok();
     }
     Result DX12GpuCommandContext::create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {

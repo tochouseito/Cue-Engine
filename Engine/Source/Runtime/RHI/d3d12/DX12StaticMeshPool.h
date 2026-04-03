@@ -12,7 +12,7 @@
 // === DirectX 12 includes ===
 #include "stdafx.h"
 #include "DX12BufferManager.h"
-#include "ResourceUploader.h"
+#include "DX12GpuCommand.h"
 
 namespace Cue::RHI::DX12
 {
@@ -54,7 +54,8 @@ namespace Cue::RHI::DX12
         DX12StaticMeshPool(
             const StaticMeshPoolDesc& desc,
             DX12BufferManager& bufferManager,
-            ResourceUploader& resourceUploader);
+            DX12CommandPool& commandPool,
+            DX12QueuePool& queuePool);
         ~DX12StaticMeshPool() override;
 
         Result allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle) override;
@@ -91,10 +92,12 @@ namespace Cue::RHI::DX12
             const Core::RingBuffer::Allocation& allocation,
             const void* sourceData,
             uint64_t byteSize);
+        Result copy_upload_regions(const std::vector<BufferCopyRegion>& regions);
         void destroy_stream_state(StreamState& streamState);
     private:
         DX12BufferManager& m_bufferManager;
-        ResourceUploader& m_resourceUploader;
+        DX12CommandPool& m_commandPool;
+        DX12QueuePool& m_queuePool;
         Core::Registry<StaticMeshTag, StaticMeshRecord> m_meshRegistry;
         std::unordered_map<Core::ResourceNameId, StaticMeshHandle> m_nameToHandlesMap;
         StreamState m_positionStream{};

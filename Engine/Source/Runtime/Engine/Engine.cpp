@@ -1,5 +1,6 @@
 #include "Engine.h"
 #include "GpuData/Batching.h"
+#include "passes/ObjectInfoCopyPass.h"
 #include "passes/GenerateVisivleList.h"
 #include <PresentToSwapChain.h>
 
@@ -214,6 +215,7 @@ namespace Cue
                 "Failed to create render frame graph.");
         }
 
+        m_frameGraph->add_pass(std::make_unique<ObjectInfoCopyPass>(static_cast<uint64_t>(k_initialObjectCount) * sizeof(GpuData::ObjectInfo)));
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(k_initialObjectCount));
         result = m_frameGraph->build();
         if (!result)

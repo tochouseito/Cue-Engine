@@ -114,9 +114,11 @@ namespace Cue::RHI::DX12
     DX12StaticMeshPool::DX12StaticMeshPool(
         const StaticMeshPoolDesc& desc,
         DX12BufferManager& bufferManager,
-        ResourceUploader& resourceUploader)
+        DX12CommandPool& commandPool,
+        DX12QueuePool& queuePool)
         : m_bufferManager(bufferManager)
-        , m_resourceUploader(resourceUploader)
+        , m_commandPool(commandPool)
+        , m_queuePool(queuePool)
     {
         // 1) コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh で検査できるようにする。
         m_initResult = initialize_streams(desc);
@@ -339,6 +341,88 @@ namespace Cue::RHI::DX12
         std::memcpy(dst, sourceData, static_cast<size_t>(byteSize));
     }
 
+    Result DX12StaticMeshPool::copy_upload_regions(const std::vector<BufferCopyRegion>& regions)
+    {
+        if (regions.empty())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy regions must not be empty.");
+        }
+
+        CommandContextLease commandContext{};
+        Result result = m_commandPool.get_command_context(CommandListType::Copy, commandContext);
+        if (!result)
+        {
+            return result;
+        }
+
+        QueueContextLease queueContext{};
+        result = m_queuePool.get_queue_context(CommandListType::Copy, queueContext);
+        if (!result)
+        {
+            m_commandPool.return_command_context(commandContext);
+            return result;
+        }
+
+        result = commandContext->reset();
+        if (result)
+        {
+            result = commandContext->setup(0, 1);
+        }
+
+        if (result)
+        {
+            for (const BufferCopyRegion& region : regions)
+            {
+                ResourceBarrierDesc toCopyDestBarrier{};
+                toCopyDestBarrier.after = ResourceState::CopyDest;
+                result = commandContext->resource_barrier(region.dstBufferHandle, toCopyDestBarrier);
+                if (!result)
+                {
+                    break;
+                }
+
+                result = commandContext->copy_buffer_region(region);
+                ResourceBarrierDesc toCommonBarrier{};
+                toCommonBarrier.after = ResourceState::Common;
+                Result restoreResult = commandContext->resource_barrier(region.dstBufferHandle, toCommonBarrier);
+                if (!result)
+                {
+                    break;
+                }
+                if (!restoreResult)
+                {
+                    result = restoreResult;
+                    break;
+                }
+            }
+        }
+
+        if (result)
+        {
+            result = commandContext->close();
+        }
+        if (result)
+        {
+            std::vector<ICommandContext*> contexts{ commandContext.get() };
+            result = queueContext->submit(contexts);
+        }
+        if (result)
+        {
+            result = queueContext->signal();
+        }
+        if (result)
+        {
+            result = queueContext->wait();
+        }
+
+        m_commandPool.return_command_context(commandContext);
+        m_queuePool.return_queue_context(queueContext);
+        return result;
+    }
+
     void DX12StaticMeshPool::destroy_stream_state(StreamState& streamState)
     {
         // 1) upload/default の順に破棄し、BufferManager の所有実体を明示的に返す。
@@ -511,9 +595,9 @@ namespace Cue::RHI::DX12
             record.normalByteSize);
         write_upload_bytes(m_indexStream, indexUpload, meshData.indices.data(), record.indexByteSize);
 
-        std::vector<BufferUploadRegion> uploadRegions
+        std::vector<BufferCopyRegion> uploadRegions
         {
-            BufferUploadRegion
+            BufferCopyRegion
             {
                 .srcBufferHandle = m_positionStream.uploadBufferHandle,
                 .srcUploadResourceIndex = 0,
@@ -523,7 +607,7 @@ namespace Cue::RHI::DX12
                 .dstByteOffset = record.positionByteOffset,
                 .byteSize = record.positionByteSize
             },
-            BufferUploadRegion
+            BufferCopyRegion
             {
                 .srcBufferHandle = m_uvStream.uploadBufferHandle,
                 .srcUploadResourceIndex = 0,
@@ -533,7 +617,7 @@ namespace Cue::RHI::DX12
                 .dstByteOffset = record.uvByteOffset,
                 .byteSize = record.uvByteSize
             },
-            BufferUploadRegion
+            BufferCopyRegion
             {
                 .srcBufferHandle = m_normalStream.uploadBufferHandle,
                 .srcUploadResourceIndex = 0,
@@ -543,7 +627,7 @@ namespace Cue::RHI::DX12
                 .dstByteOffset = record.normalByteOffset,
                 .byteSize = record.normalByteSize
             },
-            BufferUploadRegion
+            BufferCopyRegion
             {
                 .srcBufferHandle = m_indexStream.uploadBufferHandle,
                 .srcUploadResourceIndex = 0,
@@ -555,7 +639,7 @@ namespace Cue::RHI::DX12
             }
         };
 
-        result = m_resourceUploader.upload_buffer_regions(uploadRegions);
+        result = copy_upload_regions(uploadRegions);
 
         release_upload_range(m_indexStream, indexUpload);
         release_upload_range(m_normalStream, normalUpload);

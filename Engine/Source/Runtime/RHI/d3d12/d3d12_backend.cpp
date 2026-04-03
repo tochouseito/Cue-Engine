@@ -64,12 +64,9 @@ namespace Cue::RHI::DX12
             *static_cast<DX12GpuCommandQueue*>(queueContext.get()));
         r = m_queuePool->return_queue_context(queueContext);
 
-        // リソースアップローダの初期化
-        m_resourceUploader = std::make_unique<ResourceUploader>(*m_bufferManager, *m_commandPool, *m_queuePool);
-
         // 静的メッシュプールの初期化
         StaticMeshPoolDesc meshPoolDesc{};
-        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_resourceUploader);
+        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_commandPool, *m_queuePool);
 
         return Result::ok();
     }
