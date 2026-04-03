@@ -66,7 +66,7 @@ namespace Cue::RHI::DX12
 
         // 静的メッシュプールの初期化
         StaticMeshPoolDesc meshPoolDesc{};
-        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_commandPool, *m_queuePool);
+        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_viewManager, *m_commandPool, *m_queuePool);
 
         return Result::ok();
     }

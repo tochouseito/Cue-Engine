@@ -114,19 +114,43 @@ namespace Cue::RHI::DX12
     DX12StaticMeshPool::DX12StaticMeshPool(
         const StaticMeshPoolDesc& desc,
         DX12BufferManager& bufferManager,
+        DX12ViewManager& viewManager,
         DX12CommandPool& commandPool,
         DX12QueuePool& queuePool)
         : m_bufferManager(bufferManager)
+        , m_viewManager(viewManager)
         , m_commandPool(commandPool)
         , m_queuePool(queuePool)
     {
         // 1) コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh で検査できるようにする。
         m_initResult = initialize_streams(desc);
+        if (m_initResult)
+        {
+            m_initResult = initialize_mesh_range_state(desc);
+        }
     }
 
     DX12StaticMeshPool::~DX12StaticMeshPool()
     {
         // 1) 生成順の逆順で破棄し、upload/default の両方を BufferManager へ戻す。
+        if (m_meshRangeState.srvHandle.valid())
+        {
+            m_viewManager.destroy_view(m_meshRangeState.srvHandle);
+            m_meshRangeState.srvHandle = {};
+        }
+        if (m_meshRangeState.uploadBufferHandle.valid())
+        {
+            m_bufferManager.destroy_buffer(m_meshRangeState.uploadBufferHandle);
+            m_meshRangeState.uploadBufferHandle = {};
+        }
+        if (m_meshRangeState.defaultBufferHandle.valid())
+        {
+            m_bufferManager.destroy_buffer(m_meshRangeState.defaultBufferHandle);
+            m_meshRangeState.defaultBufferHandle = {};
+        }
+        m_meshRangeState.mappedUploadData = nullptr;
+        m_meshRangeState.capacity = 0;
+        m_meshRangeState.freeMeshIds.clear();
         destroy_stream_state(m_indexStream);
         destroy_stream_state(m_normalStream);
         destroy_stream_state(m_uvStream);
@@ -183,6 +207,99 @@ namespace Cue::RHI::DX12
             desc.maxIndexCount,
             alignof(uint32_t),
             m_indexStream);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+    Result DX12StaticMeshPool::initialize_mesh_range_state(const StaticMeshPoolDesc& desc)
+    {
+        BufferDesc defaultDesc{};
+        defaultDesc.name = desc.meshRangeBufferName;
+        defaultDesc.type = BufferType::Structured;
+        defaultDesc.defaultHeapCount = 1;
+        defaultDesc.uploadHeapCount = 0;
+        defaultDesc.initialState = ResourceState::Common;
+        defaultDesc.stride = sizeof(StaticMeshRange);
+        defaultDesc.elementCount = desc.maxMeshCount;
+        defaultDesc.size = defaultDesc.stride * defaultDesc.elementCount;
+        defaultDesc.alignment = alignof(StaticMeshRange);
+
+        Result result = m_bufferManager.create_buffer(defaultDesc, m_meshRangeState.defaultBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        BufferDesc uploadDesc{};
+        uploadDesc.name = std::string(desc.meshRangeBufferName) + ".Upload";
+        uploadDesc.type = BufferType::Structured;
+        uploadDesc.defaultHeapCount = 0;
+        uploadDesc.uploadHeapCount = 1;
+        uploadDesc.initialState = ResourceState::CopySource;
+        uploadDesc.stride = sizeof(StaticMeshRange);
+        uploadDesc.elementCount = desc.maxMeshCount;
+        uploadDesc.size = uploadDesc.stride * uploadDesc.elementCount;
+        uploadDesc.alignment = alignof(StaticMeshRange);
+
+        result = m_bufferManager.create_buffer(uploadDesc, m_meshRangeState.uploadBufferHandle);
+        if (!result)
+        {
+            m_bufferManager.destroy_buffer(m_meshRangeState.defaultBufferHandle);
+            m_meshRangeState.defaultBufferHandle = {};
+            return result;
+        }
+
+        UploadBufferView uploadView{};
+        result = m_bufferManager.get_upload_buffer_view(m_meshRangeState.uploadBufferHandle, uploadView);
+        if (!result)
+        {
+            return result;
+        }
+        if (uploadView.mappedDatas.size() != 1 || uploadView.mappedDatas[0] == nullptr)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Static mesh range upload buffer is not mapped.");
+        }
+
+        ViewDesc meshRangeSrvDesc{};
+        meshRangeSrvDesc.name = desc.meshRangeViewName;
+        meshRangeSrvDesc.type = ViewType::ShaderResourceBuffer;
+        meshRangeSrvDesc.bufferKind = BufferKind::Buffer;
+        meshRangeSrvDesc.bufferHandle = m_meshRangeState.defaultBufferHandle;
+        meshRangeSrvDesc.firstElement = 0;
+        meshRangeSrvDesc.numElements = desc.maxMeshCount;
+        meshRangeSrvDesc.structureByteStride = sizeof(StaticMeshRange);
+        result = m_viewManager.create_view(meshRangeSrvDesc, m_meshRangeState.srvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_meshRangeState.mappedUploadData = uploadView.mappedDatas[0];
+        m_meshRangeState.capacity = desc.maxMeshCount;
+        std::memset(m_meshRangeState.mappedUploadData, 0, defaultDesc.size);
+        m_meshRangeState.freeMeshIds.clear();
+        m_meshRangeState.freeMeshIds.reserve(desc.maxMeshCount);
+        for (uint32_t meshId = desc.maxMeshCount; meshId > 0; --meshId)
+        {
+            m_meshRangeState.freeMeshIds.push_back(meshId - 1);
+        }
+
+        BufferCopyRegion initializeRegion{};
+        initializeRegion.srcBufferHandle = m_meshRangeState.uploadBufferHandle;
+        initializeRegion.srcUploadResourceIndex = 0;
+        initializeRegion.srcByteOffset = 0;
+        initializeRegion.dstBufferHandle = m_meshRangeState.defaultBufferHandle;
+        initializeRegion.dstDefaultResourceIndex = 0;
+        initializeRegion.dstByteOffset = 0;
+        initializeRegion.byteSize = defaultDesc.size;
+        std::vector<BufferCopyRegion> initializeRegions{ initializeRegion };
+        result = copy_upload_regions(initializeRegions);
         if (!result)
         {
             return result;
@@ -442,6 +559,55 @@ namespace Cue::RHI::DX12
         streamState.mappedUploadData = nullptr;
         streamState.capacityInBytes = 0;
     }
+    Result DX12StaticMeshPool::allocate_mesh_id(uint32_t& outMeshId)
+    {
+        if (m_meshRangeState.freeMeshIds.empty())
+        {
+            return Result::fail(
+                Code::OutOfMemory,
+                Severity::Error,
+                "Static mesh range buffer is out of mesh slots.");
+        }
+
+        outMeshId = m_meshRangeState.freeMeshIds.back();
+        m_meshRangeState.freeMeshIds.pop_back();
+        return Result::ok();
+    }
+    void DX12StaticMeshPool::release_mesh_id(uint32_t meshId)
+    {
+        if (meshId >= m_meshRangeState.capacity)
+        {
+            return;
+        }
+
+        m_meshRangeState.freeMeshIds.push_back(meshId);
+    }
+    void DX12StaticMeshPool::write_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
+    {
+        if (m_meshRangeState.mappedUploadData == nullptr || meshId >= m_meshRangeState.capacity)
+        {
+            return;
+        }
+
+        const uint64_t byteOffset = static_cast<uint64_t>(meshId) * sizeof(StaticMeshRange);
+        std::memcpy(m_meshRangeState.mappedUploadData + byteOffset, &meshRange, sizeof(StaticMeshRange));
+    }
+    Result DX12StaticMeshPool::upload_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
+    {
+        write_mesh_range(meshId, meshRange);
+
+        BufferCopyRegion region{};
+        region.srcBufferHandle = m_meshRangeState.uploadBufferHandle;
+        region.srcUploadResourceIndex = 0;
+        region.srcByteOffset = static_cast<uint64_t>(meshId) * sizeof(StaticMeshRange);
+        region.dstBufferHandle = m_meshRangeState.defaultBufferHandle;
+        region.dstDefaultResourceIndex = 0;
+        region.dstByteOffset = region.srcByteOffset;
+        region.byteSize = sizeof(StaticMeshRange);
+
+        std::vector<BufferCopyRegion> regions{ region };
+        return copy_upload_regions(regions);
+    }
 
     Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
     {
@@ -483,14 +649,20 @@ namespace Cue::RHI::DX12
         record.uvByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float2);
         record.normalByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float3);
         record.indexByteSize = byte_size_of(meshData.indices);
+        Result result = allocate_mesh_id(record.meshId);
+        if (!result)
+        {
+            return result;
+        }
 
-        Result result = allocate_stream_range(
+        result = allocate_stream_range(
             m_positionStream,
             record.positionByteSize,
             alignof(Math::float4),
             record.positionByteOffset);
         if (!result)
         {
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -502,6 +674,7 @@ namespace Cue::RHI::DX12
         if (!result)
         {
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -514,6 +687,7 @@ namespace Cue::RHI::DX12
         {
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -527,6 +701,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -543,6 +718,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -554,6 +730,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -566,6 +743,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -579,6 +757,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -594,6 +773,12 @@ namespace Cue::RHI::DX12
             meshData.normals.empty() ? nullptr : meshData.normals.data(),
             record.normalByteSize);
         write_upload_bytes(m_indexStream, indexUpload, meshData.indices.data(), record.indexByteSize);
+
+        StaticMeshRange meshRange{};
+        meshRange.indexCount = record.indexCount;
+        meshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
+        meshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        write_mesh_range(record.meshId, meshRange);
 
         std::vector<BufferCopyRegion> uploadRegions
         {
@@ -636,6 +821,16 @@ namespace Cue::RHI::DX12
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = record.indexByteOffset,
                 .byteSize = record.indexByteSize
+            },
+            BufferCopyRegion
+            {
+                .srcBufferHandle = m_meshRangeState.uploadBufferHandle,
+                .srcUploadResourceIndex = 0,
+                .srcByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(StaticMeshRange),
+                .dstBufferHandle = m_meshRangeState.defaultBufferHandle,
+                .dstDefaultResourceIndex = 0,
+                .dstByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(StaticMeshRange),
+                .byteSize = sizeof(StaticMeshRange)
             }
         };
 
@@ -652,6 +847,7 @@ namespace Cue::RHI::DX12
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
             return result;
         }
 
@@ -687,6 +883,13 @@ namespace Cue::RHI::DX12
         release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
         release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
         release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+        release_mesh_id(record.meshId);
+
+        Result result = upload_mesh_range(record.meshId, StaticMeshRange{});
+        if (!result)
+        {
+            return result;
+        }
 
         if (record.nameId != 0)
         {
@@ -706,6 +909,30 @@ namespace Cue::RHI::DX12
                 "Failed to destroy static mesh record.");
         }
 
+        return Result::ok();
+    }
+    Result DX12StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
+    {
+        StaticMeshRecord record{};
+        if (!m_meshRegistry.try_copy_get(handle, record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh handle was not found.");
+        }
+
+        outMeshId = record.meshId;
+        return Result::ok();
+    }
+    Result DX12StaticMeshPool::get_bindings(StaticMeshPoolBindings& outBindings) const
+    {
+        outBindings.positionBuffer = m_positionStream.defaultBufferHandle;
+        outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
+        outBindings.normalBuffer = m_normalStream.defaultBufferHandle;
+        outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
+        outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
+        outBindings.meshRangeSrv = m_meshRangeState.srvHandle;
         return Result::ok();
     }
 }
