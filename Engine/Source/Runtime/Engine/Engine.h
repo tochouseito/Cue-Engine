@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "FrameController.h"
+#include "asset/AssetManager.h"
 
 namespace Cue
 {
@@ -51,6 +52,7 @@ namespace Cue
         Result tick();
 
         FrameController& frame_controller() noexcept { return *m_frameController; }
+        AssetManager& asset_manager() noexcept { return m_assetManager; }
     private:
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
@@ -61,6 +63,7 @@ namespace Cue
     private:
         PAL::IPlatform* m_platform = nullptr;
         RHI::IBackend* m_backend = nullptr;
+        AssetManager m_assetManager{};
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;

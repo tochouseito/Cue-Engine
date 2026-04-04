@@ -9,31 +9,69 @@
 #include <Native/EngineNativeStruct.h>
 #include <Container/Registry.h>
 
+// === RHI Includes ===
+#include <StaticMeshPool.h>
+
 // === C++ Includes ===
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace Cue
 {
     struct ModelTag {};
     using ModelHandle = Core::Handle<ModelTag>;
 
+    struct ModelAssetRecord final
+    {
+        Core::Native::ModelData modelData{};
+        std::vector<RHI::StaticMeshHandle> staticMeshHandles{};
+    };
+
     class AssetManager final
     {
     public:
         AssetManager() = default;
         ~AssetManager() = default;
+        void initialize(RHI::IStaticMeshPool* a_staticMeshPool) noexcept
+        {
+            m_staticMeshPool = a_staticMeshPool;
+        }
         Result create_cube_model(ModelHandle& outHandle);
         Result get_model(ModelHandle handle, Core::Native::ModelData& outData) const
         {
             // asset manager の registry を唯一の原本として扱い、呼び出し側にはコピーだけ返す。
-            if (!m_modelRegistry.try_copy_get(handle, outData))
+            ModelAssetRecord record{};
+            if (!m_modelRegistry.try_copy_get(handle, record))
             {
                 return Result::fail(
                     Code::NotFound,
                     Severity::Error,
                     "Model not found for the given handle.");
             }
+
+            outData = record.modelData;
+            return Result::ok();
+        }
+        Result get_static_mesh_handle(ModelHandle handle, uint32_t meshIndex, RHI::StaticMeshHandle& outHandle) const
+        {
+            ModelAssetRecord record{};
+            if (!m_modelRegistry.try_copy_get(handle, record))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Model not found for the given handle.");
+            }
+            if (meshIndex >= record.staticMeshHandles.size())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Mesh index is out of range for the model.");
+            }
+
+            outHandle = record.staticMeshHandles[meshIndex];
             return Result::ok();
         }
     private:
@@ -49,14 +87,41 @@ namespace Cue
                     "Model with the same name already exists.");
             }
 
-            // Core 側の SoA model data をそのまま registry に保持し、GPU upload 前の原本として使う。
-            Core::Native::ModelData modelCopy = data;
-            outHandle = m_modelRegistry.create(modelCopy);
+            if (m_staticMeshPool == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Static mesh pool is not initialized in AssetManager.");
+            }
+
+            // Core 側の SoA model data を原本として保持しつつ、GPU 側の静的メッシュ登録結果も対応付ける。
+            ModelAssetRecord record{};
+            record.modelData = data;
+            record.staticMeshHandles.reserve(record.modelData.meshes.size());
+            for (const Core::Native::MeshData& meshData : record.modelData.meshes)
+            {
+                RHI::StaticMeshHandle staticMeshHandle{};
+                Result result = m_staticMeshPool->allocate_mesh(meshData, staticMeshHandle);
+                if (!result)
+                {
+                    for (RHI::StaticMeshHandle allocatedHandle : record.staticMeshHandles)
+                    {
+                        m_staticMeshPool->free_mesh(allocatedHandle);
+                    }
+                    return result;
+                }
+
+                record.staticMeshHandles.push_back(staticMeshHandle);
+            }
+
+            outHandle = m_modelRegistry.create(record);
             m_modelNameMap.emplace(nameId, outHandle);
             return Result::ok();
         }
     private:
-        Core::Registry<ModelTag, Core::Native::ModelData> m_modelRegistry;
+        RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
+        Core::Registry<ModelTag, ModelAssetRecord> m_modelRegistry;
         std::unordered_map<Core::ResourceNameId, ModelHandle> m_modelNameMap;
     };
 }
