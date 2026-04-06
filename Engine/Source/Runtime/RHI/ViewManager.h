@@ -7,7 +7,7 @@ namespace Cue::RHI
 {
     struct ViewDesc
     {
-        std::string_view name = {};
+        std::string name = {};
         ViewType type = ViewType::ShaderResourceBuffer;
         BufferKind bufferKind = BufferKind::Buffer;
         uint32_t resourceIndex = 0;

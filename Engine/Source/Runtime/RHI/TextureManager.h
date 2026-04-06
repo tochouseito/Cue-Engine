@@ -21,7 +21,7 @@ namespace Cue::RHI
 
     struct TextureDesc
     {
-        std::string_view name;
+        std::string name;
         uint32_t bufferCount = 1;
         TextureType type = TextureType::Texture2D;
         TextureKind kind = TextureKind::Default;

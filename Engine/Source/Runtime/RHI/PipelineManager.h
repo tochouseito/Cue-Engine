@@ -33,7 +33,7 @@ namespace Cue::RHI
 
     struct RootSignatureDesc
     {
-        std::string_view name;
+        std::string name;
         std::vector<RootParameterDesc> parameters;
     };
 
@@ -99,7 +99,7 @@ namespace Cue::RHI
 
     struct GraphicsPipelineStateDesc
     {
-        std::string_view name = {};
+        std::string name = {};
         RootSignatureHandle rootSignatureHandle = {};
         ShaderBlobHandle vsHandle = {};
         ShaderBlobHandle psHandle = {};
@@ -114,7 +114,7 @@ namespace Cue::RHI
 
     struct ComputePipelineStateDesc
     {
-        std::string_view name = {};
+        std::string name = {};
         RootSignatureHandle rootSignatureHandle = {};
         ShaderBlobHandle csHandle = {};
     };

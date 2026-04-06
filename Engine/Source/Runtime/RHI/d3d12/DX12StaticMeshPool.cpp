@@ -234,7 +234,7 @@ namespace Cue::RHI::DX12
         }
 
         BufferDesc uploadDesc{};
-        uploadDesc.name = std::string(desc.meshRangeBufferName) + ".Upload";
+        uploadDesc.name = std::string(desc.meshRangeBufferName.data()) + ".Upload";
         uploadDesc.type = BufferType::Structured;
         uploadDesc.defaultHeapCount = 0;
         uploadDesc.uploadHeapCount = 1;

@@ -16,7 +16,7 @@ namespace Cue::RHI
 
     struct BufferDesc
     {
-        std::string_view name;
+        std::string name;
         BufferType type = BufferType::Unknown;
         uint32_t defaultHeapCount = 0; // デフォルトのヒープ数（バッファリングなしの場合は1）
         uint32_t uploadHeapCount = 0; // アップロードヒープの数（アップロードが必要な場合は1以上）
