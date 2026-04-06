@@ -1,6 +1,7 @@
 #include "DX12StaticMeshPool.h"
 
 // === C++ includes ===
+#include <algorithm>
 #include <cstring>
 
 namespace Cue::RHI::DX12
@@ -132,23 +133,26 @@ namespace Cue::RHI::DX12
 
     DX12StaticMeshPool::~DX12StaticMeshPool()
     {
-        // 1) 生成順の逆順で破棄し、upload/default の両方を BufferManager へ戻す。
+        // 1) 生成順の逆順で破棄し、staging/default の両方を BufferManager へ戻す。
         if (m_meshRangeState.srvHandle.valid())
         {
             m_viewManager.destroy_view(m_meshRangeState.srvHandle);
             m_meshRangeState.srvHandle = {};
         }
-        if (m_meshRangeState.uploadBufferHandle.valid())
+        if (m_meshRangeState.stagingBufferHandle.valid())
         {
-            m_bufferManager.destroy_buffer(m_meshRangeState.uploadBufferHandle);
-            m_meshRangeState.uploadBufferHandle = {};
+            m_bufferManager.destroy_buffer(m_meshRangeState.stagingBufferHandle);
+            m_meshRangeState.stagingBufferHandle = {};
         }
         if (m_meshRangeState.defaultBufferHandle.valid())
         {
             m_bufferManager.destroy_buffer(m_meshRangeState.defaultBufferHandle);
             m_meshRangeState.defaultBufferHandle = {};
         }
-        m_meshRangeState.mappedUploadData = nullptr;
+        m_meshRangeState.debugName.clear();
+        m_meshRangeState.stagingRing.clear();
+        m_meshRangeState.mappedStagingData = nullptr;
+        m_meshRangeState.stagingCapacityInBytes = 0;
         m_meshRangeState.capacity = 0;
         m_meshRangeState.freeMeshIds.clear();
         destroy_stream_state(m_indexStream);
@@ -159,11 +163,12 @@ namespace Cue::RHI::DX12
 
     Result DX12StaticMeshPool::initialize_streams(const StaticMeshPoolDesc& desc)
     {
-        // 1) 各ストリームごとの総容量を確定し、永続 default と staging upload を作る。
+        // 1) 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る。
         Result result = create_stream_state(
             desc.positionBufferName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float4),
+            desc.positionStagingBufferSize,
             sizeof(Math::float4),
             desc.maxVertexCount,
             alignof(Math::float4),
@@ -177,6 +182,7 @@ namespace Cue::RHI::DX12
             desc.uvBufferName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float2),
+            desc.uvStagingBufferSize,
             sizeof(Math::float2),
             desc.maxVertexCount,
             alignof(Math::float2),
@@ -190,6 +196,7 @@ namespace Cue::RHI::DX12
             desc.normalBufferName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float3),
+            desc.normalStagingBufferSize,
             sizeof(Math::float3),
             desc.maxVertexCount,
             alignof(Math::float3),
@@ -203,6 +210,7 @@ namespace Cue::RHI::DX12
             desc.indexBufferName,
             BufferType::Index,
             static_cast<uint64_t>(desc.maxIndexCount) * sizeof(uint32_t),
+            desc.indexStagingBufferSize,
             sizeof(uint32_t),
             desc.maxIndexCount,
             alignof(uint32_t),
@@ -214,8 +222,11 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
     Result DX12StaticMeshPool::initialize_mesh_range_state(const StaticMeshPoolDesc& desc)
     {
+        m_meshRangeState.debugName = std::string(desc.meshRangeBufferName);
+
         BufferDesc defaultDesc{};
         defaultDesc.name = desc.meshRangeBufferName;
         defaultDesc.type = BufferType::Structured;
@@ -233,37 +244,21 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        BufferDesc uploadDesc{};
-        uploadDesc.name = std::string(desc.meshRangeBufferName.data()) + ".Upload";
-        uploadDesc.type = BufferType::Structured;
-        uploadDesc.defaultHeapCount = 0;
-        uploadDesc.uploadHeapCount = 1;
-        uploadDesc.initialState = ResourceState::CopySource;
-        uploadDesc.stride = sizeof(StaticMeshRange);
-        uploadDesc.elementCount = desc.maxMeshCount;
-        uploadDesc.size = uploadDesc.stride * uploadDesc.elementCount;
-        uploadDesc.alignment = alignof(StaticMeshRange);
-
-        result = m_bufferManager.create_buffer(uploadDesc, m_meshRangeState.uploadBufferHandle);
+        const uint64_t totalBytes = static_cast<uint64_t>(defaultDesc.size);
+        const uint64_t stagingBytes = (std::min)(
+            totalBytes,
+            static_cast<uint64_t>(desc.meshRangeStagingCount) * sizeof(StaticMeshRange));
+        result = create_upload_buffer(
+            m_meshRangeState.debugName + ".Staging",
+            BufferType::Structured,
+            stagingBytes,
+            m_meshRangeState.stagingBufferHandle,
+            m_meshRangeState.mappedStagingData);
         if (!result)
         {
             m_bufferManager.destroy_buffer(m_meshRangeState.defaultBufferHandle);
             m_meshRangeState.defaultBufferHandle = {};
             return result;
-        }
-
-        UploadBufferView uploadView{};
-        result = m_bufferManager.get_upload_buffer_view(m_meshRangeState.uploadBufferHandle, uploadView);
-        if (!result)
-        {
-            return result;
-        }
-        if (uploadView.mappedDatas.size() != 1 || uploadView.mappedDatas[0] == nullptr)
-        {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Error,
-                "Static mesh range upload buffer is not mapped.");
         }
 
         ViewDesc meshRangeSrvDesc{};
@@ -280,9 +275,9 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        m_meshRangeState.mappedUploadData = uploadView.mappedDatas[0];
+        m_meshRangeState.stagingCapacityInBytes = stagingBytes;
+        m_meshRangeState.stagingRing.initialize(static_cast<size_t>(stagingBytes));
         m_meshRangeState.capacity = desc.maxMeshCount;
-        std::memset(m_meshRangeState.mappedUploadData, 0, defaultDesc.size);
         m_meshRangeState.freeMeshIds.clear();
         m_meshRangeState.freeMeshIds.reserve(desc.maxMeshCount);
         for (uint32_t meshId = desc.maxMeshCount; meshId > 0; --meshId)
@@ -290,16 +285,30 @@ namespace Cue::RHI::DX12
             m_meshRangeState.freeMeshIds.push_back(meshId - 1);
         }
 
+        UploadAllocation initializeUpload{};
+        result = allocate_upload_range(
+            m_meshRangeState,
+            totalBytes,
+            alignof(StaticMeshRange),
+            initializeUpload);
+        if (!result)
+        {
+            return result;
+        }
+
+        std::memset(initializeUpload.mappedData + initializeUpload.byteOffset, 0, static_cast<size_t>(totalBytes));
+
         BufferCopyRegion initializeRegion{};
-        initializeRegion.srcBufferHandle = m_meshRangeState.uploadBufferHandle;
+        initializeRegion.srcBufferHandle = initializeUpload.bufferHandle;
         initializeRegion.srcUploadResourceIndex = 0;
-        initializeRegion.srcByteOffset = 0;
+        initializeRegion.srcByteOffset = initializeUpload.byteOffset;
         initializeRegion.dstBufferHandle = m_meshRangeState.defaultBufferHandle;
         initializeRegion.dstDefaultResourceIndex = 0;
         initializeRegion.dstByteOffset = 0;
-        initializeRegion.byteSize = defaultDesc.size;
+        initializeRegion.byteSize = totalBytes;
         std::vector<BufferCopyRegion> initializeRegions{ initializeRegion };
         result = copy_upload_regions(initializeRegions);
+        release_upload_range(m_meshRangeState, initializeUpload);
         if (!result)
         {
             return result;
@@ -312,12 +321,13 @@ namespace Cue::RHI::DX12
         std::string_view bufferName,
         BufferType bufferType,
         uint64_t totalBytes,
+        uint64_t stagingBytes,
         uint32_t stride,
         uint32_t elementCount,
         uint32_t alignment,
         StreamState& outStreamState)
     {
-        // 1) 常駐先は default heap、コピー元 staging は upload heap として別バッファを作る。
+        // 1) 常駐先は default heap、通常のコピー元は小さい staging upload buffer とする。
         BufferDesc defaultDesc{};
         defaultDesc.name = bufferName;
         defaultDesc.type = bufferType;
@@ -335,19 +345,15 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        std::string uploadName = std::string(bufferName) + ".Upload";
-        BufferDesc uploadDesc{};
-        uploadDesc.name = uploadName;
-        uploadDesc.type = bufferType;
-        uploadDesc.defaultHeapCount = 0;
-        uploadDesc.uploadHeapCount = 1;
-        uploadDesc.initialState = ResourceState::CopySource;
-        uploadDesc.stride = stride;
-        uploadDesc.elementCount = elementCount;
-        uploadDesc.size = static_cast<uint32_t>(totalBytes);
-        uploadDesc.alignment = alignment;
-
-        result = m_bufferManager.create_buffer(uploadDesc, outStreamState.uploadBufferHandle);
+        outStreamState.debugName = std::string(bufferName);
+        outStreamState.bufferType = bufferType;
+        const uint64_t clampedStagingBytes = (std::min)(totalBytes, stagingBytes);
+        result = create_upload_buffer(
+            outStreamState.debugName + ".Staging",
+            bufferType,
+            clampedStagingBytes,
+            outStreamState.stagingBufferHandle,
+            outStreamState.mappedStagingData);
         if (!result)
         {
             m_bufferManager.destroy_buffer(outStreamState.defaultBufferHandle);
@@ -355,29 +361,72 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        // 2) upload 側の永続 map を掴み、ring staging と free-list を初期化する。
-        UploadBufferView uploadView{};
-        result = m_bufferManager.get_upload_buffer_view(outStreamState.uploadBufferHandle, uploadView);
+        outStreamState.capacityInBytes = totalBytes;
+        outStreamState.stagingCapacityInBytes = clampedStagingBytes;
+        outStreamState.alignment = alignment;
+        outStreamState.freeRanges.clear();
+        outStreamState.freeRanges.push_back(FreeRange{ 0, totalBytes });
+        outStreamState.stagingRing.initialize(static_cast<size_t>(clampedStagingBytes));
+        return Result::ok();
+    }
+
+    Result DX12StaticMeshPool::create_upload_buffer(
+        std::string_view bufferName,
+        BufferType bufferType,
+        uint64_t byteSize,
+        BufferHandle& outBufferHandle,
+        std::byte*& outMappedData)
+    {
+        outBufferHandle = {};
+        outMappedData = nullptr;
+        if (byteSize == 0)
+        {
+            return Result::ok();
+        }
+        if (byteSize > UINT32_MAX)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Upload buffer size exceeds the supported range.");
+        }
+
+        BufferDesc uploadDesc{};
+        uploadDesc.name = std::string(bufferName);
+        uploadDesc.type = bufferType;
+        uploadDesc.defaultHeapCount = 0;
+        uploadDesc.uploadHeapCount = 1;
+        uploadDesc.initialState = ResourceState::CopySource;
+        uploadDesc.stride = 1;
+        uploadDesc.elementCount = static_cast<uint32_t>(byteSize);
+        uploadDesc.size = static_cast<uint32_t>(byteSize);
+        uploadDesc.alignment = 1;
+
+        Result result = m_bufferManager.create_buffer(uploadDesc, outBufferHandle);
         if (!result)
         {
-            destroy_stream_state(outStreamState);
+            return result;
+        }
+
+        UploadBufferView uploadView{};
+        result = m_bufferManager.get_upload_buffer_view(outBufferHandle, uploadView);
+        if (!result)
+        {
+            m_bufferManager.destroy_buffer(outBufferHandle);
+            outBufferHandle = {};
             return result;
         }
         if (uploadView.mappedDatas.size() != 1 || uploadView.mappedDatas[0] == nullptr)
         {
-            destroy_stream_state(outStreamState);
+            m_bufferManager.destroy_buffer(outBufferHandle);
+            outBufferHandle = {};
             return Result::fail(
                 Code::InternalError,
                 Severity::Error,
                 "Static mesh pool upload buffer is not mapped.");
         }
 
-        outStreamState.capacityInBytes = totalBytes;
-        outStreamState.alignment = alignment;
-        outStreamState.mappedUploadData = uploadView.mappedDatas[0];
-        outStreamState.freeRanges.clear();
-        outStreamState.freeRanges.push_back(FreeRange{ 0, totalBytes });
-        outStreamState.uploadRing.initialize(static_cast<size_t>(totalBytes));
+        outMappedData = uploadView.mappedDatas[0];
         return Result::ok();
     }
 
@@ -412,43 +461,133 @@ namespace Cue::RHI::DX12
         StreamState& streamState,
         uint64_t byteSize,
         uint32_t alignment,
-        Core::RingBuffer::Allocation& outAllocation)
+        UploadAllocation& outAllocation)
     {
-        // 1) staging は FIFO 再利用前提なので ring buffer からだけ確保する。
-        if (!streamState.uploadRing.allocate(
-            static_cast<size_t>(byteSize),
-            static_cast<size_t>(alignment),
-            outAllocation))
+        outAllocation = {};
+        if (streamState.stagingBufferHandle.valid()
+            && streamState.mappedStagingData != nullptr
+            && streamState.stagingRing.allocate(
+                static_cast<size_t>(byteSize),
+                static_cast<size_t>(alignment),
+                outAllocation.ringAllocation))
         {
-            return Result::fail(
-                Code::OutOfMemory,
-                Severity::Error,
-                "Static mesh pool upload ring buffer is out of space.");
+            outAllocation.bufferHandle = streamState.stagingBufferHandle;
+            outAllocation.mappedData = streamState.mappedStagingData;
+            outAllocation.byteOffset = outAllocation.ringAllocation.offset;
+            outAllocation.byteSize = byteSize;
+            outAllocation.isTransient = false;
+            return Result::ok();
         }
 
+        Result result = create_upload_buffer(
+            std::string_view{},
+            streamState.bufferType,
+            byteSize,
+            outAllocation.bufferHandle,
+            outAllocation.mappedData);
+        if (!result)
+        {
+            return result;
+        }
+
+        outAllocation.byteOffset = 0;
+        outAllocation.byteSize = byteSize;
+        outAllocation.isTransient = true;
+        return Result::ok();
+    }
+
+    Result DX12StaticMeshPool::allocate_upload_range(
+        MeshRangeState& meshRangeState,
+        uint64_t byteSize,
+        uint32_t alignment,
+        UploadAllocation& outAllocation)
+    {
+        outAllocation = {};
+        if (meshRangeState.stagingBufferHandle.valid()
+            && meshRangeState.mappedStagingData != nullptr
+            && meshRangeState.stagingRing.allocate(
+                static_cast<size_t>(byteSize),
+                static_cast<size_t>(alignment),
+                outAllocation.ringAllocation))
+        {
+            outAllocation.bufferHandle = meshRangeState.stagingBufferHandle;
+            outAllocation.mappedData = meshRangeState.mappedStagingData;
+            outAllocation.byteOffset = outAllocation.ringAllocation.offset;
+            outAllocation.byteSize = byteSize;
+            outAllocation.isTransient = false;
+            return Result::ok();
+        }
+
+        Result result = create_upload_buffer(
+            std::string_view{},
+            BufferType::Structured,
+            byteSize,
+            outAllocation.bufferHandle,
+            outAllocation.mappedData);
+        if (!result)
+        {
+            return result;
+        }
+
+        outAllocation.byteOffset = 0;
+        outAllocation.byteSize = byteSize;
+        outAllocation.isTransient = true;
         return Result::ok();
     }
 
     void DX12StaticMeshPool::release_upload_range(
         StreamState& streamState,
-        const Core::RingBuffer::Allocation& allocation)
+        UploadAllocation& allocation)
     {
-        // 1) 同期 upload 完了後だけ解放し、staging 領域の上書きを防ぐ。
-        if (allocation.valid())
+        if (!allocation.valid())
         {
-            const bool released = streamState.uploadRing.release(allocation);
-            CUE_ASSERT_MSG(released, "Failed to release static mesh upload ring allocation.");
+            return;
         }
+
+        if (allocation.isTransient)
+        {
+            Result result = m_bufferManager.destroy_buffer(allocation.bufferHandle);
+            CUE_ASSERT_MSG(result, "Failed to destroy transient static mesh upload buffer.");
+        }
+        else if (allocation.ringAllocation.valid())
+        {
+            const bool released = streamState.stagingRing.release(allocation.ringAllocation);
+            CUE_ASSERT_MSG(released, "Failed to release static mesh staging ring allocation.");
+        }
+
+        allocation = {};
+    }
+
+    void DX12StaticMeshPool::release_upload_range(
+        MeshRangeState& meshRangeState,
+        UploadAllocation& allocation)
+    {
+        if (!allocation.valid())
+        {
+            return;
+        }
+
+        if (allocation.isTransient)
+        {
+            Result result = m_bufferManager.destroy_buffer(allocation.bufferHandle);
+            CUE_ASSERT_MSG(result, "Failed to destroy transient mesh range upload buffer.");
+        }
+        else if (allocation.ringAllocation.valid())
+        {
+            const bool released = meshRangeState.stagingRing.release(allocation.ringAllocation);
+            CUE_ASSERT_MSG(released, "Failed to release mesh range staging ring allocation.");
+        }
+
+        allocation = {};
     }
 
     void DX12StaticMeshPool::write_upload_bytes(
-        StreamState& streamState,
-        const Core::RingBuffer::Allocation& allocation,
+        const UploadAllocation& allocation,
         const void* sourceData,
         uint64_t byteSize)
     {
         // 1) upload staging へ直接書き込み、データ未指定の属性はゼロで埋める。
-        std::byte* dst = streamState.mappedUploadData + allocation.offset;
+        std::byte* dst = allocation.mappedData + allocation.byteOffset;
         if (sourceData == nullptr)
         {
             std::memset(dst, 0, static_cast<size_t>(byteSize));
@@ -542,11 +681,11 @@ namespace Cue::RHI::DX12
 
     void DX12StaticMeshPool::destroy_stream_state(StreamState& streamState)
     {
-        // 1) upload/default の順に破棄し、BufferManager の所有実体を明示的に返す。
-        if (streamState.uploadBufferHandle.valid())
+        // 1) staging/default の順に破棄し、BufferManager の所有実体を明示的に返す。
+        if (streamState.stagingBufferHandle.valid())
         {
-            m_bufferManager.destroy_buffer(streamState.uploadBufferHandle);
-            streamState.uploadBufferHandle = {};
+            m_bufferManager.destroy_buffer(streamState.stagingBufferHandle);
+            streamState.stagingBufferHandle = {};
         }
         if (streamState.defaultBufferHandle.valid())
         {
@@ -554,11 +693,15 @@ namespace Cue::RHI::DX12
             streamState.defaultBufferHandle = {};
         }
 
+        streamState.debugName.clear();
+        streamState.bufferType = BufferType::Unknown;
         streamState.freeRanges.clear();
-        streamState.uploadRing.clear();
-        streamState.mappedUploadData = nullptr;
+        streamState.stagingRing.clear();
+        streamState.mappedStagingData = nullptr;
         streamState.capacityInBytes = 0;
+        streamState.stagingCapacityInBytes = 0;
     }
+
     Result DX12StaticMeshPool::allocate_mesh_id(uint32_t& outMeshId)
     {
         if (m_meshRangeState.freeMeshIds.empty())
@@ -573,6 +716,7 @@ namespace Cue::RHI::DX12
         m_meshRangeState.freeMeshIds.pop_back();
         return Result::ok();
     }
+
     void DX12StaticMeshPool::release_mesh_id(uint32_t meshId)
     {
         if (meshId >= m_meshRangeState.capacity)
@@ -582,31 +726,49 @@ namespace Cue::RHI::DX12
 
         m_meshRangeState.freeMeshIds.push_back(meshId);
     }
+
     void DX12StaticMeshPool::write_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
     {
-        if (m_meshRangeState.mappedUploadData == nullptr || meshId >= m_meshRangeState.capacity)
-        {
-            return;
-        }
-
-        const uint64_t byteOffset = static_cast<uint64_t>(meshId) * sizeof(StaticMeshRange);
-        std::memcpy(m_meshRangeState.mappedUploadData + byteOffset, &meshRange, sizeof(StaticMeshRange));
+        Result result = upload_mesh_range(meshId, meshRange);
+        CUE_ASSERT_MSG(result, "Failed to write mesh range.");
     }
+
     Result DX12StaticMeshPool::upload_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
     {
-        write_mesh_range(meshId, meshRange);
+        if (meshId >= m_meshRangeState.capacity)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Mesh range slot is out of bounds.");
+        }
+
+        UploadAllocation uploadAllocation{};
+        Result result = allocate_upload_range(
+            m_meshRangeState,
+            sizeof(StaticMeshRange),
+            alignof(StaticMeshRange),
+            uploadAllocation);
+        if (!result)
+        {
+            return result;
+        }
+
+        write_upload_bytes(uploadAllocation, &meshRange, sizeof(StaticMeshRange));
 
         BufferCopyRegion region{};
-        region.srcBufferHandle = m_meshRangeState.uploadBufferHandle;
+        region.srcBufferHandle = uploadAllocation.bufferHandle;
         region.srcUploadResourceIndex = 0;
-        region.srcByteOffset = static_cast<uint64_t>(meshId) * sizeof(StaticMeshRange);
+        region.srcByteOffset = uploadAllocation.byteOffset;
         region.dstBufferHandle = m_meshRangeState.defaultBufferHandle;
         region.dstDefaultResourceIndex = 0;
-        region.dstByteOffset = region.srcByteOffset;
+        region.dstByteOffset = static_cast<uint64_t>(meshId) * sizeof(StaticMeshRange);
         region.byteSize = sizeof(StaticMeshRange);
 
         std::vector<BufferCopyRegion> regions{ region };
-        return copy_upload_regions(regions);
+        result = copy_upload_regions(regions);
+        release_upload_range(m_meshRangeState, uploadAllocation);
+        return result;
     }
 
     Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
@@ -705,11 +867,11 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        // 3) staging ring を確保して CPU データを書き込み、1 回の submit にまとめて転送する。
-        Core::RingBuffer::Allocation positionUpload{};
-        Core::RingBuffer::Allocation uvUpload{};
-        Core::RingBuffer::Allocation normalUpload{};
-        Core::RingBuffer::Allocation indexUpload{};
+        // 3) 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす。
+        UploadAllocation positionUpload{};
+        UploadAllocation uvUpload{};
+        UploadAllocation normalUpload{};
+        UploadAllocation indexUpload{};
 
         result = allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
         if (!result)
@@ -761,32 +923,49 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        write_upload_bytes(m_positionStream, positionUpload, meshData.positions.data(), record.positionByteSize);
-        write_upload_bytes(
-            m_uvStream,
-            uvUpload,
-            meshData.uvs.empty() ? nullptr : meshData.uvs.data(),
-            record.uvByteSize);
-        write_upload_bytes(
-            m_normalStream,
-            normalUpload,
-            meshData.normals.empty() ? nullptr : meshData.normals.data(),
-            record.normalByteSize);
-        write_upload_bytes(m_indexStream, indexUpload, meshData.indices.data(), record.indexByteSize);
-
+        UploadAllocation meshRangeUpload{};
         StaticMeshRange meshRange{};
         meshRange.indexCount = record.indexCount;
         meshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         meshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
-        write_mesh_range(record.meshId, meshRange);
+        result = allocate_upload_range(
+            m_meshRangeState,
+            sizeof(StaticMeshRange),
+            alignof(StaticMeshRange),
+            meshRangeUpload);
+        if (!result)
+        {
+            release_upload_range(m_indexStream, indexUpload);
+            release_upload_range(m_normalStream, normalUpload);
+            release_upload_range(m_uvStream, uvUpload);
+            release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+            release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
+            release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+            release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
+            return result;
+        }
+
+        write_upload_bytes(positionUpload, meshData.positions.data(), record.positionByteSize);
+        write_upload_bytes(
+            uvUpload,
+            meshData.uvs.empty() ? nullptr : meshData.uvs.data(),
+            record.uvByteSize);
+        write_upload_bytes(
+            normalUpload,
+            meshData.normals.empty() ? nullptr : meshData.normals.data(),
+            record.normalByteSize);
+        write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
+        write_upload_bytes(meshRangeUpload, &meshRange, sizeof(StaticMeshRange));
 
         std::vector<BufferCopyRegion> uploadRegions
         {
             BufferCopyRegion
             {
-                .srcBufferHandle = m_positionStream.uploadBufferHandle,
+                .srcBufferHandle = positionUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
-                .srcByteOffset = positionUpload.offset,
+                .srcByteOffset = positionUpload.byteOffset,
                 .dstBufferHandle = m_positionStream.defaultBufferHandle,
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = record.positionByteOffset,
@@ -794,9 +973,9 @@ namespace Cue::RHI::DX12
             },
             BufferCopyRegion
             {
-                .srcBufferHandle = m_uvStream.uploadBufferHandle,
+                .srcBufferHandle = uvUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
-                .srcByteOffset = uvUpload.offset,
+                .srcByteOffset = uvUpload.byteOffset,
                 .dstBufferHandle = m_uvStream.defaultBufferHandle,
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = record.uvByteOffset,
@@ -804,9 +983,9 @@ namespace Cue::RHI::DX12
             },
             BufferCopyRegion
             {
-                .srcBufferHandle = m_normalStream.uploadBufferHandle,
+                .srcBufferHandle = normalUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
-                .srcByteOffset = normalUpload.offset,
+                .srcByteOffset = normalUpload.byteOffset,
                 .dstBufferHandle = m_normalStream.defaultBufferHandle,
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = record.normalByteOffset,
@@ -814,9 +993,9 @@ namespace Cue::RHI::DX12
             },
             BufferCopyRegion
             {
-                .srcBufferHandle = m_indexStream.uploadBufferHandle,
+                .srcBufferHandle = indexUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
-                .srcByteOffset = indexUpload.offset,
+                .srcByteOffset = indexUpload.byteOffset,
                 .dstBufferHandle = m_indexStream.defaultBufferHandle,
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = record.indexByteOffset,
@@ -824,9 +1003,9 @@ namespace Cue::RHI::DX12
             },
             BufferCopyRegion
             {
-                .srcBufferHandle = m_meshRangeState.uploadBufferHandle,
+                .srcBufferHandle = meshRangeUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
-                .srcByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(StaticMeshRange),
+                .srcByteOffset = meshRangeUpload.byteOffset,
                 .dstBufferHandle = m_meshRangeState.defaultBufferHandle,
                 .dstDefaultResourceIndex = 0,
                 .dstByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(StaticMeshRange),
@@ -836,6 +1015,7 @@ namespace Cue::RHI::DX12
 
         result = copy_upload_regions(uploadRegions);
 
+        release_upload_range(m_meshRangeState, meshRangeUpload);
         release_upload_range(m_indexStream, indexUpload);
         release_upload_range(m_normalStream, normalUpload);
         release_upload_range(m_uvStream, uvUpload);
@@ -911,6 +1091,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
     Result DX12StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
     {
         StaticMeshRecord record{};
@@ -925,6 +1106,7 @@ namespace Cue::RHI::DX12
         outMeshId = record.meshId;
         return Result::ok();
     }
+
     Result DX12StaticMeshPool::get_bindings(StaticMeshPoolBindings& outBindings) const
     {
         outBindings.positionBuffer = m_positionStream.defaultBufferHandle;

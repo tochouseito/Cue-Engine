@@ -10,6 +10,11 @@ namespace Cue::RHI
         uint32_t maxVertexCount = 256u * 1024u; // プール内の最大頂点数
         uint32_t maxIndexCount = 768u * 1024u; // プール内の最大インデックス数
         uint32_t maxMeshCount = 4u * 1024u; // プール内の最大メッシュ数
+        uint32_t positionStagingBufferSize = 1u * 1024u * 1024u; // Position stream 用の常設 staging サイズ
+        uint32_t uvStagingBufferSize = 512u * 1024u; // UV stream 用の常設 staging サイズ
+        uint32_t normalStagingBufferSize = 1u * 1024u * 1024u; // Normal stream 用の常設 staging サイズ
+        uint32_t indexStagingBufferSize = 1u * 1024u * 1024u; // Index stream 用の常設 staging サイズ
+        uint32_t meshRangeStagingCount = 256u; // MeshRange 用の常設 staging 要素数
         std::string_view positionBufferName = "StaticMeshPool.Position";
         std::string_view uvBufferName = "StaticMeshPool.Uv";
         std::string_view normalBufferName = "StaticMeshPool.Normal";

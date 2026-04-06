@@ -420,10 +420,7 @@ namespace Cue
         result = m_presentFrameGraph->build();
         if (!result)
         {
-            return Result::fail(
-                result.code,
-                Severity::Fatal,
-                "Failed to build present frame graph.");
+            return result;
         }
 
         // フレームコントローラーの生成

@@ -94,22 +94,6 @@ namespace Cue::Editor
             }
 
             // finalColor を取得
-            result = builder.get_texture("FinalColor", m_finalColorHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    Code::GetFailed,
-                    Severity::Error,
-                    "Failed to get final color texture handle for present pass.");
-            }
-            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    Code::GetFailed,
-                    Severity::Error,
-                    "Failed to get final color RTV view handle for present pass.");
-            }
             result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
             if (!result)
             {
@@ -157,8 +141,6 @@ namespace Cue::Editor
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
     };
 }

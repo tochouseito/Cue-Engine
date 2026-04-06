@@ -195,10 +195,11 @@ namespace Cue::RHI::DX12
     Result DX12TextureManager::register_external_texture(DX12TextureRecord& record, TextureHandle& out)
     {
         // レコードの保存
+        std::string name = record.desc.name;
         TextureHandle handle = m_textureRegistry.create(record);
-        if (!record.desc.name.empty())
+        if (!name.empty())
         {
-            m_nameToHandlesMap[Core::fnv1a64(record.desc.name)] = handle;
+            m_nameToHandlesMap[Core::fnv1a64(name)] = handle;
         }
 
         out = std::move(handle);

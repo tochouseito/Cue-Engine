@@ -41,23 +41,44 @@ namespace Cue::RHI::DX12
 
     struct StreamState final
     {
+        std::string debugName{};
+        BufferType bufferType = BufferType::Unknown;
         BufferHandle defaultBufferHandle = {};
-        BufferHandle uploadBufferHandle = {};
+        BufferHandle stagingBufferHandle = {};
         std::vector<FreeRange> freeRanges{};
-        Core::RingBuffer uploadRing{};
-        std::byte* mappedUploadData = nullptr;
+        Core::RingBuffer stagingRing{};
+        std::byte* mappedStagingData = nullptr;
         uint64_t capacityInBytes = 0;
+        uint64_t stagingCapacityInBytes = 0;
         uint32_t alignment = 1;
     };
 
     struct MeshRangeState final
     {
+        std::string debugName{};
         BufferHandle defaultBufferHandle = {};
-        BufferHandle uploadBufferHandle = {};
+        BufferHandle stagingBufferHandle = {};
         ViewHandle srvHandle = {};
-        std::byte* mappedUploadData = nullptr;
+        Core::RingBuffer stagingRing{};
+        std::byte* mappedStagingData = nullptr;
+        uint64_t stagingCapacityInBytes = 0;
         uint32_t capacity = 0;
         std::vector<uint32_t> freeMeshIds{};
+    };
+
+    struct UploadAllocation final
+    {
+        BufferHandle bufferHandle = {};
+        std::byte* mappedData = nullptr;
+        uint64_t byteOffset = 0;
+        uint64_t byteSize = 0;
+        Core::RingBuffer::Allocation ringAllocation{};
+        bool isTransient = false;
+
+        [[nodiscard]] bool valid() const noexcept
+        {
+            return bufferHandle.valid() && mappedData != nullptr && byteSize > 0;
+        }
     };
 
     class DX12StaticMeshPool final : public IStaticMeshPool
@@ -82,10 +103,17 @@ namespace Cue::RHI::DX12
             std::string_view bufferName,
             BufferType bufferType,
             uint64_t totalBytes,
+            uint64_t stagingBytes,
             uint32_t stride,
             uint32_t elementCount,
             uint32_t alignment,
             StreamState& outStreamState);
+        Result create_upload_buffer(
+            std::string_view bufferName,
+            BufferType bufferType,
+            uint64_t byteSize,
+            BufferHandle& outBufferHandle,
+            std::byte*& outMappedData);
         Result allocate_stream_range(
             StreamState& streamState,
             uint64_t byteSize,
@@ -99,13 +127,20 @@ namespace Cue::RHI::DX12
             StreamState& streamState,
             uint64_t byteSize,
             uint32_t alignment,
-            Core::RingBuffer::Allocation& outAllocation);
+            UploadAllocation& outAllocation);
+        Result allocate_upload_range(
+            MeshRangeState& meshRangeState,
+            uint64_t byteSize,
+            uint32_t alignment,
+            UploadAllocation& outAllocation);
         void release_upload_range(
             StreamState& streamState,
-            const Core::RingBuffer::Allocation& allocation);
+            UploadAllocation& allocation);
+        void release_upload_range(
+            MeshRangeState& meshRangeState,
+            UploadAllocation& allocation);
         void write_upload_bytes(
-            StreamState& streamState,
-            const Core::RingBuffer::Allocation& allocation,
+            const UploadAllocation& allocation,
             const void* sourceData,
             uint64_t byteSize);
         Result copy_upload_regions(const std::vector<BufferCopyRegion>& regions);
