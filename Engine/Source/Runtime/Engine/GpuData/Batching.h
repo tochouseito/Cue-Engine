@@ -26,4 +26,14 @@ namespace Cue::GpuData
         uint32_t meshId = 0;      // メッシュID
         uint32_t transformId = 0; // 変換ID
     };
+
+    // インダイレクト描画コマンド
+    struct IndirectCommand
+    {
+        uint32_t indexCountPerInstance = 0;
+        uint32_t instanceCount = 0;
+        uint32_t startIndexLocation = 0;
+        int32_t baseVertexLocation = 0;
+        uint32_t startInstanceLocation = 0;
+    };
 }
