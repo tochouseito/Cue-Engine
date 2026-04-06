@@ -76,6 +76,7 @@ namespace Cue::RHI::DX12
         // graphics キューの完了を待ってからリソースを解放します。
         m_queuePool->wait_for_graphics_queue();
 
+        m_staticMeshPool.reset();
         m_viewManager.reset();
         m_textureManager.reset();
         m_bufferManager.reset();

@@ -17,7 +17,13 @@ namespace Cue
         // 依存オブジェクトの保存
         m_platform = a_info.platform;
         m_backend = a_info.backend;
-        m_assetManager.initialize(m_backend->get_static_mesh_pool());
+        //m_assetManager.initialize(m_backend->get_static_mesh_pool());
+        //ModelHandle cubeModelHandle{};
+        /*Result result = m_assetManager.create_cube_model(cubeModelHandle);
+        if (!result)
+        {
+            return result;
+        }*/
 
         // フレームコントローラーの生成
         FrameControllerDesc desc(m_backend->buffer_count());
