@@ -1,10 +1,10 @@
 #include "Engine.h"
 #include "GpuData/Batching.h"
 #include "GpuData/Transform.h"
-#include "passes/UploadBufferCopyPass.h"
-#include "passes/GenerateVisivleList.h"
-#include "passes/StaticMeshBatchingPass.h"
-#include "passes/StaticMeshForwardPass.h"
+#include "Passes/UploadBufferCopyPass.h"
+#include "Passes/GenerateVisibleList.h"
+#include "Passes/StaticMeshBatchingPass.h"
+#include "Passes/StaticMeshForwardPass.h"
 #include <PresentToSwapChain.h>
 
 namespace Cue
@@ -55,7 +55,7 @@ namespace Cue
         }
         const uint32_t cubeIndexCount = static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
 
-        RHI::StaticMeshHandle cubeStaticMeshHandle{};
+        RHI::staticMeshHandle cubeStaticMeshHandle{};
         result = m_assetManager.get_static_mesh_handle(cubeModelHandle, 0, cubeStaticMeshHandle);
         if (!result)
         {
@@ -92,7 +92,7 @@ namespace Cue
         objectInfoBufferDesc.elementCount = k_maxObjectCount;
         objectInfoBufferDesc.size = objectInfoBufferDesc.stride * objectInfoBufferDesc.elementCount;
         objectInfoBufferDesc.alignment = alignof(GpuData::ObjectInfo);
-        RHI::BufferHandle objectInfoBufferHandle{};
+        RHI::bufferHandle objectInfoBufferHandle{};
         result = bufferManager->create_buffer(objectInfoBufferDesc, objectInfoBufferHandle);
         if (!result)
         {
@@ -135,7 +135,7 @@ namespace Cue
         transformBufferDesc.elementCount = k_maxObjectCount;
         transformBufferDesc.size = transformBufferDesc.stride * transformBufferDesc.elementCount;
         transformBufferDesc.alignment = alignof(GpuData::ObjectTransformGpu);
-        RHI::BufferHandle transformBufferHandle{};
+        RHI::bufferHandle transformBufferHandle{};
         result = bufferManager->create_buffer(transformBufferDesc, transformBufferHandle);
         if (!result)
         {
@@ -178,7 +178,7 @@ namespace Cue
         renderObjectBufferDesc.elementCount = k_maxObjectCount;
         renderObjectBufferDesc.size = renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
         renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
-        RHI::BufferHandle renderObjectBufferHandle{};
+        RHI::bufferHandle renderObjectBufferHandle{};
         result = bufferManager->create_buffer(renderObjectBufferDesc, renderObjectBufferHandle);
         if (!result)
         {
@@ -195,7 +195,7 @@ namespace Cue
         renderObjectCountBufferDesc.elementCount = 1;
         renderObjectCountBufferDesc.size = sizeof(uint32_t);
         renderObjectCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::BufferHandle renderObjectCountBufferHandle{};
+        RHI::bufferHandle renderObjectCountBufferHandle{};
         result = bufferManager->create_buffer(renderObjectCountBufferDesc, renderObjectCountBufferHandle);
         if (!result)
         {
@@ -212,7 +212,7 @@ namespace Cue
         indirectCommandBufferDesc.elementCount = k_maxObjectCount;
         indirectCommandBufferDesc.size = indirectCommandBufferDesc.stride * indirectCommandBufferDesc.elementCount;
         indirectCommandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
-        RHI::BufferHandle indirectCommandBufferHandle{};
+        RHI::bufferHandle indirectCommandBufferHandle{};
         result = bufferManager->create_buffer(indirectCommandBufferDesc, indirectCommandBufferHandle);
         if (!result)
         {
@@ -229,7 +229,7 @@ namespace Cue
         indirectCommandCountBufferDesc.elementCount = 1;
         indirectCommandCountBufferDesc.size = sizeof(uint32_t);
         indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::BufferHandle indirectCommandCountBufferHandle{};
+        RHI::bufferHandle indirectCommandCountBufferHandle{};
         result = bufferManager->create_buffer(indirectCommandCountBufferDesc, indirectCommandCountBufferHandle);
         if (!result)
         {
@@ -253,7 +253,7 @@ namespace Cue
         objectInfoBufferSrvDesc.firstElement = 0;
         objectInfoBufferSrvDesc.numElements = objectInfoBufferDesc.elementCount;
         objectInfoBufferSrvDesc.structureByteStride = objectInfoBufferDesc.stride;
-        RHI::ViewHandle objectInfoBufferSrvHandle{};
+        RHI::viewHandle objectInfoBufferSrvHandle{};
         result = viewManager->create_view(objectInfoBufferSrvDesc, objectInfoBufferSrvHandle);
         if (!result)
         {
@@ -268,7 +268,7 @@ namespace Cue
         transformBufferSrvDesc.firstElement = 0;
         transformBufferSrvDesc.numElements = transformBufferDesc.elementCount;
         transformBufferSrvDesc.structureByteStride = transformBufferDesc.stride;
-        RHI::ViewHandle transformBufferSrvHandle{};
+        RHI::viewHandle transformBufferSrvHandle{};
         result = viewManager->create_view(transformBufferSrvDesc, transformBufferSrvHandle);
         if (!result)
         {
@@ -283,7 +283,7 @@ namespace Cue
         renderObjectBufferUavDesc.firstElement = 0;
         renderObjectBufferUavDesc.numElements = renderObjectBufferDesc.elementCount;
         renderObjectBufferUavDesc.structureByteStride = renderObjectBufferDesc.stride;
-        RHI::ViewHandle renderObjectBufferUavHandle{};
+        RHI::viewHandle renderObjectBufferUavHandle{};
         result = viewManager->create_view(renderObjectBufferUavDesc, renderObjectBufferUavHandle);
         if (!result)
         {
@@ -298,7 +298,7 @@ namespace Cue
         indirectCommandBufferUavDesc.firstElement = 0;
         indirectCommandBufferUavDesc.numElements = indirectCommandBufferDesc.elementCount;
         indirectCommandBufferUavDesc.structureByteStride = indirectCommandBufferDesc.stride;
-        RHI::ViewHandle indirectCommandBufferUavHandle{};
+        RHI::viewHandle indirectCommandBufferUavHandle{};
         result = viewManager->create_view(indirectCommandBufferUavDesc, indirectCommandBufferUavHandle);
         if (!result)
         {
@@ -312,7 +312,7 @@ namespace Cue
         indirectCommandCountBufferUavDesc.bufferHandle = indirectCommandCountBufferHandle;
         indirectCommandCountBufferUavDesc.firstElement = 0;
         indirectCommandCountBufferUavDesc.numElements = indirectCommandCountBufferDesc.size / sizeof(uint32_t);
-        RHI::ViewHandle indirectCommandCountBufferUavHandle{};
+        RHI::viewHandle indirectCommandCountBufferUavHandle{};
         result = viewManager->create_view(indirectCommandCountBufferUavDesc, indirectCommandCountBufferUavHandle);
         if (!result)
         {
@@ -326,7 +326,7 @@ namespace Cue
         renderObjectCountBufferUavDesc.bufferHandle = renderObjectCountBufferHandle;
         renderObjectCountBufferUavDesc.firstElement = 0;
         renderObjectCountBufferUavDesc.numElements = renderObjectCountBufferDesc.size / sizeof(uint32_t);
-        RHI::ViewHandle renderObjectCountBufferUavHandle{};
+        RHI::viewHandle renderObjectCountBufferUavHandle{};
         result = viewManager->create_view(renderObjectCountBufferUavDesc, renderObjectCountBufferUavHandle);
         if (!result)
         {
@@ -345,7 +345,7 @@ namespace Cue
         finalColorDesc.clearColor[1] = 0.5f;
         finalColorDesc.clearColor[2] = 0.0f;
         finalColorDesc.clearColor[3] = 1.0f;
-        RHI::TextureHandle finalColorHandle{};
+        RHI::textureHandle finalColorHandle{};
         auto textureManager = m_backend->get_texture_manager();
         textureManager->create_texture(finalColorDesc, finalColorHandle);
         RHI::ViewDesc finalColorRtvDesc{};
@@ -354,7 +354,7 @@ namespace Cue
         finalColorRtvDesc.bufferKind = RHI::BufferKind::Texture;
         finalColorRtvDesc.textureHandle = finalColorHandle;
         finalColorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
-        RHI::ViewHandle finalColorRtvHandle{};
+        RHI::viewHandle finalColorRtvHandle{};
         viewManager->create_view(finalColorRtvDesc, finalColorRtvHandle);
         RHI::ViewDesc finalColorSrvDesc{};
         finalColorSrvDesc.name = "FinalColorSRV";
@@ -363,7 +363,7 @@ namespace Cue
         finalColorSrvDesc.textureHandle = finalColorHandle;
         finalColorSrvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
         finalColorSrvDesc.mipLevels = 1;
-        RHI::ViewHandle finalColorSrvHandle{};
+        RHI::viewHandle finalColorSrvHandle{};
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
 
         // render 用 FrameGraph の生成

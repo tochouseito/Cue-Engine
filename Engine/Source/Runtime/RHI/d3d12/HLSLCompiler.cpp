@@ -80,11 +80,11 @@ namespace Cue::RHI::DX12
             CUE_ASSERT_MSG(false, "Failed to create default include handler.");
         }
     }
-    Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc, ComPtr<IDxcBlob>* outBlob)
+    Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc, comPtr<IDxcBlob>* outBlob)
     {
         HRESULT hr = {};
         Result r{};
-        ComPtr<IDxcBlobEncoding> pSource = nullptr;
+        comPtr<IDxcBlobEncoding> pSource = nullptr;
 
         // 入力と出力先を検証し、失敗時は呼び出し側で扱える Result に正規化する。
         if (outBlob == nullptr)
@@ -175,7 +175,7 @@ namespace Cue::RHI::DX12
         }
 
         // シェーダーのコンパイル
-        ComPtr<IDxcResult> pResult = nullptr;
+        comPtr<IDxcResult> pResult = nullptr;
         hr = m_dxcCompiler.Get()->Compile(
             &sourceBuffer, // 読込済みソース
             arguments, // コンパイル引数
@@ -192,8 +192,8 @@ namespace Cue::RHI::DX12
         }
 
         // コンパイル結果を検証し、成功時のみブロブを返す。
-        ComPtr<IDxcBlobUtf8> pErrors = nullptr;
-        ComPtr<IDxcBlobUtf16> pErrorsUtf16;
+        comPtr<IDxcBlobUtf8> pErrors = nullptr;
+        comPtr<IDxcBlobUtf16> pErrorsUtf16;
         hr = pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);
         if (FAILED(hr))
         {
@@ -211,7 +211,7 @@ namespace Cue::RHI::DX12
         }
 
         // コンパイル結果からシェーダーオブジェクトを取得
-        ComPtr<IDxcBlob> shaderBlob = nullptr;
+        comPtr<IDxcBlob> shaderBlob = nullptr;
         hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), &pErrorsUtf16);
         if (FAILED(hr))
         {

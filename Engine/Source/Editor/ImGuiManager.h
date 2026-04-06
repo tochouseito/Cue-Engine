@@ -8,10 +8,10 @@
 #include <IO/Logger.h>
 
 // === Win includes ===
-#include <win/win_platform.h>
+#include <WinPlatform.h>
 
-// === d3d12 includes ===
-#include <d3d12_backend.h>
+// === D3D12 includes ===
+#include <D3D12Backend.h>
 
 // === imgui includes ===
 #include <imgui.h>
@@ -139,8 +139,8 @@ namespace Cue::Editor
         static constexpr std::array<float, 4> k_finalColorClearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
         static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
         ImGuiManager& m_imguiManager;
-        RHI::TextureHandle m_backBufferHandle{};
-        RHI::ViewHandle m_backBufferRtvHandle{};
-        RHI::ViewHandle m_finalColorSrvHandle{};
+        RHI::textureHandle m_backBufferHandle{};
+        RHI::viewHandle m_backBufferRtvHandle{};
+        RHI::viewHandle m_finalColorSrvHandle{};
     };
 }

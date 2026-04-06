@@ -29,7 +29,7 @@ namespace Cue::Core::Threading
         uint64_t affinityMask = 0;
     };
 
-    using ThreadProc = uint32_t(*)(StopToken a_token, void* a_user) noexcept;
+    using threadProc = uint32_t(*)(StopToken a_token, void* a_user) noexcept;
 
     /// @brief スレッド実装を抽象化するインターフェースです。
     class IThread

@@ -27,14 +27,14 @@ namespace Cue::RHI::DX12
     public:
         DX12BufferManager(DX12RenderDevice& renderDevice) : m_renderDevice(renderDevice) {}
         ~DX12BufferManager() override = default;
-        Result create_buffer(const BufferDesc& desc, BufferHandle& out) override;
-        Result destroy_buffer(BufferHandle handle) override;
-        Result get_buffer(std::string_view name, BufferHandle& out) override;
-        Result get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView) override;
-        bool try_get_record(BufferHandle handle, DX12BufferRecord** outRecord);
+        Result create_buffer(const BufferDesc& desc, bufferHandle& out) override;
+        Result destroy_buffer(bufferHandle handle) override;
+        Result get_buffer(std::string_view name, bufferHandle& out) override;
+        Result get_upload_buffer_view(bufferHandle handle, UploadBufferView& outView) override;
+        bool try_get_record(bufferHandle handle, DX12BufferRecord** outRecord);
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         Core::Registry<BufferTag, DX12BufferRecord> m_bufferRegistry; // 論理バッファリソースのレジストリ
-        std::unordered_map<Core::ResourceNameId, BufferHandle> m_nameToHandlesMap; // 名前からハンドルへのマッピング
+        std::unordered_map<Core::ResourceNameId, bufferHandle> m_nameToHandlesMap; // 名前からハンドルへのマッピング
     };
 }

@@ -27,7 +27,7 @@ namespace Cue::Core::Threading
         /// @brief 新しいスレッドを生成します。
         virtual Result create_thread(
             const ThreadDesc& a_desc,
-            ThreadProc a_proc,
+            threadProc a_proc,
             void* a_user,
             std::unique_ptr<IThread>& a_outThread) noexcept = 0;
     };

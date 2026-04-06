@@ -8,13 +8,13 @@ add_library(Engine STATIC
     "FrameController.cpp"
     "GpuData/Transform.h"
     "GpuData/Batching.h"
-    "passes/GenerateVisivleList.h"
-    "passes/ObjectInfoCopyPass.h"
-    "passes/UploadBufferCopyPass.h"
-    "passes/StaticMeshBatchingPass.h"
-    "passes/StaticMeshForwardPass.h"
-    "asset/AssetManager.h"
-    "asset/AssetManager.cpp")
+    "Passes/GenerateVisibleList.h"
+    "Passes/ObjectInfoCopyPass.h"
+    "Passes/UploadBufferCopyPass.h"
+    "Passes/StaticMeshBatchingPass.h"
+    "Passes/StaticMeshForwardPass.h"
+    "Asset/AssetManager.h"
+    "Asset/AssetManager.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC

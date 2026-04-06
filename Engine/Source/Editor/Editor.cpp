@@ -3,10 +3,10 @@
 #include <CueAssert.h>
 
 // === Windows includes ===
-#include <win_platform.h>
+#include <WinPlatform.h>
 
-// === d3d12_backend includes ===
-#include <d3d12_backend.h>
+// === D3D12 includes ===
+#include <D3D12Backend.h>
 
 // === Engine includes ===
 #include <Engine.h>
@@ -99,7 +99,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.file, r.line, r.function);
     }
 
-    RHI::ViewHandle finalColorSrvHandle{};
+    RHI::viewHandle finalColorSrvHandle{};
     r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);
 
     // プラットフォームの開始

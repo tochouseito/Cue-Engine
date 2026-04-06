@@ -25,12 +25,12 @@ namespace Cue::PAL::Win
     class WinApp final
     {
     public:
-        using MessageHandler = std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)>;
+        using messageHandler = std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)>;
 
         struct MessageHandlerEntry
         {
             uint64_t m_id = 0;
-            MessageHandler m_handler;
+            messageHandler m_handler;
         };
 
         struct WindowSize
@@ -68,7 +68,7 @@ namespace Cue::PAL::Win
 
         // --- メッセージハンドラ管理 ---
         /// @brief メッセージハンドラ登録
-        [[nodiscard]] uint64_t register_message_handler(MessageHandler handler);
+        [[nodiscard]] uint64_t register_message_handler(messageHandler a_handler);
         /// @brief メッセージハンドラ解除
         bool unregister_message_handler(uint64_t handlerId);
         /// @brief ウィンドウメッセージを処理します。

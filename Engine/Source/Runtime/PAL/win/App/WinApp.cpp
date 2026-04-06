@@ -161,17 +161,17 @@ namespace Cue::PAL::Win
         return size;
     }
 
-    uint64_t WinApp::register_message_handler(MessageHandler handler)
+    uint64_t WinApp::register_message_handler(messageHandler a_handler)
     {
         // 空ハンドラは無効 id を返却
-        if (!handler)
+        if (!a_handler)
         {
             return 0;
         }
 
         // 一意 id を採番して保持
         const uint64_t handlerId = m_nextMessageHandlerId++;
-        m_messageHandlers.push_back(MessageHandlerEntry{ handlerId, std::move(handler) });
+        m_messageHandlers.push_back(MessageHandlerEntry{ handlerId, std::move(a_handler) });
         return handlerId;
     }
 

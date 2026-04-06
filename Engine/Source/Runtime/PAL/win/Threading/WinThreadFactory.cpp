@@ -4,7 +4,7 @@ namespace Cue::PAL::Win
 {
     Result WinThreadFactory::create_thread(
         const Core::Threading::ThreadDesc& a_desc,
-        Core::Threading::ThreadProc a_proc,
+        Core::Threading::threadProc a_proc,
         void* a_user,
         std::unique_ptr<Core::Threading::IThread>& a_outThread) noexcept
     {

@@ -17,7 +17,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DX12BufferManager::create_buffer(const BufferDesc& desc, BufferHandle& out)
+    Result DX12BufferManager::create_buffer(const BufferDesc& desc, bufferHandle& out)
     {
         DX12BufferRecord record{};
 
@@ -107,7 +107,7 @@ namespace Cue::RHI::DX12
 
         // レコードの保存
         record.desc = desc;
-        BufferHandle handle = m_bufferRegistry.create(record);
+        bufferHandle handle = m_bufferRegistry.create(record);
         if (!desc.name.empty())
         {
             m_nameToHandlesMap[Core::fnv1a64(desc.name)] = handle;
@@ -118,7 +118,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12BufferManager::get_buffer(std::string_view name, BufferHandle& out)
+    Result DX12BufferManager::get_buffer(std::string_view name, bufferHandle& out)
     {
         if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
         {
@@ -134,7 +134,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DX12BufferManager::get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView)
+    Result DX12BufferManager::get_upload_buffer_view(bufferHandle handle, UploadBufferView& outView)
     {
         // 1) ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む。
         DX12BufferRecord* record = nullptr;
@@ -197,7 +197,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12BufferManager::destroy_buffer(BufferHandle handle)
+    Result DX12BufferManager::destroy_buffer(bufferHandle handle)
     {
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
         Result result = Result::ok();
@@ -291,7 +291,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    bool DX12BufferManager::try_get_record(BufferHandle handle, DX12BufferRecord** outRecord)
+    bool DX12BufferManager::try_get_record(bufferHandle handle, DX12BufferRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;

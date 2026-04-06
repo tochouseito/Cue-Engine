@@ -212,19 +212,19 @@ namespace Cue
 
         uint32_t m_maxRenderObjectCount = 0;
         uint32_t m_indexCountPerInstance = 0;
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
-        RHI::BufferHandle m_renderObjectBufferHandle{};
-        RHI::BufferHandle m_transformBufferHandle{};
-        RHI::BufferHandle m_positionBufferHandle{};
-        RHI::BufferHandle m_uvBufferHandle{};
-        RHI::BufferHandle m_normalBufferHandle{};
-        RHI::BufferHandle m_indexBufferHandle{};
-        RHI::BufferHandle m_meshRangeBufferHandle{};
-        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::RootSignatureHandle m_rootSignatureHandle{};
-        RHI::ShaderBlobHandle m_vertexShaderHandle{};
-        RHI::ShaderBlobHandle m_pixelShaderHandle{};
-        RHI::PipelineStateHandle m_pipelineHandle{};
+        RHI::textureHandle m_finalColorHandle{};
+        RHI::viewHandle m_finalColorRtvHandle{};
+        RHI::bufferHandle m_renderObjectBufferHandle{};
+        RHI::bufferHandle m_transformBufferHandle{};
+        RHI::bufferHandle m_positionBufferHandle{};
+        RHI::bufferHandle m_uvBufferHandle{};
+        RHI::bufferHandle m_normalBufferHandle{};
+        RHI::bufferHandle m_indexBufferHandle{};
+        RHI::bufferHandle m_meshRangeBufferHandle{};
+        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::rootSignatureHandle m_rootSignatureHandle{};
+        RHI::shaderBlobHandle m_vertexShaderHandle{};
+        RHI::shaderBlobHandle m_pixelShaderHandle{};
+        RHI::pipelineStateHandle m_pipelineHandle{};
     };
 }

@@ -113,7 +113,7 @@ namespace Cue::PAL::Win
 
     Result WinThread::create(
         const Core::Threading::ThreadDesc& a_desc,
-        Core::Threading::ThreadProc a_proc,
+        Core::Threading::threadProc a_proc,
         void* a_user,
         WinThread& a_outThread) noexcept
     {

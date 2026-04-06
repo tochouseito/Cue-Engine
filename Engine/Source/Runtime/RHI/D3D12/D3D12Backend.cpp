@@ -1,4 +1,4 @@
-#include "d3d12_backend.h"
+#include "D3D12Backend.h"
 
 namespace Cue::RHI
 {
@@ -47,7 +47,7 @@ namespace Cue::RHI::DX12
 
         // スワップチェインの初期化
         m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_textureManager, *m_viewManager);
-        QueueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+        queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
         if (!presentQueueContext)
         {
             return Result::fail(
@@ -80,7 +80,7 @@ namespace Cue::RHI::DX12
                 return result;
             }
 
-            QueueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+            queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
             if (presentQueueContext != nullptr)
             {
                 result = presentQueueContext->signal();
@@ -150,7 +150,7 @@ namespace Cue::RHI::DX12
 
     ID3D12CommandQueue* D3D12Backend::get_graphics_command_queue() const
     {
-        QueueContextLease queueContext{};
+        queueContextLease queueContext{};
         Result r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
         if (!r)
         {
@@ -179,7 +179,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
+    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(viewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
     {
         D3D12_GPU_DESCRIPTOR_HANDLE result{};
         if (!m_viewManager || !m_descriptorAllocator || !a_viewHandle.valid())

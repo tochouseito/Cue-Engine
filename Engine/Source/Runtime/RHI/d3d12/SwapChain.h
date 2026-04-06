@@ -39,11 +39,11 @@ namespace Cue::RHI::DX12
         {
             return static_cast<uint32_t>(m_swapChain->GetCurrentBackBufferIndex());
         }
-        TextureHandle get_back_buffer_texture_handle() const noexcept
+        textureHandle get_back_buffer_texture_handle() const noexcept
         {
             return m_backBufferTextureHandle;
         }
-        ViewHandle get_back_buffer_rtv_view_handle() const noexcept
+        viewHandle get_back_buffer_rtv_view_handle() const noexcept
         {
             return m_rtvViewHandle;
         }
@@ -53,10 +53,10 @@ namespace Cue::RHI::DX12
         DX12RenderDevice& m_renderDevice;
         DX12TextureManager& m_textureManager;
         DX12ViewManager& m_viewManager;
-        ComPtr<IDXGISwapChain4> m_swapChain;
+        comPtr<IDXGISwapChain4> m_swapChain;
         int32_t m_refreshrate = 60; // デフォルトは 60Hz
-        ViewHandle m_rtvViewHandle; // バックバッファの RTV ビュー
-        TextureHandle m_backBufferTextureHandle;
+        viewHandle m_rtvViewHandle; // バックバッファの RTV ビュー
+        textureHandle m_backBufferTextureHandle;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
     };

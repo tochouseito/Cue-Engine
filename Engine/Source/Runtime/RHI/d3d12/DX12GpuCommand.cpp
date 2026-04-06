@@ -162,7 +162,7 @@ namespace Cue::RHI::DX12
         // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
         m_commandList->EndEvent();
     }
-    Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12BufferRecord* record = nullptr;
@@ -211,7 +211,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(textureHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12TextureRecord* record = nullptr;
@@ -308,7 +308,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
+    Result DX12GpuCommandContext::clear_render_target(viewHandle handle, const float clearColor[4])
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -344,7 +344,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
+    Result DX12GpuCommandContext::clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil)
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -387,7 +387,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4])
+    Result DX12GpuCommandContext::clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4])
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -546,7 +546,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_pipeline(PipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_graphics_pipeline(pipelineStateHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -578,7 +578,7 @@ namespace Cue::RHI::DX12
         m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_compute_pipeline(pipelineStateHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -631,7 +631,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, BufferHandle handle)
+    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, bufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -668,7 +668,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, BufferHandle handle)
+    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, bufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -705,7 +705,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, BufferHandle handle)
+    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, bufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -742,7 +742,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle)
+    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -787,7 +787,7 @@ namespace Cue::RHI::DX12
         m_commandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
+    Result DX12GpuCommandContext::set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView)
     {
         // queue 種別を検証して OM state を設定する。
         if (type() != CommandListType::Graphics)
@@ -956,7 +956,7 @@ namespace Cue::RHI::DX12
         outIndex = m_frameIndex;
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(bufferHandle handle, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1006,7 +1006,7 @@ namespace Cue::RHI::DX12
             Severity::Error,
             "No bindable buffer resource was found for the given handle.");
     }
-    Result DX12GpuCommandContext::resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_upload_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1029,7 +1029,7 @@ namespace Cue::RHI::DX12
         *outResource = const_cast<DX12GpuResource*>(&record->uploadResources[resourceIndex]);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_default_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1234,7 +1234,7 @@ namespace Cue::RHI::DX12
         m_type = convert_command_list_type(type);
         return Result::ok();
     }
-    Result DX12CommandPool::get_command_context(CommandListType type, CommandContextLease& outContext)
+    Result DX12CommandPool::get_command_context(CommandListType type, commandContextLease& outContext)
     {
         switch (type)
         {
@@ -1243,7 +1243,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_graphicsPoolMutex);
             // グラフィックスコマンドコンテキストをプールから取得
             auto context = m_graphicsContextPool.acquire();
-            outContext = CommandContextLease(
+            outContext = commandContextLease(
                 context.release(),
                 [](ICommandContext* raw) {delete raw; });
         }
@@ -1253,7 +1253,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_computePoolMutex);
             // コンピュートコマンドコンテキストをプールから取得
                 auto context = m_computeContextPool.acquire();
-                outContext = CommandContextLease(
+                outContext = commandContextLease(
                     context.release(),
                     [](ICommandContext* raw) {delete raw; });
         }
@@ -1263,7 +1263,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_copyPoolMutex);
             // コピーコマンドコンテキストをプールから取得
                 auto context = m_copyContextPool.acquire();
-                outContext = CommandContextLease(
+                outContext = commandContextLease(
                     context.release(),
                     [](ICommandContext* raw) {delete raw; });
         }
@@ -1274,7 +1274,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12CommandPool::return_command_context(CommandContextLease& context)
+    Result DX12CommandPool::return_command_context(commandContextLease& context)
     {
         CommandListType type = context->type();
         switch (type)
@@ -1306,7 +1306,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12QueuePool::get_queue_context(CommandListType type, QueueContextLease& outContext)
+    Result DX12QueuePool::get_queue_context(CommandListType type, queueContextLease& outContext)
     {
         switch (type)
         {
@@ -1315,7 +1315,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_graphicsPoolMutex);
             // グラフィックスコマンドキューコンテキストをプールから取得
             auto context = m_graphicsQueuePool.acquire();
-            outContext = QueueContextLease(
+            outContext = queueContextLease(
                 context.release(),
                 [](IQueueContext* raw) {delete raw; });
         }
@@ -1325,7 +1325,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_computePoolMutex);
             // コンピュートコマンドキューコンテキストをプールから取得
                 auto context = m_computeQueuePool.acquire();
-                outContext = QueueContextLease(
+                outContext = queueContextLease(
                     context.release(),
                     [](IQueueContext* raw) {delete raw; });
         }
@@ -1335,7 +1335,7 @@ namespace Cue::RHI::DX12
             std::lock_guard lock(m_copyPoolMutex);
             // コピーコマンドキューコンテキストをプールから取得
                 auto context = m_copyQueuePool.acquire();
-                outContext = QueueContextLease(
+                outContext = queueContextLease(
                     context.release(),
                     [](IQueueContext* raw) {delete raw; });
         }
@@ -1345,7 +1345,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12QueuePool::return_queue_context(QueueContextLease& context)
+    Result DX12QueuePool::return_queue_context(queueContextLease& context)
     {
         CommandListType type = context->type();
         switch (type)

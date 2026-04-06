@@ -1,4 +1,4 @@
-#include "win_platform.h"
+#include "WinPlatform.h"
 
 namespace Cue::PAL
 {
@@ -104,15 +104,15 @@ namespace Cue::PAL::Win
     {
         return m_app->pump_message();
     }
-    uint64_t WinPlatform::register_message_handler(MessageHandler handler)
+    uint64_t WinPlatform::register_message_handler(WinApp::messageHandler a_handler)
     {
         // WinApp と同じ契約で受け取るため、そのまま移譲
-        if (!handler)
+        if (!a_handler)
         {
             return 0;
         }
 
-        return m_app->register_message_handler(std::move(handler));
+        return m_app->register_message_handler(std::move(a_handler));
     }
     bool WinPlatform::unregister_message_handler(uint64_t handlerId)
     {

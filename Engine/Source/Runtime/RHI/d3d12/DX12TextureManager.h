@@ -26,16 +26,16 @@ namespace Cue::RHI::DX12
     public:
         DX12TextureManager(DX12RenderDevice& renderDevice) : m_renderDevice(renderDevice) {}
         ~DX12TextureManager() override = default;
-        Result create_texture(const TextureDesc& desc, TextureHandle& out) override;
-        Result destroy_texture(TextureHandle handle) override;
-        Result get_texture(std::string_view name, TextureHandle& out) override;
-        bool try_get_record(TextureHandle handle, DX12TextureRecord** outRecord);
+        Result create_texture(const TextureDesc& desc, textureHandle& out) override;
+        Result destroy_texture(textureHandle handle) override;
+        Result get_texture(std::string_view name, textureHandle& out) override;
+        bool try_get_record(textureHandle handle, DX12TextureRecord** outRecord);
 
         // 外部テクスチャを登録
-        Result register_external_texture(DX12TextureRecord& record, TextureHandle& out);
+        Result register_external_texture(DX12TextureRecord& record, textureHandle& out);
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         Core::Registry<TextureTag, DX12TextureRecord> m_textureRegistry; // 論理テクスチャリソースのレジストリ
-        std::unordered_map<Core::ResourceNameId, TextureHandle> m_nameToHandlesMap; // 名前からハンドルへのマッピング
+        std::unordered_map<Core::ResourceNameId, textureHandle> m_nameToHandlesMap; // 名前からハンドルへのマッピング
     };
 }

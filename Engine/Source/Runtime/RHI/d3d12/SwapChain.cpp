@@ -18,7 +18,7 @@ namespace Cue::RHI::DX12
         desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // tearing 許可
 
         // SwapChain 作成
-        ComPtr<IDXGISwapChain1> swapChain1;
+        comPtr<IDXGISwapChain1> swapChain1;
         HRESULT hr = m_renderDevice.get_dxgi_factory()->CreateSwapChainForHwnd(
             commandQueue.command_queue(),
             a_hwnd,
@@ -62,7 +62,7 @@ namespace Cue::RHI::DX12
         std::vector<DX12GpuResource> m_backBuffers;
         for (uint32_t i = 0; i < bufferCount; ++i)
         {
-            ComPtr<ID3D12Resource> pResource;
+            comPtr<ID3D12Resource> pResource;
             hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&pResource));
             if (FAILED(hr))
             {

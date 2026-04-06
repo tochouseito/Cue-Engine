@@ -15,4 +15,4 @@ target_link_libraries(PAL PUBLIC
 target_include_directories(PAL PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # サブディレクトリの追加
-add_subdirectory("win")
+add_subdirectory("Win")

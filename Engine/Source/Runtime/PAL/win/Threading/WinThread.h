@@ -30,7 +30,7 @@ namespace Cue::PAL::Win
         // --- スレッド生成 ---
         static Result create(
             const Core::Threading::ThreadDesc& a_desc,
-            Core::Threading::ThreadProc a_proc,
+            Core::Threading::threadProc a_proc,
             void* a_user,
             WinThread& a_outThread) noexcept;
 
@@ -52,7 +52,7 @@ namespace Cue::PAL::Win
             StartContext(const StartContext&) = delete;
             StartContext& operator=(const StartContext&) = delete;
 
-            Core::Threading::ThreadProc m_proc = nullptr;
+            Core::Threading::threadProc m_proc = nullptr;
             void* m_user = nullptr;
             Core::Threading::StopSource m_stopSource{};
             std::atomic<uint32_t> m_exitCode{ 0 }; // スレッド終了コード

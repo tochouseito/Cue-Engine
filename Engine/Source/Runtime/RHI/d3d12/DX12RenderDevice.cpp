@@ -24,7 +24,7 @@ namespace Cue::RHI::DX12
     {
 #ifndef CUE_RELEASE
         // 開発時だけデバッグレイヤーを噛ませて、実行時コストをリリースに持ち込みません。
-        ComPtr<ID3D12Debug6> debugController;
+        comPtr<ID3D12Debug6> debugController;
         if (a_enableDebugLayer)
         {
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
@@ -34,7 +34,7 @@ namespace Cue::RHI::DX12
             }
         }
 
-        ComPtr<ID3D12DeviceRemovedExtendedDataSettings> deviceRemoved;
+        comPtr<ID3D12DeviceRemovedExtendedDataSettings> deviceRemoved;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&deviceRemoved))))
         {
             deviceRemoved->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -62,7 +62,7 @@ namespace Cue::RHI::DX12
     {
         // 高性能 GPU 優先で列挙し、意図しないソフトウェアデバイス選択を避けます。
         HRESULT hr = S_OK;
-        ComPtr<IDXGIAdapter4> adapter = nullptr;
+        comPtr<IDXGIAdapter4> adapter = nullptr;
         for (UINT i = 0; m_dxgiFactory->EnumAdapterByGpuPreference(i,
             DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) !=
             DXGI_ERROR_NOT_FOUND; ++i)
@@ -132,7 +132,7 @@ namespace Cue::RHI::DX12
         set_d3d12_name(m_d3d12Device.Get(), L"DX12RenderDevice_D3D12Device");
 
 #ifndef CUE_RELEASE
-        ComPtr<ID3D12InfoQueue> infoQueue;
+        comPtr<ID3D12InfoQueue> infoQueue;
 
         // 重大メッセージだけを残すと、通常ログに埋もれず原因特定が速くなります。
         if (SUCCEEDED(m_d3d12Device->QueryInterface(IID_PPV_ARGS(&infoQueue))))

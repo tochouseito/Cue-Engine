@@ -16,7 +16,7 @@ namespace Cue::RHI::DX12
         ~DX12GpuResource() override = default;
 
         // 既に作成されているResourceを受け取るコンストラクタ
-        DX12GpuResource(ComPtr<ID3D12Resource> resource, D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON) :
+        DX12GpuResource(comPtr<ID3D12Resource> resource, D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON) :
             m_resource(std::move(resource)),
             m_currentState(initialState)
         {
@@ -186,10 +186,10 @@ namespace Cue::RHI::DX12
             return m_mappedData;
         }
     private:
-        ComPtr<ID3D12Resource> m_resource = nullptr;
+        comPtr<ID3D12Resource> m_resource = nullptr;
         D3D12_RESOURCE_STATES m_currentState = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_DESC m_resourceDesc{};
-        ComPtr<ID3D12Fence> m_fence = nullptr;
+        comPtr<ID3D12Fence> m_fence = nullptr;
         uint64_t m_fenceValue = 0;
         uint64_t m_bufferSize = 0;
         std::byte* m_mappedData = nullptr;

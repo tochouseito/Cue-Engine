@@ -175,14 +175,14 @@ namespace Cue::RHI
     private:
         static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
 
-        TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
-        ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
-        TextureHandle m_finalColorHandle; // コピー元となる finalColor のハンドル
-        ViewHandle m_finalColorRtvHandle; // finalColor の RTV ビューのハンドル
-        ViewHandle m_finalColorSrvHandle; // finalColor の SRV ビューのハンドル
-        RootSignatureHandle m_screenCopyRootSignatureHandle; // ScreenCopy 用ルートシグネチャのハンドル
-        ShaderBlobHandle m_screenCopyVsHandle; // ScreenCopy の VS シェーダーハンドル
-        ShaderBlobHandle m_screenCopyPsHandle; // ScreenCopy の PS シェーダーハンドル
-        PipelineStateHandle m_screenCopyPipelineHandle; // ScreenCopy のグラフィックスパイプラインハンドル
+        textureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
+        viewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
+        textureHandle m_finalColorHandle; // コピー元となる finalColor のハンドル
+        viewHandle m_finalColorRtvHandle; // finalColor の RTV ビューのハンドル
+        viewHandle m_finalColorSrvHandle; // finalColor の SRV ビューのハンドル
+        rootSignatureHandle m_screenCopyRootSignatureHandle; // ScreenCopy 用ルートシグネチャのハンドル
+        shaderBlobHandle m_screenCopyVsHandle; // ScreenCopy の VS シェーダーハンドル
+        shaderBlobHandle m_screenCopyPsHandle; // ScreenCopy の PS シェーダーハンドル
+        pipelineStateHandle m_screenCopyPipelineHandle; // ScreenCopy のグラフィックスパイプラインハンドル
     };
 }

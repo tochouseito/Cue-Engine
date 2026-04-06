@@ -130,9 +130,9 @@ namespace Cue::RHI::DX12
 
         // --- デスクリプタヒープ ---
         // CPU 専用ヒープ
-        std::array<ComPtr<ID3D12DescriptorHeap>, static_cast<size_t>(HeapType::kCount)> m_descriptorHeaps = { nullptr };
+        std::array<comPtr<ID3D12DescriptorHeap>, static_cast<size_t>(HeapType::kCount)> m_descriptorHeaps = { nullptr };
         // GPU 対応ヒープ
-        ComPtr<ID3D12DescriptorHeap> m_gpuSrvUavDescriptorHeap = nullptr;
+        comPtr<ID3D12DescriptorHeap> m_gpuSrvUavDescriptorHeap = nullptr;
 
         // --- テーブル管理 ---
         Table m_textures;

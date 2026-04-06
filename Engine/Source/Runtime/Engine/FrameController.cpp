@@ -3,29 +3,29 @@
 
 namespace Cue
 {
-    bool FrameJob::start(ThreadFactory& factory, const char* name, JobFunc func)
+    bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const char* a_name, jobFunc a_func)
     {
         // 実行関数をメンバへ保持する
         // 要求受付ループのスレッドを開始する
-        m_func = std::move(func);
+        m_func = std::move(a_func);
         m_exit = false;
         m_finishedFrame = 0;
         m_queue.clear();
 
         Core::Threading::ThreadDesc desc{};
-        if (name != nullptr)
+        if (a_name != nullptr)
         {
-            desc.name = name;
+            desc.name = a_name;
         }
 
-        std::unique_ptr<Thread> th{};
-        const auto result = factory.create_thread(desc, &FrameJob::thread_entry, this, th);
+        std::unique_ptr<Core::Threading::IThread> thread{};
+        const auto result = a_factory.create_thread(desc, &FrameJob::thread_entry, this, thread);
         if (!result)
         {
             return false;
         }
 
-        m_thread = std::move(th);
+        m_thread = std::move(thread);
         return true;
     }
     void FrameJob::kick(uint64_t frameNo, uint32_t index)
@@ -65,31 +65,31 @@ namespace Cue
             m_thread.reset();
         }
     }
-    uint32_t FrameJob::thread_entry(StopToken token, void* user) noexcept
+    uint32_t FrameJob::thread_entry(Core::Threading::StopToken a_token, void* a_user) noexcept
     {
         // void* を安全に復元してインスタンスを得る
         // 共通のループ処理に委譲する
-        auto* self = static_cast<FrameJob*>(user);
+        auto* self = static_cast<FrameJob*>(a_user);
         if (!self)
         {
             return 0;
         }
-        return self->thread_loop(token);
+        return self->thread_loop(a_token);
     }
-    uint32_t FrameJob::thread_loop(StopToken token) noexcept
+    uint32_t FrameJob::thread_loop(Core::Threading::StopToken a_token) noexcept
     {
         // 条件変数で待機する
         // 停止要求を優先して安全に終了する
         uint64_t currentFrame = 0;
-        while (!token.stop_requested())
+        while (!a_token.stop_requested())
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [&]()
                 {
-                    return m_exit || !m_queue.empty() || token.stop_requested();
+                    return m_exit || !m_queue.empty() || a_token.stop_requested();
                 });
 
-            if (m_exit || token.stop_requested())
+            if (m_exit || a_token.stop_requested())
             {
                 break;
             }

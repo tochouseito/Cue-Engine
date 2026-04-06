@@ -168,15 +168,15 @@ namespace Cue
         }
     private:
         uint32_t m_maxRenderObjectCount = 0;
-        RHI::BufferHandle m_renderObjectBufferHandle{};
-        RHI::BufferHandle m_transformBufferHandle{};
-        RHI::BufferHandle m_meshRangeBufferHandle{};
-        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::BufferHandle m_indirectCommandBufferHandle{};
-        RHI::BufferHandle m_indirectCommandCountBufferHandle{};
-        RHI::ViewHandle m_indirectCommandCountBufferUavHandle{};
-        RHI::RootSignatureHandle m_rootSignatureHandle{};
-        RHI::ShaderBlobHandle m_computeShaderHandle{};
-        RHI::PipelineStateHandle m_pipelineHandle{};
+        RHI::bufferHandle m_renderObjectBufferHandle{};
+        RHI::bufferHandle m_transformBufferHandle{};
+        RHI::bufferHandle m_meshRangeBufferHandle{};
+        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::bufferHandle m_indirectCommandBufferHandle{};
+        RHI::bufferHandle m_indirectCommandCountBufferHandle{};
+        RHI::viewHandle m_indirectCommandCountBufferUavHandle{};
+        RHI::rootSignatureHandle m_rootSignatureHandle{};
+        RHI::shaderBlobHandle m_computeShaderHandle{};
+        RHI::pipelineStateHandle m_pipelineHandle{};
     };
 }

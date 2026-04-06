@@ -1,7 +1,7 @@
 # DirectX12 モジュールの CMakeLists.txt
 
 # Static ライブラリを作成
-add_library(d3d12_backend STATIC "d3d12_backend.h" "d3d12_backend.cpp" "stdafx.h" "DX12RenderDevice.h" "DX12RenderDevice.cpp" "DescriptorAllocator.h" "DescriptorAllocator.cpp" "ResourceLeakChecker.h" "HLSLCompiler.h" "HLSLCompiler.cpp" "DX12BufferManager.h" "DX12TextureManager.h" "DX12BufferManager.cpp" "DX12TextureManager.cpp" "DX12PipelineManager.h" "DX12PipelineManager.cpp" "DX12ViewManager.h" "DX12ViewManager.cpp" "DX12GpuResource.h" "DX12GpuCommand.h" "DX12GpuCommand.cpp" "SwapChain.h" "SwapChain.cpp" "DX12StaticMeshPool.h" "DX12StaticMeshPool.cpp")
+add_library(d3d12_backend STATIC "D3D12Backend.h" "D3D12Backend.cpp" "stdafx.h" "DX12RenderDevice.h" "DX12RenderDevice.cpp" "DescriptorAllocator.h" "DescriptorAllocator.cpp" "ResourceLeakChecker.h" "HLSLCompiler.h" "HLSLCompiler.cpp" "DX12BufferManager.h" "DX12TextureManager.h" "DX12BufferManager.cpp" "DX12TextureManager.cpp" "DX12PipelineManager.h" "DX12PipelineManager.cpp" "DX12ViewManager.h" "DX12ViewManager.cpp" "DX12GpuResource.h" "DX12GpuCommand.h" "DX12GpuCommand.cpp" "SwapChain.h" "SwapChain.cpp" "DX12StaticMeshPool.h" "DX12StaticMeshPool.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(d3d12_backend PUBLIC

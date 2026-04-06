@@ -74,6 +74,6 @@ namespace Cue
     private:
         bool m_hasCopied = false;
         uint64_t m_copyByteSize = 0;
-        RHI::BufferHandle m_objectInfoBufferHandle{};
+        RHI::bufferHandle m_objectInfoBufferHandle{};
     };
 }

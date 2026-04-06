@@ -4,7 +4,7 @@
 #include <RHICommon.h>
 
 // === Win PAL includes ===
-#include <win/win_platform.h>
+#include <WinPlatform.h>
 
 // === C++ includes ===
 #include <cstdint>
@@ -36,7 +36,7 @@
 namespace Cue::RHI::DX12
 {
     template<typename T>
-    using ComPtr = Microsoft::WRL::ComPtr<T>;
+    using comPtr = Microsoft::WRL::ComPtr<T>;
 
     inline void set_dxgi_name([[maybe_unused]] IDXGIObject* a_obj, [[maybe_unused]] const wchar_t* a_name)
     {

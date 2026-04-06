@@ -16,9 +16,9 @@
 
 namespace Cue
 {
-    using UpdateFunc = std::function<void(uint64_t, uint32_t)>;
-    using RenderFunc = std::function<void(uint64_t, uint32_t)>;
-    using PresentFunc = std::function<void(uint64_t, uint32_t)>;
+    using updateFunc = std::function<void(uint64_t, uint32_t)>;
+    using renderFunc = std::function<void(uint64_t, uint32_t)>;
+    using presentFunc = std::function<void(uint64_t, uint32_t)>;
 
     enum class ControllerMode : uint32_t
     {
@@ -41,13 +41,10 @@ namespace Cue
     class FrameJob final
     {
     public:
-        using JobFunc = std::function<void(uint64_t, uint32_t)>;
-        using ThreadFactory = Core::Threading::IThreadFactory;
-        using Thread = Core::Threading::IThread;
-        using StopToken = Core::Threading::StopToken;
+        using jobFunc = std::function<void(uint64_t, uint32_t)>;
 
         /// @brief スレッド開始
-        bool start(ThreadFactory& factory, const char* name, JobFunc func);
+        bool start(Core::Threading::IThreadFactory& a_factory, const char* a_name, jobFunc a_func);
 
         /// @brief 実行要求投入
         void kick(uint64_t frameNo, uint32_t index);
@@ -65,35 +62,37 @@ namespace Cue
             uint32_t m_index = 0;
         };
 
-        static uint32_t thread_entry(StopToken token, void* user) noexcept;
+        static uint32_t thread_entry(Core::Threading::StopToken a_token, void* a_user) noexcept;
 
-        uint32_t thread_loop(StopToken token) noexcept;
+        uint32_t thread_loop(Core::Threading::StopToken a_token) noexcept;
 
         mutable std::mutex m_mutex;
         std::condition_variable m_cv;
-        std::unique_ptr<Thread> m_thread;
+        std::unique_ptr<Core::Threading::IThread> m_thread;
         std::deque<Request> m_queue;
-        JobFunc m_func;
+        jobFunc m_func;
         uint64_t m_finishedFrame = 0;
         bool m_exit = false;
     };
 
     class FrameController final
     {
-        using Clock = Core::Time::IClock;
-        using Waiter = Core::Time::IWaiter;
-        using ThreadFactory = Core::Threading::IThreadFactory;
     public:
         /// @brief 生成
-        FrameController(const FrameControllerDesc& config, ThreadFactory& threadFactory, const Clock& clock, Waiter& waiter,
-            const UpdateFunc& updateFunc, const RenderFunc& renderFunc, const PresentFunc& presentFunc)
+        FrameController(const FrameControllerDesc& config,
+            Core::Threading::IThreadFactory& a_threadFactory,
+            const Core::Time::IClock& a_clock,
+            Core::Time::IWaiter& a_waiter,
+            const updateFunc& a_updateFunc,
+            const renderFunc& a_renderFunc,
+            const presentFunc& a_presentFunc)
             : m_desc(config)
-            , m_threadFactory(threadFactory)
-            , m_waiter(waiter)
-            , m_frameCounter(clock, waiter)
-            , m_updateFunc(updateFunc)
-            , m_renderFunc(renderFunc)
-            , m_presentFunc(presentFunc)
+            , m_threadFactory(a_threadFactory)
+            , m_waiter(a_waiter)
+            , m_frameCounter(a_clock, a_waiter)
+            , m_updateFunc(a_updateFunc)
+            , m_renderFunc(a_renderFunc)
+            , m_presentFunc(a_presentFunc)
         {
             // 1) 初期化はメンバ初期化リストで完結させる
         }
@@ -190,14 +189,14 @@ namespace Cue
         bool step_backpressure();
 
         FrameControllerDesc m_desc;
-        ThreadFactory& m_threadFactory;
-        Waiter& m_waiter;
+        Core::Threading::IThreadFactory& m_threadFactory;
+        Core::Time::IWaiter& m_waiter;
         Core::Time::FrameCounter m_frameCounter;
         uint32_t m_backBufferBase = 0;
         std::atomic<bool> m_resizePending{ false };
-        UpdateFunc m_updateFunc;
-        RenderFunc m_renderFunc;
-        PresentFunc m_presentFunc;
+        updateFunc m_updateFunc;
+        renderFunc m_renderFunc;
+        presentFunc m_presentFunc;
         FrameJob m_updateJob;
         FrameJob m_renderJob;
         FixedState m_fixedState{};

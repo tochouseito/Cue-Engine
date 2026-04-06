@@ -2,77 +2,77 @@
 
 namespace Cue::RHI
 {
-    Result FrameGraphBuilder::create_buffer(const BufferDesc& desc, BufferHandle& out)
+    Result FrameGraphBuilder::create_buffer(const BufferDesc& desc, bufferHandle& out)
     {
         return m_frameGraph.m_desc.bufferManager->create_buffer(desc, out);
     }
 
-    Result FrameGraphBuilder::create_texture(const TextureDesc& desc, TextureHandle& out)
+    Result FrameGraphBuilder::create_texture(const TextureDesc& desc, textureHandle& out)
     {
         return m_frameGraph.m_desc.textureManager->create_texture(desc, out);
     }
 
-    Result FrameGraphBuilder::get_buffer(std::string_view name, BufferHandle& out)
+    Result FrameGraphBuilder::get_buffer(std::string_view name, bufferHandle& out)
     {
         return m_frameGraph.m_desc.bufferManager->get_buffer(name, out);
     }
 
-    Result FrameGraphBuilder::get_texture(std::string_view name, TextureHandle& out)
+    Result FrameGraphBuilder::get_texture(std::string_view name, textureHandle& out)
     {
         return m_frameGraph.m_desc.textureManager->get_texture(name, out);
     }
 
-    Result FrameGraphBuilder::create_view(const ViewDesc& desc, ViewHandle& out)
+    Result FrameGraphBuilder::create_view(const ViewDesc& desc, viewHandle& out)
     {
         return m_frameGraph.m_desc.viewManager->create_view(desc, out);
     }
 
-    Result FrameGraphBuilder::get_view(std::string_view name, ViewHandle& out)
+    Result FrameGraphBuilder::get_view(std::string_view name, viewHandle& out)
     {
         return m_frameGraph.m_desc.viewManager->get_view(name, out);
     }
 
-    Result FrameGraphBuilder::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
+    Result FrameGraphBuilder::create_root_signature(const RootSignatureDesc& desc, rootSignatureHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->create_root_signature(desc, out);
     }
 
-    Result FrameGraphBuilder::get_root_signature(std::string_view name, RootSignatureHandle& out)
+    Result FrameGraphBuilder::get_root_signature(std::string_view name, rootSignatureHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->get_root_signature(name, out);
     }
 
-    Result FrameGraphBuilder::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
+    Result FrameGraphBuilder::create_shader_blob(const ShaderCompileDesc& desc, shaderBlobHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->create_shader_blob(desc, out);
     }
 
-    Result FrameGraphBuilder::get_shader_blob(std::string_view name, ShaderBlobHandle& out)
+    Result FrameGraphBuilder::get_shader_blob(std::string_view name, shaderBlobHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->get_shader_blob(name, out);
     }
 
-    Result FrameGraphBuilder::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out)
+    Result FrameGraphBuilder::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, pipelineStateHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->create_graphics_pipeline(desc, out);
     }
 
-    Result FrameGraphBuilder::get_graphics_pipeline(std::string_view name, PipelineStateHandle& out)
+    Result FrameGraphBuilder::get_graphics_pipeline(std::string_view name, pipelineStateHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->get_graphics_pipeline(name, out);
     }
 
-    Result FrameGraphBuilder::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
+    Result FrameGraphBuilder::create_compute_pipeline(const ComputePipelineStateDesc& desc, pipelineStateHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->create_compute_pipeline(desc, out);
     }
 
-    Result FrameGraphBuilder::get_compute_pipeline(std::string_view name, PipelineStateHandle& out)
+    Result FrameGraphBuilder::get_compute_pipeline(std::string_view name, pipelineStateHandle& out)
     {
         return m_frameGraph.m_desc.pipelineManager->get_compute_pipeline(name, out);
     }
 
-    Result FrameGraphBuilder::render(const TextureHandle* handles, size_t count)
+    Result FrameGraphBuilder::render(const textureHandle* handles, size_t count)
     {
         m_renderTargets.clear();
         for (size_t i = 0; i < count; ++i)
@@ -128,7 +128,7 @@ namespace Cue::RHI
         for (auto& compiledPass : m_passes)
         {
             // コマンドコンテキストをプールから取得
-            CommandContextLease commandContext;
+            commandContextLease commandContext;
             Result result = m_desc.commandPool->get_command_context(compiledPass.pass->type(), commandContext);
             if (!result)
             {
@@ -176,7 +176,7 @@ namespace Cue::RHI
                     "Failed to close command context for frame graph pass.");
             }
 
-            QueueContextLease queueContext;
+            queueContextLease queueContext;
             IQueueContext* queueContextPtr = nullptr;
             const bool usePresentQueue = m_desc.usePresentQueue && compiledPass.pass->type() == CommandListType::Graphics;
             if (usePresentQueue)

@@ -9,7 +9,7 @@
 
 // === Engine includes ===
 #include "FrameController.h"
-#include "asset/AssetManager.h"
+#include "Asset/AssetManager.h"
 
 namespace Cue
 {

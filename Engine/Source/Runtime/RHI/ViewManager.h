@@ -12,8 +12,8 @@ namespace Cue::RHI
         BufferKind bufferKind = BufferKind::Buffer;
         uint32_t resourceIndex = 0;
 
-        BufferHandle bufferHandle = {};
-        TextureHandle textureHandle = {};
+        bufferHandle bufferHandle = {};
+        textureHandle textureHandle = {};
 
         uint64_t byteOffset = 0;
         uint32_t byteSize = 0;
@@ -39,10 +39,10 @@ namespace Cue::RHI
         virtual ~IViewManager() = default;
 
         // --- ビューの生成と破棄 ---
-        virtual Result create_view(const ViewDesc& desc, ViewHandle& out) = 0;
-        virtual Result destroy_view(ViewHandle handle) = 0;
+        virtual Result create_view(const ViewDesc& desc, viewHandle& out) = 0;
+        virtual Result destroy_view(viewHandle handle) = 0;
 
         // --- 名前からビューのハンドルの取得 ---
-        virtual Result get_view(std::string_view name, ViewHandle& out) = 0;
+        virtual Result get_view(std::string_view name, viewHandle& out) = 0;
     };
 }

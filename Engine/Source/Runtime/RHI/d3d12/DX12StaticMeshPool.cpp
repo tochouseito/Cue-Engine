@@ -165,10 +165,10 @@ namespace Cue::RHI::DX12
     {
         // 1) 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る。
         Result result = create_stream_state(
-            desc.positionBufferName,
+            desc.positionName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float4),
-            desc.positionStagingBufferSize,
+            desc.positionStagingSize,
             sizeof(Math::float4),
             desc.maxVertexCount,
             alignof(Math::float4),
@@ -179,10 +179,10 @@ namespace Cue::RHI::DX12
         }
 
         result = create_stream_state(
-            desc.uvBufferName,
+            desc.uvName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float2),
-            desc.uvStagingBufferSize,
+            desc.uvStagingSize,
             sizeof(Math::float2),
             desc.maxVertexCount,
             alignof(Math::float2),
@@ -193,10 +193,10 @@ namespace Cue::RHI::DX12
         }
 
         result = create_stream_state(
-            desc.normalBufferName,
+            desc.normalName,
             BufferType::Vertex,
             static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float3),
-            desc.normalStagingBufferSize,
+            desc.normalStagingSize,
             sizeof(Math::float3),
             desc.maxVertexCount,
             alignof(Math::float3),
@@ -207,10 +207,10 @@ namespace Cue::RHI::DX12
         }
 
         result = create_stream_state(
-            desc.indexBufferName,
+            desc.indexName,
             BufferType::Index,
             static_cast<uint64_t>(desc.maxIndexCount) * sizeof(uint32_t),
-            desc.indexStagingBufferSize,
+            desc.indexStagingSize,
             sizeof(uint32_t),
             desc.maxIndexCount,
             alignof(uint32_t),
@@ -225,10 +225,10 @@ namespace Cue::RHI::DX12
 
     Result DX12StaticMeshPool::initialize_mesh_range_state(const StaticMeshPoolDesc& desc)
     {
-        m_meshRangeState.debugName = std::string(desc.meshRangeBufferName);
+        m_meshRangeState.debugName = std::string(desc.meshRangeName);
 
         BufferDesc defaultDesc{};
-        defaultDesc.name = desc.meshRangeBufferName;
+        defaultDesc.name = desc.meshRangeName;
         defaultDesc.type = BufferType::Structured;
         defaultDesc.defaultHeapCount = 1;
         defaultDesc.uploadHeapCount = 0;
@@ -262,7 +262,7 @@ namespace Cue::RHI::DX12
         }
 
         ViewDesc meshRangeSrvDesc{};
-        meshRangeSrvDesc.name = desc.meshRangeViewName;
+        meshRangeSrvDesc.name = desc.meshRangeSrvName;
         meshRangeSrvDesc.type = ViewType::ShaderResourceBuffer;
         meshRangeSrvDesc.bufferKind = BufferKind::Buffer;
         meshRangeSrvDesc.bufferHandle = m_meshRangeState.defaultBufferHandle;
@@ -374,7 +374,7 @@ namespace Cue::RHI::DX12
         std::string_view bufferName,
         BufferType bufferType,
         uint64_t byteSize,
-        BufferHandle& outBufferHandle,
+        bufferHandle& outBufferHandle,
         std::byte*& outMappedData)
     {
         outBufferHandle = {};
@@ -607,14 +607,14 @@ namespace Cue::RHI::DX12
                 "Copy regions must not be empty.");
         }
 
-        CommandContextLease commandContext{};
+        commandContextLease commandContext{};
         Result result = m_commandPool.get_command_context(CommandListType::Copy, commandContext);
         if (!result)
         {
             return result;
         }
 
-        QueueContextLease queueContext{};
+        queueContextLease queueContext{};
         result = m_queuePool.get_queue_context(CommandListType::Copy, queueContext);
         if (!result)
         {
@@ -771,7 +771,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
+    Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, staticMeshHandle& outHandle)
     {
         // 1) 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ。
         outHandle = {};
@@ -1037,7 +1037,7 @@ namespace Cue::RHI::DX12
             record.nameId = Core::fnv1a64(meshData.name);
         }
 
-        StaticMeshHandle handle = m_meshRegistry.create(record);
+        staticMeshHandle handle = m_meshRegistry.create(record);
         if (record.nameId != 0)
         {
             m_nameToHandlesMap[record.nameId] = handle;
@@ -1047,7 +1047,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::free_mesh(StaticMeshHandle handle)
+    Result DX12StaticMeshPool::free_mesh(staticMeshHandle handle)
     {
         // 1) レコードを解決して、常駐領域と名前引きをまとめて巻き戻す。
         StaticMeshRecord record{};
@@ -1092,7 +1092,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
+    Result DX12StaticMeshPool::get_mesh_id(staticMeshHandle handle, uint32_t& outMeshId) const
     {
         StaticMeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))

@@ -4,7 +4,7 @@
 #include <RHI.h>
 
 // === PAL includes ===
-#include <win/win_platform.h>
+#include <WinPlatform.h>
 
 // === DirectX 12 includes ===
 #include "stdafx.h"
@@ -75,7 +75,7 @@ namespace Cue::RHI::DX12
         ID3D12Device* get_device() const { return m_renderDevice->get_d3d12_device(); }
         ID3D12CommandQueue* get_graphics_command_queue() const;
         ImGuiFontSRVInfo get_font_srv_for_imgui() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
+        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(viewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー
