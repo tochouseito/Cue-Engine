@@ -12,3 +12,16 @@ struct RenderObject
     uint meshId;
     uint transformId;
 };
+
+struct Transform
+{
+    float4x4 worldMatrix;
+};
+
+struct MeshRange
+{
+    uint indexCount;
+    uint startIndex;
+    int baseVertex;
+    uint padding;
+};

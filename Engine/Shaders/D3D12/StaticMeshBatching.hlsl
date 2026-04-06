@@ -1,18 +1,5 @@
 #include "DrawCommon.hlsli"
 
-struct Transform
-{
-    float4x4 worldMatrix;
-};
-
-struct MeshRange
-{
-    uint indexCount;
-    uint startIndex;
-    int baseVertex;
-    uint padding;
-};
-
 struct IndirectCommand
 {
     uint indexCountPerInstance;
