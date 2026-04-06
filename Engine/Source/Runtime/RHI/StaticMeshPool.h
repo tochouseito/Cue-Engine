@@ -7,9 +7,9 @@ namespace Cue::RHI
 {
     struct StaticMeshPoolDesc final
     {
-        uint32_t maxVertexCount = 16u * 1024u * 1024u; // プール内の最大頂点数
-        uint32_t maxIndexCount = 48u * 1024u * 1024u; // プール内の最大インデックス数
-        uint32_t maxMeshCount = 64u * 1024u; // プール内の最大メッシュ数
+        uint32_t maxVertexCount = 256u * 1024u; // プール内の最大頂点数
+        uint32_t maxIndexCount = 768u * 1024u; // プール内の最大インデックス数
+        uint32_t maxMeshCount = 4u * 1024u; // プール内の最大メッシュ数
         std::string_view positionBufferName = "StaticMeshPool.Position";
         std::string_view uvBufferName = "StaticMeshPool.Uv";
         std::string_view normalBufferName = "StaticMeshPool.Normal";
