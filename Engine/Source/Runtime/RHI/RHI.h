@@ -42,7 +42,7 @@ namespace Cue::RHI
         virtual Result present(uint64_t a_frameNo, uint32_t a_index,bool vsync, FrameGraph& a_frameGraph) = 0;
 
         /// @brief FrameGraph の生成
-        virtual Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
+        virtual Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
 
         // --- バックエンドのシステムへのアクセス ---
         virtual IBufferManager* get_buffer_manager() = 0;

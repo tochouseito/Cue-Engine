@@ -110,6 +110,7 @@ namespace Cue::RHI
         IStaticMeshPool* staticMeshPool = nullptr;
         ICommandPool* commandPool = nullptr;
         IQueuePool* queuePool = nullptr;
+        bool usePresentQueue = true;
         uint32_t width = 0;
         uint32_t height = 0;
     };

@@ -107,7 +107,6 @@ namespace Cue::RHI
     FrameGraph::FrameGraph(const FrameGraphDesc& desc, const uint32_t& bufferCount)
         : m_desc(desc), m_bufferCount(bufferCount)
     {
-
     }
 
     Result FrameGraph::build()
@@ -178,47 +177,81 @@ namespace Cue::RHI
             }
 
             QueueContextLease queueContext;
-            result = m_desc.queuePool->get_queue_context(compiledPass.pass->type(), queueContext);
-            if (!result)
+            IQueueContext* queueContextPtr = nullptr;
+            const bool usePresentQueue = m_desc.usePresentQueue && compiledPass.pass->type() == CommandListType::Graphics;
+            if (usePresentQueue)
+            {
+                queueContextPtr = m_desc.queuePool->get_present_queue_context();
+                if (queueContextPtr == nullptr)
+                {
+                    m_desc.commandPool->return_command_context(commandContext);
+                    return Result::fail(
+                        Code::GetFailed,
+                        Severity::Error,
+                        "Failed to get present queue context for frame graph pass.");
+                }
+            }
+            else
+            {
+                result = m_desc.queuePool->get_queue_context(compiledPass.pass->type(), queueContext);
+                if (result)
+                {
+                    queueContextPtr = queueContext.get();
+                }
+            }
+
+            if (!result || queueContextPtr == nullptr)
             {
                 m_desc.commandPool->return_command_context(commandContext);
                 return Result::fail(
-                    result.code,
+                    result ? Code::GetFailed : result.code,
                     Severity::Error,
                     "Failed to get queue context for frame graph pass.");
             }
             std::vector<ICommandContext*> commandContexts { commandContext.get() };
-            result = queueContext->submit(commandContexts);
+            result = queueContextPtr->submit(commandContexts);
             if (!result)
             {
-                m_desc.queuePool->return_queue_context(queueContext);
+                if (!usePresentQueue)
+                {
+                    m_desc.queuePool->return_queue_context(queueContext);
+                }
                 m_desc.commandPool->return_command_context(commandContext);
                 return Result::fail(
                     result.code,
                     Severity::Error,
                     "Failed to submit frame graph pass.");
             }
-            result = queueContext->signal();
+            result = queueContextPtr->signal();
             if (!result)
             {
-                m_desc.queuePool->return_queue_context(queueContext);
+                if (!usePresentQueue)
+                {
+                    m_desc.queuePool->return_queue_context(queueContext);
+                }
                 m_desc.commandPool->return_command_context(commandContext);
                 return Result::fail(
                     result.code,
                     Severity::Error,
                     "Failed to signal queue after frame graph pass submission.");
             }
-            result = queueContext->wait();
+            result = queueContextPtr->wait();
             if (!result)
             {
-                m_desc.queuePool->return_queue_context(queueContext);
+                if (!usePresentQueue)
+                {
+                    m_desc.queuePool->return_queue_context(queueContext);
+                }
                 m_desc.commandPool->return_command_context(commandContext);
                 return Result::fail(
                     result.code,
                     Severity::Error,
                     "Failed to wait for frame graph pass completion.");
             }
-            m_desc.queuePool->return_queue_context(queueContext);
+            if (!usePresentQueue)
+            {
+                m_desc.queuePool->return_queue_context(queueContext);
+            }
             m_desc.commandPool->return_command_context(commandContext);
         }
         return Result::ok();

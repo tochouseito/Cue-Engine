@@ -12,6 +12,7 @@ add_library(Engine STATIC
     "passes/ObjectInfoCopyPass.h"
     "passes/UploadBufferCopyPass.h"
     "passes/StaticMeshBatchingPass.h"
+    "passes/StaticMeshForwardPass.h"
     "asset/AssetManager.h"
     "asset/AssetManager.cpp")
 

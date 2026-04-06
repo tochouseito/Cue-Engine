@@ -17,8 +17,11 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 StructuredBuffer<float4> g_positions : register(t2);
 StructuredBuffer<float2> g_uvs : register(t3);
 StructuredBuffer<float3> g_normals : register(t4);
+StructuredBuffer<uint> g_indices : register(t5);
+StructuredBuffer<MeshRange> g_meshRanges : register(t6);
+ByteAddressBuffer g_renderObjectCount : register(t7);
 
-float4x4 make_view_matrix()
+row_major float4x4 make_view_matrix()
 {
     return float4x4(
         1.0f, 0.0f, 0.0f, 0.0f,
@@ -27,7 +30,7 @@ float4x4 make_view_matrix()
         0.0f, 0.0f, 6.0f, 1.0f);
 }
 
-float4x4 make_projection_matrix()
+row_major float4x4 make_projection_matrix()
 {
     const float fovY = 60.0f * (k_pi / 180.0f);
     const float f = tan(fovY * 0.5f);
@@ -41,18 +44,39 @@ float4x4 make_projection_matrix()
 
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
+    const uint renderObjectCount = g_renderObjectCount.Load(0);
+    if (instanceId >= renderObjectCount)
+    {
+        VsOut emptyOutput;
+        emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        emptyOutput.worldNormal = float3(0.0f, 0.0f, 1.0f);
+        emptyOutput.texcoord = float2(0.0f, 0.0f);
+        return emptyOutput;
+    }
+
     const RenderObject renderObject = g_renderObjects[instanceId];
     const Transform transform = g_transforms[renderObject.transformId];
+    const MeshRange meshRange = g_meshRanges[renderObject.meshId];
 
-    const float4 localPosition = g_positions[vertexId];
-    const float2 localUv = g_uvs[vertexId];
-    const float3 localNormal = g_normals[vertexId];
+    if (vertexId >= meshRange.indexCount)
+    {
+        VsOut emptyOutput;
+        emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        emptyOutput.worldNormal = float3(0.0f, 0.0f, 1.0f);
+        emptyOutput.texcoord = float2(0.0f, 0.0f);
+        return emptyOutput;
+    }
+
+    const uint meshVertexIndex = g_indices[meshRange.startIndex + vertexId] + meshRange.baseVertex;
+    const float4 localPosition = g_positions[meshVertexIndex];
+    const float2 localUv = g_uvs[meshVertexIndex];
+    const float3 localNormal = g_normals[meshVertexIndex];
 
     const float4 worldPosition = mul(localPosition, transform.worldMatrix);
     const float3 worldNormal = normalize(mul(float4(localNormal, 0.0f), transform.worldMatrix).xyz);
 
-    const float4x4 viewMatrix = make_view_matrix();
-    const float4x4 projectionMatrix = make_projection_matrix();
+    const row_major float4x4 viewMatrix = make_view_matrix();
+    const row_major float4x4 projectionMatrix = make_projection_matrix();
 
     VsOut output;
     output.position = mul(mul(worldPosition, viewMatrix), projectionMatrix);

@@ -47,22 +47,20 @@ namespace Cue::RHI::DX12
 
         // スワップチェインの初期化
         m_swapChain = std::make_unique<SwapChain>(*m_renderDevice, *m_textureManager, *m_viewManager);
-        QueueContextLease queueContext{};
-        r = m_queuePool->get_queue_context(CommandListType::Graphics, queueContext);
-        if (!r)
+        QueueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+        if (!presentQueueContext)
         {
             return Result::fail(
                 Code::GetFailed,
                 Severity::Fatal,
-                "Failed to get graphics queue context for swap chain initialization.");
+                "Failed to get present graphics queue context for swap chain initialization.");
         }
         m_swapChain->create(
             m_platform->get_window_handle(),
             a_info.width,
             a_info.height,
             a_info.bufferCount,
-            *static_cast<DX12GpuCommandQueue*>(queueContext.get()));
-        r = m_queuePool->return_queue_context(queueContext);
+            *static_cast<DX12GpuCommandQueue*>(presentQueueContext));
 
         // 静的メッシュプールの初期化
         StaticMeshPoolDesc meshPoolDesc{};
@@ -74,7 +72,36 @@ namespace Cue::RHI::DX12
     Result D3D12Backend::shutdown()
     {
         // graphics キューの完了を待ってからリソースを解放します。
-        m_queuePool->wait_for_graphics_queue();
+        if (m_queuePool)
+        {
+            Result result = m_queuePool->wait_for_graphics_queue();
+            if (!result)
+            {
+                return result;
+            }
+
+            QueueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+            if (presentQueueContext != nullptr)
+            {
+                result = presentQueueContext->signal();
+                if (!result)
+                {
+                    return result;
+                }
+
+                result = presentQueueContext->wait();
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        if (m_swapChain)
+        {
+            m_swapChain->shutdown();
+            m_swapChain.reset();
+        }
 
         m_staticMeshPool.reset();
         m_viewManager.reset();
@@ -104,9 +131,9 @@ namespace Cue::RHI::DX12
         return m_swapChain->present(vsync);
     }
 
-    Result D3D12Backend::create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph)
+    Result D3D12Backend::create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph)
     {
-        FrameGraphDesc desc{};
+        FrameGraphDesc desc = a_desc;
         desc.bufferManager = m_bufferManager.get();
         desc.textureManager = m_textureManager.get();
         desc.pipelineManager = m_pipelineManager.get();

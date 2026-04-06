@@ -4,6 +4,7 @@
 #include "passes/UploadBufferCopyPass.h"
 #include "passes/GenerateVisivleList.h"
 #include "passes/StaticMeshBatchingPass.h"
+#include "passes/StaticMeshForwardPass.h"
 #include <PresentToSwapChain.h>
 
 namespace Cue
@@ -39,6 +40,21 @@ namespace Cue
             return result;
         }
 
+        Core::Native::ModelData cubeModelData{};
+        result = m_assetManager.get_model(cubeModelHandle, cubeModelData);
+        if (!result)
+        {
+            return result;
+        }
+        if (cubeModelData.meshes.empty())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Cube model does not contain any mesh data.");
+        }
+        const uint32_t cubeIndexCount = static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
+
         RHI::StaticMeshHandle cubeStaticMeshHandle{};
         result = m_assetManager.get_static_mesh_handle(cubeModelHandle, 0, cubeStaticMeshHandle);
         if (!result)
@@ -52,17 +68,6 @@ namespace Cue
         {
             return result;
         }
-
-        // フレームコントローラーの生成
-        FrameControllerDesc desc(m_backend->buffer_count());
-        desc.m_mode = ControllerMode::Fixed;
-        desc.m_maxFps = a_info.maxFps;
-        m_frameController = std::make_unique<FrameController>(
-            desc,
-            m_platform->thread_factory(),
-            m_platform->clock(),
-            m_platform->waiter(),
-            update(), render(), present());
 
         // GenerateVisibleObjectList 用バッファを作成
         auto* bufferManager = m_backend->get_buffer_manager();
@@ -362,7 +367,9 @@ namespace Cue
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
 
         // render 用 FrameGraph の生成
-        result = m_backend->create_frame_graph(m_frameGraph);
+        RHI::FrameGraphDesc frameGraphDesc{};
+        frameGraphDesc.usePresentQueue = false;
+        result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
         if (!result)
         {
             return Result::fail(
@@ -379,6 +386,7 @@ namespace Cue
             static_cast<uint64_t>(k_initialObjectCount) * sizeof(GpuData::ObjectTransformGpu)));
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(k_initialObjectCount));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(k_initialObjectCount));
+        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(k_initialObjectCount, cubeIndexCount));
         result = m_frameGraph->build();
         if (!result)
         {
@@ -389,7 +397,9 @@ namespace Cue
         }
 
         // present 用 FrameGraph の生成
-        result = m_backend->create_frame_graph(m_presentFrameGraph);
+        RHI::FrameGraphDesc presentFrameGraphDesc{};
+        presentFrameGraphDesc.usePresentQueue = true;
+        result = m_backend->create_frame_graph(presentFrameGraphDesc, m_presentFrameGraph);
         if (!result)
         {
             return Result::fail(
@@ -415,6 +425,17 @@ namespace Cue
                 Severity::Fatal,
                 "Failed to build present frame graph.");
         }
+
+        // フレームコントローラーの生成
+        FrameControllerDesc desc(m_backend->buffer_count());
+        desc.m_mode = ControllerMode::Fixed;
+        desc.m_maxFps = a_info.maxFps;
+        m_frameController = std::make_unique<FrameController>(
+            desc,
+            m_platform->thread_factory(),
+            m_platform->clock(),
+            m_platform->waiter(),
+            update(), render(), present());
 
         return Result::ok();
     }

@@ -222,11 +222,21 @@ namespace Cue::RHI::DX12
                     return std::make_unique<DX12GpuCommandQueue>(*d3d12Device, D3D12_COMMAND_LIST_TYPE_COPY);
                 })
         {
+            // present 用のグラフィックスキューを作成しておきます。
+            m_presentGraphicsQueue = std::make_unique<DX12GpuCommandQueue>(*renderDevice.get_d3d12_device(), D3D12_COMMAND_LIST_TYPE_DIRECT);
         }
         ~DX12QueuePool() override = default;
         Result get_queue_context(CommandListType type, QueueContextLease& outContext) override;
         Result return_queue_context(QueueContextLease& context) override;
         Result wait_for_graphics_queue() override;
+        QueueContextPtr get_present_queue_context() override
+        {
+            if (m_presentGraphicsQueue == nullptr)
+            {
+                return nullptr;
+            }
+            return m_presentGraphicsQueue.get();
+        }
     private:
         DX12RenderDevice& m_renderDevice;
         Core::Pool<DX12GpuCommandQueue, std::function<void(DX12GpuCommandQueue&)>> m_graphicsQueuePool;
@@ -235,5 +245,8 @@ namespace Cue::RHI::DX12
         std::mutex m_computePoolMutex;
         Core::Pool<DX12GpuCommandQueue, std::function<void(DX12GpuCommandQueue&)>> m_copyQueuePool;
         std::mutex m_copyPoolMutex;
+
+        // present 用のグラフィックスキュー
+        std::unique_ptr<DX12GpuCommandQueue> m_presentGraphicsQueue = nullptr;
     };
 }

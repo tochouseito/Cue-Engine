@@ -92,6 +92,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
+    if(!r)
+    {
+        CUE_ASSERTF(false, "Failed to initialize engine: %s (code: %s, severity: %s) at %s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
+            r.file, r.line, r.function);
+    }
 
     RHI::ViewHandle finalColorSrvHandle{};
     r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);

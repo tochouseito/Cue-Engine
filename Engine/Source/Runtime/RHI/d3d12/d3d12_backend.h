@@ -48,7 +48,7 @@ namespace Cue::RHI::DX12
         Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
 
         /// @brief FrameGraph を生成します。
-        Result create_frame_graph(std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
+        Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
 
         /// @brief 利用する Windows プラットフォームを設定します。
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }

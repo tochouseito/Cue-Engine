@@ -128,22 +128,6 @@ namespace Cue::Editor
 
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = RHI::ResourceState::Common;
-                barrierDesc.after = RHI::ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-
-            commandContext->clear_render_target(m_finalColorRtvHandle, k_finalColorClearColor.data());
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = RHI::ResourceState::RenderTarget;
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.before = RHI::ResourceState::Present;
                 barrierDesc.after = RHI::ResourceState::RenderTarget;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
@@ -165,13 +149,6 @@ namespace Cue::Editor
                 barrierDesc.before = RHI::ResourceState::RenderTarget;
                 barrierDesc.after = RHI::ResourceState::Present;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = RHI::ResourceState::ShaderResource;
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
             }
         }
     private:

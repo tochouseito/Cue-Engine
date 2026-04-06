@@ -15,7 +15,7 @@ struct RenderObject
 
 struct Transform
 {
-    float4x4 worldMatrix;
+    row_major float4x4 worldMatrix;
 };
 
 struct MeshRange

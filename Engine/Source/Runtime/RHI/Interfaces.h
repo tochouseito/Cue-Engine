@@ -203,6 +203,7 @@ namespace Cue::RHI
 
     using CommandContextLease = std::unique_ptr<ICommandContext, std::function<void(ICommandContext*)>>;
     using QueueContextLease = std::unique_ptr<IQueueContext, std::function<void(IQueueContext*)>>;
+    using QueueContextPtr = IQueueContext*;
 
     /// @brief コマンドプールの共通インターフェースです。
     class ICommandPool
@@ -242,5 +243,7 @@ namespace Cue::RHI
         virtual Result return_queue_context(QueueContextLease& context) = 0;
         /// @brief graphics キューへ待機させます。
         virtual Result wait_for_graphics_queue() = 0;
+        /// @brief present キューの取得
+        virtual QueueContextPtr get_present_queue_context() = 0;
     };
 }
