@@ -3,20 +3,19 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include <GameCore/RenderSceneState.h>
+
 namespace Cue
 {
     class StaticMeshBatchingPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit StaticMeshBatchingPass(uint32_t a_maxRenderObjectCount)
-            : m_maxRenderObjectCount(a_maxRenderObjectCount)
-        {
-        }
+        explicit StaticMeshBatchingPass(const RenderFrameState& a_frameState)
+            : m_frameState(a_frameState)
+        {}
 
-        const char* name() const noexcept override
-        {
-            return "StaticMeshBatching";
-        }
+        const char* name() const noexcept override { return "StaticMeshBatching"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -25,7 +24,8 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            Result result = builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            Result result =
+                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
@@ -35,27 +35,32 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("StaticMeshPool.MeshRange", m_meshRangeBufferHandle);
+            result =
+                builder.get_buffer("StaticMeshPool.MeshRange", m_meshRangeBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer", m_visibleObjectCountBufferHandle);
+            result = builder.get_buffer("VisibleObjectCountBuffer",
+                m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandBuffer", m_indirectCommandBufferHandle);
+            result = builder.get_buffer("IndirectCommandBuffer",
+                m_indirectCommandBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandCountBuffer", m_indirectCommandCountBufferHandle);
+            result = builder.get_buffer("IndirectCommandCountBuffer",
+                m_indirectCommandCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("IndirectCommandCountBufferUAV", m_indirectCommandCountBufferUavHandle);
+            result = builder.get_view("IndirectCommandCountBufferUAV",
+                m_indirectCommandCountBufferUavHandle);
             if (!result)
             {
                 return result;
@@ -63,18 +68,24 @@ namespace Cue
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshBatchingRootSignature";
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
-            result = builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            result =
+                builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create root signature for StaticMeshBatching pass.");
             }
 
@@ -83,12 +94,12 @@ namespace Cue
             computeShaderDesc.filePath = "Shaders/D3D12/StaticMeshBatching.hlsl";
             computeShaderDesc.entryPoint = "CSMain";
             computeShaderDesc.targetProfile = "cs_6_0";
-            result = builder.create_shader_blob(computeShaderDesc, m_computeShaderHandle);
+            result =
+                builder.create_shader_blob(computeShaderDesc, m_computeShaderHandle);
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to compile StaticMeshBatching compute shader.");
             }
 
@@ -100,8 +111,7 @@ namespace Cue
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create compute pipeline for StaticMeshBatching pass.");
             }
 
@@ -136,21 +146,25 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
+                    barrierDesc);
             }
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_indirectCommandBufferHandle,
+                    barrierDesc);
             }
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandCountBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
+                    barrierDesc);
             }
 
-            commandContext->clear_unordered_access_uint(m_indirectCommandCountBufferUavHandle, clearValues);
-            if (m_maxRenderObjectCount == 0)
+            commandContext->clear_unordered_access_uint(
+                m_indirectCommandCountBufferUavHandle, clearValues);
+            if (m_frameState.objectCount == 0)
             {
                 return;
             }
@@ -163,11 +177,12 @@ namespace Cue
             commandContext->set_uav(4, m_indirectCommandBufferHandle);
             commandContext->set_uav(5, m_indirectCommandCountBufferHandle);
 
-            const uint32_t groupCountX = (m_maxRenderObjectCount + 63u) / 64u;
+            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
         }
+
     private:
-        uint32_t m_maxRenderObjectCount = 0;
+        const RenderFrameState& m_frameState;
         RHI::bufferHandle m_renderObjectBufferHandle{};
         RHI::bufferHandle m_transformBufferHandle{};
         RHI::bufferHandle m_meshRangeBufferHandle{};
@@ -179,4 +194,4 @@ namespace Cue
         RHI::shaderBlobHandle m_computeShaderHandle{};
         RHI::pipelineStateHandle m_pipelineHandle{};
     };
-}
+} // namespace Cue

@@ -3,6 +3,9 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include <GameCore/RenderSceneState.h>
+
 // === C++ includes ===
 #include <array>
 
@@ -11,16 +14,13 @@ namespace Cue
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
     public:
-        StaticMeshForwardPass(uint32_t a_maxRenderObjectCount, uint32_t a_indexCountPerInstance)
-            : m_maxRenderObjectCount(a_maxRenderObjectCount)
-            , m_indexCountPerInstance(a_indexCountPerInstance)
-        {
-        }
+        StaticMeshForwardPass(const RenderFrameState& a_frameState,
+            uint32_t a_indexCountPerInstance)
+            : m_frameState(a_frameState),
+            m_indexCountPerInstance(a_indexCountPerInstance)
+        {}
 
-        const char* name() const noexcept override
-        {
-            return "StaticMeshForward";
-        }
+        const char* name() const noexcept override { return "StaticMeshForward"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -45,7 +45,8 @@ namespace Cue
                 return result;
             }
 
-            result = builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            result =
+                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
@@ -55,7 +56,8 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("StaticMeshPool.Position", m_positionBufferHandle);
+            result =
+                builder.get_buffer("StaticMeshPool.Position", m_positionBufferHandle);
             if (!result)
             {
                 return result;
@@ -75,12 +77,14 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("StaticMeshPool.MeshRange", m_meshRangeBufferHandle);
+            result =
+                builder.get_buffer("StaticMeshPool.MeshRange", m_meshRangeBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer", m_visibleObjectCountBufferHandle);
+            result = builder.get_buffer("VisibleObjectCountBuffer",
+                m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
@@ -88,20 +92,28 @@ namespace Cue
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 1 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 2 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 3 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 4 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 5 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 6 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 7 });
-            result = builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 1 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 4 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 5 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 6 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 7 });
+            result =
+                builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create root signature for StaticMeshForward pass.");
             }
 
@@ -113,9 +125,7 @@ namespace Cue
             result = builder.create_shader_blob(vertexShaderDesc, m_vertexShaderHandle);
             if (!result)
             {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
+                return Result::fail(result.code, Severity::Error,
                     "Failed to compile StaticMeshForward vertex shader.");
             }
 
@@ -127,9 +137,7 @@ namespace Cue
             result = builder.create_shader_blob(pixelShaderDesc, m_pixelShaderHandle);
             if (!result)
             {
-                return Result::fail(
-                    result.code,
-                    Severity::Error,
+                return Result::fail(result.code, Severity::Error,
                     "Failed to compile StaticMeshForward pixel shader.");
             }
 
@@ -147,8 +155,7 @@ namespace Cue
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create graphics pipeline for StaticMeshForward pass.");
             }
 
@@ -178,14 +185,17 @@ namespace Cue
                 commandContext->resource_barrier(m_normalBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_indexBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_meshRangeBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
+                    barrierDesc);
             }
 
-            commandContext->clear_render_target(m_finalColorRtvHandle, k_clearColor.data());
+            commandContext->clear_render_target(m_finalColorRtvHandle,
+                k_clearColor.data());
             commandContext->set_render_targets(&m_finalColorRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_pipelineHandle);
-            commandContext->set_primitive_topology(RHI::PrimitiveTopologyType::Triangle);
+            commandContext->set_primitive_topology(
+                RHI::PrimitiveTopologyType::Triangle);
             commandContext->set_srv(0, m_renderObjectBufferHandle);
             commandContext->set_srv(1, m_transformBufferHandle);
             commandContext->set_srv(2, m_positionBufferHandle);
@@ -195,9 +205,10 @@ namespace Cue
             commandContext->set_srv(6, m_meshRangeBufferHandle);
             commandContext->set_srv(7, m_visibleObjectCountBufferHandle);
 
-            if (m_indexCountPerInstance > 0 && m_maxRenderObjectCount > 0)
+            if (m_indexCountPerInstance > 0 && m_frameState.objectCount > 0)
             {
-                commandContext->draw_instanced(m_indexCountPerInstance, m_maxRenderObjectCount, 0, 0);
+                commandContext->draw_instanced(m_indexCountPerInstance,
+                    m_frameState.objectCount, 0, 0);
             }
 
             {
@@ -210,14 +221,15 @@ namespace Cue
                 barrierDesc.after = RHI::ResourceState::Common;
                 commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
+                    barrierDesc);
             }
         }
 
     private:
         static constexpr std::array<float, 4> k_clearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
 
-        uint32_t m_maxRenderObjectCount = 0;
+        const RenderFrameState& m_frameState;
         uint32_t m_indexCountPerInstance = 0;
         RHI::textureHandle m_finalColorHandle{};
         RHI::viewHandle m_finalColorRtvHandle{};
@@ -234,4 +246,4 @@ namespace Cue
         RHI::shaderBlobHandle m_pixelShaderHandle{};
         RHI::pipelineStateHandle m_pipelineHandle{};
     };
-}
+} // namespace Cue

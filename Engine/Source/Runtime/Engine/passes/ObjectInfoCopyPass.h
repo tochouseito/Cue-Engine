@@ -3,20 +3,19 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include <GameCore/RenderSceneState.h>
+
 namespace Cue
 {
     class ObjectInfoCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit ObjectInfoCopyPass(uint64_t a_copyByteSize)
-            : m_copyByteSize(a_copyByteSize)
-        {
-        }
+        explicit ObjectInfoCopyPass(const RenderFrameState& a_frameState)
+            : m_frameState(a_frameState)
+        {}
 
-        const char* name() const noexcept override
-        {
-            return "ObjectInfoCopy";
-        }
+        const char* name() const noexcept override { return "ObjectInfoCopy"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -30,7 +29,7 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            if (m_hasCopied || !m_objectInfoBufferHandle.valid() || m_copyByteSize == 0)
+            if (!m_objectInfoBufferHandle.valid() || m_frameState.objectCount == 0)
             {
                 return;
             }
@@ -48,32 +47,32 @@ namespace Cue
             region.dstBufferHandle = m_objectInfoBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
-            region.byteSize = m_copyByteSize;
+            region.byteSize = static_cast<uint64_t>(m_frameState.objectCount) *
+                sizeof(GpuData::ObjectInfo);
 
             RHI::ResourceBarrierDesc toCopyDestBarrier{};
             toCopyDestBarrier.after = RHI::ResourceState::CopyDest;
-            if (!commandContext->resource_barrier(m_objectInfoBufferHandle, toCopyDestBarrier))
+            if (!commandContext->resource_barrier(m_objectInfoBufferHandle,
+                toCopyDestBarrier))
             {
                 return;
             }
 
-            Result hasCopied = commandContext->copy_buffer_region(region);
+            Result copyResult = commandContext->copy_buffer_region(region);
 
             RHI::ResourceBarrierDesc toCommonBarrier{};
             toCommonBarrier.after = RHI::ResourceState::Common;
-            if (!commandContext->resource_barrier(m_objectInfoBufferHandle, toCommonBarrier))
+            if (!commandContext->resource_barrier(m_objectInfoBufferHandle,
+                toCommonBarrier))
             {
                 return;
             }
 
-            if (hasCopied)
-            {
-                m_hasCopied = true;
-            }
+            (void)copyResult;
         }
+
     private:
-        bool m_hasCopied = false;
-        uint64_t m_copyByteSize = 0;
+        const RenderFrameState& m_frameState;
         RHI::bufferHandle m_objectInfoBufferHandle{};
     };
-}
+} // namespace Cue

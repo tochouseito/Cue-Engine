@@ -3,20 +3,19 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include <GameCore/RenderSceneState.h>
+
 namespace Cue
 {
     class GenerateVisibleListPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit GenerateVisibleListPass(uint32_t a_objectCount)
-            : m_objectCount(a_objectCount)
-        {
-        }
+        explicit GenerateVisibleListPass(const RenderFrameState& a_frameState)
+            : m_frameState(a_frameState)
+        {}
 
-        const char* name() const noexcept override
-        {
-            return "GenerateVisibleList";
-        }
+        const char* name() const noexcept override { return "GenerateVisibleList"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -26,32 +25,38 @@ namespace Cue
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
             // 必要なバッファをフレームグラフに宣言する。
-            Result result = builder.get_buffer("ObjectInfoBuffer", m_objectInfoBufferHandle);
+            Result result =
+                builder.get_buffer("ObjectInfoBuffer", m_objectInfoBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            result =
+                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer", m_visibleObjectCountBufferHandle);
+            result = builder.get_buffer("VisibleObjectCountBuffer",
+                m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("ObjectInfoBufferSRV", m_objectInfoBufferSrvHandle);
+            result =
+                builder.get_view("ObjectInfoBufferSRV", m_objectInfoBufferSrvHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("RenderObjectBufferUAV", m_renderObjectBufferUavHandle);
+            result = builder.get_view("RenderObjectBufferUAV",
+                m_renderObjectBufferUavHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("VisibleObjectCountBufferUAV", m_visibleObjectCountBufferUavHandle);
+            result = builder.get_view("VisibleObjectCountBufferUAV",
+                m_visibleObjectCountBufferUavHandle);
             if (!result)
             {
                 return result;
@@ -59,16 +64,21 @@ namespace Cue
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "GenerateVisibleListRootSignature";
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{ RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
-            result = builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
+            rootSignatureDesc.parameters.push_back(
+                RHI::RootParameterDesc{ RHI::RootParameterType::_32BitConstants,
+                                       RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            result =
+                builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create root signature for GenerateVisibleList pass.");
             }
 
@@ -77,12 +87,12 @@ namespace Cue
             computeShaderDesc.filePath = "Shaders/D3D12/GenerateVisibleObjectList.hlsl";
             computeShaderDesc.entryPoint = "CSMain";
             computeShaderDesc.targetProfile = "cs_6_0";
-            result = builder.create_shader_blob(computeShaderDesc, m_computeShaderHandle);
+            result =
+                builder.create_shader_blob(computeShaderDesc, m_computeShaderHandle);
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to compile GenerateVisibleObjectList compute shader.");
             }
 
@@ -94,8 +104,7 @@ namespace Cue
             if (!result)
             {
                 return Result::fail(
-                    result.code,
-                    Severity::Error,
+                    result.code, Severity::Error,
                     "Failed to create compute pipeline for GenerateVisibleList pass.");
             }
 
@@ -125,22 +134,24 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
+                    barrierDesc);
             }
 
-            commandContext->clear_unordered_access_uint(m_visibleObjectCountBufferUavHandle, clearValues);
-            if (m_objectCount == 0)
+            commandContext->clear_unordered_access_uint(
+                m_visibleObjectCountBufferUavHandle, clearValues);
+            if (m_frameState.objectCount == 0)
             {
                 return;
             }
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
-            commandContext->set_32bit_constant(0, m_objectCount);
+            commandContext->set_32bit_constant(0, m_frameState.objectCount);
             commandContext->set_srv(1, m_objectInfoBufferHandle);
             commandContext->set_uav(2, m_renderObjectBufferHandle);
             commandContext->set_uav(3, m_visibleObjectCountBufferHandle);
 
-            const uint32_t groupCountX = (m_objectCount + 63u) / 64u;
+            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
 
             {
@@ -149,8 +160,9 @@ namespace Cue
                 commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
             }
         }
+
     private:
-        uint32_t m_objectCount = 0;
+        const RenderFrameState& m_frameState;
         RHI::bufferHandle m_objectInfoBufferHandle{};
         RHI::bufferHandle m_renderObjectBufferHandle{};
         RHI::bufferHandle m_visibleObjectCountBufferHandle{};
@@ -161,4 +173,4 @@ namespace Cue
         RHI::shaderBlobHandle m_computeShaderHandle{};
         RHI::pipelineStateHandle m_pipelineHandle{};
     };
-}
+} // namespace Cue
