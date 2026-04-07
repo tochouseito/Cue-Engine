@@ -51,7 +51,8 @@ C) **Memory Bank**: “決定事項の固定化” 専用（決めたことを�
 | 関数 | snake_case | `get_device()` |
 | 引数 | a_ + camelCase | `a_deviceContext` |
 | 変数 | camelCase | `frameCount` |
-| メンバ変数 | m_ + camelCase | `m_frameCount` |
+| structメンバ変数 | camelCase | `frameCount` |
+| classメンバ変数 | m_ + camelCase | `m_frameCount` |
 | 定数 | k_ + camelCase | `k_maxBufferSize` |
 | bool | 疑問形 | `isEnabled`, `hasData` |
 
