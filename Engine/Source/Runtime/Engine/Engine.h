@@ -1,5 +1,8 @@
 #pragma once
 
+// === Core includes ===
+#include <CQRS/CQRS.h>
+
 // === PAL includes ===
 #include <PAL.h>
 
@@ -25,6 +28,7 @@ namespace Cue
         uint32_t maxFps = 60;
 
         std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
+        Core::CQRS::Bridge* editorBridge = nullptr;
     };
 
     /// @brief Runtime 全体の統合窓口です。
@@ -83,5 +87,6 @@ namespace Cue
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>
             m_transformUploaders{};
         std::unique_ptr<GameCore> m_gameCore = nullptr;
+        Core::CQRS::Bridge* m_editorBridge = nullptr;
     };
 } // namespace Cue

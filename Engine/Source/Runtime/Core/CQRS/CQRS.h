@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-namespace Cue::CQRS
+namespace Cue::Core::CQRS
 {
     class ICommandContext
     {

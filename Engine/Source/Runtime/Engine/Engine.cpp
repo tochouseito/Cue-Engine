@@ -23,6 +23,7 @@ namespace Cue
         // 依存オブジェクトの保存
         m_platform = a_info.platform;
         m_backend = a_info.backend;
+        m_editorBridge = a_info.editorBridge;
 
         auto* staticMeshPool = m_backend->get_static_mesh_pool();
         if (staticMeshPool == nullptr)
@@ -453,6 +454,12 @@ namespace Cue
 
     Result Engine::tick()
     {
+        // editor ブリッジがあれば command を処理
+        if (m_editorBridge)
+        {
+            
+        }
+
         m_frameController->step();
 
         return Result::ok();
