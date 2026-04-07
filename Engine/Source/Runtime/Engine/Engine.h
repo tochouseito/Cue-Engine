@@ -11,6 +11,7 @@
 #include "FrameController.h"
 #include "Asset/AssetManager.h"
 #include "GpuData/Transform.h"
+#include "GameCore/GameCore.h"
 
 // === C++ includes ===
 #include <vector>
@@ -77,5 +78,6 @@ private:
     RHI::bufferHandle m_transformBufferHandle{};
     std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
     std::vector<GpuData::LocalTransform> m_localTransforms{};
+    std::unique_ptr<GameCore> m_gameCore = nullptr;
 };
 } // namespace Cue

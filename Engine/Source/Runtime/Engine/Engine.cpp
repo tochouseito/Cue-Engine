@@ -418,6 +418,10 @@ namespace Cue
         return result;
     }
 
+    // GameCore の生成
+    m_gameCore = std::make_unique<GameCore>();
+    m_gameCore->initialize();
+
     // フレームコントローラーの生成
     FrameControllerDesc desc(m_backend->buffer_count());
     desc.m_mode = ControllerMode::Fixed;
