@@ -22,6 +22,7 @@ target_link_libraries(Engine PUBLIC
     cue_compile_options
     Base
     Core
+    ECS
     PAL
     RHI
 )
