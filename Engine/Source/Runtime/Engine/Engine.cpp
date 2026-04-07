@@ -74,19 +74,19 @@ namespace Cue
             return result;
         }
 
-        result = m_gameCore->add_object(Math::float3{ 0.0f, 0.0f, 0.0f });
+        result = m_gameCore->add_object();
         if (!result)
         {
             return result;
         }
 
-        result = m_gameCore->add_object(Math::float3{ 2.0f, 0.0f, 0.0f });
+        result = m_gameCore->add_object();
         if (!result)
         {
             return result;
         }
 
-        result = m_gameCore->add_object(Math::float3{ -2.0f, 0.0f, 0.0f });
+        result = m_gameCore->add_object();
         if (!result)
         {
             return result;
@@ -457,7 +457,12 @@ namespace Cue
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
-            
+            EngineCommandContext commandContext(*m_gameCore);
+            Result result = m_editorBridge->drain_commands(commandContext);
+            if (!result)
+            {
+                return result;
+            }
         }
 
         m_frameController->step();

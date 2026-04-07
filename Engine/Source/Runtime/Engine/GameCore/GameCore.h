@@ -28,6 +28,7 @@ namespace Cue
         Result initialize();
         Result update(float a_deltaTime);
 
+        Result add_object();
         Result add_object(const Math::float3& a_position);
         Result remove_object(uint32_t objectId);
 
@@ -35,6 +36,9 @@ namespace Cue
         {
             return m_renderSceneState;
         }
+
+    private:
+        [[nodiscard]] Math::float3 make_spawn_position() const noexcept;
 
     private:
         std::unique_ptr<ECS::ECSManager> m_ecsManager = nullptr;

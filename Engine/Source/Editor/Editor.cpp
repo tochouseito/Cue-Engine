@@ -1,6 +1,6 @@
 // === Base includes ===
-#include <Result.h>
 #include <CueAssert.h>
+#include <Result.h>
 
 // === Windows includes ===
 #include <WinPlatform.h>
@@ -10,6 +10,7 @@
 
 // === Engine includes ===
 #include <Engine.h>
+#include <GameCore/Commands.h>
 
 // === Editor includes ===
 #include "ImGuiManager.h"
@@ -32,9 +33,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::Result r = platform->initialize(platformInfo);
     if (!r)
     {
-        CUE_ASSERTF(false, "Failed to initialize platform: %s (code: %s, severity: %s) at %s:%u in function %s",
-            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
-            r.file, r.line, r.function);
+        CUE_ASSERTF(false,
+            "Failed to initialize platform: %s (code: %s, severity: %s) at "
+            "%s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
     }
 
     // レンダリングバックエンドの作成
@@ -50,9 +53,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     r = backend->initialize(backendInfo);
     if (!r)
     {
-        CUE_ASSERTF(false, "Failed to initialize rendering backend: %s (code: %s, severity: %s) at %s:%u in function %s",
-            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
-            r.file, r.line, r.function);
+        CUE_ASSERTF(false,
+            "Failed to initialize rendering backend: %s (code: %s, "
+            "severity: %s) at %s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
     }
 
     // ImGui マネージャの初期化
@@ -64,24 +69,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
     imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
-    std::unique_ptr<Editor::ImGuiManager> imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
+    std::unique_ptr<Editor::ImGuiManager> imGuiManager =
+        std::make_unique<Editor::ImGuiManager>(imGuiInfo);
+    Core::CQRS::Bridge editorBridge{};
 
     // ImGuiMessageHandler を登録
     const uint64_t imguiMessageHandlerId = platform->register_message_handler(
-        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, std::intptr_t& outResult)
-        {
-            const bool handled = ImGui_ImplWin32_WndProcHandler(
-                reinterpret_cast<HWND>(hwnd),
-                static_cast<UINT>(msg),
-                static_cast<WPARAM>(wParam),
-                static_cast<LPARAM>(lParam));
-            if (handled)
-            {
-                outResult = 1;
-                return true;
-            }
+        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+            std::intptr_t& outResult) {
+                const bool handled = ImGui_ImplWin32_WndProcHandler(
+                    reinterpret_cast<HWND>(hwnd), static_cast<UINT>(msg),
+                    static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
+                if (handled)
+                {
+                    outResult = 1;
+                    return true;
+                }
 
-            return false;
+                return false;
         });
 
     // エンジンの初期化
@@ -90,17 +95,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.backend = backend.get();
     engineInfo.maxFps = 0; // 無制限
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
+    engineInfo.editorBridge = &editorBridge;
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     r = engine->initialize(engineInfo);
-    if(!r)
+    if (!r)
     {
-        CUE_ASSERTF(false, "Failed to initialize engine: %s (code: %s, severity: %s) at %s:%u in function %s",
-            r.message.data(), Cue::to_string(r.code), Cue::to_string(r.severity),
-            r.file, r.line, r.function);
+        CUE_ASSERTF(false,
+            "Failed to initialize engine: %s (code: %s, severity: %s) at "
+            "%s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
     }
 
     RHI::viewHandle finalColorSrvHandle{};
-    r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);
+    r = backend->get_view_manager()->get_view("FinalColorSRV",
+        finalColorSrvHandle);
 
     // プラットフォームの開始
     r = platform->start();
@@ -125,17 +134,30 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             ImGui::Begin("Hello, ImGui!");
 
-            D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle = backend->get_gpu_descriptor_handle(
-                finalColorSrvHandle,
-                backend->current_back_buffer_index(),
-                backend->buffer_count());
+            if (ImGui::Button("Add Object"))
+            {
+                r = editorBridge.submit_command(std::make_unique<AddObjectCommand>());
+                if (!r)
+                {
+                    CUE_ASSERTF(false,
+                        "Failed to submit add object command: %s (code: %s, "
+                        "severity: %s) at %s:%u in function %s",
+                        r.message.data(), Cue::to_string(r.code),
+                        Cue::to_string(r.severity), r.file, r.line, r.function);
+                }
+            }
+
+            D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
+                backend->get_gpu_descriptor_handle(
+                    finalColorSrvHandle, backend->current_back_buffer_index(),
+                    backend->buffer_count());
             if (finalColorSrvGpuDescHandle.ptr != 0)
             {
                 const float finalColorWidth = 640.0f;
-                const float aspectRatio = static_cast<float>(backend->height()) / static_cast<float>(backend->width());
+                const float aspectRatio = static_cast<float>(backend->height()) /
+                    static_cast<float>(backend->width());
                 ImGui::Text("FinalColor");
-                ImGui::Image(
-                    static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
+                ImGui::Image(static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
                     ImVec2(finalColorWidth, finalColorWidth * aspectRatio));
             }
 

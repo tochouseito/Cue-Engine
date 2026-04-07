@@ -15,7 +15,7 @@ add_library(Engine STATIC
     "Passes/StaticMeshBatchingPass.h"
     "Passes/StaticMeshForwardPass.h"
     "Asset/AssetManager.h"
-    "Asset/AssetManager.cpp" "GameCore/GameCore.h" "GameCore/GameCore.cpp" "GameCore/Components.h" "GameCore/RenderSceneState.h" "GameCore/Systems/TransformSystem.h" "GameCore/Systems/ObjectInfoSystem.h")
+    "Asset/AssetManager.cpp" "GameCore/GameCore.h" "GameCore/GameCore.cpp" "GameCore/Components.h" "GameCore/Commands.h" "GameCore/RenderSceneState.h" "GameCore/Systems/TransformSystem.h" "GameCore/Systems/ObjectInfoSystem.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC

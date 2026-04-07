@@ -13,6 +13,7 @@
 // === Engine includes ===
 #include "Asset/AssetManager.h"
 #include "FrameController.h"
+#include "GameCore/Commands.h"
 #include "GameCore/GameCore.h"
 
 // === C++ includes ===
@@ -20,6 +21,19 @@
 
 namespace Cue
 {
+    class EngineCommandContext final : public IGameCommandContext
+    {
+    public:
+        explicit EngineCommandContext(GameCore& a_gameCore) noexcept
+            : m_gameCore(a_gameCore)
+        {}
+
+        Result add_object() override { return m_gameCore.add_object(); }
+
+    private:
+        GameCore& m_gameCore;
+    };
+
     /// @brief Engine 初期化時に必要な依存オブジェクトです。
     struct EngineSetupInfo final
     {

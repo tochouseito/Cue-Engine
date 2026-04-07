@@ -2,6 +2,16 @@
 
 namespace Cue
 {
+    Math::float3 GameCore::make_spawn_position() const noexcept
+    {
+        const size_t objectIndex = m_entities.size();
+        const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
+        const uint32_t row = static_cast<uint32_t>(objectIndex / 3u);
+
+        return Math::float3{ (static_cast<float>(column) - 1.0f) * 2.0f, 0.0f,
+                            static_cast<float>(row) * 2.5f };
+    }
+
     Result GameCore::initialize()
     {
         m_ecsManager = std::make_unique<ECS::ECSManager>();
@@ -47,6 +57,8 @@ namespace Cue
         m_ecsManager->update_all_systems();
         return Result::ok();
     }
+
+    Result GameCore::add_object() { return add_object(make_spawn_position()); }
 
     Result GameCore::add_object(const Math::float3& a_position)
     {
