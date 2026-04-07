@@ -39,6 +39,7 @@ namespace Cue
 
     private:
         [[nodiscard]] Math::float3 make_spawn_position() const noexcept;
+        void rebuild_object_indices();
 
     private:
         std::unique_ptr<ECS::ECSManager> m_ecsManager = nullptr;

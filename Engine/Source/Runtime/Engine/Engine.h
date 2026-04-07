@@ -26,9 +26,18 @@ namespace Cue
     public:
         explicit EngineCommandContext(GameCore& a_gameCore) noexcept
             : m_gameCore(a_gameCore)
-        {}
+        {
+        }
 
-        Result add_object() override { return m_gameCore.add_object(); }
+        Result add_object() override
+        {
+            return m_gameCore.add_object();
+        }
+
+        Result remove_object(uint32_t a_objectId) override
+        {
+            return m_gameCore.remove_object(a_objectId);
+        }
 
     private:
         GameCore& m_gameCore;
@@ -73,8 +82,15 @@ namespace Cue
         /// @brief ティック処理
         Result tick();
 
-        FrameController& frame_controller() noexcept { return *m_frameController; }
-        AssetManager& asset_manager() noexcept { return m_assetManager; }
+        FrameController& frame_controller() noexcept
+        {
+            return *m_frameController;
+        }
+
+        AssetManager& asset_manager() noexcept
+        {
+            return m_assetManager;
+        }
 
     private:
         /// @brief 更新
@@ -98,8 +114,7 @@ namespace Cue
         RHI::bufferHandle m_objectInfoBufferHandle{};
         RHI::bufferHandle m_transformBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::ObjectInfo>> m_objectInfoUploaders{};
-        std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>
-            m_transformUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
         std::unique_ptr<GameCore> m_gameCore = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
     };

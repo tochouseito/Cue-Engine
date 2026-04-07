@@ -8,8 +8,29 @@ namespace Cue
         const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
         const uint32_t row = static_cast<uint32_t>(objectIndex / 3u);
 
-        return Math::float3{ (static_cast<float>(column) - 1.0f) * 2.0f, 0.0f,
-                            static_cast<float>(row) * 2.5f };
+        return Math::float3{
+            (static_cast<float>(column) - 1.0f) * 2.0f,
+            0.0f,
+            static_cast<float>(row) * 2.5f
+        };
+    }
+
+    void GameCore::rebuild_object_indices()
+    {
+        for (size_t entityIndex = 0; entityIndex < m_entities.size(); ++entityIndex)
+        {
+            ECS::ObjectInfoComponent* objectInfo =
+                m_ecsManager->get_component<ECS::ObjectInfoComponent>(m_entities[entityIndex]);
+            if (objectInfo == nullptr)
+            {
+                continue;
+            }
+
+            const uint32_t objectId = static_cast<uint32_t>(entityIndex);
+            objectInfo->objectId = objectId;
+            objectInfo->transformId = objectId;
+            objectInfo->meshId = 0;
+        }
     }
 
     Result GameCore::initialize()
@@ -22,16 +43,14 @@ namespace Cue
 
     Result GameCore::update(float a_deltaTime)
     {
-        m_renderSceneState.frameState.objectCount =
-            static_cast<uint32_t>(m_entities.size());
+        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
         m_renderSceneState.objectInfos.assign(m_entities.size(), {});
         m_renderSceneState.localTransforms.assign(m_entities.size(), {});
 
         for (size_t entityIndex = 0; entityIndex < m_entities.size(); ++entityIndex)
         {
             ECS::TransformComponent* transform =
-                m_ecsManager->get_component<ECS::TransformComponent>(
-                    m_entities[entityIndex]);
+                m_ecsManager->get_component<ECS::TransformComponent>(m_entities[entityIndex]);
             if (transform == nullptr)
             {
                 continue;
@@ -58,7 +77,10 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::add_object() { return add_object(make_spawn_position()); }
+    Result GameCore::add_object()
+    {
+        return add_object(make_spawn_position());
+    }
 
     Result GameCore::add_object(const Math::float3& a_position)
     {
@@ -70,7 +92,9 @@ namespace Cue
             m_ecsManager->add_component<ECS::TransformComponent>(entity);
         if (objectInfo == nullptr || transform == nullptr)
         {
-            return Result::fail(Code::InternalError, Severity::Error,
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
                 "Failed to add required components for object.");
         }
 
@@ -85,8 +109,27 @@ namespace Cue
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
 
         m_entities.push_back(entity);
-        m_renderSceneState.frameState.objectCount =
-            static_cast<uint32_t>(m_entities.size());
+        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
+
+        return Result::ok();
+    }
+
+    Result GameCore::remove_object(uint32_t objectId)
+    {
+        if (objectId >= m_entities.size())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Object id was not found.");
+        }
+
+        const size_t objectIndex = static_cast<size_t>(objectId);
+        const ECS::Entity entity = m_entities[objectIndex];
+        m_ecsManager->remove_entity(entity);
+        m_entities.erase(m_entities.begin() + static_cast<std::ptrdiff_t>(objectIndex));
+        rebuild_object_indices();
+        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
 
         return Result::ok();
     }

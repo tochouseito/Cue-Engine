@@ -16,16 +16,14 @@
 #include "ImGuiManager.h"
 #include "Statistics.h"
 
-using namespace Cue;
-
 // windows アプリのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     // プラットフォームの作成
-    auto platform = std::make_unique<PAL::Win::WinPlatform>();
+    auto platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
 
     // プラットフォームの初期化
-    PAL::PlatformSetupInfo platformInfo{};
+    Cue::PAL::PlatformSetupInfo platformInfo{};
     platformInfo.width = 1280;
     platformInfo.height = 720;
     platformInfo.className = "CueEditorWindowClass";
@@ -41,7 +39,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // レンダリングバックエンドの作成
-    auto backend = std::make_unique<RHI::DX12::D3D12Backend>();
+    auto backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
 
     // レンダリングバックエンドの初期化
@@ -61,42 +59,44 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // ImGui マネージャの初期化
-    Editor::ImGuiSetupInfo imGuiInfo(backend->buffer_count());
+    Cue::Editor::ImGuiSetupInfo imGuiInfo(backend->buffer_count());
     imGuiInfo.hwnd = platform->get_window_handle();
     imGuiInfo.device = backend->get_device();
     imGuiInfo.commandQueue = backend->get_graphics_command_queue();
-    RHI::DX12::ImGuiFontSRVInfo fontSrvInfo = backend->get_font_srv_for_imgui();
+    Cue::RHI::DX12::ImGuiFontSRVInfo fontSrvInfo = backend->get_font_srv_for_imgui();
     imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
     imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
-    std::unique_ptr<Editor::ImGuiManager> imGuiManager =
-        std::make_unique<Editor::ImGuiManager>(imGuiInfo);
-    Core::CQRS::Bridge editorBridge{};
+    std::unique_ptr<Cue::Editor::ImGuiManager> imGuiManager =
+        std::make_unique<Cue::Editor::ImGuiManager>(imGuiInfo);
+    Cue::Core::CQRS::Bridge editorBridge{};
 
     // ImGuiMessageHandler を登録
     const uint64_t imguiMessageHandlerId = platform->register_message_handler(
-        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-            std::intptr_t& outResult) {
-                const bool handled = ImGui_ImplWin32_WndProcHandler(
-                    reinterpret_cast<HWND>(hwnd), static_cast<UINT>(msg),
-                    static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
-                if (handled)
-                {
-                    outResult = 1;
-                    return true;
-                }
+        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, std::intptr_t& outResult)
+        {
+            const bool handled = ImGui_ImplWin32_WndProcHandler(
+                reinterpret_cast<HWND>(hwnd),
+                static_cast<UINT>(msg),
+                static_cast<WPARAM>(wParam),
+                static_cast<LPARAM>(lParam));
+            if (handled)
+            {
+                outResult = 1;
+                return true;
+            }
 
-                return false;
+            return false;
         });
 
     // エンジンの初期化
-    EngineSetupInfo engineInfo{};
+    Cue::EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
     engineInfo.maxFps = 0; // 無制限
-    engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
+    engineInfo.editorPass = std::make_unique<Cue::Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
-    std::unique_ptr<Engine> engine = std::make_unique<Engine>();
+    std::unique_ptr<Cue::Engine> engine = std::make_unique<Cue::Engine>();
     r = engine->initialize(engineInfo);
     if (!r)
     {
@@ -107,23 +107,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             Cue::to_string(r.severity), r.file, r.line, r.function);
     }
 
-    RHI::viewHandle finalColorSrvHandle{};
-    r = backend->get_view_manager()->get_view("FinalColorSRV",
-        finalColorSrvHandle);
+    Cue::RHI::viewHandle finalColorSrvHandle{};
+    r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);
 
     // プラットフォームの開始
     r = platform->start();
 
     // 統計表示の作成
-    Editor::Statistics statistics(engine->frame_controller());
+    Cue::Editor::Statistics statistics(engine->frame_controller());
 
     // メインループ
     bool isRunning = true;
+    int removeObjectId = 0;
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
-        PAL::PlatformMessage msg = platform->poll_message();
-        if (msg == PAL::PlatformMessage::Quit)
+        Cue::PAL::PlatformMessage msg = platform->poll_message();
+        if (msg == Cue::PAL::PlatformMessage::Quit)
         {
             isRunning = false;
             break;
@@ -136,7 +136,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
             if (ImGui::Button("Add Object"))
             {
-                r = editorBridge.submit_command(std::make_unique<AddObjectCommand>());
+                r = editorBridge.submit_command(std::make_unique<Cue::AddObjectCommand>());
                 if (!r)
                 {
                     CUE_ASSERTF(false,
@@ -147,17 +147,45 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 }
             }
 
+            ImGui::InputInt("Object Id", &removeObjectId);
+
+            if (ImGui::Button("Remove Object"))
+            {
+                if (removeObjectId < 0)
+                {
+                    CUE_ASSERTF(false,
+                        "Remove object id must be greater than or equal to 0.");
+                }
+                else
+                {
+                    r = editorBridge.submit_command(
+                        std::make_unique<Cue::RemoveObjectCommand>(
+                            static_cast<uint32_t>(removeObjectId)));
+                    if (!r)
+                    {
+                        CUE_ASSERTF(false,
+                            "Failed to submit remove object command: %s (code: "
+                            "%s, severity: %s) at %s:%u in function %s",
+                            r.message.data(), Cue::to_string(r.code),
+                            Cue::to_string(r.severity), r.file, r.line,
+                            r.function);
+                    }
+                }
+            }
+
             D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
                 backend->get_gpu_descriptor_handle(
-                    finalColorSrvHandle, backend->current_back_buffer_index(),
+                    finalColorSrvHandle,
+                    backend->current_back_buffer_index(),
                     backend->buffer_count());
             if (finalColorSrvGpuDescHandle.ptr != 0)
             {
                 const float finalColorWidth = 640.0f;
-                const float aspectRatio = static_cast<float>(backend->height()) /
-                    static_cast<float>(backend->width());
+                const float aspectRatio =
+                    static_cast<float>(backend->height()) / static_cast<float>(backend->width());
                 ImGui::Text("FinalColor");
-                ImGui::Image(static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
+                ImGui::Image(
+                    static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
                     ImVec2(finalColorWidth, finalColorWidth * aspectRatio));
             }
 
