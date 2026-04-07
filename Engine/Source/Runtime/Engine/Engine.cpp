@@ -348,7 +348,7 @@ namespace Cue
         finalColorDesc.height = m_backend->height();
         finalColorDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
         finalColorDesc.clearColor[0] = 0.0f;
-        finalColorDesc.clearColor[1] = 0.5f;
+        finalColorDesc.clearColor[1] = 0.0f;
         finalColorDesc.clearColor[2] = 0.0f;
         finalColorDesc.clearColor[3] = 1.0f;
         RHI::textureHandle finalColorHandle{};

@@ -46,7 +46,7 @@ namespace Cue::Editor
         // imgui バージョン確認
         IMGUI_CHECKVERSION();
         std::string version = ImGui::GetVersion();
-        Core::IO::log(Core::IO::LogSink::debugConsole, "ImGui version: %s", version.c_str());
+        Core::IO::log(Core::IO::LogSink::debugConsole, "ImGui version: {}", version.c_str());
 
         // imgui コンテキストの作成
         ImGui::CreateContext();

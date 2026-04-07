@@ -184,7 +184,7 @@ namespace Cue::RHI
             }
         }
     private:
-        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
+        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
         textureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         viewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル

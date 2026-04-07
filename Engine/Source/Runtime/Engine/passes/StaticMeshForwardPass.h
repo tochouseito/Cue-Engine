@@ -249,7 +249,7 @@ namespace Cue
         }
 
     private:
-        static constexpr std::array<float, 4> k_clearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
+        static constexpr std::array<float, 4> k_clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
         const RenderFrameState& m_frameState;
         uint32_t m_indexCountPerInstance = 0;

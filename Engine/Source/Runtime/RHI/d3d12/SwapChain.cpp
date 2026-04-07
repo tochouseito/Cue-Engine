@@ -52,7 +52,7 @@ namespace Cue::RHI::DX12
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
         // vsync 併用向けレイテンシ設定
-        m_swapChain->SetMaximumFrameLatency(bufferCount);
+        // m_swapChain->SetMaximumFrameLatency(bufferCount);
 
         // os 標準 full screen 遷移無効化
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
