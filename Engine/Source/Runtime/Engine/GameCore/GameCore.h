@@ -4,7 +4,8 @@
 #include <Result.h>
 
 // === ECS includes ===
-#include <ECSManager.h>
+#include "Systems/ObjectInfoSystem.h"
+#include "Systems/TransformSystem.h"
 
 // === C++ includes ===
 #include <memory>
@@ -18,6 +19,7 @@ namespace Cue
         ~GameCore() = default;
 
         Result initialize();
+        Result update();
 
         Result add_object();
         Result remove_object(uint32_t objectId);

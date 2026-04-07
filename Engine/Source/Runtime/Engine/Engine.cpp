@@ -476,6 +476,8 @@ std::function<void(uint64_t, uint32_t)> Engine::update()
         }
 
         update_transform_buffer(a_index);
+
+        m_gameCore->update();
     };
 }
 
