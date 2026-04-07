@@ -7,6 +7,7 @@
 #include <Result.h>
 
 // === Core includes ===
+#include <IO/IFileSystem.h>
 #include <Threading/IThread.h>
 #include <Threading/IThreadFactory.h>
 #include <Time/IClock.h>
@@ -52,5 +53,6 @@ namespace Cue::PAL
         virtual Core::Threading::IThreadFactory& thread_factory() = 0;
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
+        virtual Core::IO::IFileSystem& file_system() = 0;
     };
 }

@@ -2,6 +2,45 @@
 
 namespace Cue::Editor
 {
+    namespace
+    {
+        std::string resolve_layout_file_path(Core::IO::IFileSystem& a_fileSystem)
+        {
+            constexpr const char* k_fallbackPath = "config/editor/imgui.ini";
+            constexpr DWORD k_modulePathCapacity = 4096;
+
+            std::string modulePath(k_modulePathCapacity, '\0');
+            const DWORD length =
+                ::GetModuleFileNameA(nullptr, modulePath.data(), k_modulePathCapacity);
+            if (length == 0 || length >= k_modulePathCapacity)
+            {
+                return k_fallbackPath;
+            }
+
+            modulePath.resize(length);
+
+            const Core::IO::Path exePath(modulePath);
+            const Core::IO::Path configDirectory =
+                Core::IO::Path::join(
+                    exePath.parent(),
+                    Core::IO::Path("config/editor"));
+
+            const Result createResult =
+                a_fileSystem.create_directories(configDirectory);
+            if (!createResult)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to create ImGui config directory: %s",
+                    configDirectory.utf8().c_str());
+            }
+
+            return Core::IO::Path::join(
+                configDirectory,
+                Core::IO::Path("imgui.ini")).utf8();
+        }
+    }
+
     ImGuiManager::ImGuiManager(const ImGuiSetupInfo& a_info)
     {
         // imgui バージョン確認
@@ -13,8 +52,10 @@ namespace Cue::Editor
         ImGui::CreateContext();
 
         // オプションの設定
+        CUE_ASSERT(a_info.fileSystem != nullptr);
+        m_layoutFilePath = resolve_layout_file_path(*a_info.fileSystem);
         ImGuiIO& io = ImGui::GetIO();
-        io.IniFilename = m_layoutFilePath; // レイアウト保存先設定
+        io.IniFilename = m_layoutFilePath.c_str(); // レイアウト保存先設定
         io.ConfigFlags |= a_info.enableDocking ? ImGuiConfigFlags_DockingEnable : 0;
         io.ConfigFlags |= a_info.enableMultiViewport ? ImGuiConfigFlags_ViewportsEnable : 0;
         io.ConfigFlags |= a_info.enableKeyboardNavigation ? ImGuiConfigFlags_NavEnableKeyboard : 0;

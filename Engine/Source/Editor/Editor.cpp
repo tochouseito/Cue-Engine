@@ -114,6 +114,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
     imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
+    imGuiInfo.fileSystem = &platform->file_system();
     imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
 
     // ImGuiMessageHandler を登録

@@ -5,6 +5,7 @@
 #include <CueAssert.h>
 
 // === Core includes ===
+#include <IO/IFileSystem.h>
 #include <IO/Logger.h>
 
 // === Win includes ===
@@ -12,6 +13,9 @@
 
 // === D3D12 includes ===
 #include <D3D12Backend.h>
+
+// === C++ includes ===
+#include <string>
 
 // === imgui includes ===
 #include <imgui.h>
@@ -36,6 +40,7 @@ namespace Cue::Editor
         ID3D12DescriptorHeap* srvDescHeap = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE fontSrvCpuDescHandle = {};
         D3D12_GPU_DESCRIPTOR_HANDLE fontSrvGpuDescHandle = {};
+        Core::IO::IFileSystem* fileSystem = nullptr;
         bool enableDocking = true;
         bool enableMultiViewport = false;
         bool enableKeyboardNavigation = true;
@@ -54,7 +59,7 @@ namespace Cue::Editor
     private:
         std::atomic_bool m_isBeginFrameCalled = false;
         bool m_isInitialized = false;
-        const char* m_layoutFilePath = "config/imgui_layout.ini";
+        std::string m_layoutFilePath{};
     };
 
     class ImGuiPass final : public RHI::FrameGraphPass

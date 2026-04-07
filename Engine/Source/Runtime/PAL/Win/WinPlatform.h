@@ -9,6 +9,7 @@
 
 // === Windows API includes ===
 #include "App/WinApp.h"
+#include "IO/WinFileSystem.h"
 #include "Threading/WinThread.h"
 #include "Threading/WinThreadFactory.h"
 #include "Time/WinQpcClock.h"
@@ -62,9 +63,14 @@ namespace Cue::PAL::Win
         {
             return *m_waiter.get();
         }
+        Core::IO::IFileSystem& file_system() override
+        {
+            return *m_fileSystem.get();
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ
+        std::unique_ptr<WinFileSystem> m_fileSystem = nullptr; // ファイルシステム
         std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ
         std::unique_ptr<WinQpcClock> m_clock = nullptr; // クロック
         std::unique_ptr<WinWaiter> m_waiter = nullptr; // ウェイタ
