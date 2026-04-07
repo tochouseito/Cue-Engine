@@ -44,6 +44,16 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.get_texture("SceneDepth", m_sceneDepthHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view("SceneDepthDSV", m_sceneDepthDsvHandle);
+            if (!result)
+            {
+                return result;
+            }
 
             result =
                 builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
@@ -147,8 +157,10 @@ namespace Cue
             pipelineDesc.vsHandle = m_vertexShaderHandle;
             pipelineDesc.psHandle = m_pixelShaderHandle;
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Back;
-            pipelineDesc.depthStencilState.depthEnable = false;
-            pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::Zero;
+            pipelineDesc.depthStencilState.depthEnable = true;
+            pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
+            pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
+            pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
             pipelineDesc.blendMode = { RHI::BlendMode::None };
             pipelineDesc.rtvFormats = { RHI::ColorFormat::R8G8B8A8_UNORM };
             result = builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
@@ -177,6 +189,11 @@ namespace Cue
             }
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::DepthWrite;
+                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
+            }
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::ShaderResource;
                 commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
@@ -191,7 +208,11 @@ namespace Cue
 
             commandContext->clear_render_target(m_finalColorRtvHandle,
                 k_clearColor.data());
-            commandContext->set_render_targets(&m_finalColorRtvHandle, 1, {});
+            commandContext->clear_depth_stencil(m_sceneDepthDsvHandle, 1.0f, 0);
+            commandContext->set_render_targets(
+                &m_finalColorRtvHandle,
+                1,
+                m_sceneDepthDsvHandle);
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
@@ -219,6 +240,7 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::Common;
+                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
                 commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
@@ -232,7 +254,9 @@ namespace Cue
         const RenderFrameState& m_frameState;
         uint32_t m_indexCountPerInstance = 0;
         RHI::textureHandle m_finalColorHandle{};
+        RHI::textureHandle m_sceneDepthHandle{};
         RHI::viewHandle m_finalColorRtvHandle{};
+        RHI::viewHandle m_sceneDepthDsvHandle{};
         RHI::bufferHandle m_renderObjectBufferHandle{};
         RHI::bufferHandle m_transformBufferHandle{};
         RHI::bufferHandle m_positionBufferHandle{};

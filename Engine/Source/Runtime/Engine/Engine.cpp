@@ -372,6 +372,35 @@ namespace Cue
         RHI::viewHandle finalColorSrvHandle{};
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
 
+        RHI::TextureDesc sceneDepthDesc{};
+        sceneDepthDesc.name = "SceneDepth";
+        sceneDepthDesc.bufferCount = 1;
+        sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
+        sceneDepthDesc.width = m_backend->width();
+        sceneDepthDesc.height = m_backend->height();
+        sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        sceneDepthDesc.clearDepth = 1.0f;
+        sceneDepthDesc.clearStencil = 0;
+        RHI::textureHandle sceneDepthHandle{};
+        result = textureManager->create_texture(sceneDepthDesc, sceneDepthHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::ViewDesc sceneDepthDsvDesc{};
+        sceneDepthDsvDesc.name = "SceneDepthDSV";
+        sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
+        sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+        sceneDepthDsvDesc.textureHandle = sceneDepthHandle;
+        sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        RHI::viewHandle sceneDepthDsvHandle{};
+        result = viewManager->create_view(sceneDepthDsvDesc, sceneDepthDsvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         // render 用 FrameGraph の生成
         RHI::FrameGraphDesc frameGraphDesc{};
         frameGraphDesc.usePresentQueue = false;
