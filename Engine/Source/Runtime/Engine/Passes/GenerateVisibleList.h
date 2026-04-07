@@ -142,6 +142,12 @@ namespace Cue
 
             const uint32_t groupCountX = (m_objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
+
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::Common;
+                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
+            }
         }
     private:
         uint32_t m_objectCount = 0;

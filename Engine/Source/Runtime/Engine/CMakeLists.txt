@@ -10,6 +10,7 @@ add_library(Engine STATIC
     "GpuData/Batching.h"
     "Passes/GenerateVisibleList.h"
     "Passes/ObjectInfoCopyPass.h"
+    "Passes/TransformBufferCopyPass.h"
     "Passes/UploadBufferCopyPass.h"
     "Passes/StaticMeshBatchingPass.h"
     "Passes/StaticMeshForwardPass.h"

@@ -205,6 +205,13 @@ namespace Cue
                 barrierDesc.after = RHI::ResourceState::ShaderResource;
                 commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
             }
+            {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::Common;
+                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_visibleObjectCountBufferHandle, barrierDesc);
+            }
         }
 
     private:

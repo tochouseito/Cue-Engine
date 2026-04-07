@@ -149,6 +149,12 @@ namespace Cue::RHI
         {
             ICommandContext* commandContext = context.commandContext();
 
+            {
+                ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = ResourceState::ShaderResource;
+                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
+            }
+
             // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする。
             {
                 ResourceBarrierDesc barrierDesc{};
@@ -170,6 +176,11 @@ namespace Cue::RHI
                 barrierDesc.before = ResourceState::RenderTarget;
                 barrierDesc.after = ResourceState::Present;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
+            }
+            {
+                ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = ResourceState::Common;
+                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
             }
         }
     private:
