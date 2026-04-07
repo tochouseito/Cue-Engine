@@ -10,52 +10,99 @@
 
 // === Engine includes ===
 #include <Engine.h>
-#include <GameCore/Commands.h>
+#include <Commands.h>
 
 // === Editor includes ===
 #include "ImGuiManager.h"
-#include "Statistics.h"
+#include "EditorManager.h"
+
+using namespace Cue;
 
 // windows アプリのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-    // プラットフォームの作成
-    auto platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
+    // パラメーター
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    std::string className = "CueEditorWindowClass";
+    std::string title = "Cue Editor";
+    uint32_t bufferCount = 3;
+    bool enableDebugLayer = true;
+    uint32_t maxFps = 0; // 無制限
+
+    // 宣言
+    Result r = Result::ok();
+    std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr;
+    std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr;
+    std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
+    Core::CQRS::Bridge editorBridge{};
+    uint64_t imguiMessageHandlerId = 0;
+    std::unique_ptr<Engine> engine = nullptr;
+    std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
+
+    // プラットフォームの生成
+    platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
+
+    // プラットフォームの初期化設定
+    Cue::PAL::PlatformSetupInfo platformInfo{};
+    platformInfo.width = width;
+    platformInfo.height = height;
+    platformInfo.className = className.c_str();
+    platformInfo.title = title.c_str();
 
     // プラットフォームの初期化
-    Cue::PAL::PlatformSetupInfo platformInfo{};
-    platformInfo.width = 1280;
-    platformInfo.height = 720;
-    platformInfo.className = "CueEditorWindowClass";
-    platformInfo.title = "Cue Editor";
-    Cue::Result r = platform->initialize(platformInfo);
+    r = platform->initialize(platformInfo);
+
+    // 失敗
     if (!r)
     {
+#ifdef CUE_DEBUG
         CUE_ASSERTF(false,
             "Failed to initialize platform: %s (code: %s, severity: %s) at "
             "%s:%u in function %s",
             r.message.data(), Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to initialize platform: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        return -1;
     }
 
-    // レンダリングバックエンドの作成
-    auto backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
+    // レンダリングバックエンドの生成
+    backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
 
-    // レンダリングバックエンドの初期化
+    // レンダリングバックエンドの設定
     Cue::RHI::BackendSetupInfo backendInfo{};
-    backendInfo.enableDebugLayer = true;
-    backendInfo.width = platformInfo.width;
-    backendInfo.height = platformInfo.height;
-    backendInfo.bufferCount = 3;
+    backendInfo.enableDebugLayer = enableDebugLayer;
+    backendInfo.width = width;
+    backendInfo.height = height;
+    backendInfo.bufferCount = bufferCount;
+
+    // レンダリングバックエンドの初期化
     r = backend->initialize(backendInfo);
+
+    // 失敗
     if (!r)
     {
+#ifdef CUE_DEBUG
         CUE_ASSERTF(false,
             "Failed to initialize rendering backend: %s (code: %s, "
             "severity: %s) at %s:%u in function %s",
             r.message.data(), Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to initialize rendering backend: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        return -1;
     }
 
     // ImGui マネージャの初期化
@@ -67,12 +114,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
     imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
     imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
-    std::unique_ptr<Cue::Editor::ImGuiManager> imGuiManager =
-        std::make_unique<Cue::Editor::ImGuiManager>(imGuiInfo);
-    Cue::Core::CQRS::Bridge editorBridge{};
+    imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
 
     // ImGuiMessageHandler を登録
-    const uint64_t imguiMessageHandlerId = platform->register_message_handler(
+    imguiMessageHandlerId = platform->register_message_handler(
         [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, std::intptr_t& outResult)
         {
             const bool handled = ImGui_ImplWin32_WndProcHandler(
@@ -89,36 +134,48 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return false;
         });
 
-    // エンジンの初期化
+    // エンジンの生成
+    engine = std::make_unique<Cue::Engine>();
+
+    // エンジンの設定
     Cue::EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
-    engineInfo.maxFps = 0; // 無制限
-    engineInfo.editorPass = std::make_unique<Cue::Editor::ImGuiPass>(*imGuiManager);
+    engineInfo.maxFps = maxFps;
+    engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
-    std::unique_ptr<Cue::Engine> engine = std::make_unique<Cue::Engine>();
+
+    // エンジンの初期化
     r = engine->initialize(engineInfo);
+
+    // 失敗
     if (!r)
     {
+#ifdef CUE_DEBUG
         CUE_ASSERTF(false,
             "Failed to initialize engine: %s (code: %s, severity: %s) at "
             "%s:%u in function %s",
             r.message.data(), Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to initialize engine: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        return -1;
     }
 
-    Cue::RHI::viewHandle finalColorSrvHandle{};
-    r = backend->get_view_manager()->get_view("FinalColorSRV", finalColorSrvHandle);
+    // エディタマネージャの生成と初期化
+    editorManager = std::make_unique<Editor::EditorManager>(&editorBridge, platform.get(), backend.get(), engine.get());
+    editorManager->initialize();
 
     // プラットフォームの開始
     r = platform->start();
 
-    // 統計表示の作成
-    Cue::Editor::Statistics statistics(engine->frame_controller());
-
     // メインループ
     bool isRunning = true;
-    int removeObjectId = 0;
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
@@ -132,66 +189,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // ImGui マネージャのフレーム開始処理
         if (imGuiManager->begin_frame())
         {
-            ImGui::Begin("Hello, ImGui!");
-
-            if (ImGui::Button("Add Object"))
-            {
-                r = editorBridge.submit_command(std::make_unique<Cue::AddObjectCommand>());
-                if (!r)
-                {
-                    CUE_ASSERTF(false,
-                        "Failed to submit add object command: %s (code: %s, "
-                        "severity: %s) at %s:%u in function %s",
-                        r.message.data(), Cue::to_string(r.code),
-                        Cue::to_string(r.severity), r.file, r.line, r.function);
-                }
-            }
-
-            ImGui::InputInt("Object Id", &removeObjectId);
-
-            if (ImGui::Button("Remove Object"))
-            {
-                if (removeObjectId < 0)
-                {
-                    CUE_ASSERTF(false,
-                        "Remove object id must be greater than or equal to 0.");
-                }
-                else
-                {
-                    r = editorBridge.submit_command(
-                        std::make_unique<Cue::RemoveObjectCommand>(
-                            static_cast<uint32_t>(removeObjectId)));
-                    if (!r)
-                    {
-                        CUE_ASSERTF(false,
-                            "Failed to submit remove object command: %s (code: "
-                            "%s, severity: %s) at %s:%u in function %s",
-                            r.message.data(), Cue::to_string(r.code),
-                            Cue::to_string(r.severity), r.file, r.line,
-                            r.function);
-                    }
-                }
-            }
-
-            D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
-                backend->get_gpu_descriptor_handle(
-                    finalColorSrvHandle,
-                    backend->current_back_buffer_index(),
-                    backend->buffer_count());
-            if (finalColorSrvGpuDescHandle.ptr != 0)
-            {
-                const float finalColorWidth = 640.0f;
-                const float aspectRatio =
-                    static_cast<float>(backend->height()) / static_cast<float>(backend->width());
-                ImGui::Text("FinalColor");
-                ImGui::Image(
-                    static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
-                    ImVec2(finalColorWidth, finalColorWidth * aspectRatio));
-            }
-
-            ImGui::End();
-
-            statistics.update();
+            editorManager->update();
 
             imGuiManager->end_frame();
         }

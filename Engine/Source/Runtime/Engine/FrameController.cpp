@@ -1,14 +1,17 @@
 #include "FrameController.h"
 #include <CueAssert.h>
+#include <Time/Timer.h>
 
 namespace Cue
 {
-    bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const char* a_name, jobFunc a_func)
+    bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name, jobFunc a_func)
     {
         // 実行関数をメンバへ保持する
         // 要求受付ループのスレッドを開始する
         m_func = std::move(a_func);
+        m_clock = &a_clock;
         m_exit = false;
+        m_lastElapsedMs = 0.0;
         m_finishedFrame = 0;
         m_queue.clear();
 
@@ -44,6 +47,12 @@ namespace Cue
         // 進行判定に使う完了フレームを返す
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_finishedFrame;
+    }
+    double FrameJob::get_last_elapsed_ms() const
+    {
+        // 実行時間の読み取りも同じロックで保護する
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_lastElapsedMs;
     }
     void FrameJob::stop()
     {
@@ -100,9 +109,22 @@ namespace Cue
             const uint32_t index = req.m_index;
             lock.unlock();
 
-            m_func(currentFrame, index);
+            double elapsedMs = 0.0;
+            if (m_clock != nullptr)
+            {
+                Core::Time::Timer timer(*m_clock);
+                timer.start();
+                m_func(currentFrame, index);
+                timer.stop();
+                elapsedMs = timer.elapsed_ticks().ms_f64();
+            }
+            else
+            {
+                m_func(currentFrame, index);
+            }
 
             lock.lock();
+            m_lastElapsedMs = elapsedMs;
             m_finishedFrame = currentFrame;
             lock.unlock();
             m_cv.notify_all();
@@ -183,6 +205,8 @@ namespace Cue
         m_mailboxState = MailboxState{};
         m_backpressureState = BackpressureState{};
         m_singleState = SingleBufferState{};
+        m_updateElapsedMs = 0.0;
+        m_renderElapsedMs = 0.0;
 
         if (m_desc.m_bufferCount > 1)
         {
@@ -194,7 +218,7 @@ namespace Cue
             return true;
         }
 
-        if (!m_updateJob.start(m_threadFactory, "UpdateJob", [this](uint64_t frameNo, uint32_t index)
+        if (!m_updateJob.start(m_threadFactory, m_clock, "UpdateJob", [this](uint64_t frameNo, uint32_t index)
             {
                 m_updateFunc(frameNo, index);
             }))
@@ -203,7 +227,7 @@ namespace Cue
             return false;
         }
 
-        if (!m_renderJob.start(m_threadFactory, "RenderJob", [this](uint64_t frameNo, uint32_t index)
+        if (!m_renderJob.start(m_threadFactory, m_clock, "RenderJob", [this](uint64_t frameNo, uint32_t index)
             {
                 m_renderFunc(frameNo, index);
             }))
@@ -223,6 +247,24 @@ namespace Cue
         m_updateJob.stop();
         m_renderJob.stop();
         m_started = false;
+    }
+    double FrameController::update_elapsed_ms() const noexcept
+    {
+        if (m_desc.m_bufferCount == 1)
+        {
+            return m_updateElapsedMs;
+        }
+
+        return m_updateJob.get_last_elapsed_ms();
+    }
+    double FrameController::render_elapsed_ms() const noexcept
+    {
+        if (m_desc.m_bufferCount == 1)
+        {
+            return m_renderElapsedMs;
+        }
+
+        return m_renderJob.get_last_elapsed_ms();
     }
     void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex, uint32_t& presentIndex)
     {
@@ -292,8 +334,17 @@ namespace Cue
         compute_indices(m_singleState.m_currentFrame, m_desc.m_bufferCount, updateIndex, renderIndex, presentIndex);
         (void)presentIndex;
 
+        Core::Time::Timer updateTimer(m_clock);
+        updateTimer.start();
         m_updateFunc(m_singleState.m_currentFrame, updateIndex);
+        updateTimer.stop();
+        m_updateElapsedMs = updateTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer renderTimer(m_clock);
+        renderTimer.start();
         m_renderFunc(m_singleState.m_currentFrame, renderIndex);
+        renderTimer.stop();
+        m_renderElapsedMs = renderTimer.elapsed_ticks().ms_f64();
         present_frame(m_singleState.m_currentFrame);
         ++m_singleState.m_currentFrame;
 

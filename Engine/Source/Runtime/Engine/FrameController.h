@@ -4,6 +4,7 @@
 #include <Threading/IThread.h>
 #include <Threading/IThreadFactory.h>
 #include <Time/FrameCounter.h>
+#include <Time/IClock.h>
 
 // === C++ includes ===
 #include <cstdint>
@@ -44,13 +45,16 @@ namespace Cue
         using jobFunc = std::function<void(uint64_t, uint32_t)>;
 
         /// @brief スレッド開始
-        bool start(Core::Threading::IThreadFactory& a_factory, const char* a_name, jobFunc a_func);
+        bool start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name, jobFunc a_func);
 
         /// @brief 実行要求投入
         void kick(uint64_t frameNo, uint32_t index);
 
         /// @brief 完了フレーム取得
         uint64_t get_finished_frame() const;
+
+        /// @brief 直近実行時間取得
+        double get_last_elapsed_ms() const;
 
         /// @brief 停止
         void stop();
@@ -71,6 +75,8 @@ namespace Cue
         std::unique_ptr<Core::Threading::IThread> m_thread;
         std::deque<Request> m_queue;
         jobFunc m_func;
+        const Core::Time::IClock* m_clock = nullptr;
+        double m_lastElapsedMs = 0.0;
         uint64_t m_finishedFrame = 0;
         bool m_exit = false;
     };
@@ -88,6 +94,7 @@ namespace Cue
             const presentFunc& a_presentFunc)
             : m_desc(config)
             , m_threadFactory(a_threadFactory)
+            , m_clock(a_clock)
             , m_waiter(a_waiter)
             , m_frameCounter(a_clock, a_waiter)
             , m_updateFunc(a_updateFunc)
@@ -131,6 +138,10 @@ namespace Cue
         {
             return m_presentIndex;
         }
+        /// @brief update 実行時間取得
+        double update_elapsed_ms() const noexcept;
+        /// @brief render 実行時間取得
+        double render_elapsed_ms() const noexcept;
 
     private:
         struct FixedState final
@@ -190,6 +201,7 @@ namespace Cue
 
         FrameControllerDesc m_desc;
         Core::Threading::IThreadFactory& m_threadFactory;
+        const Core::Time::IClock& m_clock;
         Core::Time::IWaiter& m_waiter;
         Core::Time::FrameCounter m_frameCounter;
         uint32_t m_backBufferBase = 0;
@@ -206,6 +218,8 @@ namespace Cue
         uint64_t m_maxLead = 0;
         bool m_started = false;
         bool m_finished = false;
+        double m_updateElapsedMs = 0.0;
+        double m_renderElapsedMs = 0.0;
         uint32_t m_updateIndex = 0;
         uint32_t m_renderIndex = 0;
         uint32_t m_presentIndex = 0;

@@ -13,7 +13,7 @@
 // === Engine includes ===
 #include "Asset/AssetManager.h"
 #include "FrameController.h"
-#include "GameCore/Commands.h"
+#include "Commands.h"
 #include "GameCore/GameCore.h"
 
 // === C++ includes ===
