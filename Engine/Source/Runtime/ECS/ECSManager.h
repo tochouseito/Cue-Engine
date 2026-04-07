@@ -33,11 +33,11 @@ struct IComponentTag {
   virtual void initialize() {}
 
   // アクティブ状態
-  bool is_active() const noexcept { return m_active; }
-  void set_active(bool a_active) noexcept { m_active = a_active; }
+  bool is_active() const noexcept { return active; }
+  void set_active(bool a_active) noexcept { active = a_active; }
 
 private:
-  bool m_active = true; // アクティブ状態
+  bool active = true; // アクティブ状態
 };
 
 // コンポーネントが複数持てるか(デフォルトは持てない)
@@ -1942,17 +1942,17 @@ struct IComponentEventListener : public IIComponentEventListener {
 
 public:
   IComponentEventListener() = default;
-  virtual ~IComponentEventListener() { m_onAddSingle.clear(); }
+  virtual ~IComponentEventListener() { onAddSingle.clear(); }
 
   // 依存する ECSManager のポインタをセット
-  void set_ecs_manager(ECSManager *a_ecs) { m_pEcs = a_ecs; }
+  void set_ecs_manager(ECSManager *a_ecs) { pEcs = a_ecs; }
 
   // 単一用
   template <ComponentType T>
   void register_on_add(std::function<void(Entity, T *)> a_f) {
     static_assert(!IsMultiComponent<T>::value, "Use singleComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onAddSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
+    onAddSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
       a_f(a_e, static_cast<T *>(a_raw));
     });
   }
@@ -1961,7 +1961,7 @@ public:
   void register_on_add(std::function<void(Entity, T *, size_t)> a_f) {
     static_assert(IsMultiComponent<T>::value, "Use multiComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onAddMulti[id].push_back([a_f](Entity a_e, void *a_rawVec, size_t a_idx) {
+    onAddMulti[id].push_back([a_f](Entity a_e, void *a_rawVec, size_t a_idx) {
       auto *vec = static_cast<std::vector<T> *>(a_rawVec);
       a_f(a_e, &(*vec)[a_idx], a_idx);
     });
@@ -1972,7 +1972,7 @@ public:
   void register_on_copy(std::function<void(Entity, Entity, T *)> a_f) {
     static_assert(!IsMultiComponent<T>::value, "Use singleComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onCopySingle[id].push_back(
+    onCopySingle[id].push_back(
         [a_f](Entity a_src, Entity a_dst, IComponentTag *a_raw) {
           a_f(a_src, a_dst, static_cast<T *>(a_raw));
         });
@@ -1983,7 +1983,7 @@ public:
   void register_on_copy(std::function<void(Entity, Entity, T *, size_t)> a_f) {
     static_assert(IsMultiComponent<T>::value, "Use multiComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onCopyMulti[id].push_back(
+    onCopyMulti[id].push_back(
         [a_f](Entity a_src, Entity a_dst, void *a_rawVec, size_t a_idx) {
           auto *vec = static_cast<std::vector<T> *>(a_rawVec);
           a_f(a_src, a_dst, &(*vec)[a_idx], a_idx);
@@ -1995,7 +1995,7 @@ public:
   void register_on_remove(std::function<void(Entity, T *)> a_f) {
     static_assert(!IsMultiComponent<T>::value, "Use singleComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onRemoveSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
+    onRemoveSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
       a_f(a_e, static_cast<T *>(a_raw));
     });
   }
@@ -2005,7 +2005,7 @@ public:
   void register_on_remove(std::function<void(Entity, T *, size_t)> a_f) {
     static_assert(IsMultiComponent<T>::value, "Use multiComponent");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onRemoveMulti[id].push_back(
+    onRemoveMulti[id].push_back(
         [a_f](Entity a_e, void *a_rawVec, size_t a_idx) {
           auto *vec = static_cast<std::vector<T> *>(a_rawVec);
           a_f(a_e, &(*vec)[a_idx], a_idx);
@@ -2016,7 +2016,7 @@ public:
   void register_on_restore(std::function<void(Entity, T *)> a_f) {
     static_assert(!IsMultiComponent<T>::value, "Use multi for multi-component");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onRestoreSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
+    onRestoreSingle[id].push_back([a_f](Entity a_e, IComponentTag *a_raw) {
       a_f(a_e, static_cast<T *>(a_raw));
     });
   }
@@ -2027,7 +2027,7 @@ public:
     static_assert(IsMultiComponent<T>::value,
                   "Use single for single-component");
     CompID id = ECSManager::ComponentPool<T>::get_id();
-    m_onRestoreMulti[id].push_back(
+    onRestoreMulti[id].push_back(
         [a_f](Entity a_e, void *a_rawVec, size_t a_idx) {
           auto *vec = static_cast<std::vector<T> *>(a_rawVec);
           a_f(a_e, &(*vec)[a_idx], a_idx);
@@ -2038,18 +2038,18 @@ private:
   // ECS側から呼ばれる
   void on_component_added(Entity a_e, CompID a_compType) override {
     // ① 単一コンポーネント向け
-    if (auto it = m_onAddSingle.find(a_compType); it != m_onAddSingle.end()) {
+    if (auto it = onAddSingle.find(a_compType); it != onAddSingle.end()) {
       void *raw =
-          m_pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
+          pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
       for (auto &cb : it->second) {
         cb(a_e, static_cast<IComponentTag *>(raw));
       }
     }
 
     // ② マルチコンポーネント向け
-    if (auto it2 = m_onAddMulti.find(a_compType); it2 != m_onAddMulti.end()) {
+    if (auto it2 = onAddMulti.find(a_compType); it2 != onAddMulti.end()) {
       ECSManager::IComponentPool *pool =
-          m_pEcs->get_raw_component_pool(a_compType);
+          pEcs->get_raw_component_pool(a_compType);
       void *rawVec = pool->get_raw_component(a_e);
       size_t count = pool->get_component_count(a_e);
 
@@ -2064,18 +2064,18 @@ private:
   void on_component_copied(Entity a_src, Entity a_dst,
                            CompID a_compType) override {
     // 単一コンポーネント向け
-    if (auto it = m_onCopySingle.find(a_compType); it != m_onCopySingle.end()) {
+    if (auto it = onCopySingle.find(a_compType); it != onCopySingle.end()) {
       void *raw =
-          m_pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_dst);
+          pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_dst);
       for (auto &cb : it->second) {
         cb(a_src, a_dst, static_cast<IComponentTag *>(raw));
       }
     }
 
     // マルチコンポーネント向け
-    if (auto it2 = m_onCopyMulti.find(a_compType); it2 != m_onCopyMulti.end()) {
+    if (auto it2 = onCopyMulti.find(a_compType); it2 != onCopyMulti.end()) {
       ECSManager::IComponentPool *pool =
-          m_pEcs->get_raw_component_pool(a_compType);
+          pEcs->get_raw_component_pool(a_compType);
       void *rawVec = pool->get_raw_component(a_dst);
       size_t count = pool->get_component_count(a_dst);
 
@@ -2088,20 +2088,20 @@ private:
   }
   void on_component_removed(Entity a_e, CompID a_compType) override {
     // ① 単一コンポーネント向け
-    if (auto it = m_onRemoveSingle.find(a_compType);
-        it != m_onRemoveSingle.end()) {
+    if (auto it = onRemoveSingle.find(a_compType);
+        it != onRemoveSingle.end()) {
       void *raw =
-          m_pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
+          pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
       for (auto &cb : it->second) {
         cb(a_e, static_cast<IComponentTag *>(raw));
       }
     }
 
     // ② マルチコンポーネント向け
-    if (auto it2 = m_onRemoveMulti.find(a_compType);
-        it2 != m_onRemoveMulti.end()) {
+    if (auto it2 = onRemoveMulti.find(a_compType);
+        it2 != onRemoveMulti.end()) {
       ECSManager::IComponentPool *pool =
-          m_pEcs->get_raw_component_pool(a_compType);
+          pEcs->get_raw_component_pool(a_compType);
       void *rawVec = pool->get_raw_component(a_e);
       size_t count = pool->get_component_count(a_e);
 
@@ -2114,8 +2114,8 @@ private:
   }
   void on_component_removed_instance(Entity a_e, CompID a_compType,
                                      void *a_rawVec, size_t a_idx) override {
-    if (auto it = m_onRemoveMulti.find(a_compType);
-        it != m_onRemoveMulti.end()) {
+    if (auto it = onRemoveMulti.find(a_compType);
+        it != onRemoveMulti.end()) {
       for (auto &cb : it->second) {
         cb(a_e, a_rawVec, a_idx);
       }
@@ -2125,18 +2125,18 @@ private:
   void on_component_restored_from_prefab(Entity a_e,
                                          CompID a_compType) override {
     // 単一
-    if (auto it = m_onRestoreSingle.find(a_compType);
-        it != m_onRestoreSingle.end()) {
+    if (auto it = onRestoreSingle.find(a_compType);
+        it != onRestoreSingle.end()) {
       void *raw =
-          m_pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
+          pEcs->get_raw_component_pool(a_compType)->get_raw_component(a_e);
       for (auto &cb : it->second) {
         cb(a_e, static_cast<IComponentTag *>(raw));
       }
     }
     // マルチ
-    if (auto it2 = m_onRestoreMulti.find(a_compType);
-        it2 != m_onRestoreMulti.end()) {
-      auto *pool = m_pEcs->get_raw_component_pool(a_compType);
+    if (auto it2 = onRestoreMulti.find(a_compType);
+        it2 != onRestoreMulti.end()) {
+      auto *pool = pEcs->get_raw_component_pool(a_compType);
       void *rawVec = pool->get_raw_component(a_e);
       size_t count = pool->get_component_count(a_e);
       for (size_t idx = 0; idx < count; ++idx) {
@@ -2148,40 +2148,40 @@ private:
   }
 
 private:
-  ECSManager *m_pEcs = nullptr;
+  ECSManager *pEcs = nullptr;
 
 protected:
   // 単一用
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, IComponentTag *)>>>
-      m_onAddSingle;
+      onAddSingle;
   // マルチ用
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, void *, size_t)>>>
-      m_onAddMulti;
+      onAddMulti;
   // 単一用
   std::unordered_map<
       CompID, std::vector<std::function<void(Entity, Entity, IComponentTag *)>>>
-      m_onCopySingle;
+      onCopySingle;
   // マルチ用
   std::unordered_map<
       CompID, std::vector<std::function<void(Entity, Entity, void *, size_t)>>>
-      m_onCopyMulti;
+      onCopyMulti;
   // 単一用
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, IComponentTag *)>>>
-      m_onRemoveSingle;
+      onRemoveSingle;
   // マルチ用
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, void *, size_t)>>>
-      m_onRemoveMulti;
+      onRemoveMulti;
   // Restore（Prefab 復元）用マップ
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, IComponentTag *)>>>
-      m_onRestoreSingle;
+      onRestoreSingle;
   std::unordered_map<CompID,
                      std::vector<std::function<void(Entity, void *, size_t)>>>
-      m_onRestoreMulti;
+      onRestoreMulti;
 };
 
 class IPrefab {

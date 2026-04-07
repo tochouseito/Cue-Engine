@@ -59,16 +59,16 @@ namespace Cue
             switch (entityIndex)
             {
             case 0:
-                transform->rotation.m_y += a_deltaTime * 1.25f;
+                transform->rotation.y += a_deltaTime * 1.25f;
                 break;
             case 1:
-                transform->rotation.m_x += a_deltaTime * 0.75f;
+                transform->rotation.x += a_deltaTime * 0.75f;
                 break;
             case 2:
-                transform->rotation.m_y -= a_deltaTime * 1.0f;
+                transform->rotation.y -= a_deltaTime * 1.0f;
                 break;
             default:
-                transform->rotation.m_y += a_deltaTime * 0.5f;
+                transform->rotation.y += a_deltaTime * 0.5f;
                 break;
             }
         }

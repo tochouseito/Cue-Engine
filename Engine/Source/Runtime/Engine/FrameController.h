@@ -31,12 +31,12 @@ namespace Cue
     struct FrameControllerDesc final
     {
         FrameControllerDesc(const uint32_t& a_bufferCount)
-            : m_bufferCount(a_bufferCount)
+            : bufferCount(a_bufferCount)
         {
         }
-        const uint32_t& m_bufferCount;
-        uint32_t m_maxFps = 60;
-        ControllerMode m_mode = ControllerMode::Fixed;
+        const uint32_t& bufferCount;
+        uint32_t maxFps = 60;
+        ControllerMode mode = ControllerMode::Fixed;
     };
 
     class FrameJob final
@@ -62,8 +62,8 @@ namespace Cue
     private:
         struct Request final
         {
-            uint64_t m_frameNo = 0;
-            uint32_t m_index = 0;
+            uint64_t frameNo = 0;
+            uint32_t index = 0;
         };
 
         static uint32_t thread_entry(Core::Threading::StopToken a_token, void* a_user) noexcept;
@@ -146,26 +146,26 @@ namespace Cue
     private:
         struct FixedState final
         {
-            uint64_t m_produceFrame = 0;
-            uint64_t m_totalFrame = 0;
+            uint64_t produceFrame = 0;
+            uint64_t totalFrame = 0;
         };
 
         struct MailboxState final
         {
-            uint64_t m_produceFrame = 0;
-            uint64_t m_lastPresentedFrame = 0;
-            bool m_hasPresented = false;
+            uint64_t produceFrame = 0;
+            uint64_t lastPresentedFrame = 0;
+            bool hasPresented = false;
         };
 
         struct BackpressureState final
         {
-            uint64_t m_currentFrame = 0;
-            bool m_inFlight = false;
+            uint64_t currentFrame = 0;
+            bool inFlight = false;
         };
 
         struct SingleBufferState final
         {
-            uint64_t m_currentFrame = 0;
+            uint64_t currentFrame = 0;
         };
 
         /// @brief パイプライン起動

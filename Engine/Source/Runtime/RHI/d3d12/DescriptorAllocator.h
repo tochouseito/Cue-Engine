@@ -34,13 +34,13 @@ namespace Cue::RHI::DX12
     // テーブルID
     struct TableID final
     {
-        TableKind m_kind = TableKind::Buffers;
-        uint16_t  m_generation{};           ///< テーブルの世代（将来の再配置用）
-        uint32_t  m_index = kInvalid;       ///< テーブル内のローカル index（0..capacity-1）
+        TableKind kind = TableKind::Buffers;
+        uint16_t  generation{};           ///< テーブルの世代（将来の再配置用）
+        uint32_t  index = kInvalid;       ///< テーブル内のローカル index（0..capacity-1）
 
         static constexpr uint32_t kInvalid = 0xFFFFFFFF;
 
-        bool valid() const { return m_index != kInvalid; }
+        bool valid() const { return index != kInvalid; }
     };
 
     class DescriptorAllocator final
@@ -104,11 +104,11 @@ namespace Cue::RHI::DX12
         // テーブル内部情報
         struct Table final
         {
-            uint32_t m_baseIndex = 0;            ///< ヒープ内の先頭スロット
-            uint32_t m_capacity = 0;
-            uint16_t m_generation = 0;
-            std::vector<uint32_t> m_freeList;    ///< 空きスロット
-            HeapType m_heapType = HeapType::CBV_SRV_UAV;
+            uint32_t baseIndex = 0;            ///< ヒープ内の先頭スロット
+            uint32_t capacity = 0;
+            uint16_t generation = 0;
+            std::vector<uint32_t> freeList;    ///< 空きスロット
+            HeapType heapType = HeapType::CBV_SRV_UAV;
         };
 
         // --- テーブル管理 ---

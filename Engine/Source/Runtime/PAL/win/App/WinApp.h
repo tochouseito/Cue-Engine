@@ -29,8 +29,8 @@ namespace Cue::PAL::Win
 
         struct MessageHandlerEntry
         {
-            uint64_t m_id = 0;
-            messageHandler m_handler;
+            uint64_t id = 0;
+            messageHandler handler;
         };
 
         struct WindowSize

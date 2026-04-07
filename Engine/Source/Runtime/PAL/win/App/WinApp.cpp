@@ -186,7 +186,7 @@ namespace Cue::PAL::Win
         // 該当ハンドラだけ削除
         for (auto it = m_messageHandlers.begin(); it != m_messageHandlers.end(); ++it)
         {
-            if (it->m_id != handlerId)
+            if (it->id != handlerId)
             {
                 continue;
             }
@@ -204,13 +204,13 @@ namespace Cue::PAL::Win
         // 1) 外部登録ハンドラを先に評価
         for (const MessageHandlerEntry& entry : m_messageHandlers)
         {
-            if (!entry.m_handler)
+            if (!entry.handler)
             {
                 continue;
             }
 
             LRESULT handledResult = 0;
-            const bool isHandled = entry.m_handler(a_hwnd, a_message, a_wParam, a_lParam, handledResult);
+            const bool isHandled = entry.handler(a_hwnd, a_message, a_wParam, a_lParam, handledResult);
             if (isHandled)
             {
                 return handledResult;

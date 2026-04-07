@@ -52,10 +52,10 @@ namespace Cue::PAL::Win
             StartContext(const StartContext&) = delete;
             StartContext& operator=(const StartContext&) = delete;
 
-            Core::Threading::threadProc m_proc = nullptr;
-            void* m_user = nullptr;
-            Core::Threading::StopSource m_stopSource{};
-            std::atomic<uint32_t> m_exitCode{ 0 }; // スレッド終了コード
+            Core::Threading::threadProc proc = nullptr;
+            void* user = nullptr;
+            Core::Threading::StopSource stopSource{};
+            std::atomic<uint32_t> exitCode{ 0 }; // スレッド終了コード
         };
 
         static unsigned __stdcall thread_entry(void* a_context) noexcept;

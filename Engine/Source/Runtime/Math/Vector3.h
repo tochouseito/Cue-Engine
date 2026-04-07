@@ -22,32 +22,32 @@ namespace Cue::Math
         {
             struct
             {
-                T m_x;
-                T m_y;
-                T m_z;
+                T x;
+                T y;
+                T z;
             };
             struct
             {
-                T m_r;
-                T m_g;
-                T m_b;
+                T r;
+                T g;
+                T b;
             };
-            T m_v[3];
+            T v[3];
         };
 
         // --- コンストラクタ ---
         /// @brief デフォルトコンストラクタ
         constexpr Vector3() noexcept
-            : m_x(static_cast<T>(0))
-            , m_y(static_cast<T>(0))
-            , m_z(static_cast<T>(0))
+            : x(static_cast<T>(0))
+            , y(static_cast<T>(0))
+            , z(static_cast<T>(0))
         {}
 
         /// @brief 引数付きコンストラクタ
         constexpr Vector3(T a_x, T a_y, T a_z) noexcept
-            : m_x(a_x)
-            , m_y(a_y)
-            , m_z(a_z)
+            : x(a_x)
+            , y(a_y)
+            , z(a_z)
         {}
 
         // --- 判定/初期化 ---
@@ -55,18 +55,18 @@ namespace Cue::Math
         constexpr bool is_zero() const noexcept
         {
             // 1) 全成分が 0 かどうかで判定する
-            return m_x == static_cast<T>(0) &&
-                m_y == static_cast<T>(0) &&
-                m_z == static_cast<T>(0);
+            return x == static_cast<T>(0) &&
+                y == static_cast<T>(0) &&
+                z == static_cast<T>(0);
         }
 
         /// @brief ゼロ初期化
         constexpr void initialize() noexcept
         {
             // 1) 全成分を 0 に初期化する
-            m_x = static_cast<T>(0);
-            m_y = static_cast<T>(0);
-            m_z = static_cast<T>(0);
+            x = static_cast<T>(0);
+            y = static_cast<T>(0);
+            z = static_cast<T>(0);
         }
 
         // --- 変換演算子 ---
@@ -86,7 +86,7 @@ namespace Cue::Math
             assert(a_index < 3);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
         }
 
         /// @brief 配列アクセス（読み取り専用）0:x(=r),1:y(=g),2:z(=b)
@@ -97,7 +97,7 @@ namespace Cue::Math
             assert(a_index < 3);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
         }
 
         // --- 符号演算子 ---
@@ -112,7 +112,7 @@ namespace Cue::Math
         constexpr Vector3 operator-() const noexcept
         {
             // 1) 各成分の符号を反転させる
-            return { -m_x, -m_y, -m_z };
+            return { -x, -y, -z };
         }
 
         // --- 二項演算子 ---
@@ -120,28 +120,28 @@ namespace Cue::Math
         constexpr Vector3 operator+(const Vector3& a_other) const noexcept
         {
             // 1) 成分ごとの加算結果を返す
-            return { m_x + a_other.m_x, m_y + a_other.m_y, m_z + a_other.m_z };
+            return { x + a_other.x, y + a_other.y, z + a_other.z };
         }
 
         /// @brief 減算
         constexpr Vector3 operator-(const Vector3& a_other) const noexcept
         {
             // 1) 成分ごとの減算結果を返す
-            return { m_x - a_other.m_x, m_y - a_other.m_y, m_z - a_other.m_z };
+            return { x - a_other.x, y - a_other.y, z - a_other.z };
         }
 
         /// @brief スカラー乗算
         constexpr Vector3 operator*(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            return { m_x * a_scalar, m_y * a_scalar, m_z * a_scalar };
+            return { x * a_scalar, y * a_scalar, z * a_scalar };
         }
 
         /// @brief スカラー除算
         constexpr Vector3 operator/(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            return { m_x / a_scalar, m_y / a_scalar, m_z / a_scalar };
+            return { x / a_scalar, y / a_scalar, z / a_scalar };
         }
 
         // --- 複合代入演算子 ---
@@ -149,9 +149,9 @@ namespace Cue::Math
         constexpr Vector3& operator+=(const Vector3& a_other) noexcept
         {
             // 1) 成分を加算して自身に反映する
-            m_x += a_other.m_x;
-            m_y += a_other.m_y;
-            m_z += a_other.m_z;
+            x += a_other.x;
+            y += a_other.y;
+            z += a_other.z;
             return *this;
         }
 
@@ -159,9 +159,9 @@ namespace Cue::Math
         constexpr Vector3& operator-=(const Vector3& a_other) noexcept
         {
             // 1) 成分を減算して自身に反映する
-            m_x -= a_other.m_x;
-            m_y -= a_other.m_y;
-            m_z -= a_other.m_z;
+            x -= a_other.x;
+            y -= a_other.y;
+            z -= a_other.z;
             return *this;
         }
 
@@ -169,9 +169,9 @@ namespace Cue::Math
         constexpr Vector3& operator*=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            m_x *= a_scalar;
-            m_y *= a_scalar;
-            m_z *= a_scalar;
+            x *= a_scalar;
+            y *= a_scalar;
+            z *= a_scalar;
             return *this;
         }
 
@@ -179,9 +179,9 @@ namespace Cue::Math
         constexpr Vector3& operator/=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            m_x /= a_scalar;
-            m_y /= a_scalar;
-            m_z /= a_scalar;
+            x /= a_scalar;
+            y /= a_scalar;
+            z /= a_scalar;
             return *this;
         }
 
@@ -190,9 +190,9 @@ namespace Cue::Math
         constexpr Vector3& operator++() noexcept
         {
             // 1) 全成分を加算して更新する
-            ++m_x;
-            ++m_y;
-            ++m_z;
+            ++x;
+            ++y;
+            ++z;
             return *this;
         }
 
@@ -210,9 +210,9 @@ namespace Cue::Math
         constexpr Vector3& operator--() noexcept
         {
             // 1) 全成分を減算して更新する
-            --m_x;
-            --m_y;
-            --m_z;
+            --x;
+            --y;
+            --z;
             return *this;
         }
 
@@ -231,9 +231,9 @@ namespace Cue::Math
         constexpr bool operator==(const Vector3& a_other) const noexcept
         {
             // 1) 全成分が一致するか判定する
-            return m_x == a_other.m_x &&
-                m_y == a_other.m_y &&
-                m_z == a_other.m_z;
+            return x == a_other.x &&
+                y == a_other.y &&
+                z == a_other.z;
         }
 
         /// @brief 非等価
@@ -247,36 +247,36 @@ namespace Cue::Math
         constexpr bool operator<(const Vector3& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x < a_other.m_x) &&
-                (m_y < a_other.m_y) &&
-                (m_z < a_other.m_z);
+            return (x < a_other.x) &&
+                (y < a_other.y) &&
+                (z < a_other.z);
         }
 
         /// @brief 小なりイコール（全成分）
         constexpr bool operator<=(const Vector3& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x <= a_other.m_x) &&
-                (m_y <= a_other.m_y) &&
-                (m_z <= a_other.m_z);
+            return (x <= a_other.x) &&
+                (y <= a_other.y) &&
+                (z <= a_other.z);
         }
 
         /// @brief 大なり（全成分）
         constexpr bool operator>(const Vector3& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x > a_other.m_x) &&
-                (m_y > a_other.m_y) &&
-                (m_z > a_other.m_z);
+            return (x > a_other.x) &&
+                (y > a_other.y) &&
+                (z > a_other.z);
         }
 
         /// @brief 大なりイコール（全成分）
         constexpr bool operator>=(const Vector3& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x >= a_other.m_x) &&
-                (m_y >= a_other.m_y) &&
-                (m_z >= a_other.m_z);
+            return (x >= a_other.x) &&
+                (y >= a_other.y) &&
+                (z >= a_other.z);
         }
 
         // --- 計算メンバ関数 ---
@@ -284,14 +284,14 @@ namespace Cue::Math
         T length() const noexcept
         {
             // 1) 3次元の長さを計算する
-            return static_cast<T>(std::sqrt(m_x * m_x + m_y * m_y + m_z * m_z));
+            return static_cast<T>(std::sqrt(x * x + y * y + z * z));
         }
 
         /// @brief 長さの二乗
         constexpr T length_sq() const noexcept
         {
             // 1) 3次元の長さの二乗を返す
-            return m_x * m_x + m_y * m_y + m_z * m_z;
+            return x * x + y * y + z * z;
         }
 
         /// @brief 正規化
@@ -302,9 +302,9 @@ namespace Cue::Math
             if (len != static_cast<T>(0))
             {
                 // 2) 長さで割って正規化する
-                m_x /= len;
-                m_y /= len;
-                m_z /= len;
+                x /= len;
+                y /= len;
+                z /= len;
             }
             return *this;
         }
@@ -313,7 +313,7 @@ namespace Cue::Math
         constexpr T dot(const Vector3& a_other) const noexcept
         {
             // 1) 3次元の内積を計算する
-            return m_x * a_other.m_x + m_y * a_other.m_y + m_z * a_other.m_z;
+            return x * a_other.x + y * a_other.y + z * a_other.z;
         }
 
         /// @brief 外積
@@ -321,9 +321,9 @@ namespace Cue::Math
         {
             // 1) 3次元の外積を計算する
             return {
-                m_y * a_other.m_z - m_z * a_other.m_y,
-                m_z * a_other.m_x - m_x * a_other.m_z,
-                m_x * a_other.m_y - m_y * a_other.m_x
+                y * a_other.z - z * a_other.y,
+                z * a_other.x - x * a_other.z,
+                x * a_other.y - y * a_other.x
             };
         }
 
@@ -338,9 +338,9 @@ namespace Cue::Math
                     {
                         return a_value >= T(0) ? a_value : -a_value;
                     };
-                return abs_value(m_x - a_other.m_x) <= a_epsilon &&
-                    abs_value(m_y - a_other.m_y) <= a_epsilon &&
-                    abs_value(m_z - a_other.m_z) <= a_epsilon;
+                return abs_value(x - a_other.x) <= a_epsilon &&
+                    abs_value(y - a_other.y) <= a_epsilon &&
+                    abs_value(z - a_other.z) <= a_epsilon;
             }
             // 2) それ以外は完全一致で判定する
             else
