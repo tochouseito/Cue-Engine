@@ -166,6 +166,12 @@ namespace Cue
                 m_indirectCommandCountBufferUavHandle, clearValues);
             if (m_frameState.objectCount == 0)
             {
+                RHI::ResourceBarrierDesc barrierDesc{};
+                barrierDesc.after = RHI::ResourceState::Common;
+                commandContext->resource_barrier(m_indirectCommandBufferHandle,
+                    barrierDesc);
+                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
+                    barrierDesc);
                 return;
             }
 
