@@ -3,6 +3,10 @@
 // === RHI includes ===
 #include <RHI.h>
 
+// === Engine includes ===
+#include <GpuData/Batching.h>
+#include <GpuData/Transform.h>
+
 // === C++ includes ===
 #include <array>
 #include <vector>

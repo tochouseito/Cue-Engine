@@ -15,7 +15,7 @@ namespace Cue::ECS
     class ObjectInfoSystem final : public ECSManager::System<ObjectInfoComponent>
     {
     public:
-        explicit ObjectInfoSystem(RenderSceneState& a_renderSceneState, std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& a_objectInfoUploaders)
+        explicit ObjectInfoSystem(std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& a_objectInfoUploaders)
             : ECSManager::System<ObjectInfoComponent>(
                 [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, const UpdateContext& a_context) {
                     update_component(a_entity, a_objectInfo, a_context);
@@ -26,32 +26,34 @@ namespace Cue::ECS
                 [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, const FinalizeContext& a_context) {
                     finalize_component(a_entity, a_objectInfo, a_context);
                 }),
-            m_renderSceneState(a_renderSceneState), m_objectInfoUploaders(a_objectInfoUploaders)
+            m_objectInfoUploaders(a_objectInfoUploaders)
         {}
 
-        void update() override
+        void update(const UpdateContext& a_context) override
         {
-            if (m_objectInfoUploaders.empty() || !m_bufferIndex.has_value())
+            m_currentUploader = nullptr;
+            if (!m_objectInfoUploaders.empty())
             {
-                return;
+                const uint32_t uploaderIndex =
+                    (m_objectInfoUploaders.size() == 1) ? 0u : a_context.bufferIndex;
+                if (uploaderIndex < m_objectInfoUploaders.size())
+                {
+                    m_currentUploader = &m_objectInfoUploaders[uploaderIndex];
+                    m_currentUploader->begin_frame();
+                }
             }
 
-            const uint32_t uploaderIndex =
-                (m_objectInfoUploaders.size() == 1) ? 0u : m_bufferIndex.value();
-            if (uploaderIndex >= m_objectInfoUploaders.size())
+            ECSManager::System<ObjectInfoComponent>::update(a_context);
+            if (m_currentUploader != nullptr && !m_currentUploader->commit())
             {
-                return;
+                CUE_ASSERTF(false, "Failed to commit object info uploads.");
             }
-
-            m_currentUploader = &m_objectInfoUploaders[uploaderIndex];
-            m_currentUploader->begin_frame();
-
-            ECSManager::System<ObjectInfoComponent>::update();
         }
     private:
         void update_component(Entity a_entity, ObjectInfoComponent& a_objectInfo, const UpdateContext& a_context)
         {
             a_entity;
+            a_context;
             GpuData::ObjectInfo gpuObjectInfo{};
             gpuObjectInfo.objectId = a_objectInfo.objectId;
             gpuObjectInfo.visible = a_objectInfo.visible ? 1u : 0u;
@@ -61,13 +63,6 @@ namespace Cue::ECS
             if(!m_currentUploader->push(a_objectInfo.objectId, gpuObjectInfo))
             {
                 CUE_ASSERTF(false, "Failed to queue object info upload. objectId=%u",
-                    a_objectInfo.objectId);
-                return;
-            }
-
-            if (!m_currentUploader->commit())
-            {
-                CUE_ASSERTF(false, "Failed to commit object info upload. objectId=%u",
                     a_objectInfo.objectId);
                 return;
             }
@@ -88,7 +83,6 @@ namespace Cue::ECS
         }
 
     private:
-        RenderSceneState& m_renderSceneState;
         std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& m_objectInfoUploaders;
         RHI::SlotUploader<GpuData::ObjectInfo>* m_currentUploader = nullptr;
     };

@@ -33,9 +33,11 @@ namespace Cue
         }
     }
 
-    Result GameCore::initialize()
+    Result GameCore::initialize(RHI::IBufferManager* a_bufferManager,
+        RHI::IViewManager* a_viewManager)
     {
-        m_worldResources = std::make_unique<WorldResources>();
+        m_worldResources =
+            std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
 
         constexpr uint32_t k_maxObjectCount = 1000;
         m_worldResources->create_object_info_buffer(k_maxObjectCount);
@@ -44,18 +46,16 @@ namespace Cue
         m_worldResources->create_object_count_buffer();
 
         m_ecsManager = std::make_unique<ECS::ECSManager>();
-        m_ecsManager->add_system<ECS::ObjectInfoSystem>(m_renderSceneState, m_worldResources->object_info_uploaders());
-        m_ecsManager->add_system<ECS::TransformSystem>(m_renderSceneState, m_worldResources->transform_uploaders());
+        m_ecsManager->add_system<ECS::ObjectInfoSystem>(
+            m_worldResources->object_info_uploaders());
+        m_ecsManager->add_system<ECS::TransformSystem>(
+            m_worldResources->transform_uploaders());
         
         return Result::ok();
     }
 
     Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex)
     {
-        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
-        m_renderSceneState.objectInfos.assign(m_entities.size(), {});
-        m_renderSceneState.localTransforms.assign(m_entities.size(), {});
-
         for (size_t entityIndex = 0; entityIndex < m_entities.size(); ++entityIndex)
         {
             ECS::TransformComponent* transform =
@@ -120,7 +120,6 @@ namespace Cue
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
 
         m_entities.push_back(entity);
-        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
 
         return Result::ok();
     }
@@ -140,7 +139,6 @@ namespace Cue
         m_ecsManager->remove_entity(entity);
         m_entities.erase(m_entities.begin() + static_cast<std::ptrdiff_t>(objectIndex));
         rebuild_object_indices();
-        m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
 
         return Result::ok();
     }

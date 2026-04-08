@@ -99,8 +99,6 @@ namespace Cue
         std::function<void(uint64_t, uint32_t)> render();
         /// @brief present
         std::function<void(uint64_t, uint32_t)> present();
-        /// @brief TransformBuffer を更新
-        void update_transform_buffer(uint32_t a_bufferIndex);
 
     private:
         PAL::IPlatform* m_platform = nullptr;

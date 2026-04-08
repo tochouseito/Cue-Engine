@@ -64,8 +64,15 @@ namespace Cue
                 "Failed to get buffer manager from backend.");
         }
 
+        auto* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
         m_gameCore = std::make_unique<GameCore>();
-        result = m_gameCore->initialize();
+        result = m_gameCore->initialize(bufferManager, viewManager);
         if (!result)
         {
             return result;
@@ -88,6 +95,8 @@ namespace Cue
         {
             return result;
         }
+
+        constexpr uint32_t k_maxObjectCount = 1000;
 
         RHI::BufferDesc indirectCommandBufferDesc{};
         indirectCommandBufferDesc.name = "IndirectCommandBuffer";
@@ -125,13 +134,6 @@ namespace Cue
         if (!result)
         {
             return result;
-        }
-
-        auto* viewManager = m_backend->get_view_manager();
-        if (viewManager == nullptr)
-        {
-            return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get view manager from backend.");
         }
 
         RHI::ViewDesc indirectCommandBufferUavDesc{};
@@ -287,14 +289,11 @@ namespace Cue
             return result;
         }
 
-        result = m_gameCore->update(0.0f);
+        result = m_gameCore->update(0.0f, 0);
         if (!result)
         {
             return result;
         }
-
-        update_object_info_buffer(0);
-        update_transform_buffer(0);
 
         // フレームコントローラーの生成
         FrameControllerDesc desc(m_backend->buffer_count());
@@ -342,16 +341,13 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            Result updateResult = m_gameCore->update(deltaTime);
+            Result updateResult = m_gameCore->update(deltaTime, a_index);
             if (!updateResult)
             {
                 CUE_ASSERTF(false, "GameCore update failed: %s",
                     updateResult.message.data());
                 return;
             }
-
-            update_object_info_buffer(a_index);
-            update_transform_buffer(a_index);
             };
     }
 
@@ -375,83 +371,4 @@ namespace Cue
             };
     }
 
-    void Engine::update_object_info_buffer(uint32_t a_bufferIndex)
-    {
-        if (!m_objectInfoBufferHandle.valid() || m_objectInfoUploaders.empty() ||
-            m_gameCore == nullptr)
-        {
-            return;
-        }
-
-        const uint32_t uploaderIndex =
-            (m_objectInfoUploaders.size() == 1) ? 0u : a_bufferIndex;
-        if (uploaderIndex >= m_objectInfoUploaders.size())
-        {
-            return;
-        }
-
-        auto& uploader = m_objectInfoUploaders[uploaderIndex];
-        uploader.begin_frame();
-
-        const RenderSceneState& renderSceneState = m_gameCore->render_scene_state();
-        for (size_t objectIndex = 0;
-            objectIndex < renderSceneState.objectInfos.size(); ++objectIndex)
-        {
-            if (!uploader.push(static_cast<uint32_t>(objectIndex),
-                renderSceneState.objectInfos[objectIndex]))
-            {
-                CUE_ASSERTF(false, "Failed to queue object info upload. objectIndex=%zu",
-                    objectIndex);
-                return;
-            }
-        }
-
-        if (!uploader.commit())
-        {
-            CUE_ASSERTF(false, "Failed to commit object info uploads.");
-        }
-    }
-
-    void Engine::update_transform_buffer(uint32_t a_bufferIndex)
-    {
-        if (!m_transformBufferHandle.valid() || m_transformUploaders.empty() ||
-            m_gameCore == nullptr)
-        {
-            return;
-        }
-
-        const uint32_t uploaderIndex =
-            (m_transformUploaders.size() == 1) ? 0u : a_bufferIndex;
-        if (uploaderIndex >= m_transformUploaders.size())
-        {
-            return;
-        }
-
-        auto& uploader = m_transformUploaders[uploaderIndex];
-        uploader.begin_frame();
-
-        const RenderSceneState& renderSceneState = m_gameCore->render_scene_state();
-        for (size_t objectIndex = 0;
-            objectIndex < renderSceneState.localTransforms.size(); ++objectIndex)
-        {
-            const GpuData::LocalTransform& localTransform =
-                renderSceneState.localTransforms[objectIndex];
-            const GpuData::ObjectTransformGpu transformGpu{
-                .worldMatrix = Math::make_affine_matrix(localTransform.scale,
-                                                        localTransform.rotation,
-                                                        localTransform.position) };
-
-            if (!uploader.push(static_cast<uint32_t>(objectIndex), transformGpu))
-            {
-                CUE_ASSERTF(false, "Failed to queue transform upload. objectIndex=%zu",
-                    objectIndex);
-                return;
-            }
-        }
-
-        if (!uploader.commit())
-        {
-            CUE_ASSERTF(false, "Failed to commit transform uploads.");
-        }
-    }
 } // namespace Cue
