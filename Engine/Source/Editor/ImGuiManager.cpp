@@ -4,8 +4,104 @@ namespace Cue::Editor
 {
     namespace
     {
+        Core::IO::Path get_repository_layout_file_path()
+        {
+#ifdef CUE_PROJECT_ROOT_PATH
+            return Core::IO::Path::join(
+                Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+                Core::IO::Path("config/editor/imgui.ini"));
+#else
+            return Core::IO::Path("config/editor/imgui.ini");
+#endif
+        }
+
+        Result ensure_directory_exists(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_directoryPath)
+        {
+            const Result createResult =
+                a_fileSystem.create_directories(a_directoryPath);
+            if (!createResult)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to create ImGui config directory: %s",
+                    a_directoryPath.utf8().c_str());
+            }
+
+            return createResult;
+        }
+
+        Result copy_layout_file_if_needed(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            bool destinationExists = false;
+            Result result = a_fileSystem.exists(a_destinationPath, &destinationExists);
+            if (!result)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to query ImGui destination ini: %s",
+                    a_destinationPath.utf8().c_str());
+                return result;
+            }
+            if (destinationExists)
+            {
+                return Result::ok();
+            }
+
+            bool sourceExists = false;
+            result = a_fileSystem.exists(a_sourcePath, &sourceExists);
+            if (!result)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to query ImGui source ini: %s",
+                    a_sourcePath.utf8().c_str());
+                return result;
+            }
+            if (!sourceExists)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "ImGui source ini was not found: %s",
+                    a_sourcePath.utf8().c_str());
+                return Result::ok();
+            }
+
+            std::vector<std::byte> fileBytes{};
+            result = a_fileSystem.read_all(a_sourcePath, &fileBytes);
+            if (!result)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to read ImGui source ini: %s",
+                    a_sourcePath.utf8().c_str());
+                return result;
+            }
+
+            result = a_fileSystem.write_all(a_destinationPath, fileBytes, true);
+            if (!result)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::debugConsole,
+                    "Failed to copy ImGui ini to: %s",
+                    a_destinationPath.utf8().c_str());
+            }
+
+            return result;
+        }
+
         std::string resolve_layout_file_path(Core::IO::IFileSystem& a_fileSystem)
         {
+            const Core::IO::Path repositoryLayoutPath = get_repository_layout_file_path();
+
+#ifdef CUE_DEBUG
+            ensure_directory_exists(a_fileSystem, repositoryLayoutPath.parent());
+            return repositoryLayoutPath.utf8();
+#else
             constexpr const char* k_fallbackPath = "config/editor/imgui.ini";
             constexpr DWORD k_modulePathCapacity = 4096;
 
@@ -25,19 +121,23 @@ namespace Cue::Editor
                     exePath.parent(),
                     Core::IO::Path("config/editor"));
 
-            const Result createResult =
-                a_fileSystem.create_directories(configDirectory);
+            const Result createResult = ensure_directory_exists(a_fileSystem, configDirectory);
             if (!createResult)
             {
-                Core::IO::log(
-                    Core::IO::LogSink::debugConsole,
-                    "Failed to create ImGui config directory: %s",
-                    configDirectory.utf8().c_str());
+                return k_fallbackPath;
             }
 
-            return Core::IO::Path::join(
+            const Core::IO::Path runtimeLayoutPath = Core::IO::Path::join(
                 configDirectory,
-                Core::IO::Path("imgui.ini")).utf8();
+                Core::IO::Path("imgui.ini"));
+
+            copy_layout_file_if_needed(
+                a_fileSystem,
+                repositoryLayoutPath,
+                runtimeLayoutPath);
+
+            return runtimeLayoutPath.utf8();
+#endif
         }
     }
 

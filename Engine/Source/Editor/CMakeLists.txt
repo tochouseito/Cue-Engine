@@ -22,6 +22,10 @@ target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}"
 )
 
+target_compile_definitions(Editor PRIVATE
+    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
+)
+
 # サブディレクトリの追加
 
 # ビルド後のコマンドを追加して、必要な DLL をコピー
@@ -35,5 +39,8 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"
             "$<TARGET_FILE_DIR:Editor>/Shaders"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/config"
+            "$<TARGET_FILE_DIR:Editor>/config"
     VERBATIM
 )
