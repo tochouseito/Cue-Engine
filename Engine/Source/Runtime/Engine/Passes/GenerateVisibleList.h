@@ -11,8 +11,8 @@ namespace Cue
     class GenerateVisibleListPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit GenerateVisibleListPass(const RenderFrameState& a_frameState)
-            : m_frameState(a_frameState)
+        explicit GenerateVisibleListPass(const RenderSceneState& a_renderSceneState)
+            : m_renderSceneState(a_renderSceneState)
         {}
 
         const char* name() const noexcept override { return "GenerateVisibleList"; }
@@ -119,6 +119,9 @@ namespace Cue
                 return;
             }
 
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+
             const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 
             {
@@ -140,7 +143,7 @@ namespace Cue
 
             commandContext->clear_unordered_access_uint(
                 m_visibleObjectCountBufferUavHandle, clearValues);
-            if (m_frameState.objectCount == 0)
+            if (frameState.objectCount == 0)
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::Common;
@@ -152,12 +155,12 @@ namespace Cue
             }
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
-            commandContext->set_32bit_constant(0, m_frameState.objectCount);
+            commandContext->set_32bit_constant(0, frameState.objectCount);
             commandContext->set_srv(1, m_objectInfoBufferHandle);
             commandContext->set_uav(2, m_renderObjectBufferHandle);
             commandContext->set_uav(3, m_visibleObjectCountBufferHandle);
 
-            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
+            const uint32_t groupCountX = (frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
 
             {
@@ -168,7 +171,7 @@ namespace Cue
         }
 
     private:
-        const RenderFrameState& m_frameState;
+        const RenderSceneState& m_renderSceneState;
         RHI::BufferHandle m_objectInfoBufferHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};

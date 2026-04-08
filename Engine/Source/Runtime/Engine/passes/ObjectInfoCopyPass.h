@@ -11,8 +11,8 @@ namespace Cue
     class ObjectInfoCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit ObjectInfoCopyPass(const RenderFrameState& a_frameState)
-            : m_frameState(a_frameState)
+        explicit ObjectInfoCopyPass(const RenderSceneState& a_renderSceneState)
+            : m_renderSceneState(a_renderSceneState)
         {}
 
         const char* name() const noexcept override { return "ObjectInfoCopy"; }
@@ -29,7 +29,9 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            if (!m_objectInfoBufferHandle.valid() || m_frameState.objectCount == 0)
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+            if (!m_objectInfoBufferHandle.valid() || frameState.objectCount == 0)
             {
                 return;
             }
@@ -47,7 +49,7 @@ namespace Cue
             region.dstBufferHandle = m_objectInfoBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
-            region.byteSize = static_cast<uint64_t>(m_frameState.objectCount) *
+            region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
                 sizeof(GpuData::ObjectInfo);
 
             RHI::ResourceBarrierDesc toCopyDestBarrier{};
@@ -72,7 +74,7 @@ namespace Cue
         }
 
     private:
-        const RenderFrameState& m_frameState;
+        const RenderSceneState& m_renderSceneState;
         RHI::BufferHandle m_objectInfoBufferHandle{};
     };
 } // namespace Cue

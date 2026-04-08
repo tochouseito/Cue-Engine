@@ -11,8 +11,8 @@ namespace Cue
     class StaticMeshBatchingPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit StaticMeshBatchingPass(const RenderFrameState& a_frameState)
-            : m_frameState(a_frameState)
+        explicit StaticMeshBatchingPass(const RenderSceneState& a_renderSceneState)
+            : m_renderSceneState(a_renderSceneState)
         {}
 
         const char* name() const noexcept override { return "StaticMeshBatching"; }
@@ -126,6 +126,9 @@ namespace Cue
                 return;
             }
 
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+
             const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 
             {
@@ -164,7 +167,7 @@ namespace Cue
 
             commandContext->clear_unordered_access_uint(
                 m_indirectCommandCountBufferUavHandle, clearValues);
-            if (m_frameState.objectCount == 0)
+            if (frameState.objectCount == 0)
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::Common;
@@ -183,12 +186,12 @@ namespace Cue
             commandContext->set_uav(4, m_indirectCommandBufferHandle);
             commandContext->set_uav(5, m_indirectCommandCountBufferHandle);
 
-            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
+            const uint32_t groupCountX = (frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
         }
 
     private:
-        const RenderFrameState& m_frameState;
+        const RenderSceneState& m_renderSceneState;
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_meshRangeBufferHandle{};

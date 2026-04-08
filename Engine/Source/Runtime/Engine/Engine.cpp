@@ -72,7 +72,8 @@ namespace Cue
         }
 
         m_gameCore = std::make_unique<GameCore>();
-        result = m_gameCore->initialize(bufferManager, viewManager);
+        result = m_gameCore->initialize(
+            bufferManager, viewManager, m_backend->buffer_count());
         if (!result)
         {
             return result;
@@ -246,15 +247,15 @@ namespace Cue
         }
 
         m_frameGraph->add_pass(std::make_unique<ObjectInfoCopyPass>(
-            m_gameCore->render_scene_state().frameState));
+            m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_gameCore->render_scene_state().frameState));
+            m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_gameCore->render_scene_state().frameState));
+            m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_gameCore->render_scene_state().frameState));
+            m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_gameCore->render_scene_state().frameState, cubeIndexCount));
+            m_gameCore->render_scene_state(), cubeIndexCount));
         result = m_frameGraph->build();
         if (!result)
         {

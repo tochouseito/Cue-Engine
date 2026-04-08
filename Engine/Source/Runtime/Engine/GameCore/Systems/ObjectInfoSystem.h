@@ -3,12 +3,15 @@
 // === Base includes ===
 #include <CueAssert.h>
 
+// === RHI includes ===
+#include <RHI.h>
+
 // === ECS includes ===
 #include <ECSManager.h>
 
 // === Engine includes ===
+#include <GpuData/Batching.h>
 #include <GameCore/Components.h>
-#include <GameCore/RenderSceneState.h>
 
 namespace Cue::ECS
 {

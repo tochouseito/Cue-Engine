@@ -2,9 +2,19 @@
 
 namespace Cue
 {
+    void GameCore::sync_render_scene_state(uint32_t a_bufferIndex) noexcept
+    {
+        if (a_bufferIndex >= m_renderSceneState.frameStates.size())
+        {
+            return;
+        }
+
+        m_renderSceneState.frame_state(a_bufferIndex).objectCount = m_objectCount;
+    }
+
     Math::float3 GameCore::make_spawn_position() const noexcept
     {
-        const size_t objectIndex = m_entities.size();
+        const size_t objectIndex = m_objectCount;
         const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
         const uint32_t row = static_cast<uint32_t>(objectIndex / 3u);
 
@@ -17,7 +27,7 @@ namespace Cue
 
     void GameCore::rebuild_object_indices()
     {
-        for (size_t entityIndex = 0; entityIndex < m_entities.size(); ++entityIndex)
+        for (size_t entityIndex = 0; entityIndex < m_objectCount; ++entityIndex)
         {
             ECS::ObjectInfoComponent* objectInfo =
                 m_ecsManager->get_component<ECS::ObjectInfoComponent>(m_entities[entityIndex]);
@@ -34,8 +44,14 @@ namespace Cue
     }
 
     Result GameCore::initialize(RHI::IBufferManager* a_bufferManager,
-        RHI::IViewManager* a_viewManager)
+        RHI::IViewManager* a_viewManager, uint32_t a_bufferCount)
     {
+        m_objectCount = 0;
+        m_renderSceneState.resize(a_bufferCount);
+        for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
+        {
+            sync_render_scene_state(bufferIndex);
+        }
         m_worldResources =
             std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
 
@@ -56,7 +72,9 @@ namespace Cue
 
     Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex)
     {
-        for (size_t entityIndex = 0; entityIndex < m_entities.size(); ++entityIndex)
+        sync_render_scene_state(a_bufferIndex);
+
+        for (size_t entityIndex = 0; entityIndex < m_objectCount; ++entityIndex)
         {
             ECS::TransformComponent* transform =
                 m_ecsManager->get_component<ECS::TransformComponent>(m_entities[entityIndex]);
@@ -109,7 +127,7 @@ namespace Cue
                 "Failed to add required components for object.");
         }
 
-        const uint32_t objectIndex = static_cast<uint32_t>(m_entities.size());
+        const uint32_t objectIndex = m_objectCount;
         objectInfo->objectId = objectIndex;
         objectInfo->meshId = 0;
         objectInfo->transformId = objectIndex;
@@ -120,13 +138,19 @@ namespace Cue
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
 
         m_entities.push_back(entity);
+        ++m_objectCount;
+        for (uint32_t bufferIndex = 0;
+             bufferIndex < m_renderSceneState.frameStates.size(); ++bufferIndex)
+        {
+            sync_render_scene_state(bufferIndex);
+        }
 
         return Result::ok();
     }
 
     Result GameCore::remove_object(uint32_t objectId)
     {
-        if (objectId >= m_entities.size())
+        if (objectId >= m_objectCount)
         {
             return Result::fail(
                 Code::NotFound,
@@ -138,7 +162,13 @@ namespace Cue
         const ECS::Entity entity = m_entities[objectIndex];
         m_ecsManager->remove_entity(entity);
         m_entities.erase(m_entities.begin() + static_cast<std::ptrdiff_t>(objectIndex));
+        --m_objectCount;
         rebuild_object_indices();
+        for (uint32_t bufferIndex = 0;
+             bufferIndex < m_renderSceneState.frameStates.size(); ++bufferIndex)
+        {
+            sync_render_scene_state(bufferIndex);
+        }
 
         return Result::ok();
     }

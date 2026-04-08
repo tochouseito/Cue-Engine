@@ -11,7 +11,7 @@
 
 // === Engine includes ===
 #include <GameCore/Components.h>
-#include <GameCore/RenderSceneState.h>
+#include <GpuData/Transform.h>
 
 namespace Cue::ECS
 {

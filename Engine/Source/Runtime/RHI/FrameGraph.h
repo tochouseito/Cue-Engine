@@ -86,6 +86,7 @@ namespace Cue::RHI
 
         const uint32_t width() const noexcept { return m_desc.width; }
         const uint32_t height() const noexcept { return m_desc.height; }
+        const uint32_t frame_index() const noexcept { return m_desc.frameIndex; }
         ICommandContext* commandContext() const noexcept { return m_desc.commandContext; }
     private:
         FrameGraphContextDesc m_desc{};

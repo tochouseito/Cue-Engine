@@ -14,9 +14,9 @@ namespace Cue
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
     public:
-        StaticMeshForwardPass(const RenderFrameState& a_frameState,
+        StaticMeshForwardPass(const RenderSceneState& a_renderSceneState,
             uint32_t a_indexCountPerInstance)
-            : m_frameState(a_frameState),
+            : m_renderSceneState(a_renderSceneState),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -182,6 +182,9 @@ namespace Cue
                 return;
             }
 
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::RenderTarget;
@@ -226,10 +229,10 @@ namespace Cue
             commandContext->set_srv(6, m_meshRangeBufferHandle);
             commandContext->set_srv(7, m_visibleObjectCountBufferHandle);
 
-            if (m_indexCountPerInstance > 0 && m_frameState.objectCount > 0)
+            if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
             {
                 commandContext->draw_instanced(m_indexCountPerInstance,
-                    m_frameState.objectCount, 0, 0);
+                    frameState.objectCount, 0, 0);
             }
 
             {
@@ -251,7 +254,7 @@ namespace Cue
     private:
         static constexpr Math::float4 k_clearColorVec = Math::float4::from_rgba8(63, 63, 63, 255);
 
-        const RenderFrameState& m_frameState;
+        const RenderSceneState& m_renderSceneState;
         uint32_t m_indexCountPerInstance = 0;
         RHI::TextureHandle m_finalColorHandle{};
         RHI::TextureHandle m_sceneDepthHandle{};
