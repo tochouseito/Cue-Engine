@@ -50,7 +50,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::update(float a_deltaTime)
+    Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex)
     {
         m_renderSceneState.frameState.objectCount = static_cast<uint32_t>(m_entities.size());
         m_renderSceneState.objectInfos.assign(m_entities.size(), {});

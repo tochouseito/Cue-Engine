@@ -27,7 +27,7 @@ namespace Cue
         ~GameCore() = default;
 
         Result initialize();
-        Result update(float a_deltaTime);
+        Result update(float a_deltaTime, const uint32_t a_bufferIndex);
 
         Result add_object();
         Result add_object(const Math::float3& a_position);
