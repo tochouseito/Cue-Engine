@@ -2,7 +2,7 @@
 
 namespace Cue::RHI::DX12
 {
-    Result DX12TextureManager::create_texture(const TextureDesc& desc, textureHandle& out)
+    Result DX12TextureManager::create_texture(const TextureDesc& desc, TextureHandle& out)
     {
         DX12TextureRecord record{};
 
@@ -88,7 +88,7 @@ namespace Cue::RHI::DX12
 
         // レコードの保存
         record.desc = desc;
-        textureHandle handle = m_textureRegistry.create(record);
+        TextureHandle handle = m_textureRegistry.create(record);
         if (!desc.name.empty())
         {
             m_nameToHandlesMap[Core::fnv1a64(desc.name)] = handle;
@@ -98,7 +98,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12TextureManager::destroy_texture(textureHandle handle)
+    Result DX12TextureManager::destroy_texture(TextureHandle handle)
     {
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
         Result result = Result::ok();
@@ -168,7 +168,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12TextureManager::get_texture(std::string_view name, textureHandle& out)
+    Result DX12TextureManager::get_texture(std::string_view name, TextureHandle& out)
     {
         if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
         {
@@ -184,7 +184,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    bool DX12TextureManager::try_get_record(textureHandle handle, DX12TextureRecord** outRecord)
+    bool DX12TextureManager::try_get_record(TextureHandle handle, DX12TextureRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
@@ -192,11 +192,11 @@ namespace Cue::RHI::DX12
         return *outRecord != nullptr;
     }
 
-    Result DX12TextureManager::register_external_texture(DX12TextureRecord& record, textureHandle& out)
+    Result DX12TextureManager::register_external_texture(DX12TextureRecord& record, TextureHandle& out)
     {
         // レコードの保存
         std::string name = record.desc.name;
-        textureHandle handle = m_textureRegistry.create(record);
+        TextureHandle handle = m_textureRegistry.create(record);
         if (!name.empty())
         {
             m_nameToHandlesMap[Core::fnv1a64(name)] = handle;

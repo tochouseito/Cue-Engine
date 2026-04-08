@@ -12,7 +12,7 @@ namespace Cue::ECS
     class ObjectInfoSystem final : public ECSManager::System<ObjectInfoComponent>
     {
     public:
-        explicit ObjectInfoSystem(RenderSceneState& a_renderSceneState)
+        explicit ObjectInfoSystem(RenderSceneState& a_renderSceneState, std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& a_objectInfoUploaders)
             : ECSManager::System<ObjectInfoComponent>(
                 [this](Entity a_entity, ObjectInfoComponent& a_objectInfo) {
                     update_component(a_entity, a_objectInfo);
@@ -23,8 +23,9 @@ namespace Cue::ECS
                 [this](Entity a_entity, ObjectInfoComponent& a_objectInfo) {
                     finalize_component(a_entity, a_objectInfo);
                 }),
-            m_renderSceneState(a_renderSceneState)
+            m_renderSceneState(a_renderSceneState), m_objectInfoUploaders(a_objectInfoUploaders)
         {}
+
 
     private:
         void update_component(Entity a_entity, ObjectInfoComponent& a_objectInfo)
@@ -57,5 +58,6 @@ namespace Cue::ECS
 
     private:
         RenderSceneState& m_renderSceneState;
+        std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& m_objectInfoUploaders;
     };
 } // namespace Cue::ECS

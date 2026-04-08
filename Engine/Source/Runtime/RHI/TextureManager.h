@@ -49,10 +49,10 @@ namespace Cue::RHI
         virtual ~ITextureManager() = default;
 
         // --- テクスチャの生成と破棄 ---
-        virtual Result create_texture(const TextureDesc& desc, textureHandle& out) = 0;
-        virtual Result destroy_texture(textureHandle handle) = 0;
+        virtual Result create_texture(const TextureDesc& desc, TextureHandle& out) = 0;
+        virtual Result destroy_texture(TextureHandle handle) = 0;
 
         // --- 名前からテクスチャハンドルの取得 ---
-        virtual Result get_texture(std::string_view name, textureHandle& out) = 0;
+        virtual Result get_texture(std::string_view name, TextureHandle& out) = 0;
     };
 }

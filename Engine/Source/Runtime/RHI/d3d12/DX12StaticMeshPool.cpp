@@ -374,7 +374,7 @@ namespace Cue::RHI::DX12
         std::string_view bufferName,
         BufferType bufferType,
         uint64_t byteSize,
-        bufferHandle& outBufferHandle,
+        BufferHandle& outBufferHandle,
         std::byte*& outMappedData)
     {
         outBufferHandle = {};
@@ -771,7 +771,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, staticMeshHandle& outHandle)
+    Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
     {
         // 1) 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ。
         outHandle = {};
@@ -1037,7 +1037,7 @@ namespace Cue::RHI::DX12
             record.nameId = Core::fnv1a64(meshData.name);
         }
 
-        staticMeshHandle handle = m_meshRegistry.create(record);
+        StaticMeshHandle handle = m_meshRegistry.create(record);
         if (record.nameId != 0)
         {
             m_nameToHandlesMap[record.nameId] = handle;
@@ -1047,7 +1047,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::free_mesh(staticMeshHandle handle)
+    Result DX12StaticMeshPool::free_mesh(StaticMeshHandle handle)
     {
         // 1) レコードを解決して、常駐領域と名前引きをまとめて巻き戻す。
         StaticMeshRecord record{};
@@ -1092,7 +1092,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::get_mesh_id(staticMeshHandle handle, uint32_t& outMeshId) const
+    Result DX12StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
     {
         StaticMeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))

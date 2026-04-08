@@ -96,7 +96,7 @@ namespace Cue::Editor
     private:
         Core::CQRS::Bridge* editorBridge = nullptr;
         RHI::DX12::D3D12Backend* m_backend = nullptr;
-        RHI::viewHandle m_finalColorSrvHandle{};
+        RHI::ViewHandle m_finalColorSrvHandle{};
         int removeObjectId = 0;
     };
 }

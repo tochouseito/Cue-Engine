@@ -111,10 +111,6 @@ namespace Cue
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
-        RHI::bufferHandle m_objectInfoBufferHandle{};
-        RHI::bufferHandle m_transformBufferHandle{};
-        std::vector<RHI::SlotUploader<GpuData::ObjectInfo>> m_objectInfoUploaders{};
-        std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
         std::unique_ptr<GameCore> m_gameCore = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
     };

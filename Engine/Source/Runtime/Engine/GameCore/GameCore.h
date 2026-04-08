@@ -12,6 +12,7 @@
 
 // === Engine includes ===
 #include "RenderSceneState.h"
+#include "WorldResources.h"
 
 // === C++ includes ===
 #include <memory>
@@ -43,6 +44,7 @@ namespace Cue
 
     private:
         std::unique_ptr<ECS::ECSManager> m_ecsManager = nullptr;
+        std::unique_ptr<WorldResources> m_worldResources = nullptr;
         RenderSceneState m_renderSceneState{};
         std::vector<ECS::Entity> m_entities{};
     };

@@ -50,32 +50,32 @@ namespace Cue::RHI::DX12
         void end_event() override;
 
         // --- Commands ---
-        Result resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc) override;
-        Result resource_barrier(textureHandle handle, const ResourceBarrierDesc desc) override;
+        Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) override;
+        Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) override;
         Result copy_buffer_region(const BufferCopyRegion& region) override;
-        Result clear_render_target(viewHandle handle, const float clearColor[4]) override;
-        Result clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil) override;
-        Result clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4]) override;
+        Result clear_render_target(ViewHandle handle, const float clearColor[4]) override;
+        Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) override;
+        Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
-        Result set_graphics_pipeline(pipelineStateHandle handle) override;
-        Result set_compute_pipeline(pipelineStateHandle handle) override;
+        Result set_graphics_pipeline(PipelineStateHandle handle) override;
+        Result set_compute_pipeline(PipelineStateHandle handle) override;
         Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) override;
-        Result set_cbv(uint32_t rootParameterIndex, bufferHandle handle) override;
-        Result set_srv(uint32_t rootParameterIndex, bufferHandle handle) override;
-        Result set_uav(uint32_t rootParameterIndex, bufferHandle handle) override;
-        Result set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle) override;
+        Result set_cbv(uint32_t rootParameterIndex, BufferHandle handle) override;
+        Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) override;
+        Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) override;
+        Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) override;
         Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
-        Result set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView) override;
+        Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
         Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
-        Result resolve_root_descriptor_buffer(bufferHandle handle, DX12GpuResource** outResource) const;
-        Result resolve_upload_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
-        Result resolve_default_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
+        Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
+        Result resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
+        Result resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
     private:
         DescriptorAllocator& m_descriptorAllocator; // デスクリプタアロケータへの参照
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照

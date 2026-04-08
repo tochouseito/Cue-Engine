@@ -169,14 +169,14 @@ namespace Cue
 
     private:
         const RenderFrameState& m_frameState;
-        RHI::bufferHandle m_objectInfoBufferHandle{};
-        RHI::bufferHandle m_renderObjectBufferHandle{};
-        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::viewHandle m_objectInfoBufferSrvHandle{};
-        RHI::viewHandle m_renderObjectBufferUavHandle{};
-        RHI::viewHandle m_visibleObjectCountBufferUavHandle{};
-        RHI::rootSignatureHandle m_rootSignatureHandle{};
-        RHI::shaderBlobHandle m_computeShaderHandle{};
-        RHI::pipelineStateHandle m_pipelineHandle{};
+        RHI::BufferHandle m_objectInfoBufferHandle{};
+        RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::ViewHandle m_objectInfoBufferSrvHandle{};
+        RHI::ViewHandle m_renderObjectBufferUavHandle{};
+        RHI::ViewHandle m_visibleObjectCountBufferUavHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_computeShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 } // namespace Cue

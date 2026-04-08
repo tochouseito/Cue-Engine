@@ -25,7 +25,7 @@ namespace Cue
     struct ModelAssetRecord final
     {
         Core::Native::ModelData modelData{};
-        std::vector<RHI::staticMeshHandle> staticMeshHandles{};
+        std::vector<RHI::StaticMeshHandle> staticMeshHandles{};
     };
 
     class AssetManager final
@@ -53,7 +53,7 @@ namespace Cue
             outData = record.modelData;
             return Result::ok();
         }
-        Result get_static_mesh_handle(ModelHandle handle, uint32_t meshIndex, RHI::staticMeshHandle& outHandle) const
+        Result get_static_mesh_handle(ModelHandle handle, uint32_t meshIndex, RHI::StaticMeshHandle& outHandle) const
         {
             ModelAssetRecord record{};
             if (!m_modelRegistry.try_copy_get(handle, record))
@@ -101,11 +101,11 @@ namespace Cue
             record.staticMeshHandles.reserve(record.modelData.meshes.size());
             for (const Core::Native::MeshData& meshData : record.modelData.meshes)
             {
-                RHI::staticMeshHandle staticMeshHandle{};
+                RHI::StaticMeshHandle staticMeshHandle{};
                 Result result = m_staticMeshPool->allocate_mesh(meshData, staticMeshHandle);
                 if (!result)
                 {
-                    for (RHI::staticMeshHandle allocatedHandle : record.staticMeshHandles)
+                    for (RHI::StaticMeshHandle allocatedHandle : record.staticMeshHandles)
                     {
                         m_staticMeshPool->free_mesh(allocatedHandle);
                     }

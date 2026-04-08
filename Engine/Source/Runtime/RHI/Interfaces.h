@@ -32,13 +32,13 @@ namespace Cue::RHI
     struct ShaderBlobTag {};
     struct StaticMeshTag {};
 
-    using bufferHandle = Core::Handle<BufferTag>;
-    using textureHandle = Core::Handle<TextureTag>;
-    using viewHandle = Core::Handle<ViewTag>;
-    using pipelineStateHandle = Core::Handle<PipelineTag>;
-    using rootSignatureHandle = Core::Handle<RootSignatureTag>;
-    using shaderBlobHandle = Core::Handle<ShaderBlobTag>;
-    using staticMeshHandle = Core::Handle<StaticMeshTag>;
+    using BufferHandle = Core::Handle<BufferTag>;
+    using TextureHandle = Core::Handle<TextureTag>;
+    using ViewHandle = Core::Handle<ViewTag>;
+    using PipelineStateHandle = Core::Handle<PipelineTag>;
+    using RootSignatureHandle = Core::Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Core::Handle<ShaderBlobTag>;
+    using StaticMeshHandle = Core::Handle<StaticMeshTag>;
 
     enum class CommandListType : uint8_t
     {
@@ -119,10 +119,10 @@ namespace Cue::RHI
 
     struct BufferCopyRegion final
     {
-        bufferHandle srcBufferHandle = {};
+        BufferHandle srcBufferHandle = {};
         uint32_t srcUploadResourceIndex = 0;
         uint64_t srcByteOffset = 0;
-        bufferHandle dstBufferHandle = {};
+        BufferHandle dstBufferHandle = {};
         uint32_t dstDefaultResourceIndex = 0;
         uint64_t dstByteOffset = 0;
         uint64_t byteSize = 0;
@@ -152,23 +152,23 @@ namespace Cue::RHI
         virtual void end_event() = 0;
 
         // --- Commaonds ---
-        virtual Result resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc) = 0;
-        virtual Result resource_barrier(textureHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
-        virtual Result clear_render_target(viewHandle handle, const float clearColor[4]) = 0;
-        virtual Result clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil) = 0;
-        virtual Result clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4]) = 0;
+        virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
+        virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
+        virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_primitive_topology(PrimitiveTopologyType topology) = 0;
-        virtual Result set_graphics_pipeline(pipelineStateHandle handle) = 0;
-        virtual Result set_compute_pipeline(pipelineStateHandle handle) = 0;
+        virtual Result set_graphics_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result set_compute_pipeline(PipelineStateHandle handle) = 0;
         virtual Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) = 0;
-        virtual Result set_cbv(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_srv(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_uav(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle) = 0;
+        virtual Result set_cbv(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) = 0;
         virtual Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
-        virtual Result set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView) = 0;
+        virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
         virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
         virtual Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) = 0;
     };

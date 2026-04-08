@@ -31,43 +31,43 @@ namespace Cue::RHI
         FrameGraphBuilder(FrameGraph& frameGraph) : m_frameGraph(frameGraph) {}
 
         /// @brief buffer 作成宣言
-        Result create_buffer(const BufferDesc& desc, bufferHandle& out);
+        Result create_buffer(const BufferDesc& desc, BufferHandle& out);
         /// @brief texture 作成宣言
-        Result create_texture(const TextureDesc& desc, textureHandle& out);
+        Result create_texture(const TextureDesc& desc, TextureHandle& out);
         /// @brief 宣言済み buffer 取得
-        Result get_buffer(std::string_view name, bufferHandle& out);
+        Result get_buffer(std::string_view name, BufferHandle& out);
         /// @brief 宣言済み texture 取得
-        Result get_texture(std::string_view name, textureHandle& out);
+        Result get_texture(std::string_view name, TextureHandle& out);
         /// @brief view 作成宣言
-        Result create_view(const ViewDesc& desc, viewHandle& out);
+        Result create_view(const ViewDesc& desc, ViewHandle& out);
         /// @brief 宣言済み view 取得
-        Result get_view(std::string_view name, viewHandle& out);
+        Result get_view(std::string_view name, ViewHandle& out);
         /// @brief ルートシグネチャ作成宣言
-        Result create_root_signature(const RootSignatureDesc& desc, rootSignatureHandle& out);
+        Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out);
         /// @brief 宣言済みルートシグネチャ取得
-        Result get_root_signature(std::string_view name, rootSignatureHandle& out);
+        Result get_root_signature(std::string_view name, RootSignatureHandle& out);
         /// @brief シェーダーブロブ作成宣言
-        Result create_shader_blob(const ShaderCompileDesc& desc, shaderBlobHandle& out);
+        Result create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out);
         /// @brief 宣言済みシェーダーブロブ取得
-        Result get_shader_blob(std::string_view name, shaderBlobHandle& out);
+        Result get_shader_blob(std::string_view name, ShaderBlobHandle& out);
         /// @brief グラフィックスパイプライン作成宣言
-        Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, pipelineStateHandle& out);
+        Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out);
         /// @brief 宣言済みグラフィックスパイプライン取得
-        Result get_graphics_pipeline(std::string_view name, pipelineStateHandle& out);
+        Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out);
         /// @brief コンピュートパイプライン作成宣言
-        Result create_compute_pipeline(const ComputePipelineStateDesc& desc, pipelineStateHandle& out);
+        Result create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out);
         /// @brief 宣言済みコンピュートパイプライン取得
-        Result get_compute_pipeline(std::string_view name, pipelineStateHandle& out);
+        Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out);
 
         /// @brief render target 書き込み宣言
-        Result render(const textureHandle* handles, size_t count);
+        Result render(const TextureHandle* handles, size_t count);
 
         uint32_t width() const noexcept;
         uint32_t height() const noexcept;
         const uint32_t& buffer_count() const noexcept;
     private:
         FrameGraph& m_frameGraph;
-        std::vector<textureHandle> m_renderTargets;
+        std::vector<TextureHandle> m_renderTargets;
     };
 
     struct FrameGraphContextDesc final

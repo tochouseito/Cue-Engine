@@ -253,21 +253,21 @@ namespace Cue
 
         const RenderFrameState& m_frameState;
         uint32_t m_indexCountPerInstance = 0;
-        RHI::textureHandle m_finalColorHandle{};
-        RHI::textureHandle m_sceneDepthHandle{};
-        RHI::viewHandle m_finalColorRtvHandle{};
-        RHI::viewHandle m_sceneDepthDsvHandle{};
-        RHI::bufferHandle m_renderObjectBufferHandle{};
-        RHI::bufferHandle m_transformBufferHandle{};
-        RHI::bufferHandle m_positionBufferHandle{};
-        RHI::bufferHandle m_uvBufferHandle{};
-        RHI::bufferHandle m_normalBufferHandle{};
-        RHI::bufferHandle m_indexBufferHandle{};
-        RHI::bufferHandle m_meshRangeBufferHandle{};
-        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::rootSignatureHandle m_rootSignatureHandle{};
-        RHI::shaderBlobHandle m_vertexShaderHandle{};
-        RHI::shaderBlobHandle m_pixelShaderHandle{};
-        RHI::pipelineStateHandle m_pipelineHandle{};
+        RHI::TextureHandle m_finalColorHandle{};
+        RHI::TextureHandle m_sceneDepthHandle{};
+        RHI::ViewHandle m_finalColorRtvHandle{};
+        RHI::ViewHandle m_sceneDepthDsvHandle{};
+        RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_transformBufferHandle{};
+        RHI::BufferHandle m_positionBufferHandle{};
+        RHI::BufferHandle m_uvBufferHandle{};
+        RHI::BufferHandle m_normalBufferHandle{};
+        RHI::BufferHandle m_indexBufferHandle{};
+        RHI::BufferHandle m_meshRangeBufferHandle{};
+        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_vertexShaderHandle{};
+        RHI::ShaderBlobHandle m_pixelShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 } // namespace Cue

@@ -40,7 +40,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DX12ViewManager::create_view(const ViewDesc& desc, viewHandle& out)
+    Result DX12ViewManager::create_view(const ViewDesc& desc, ViewHandle& out)
     {
         DX12ViewRecord record{};
         record.desc = desc;
@@ -121,7 +121,7 @@ namespace Cue::RHI::DX12
         }
 
         // レジストリに登録する
-        viewHandle handle = m_viewRegistry.create(record);
+        ViewHandle handle = m_viewRegistry.create(record);
 
         // 名前マップに登録する
         if (!desc.name.empty())
@@ -132,7 +132,7 @@ namespace Cue::RHI::DX12
         out = handle;
         return Result::ok();
     }
-    Result DX12ViewManager::destroy_view(viewHandle handle)
+    Result DX12ViewManager::destroy_view(ViewHandle handle)
     {
         // ハンドルの有効性を検査する
         if (!handle.valid())
@@ -164,7 +164,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    bool DX12ViewManager::try_get_record(viewHandle handle, DX12ViewRecord** outRecord)
+    bool DX12ViewManager::try_get_record(ViewHandle handle, DX12ViewRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
@@ -301,7 +301,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12ViewManager::get_view(std::string_view name, viewHandle& out)
+    Result DX12ViewManager::get_view(std::string_view name, ViewHandle& out)
     {
         if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
         {

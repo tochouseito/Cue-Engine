@@ -179,7 +179,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(viewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
+    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
     {
         D3D12_GPU_DESCRIPTOR_HANDLE result{};
         if (!m_viewManager || !m_descriptorAllocator || !a_viewHandle.valid())

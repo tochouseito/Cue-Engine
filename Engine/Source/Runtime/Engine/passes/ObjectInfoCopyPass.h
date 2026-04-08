@@ -73,6 +73,6 @@ namespace Cue
 
     private:
         const RenderFrameState& m_frameState;
-        RHI::bufferHandle m_objectInfoBufferHandle{};
+        RHI::BufferHandle m_objectInfoBufferHandle{};
     };
 } // namespace Cue

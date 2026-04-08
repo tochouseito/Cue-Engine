@@ -64,9 +64,6 @@ namespace Cue
                 "Failed to get buffer manager from backend.");
         }
 
-        constexpr uint32_t k_maxObjectCount =
-            1000; // TODO: 実際のオブジェクト数管理へ置き換える
-
         m_gameCore = std::make_unique<GameCore>();
         result = m_gameCore->initialize();
         if (!result)
@@ -92,108 +89,6 @@ namespace Cue
             return result;
         }
 
-        RHI::BufferDesc objectInfoBufferDesc{};
-        objectInfoBufferDesc.name = "ObjectInfoBuffer";
-        objectInfoBufferDesc.type = RHI::BufferType::Structured;
-        objectInfoBufferDesc.defaultHeapCount = 1;
-        objectInfoBufferDesc.uploadHeapCount = 1;
-        objectInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
-        objectInfoBufferDesc.stride = sizeof(GpuData::ObjectInfo);
-        objectInfoBufferDesc.elementCount = k_maxObjectCount;
-        objectInfoBufferDesc.size =
-            objectInfoBufferDesc.stride * objectInfoBufferDesc.elementCount;
-        objectInfoBufferDesc.alignment = alignof(GpuData::ObjectInfo);
-        RHI::bufferHandle objectInfoBufferHandle{};
-        result = bufferManager->create_buffer(objectInfoBufferDesc,
-            objectInfoBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-        m_objectInfoBufferHandle = objectInfoBufferHandle;
-        result = bufferManager->create_slot_uploaders(objectInfoBufferHandle, 1,
-            m_objectInfoUploaders);
-        if (!result)
-        {
-            return result;
-        }
-        if (m_objectInfoUploaders.size() != 1)
-        {
-            return Result::fail(Code::InternalError, Severity::Fatal,
-                "ObjectInfoBuffer uploader was not created.");
-        }
-
-        RHI::BufferDesc transformBufferDesc{};
-        transformBufferDesc.name = "TransformBuffer";
-        transformBufferDesc.type = RHI::BufferType::Structured;
-        transformBufferDesc.defaultHeapCount = 1;
-        transformBufferDesc.uploadHeapCount = 1;
-        transformBufferDesc.initialState = RHI::ResourceState::ShaderResource;
-        transformBufferDesc.stride = sizeof(GpuData::ObjectTransformGpu);
-        transformBufferDesc.elementCount = k_maxObjectCount;
-        transformBufferDesc.size =
-            transformBufferDesc.stride * transformBufferDesc.elementCount;
-        transformBufferDesc.alignment = alignof(GpuData::ObjectTransformGpu);
-        RHI::bufferHandle transformBufferHandle{};
-        result =
-            bufferManager->create_buffer(transformBufferDesc, transformBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        result = bufferManager->create_slot_uploaders(transformBufferHandle, 1,
-            m_transformUploaders);
-        if (!result)
-        {
-            return result;
-        }
-        if (m_transformUploaders.size() != 1)
-        {
-            return Result::fail(Code::InternalError, Severity::Fatal,
-                "TransformBuffer uploader was not created.");
-        }
-
-        m_transformBufferHandle = transformBufferHandle;
-
-        RHI::BufferDesc renderObjectBufferDesc{};
-        renderObjectBufferDesc.name = "RenderObjectBuffer";
-        renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
-        renderObjectBufferDesc.defaultHeapCount = 1;
-        renderObjectBufferDesc.uploadHeapCount = 0;
-        renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-        renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
-        renderObjectBufferDesc.elementCount = k_maxObjectCount;
-        renderObjectBufferDesc.size =
-            renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
-        renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
-        RHI::bufferHandle renderObjectBufferHandle{};
-        result = bufferManager->create_buffer(renderObjectBufferDesc,
-            renderObjectBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc renderObjectCountBufferDesc{};
-        renderObjectCountBufferDesc.name = "VisibleObjectCountBuffer";
-        renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
-        renderObjectCountBufferDesc.defaultHeapCount = 1;
-        renderObjectCountBufferDesc.uploadHeapCount = 1;
-        renderObjectCountBufferDesc.initialState =
-            RHI::ResourceState::UnorderedAccess;
-        renderObjectCountBufferDesc.stride = sizeof(uint32_t);
-        renderObjectCountBufferDesc.elementCount = 1;
-        renderObjectCountBufferDesc.size = sizeof(uint32_t);
-        renderObjectCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::bufferHandle renderObjectCountBufferHandle{};
-        result = bufferManager->create_buffer(renderObjectCountBufferDesc,
-            renderObjectCountBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
         RHI::BufferDesc indirectCommandBufferDesc{};
         indirectCommandBufferDesc.name = "IndirectCommandBuffer";
         indirectCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
@@ -205,7 +100,7 @@ namespace Cue
         indirectCommandBufferDesc.size =
             indirectCommandBufferDesc.stride * indirectCommandBufferDesc.elementCount;
         indirectCommandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
-        RHI::bufferHandle indirectCommandBufferHandle{};
+        RHI::BufferHandle indirectCommandBufferHandle{};
         result = bufferManager->create_buffer(indirectCommandBufferDesc,
             indirectCommandBufferHandle);
         if (!result)
@@ -224,7 +119,7 @@ namespace Cue
         indirectCommandCountBufferDesc.elementCount = 1;
         indirectCommandCountBufferDesc.size = sizeof(uint32_t);
         indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::bufferHandle indirectCommandCountBufferHandle{};
+        RHI::BufferHandle indirectCommandCountBufferHandle{};
         result = bufferManager->create_buffer(indirectCommandCountBufferDesc,
             indirectCommandCountBufferHandle);
         if (!result)
@@ -239,54 +134,6 @@ namespace Cue
                 "Failed to get view manager from backend.");
         }
 
-        RHI::ViewDesc objectInfoBufferSrvDesc{};
-        objectInfoBufferSrvDesc.name = "ObjectInfoBufferSRV";
-        objectInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
-        objectInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
-        objectInfoBufferSrvDesc.bufferHandle = objectInfoBufferHandle;
-        objectInfoBufferSrvDesc.firstElement = 0;
-        objectInfoBufferSrvDesc.numElements = objectInfoBufferDesc.elementCount;
-        objectInfoBufferSrvDesc.structureByteStride = objectInfoBufferDesc.stride;
-        RHI::viewHandle objectInfoBufferSrvHandle{};
-        result = viewManager->create_view(objectInfoBufferSrvDesc,
-            objectInfoBufferSrvHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::ViewDesc transformBufferSrvDesc{};
-        transformBufferSrvDesc.name = "TransformBufferSRV";
-        transformBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
-        transformBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
-        transformBufferSrvDesc.bufferHandle = transformBufferHandle;
-        transformBufferSrvDesc.firstElement = 0;
-        transformBufferSrvDesc.numElements = transformBufferDesc.elementCount;
-        transformBufferSrvDesc.structureByteStride = transformBufferDesc.stride;
-        RHI::viewHandle transformBufferSrvHandle{};
-        result = viewManager->create_view(transformBufferSrvDesc,
-            transformBufferSrvHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::ViewDesc renderObjectBufferUavDesc{};
-        renderObjectBufferUavDesc.name = "RenderObjectBufferUAV";
-        renderObjectBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
-        renderObjectBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        renderObjectBufferUavDesc.bufferHandle = renderObjectBufferHandle;
-        renderObjectBufferUavDesc.firstElement = 0;
-        renderObjectBufferUavDesc.numElements = renderObjectBufferDesc.elementCount;
-        renderObjectBufferUavDesc.structureByteStride = renderObjectBufferDesc.stride;
-        RHI::viewHandle renderObjectBufferUavHandle{};
-        result = viewManager->create_view(renderObjectBufferUavDesc,
-            renderObjectBufferUavHandle);
-        if (!result)
-        {
-            return result;
-        }
-
         RHI::ViewDesc indirectCommandBufferUavDesc{};
         indirectCommandBufferUavDesc.name = "IndirectCommandBufferUAV";
         indirectCommandBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
@@ -297,7 +144,7 @@ namespace Cue
             indirectCommandBufferDesc.elementCount;
         indirectCommandBufferUavDesc.structureByteStride =
             indirectCommandBufferDesc.stride;
-        RHI::viewHandle indirectCommandBufferUavHandle{};
+        RHI::ViewHandle indirectCommandBufferUavHandle{};
         result = viewManager->create_view(indirectCommandBufferUavDesc,
             indirectCommandBufferUavHandle);
         if (!result)
@@ -315,25 +162,9 @@ namespace Cue
         indirectCommandCountBufferUavDesc.firstElement = 0;
         indirectCommandCountBufferUavDesc.numElements =
             indirectCommandCountBufferDesc.size / sizeof(uint32_t);
-        RHI::viewHandle indirectCommandCountBufferUavHandle{};
+        RHI::ViewHandle indirectCommandCountBufferUavHandle{};
         result = viewManager->create_view(indirectCommandCountBufferUavDesc,
             indirectCommandCountBufferUavHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::ViewDesc renderObjectCountBufferUavDesc{};
-        renderObjectCountBufferUavDesc.name = "VisibleObjectCountBufferUAV";
-        renderObjectCountBufferUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-        renderObjectCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        renderObjectCountBufferUavDesc.bufferHandle = renderObjectCountBufferHandle;
-        renderObjectCountBufferUavDesc.firstElement = 0;
-        renderObjectCountBufferUavDesc.numElements =
-            renderObjectCountBufferDesc.size / sizeof(uint32_t);
-        RHI::viewHandle renderObjectCountBufferUavHandle{};
-        result = viewManager->create_view(renderObjectCountBufferUavDesc,
-            renderObjectCountBufferUavHandle);
         if (!result)
         {
             return result;
@@ -352,7 +183,7 @@ namespace Cue
         finalColorDesc.clearColor[1] = clearColor.g;
         finalColorDesc.clearColor[2] = clearColor.b;
         finalColorDesc.clearColor[3] = clearColor.a;
-        RHI::textureHandle finalColorHandle{};
+        RHI::TextureHandle finalColorHandle{};
         auto textureManager = m_backend->get_texture_manager();
         textureManager->create_texture(finalColorDesc, finalColorHandle);
         RHI::ViewDesc finalColorRtvDesc{};
@@ -361,7 +192,7 @@ namespace Cue
         finalColorRtvDesc.bufferKind = RHI::BufferKind::Texture;
         finalColorRtvDesc.textureHandle = finalColorHandle;
         finalColorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
-        RHI::viewHandle finalColorRtvHandle{};
+        RHI::ViewHandle finalColorRtvHandle{};
         viewManager->create_view(finalColorRtvDesc, finalColorRtvHandle);
         RHI::ViewDesc finalColorSrvDesc{};
         finalColorSrvDesc.name = "FinalColorSRV";
@@ -370,7 +201,7 @@ namespace Cue
         finalColorSrvDesc.textureHandle = finalColorHandle;
         finalColorSrvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
         finalColorSrvDesc.mipLevels = 1;
-        RHI::viewHandle finalColorSrvHandle{};
+        RHI::ViewHandle finalColorSrvHandle{};
         viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
 
         RHI::TextureDesc sceneDepthDesc{};
@@ -382,7 +213,7 @@ namespace Cue
         sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
         sceneDepthDesc.clearDepth = 1.0f;
         sceneDepthDesc.clearStencil = 0;
-        RHI::textureHandle sceneDepthHandle{};
+        RHI::TextureHandle sceneDepthHandle{};
         result = textureManager->create_texture(sceneDepthDesc, sceneDepthHandle);
         if (!result)
         {
@@ -395,7 +226,7 @@ namespace Cue
         sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
         sceneDepthDsvDesc.textureHandle = sceneDepthHandle;
         sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-        RHI::viewHandle sceneDepthDsvHandle{};
+        RHI::ViewHandle sceneDepthDsvHandle{};
         result = viewManager->create_view(sceneDepthDsvDesc, sceneDepthDsvHandle);
         if (!result)
         {

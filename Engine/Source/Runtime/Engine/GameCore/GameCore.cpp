@@ -35,9 +35,18 @@ namespace Cue
 
     Result GameCore::initialize()
     {
+        m_worldResources = std::make_unique<WorldResources>();
+
+        constexpr uint32_t k_maxObjectCount = 1000;
+        m_worldResources->create_object_info_buffer(k_maxObjectCount);
+        m_worldResources->create_transform_buffer(k_maxObjectCount);
+        m_worldResources->create_render_object_buffer(k_maxObjectCount);
+        m_worldResources->create_object_count_buffer();
+
         m_ecsManager = std::make_unique<ECS::ECSManager>();
-        m_ecsManager->add_system<ECS::ObjectInfoSystem>(m_renderSceneState);
-        m_ecsManager->add_system<ECS::TransformSystem>(m_renderSceneState);
+        m_ecsManager->add_system<ECS::ObjectInfoSystem>(m_renderSceneState, m_worldResources->object_info_uploaders());
+        m_ecsManager->add_system<ECS::TransformSystem>(m_renderSceneState, m_worldResources->transform_uploaders());
+        
         return Result::ok();
     }
 

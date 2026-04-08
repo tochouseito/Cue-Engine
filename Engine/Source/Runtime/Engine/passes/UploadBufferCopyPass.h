@@ -82,6 +82,6 @@ namespace Cue
         std::string m_bufferName{};
         std::string m_passName{};
         uint64_t m_copyByteSize = 0;
-        RHI::bufferHandle m_bufferHandle{};
+        RHI::BufferHandle m_bufferHandle{};
     };
 }

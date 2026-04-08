@@ -162,7 +162,7 @@ namespace Cue::RHI::DX12
         // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
         m_commandList->EndEvent();
     }
-    Result DX12GpuCommandContext::resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12BufferRecord* record = nullptr;
@@ -211,7 +211,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resource_barrier(textureHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12TextureRecord* record = nullptr;
@@ -308,7 +308,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_render_target(viewHandle handle, const float clearColor[4])
+    Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -344,7 +344,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil)
+    Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -387,7 +387,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4])
+    Result DX12GpuCommandContext::clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4])
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -546,7 +546,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_pipeline(pipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_graphics_pipeline(PipelineStateHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -578,7 +578,7 @@ namespace Cue::RHI::DX12
         m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_compute_pipeline(pipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -631,7 +631,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -668,7 +668,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -705,7 +705,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -742,7 +742,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle)
+    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -787,7 +787,7 @@ namespace Cue::RHI::DX12
         m_commandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView)
+    Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
     {
         // queue 種別を検証して OM state を設定する。
         if (type() != CommandListType::Graphics)
@@ -956,7 +956,7 @@ namespace Cue::RHI::DX12
         outIndex = m_frameIndex;
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(bufferHandle handle, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1006,7 +1006,7 @@ namespace Cue::RHI::DX12
             Severity::Error,
             "No bindable buffer resource was found for the given handle.");
     }
-    Result DX12GpuCommandContext::resolve_upload_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1029,7 +1029,7 @@ namespace Cue::RHI::DX12
         *outResource = const_cast<DX12GpuResource*>(&record->uploadResources[resourceIndex]);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resolve_default_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 

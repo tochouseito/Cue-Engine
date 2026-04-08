@@ -33,12 +33,12 @@ namespace Cue::RHI
 
     struct StaticMeshPoolBindings final
     {
-        bufferHandle positionBuffer = {};
-        bufferHandle uvBuffer = {};
-        bufferHandle normalBuffer = {};
-        bufferHandle indexBuffer = {};
-        bufferHandle meshRangeBuffer = {};
-        viewHandle meshRangeSrv = {};
+        BufferHandle positionBuffer = {};
+        BufferHandle uvBuffer = {};
+        BufferHandle normalBuffer = {};
+        BufferHandle indexBuffer = {};
+        BufferHandle meshRangeBuffer = {};
+        ViewHandle meshRangeSrv = {};
     };
 
     class IStaticMeshPool
@@ -54,9 +54,9 @@ namespace Cue::RHI
         virtual ~IStaticMeshPool() = default;
 
         // --- Mesh の割り当てと解放 ---
-        virtual Result allocate_mesh(const Core::Native::MeshData& meshData, staticMeshHandle& outHandle) = 0;
-        virtual Result free_mesh(staticMeshHandle handle) = 0;
-        virtual Result get_mesh_id(staticMeshHandle handle, uint32_t& outMeshId) const = 0;
+        virtual Result allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle) = 0;
+        virtual Result free_mesh(StaticMeshHandle handle) = 0;
+        virtual Result get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const = 0;
         virtual Result get_bindings(StaticMeshPoolBindings& outBindings) const = 0;
     };
 }

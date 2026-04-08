@@ -144,8 +144,8 @@ namespace Cue::Editor
         static constexpr Math::float4 k_finalColorClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         ImGuiManager& m_imguiManager;
-        RHI::textureHandle m_backBufferHandle{};
-        RHI::viewHandle m_backBufferRtvHandle{};
-        RHI::viewHandle m_finalColorSrvHandle{};
+        RHI::TextureHandle m_backBufferHandle{};
+        RHI::ViewHandle m_backBufferRtvHandle{};
+        RHI::ViewHandle m_finalColorSrvHandle{};
     };
 }

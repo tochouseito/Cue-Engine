@@ -43,8 +43,8 @@ namespace Cue::RHI::DX12
     {
         std::string debugName{};
         BufferType bufferType = BufferType::Unknown;
-        bufferHandle defaultBufferHandle = {};
-        bufferHandle stagingBufferHandle = {};
+        BufferHandle defaultBufferHandle = {};
+        BufferHandle stagingBufferHandle = {};
         std::vector<FreeRange> freeRanges{};
         Core::RingBuffer stagingRing{};
         std::byte* mappedStagingData = nullptr;
@@ -56,9 +56,9 @@ namespace Cue::RHI::DX12
     struct MeshRangeState final
     {
         std::string debugName{};
-        bufferHandle defaultBufferHandle = {};
-        bufferHandle stagingBufferHandle = {};
-        viewHandle srvHandle = {};
+        BufferHandle defaultBufferHandle = {};
+        BufferHandle stagingBufferHandle = {};
+        ViewHandle srvHandle = {};
         Core::RingBuffer stagingRing{};
         std::byte* mappedStagingData = nullptr;
         uint64_t stagingCapacityInBytes = 0;
@@ -68,7 +68,7 @@ namespace Cue::RHI::DX12
 
     struct UploadAllocation final
     {
-        bufferHandle bufferHandle = {};
+        BufferHandle bufferHandle = {};
         std::byte* mappedData = nullptr;
         uint64_t byteOffset = 0;
         uint64_t byteSize = 0;
@@ -92,9 +92,9 @@ namespace Cue::RHI::DX12
             DX12QueuePool& queuePool);
         ~DX12StaticMeshPool() override;
 
-        Result allocate_mesh(const Core::Native::MeshData& meshData, staticMeshHandle& outHandle) override;
-        Result free_mesh(staticMeshHandle handle) override;
-        Result get_mesh_id(staticMeshHandle handle, uint32_t& outMeshId) const override;
+        Result allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle) override;
+        Result free_mesh(StaticMeshHandle handle) override;
+        Result get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const override;
         Result get_bindings(StaticMeshPoolBindings& outBindings) const override;
     private:
         Result initialize_streams(const StaticMeshPoolDesc& desc);
@@ -112,7 +112,7 @@ namespace Cue::RHI::DX12
             std::string_view bufferName,
             BufferType bufferType,
             uint64_t byteSize,
-            bufferHandle& outBufferHandle,
+            BufferHandle& outBufferHandle,
             std::byte*& outMappedData);
         Result allocate_stream_range(
             StreamState& streamState,
@@ -155,7 +155,7 @@ namespace Cue::RHI::DX12
         DX12CommandPool& m_commandPool;
         DX12QueuePool& m_queuePool;
         Core::Registry<StaticMeshTag, StaticMeshRecord> m_meshRegistry;
-        std::unordered_map<Core::ResourceNameId, staticMeshHandle> m_nameToHandlesMap;
+        std::unordered_map<Core::ResourceNameId, StaticMeshHandle> m_nameToHandlesMap;
         StreamState m_positionStream{};
         StreamState m_uvStream{};
         StreamState m_normalStream{};
