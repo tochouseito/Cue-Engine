@@ -1,5 +1,8 @@
 #pragma once
 
+// === Base includes ===
+#include <CueAssert.h>
+
 // === ECS includes ===
 #include <ECSManager.h>
 

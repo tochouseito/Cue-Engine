@@ -82,7 +82,9 @@ namespace Cue
             }
         }
 
-        m_ecsManager->update_all_systems();
+        ECS::UpdateContext updateContext{};
+        updateContext.bufferIndex = a_bufferIndex;
+        m_ecsManager->update_all_systems(updateContext);
         return Result::ok();
     }
 
