@@ -141,8 +141,8 @@ namespace Cue::Editor
             }
         }
     private:
-        static constexpr std::array<float, 4> k_finalColorClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static constexpr Math::float4 k_finalColorClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
+        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         ImGuiManager& m_imguiManager;
         RHI::textureHandle m_backBufferHandle{};
         RHI::viewHandle m_backBufferRtvHandle{};

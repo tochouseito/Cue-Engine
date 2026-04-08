@@ -106,6 +106,18 @@ namespace Cue::Math
             return v[a_index];
         }
 
+        /// @brief 先頭要素へのポインタを返す
+        constexpr T* data() noexcept
+        {
+            return v;
+        }
+
+        /// @brief 先頭要素への読み取り専用ポインタを返す
+        constexpr const T* data() const noexcept
+        {
+            return v;
+        }
+
         // --- 符号演算子 ---
         /// @brief 単項プラス
         constexpr Vector4 operator+() const noexcept
@@ -479,6 +491,14 @@ namespace Cue::Math
         {
             // 1) メンバ関数の外積を再利用する
             return a_left.cross(a_right);
+        }
+
+        /// @brief 0~255のRGBA値を0~1の範囲に正規化して変換
+        static constexpr Vector4 from_rgba8(std::uint8_t a_r, std::uint8_t a_g, std::uint8_t a_b, std::uint8_t a_a = 255) noexcept
+        {
+            // 1) 255で割って正規化する
+            constexpr float inv_255 = 1.0f / 255.0f;
+            return { a_r * inv_255, a_g * inv_255, a_b * inv_255, a_a * inv_255 };
         }
     };
 

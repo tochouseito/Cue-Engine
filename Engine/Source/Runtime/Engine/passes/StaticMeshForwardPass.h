@@ -207,7 +207,7 @@ namespace Cue
             }
 
             commandContext->clear_render_target(m_finalColorRtvHandle,
-                k_clearColor.data());
+                k_clearColorVec.data());
             commandContext->clear_depth_stencil(m_sceneDepthDsvHandle, 1.0f, 0);
             commandContext->set_render_targets(
                 &m_finalColorRtvHandle,
@@ -249,7 +249,7 @@ namespace Cue
         }
 
     private:
-        static constexpr std::array<float, 4> k_clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static constexpr Math::float4 k_clearColorVec = Math::float4::from_rgba8(63, 63, 63, 255);
 
         const RenderFrameState& m_frameState;
         uint32_t m_indexCountPerInstance = 0;

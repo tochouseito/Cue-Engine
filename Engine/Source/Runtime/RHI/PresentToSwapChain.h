@@ -1,5 +1,7 @@
 #pragma once
 
+// === 
+
 // === RHI includes ===
 #include "FrameGraph.h"
 
@@ -162,7 +164,9 @@ namespace Cue::RHI
                 barrierDesc.after = ResourceState::RenderTarget;
                 commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
             }
-            commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
+            commandContext->clear_render_target(
+                m_backBufferRtvHandle,
+                k_swapChainClearColor.data());
             commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
@@ -184,7 +188,7 @@ namespace Cue::RHI
             }
         }
     private:
-        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63);
 
         textureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         viewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル

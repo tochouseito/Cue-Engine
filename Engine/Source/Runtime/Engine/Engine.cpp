@@ -347,10 +347,11 @@ namespace Cue
         finalColorDesc.width = m_backend->width();
         finalColorDesc.height = m_backend->height();
         finalColorDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
-        finalColorDesc.clearColor[0] = 0.0f;
-        finalColorDesc.clearColor[1] = 0.0f;
-        finalColorDesc.clearColor[2] = 0.0f;
-        finalColorDesc.clearColor[3] = 1.0f;
+        Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
+        finalColorDesc.clearColor[0] = clearColor.r;
+        finalColorDesc.clearColor[1] = clearColor.g;
+        finalColorDesc.clearColor[2] = clearColor.b;
+        finalColorDesc.clearColor[3] = clearColor.a;
         RHI::textureHandle finalColorHandle{};
         auto textureManager = m_backend->get_texture_manager();
         textureManager->create_texture(finalColorDesc, finalColorHandle);
