@@ -1,5 +1,8 @@
 #pragma once
 
+// === Base includes ===
+#include <CueAssert.h>
+
 // === ECS includes ===
 #include <ECSManager.h>
 
@@ -15,8 +18,7 @@ namespace Cue::ECS
     public:
         explicit TransformSystem(RenderSceneState& a_renderSceneState)
             : ECSManager::System<ObjectInfoComponent, TransformComponent>(
-                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo,
-                    TransformComponent& a_transform) {
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, TransformComponent& a_transform) {
                         update_component(a_entity, a_objectInfo, a_transform);
                 },
                 [this](Entity a_entity, ObjectInfoComponent& a_objectInfo,

@@ -10,9 +10,6 @@
 #include <GameCore/Components.h>
 #include <GameCore/RenderSceneState.h>
 
-// === C++ includes ===
-#include <optional>
-
 namespace Cue::ECS
 {
     class ObjectInfoSystem final : public ECSManager::System<ObjectInfoComponent>
@@ -20,22 +17,17 @@ namespace Cue::ECS
     public:
         explicit ObjectInfoSystem(RenderSceneState& a_renderSceneState, std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& a_objectInfoUploaders)
             : ECSManager::System<ObjectInfoComponent>(
-                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo) {
-                    update_component(a_entity, a_objectInfo);
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, const UpdateContext& a_context) {
+                    update_component(a_entity, a_objectInfo, a_context);
                 },
-                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo) {
-                    initialize_component(a_entity, a_objectInfo);
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, const InitializeContext& a_context) {
+                    initialize_component(a_entity, a_objectInfo, a_context);
                 },
-                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo) {
-                    finalize_component(a_entity, a_objectInfo);
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo, const FinalizeContext& a_context) {
+                    finalize_component(a_entity, a_objectInfo, a_context);
                 }),
             m_renderSceneState(a_renderSceneState), m_objectInfoUploaders(a_objectInfoUploaders)
         {}
-
-        void set_buffer_index(uint32_t a_bufferIndex) noexcept
-        {
-            m_bufferIndex = a_bufferIndex;
-        }
 
         void update() override
         {
@@ -57,7 +49,7 @@ namespace Cue::ECS
             ECSManager::System<ObjectInfoComponent>::update();
         }
     private:
-        void update_component(Entity a_entity, ObjectInfoComponent& a_objectInfo)
+        void update_component(Entity a_entity, ObjectInfoComponent& a_objectInfo, const UpdateContext& a_context)
         {
             a_entity;
             GpuData::ObjectInfo gpuObjectInfo{};
@@ -81,20 +73,21 @@ namespace Cue::ECS
             }
         }
 
-        void initialize_component(Entity a_entity,
-            ObjectInfoComponent& a_objectInfo)
-        {
-            update_component(a_entity, a_objectInfo);
-        }
-
-        void finalize_component(Entity a_entity, ObjectInfoComponent& a_objectInfo)
+        void initialize_component(Entity a_entity, ObjectInfoComponent& a_objectInfo, const InitializeContext& a_context)
         {
             a_entity;
             a_objectInfo;
+            a_context;
+        }
+
+        void finalize_component(Entity a_entity, ObjectInfoComponent& a_objectInfo, const FinalizeContext& a_context)
+        {
+            a_entity;
+            a_objectInfo;
+            a_context;
         }
 
     private:
-        std::optional<uint32_t> m_bufferIndex;
         RenderSceneState& m_renderSceneState;
         std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& m_objectInfoUploaders;
         RHI::SlotUploader<GpuData::ObjectInfo>* m_currentUploader = nullptr;
