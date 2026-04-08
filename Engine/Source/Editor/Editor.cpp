@@ -28,7 +28,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::string title = "Cue Editor";
     uint32_t bufferCount = 3;
     bool enableDebugLayer = true;
-    uint32_t maxFps = 0; // 無制限
+    uint32_t maxFps = 60;
 
     // 宣言
     Result r = Result::ok();
