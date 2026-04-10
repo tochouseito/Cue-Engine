@@ -8,6 +8,12 @@
 
 namespace Cue
 {
+    Result EngineCommandContext::request_window_resize(
+        uint32_t a_width, uint32_t a_height)
+    {
+        return m_engine.request_window_resize(a_width, a_height);
+    }
+
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
         // 引数の検査
@@ -22,6 +28,10 @@ namespace Cue
         m_platform = a_info.platform;
         m_backend = a_info.backend;
         m_editorBridge = a_info.editorBridge;
+        m_platformBridge = a_info.platformBridge;
+        m_pendingResizeWidth = 0;
+        m_pendingResizeHeight = 0;
+        m_hasPendingResizeRequest = false;
 
         auto* staticMeshPool = m_backend->get_static_mesh_pool();
         if (staticMeshPool == nullptr)
@@ -204,10 +214,21 @@ namespace Cue
 
     Result Engine::begin_frame()
     {
+        EngineCommandContext commandContext(*m_gameCore, *this);
+
+        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
+        if (m_platformBridge)
+        {
+            Result result = m_platformBridge->drain_commands(commandContext);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
-            EngineCommandContext commandContext(*m_gameCore);
             Result result = m_editorBridge->drain_commands(commandContext);
             if (!result)
             {
@@ -222,7 +243,6 @@ namespace Cue
 
     Result Engine::tick()
     {
-        
         m_frameController->step();
 
         return Result::ok();
@@ -267,6 +287,24 @@ namespace Cue
         return [this](uint64_t a_frameNo, uint32_t a_index) {
             m_backend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
             };
+    }
+
+    Result Engine::request_window_resize(uint32_t a_width, uint32_t a_height)
+    {
+        if (a_width == 0 || a_height == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Window resize request must have non-zero width and height.");
+        }
+
+        // 実リサイズは別タスクで行うため、ここでは最新の要求だけ保持する。
+        m_pendingResizeWidth = a_width;
+        m_pendingResizeHeight = a_height;
+        m_hasPendingResizeRequest = true;
+
+        return Result::ok();
     }
 
 } // namespace Cue

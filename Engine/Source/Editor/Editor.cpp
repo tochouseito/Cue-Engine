@@ -36,12 +36,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr;
     std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
     Core::CQRS::Bridge editorBridge{};
+    Core::CQRS::Bridge platformBridge{};
     uint64_t imguiMessageHandlerId = 0;
     std::unique_ptr<Engine> engine = nullptr;
     std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
 
     // プラットフォームの生成
     platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
+    platform->set_platform_bridge(&platformBridge);
 
     // プラットフォームの初期化設定
     Cue::PAL::PlatformSetupInfo platformInfo{};
@@ -145,6 +147,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.maxFps = maxFps;
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
+    engineInfo.platformBridge = &platformBridge;
 
     // エンジンの初期化
     r = engine->initialize(engineInfo);

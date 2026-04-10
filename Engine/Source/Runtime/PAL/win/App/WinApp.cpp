@@ -1,4 +1,6 @@
 #include "WinApp.h"
+#include <CueAssert.h>
+#include <PlatformCommands.h>
 
 namespace
 {
@@ -227,15 +229,44 @@ namespace Cue::PAL::Win
             return 0;
 
         case WM_GETMINMAXINFO:
+        {
             // クライアントサイズ変更直前
             MINMAXINFO* pMinMaxInfo = reinterpret_cast<MINMAXINFO*>(a_lParam);
             pMinMaxInfo->ptMinTrackSize.x = k_minimumWindowWidth;
             pMinMaxInfo->ptMinTrackSize.y = k_minimumWindowHeight;
             return 0;
+        }
 
         case WM_SIZE:
+        {
             // クライアントサイズ更新後
+            if (m_platformBridge == nullptr || a_wParam == SIZE_MINIMIZED)
+            {
+                return 0;
+            }
+
+            const uint32_t resizedWidth = static_cast<uint32_t>(LOWORD(a_lParam));
+            const uint32_t resizedHeight = static_cast<uint32_t>(HIWORD(a_lParam));
+            if (resizedWidth == 0 || resizedHeight == 0)
+            {
+                return 0;
+            }
+
+            Result result = m_platformBridge->submit_command(
+                std::make_unique<PAL::ResizeWindowCommand>(
+                    resizedWidth, resizedHeight));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit resize command: %s (code: %s, severity: %s) at "
+                    "%s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file, result.line,
+                    result.function);
+            }
+
             return 0;
+        }
 
         case WM_DESTROY:
             // quit メッセージ送出

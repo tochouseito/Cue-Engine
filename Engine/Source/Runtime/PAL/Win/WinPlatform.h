@@ -52,6 +52,8 @@ namespace Cue::PAL::Win
         [[nodiscard]] uint64_t register_message_handler(WinApp::messageHandler a_handler);
         /// @brief メッセージハンドラ解除
         bool unregister_message_handler(uint64_t handlerId);
+        /// @brief Platform 用 command bridge を設定します。
+        void set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept;
     public:
         // --- 取得 --- 
         Core::Threading::IThreadFactory& thread_factory() override

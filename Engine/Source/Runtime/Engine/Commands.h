@@ -11,7 +11,7 @@
 
 namespace Cue
 {
-    class IGameCommandContext : public Core::CQRS::ICommandContext
+    class IGameCommandContext : public virtual Core::CQRS::ICommandContext
     {
     public:
         ~IGameCommandContext() override = default;

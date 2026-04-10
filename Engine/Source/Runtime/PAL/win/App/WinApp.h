@@ -12,6 +12,11 @@
 #include "PlatformMessage.h"
 #include "stdafx.h"
 
+namespace Cue::Core::CQRS
+{
+    class Bridge;
+}
+
 namespace Cue::PAL::Win
 {
     /// @brief ウィンドウ表示方法です。
@@ -66,6 +71,12 @@ namespace Cue::PAL::Win
             return m_hwnd;
         }
 
+        /// @brief Platform 用 command bridge を設定します。
+        void set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept
+        {
+            m_platformBridge = a_bridge;
+        }
+
         // --- メッセージハンドラ管理 ---
         /// @brief メッセージハンドラ登録
         [[nodiscard]] uint64_t register_message_handler(messageHandler a_handler);
@@ -80,6 +91,7 @@ namespace Cue::PAL::Win
         HWND m_hwnd = nullptr; // ウィンドウハンドル
         bool m_shouldClose = false; // 終了フラグ
         uint64_t m_nextMessageHandlerId = 1; // 次のメッセージハンドラ ID
+        Core::CQRS::Bridge* m_platformBridge = nullptr; // Platform 用 command bridge
         std::vector<MessageHandlerEntry> m_messageHandlers; // メッセージハンドラエントリのリスト
     };
 }

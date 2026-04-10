@@ -5,6 +5,7 @@
 
 // === PAL includes ===
 #include <PAL.h>
+#include <PlatformCommands.h>
 
 // === RHI includes ===
 #include <FrameGraph.h>
@@ -21,11 +22,14 @@
 
 namespace Cue
 {
-    class EngineCommandContext final : public IGameCommandContext
+    class Engine;
+
+    class EngineCommandContext final : public IGameCommandContext, public PAL::IPlatformCommandContext
     {
     public:
-        explicit EngineCommandContext(GameCore& a_gameCore) noexcept
+        EngineCommandContext(GameCore& a_gameCore, Engine& a_engine) noexcept
             : m_gameCore(a_gameCore)
+            , m_engine(a_engine)
         {
         }
 
@@ -39,8 +43,11 @@ namespace Cue
             return m_gameCore.remove_object(a_objectId);
         }
 
+        Result request_window_resize(uint32_t a_width, uint32_t a_height) override;
+
     private:
         GameCore& m_gameCore;
+        Engine& m_engine;
     };
 
     /// @brief Engine 初期化時に必要な依存オブジェクトです。
@@ -52,11 +59,14 @@ namespace Cue
 
         std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
         Core::CQRS::Bridge* editorBridge = nullptr;
+        Core::CQRS::Bridge* platformBridge = nullptr;
     };
 
     /// @brief Runtime 全体の統合窓口です。
     class Engine final
     {
+        friend class EngineCommandContext;
+
     public:
         Engine() = default;
         // コピー禁止
@@ -92,6 +102,21 @@ namespace Cue
             return m_assetManager;
         }
 
+        [[nodiscard]] bool has_pending_resize_request() const noexcept
+        {
+            return m_hasPendingResizeRequest;
+        }
+
+        [[nodiscard]] uint32_t pending_resize_width() const noexcept
+        {
+            return m_pendingResizeWidth;
+        }
+
+        [[nodiscard]] uint32_t pending_resize_height() const noexcept
+        {
+            return m_pendingResizeHeight;
+        }
+
     private:
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
@@ -99,6 +124,7 @@ namespace Cue
         std::function<void(uint64_t, uint32_t)> render();
         /// @brief present
         std::function<void(uint64_t, uint32_t)> present();
+        Result request_window_resize(uint32_t a_width, uint32_t a_height);
 
     private:
         PAL::IPlatform* m_platform = nullptr;
@@ -109,5 +135,9 @@ namespace Cue
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
         std::unique_ptr<GameCore> m_gameCore = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
+        Core::CQRS::Bridge* m_platformBridge = nullptr;
+        uint32_t m_pendingResizeWidth = 0;
+        uint32_t m_pendingResizeHeight = 0;
+        bool m_hasPendingResizeRequest = false;
     };
 } // namespace Cue

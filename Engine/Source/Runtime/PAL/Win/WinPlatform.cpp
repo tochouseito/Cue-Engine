@@ -120,4 +120,13 @@ namespace Cue::PAL::Win
         // win app の解除結果を返却
         return m_app->unregister_message_handler(handlerId);
     }
+    void WinPlatform::set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept
+    {
+        if (m_app == nullptr)
+        {
+            return;
+        }
+
+        m_app->set_platform_bridge(a_bridge);
+    }
 }
