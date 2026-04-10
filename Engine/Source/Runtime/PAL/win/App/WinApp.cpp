@@ -201,7 +201,7 @@ namespace Cue::PAL::Win
     // メッセージハンドラ
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
-        // 1) 外部登録ハンドラを先に評価
+        // 外部登録ハンドラを先に評価
         for (const MessageHandlerEntry& entry : m_messageHandlers)
         {
             if (!entry.handler)
@@ -217,21 +217,28 @@ namespace Cue::PAL::Win
             }
         }
 
-        // 2) 未処理メッセージを既定処理へ移譲
+        // 未処理メッセージを既定処理へ移譲
         switch (a_message)
         {
         case WM_CLOSE:
-            // 1) 破棄は engine 終了手順へ移譲
-            // 2) メインループ終了フラグ設定
+            // 破棄は engine 終了手順へ移譲
+            // メインループ終了フラグ設定
             m_shouldClose = true;
             return 0;
 
+        case WM_GETMINMAXINFO:
+            // クライアントサイズ変更直前
+            MINMAXINFO* pMinMaxInfo = reinterpret_cast<MINMAXINFO*>(a_lParam);
+            pMinMaxInfo->ptMinTrackSize.x = k_minimumWindowWidth;
+            pMinMaxInfo->ptMinTrackSize.y = k_minimumWindowHeight;
+            return 0;
+
         case WM_SIZE:
-            // 1) クライアントサイズ更新
+            // クライアントサイズ更新後
             return 0;
 
         case WM_DESTROY:
-            // 1) quit メッセージ送出
+            // quit メッセージ送出
             ::PostQuitMessage(0);
             return 0;
         }
