@@ -44,12 +44,29 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_texture("SceneDepth", m_sceneDepthHandle);
+
+            RHI::TextureDesc sceneDepthDesc{};
+            sceneDepthDesc.name = "SceneDepth";
+            sceneDepthDesc.bufferCount = 1;
+            sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
+            sceneDepthDesc.width = builder.width();
+            sceneDepthDesc.height = builder.height();
+            sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+            sceneDepthDesc.clearDepth = 1.0f;
+            sceneDepthDesc.clearStencil = 0;
+            result = builder.create_texture(sceneDepthDesc, m_sceneDepthHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("SceneDepthDSV", m_sceneDepthDsvHandle);
+
+            RHI::ViewDesc sceneDepthDsvDesc{};
+            sceneDepthDsvDesc.name = "SceneDepthDSV";
+            sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
+            sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+            sceneDepthDsvDesc.textureHandle = m_sceneDepthHandle;
+            sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
+            result = builder.create_view(sceneDepthDsvDesc, m_sceneDepthDsvHandle);
             if (!result)
             {
                 return result;

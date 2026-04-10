@@ -1,11 +1,14 @@
 #pragma once
 
-// === C++ includes ===
-#include <memory>
+// === Core includes ===
+#include <CQRS/CQRS.h>
 
 // === PAL includes ===
 #include <PAL.h>
 #include <PlatformMessage.h>
+
+// === C++ includes ===
+#include <memory>
 
 // === Windows API includes ===
 #include "App/WinApp.h"
