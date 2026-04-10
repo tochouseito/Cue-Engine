@@ -309,6 +309,21 @@ namespace Cue
         const uint32_t mod = static_cast<uint32_t>(nextFrameNo % bufferCount);
         m_backBufferBase = (bufferCount - mod) % bufferCount;
     }
+    void FrameController::apply_pending_resize(uint64_t nextFrameNo, bool a_shouldFillBuffers)
+    {
+        if (m_safePointFunc)
+        {
+            m_safePointFunc();
+        }
+
+        apply_resize_for_next_frame(nextFrameNo);
+        if (a_shouldFillBuffers)
+        {
+            fill_buffers(nextFrameNo);
+        }
+
+        m_resizePending.store(false, std::memory_order_relaxed);
+    }
     void FrameController::fill_buffers(uint64_t frameNo)
     {
         // 全バッファを走査して更新する
@@ -324,8 +339,7 @@ namespace Cue
         // Update -> Render -> Present を順番に処理する
         if (m_resizePending.load(std::memory_order_relaxed))
         {
-            apply_resize_for_next_frame(m_singleState.currentFrame);
-            m_resizePending.store(false, std::memory_order_relaxed);
+            apply_pending_resize(m_singleState.currentFrame, false);
         }
 
         uint32_t updateIndex = 0;
@@ -358,9 +372,7 @@ namespace Cue
         if (m_resizePending.load(std::memory_order_relaxed) &&
             m_fixedState.produceFrame == m_fixedState.totalFrame)
         {
-            apply_resize_for_next_frame(m_fixedState.totalFrame);
-            fill_buffers(m_fixedState.totalFrame);
-            m_resizePending.store(false, std::memory_order_relaxed);
+            apply_pending_resize(m_fixedState.totalFrame, true);
         }
 
         const bool canProduce = !m_resizePending.load(std::memory_order_relaxed);
@@ -387,9 +399,7 @@ namespace Cue
             if (m_resizePending.load(std::memory_order_relaxed) &&
                 m_fixedState.produceFrame == m_fixedState.totalFrame)
             {
-                apply_resize_for_next_frame(m_fixedState.totalFrame);
-                fill_buffers(m_fixedState.totalFrame);
-                m_resizePending.store(false, std::memory_order_relaxed);
+                apply_pending_resize(m_fixedState.totalFrame, true);
             }
         }
         else
@@ -407,9 +417,7 @@ namespace Cue
         if (m_resizePending.load(std::memory_order_relaxed) && !m_mailboxState.hasPresented &&
             m_mailboxState.produceFrame == 0)
         {
-            apply_resize_for_next_frame(0);
-            fill_buffers(0);
-            m_resizePending.store(false, std::memory_order_relaxed);
+            apply_pending_resize(0, true);
         }
 
         const uint64_t presentBase = m_mailboxState.hasPresented ? m_mailboxState.lastPresentedFrame : 0;
@@ -448,9 +456,7 @@ namespace Cue
                 renderFinished >= m_mailboxState.lastPresentedFrame;
             if (noInFlight && workersDone)
             {
-                apply_resize_for_next_frame(m_mailboxState.lastPresentedFrame + 1);
-                fill_buffers(m_mailboxState.lastPresentedFrame + 1);
-                m_resizePending.store(false, std::memory_order_relaxed);
+                apply_pending_resize(m_mailboxState.lastPresentedFrame + 1, true);
                 didResize = true;
             }
         }
@@ -470,9 +476,7 @@ namespace Cue
         {
             if (m_resizePending.load(std::memory_order_relaxed))
             {
-                apply_resize_for_next_frame(m_backpressureState.currentFrame);
-                fill_buffers(m_backpressureState.currentFrame);
-                m_resizePending.store(false, std::memory_order_relaxed);
+                apply_pending_resize(m_backpressureState.currentFrame, true);
             }
 
             uint32_t updateIndex = 0;

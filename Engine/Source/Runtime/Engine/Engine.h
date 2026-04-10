@@ -18,6 +18,8 @@
 #include "GameCore/GameCore.h"
 
 // === C++ includes ===
+#include <functional>
+#include <memory>
 #include <vector>
 
 namespace Cue
@@ -95,6 +97,12 @@ namespace Cue
         }
 
     private:
+        Result create_final_color_resources();
+        Result destroy_final_color_resources();
+        Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+        Result destroy_size_dependent_resources();
+        Result apply_pending_resize();
+
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
         /// @brief 描画
@@ -113,5 +121,9 @@ namespace Cue
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};
+        RHI::TextureHandle m_finalColorHandle{};
+        RHI::ViewHandle m_finalColorRtvHandle{};
+        RHI::ViewHandle m_finalColorSrvHandle{};
+        uint32_t m_cubeIndexCount = 0;
     };
 } // namespace Cue

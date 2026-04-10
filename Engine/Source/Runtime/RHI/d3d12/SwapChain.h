@@ -32,6 +32,8 @@ namespace Cue::RHI::DX12
             DX12GpuCommandQueue& commandQueue,
             DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM);
 
+        Result resize(uint32_t a_width, uint32_t a_height);
+
         Result present(bool vsync);
         void shutdown();
 
@@ -47,9 +49,13 @@ namespace Cue::RHI::DX12
         {
             return m_rtvViewHandle;
         }
+
         uint32_t width() const noexcept { return m_width; }
         uint32_t height() const noexcept { return m_height; }
     private:
+        Result rebuild_back_buffer_resources();
+        Result destroy_back_buffer_resources();
+
         DX12RenderDevice& m_renderDevice;
         DX12TextureManager& m_textureManager;
         DX12ViewManager& m_viewManager;
@@ -59,5 +65,7 @@ namespace Cue::RHI::DX12
         TextureHandle m_backBufferTextureHandle;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
+        uint32_t m_bufferCount = 0;
+        DXGI_FORMAT m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
     };
 }

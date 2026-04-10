@@ -4,6 +4,16 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
+        void free_table_ids(DescriptorAllocator& a_descriptorAllocator,
+            std::vector<TableID>& a_ids) noexcept
+        {
+            for (const TableID& tableId : a_ids)
+            {
+                a_descriptorAllocator.free_table(tableId);
+            }
+            a_ids.clear();
+        }
+
         TableKind convert_view_kind(ViewType type)
         {
             switch (type)
@@ -66,6 +76,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.defaultTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -83,6 +95,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.uploadTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -108,6 +122,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.defaultTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -142,6 +158,18 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Invalid view handle.");
         }
+
+        DX12ViewRecord* record = m_viewRegistry.ref_get(handle);
+        if (record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View not found for the given handle.");
+        }
+
+        free_table_ids(m_descriptorAllocator, record->defaultTableIds);
+        free_table_ids(m_descriptorAllocator, record->uploadTableIds);
 
         // 名前マップから削除する
         for (auto it = m_nameToHandlesMap.begin(); it != m_nameToHandlesMap.end(); ++it)

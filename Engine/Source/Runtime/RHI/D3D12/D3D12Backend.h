@@ -41,11 +41,17 @@ namespace Cue::RHI::DX12
         /// @brief D3D12 バックエンドを終了します。
         Result shutdown() override;
 
+        /// @brief バックエンドで進行中の GPU 作業完了を待機します。
+        Result wait_for_idle() override;
+
         /// @brief 指定フレームの描画処理を実行します。
         Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
         /// @brief 指定フレームの提示処理を実行します。
         Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
+
+        /// @brief サイズ依存のバックエンド資源をリサイズします。
+        Result resize(uint32_t a_width, uint32_t a_height) override;
 
         /// @brief FrameGraph を生成します。
         Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;

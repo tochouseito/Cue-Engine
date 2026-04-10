@@ -20,6 +20,7 @@ namespace Cue
     using updateFunc = std::function<void(uint64_t, uint32_t)>;
     using renderFunc = std::function<void(uint64_t, uint32_t)>;
     using presentFunc = std::function<void(uint64_t, uint32_t)>;
+    using safePointFunc = std::function<void()>;
 
     enum class ControllerMode : uint32_t
     {
@@ -91,7 +92,8 @@ namespace Cue
             Core::Time::IWaiter& a_waiter,
             const updateFunc& a_updateFunc,
             const renderFunc& a_renderFunc,
-            const presentFunc& a_presentFunc)
+            const presentFunc& a_presentFunc,
+            const safePointFunc& a_safePointFunc)
             : m_desc(config)
             , m_threadFactory(a_threadFactory)
             , m_clock(a_clock)
@@ -100,8 +102,9 @@ namespace Cue
             , m_updateFunc(a_updateFunc)
             , m_renderFunc(a_renderFunc)
             , m_presentFunc(a_presentFunc)
+            , m_safePointFunc(a_safePointFunc)
         {
-            // 1) 初期化はメンバ初期化リストで完結させる
+            // 初期化はメンバ初期化リストで完結させる
         }
 
         /// @brief 破棄
@@ -184,6 +187,9 @@ namespace Cue
         /// @brief 次フレーム向けリサイズ反映
         void apply_resize_for_next_frame(uint64_t nextFrameNo);
 
+        /// @brief safe point で保留中のリサイズを反映
+        void apply_pending_resize(uint64_t nextFrameNo, bool a_shouldFillBuffers);
+
         /// @brief バッファ初期充填
         void fill_buffers(uint64_t frameNo);
 
@@ -209,6 +215,7 @@ namespace Cue
         updateFunc m_updateFunc;
         renderFunc m_renderFunc;
         presentFunc m_presentFunc;
+        safePointFunc m_safePointFunc;
         FrameJob m_updateJob;
         FrameJob m_renderJob;
         FixedState m_fixedState{};

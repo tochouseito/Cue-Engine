@@ -129,7 +129,7 @@ namespace Cue::RHI
         // ムーブ禁止
         FrameGraph(FrameGraph&&) = delete;
         FrameGraph& operator=(FrameGraph&&) = delete;
-        ~FrameGraph() = default;
+        ~FrameGraph();
 
         /// @brief パスの追加
         void add_pass(std::unique_ptr<FrameGraphPass> pass)
@@ -144,9 +144,13 @@ namespace Cue::RHI
         }
         /// @brief 描画依存関係を構築します。
         Result build();
+        /// @brief サイズを更新して再構築します。
+        Result rebuild(uint32_t a_width, uint32_t a_height);
         /// @brief パスの実行
         Result execute(uint32_t frameIndex);
     private:
+        Result cleanup_build_resources();
+
         struct CompiledPass final
         {
             std::unique_ptr<FrameGraphPass> pass = nullptr;
@@ -155,5 +159,12 @@ namespace Cue::RHI
         FrameGraphDesc m_desc;
         const uint32_t& m_bufferCount;
         std::vector<CompiledPass> m_passes;
+        std::vector<BufferHandle> m_createdBuffers;
+        std::vector<TextureHandle> m_createdTextures;
+        std::vector<ViewHandle> m_createdViews;
+        std::vector<RootSignatureHandle> m_createdRootSignatures;
+        std::vector<ShaderBlobHandle> m_createdShaderBlobs;
+        std::vector<PipelineStateHandle> m_createdGraphicsPipelines;
+        std::vector<PipelineStateHandle> m_createdComputePipelines;
     };
 }

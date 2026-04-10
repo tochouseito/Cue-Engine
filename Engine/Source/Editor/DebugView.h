@@ -22,18 +22,21 @@ namespace Cue::Editor
         DebugView(RHI::DX12::D3D12Backend* backend, Core::CQRS::Bridge* bridge)
             : m_backend(backend), editorBridge(bridge)
         {
-            Result r = backend->get_view_manager()->get_view("FinalColorSRV", m_finalColorSrvHandle);
-            if (!r)
-            {
-                CUE_ASSERTF(false,
-                    "Failed to get view: %s (code: %s, severity: %s) at %s:%u in function %s",
-                    r.message.data(), Cue::to_string(r.code),
-                    Cue::to_string(r.severity), r.file, r.line, r.function);
-            }
         }
         ~DebugView() = default;
         void update()
         {
+            Result viewResult =
+                m_backend->get_view_manager()->get_view("FinalColorSRV", m_finalColorSrvHandle);
+            if (!viewResult)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to get view: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    viewResult.message.data(), Cue::to_string(viewResult.code),
+                    Cue::to_string(viewResult.severity), viewResult.file,
+                    viewResult.line, viewResult.function);
+            }
+
             ImGui::Begin("Debug View");
 
             if (ImGui::Button("Add Object"))
@@ -80,15 +83,35 @@ namespace Cue::Editor
                     m_finalColorSrvHandle,
                     m_backend->current_back_buffer_index(),
                     m_backend->buffer_count());
-            if (finalColorSrvGpuDescHandle.ptr != 0)
+            const uint32_t finalColorWidth = m_backend->width();
+            const uint32_t finalColorHeight = m_backend->height();
+            if (finalColorSrvGpuDescHandle.ptr != 0 &&
+                finalColorWidth > 0 && finalColorHeight > 0)
             {
-                const float finalColorWidth = 640.0f;
-                const float aspectRatio =
-                    static_cast<float>(m_backend->height()) / static_cast<float>(m_backend->width());
                 ImGui::Text("FinalColor");
+
+                const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
+                float displayWidth = availableRegion.x;
+                float displayHeight =
+                    displayWidth * static_cast<float>(finalColorHeight) /
+                    static_cast<float>(finalColorWidth);
+
+                if (availableRegion.y > 0.0f && displayHeight > availableRegion.y)
+                {
+                    const float scale = availableRegion.y / displayHeight;
+                    displayWidth *= scale;
+                    displayHeight *= scale;
+                }
+
+                if (displayWidth <= 0.0f || displayHeight <= 0.0f)
+                {
+                    ImGui::End();
+                    return;
+                }
+
                 ImGui::Image(
                     static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
-                    ImVec2(finalColorWidth, finalColorWidth * aspectRatio));
+                    ImVec2(displayWidth, displayHeight));
             }
 
             ImGui::End();

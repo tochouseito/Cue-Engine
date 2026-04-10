@@ -71,30 +71,10 @@ namespace Cue::RHI::DX12
 
     Result D3D12Backend::shutdown()
     {
-        // graphics キューの完了を待ってからリソースを解放します。
-        if (m_queuePool)
+        Result waitResult = wait_for_idle();
+        if (!waitResult)
         {
-            Result result = m_queuePool->wait_for_graphics_queue();
-            if (!result)
-            {
-                return result;
-            }
-
-            queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
-            if (presentQueueContext != nullptr)
-            {
-                result = presentQueueContext->signal();
-                if (!result)
-                {
-                    return result;
-                }
-
-                result = presentQueueContext->wait();
-                if (!result)
-                {
-                    return result;
-                }
-            }
+            return waitResult;
         }
 
         if (m_swapChain)
@@ -109,6 +89,37 @@ namespace Cue::RHI::DX12
         m_bufferManager.reset();
         m_descriptorAllocator.reset();
         m_renderDevice.reset();
+
+        return Result::ok();
+    }
+    Result D3D12Backend::wait_for_idle()
+    {
+        if (!m_queuePool)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_queuePool->wait_for_graphics_queue();
+        if (!result)
+        {
+            return result;
+        }
+
+        queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+        if (presentQueueContext != nullptr)
+        {
+            result = presentQueueContext->signal();
+            if (!result)
+            {
+                return result;
+            }
+
+            result = presentQueueContext->wait();
+            if (!result)
+            {
+                return result;
+            }
+        }
 
         return Result::ok();
     }
@@ -129,6 +140,24 @@ namespace Cue::RHI::DX12
             return result;
         }
         return m_swapChain->present(vsync);
+    }
+    Result D3D12Backend::resize(uint32_t a_width, uint32_t a_height)
+    {
+        if (!m_swapChain)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Failed to resize backend because swap chain is not initialized.");
+        }
+
+        Result result = wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_swapChain->resize(a_width, a_height);
     }
 
     Result D3D12Backend::create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph)

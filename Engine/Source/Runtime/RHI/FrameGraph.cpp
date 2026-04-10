@@ -4,12 +4,22 @@ namespace Cue::RHI
 {
     Result FrameGraphBuilder::create_buffer(const BufferDesc& desc, BufferHandle& out)
     {
-        return m_frameGraph.m_desc.bufferManager->create_buffer(desc, out);
+        Result result = m_frameGraph.m_desc.bufferManager->create_buffer(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdBuffers.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::create_texture(const TextureDesc& desc, TextureHandle& out)
     {
-        return m_frameGraph.m_desc.textureManager->create_texture(desc, out);
+        Result result = m_frameGraph.m_desc.textureManager->create_texture(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdTextures.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_buffer(std::string_view name, BufferHandle& out)
@@ -24,7 +34,12 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_view(const ViewDesc& desc, ViewHandle& out)
     {
-        return m_frameGraph.m_desc.viewManager->create_view(desc, out);
+        Result result = m_frameGraph.m_desc.viewManager->create_view(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdViews.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_view(std::string_view name, ViewHandle& out)
@@ -34,7 +49,13 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
-        return m_frameGraph.m_desc.pipelineManager->create_root_signature(desc, out);
+        Result result =
+            m_frameGraph.m_desc.pipelineManager->create_root_signature(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdRootSignatures.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_root_signature(std::string_view name, RootSignatureHandle& out)
@@ -44,7 +65,13 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
-        return m_frameGraph.m_desc.pipelineManager->create_shader_blob(desc, out);
+        Result result =
+            m_frameGraph.m_desc.pipelineManager->create_shader_blob(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdShaderBlobs.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_shader_blob(std::string_view name, ShaderBlobHandle& out)
@@ -54,7 +81,13 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out)
     {
-        return m_frameGraph.m_desc.pipelineManager->create_graphics_pipeline(desc, out);
+        Result result =
+            m_frameGraph.m_desc.pipelineManager->create_graphics_pipeline(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdGraphicsPipelines.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_graphics_pipeline(std::string_view name, PipelineStateHandle& out)
@@ -64,7 +97,13 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
     {
-        return m_frameGraph.m_desc.pipelineManager->create_compute_pipeline(desc, out);
+        Result result =
+            m_frameGraph.m_desc.pipelineManager->create_compute_pipeline(desc, out);
+        if (result)
+        {
+            m_frameGraph.m_createdComputePipelines.push_back(out);
+        }
+        return result;
     }
 
     Result FrameGraphBuilder::get_compute_pipeline(std::string_view name, PipelineStateHandle& out)
@@ -108,6 +147,107 @@ namespace Cue::RHI
         : m_desc(desc), m_bufferCount(bufferCount)
     {
     }
+    FrameGraph::~FrameGraph()
+    {
+        (void)cleanup_build_resources();
+    }
+
+    Result FrameGraph::cleanup_build_resources()
+    {
+        if (m_desc.pipelineManager != nullptr)
+        {
+            for (auto it = m_createdGraphicsPipelines.rbegin();
+                it != m_createdGraphicsPipelines.rend(); ++it)
+            {
+                Result result =
+                    m_desc.pipelineManager->destroy_graphics_pipeline(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            for (auto it = m_createdComputePipelines.rbegin();
+                it != m_createdComputePipelines.rend(); ++it)
+            {
+                Result result =
+                    m_desc.pipelineManager->destroy_compute_pipeline(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            for (auto it = m_createdShaderBlobs.rbegin();
+                it != m_createdShaderBlobs.rend(); ++it)
+            {
+                Result result = m_desc.pipelineManager->destroy_shader_blob(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            for (auto it = m_createdRootSignatures.rbegin();
+                it != m_createdRootSignatures.rend(); ++it)
+            {
+                Result result =
+                    m_desc.pipelineManager->destroy_root_signature(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        if (m_desc.viewManager != nullptr)
+        {
+            for (auto it = m_createdViews.rbegin(); it != m_createdViews.rend(); ++it)
+            {
+                Result result = m_desc.viewManager->destroy_view(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        if (m_desc.textureManager != nullptr)
+        {
+            for (auto it = m_createdTextures.rbegin();
+                it != m_createdTextures.rend(); ++it)
+            {
+                Result result = m_desc.textureManager->destroy_texture(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        if (m_desc.bufferManager != nullptr)
+        {
+            for (auto it = m_createdBuffers.rbegin();
+                it != m_createdBuffers.rend(); ++it)
+            {
+                Result result = m_desc.bufferManager->destroy_buffer(*it);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        m_createdGraphicsPipelines.clear();
+        m_createdComputePipelines.clear();
+        m_createdShaderBlobs.clear();
+        m_createdRootSignatures.clear();
+        m_createdViews.clear();
+        m_createdTextures.clear();
+        m_createdBuffers.clear();
+
+        return Result::ok();
+    }
 
     Result FrameGraph::build()
     {
@@ -121,6 +261,18 @@ namespace Cue::RHI
             }
         }
         return Result::ok();
+    }
+    Result FrameGraph::rebuild(uint32_t a_width, uint32_t a_height)
+    {
+        Result result = cleanup_build_resources();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_desc.width = a_width;
+        m_desc.height = a_height;
+        return build();
     }
 
     Result FrameGraph::execute(uint32_t frameIndex)
