@@ -1,6 +1,4 @@
 #include "Engine.h"
-#include "GpuData/Batching.h"
-#include "GpuData/Transform.h"
 #include "Passes/GenerateVisibleList.h"
 #include "Passes/ObjectInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
@@ -92,82 +90,6 @@ namespace Cue
         }
 
         result = m_gameCore->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        constexpr uint32_t k_maxObjectCount = 1000;
-
-        RHI::BufferDesc indirectCommandBufferDesc{};
-        indirectCommandBufferDesc.name = "IndirectCommandBuffer";
-        indirectCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
-        indirectCommandBufferDesc.defaultHeapCount = 1;
-        indirectCommandBufferDesc.uploadHeapCount = 0;
-        indirectCommandBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-        indirectCommandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
-        indirectCommandBufferDesc.elementCount = k_maxObjectCount;
-        indirectCommandBufferDesc.size =
-            indirectCommandBufferDesc.stride * indirectCommandBufferDesc.elementCount;
-        indirectCommandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
-        RHI::BufferHandle indirectCommandBufferHandle{};
-        result = bufferManager->create_buffer(indirectCommandBufferDesc,
-            indirectCommandBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc indirectCommandCountBufferDesc{};
-        indirectCommandCountBufferDesc.name = "IndirectCommandCountBuffer";
-        indirectCommandCountBufferDesc.type = RHI::BufferType::Raw;
-        indirectCommandCountBufferDesc.defaultHeapCount = 1;
-        indirectCommandCountBufferDesc.uploadHeapCount = 0;
-        indirectCommandCountBufferDesc.initialState =
-            RHI::ResourceState::UnorderedAccess;
-        indirectCommandCountBufferDesc.stride = sizeof(uint32_t);
-        indirectCommandCountBufferDesc.elementCount = 1;
-        indirectCommandCountBufferDesc.size = sizeof(uint32_t);
-        indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::BufferHandle indirectCommandCountBufferHandle{};
-        result = bufferManager->create_buffer(indirectCommandCountBufferDesc,
-            indirectCommandCountBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::ViewDesc indirectCommandBufferUavDesc{};
-        indirectCommandBufferUavDesc.name = "IndirectCommandBufferUAV";
-        indirectCommandBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
-        indirectCommandBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        indirectCommandBufferUavDesc.bufferHandle = indirectCommandBufferHandle;
-        indirectCommandBufferUavDesc.firstElement = 0;
-        indirectCommandBufferUavDesc.numElements =
-            indirectCommandBufferDesc.elementCount;
-        indirectCommandBufferUavDesc.structureByteStride =
-            indirectCommandBufferDesc.stride;
-        RHI::ViewHandle indirectCommandBufferUavHandle{};
-        result = viewManager->create_view(indirectCommandBufferUavDesc,
-            indirectCommandBufferUavHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::ViewDesc indirectCommandCountBufferUavDesc{};
-        indirectCommandCountBufferUavDesc.name = "IndirectCommandCountBufferUAV";
-        indirectCommandCountBufferUavDesc.type =
-            RHI::ViewType::UnorderedAccessRawBuffer;
-        indirectCommandCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        indirectCommandCountBufferUavDesc.bufferHandle =
-            indirectCommandCountBufferHandle;
-        indirectCommandCountBufferUavDesc.firstElement = 0;
-        indirectCommandCountBufferUavDesc.numElements =
-            indirectCommandCountBufferDesc.size / sizeof(uint32_t);
-        RHI::ViewHandle indirectCommandCountBufferUavHandle{};
-        result = viewManager->create_view(indirectCommandCountBufferUavDesc,
-            indirectCommandCountBufferUavHandle);
         if (!result)
         {
             return result;

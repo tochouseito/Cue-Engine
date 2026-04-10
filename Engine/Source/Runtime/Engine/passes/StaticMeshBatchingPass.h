@@ -5,6 +5,7 @@
 
 // === Engine includes ===
 #include <GameCore/RenderSceneState.h>
+#include <GpuData/Batching.h>
 
 namespace Cue
 {
@@ -24,6 +25,8 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
+            constexpr uint32_t k_maxObjectCount = 1000;
+
             Result result =
                 builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
             if (!result)
@@ -47,19 +50,56 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandBuffer",
+            RHI::BufferDesc indirectCommandBufferDesc{};
+            indirectCommandBufferDesc.name = "IndirectCommandBuffer";
+            indirectCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
+            indirectCommandBufferDesc.defaultHeapCount = 1;
+            indirectCommandBufferDesc.uploadHeapCount = 0;
+            indirectCommandBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            indirectCommandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
+            indirectCommandBufferDesc.elementCount = k_maxObjectCount;
+            indirectCommandBufferDesc.size =
+                indirectCommandBufferDesc.stride *
+                indirectCommandBufferDesc.elementCount;
+            indirectCommandBufferDesc.alignment =
+                alignof(GpuData::IndirectCommand);
+            result = builder.create_buffer(indirectCommandBufferDesc,
                 m_indirectCommandBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandCountBuffer",
+
+            RHI::BufferDesc indirectCommandCountBufferDesc{};
+            indirectCommandCountBufferDesc.name = "IndirectCommandCountBuffer";
+            indirectCommandCountBufferDesc.type = RHI::BufferType::Raw;
+            indirectCommandCountBufferDesc.defaultHeapCount = 1;
+            indirectCommandCountBufferDesc.uploadHeapCount = 0;
+            indirectCommandCountBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            indirectCommandCountBufferDesc.stride = sizeof(uint32_t);
+            indirectCommandCountBufferDesc.elementCount = 1;
+            indirectCommandCountBufferDesc.size = sizeof(uint32_t);
+            indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(indirectCommandCountBufferDesc,
                 m_indirectCommandCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("IndirectCommandCountBufferUAV",
+
+            RHI::ViewDesc indirectCommandCountBufferUavDesc{};
+            indirectCommandCountBufferUavDesc.name = "IndirectCommandCountBufferUAV";
+            indirectCommandCountBufferUavDesc.type =
+                RHI::ViewType::UnorderedAccessRawBuffer;
+            indirectCommandCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
+            indirectCommandCountBufferUavDesc.bufferHandle =
+                m_indirectCommandCountBufferHandle;
+            indirectCommandCountBufferUavDesc.firstElement = 0;
+            indirectCommandCountBufferUavDesc.numElements =
+                indirectCommandCountBufferDesc.size / sizeof(uint32_t);
+            result = builder.create_view(indirectCommandCountBufferUavDesc,
                 m_indirectCommandCountBufferUavHandle);
             if (!result)
             {
