@@ -64,10 +64,11 @@ namespace Cue::ECS
             a_entity;
             a_context;
             GpuData::ViewProjectionGpu gpuViewProjection{};
-            gpuViewProjection.view = Math::make_affine_matrix(
+            Math::float4x4 worldMatrix = Math::make_affine_matrix(
                 a_transform.scale,
                 a_transform.rotation,
                 a_transform.position);
+            gpuViewProjection.view = Math::float4x4::inverse(worldMatrix);
             gpuViewProjection.projection = Math::perspective_fov_matrix(
                 a_camera.fovY * Math::k_pi / 180.0f,
                 a_camera.aspectRatio,
