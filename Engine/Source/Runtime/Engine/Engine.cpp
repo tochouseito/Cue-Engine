@@ -4,6 +4,7 @@
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
+#include "Passes/ViewProjectionCopyPass.h"
 #include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
 
@@ -104,7 +105,8 @@ namespace Cue
 
         m_gameCore = std::make_unique<GameCore>();
         result = m_gameCore->initialize(
-            bufferManager, viewManager, m_backend->buffer_count());
+            bufferManager, viewManager, m_backend->buffer_count(),
+            m_backend->width(), m_backend->height());
         if (!result)
         {
             return result;
@@ -140,7 +142,7 @@ namespace Cue
             return result;
         }
 
-        result = m_gameCore->update(0.0f, 0);
+        result = m_gameCore->update(0.0f, 0, m_backend->width(), m_backend->height());
         if (!result)
         {
             return result;
@@ -336,6 +338,7 @@ namespace Cue
             m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
             m_gameCore->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
             m_gameCore->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
@@ -440,7 +443,8 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            Result updateResult = m_gameCore->update(deltaTime, a_index);
+            Result updateResult = m_gameCore->update(deltaTime, a_index,
+                m_backend->width(), m_backend->height());
             if (!updateResult)
             {
                 CUE_ASSERTF(false, "GameCore update failed: %s",

@@ -83,6 +83,12 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.get_buffer("ViewProjectionBuffer",
+                m_viewProjectionBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
             result =
                 builder.get_buffer("StaticMeshPool.Position", m_positionBufferHandle);
             if (!result)
@@ -119,6 +125,8 @@ namespace Cue
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::Vertex, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
@@ -237,14 +245,15 @@ namespace Cue
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Triangle);
-            commandContext->set_srv(0, m_renderObjectBufferHandle);
-            commandContext->set_srv(1, m_transformBufferHandle);
-            commandContext->set_srv(2, m_positionBufferHandle);
-            commandContext->set_srv(3, m_uvBufferHandle);
-            commandContext->set_srv(4, m_normalBufferHandle);
-            commandContext->set_srv(5, m_indexBufferHandle);
-            commandContext->set_srv(6, m_meshRangeBufferHandle);
-            commandContext->set_srv(7, m_visibleObjectCountBufferHandle);
+            commandContext->set_cbv(0, m_viewProjectionBufferHandle);
+            commandContext->set_srv(1, m_renderObjectBufferHandle);
+            commandContext->set_srv(2, m_transformBufferHandle);
+            commandContext->set_srv(3, m_positionBufferHandle);
+            commandContext->set_srv(4, m_uvBufferHandle);
+            commandContext->set_srv(5, m_normalBufferHandle);
+            commandContext->set_srv(6, m_indexBufferHandle);
+            commandContext->set_srv(7, m_meshRangeBufferHandle);
+            commandContext->set_srv(8, m_visibleObjectCountBufferHandle);
 
             if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
             {
@@ -279,6 +288,7 @@ namespace Cue
         RHI::ViewHandle m_sceneDepthDsvHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
+        RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::BufferHandle m_positionBufferHandle{};
         RHI::BufferHandle m_uvBufferHandle{};
         RHI::BufferHandle m_normalBufferHandle{};

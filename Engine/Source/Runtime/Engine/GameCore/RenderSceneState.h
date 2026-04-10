@@ -8,6 +8,8 @@ namespace Cue
     struct RenderFrameState final
     {
         uint32_t objectCount = 0;
+        uint32_t renderWidth = 1;
+        uint32_t renderHeight = 1;
     };
 
     struct RenderSceneState final

@@ -78,6 +78,36 @@ namespace Cue::Editor
                 }
             }
 
+            if (ImGui::Button("Use Camera 0"))
+            {
+                Result r = editorBridge->submit_command(
+                    std::make_unique<Cue::SetMainCameraCommand>(0));
+                if (!r)
+                {
+                    CUE_ASSERTF(false,
+                        "Failed to submit set main camera command: %s (code: "
+                        "%s, severity: %s) at %s:%u in function %s",
+                        r.message.data(), Cue::to_string(r.code),
+                        Cue::to_string(r.severity), r.file, r.line,
+                        r.function);
+                }
+            }
+
+            if (ImGui::Button("Use Camera 1"))
+            {
+                Result r = editorBridge->submit_command(
+                    std::make_unique<Cue::SetMainCameraCommand>(1));
+                if (!r)
+                {
+                    CUE_ASSERTF(false,
+                        "Failed to submit set main camera command: %s (code: "
+                        "%s, severity: %s) at %s:%u in function %s",
+                        r.message.data(), Cue::to_string(r.code),
+                        Cue::to_string(r.severity), r.file, r.line,
+                        r.function);
+                }
+            }
+
             D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
                 m_backend->get_gpu_descriptor_handle(
                     m_finalColorSrvHandle,

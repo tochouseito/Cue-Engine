@@ -1,6 +1,7 @@
 #include "WorldResources.h"
 #include <GpuData/Batching.h>
 #include <GpuData/Transform.h>
+#include <GpuData/ViewProjection.h>
 
 namespace Cue
 {
@@ -123,6 +124,48 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        return Result::ok();
+    }
+
+    Result WorldResources::create_view_projection_buffer()
+    {
+        constexpr uint32_t k_constantBufferAlignment = 256;
+
+        RHI::BufferDesc viewProjectionBufferDesc{};
+        viewProjectionBufferDesc.name = "ViewProjectionBuffer";
+        viewProjectionBufferDesc.type = RHI::BufferType::Constant;
+        viewProjectionBufferDesc.defaultHeapCount = 1;
+        viewProjectionBufferDesc.uploadHeapCount = 1;
+        viewProjectionBufferDesc.initialState = RHI::ResourceState::Common;
+        viewProjectionBufferDesc.stride = sizeof(GpuData::ViewProjectionGpu);
+        viewProjectionBufferDesc.elementCount = 1;
+        viewProjectionBufferDesc.size =
+            viewProjectionBufferDesc.stride * viewProjectionBufferDesc.elementCount;
+        viewProjectionBufferDesc.alignment = k_constantBufferAlignment;
+
+        RHI::BufferHandle& viewProjectionBufferHandle =
+            m_bufferHandles[static_cast<size_t>(WorldResourceType::ViewProjectionBuffer)];
+        Result result = m_bufferManager->create_buffer(
+            viewProjectionBufferDesc, viewProjectionBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            viewProjectionBufferHandle, 1, m_viewProjectionUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_viewProjectionUploaders.size() != 1)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "ViewProjectionBuffer uploader was not created.");
         }
 
         return Result::ok();

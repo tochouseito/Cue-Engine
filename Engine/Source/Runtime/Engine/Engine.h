@@ -42,6 +42,11 @@ namespace Cue
             return m_gameCore.remove_object(a_objectId);
         }
 
+        Result set_main_camera(uint32_t a_cameraIndex) override
+        {
+            return m_gameCore.set_main_camera(a_cameraIndex);
+        }
+
     private:
         GameCore& m_gameCore;
     };

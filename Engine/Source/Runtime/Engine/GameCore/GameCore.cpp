@@ -2,14 +2,18 @@
 
 namespace Cue
 {
-    void GameCore::sync_render_scene_state(uint32_t a_bufferIndex) noexcept
+    void GameCore::sync_render_scene_state(uint32_t a_bufferIndex,
+        uint32_t a_renderWidth, uint32_t a_renderHeight) noexcept
     {
         if (a_bufferIndex >= m_renderSceneState.frameStates.size())
         {
             return;
         }
 
-        m_renderSceneState.frame_state(a_bufferIndex).objectCount = m_objectCount;
+        RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
+        frameState.objectCount = m_objectCount;
+        frameState.renderWidth = a_renderWidth;
+        frameState.renderHeight = a_renderHeight;
     }
 
     Math::float3 GameCore::make_spawn_position() const noexcept
@@ -43,14 +47,61 @@ namespace Cue
         }
     }
 
+    Result GameCore::create_camera(const Math::float3& a_position, bool a_isMain)
+    {
+        ECS::Entity entity = m_ecsManager->generate_entity();
+        ECS::TransformComponent* transform =
+            m_ecsManager->add_component<ECS::TransformComponent>(entity);
+        ECS::CameraComponent* camera =
+            m_ecsManager->add_component<ECS::CameraComponent>(entity);
+        if (transform == nullptr || camera == nullptr)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to add required components for camera.");
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+
+        camera->isMain = a_isMain;
+        camera->fovY = 60.0f;
+        camera->nearZ = 0.1f;
+        camera->farZ = 1000.0f;
+        m_cameraEntities.push_back(entity);
+
+        return Result::ok();
+    }
+
+    Result GameCore::create_default_cameras()
+    {
+        Result result = create_camera(Math::float3(0.0f, 0.0f, -6.0f), true);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_camera(Math::float3(0.0f, 0.0f, -12.0f), false);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_mainCameraIndex = 0;
+        return Result::ok();
+    }
+
     Result GameCore::initialize(RHI::IBufferManager* a_bufferManager,
-        RHI::IViewManager* a_viewManager, uint32_t a_bufferCount)
+        RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
+        uint32_t a_renderWidth, uint32_t a_renderHeight)
     {
         m_objectCount = 0;
         m_renderSceneState.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
-            sync_render_scene_state(bufferIndex);
+            sync_render_scene_state(bufferIndex, a_renderWidth, a_renderHeight);
         }
         m_worldResources =
             std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
@@ -58,6 +109,7 @@ namespace Cue
         constexpr uint32_t k_maxObjectCount = 1000;
         m_worldResources->create_object_info_buffer(k_maxObjectCount);
         m_worldResources->create_transform_buffer(k_maxObjectCount);
+        m_worldResources->create_view_projection_buffer();
         m_worldResources->create_render_object_buffer(k_maxObjectCount);
         m_worldResources->create_object_count_buffer();
 
@@ -66,13 +118,16 @@ namespace Cue
             m_worldResources->object_info_uploaders());
         m_ecsManager->add_system<ECS::TransformSystem>(
             m_worldResources->transform_uploaders());
-        
-        return Result::ok();
+        m_ecsManager->add_system<ECS::CameraSystem>(
+            m_worldResources->view_projection_uploaders(), m_renderSceneState);
+
+        return create_default_cameras();
     }
 
-    Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex)
+    Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex,
+        uint32_t a_renderWidth, uint32_t a_renderHeight)
     {
-        sync_render_scene_state(a_bufferIndex);
+        sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 
         for (size_t entityIndex = 0; entityIndex < m_objectCount; ++entityIndex)
         {
@@ -142,7 +197,10 @@ namespace Cue
         for (uint32_t bufferIndex = 0;
              bufferIndex < m_renderSceneState.frameStates.size(); ++bufferIndex)
         {
-            sync_render_scene_state(bufferIndex);
+            sync_render_scene_state(
+                bufferIndex,
+                m_renderSceneState.frame_state(bufferIndex).renderWidth,
+                m_renderSceneState.frame_state(bufferIndex).renderHeight);
         }
 
         return Result::ok();
@@ -167,9 +225,39 @@ namespace Cue
         for (uint32_t bufferIndex = 0;
              bufferIndex < m_renderSceneState.frameStates.size(); ++bufferIndex)
         {
-            sync_render_scene_state(bufferIndex);
+            sync_render_scene_state(
+                bufferIndex,
+                m_renderSceneState.frame_state(bufferIndex).renderWidth,
+                m_renderSceneState.frame_state(bufferIndex).renderHeight);
         }
 
+        return Result::ok();
+    }
+
+    Result GameCore::set_main_camera(uint32_t a_cameraIndex)
+    {
+        if (a_cameraIndex >= m_cameraEntities.size())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Camera index was not found.");
+        }
+
+        for (uint32_t cameraIndex = 0; cameraIndex < m_cameraEntities.size(); ++cameraIndex)
+        {
+            ECS::CameraComponent* camera =
+                m_ecsManager->get_component<ECS::CameraComponent>(
+                    m_cameraEntities[cameraIndex]);
+            if (camera == nullptr)
+            {
+                continue;
+            }
+
+            camera->isMain = (cameraIndex == a_cameraIndex);
+        }
+
+        m_mainCameraIndex = a_cameraIndex;
         return Result::ok();
     }
 } // namespace Cue

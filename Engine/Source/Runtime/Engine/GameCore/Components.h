@@ -40,6 +40,7 @@ namespace Cue::ECS
         CameraComponent& operator=(const CameraComponent&) = default;
         CameraComponent(CameraComponent&&) = default;
         CameraComponent& operator=(CameraComponent&&) = default;
+        bool isMain = false; // 描画に使うメインカメラか
         float fovY = 60.0f; // 垂直視野角（度）
         float aspectRatio = 16.0f / 9.0f; // アスペクト比
         float nearZ = 0.1f; // ニアクリップ距離
