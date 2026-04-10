@@ -32,4 +32,17 @@ namespace Cue::ECS
         Math::float3 rotation = Math::float3::zero();
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };
+
+    struct CameraComponent : public IComponentTag
+    {
+        CameraComponent() = default;
+        CameraComponent(const CameraComponent&) = default;
+        CameraComponent& operator=(const CameraComponent&) = default;
+        CameraComponent(CameraComponent&&) = default;
+        CameraComponent& operator=(CameraComponent&&) = default;
+        float fovY = 60.0f; // 垂直視野角（度）
+        float aspectRatio = 16.0f / 9.0f; // アスペクト比
+        float nearZ = 0.1f; // ニアクリップ距離
+        float farZ = 1000.0f; // ファークリップ距離
+    };
 }
