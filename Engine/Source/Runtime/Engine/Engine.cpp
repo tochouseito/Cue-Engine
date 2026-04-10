@@ -4,15 +4,27 @@
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
+#include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
 
 namespace Cue
 {
-    Result EngineCommandContext::request_window_resize(
-        uint32_t a_width, uint32_t a_height)
+    class PlatformCommandContext final : public PAL::IPlatformCommandContext
     {
-        return m_engine.request_window_resize(a_width, a_height);
-    }
+    public:
+        explicit PlatformCommandContext(PAL::PlatformRuntimeState& a_state) noexcept
+            : m_state(a_state)
+        {
+        }
+
+        Result request_window_resize(uint32_t a_width, uint32_t a_height) override
+        {
+            return m_state.request_window_resize(a_width, a_height);
+        }
+
+    private:
+        PAL::PlatformRuntimeState& m_state;
+    };
 
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
@@ -29,9 +41,6 @@ namespace Cue
         m_backend = a_info.backend;
         m_editorBridge = a_info.editorBridge;
         m_platformBridge = a_info.platformBridge;
-        m_pendingResizeWidth = 0;
-        m_pendingResizeHeight = 0;
-        m_hasPendingResizeRequest = false;
 
         auto* staticMeshPool = m_backend->get_static_mesh_pool();
         if (staticMeshPool == nullptr)
@@ -214,12 +223,11 @@ namespace Cue
 
     Result Engine::begin_frame()
     {
-        EngineCommandContext commandContext(*m_gameCore, *this);
-
         // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
         if (m_platformBridge)
         {
-            Result result = m_platformBridge->drain_commands(commandContext);
+            PlatformCommandContext platformCommandContext(m_platformRuntimeState);
+            Result result = m_platformBridge->drain_commands(platformCommandContext);
             if (!result)
             {
                 return result;
@@ -229,6 +237,7 @@ namespace Cue
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
+            EngineCommandContext commandContext(*m_gameCore);
             Result result = m_editorBridge->drain_commands(commandContext);
             if (!result)
             {
@@ -287,24 +296,6 @@ namespace Cue
         return [this](uint64_t a_frameNo, uint32_t a_index) {
             m_backend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
             };
-    }
-
-    Result Engine::request_window_resize(uint32_t a_width, uint32_t a_height)
-    {
-        if (a_width == 0 || a_height == 0)
-        {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Window resize request must have non-zero width and height.");
-        }
-
-        // 実リサイズは別タスクで行うため、ここでは最新の要求だけ保持する。
-        m_pendingResizeWidth = a_width;
-        m_pendingResizeHeight = a_height;
-        m_hasPendingResizeRequest = true;
-
-        return Result::ok();
     }
 
 } // namespace Cue
