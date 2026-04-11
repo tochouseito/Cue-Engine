@@ -15,6 +15,7 @@
 #include <D3D12Backend.h>
 
 // === C++ includes ===
+#include <atomic>
 #include <string>
 
 // === imgui includes ===
@@ -56,10 +57,20 @@ namespace Cue::Editor
         Result begin_frame();
         Result end_frame();
         Result render(ID3D12GraphicsCommandList* commandList);
+        [[nodiscard]] ImFont* ui_font() const noexcept
+        {
+            return m_uiFont;
+        }
+        [[nodiscard]] ImFont* code_font() const noexcept
+        {
+            return m_codeFont;
+        }
     private:
         std::atomic_bool m_isBeginFrameCalled = false;
         bool m_isInitialized = false;
         std::string m_layoutFilePath{};
+        ImFont* m_uiFont = nullptr;
+        ImFont* m_codeFont = nullptr;
     };
 
     class ImGuiPass final : public RHI::FrameGraphPass

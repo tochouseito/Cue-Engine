@@ -5,6 +5,96 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
+        std::string get_module_directory_path()
+        {
+            constexpr DWORD k_modulePathCapacity = 4096;
+            std::string modulePath(k_modulePathCapacity, '\0');
+            const DWORD length =
+                ::GetModuleFileNameA(nullptr, modulePath.data(), k_modulePathCapacity);
+            if (length == 0 || length >= k_modulePathCapacity)
+            {
+                return {};
+            }
+
+            modulePath.resize(length);
+            const size_t lastSeparator = modulePath.find_last_of("\\/");
+            if (lastSeparator == std::string::npos)
+            {
+                return {};
+            }
+
+            return modulePath.substr(0, lastSeparator);
+        }
+
+        std::string join_path(std::string_view a_left, std::string_view a_right)
+        {
+            if (a_left.empty())
+            {
+                return std::string(a_right);
+            }
+            if (a_right.empty())
+            {
+                return std::string(a_left);
+            }
+
+            std::string result(a_left);
+            if (result.back() != '/' && result.back() != '\\')
+            {
+                result += '/';
+            }
+            result += a_right;
+            return result;
+        }
+
+        std::string_view strip_shader_root(std::string_view a_path)
+        {
+            constexpr std::string_view k_shaderRoot = "Shaders/";
+            if (a_path.rfind(k_shaderRoot, 0) == 0)
+            {
+                return a_path.substr(k_shaderRoot.size());
+            }
+
+            return a_path;
+        }
+
+        std::string resolve_shader_path(std::string_view a_relativePath)
+        {
+            const std::string_view shaderRelativePath = strip_shader_root(a_relativePath);
+
+#ifdef CUE_PROJECT_ROOT_PATH
+            const std::string repositoryPath = join_path(
+                join_path(std::string(CUE_PROJECT_ROOT_PATH), "Engine/Shaders"),
+                shaderRelativePath);
+#endif
+
+            const std::string moduleDirectoryPath = get_module_directory_path();
+            const std::string runtimePath =
+                join_path(
+                    join_path(moduleDirectoryPath, "EngineResources/Shaders"),
+                    shaderRelativePath);
+
+#ifdef CUE_DEBUG
+            if (!repositoryPath.empty())
+            {
+                return repositoryPath;
+            }
+#endif
+
+            if (!runtimePath.empty())
+            {
+                return runtimePath;
+            }
+
+#ifdef CUE_PROJECT_ROOT_PATH
+            if (!repositoryPath.empty())
+            {
+                return repositoryPath;
+            }
+#endif
+
+            return std::string(a_relativePath);
+        }
+
         std::wstring shader_profile_to_wstring(D3D_SHADER_MODEL model)
         {
             switch (model)
@@ -113,7 +203,8 @@ namespace Cue::RHI::DX12
             return r;
         }
         std::wstring filePath = L"";
-        r = PAL::Win::utf8_to_wide(desc.filePath, &filePath);
+        const std::string resolvedFilePath = resolve_shader_path(desc.filePath);
+        r = PAL::Win::utf8_to_wide(resolvedFilePath, &filePath);
         if (!r)
         {
             return r;

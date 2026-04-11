@@ -15,6 +15,8 @@
 // === Editor includes ===
 #include "Statistics.h"
 #include "DebugView.h"
+#include "Hierarchy.h"
+#include "Inspector.h"
 
 namespace Cue::Editor
 {
@@ -34,5 +36,7 @@ namespace Cue::Editor
         Engine* m_engine = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
+        std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
+        std::unique_ptr<Inspector> m_inspector = nullptr;
     };
 }

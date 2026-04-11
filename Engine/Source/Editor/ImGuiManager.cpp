@@ -4,6 +4,19 @@ namespace Cue::Editor
 {
     namespace
     {
+        constexpr float k_uiFontSize = 18.0f;
+        constexpr float k_codeFontSize = 16.0f;
+        constexpr float k_japaneseRasterizerMultiply = 2.5f;
+        constexpr ImWchar k_iconGlyphRanges[] = { 0xE000, 0xF8FF, 0 };
+
+        struct EditorFontPaths final
+        {
+            Core::IO::Path uiFont{};
+            Core::IO::Path fallbackFont{};
+            Core::IO::Path codeFont{};
+            Core::IO::Path iconFont{};
+        };
+
         Core::IO::Path get_repository_layout_file_path()
         {
 #ifdef CUE_PROJECT_ROOT_PATH
@@ -13,6 +26,45 @@ namespace Cue::Editor
 #else
             return Core::IO::Path("config/editor/imgui.ini");
 #endif
+        }
+
+        Core::IO::Path get_repository_font_root_path()
+        {
+#ifdef CUE_PROJECT_ROOT_PATH
+            return Core::IO::Path::join(
+                Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+                Core::IO::Path("Engine/Fonts"));
+#else
+            return Core::IO::Path("Fonts");
+#endif
+        }
+
+        Core::IO::Path get_module_directory_path()
+        {
+            constexpr DWORD k_modulePathCapacity = 4096;
+            std::string modulePath(k_modulePathCapacity, '\0');
+            const DWORD length =
+                ::GetModuleFileNameA(nullptr, modulePath.data(), k_modulePathCapacity);
+            if (length == 0 || length >= k_modulePathCapacity)
+            {
+                return Core::IO::Path();
+            }
+
+            modulePath.resize(length);
+            return Core::IO::Path(modulePath).parent();
+        }
+
+        Core::IO::Path get_runtime_font_root_path()
+        {
+            const Core::IO::Path moduleDirectoryPath = get_module_directory_path();
+            if (moduleDirectoryPath.is_empty())
+            {
+                return Core::IO::Path("EngineResources/Fonts");
+            }
+
+            return Core::IO::Path::join(
+                moduleDirectoryPath,
+                Core::IO::Path("EngineResources/Fonts"));
         }
 
         Result ensure_directory_exists(
@@ -94,6 +146,210 @@ namespace Cue::Editor
             return result;
         }
 
+        Result resolve_font_path(
+            Core::IO::IFileSystem& a_fileSystem,
+            const char* a_fileName,
+            Core::IO::Path& outPath)
+        {
+            const Core::IO::Path repositoryPath = Core::IO::Path::join(
+                get_repository_font_root_path(),
+                Core::IO::Path(a_fileName));
+            const Core::IO::Path runtimePath = Core::IO::Path::join(
+                get_runtime_font_root_path(),
+                Core::IO::Path(a_fileName));
+
+#ifdef CUE_DEBUG
+            const Core::IO::Path candidates[] = { repositoryPath, runtimePath };
+#else
+            const Core::IO::Path candidates[] = { runtimePath, repositoryPath };
+#endif
+
+            for (const Core::IO::Path& candidatePath : candidates)
+            {
+                bool exists = false;
+                const Result result = a_fileSystem.exists(candidatePath, &exists);
+                if (!result)
+                {
+                    Core::IO::log(
+                        Core::IO::LogSink::debugConsole,
+                        "Failed to query font file: %s",
+                        candidatePath.utf8().c_str());
+                    return result;
+                }
+                if (exists)
+                {
+                    outPath = candidatePath;
+                    return Result::ok();
+                }
+            }
+
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Font file was not found.");
+        }
+
+        Result resolve_editor_font_paths(
+            Core::IO::IFileSystem& a_fileSystem,
+            EditorFontPaths& outPaths)
+        {
+            Result result = resolve_font_path(
+                a_fileSystem,
+                "Inter-VariableFont_opsz,wght.ttf",
+                outPaths.uiFont);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = resolve_font_path(
+                a_fileSystem,
+                "NotoSansJP-VariableFont_wght.ttf",
+                outPaths.fallbackFont);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = resolve_font_path(
+                a_fileSystem,
+                "JetBrainsMono-VariableFont_wght.ttf",
+                outPaths.codeFont);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = resolve_font_path(
+                a_fileSystem,
+                "MaterialSymbolsOutlined-VariableFont_FILL,GRAD,opsz,wght.ttf",
+                outPaths.iconFont);
+            if (!result)
+            {
+                return result;
+            }
+
+            return Result::ok();
+        }
+
+        ImFont* load_font(
+            const Core::IO::Path& a_fontPath,
+            ImFontAtlas& a_fontAtlas,
+            const float a_fontSize,
+            ImFontConfig* a_config,
+            const ImWchar* a_glyphRanges)
+        {
+            return a_fontAtlas.AddFontFromFileTTF(
+                a_fontPath.utf8().c_str(),
+                a_fontSize,
+                a_config,
+                a_glyphRanges);
+        }
+
+        Result load_editor_fonts(
+            Core::IO::IFileSystem& a_fileSystem,
+            ImGuiIO& a_io,
+            ImFont*& outUiFont,
+            ImFont*& outCodeFont)
+        {
+            EditorFontPaths fontPaths{};
+            Result result = resolve_editor_font_paths(a_fileSystem, fontPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            ImFontAtlas& fontAtlas = *a_io.Fonts;
+            fontAtlas.Clear();
+
+            const ImWchar* defaultGlyphRanges = fontAtlas.GetGlyphRangesDefault();
+            const ImWchar* japaneseGlyphRanges = fontAtlas.GetGlyphRangesJapanese();
+
+            outUiFont = load_font(
+                fontPaths.uiFont,
+                fontAtlas,
+                k_uiFontSize,
+                nullptr,
+                defaultGlyphRanges);
+            if (outUiFont == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to load Inter font for ImGui.");
+            }
+
+            ImFontConfig fallbackFontConfig{};
+            fallbackFontConfig.MergeMode = true;
+            fallbackFontConfig.OversampleH = 2;
+            fallbackFontConfig.OversampleV = 2;
+            fallbackFontConfig.RasterizerMultiply = k_japaneseRasterizerMultiply;
+            if (load_font(
+                fontPaths.fallbackFont,
+                fontAtlas,
+                k_uiFontSize,
+                &fallbackFontConfig,
+                japaneseGlyphRanges) == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to merge Noto Sans JP into ImGui UI font.");
+            }
+
+            ImFontConfig iconFontConfig{};
+            iconFontConfig.MergeMode = true;
+            iconFontConfig.PixelSnapH = true;
+            iconFontConfig.GlyphMinAdvanceX = k_uiFontSize;
+            if (load_font(
+                fontPaths.iconFont,
+                fontAtlas,
+                k_uiFontSize,
+                &iconFontConfig,
+                k_iconGlyphRanges) == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to merge Material Symbols into ImGui UI font.");
+            }
+
+            outCodeFont = load_font(
+                fontPaths.codeFont,
+                fontAtlas,
+                k_codeFontSize,
+                nullptr,
+                defaultGlyphRanges);
+            if (outCodeFont == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to load JetBrains Mono font for ImGui.");
+            }
+
+            ImFontConfig codeFallbackFontConfig{};
+            codeFallbackFontConfig.MergeMode = true;
+            codeFallbackFontConfig.OversampleH = 2;
+            codeFallbackFontConfig.OversampleV = 2;
+            codeFallbackFontConfig.RasterizerMultiply = k_japaneseRasterizerMultiply;
+            if (load_font(
+                fontPaths.fallbackFont,
+                fontAtlas,
+                k_codeFontSize,
+                &codeFallbackFontConfig,
+                japaneseGlyphRanges) == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to merge Noto Sans JP into ImGui code font.");
+            }
+
+            a_io.FontDefault = outUiFont;
+            return Result::ok();
+        }
+
         std::string resolve_layout_file_path(Core::IO::IFileSystem& a_fileSystem)
         {
             const Core::IO::Path repositoryLayoutPath = get_repository_layout_file_path();
@@ -159,6 +415,20 @@ namespace Cue::Editor
         io.ConfigFlags |= a_info.enableDocking ? ImGuiConfigFlags_DockingEnable : 0;
         io.ConfigFlags |= a_info.enableMultiViewport ? ImGuiConfigFlags_ViewportsEnable : 0;
         io.ConfigFlags |= a_info.enableKeyboardNavigation ? ImGuiConfigFlags_NavEnableKeyboard : 0;
+
+        Result fontLoadResult = load_editor_fonts(*a_info.fileSystem, io, m_uiFont, m_codeFont);
+        if (!fontLoadResult)
+        {
+            Core::IO::log(
+                Core::IO::LogSink::debugConsole,
+                "Failed to load custom ImGui fonts: %s",
+                fontLoadResult.message.data());
+
+            io.Fonts->Clear();
+            m_uiFont = io.Fonts->AddFontDefault();
+            m_codeFont = m_uiFont;
+            io.FontDefault = m_uiFont;
+        }
 
         // スタイルの設定
         ImGui::StyleColorsDark();

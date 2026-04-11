@@ -4,7 +4,7 @@ find_package(directx-dxc CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 
 # ターゲットの追加
-add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h")
+add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Icon.h" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h" "Hierarchy.h" "Inspector.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -38,7 +38,10 @@ add_custom_command(
             "$<TARGET_FILE_DIR:Editor>"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"
-            "$<TARGET_FILE_DIR:Editor>/Shaders"
+            "$<TARGET_FILE_DIR:Editor>/EngineResources/Shaders"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Engine/Fonts"
+            "$<TARGET_FILE_DIR:Editor>/EngineResources/Fonts"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/config"
             "$<TARGET_FILE_DIR:Editor>/config"
