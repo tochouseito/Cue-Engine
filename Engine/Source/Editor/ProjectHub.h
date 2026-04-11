@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <deque>
+#include <string>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -33,7 +34,13 @@ namespace Cue::Editor
         {
             return m_isOpen;
         }
+
+        std::string project_path() const
+        {
+            return m_projectPath;
+        }
     private:
         bool m_isOpen = true;
+        std::string m_projectPath = "";
     };
 }

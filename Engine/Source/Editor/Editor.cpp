@@ -42,6 +42,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<Engine> engine = nullptr;
     std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
     std::unique_ptr<Editor::ProjectHub> projectHub = nullptr;
+    std::string projectPath = "";
 
     // プラットフォームの生成
     platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
@@ -185,7 +186,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // メインループ
     bool isRunning = true;
-    bool showProjectHub = true;
+    bool showProjectHub = projectPath.empty(); // プロジェクトパスが空の場合は Project Hub を表示
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
@@ -203,6 +204,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             {
                 projectHub->update();
                 showProjectHub = projectHub->is_open();
+                projectPath = projectHub->project_path();
             }
             else
             {
