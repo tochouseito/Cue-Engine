@@ -15,6 +15,7 @@
 // === Editor includes ===
 #include "ImGuiManager.h"
 #include "EditorManager.h"
+#include "ProjectHub.h"
 
 using namespace Cue;
 
@@ -40,6 +41,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint64_t imguiMessageHandlerId = 0;
     std::unique_ptr<Engine> engine = nullptr;
     std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
+    std::unique_ptr<Editor::ProjectHub> projectHub = nullptr;
 
     // プラットフォームの生成
     platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
@@ -175,11 +177,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManager = std::make_unique<Editor::EditorManager>(&editorBridge, platform.get(), backend.get(), engine.get());
     editorManager->initialize();
 
+    // プロジェクトハブの生成と初期化
+    projectHub = std::make_unique<Editor::ProjectHub>();
+
     // プラットフォームの開始
     r = platform->start();
 
     // メインループ
     bool isRunning = true;
+    bool showProjectHub = true;
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
@@ -193,8 +199,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // ImGui マネージャのフレーム開始処理
         if (imGuiManager->begin_frame())
         {
-            editorManager->update();
-
+            if(showProjectHub)
+            {
+                projectHub->update();
+                showProjectHub = projectHub->is_open();
+            }
+            else
+            {
+                editorManager->update();
+            }
             imGuiManager->end_frame();
         }
 
