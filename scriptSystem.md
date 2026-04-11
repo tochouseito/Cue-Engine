@@ -36,15 +36,37 @@ DLL 境界で扱う値は、たとえば以下のようなハンドルと関数�
 - スクリプトの実体データは DLL 内部で保持する
 - Engine 側はスクリプト実体をハンドル経由で管理する
 
-### 1.3 この方式を採用する理由
+### 1.3 Component の公開方針
+
+既存の ECS Component は Engine 内部用として扱い、Script 側へそのまま公開しません。
+
+Script 側が触るのは、内部 Component の実体ではなく、安定した外部公開 API と必要最小限の POD データです。分離の方針は以下です。
+
+- Engine 内部では既存の Component をそのまま使う
+- Script 側へは `EntityHandle` や `ComponentHandle` を公開する
+- 必要なデータだけを `CueTransformData` のような POD で受け渡す
+- Script 側は `get`、`set`、`has` のような API 経由で Component を操作する
+- Script 用の薄い C++ ラッパは作ってよいが、内部 ECS 型は見せない
+
+たとえば `TransformComponent` を Script から使いたい場合でも、外部へ公開するのは内部 struct そのものではなく、以下のような形を前提にします。
+
+- `CueTransformData`
+- `has_transform(EntityHandle)`
+- `get_transform(EntityHandle, CueTransformData*)`
+- `set_transform(EntityHandle, const CueTransformData*)`
+
+この形にしておけば、内部の ECS 実装や Component レイアウトを変更しても、Script 側の契約を保ちやすくなります。
+
+### 1.4 この方式を採用する理由
 
 - ABI を安定させやすい
 - DLL 跨ぎの所有権事故やメモリ破壊を減らせる
 - Engine 内部実装を変更しても Script 側への影響を抑えやすい
+- Component の内部表現を Script 側から隠せる
 - ホットリロードの前提を作りやすい
 - 将来 C#、Lua、Python など別言語を導入するときも境界設計を使い回せる
 
-### 1.4 欠点
+### 1.5 欠点
 
 - 直感的な C++ の書き味は落ちる
 - 最初の API 設計に手間がかかる
@@ -106,6 +128,7 @@ C++ 全文法を食べる設計は避けます。そこに踏み込むと、ツ�
 - C API 境界
 - Opaque Handle
 - `EngineApi` 関数テーブル
+- 外部公開用の POD と Component 操作 API
 - Script 側の薄い C++ ラッパ
 - 自動登録マクロ
 - 必要最小限のリフレクションコード生成
@@ -187,11 +210,17 @@ Editor はビルドシステムやデバッガそのものを持つのではな�
 
 これをやると、Script 側が Engine 内部実装へ強く依存します。Engine の構造変更がそのまま Script の破壊変更になり、長期運用に耐えません。
 
-### 5.3 最初から Unreal Engine 級の完全リフレクションを目指す
+### 5.3 ECS の内部 Component をそのまま Script 側へ公開する
+
+`TransformComponent` や `CameraComponent` のような内部 Component を、そのまま Script DLL から `#include` させる設計は採用しません。Script 側へ公開するのは、安定した API、Handle、POD データだけです。
+
+内部 Component は Engine の都合で変更しやすく、ECS の最適化やメモリ配置の変更も入り得ます。その実体を外へ見せると、Script 側が内部事情に引きずられ、ABI と実装の両方が壊れやすくなります。
+
+### 5.4 最初から Unreal Engine 級の完全リフレクションを目指す
 
 初期段階で必要なのは、Inspector 表示、保存復元、最低限の型情報です。巨大なツールチェーンを先に作るのは費用対効果が悪く、実装速度を落とします。
 
-### 5.4 ホットリロード時に既存メモリをそのまま生かす
+### 5.5 ホットリロード時に既存メモリをそのまま生かす
 
 クラスサイズ変更、vtable 変更、フィールド追加が入ると破綻しやすいため、この方向は避けます。状態は serialize して restore する前提に寄せるべきです。
 
@@ -207,6 +236,7 @@ Editor はビルドシステムやデバッガそのものを持つのではな�
 - C API で `register_scripts()` を呼ぶ
 - `create`、`destroy`、`update` を実装する
 - `EntityHandle` 経由で最低限の Engine API を使えるようにする
+- 内部 Component を直接見せず、外部公開用の POD と `get`、`set`、`has` API を定義する
 
 ### 6.2 第2段階
 
