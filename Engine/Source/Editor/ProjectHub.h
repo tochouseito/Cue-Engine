@@ -1,46 +1,44 @@
 #pragma once
 
-// === Engine includes ===
-#include <FrameController.h>
-
 // === C++ includes ===
-#include <cstdint>
-#include <memory>
-#include <deque>
+#include <array>
 #include <string>
 
-// === ImGui includes ===
-#include <imgui.h>
+namespace Cue::Core::IO
+{
+    class IFileSystem;
+}
 
 namespace Cue::Editor
 {
     class ProjectHub final
     {
     public:
-        ProjectHub() = default;
+        explicit ProjectHub(Core::IO::IFileSystem& a_fileSystem);
         ~ProjectHub() = default;
 
-        void update()
-        {
-            ImGui::Begin("Project Hub"); // ウィンドウ開始
-            if (ImGui::Button("New Project"))
-            {
-                m_isOpen = false; // 新しいプロジェクトを作成するために Project Hub を閉じる
-            }
-            ImGui::End();
-        }
+        void update();
 
-        bool is_open() const
-        {
-            return m_isOpen;
-        }
+        [[nodiscard]] bool is_open() const;
+        [[nodiscard]] std::string project_path() const;
 
-        std::string project_path() const
-        {
-            return m_projectPath;
-        }
     private:
+        void open_create_project_modal();
+        void draw_create_project_modal();
+        bool browse_project_directory();
+        bool create_project();
+        [[nodiscard]] bool has_invalid_project_name_character(
+            const std::string& a_projectName
+        ) const;
+        [[nodiscard]] std::string trim_text(const char* a_text) const;
+
+    private:
+        Core::IO::IFileSystem& m_fileSystem;
         bool m_isOpen = true;
+        bool m_openCreateProjectModal = false;
         std::string m_projectPath = "";
+        std::string m_errorMessage = "";
+        std::array<char, 256> m_projectNameBuffer{};
+        std::array<char, 1024> m_projectDirectoryBuffer{};
     };
 }

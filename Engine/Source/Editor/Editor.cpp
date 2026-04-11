@@ -179,7 +179,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManager->initialize();
 
     // プロジェクトハブの生成と初期化
-    projectHub = std::make_unique<Editor::ProjectHub>();
+    projectHub = std::make_unique<Editor::ProjectHub>(platform->file_system());
 
     // プラットフォームの開始
     r = platform->start();
