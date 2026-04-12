@@ -187,6 +187,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // メインループ
     bool isRunning = true;
     bool showProjectHub = projectPath.empty(); // プロジェクトパスが空の場合は Project Hub を表示
+    showProjectHub = false;
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
