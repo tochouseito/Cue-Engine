@@ -10,7 +10,6 @@
 #include <ECSManager.h>
 
 // === Engine includes ===
-#include "GameScene.h"
 
 namespace Cue
 {
@@ -20,6 +19,7 @@ namespace Cue
     public:
         // Scene の追加
     private:
+        std::unique_ptr<ECS::ECSManager> m_ecsManager = nullptr;
         EntityRegistry m_entityRegistry{};
         std::unordered_map<std::string, EntityRegistry::InsertGroupResult> m_namedEntityGroups{};
     };
