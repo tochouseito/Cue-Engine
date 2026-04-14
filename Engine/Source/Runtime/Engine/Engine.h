@@ -16,10 +16,13 @@
 #include "FrameController.h"
 #include "Commands.h"
 #include "GameCore/GameWorld.h"
+#include "Script/ScriptModule.h"
+#include "Script/ScriptRuntime.h"
 
 // === C++ includes ===
 #include <functional>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace Cue
@@ -140,6 +143,36 @@ namespace Cue
                 "Unknown component type was requested.");
         }
 
+        Result get_script_component(GameCore::EntityId a_objectId,
+            ECS::ScriptComponent& a_outComponent) override
+        {
+            ECS::ScriptComponent* component = nullptr;
+            Result result =
+                m_gameWorld.get_component<ECS::ScriptComponent>(a_objectId, component);
+            if (!result || component == nullptr)
+            {
+                return result;
+            }
+
+            a_outComponent = *component;
+            return Result::ok();
+        }
+
+        Result set_script_component(GameCore::EntityId a_objectId,
+            const ECS::ScriptComponent& a_component) override
+        {
+            ECS::ScriptComponent* component = nullptr;
+            Result result =
+                m_gameWorld.get_component<ECS::ScriptComponent>(a_objectId, component);
+            if (!result || component == nullptr)
+            {
+                return result;
+            }
+
+            *component = a_component;
+            return Result::ok();
+        }
+
     private:
         template <typename T>
         Result add_component_internal(GameCore::EntityId a_objectId,
@@ -256,12 +289,35 @@ namespace Cue
             return m_editorSceneId;
         }
 
+        [[nodiscard]] const std::vector<std::string>&
+            registered_script_classes() const noexcept
+        {
+            static const std::vector<std::string> k_emptyClasses{};
+            return m_scriptRuntime != nullptr
+                ? m_scriptRuntime->registered_script_classes()
+                : k_emptyClasses;
+        }
+
+        [[nodiscard]] bool has_registered_script_class(
+            std::string_view a_className) const noexcept
+        {
+            return m_scriptRuntime != nullptr &&
+                m_scriptRuntime->has_registered_script_class(a_className);
+        }
+
+        [[nodiscard]] Result load_script_module(
+            const Core::IO::Path& a_scriptRoot) noexcept;
+        void unload_script_module() noexcept;
+
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
         Result destroy_size_dependent_resources();
         Result apply_pending_resize();
+        [[nodiscard]] Result resolve_script_module_path(
+            const Core::IO::Path& a_scriptRoot,
+            Core::IO::Path& a_outModulePath) noexcept;
 
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
@@ -278,6 +334,8 @@ namespace Cue
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
         std::unique_ptr<GameCore::GameWorld> m_gameWorld = nullptr;
+        std::unique_ptr<ScriptModule> m_scriptModule = nullptr;
+        std::unique_ptr<ScriptRuntime> m_scriptRuntime = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};
@@ -287,5 +345,6 @@ namespace Cue
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
         GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;
+        Core::IO::Path m_scriptRoot{};
     };
 } // namespace Cue

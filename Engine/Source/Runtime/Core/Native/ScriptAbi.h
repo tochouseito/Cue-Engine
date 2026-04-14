@@ -130,6 +130,12 @@ extern "C"
         const CueTransformData* a_transform
     );
 
+    /// @brief Script DLL が利用可能な Script クラス名を Engine へ通知します。
+    /// `a_scriptClassName` は UTF-8 の非所有文字列です。
+    using CueRegisterScriptClassFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// v1 では末尾拡張のみを許可します。
     struct CueEngineApi
@@ -143,6 +149,8 @@ extern "C"
         CueHasTransformFn hasTransform;
         CueGetTransformFn getTransform;
         CueSetTransformFn setTransform;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRegisterScriptClassFn registerScriptClass;
     };
 
     /// @brief Script インスタンス生成時の入力です。

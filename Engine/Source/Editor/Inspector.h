@@ -2,6 +2,7 @@
 
 // === Engine includes ===
 #include <Commands.h>
+#include <Engine.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameWorld.h>
 
@@ -47,10 +48,11 @@ namespace Cue::Editor
         };
 
         Inspector(Core::CQRS::Bridge* bridge, GameCore::GameWorld* a_gameWorld,
-            GameCore::EntityId* a_selectedEntityId)
+            GameCore::EntityId* a_selectedEntityId, Engine* a_engine)
             : editorBridge(bridge)
             , m_gameWorld(a_gameWorld)
             , m_selectedEntityId(a_selectedEntityId)
+            , m_engine(a_engine)
         {
         }
         ~Inspector() = default;
@@ -439,10 +441,66 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("ScriptComponent");
             ImGui::Separator();
-            ImGui::Text("className: %s",
-                component->className.empty() ? "<empty>" : component->className.c_str());
-            ImGui::Text("isEnabled: %s",
-                component->isEnabled ? "true" : "false");
+
+            const std::vector<std::string>& registeredClasses =
+                m_engine != nullptr
+                ? m_engine->registered_script_classes()
+                : get_empty_script_class_list();
+            const bool isKnownClass = component->className.empty() ||
+                (m_engine != nullptr &&
+                    m_engine->has_registered_script_class(component->className));
+            const char* previewValue = component->className.empty()
+                ? "<empty>"
+                : component->className.c_str();
+
+            if (ImGui::BeginCombo("className", previewValue))
+            {
+                if (ImGui::Selectable("<empty>", component->className.empty()))
+                {
+                    ECS::ScriptComponent nextComponent = *component;
+                    nextComponent.className.clear();
+                    submit_set_script_component_command(nextComponent);
+                }
+
+                for (const std::string& className : registeredClasses)
+                {
+                    const bool isSelected = component->className == className;
+                    if (ImGui::Selectable(className.c_str(), isSelected))
+                    {
+                        ECS::ScriptComponent nextComponent = *component;
+                        nextComponent.className = className;
+                        submit_set_script_component_command(nextComponent);
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
+            if (registeredClasses.empty())
+            {
+                ImGui::TextUnformatted(
+                    "登録済み Script クラスはありません。GameScript.dll を再ビルドしてください。");
+            }
+            else
+            {
+                ImGui::Text("registered: %u",
+                    static_cast<uint32_t>(registeredClasses.size()));
+            }
+
+            if (!isKnownClass)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.25f, 1.0f),
+                    "現在の className は未登録です。");
+            }
+
+            bool isEnabled = component->isEnabled;
+            if (ImGui::Checkbox("isEnabled", &isEnabled) &&
+                isEnabled != component->isEnabled)
+            {
+                ECS::ScriptComponent nextComponent = *component;
+                nextComponent.isEnabled = isEnabled;
+                submit_set_script_component_command(nextComponent);
+            }
         }
 
         void draw_float3_text(const char* a_label, const Math::float3& a_value)
@@ -492,9 +550,39 @@ namespace Cue::Editor
             }
         }
 
+        void submit_set_script_component_command(
+            const ECS::ScriptComponent& a_component)
+        {
+            if (editorBridge == nullptr || m_selectedEntityId == nullptr ||
+                *m_selectedEntityId == GameCore::k_invalidEntityId)
+            {
+                return;
+            }
+
+            Result result = editorBridge->submit_command(
+                std::make_unique<SetScriptComponentCommand>(
+                    *m_selectedEntityId, a_component));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit set ScriptComponent command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file,
+                    result.line, result.function);
+            }
+        }
+
+        [[nodiscard]] static const std::vector<std::string>&
+            get_empty_script_class_list()
+        {
+            static const std::vector<std::string> k_empty{};
+            return k_empty;
+        }
+
         Core::CQRS::Bridge* editorBridge = nullptr;
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
+        Engine* m_engine = nullptr;
         GameCore::EntityId m_lastInspectedEntityId =
             GameCore::k_invalidEntityId;
         ComponentTab m_currentTab = ComponentTab::Base;

@@ -39,6 +39,10 @@
                 "meshFilter": {
                     "meshId": 0
                 },
+                "script": {
+                    "className": "RotateCube",
+                    "isEnabled": true
+                },
                 "staticMeshRenderer": {
                     "materialId": 0,
                     "visible": true

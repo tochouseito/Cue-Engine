@@ -1,6 +1,7 @@
 #include <Native/ScriptAbi.h>
 
 // === C++ includes ===
+#include <cstddef>
 #include <cstring>
 #include <string_view>
 #include <unordered_map>
@@ -17,13 +18,27 @@ namespace
     std::unordered_map<uint64_t, ScriptInstance> g_instances{};
     uint64_t g_nextInstanceId = 1;
 
+    inline constexpr uint32_t k_requiredEngineApiSize =
+        static_cast<uint32_t>(
+            offsetof(CueEngineApi, setTransform) + sizeof(CueSetTransformFn));
+
+    [[nodiscard]] bool supports_register_script_class(
+        const CueEngineApi* a_engineApi)
+    {
+        return a_engineApi != nullptr &&
+            a_engineApi->structSize >=
+            offsetof(CueEngineApi, registerScriptClass) +
+                sizeof(CueRegisterScriptClassFn) &&
+            a_engineApi->registerScriptClass != nullptr;
+    }
+
     [[nodiscard]] CueResult validate_engine_api(const CueEngineApi* a_engineApi)
     {
         if (a_engineApi == nullptr)
         {
             return CueResult_InvalidArgument;
         }
-        if (a_engineApi->structSize < sizeof(CueEngineApi))
+        if (a_engineApi->structSize < k_requiredEngineApiSize)
         {
             return CueResult_InvalidArgument;
         }
@@ -104,6 +119,17 @@ extern "C"
                 }
 
                 g_engineApi = a_engineApi;
+                if (supports_register_script_class(g_engineApi))
+                {
+                    const CueResult registerResult =
+                        g_engineApi->registerScriptClass(
+                            make_string_view("RotateCube"));
+                    if (registerResult != CueResult_Ok)
+                    {
+                        return registerResult;
+                    }
+                }
+
                 log_message(CueLogSeverity_Info,
                     "GameScript module registered.");
                 return CueResult_Ok;

@@ -72,6 +72,11 @@ namespace Cue::Editor
             renderer.visible = true;
             cube.prototype.add_component(renderer);
 
+            ECS::ScriptComponent script{};
+            script.className = "RotateCube";
+            script.isEnabled = true;
+            cube.prototype.add_component(script);
+
             return cube;
         }
     }
@@ -578,6 +583,7 @@ namespace Cue::Editor
             "#include <Native/ScriptAbi.h>\n"
             "\n"
             "// === C++ includes ===\n"
+            "#include <cstddef>\n"
             "#include <cstring>\n"
             "#include <string_view>\n"
             "#include <unordered_map>\n"
@@ -594,13 +600,27 @@ namespace Cue::Editor
             "    std::unordered_map<uint64_t, ScriptInstance> g_instances{};\n"
             "    uint64_t g_nextInstanceId = 1;\n"
             "\n"
+            "    inline constexpr uint32_t k_requiredEngineApiSize =\n"
+            "        static_cast<uint32_t>(\n"
+            "            offsetof(CueEngineApi, setTransform) + sizeof(CueSetTransformFn));\n"
+            "\n"
+            "    [[nodiscard]] bool supports_register_script_class(\n"
+            "        const CueEngineApi* a_engineApi)\n"
+            "    {\n"
+            "        return a_engineApi != nullptr &&\n"
+            "            a_engineApi->structSize >=\n"
+            "            offsetof(CueEngineApi, registerScriptClass) +\n"
+            "                sizeof(CueRegisterScriptClassFn) &&\n"
+            "            a_engineApi->registerScriptClass != nullptr;\n"
+            "    }\n"
+            "\n"
             "    [[nodiscard]] CueResult validate_engine_api(const CueEngineApi* a_engineApi)\n"
             "    {\n"
             "        if (a_engineApi == nullptr)\n"
             "        {\n"
             "            return CueResult_InvalidArgument;\n"
             "        }\n"
-            "        if (a_engineApi->structSize < sizeof(CueEngineApi))\n"
+            "        if (a_engineApi->structSize < k_requiredEngineApiSize)\n"
             "        {\n"
             "            return CueResult_InvalidArgument;\n"
             "        }\n"
@@ -681,6 +701,17 @@ namespace Cue::Editor
             "                }\n"
             "\n"
             "                g_engineApi = a_engineApi;\n"
+            "                if (supports_register_script_class(g_engineApi))\n"
+            "                {\n"
+            "                    const CueResult registerResult =\n"
+            "                        g_engineApi->registerScriptClass(\n"
+            "                            make_string_view(\"RotateCube\"));\n"
+            "                    if (registerResult != CueResult_Ok)\n"
+            "                    {\n"
+            "                        return registerResult;\n"
+            "                    }\n"
+            "                }\n"
+            "\n"
             "                log_message(CueLogSeverity_Info,\n"
             "                    \"GameScript module registered.\");\n"
             "                return CueResult_Ok;\n"

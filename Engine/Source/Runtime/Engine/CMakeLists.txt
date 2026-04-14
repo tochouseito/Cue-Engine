@@ -6,6 +6,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_library(Engine STATIC
     "Engine.h"
     "Engine.cpp"
+    "Script/ScriptModule.h"
+    "Script/ScriptModule.cpp"
+    "Script/ScriptRuntime.h"
+    "Script/ScriptRuntime.cpp"
     "FrameController.h"
     "FrameController.cpp"
     "GpuData/Transform.h"
@@ -33,3 +37,7 @@ target_link_libraries(Engine PUBLIC
 
 # インクルードディレクトリの追加
 target_include_directories(Engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+if(MSVC)
+    target_compile_options(Engine PRIVATE /FS)
+endif()

@@ -5,8 +5,12 @@
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
 #include "Passes/ViewProjectionCopyPass.h"
+#include <IO/Logger.h>
 #include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
+
+// === C++ includes ===
+#include <array>
 
 namespace Cue
 {
@@ -127,6 +131,9 @@ namespace Cue
             return result;
         }
 
+        m_scriptModule = std::make_unique<ScriptModule>();
+        m_scriptRuntime = std::make_unique<ScriptRuntime>(*m_gameWorld);
+
         result = create_final_color_resources();
         if (!result)
         {
@@ -168,6 +175,9 @@ namespace Cue
 
     void Engine::shutdown()
     {
+        unload_script_module();
+        m_scriptRuntime.reset();
+        m_scriptModule.reset();
         m_frameController.reset();
         if (m_backend != nullptr)
         {
@@ -441,6 +451,17 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
+            if (m_scriptRuntime != nullptr)
+            {
+                Result scriptResult = m_scriptRuntime->update(deltaTime);
+                if (!scriptResult)
+                {
+                    CUE_ASSERTF(false, "Script runtime update failed: %s",
+                        scriptResult.message.data());
+                    return;
+                }
+            }
+
             Result updateResult = m_gameWorld->update(deltaTime, a_index,
                 m_backend->width(), m_backend->height());
             if (!updateResult)
@@ -450,6 +471,116 @@ namespace Cue
                 return;
             }
             };
+    }
+
+    Result Engine::load_script_module(const Core::IO::Path& a_scriptRoot) noexcept
+    {
+        unload_script_module();
+        m_scriptRoot = a_scriptRoot;
+
+        if (m_platform == nullptr || m_scriptModule == nullptr || m_scriptRuntime == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine script runtime is not initialized.");
+        }
+
+        Core::IO::Path modulePath{};
+        Result result = resolve_script_module_path(a_scriptRoot, modulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_scriptModule->load(modulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptRuntime->set_module(m_scriptModule.get());
+        result = m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
+        if (!result)
+        {
+            m_scriptRuntime->set_module(nullptr);
+            m_scriptModule->unload();
+            return result;
+        }
+
+        return Result::ok();
+    }
+
+    void Engine::unload_script_module() noexcept
+    {
+        if (m_scriptRuntime != nullptr)
+        {
+            (void)m_scriptRuntime->reset();
+            m_scriptRuntime->set_module(nullptr);
+        }
+
+        if (m_scriptModule != nullptr)
+        {
+            m_scriptModule->unload();
+        }
+
+        m_scriptRoot = {};
+    }
+
+    Result Engine::resolve_script_module_path(
+        const Core::IO::Path& a_scriptRoot,
+        Core::IO::Path& a_outModulePath) noexcept
+    {
+        a_outModulePath = {};
+        if (m_platform == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Platform is not initialized.");
+        }
+
+#if defined(CUE_DEBUG)
+        constexpr const char* k_buildConfig = "Debug";
+#elif defined(CUE_RELWITHDEBINFO)
+        constexpr const char* k_buildConfig = "RelWithDebInfo";
+#else
+        constexpr const char* k_buildConfig = "Release";
+#endif
+
+        const std::array<Core::IO::Path, 4> candidatePaths = {
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("Binaries/") + k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("out/build/win-x64/GameScript/") +
+                    k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("out/build/win-x64/") +
+                    k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("generated/outputs/") +
+                    k_buildConfig + "/GameScript.dll")),
+        };
+
+        Core::IO::IFileSystem& fileSystem = m_platform->file_system();
+        for (const Core::IO::Path& candidatePath : candidatePaths)
+        {
+            bool exists = false;
+            Result result = fileSystem.exists(candidatePath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (exists)
+            {
+                a_outModulePath = candidatePath;
+                return Result::ok();
+            }
+        }
+
+        return Result::fail(Code::NotFound, Severity::Warning,
+            "GameScript.dll was not found in the script root.");
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::render()

@@ -24,6 +24,7 @@ namespace Cue::Editor
         struct ProjectSettings final
         {
             std::string startupScene{};
+            std::string scriptRoot{};
         };
 
         void log_result(std::string_view a_prefix, const Result& a_result)
@@ -64,6 +65,13 @@ namespace Cue::Editor
                         "Project startup scene is empty.");
                 }
 
+                a_outSettings.scriptRoot =
+                    root.value("scriptRoot", std::string("."));
+                if (a_outSettings.scriptRoot.empty())
+                {
+                    a_outSettings.scriptRoot = ".";
+                }
+
                 return Result::ok();
             }
             catch (...)
@@ -81,7 +89,7 @@ namespace Cue::Editor
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
-            m_bridge, m_engine->game_world(), &m_selectedEntityId);
+            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine);
     }
 
     Result EditorManager::open_project(const std::string& a_projectPath)
@@ -109,8 +117,22 @@ namespace Cue::Editor
             scenePath = Core::IO::Path::join(Core::IO::Path(a_projectPath), scenePath);
         }
 
+        Core::IO::Path scriptRootPath(projectSettings.scriptRoot);
+        if (!scriptRootPath.is_absolute())
+        {
+            scriptRootPath =
+                Core::IO::Path::join(Core::IO::Path(a_projectPath), scriptRootPath);
+        }
+
         m_projectPath = a_projectPath;
         m_currentScenePath = scenePath.utf8();
+
+        const Result scriptLoadResult = m_engine->load_script_module(scriptRootPath);
+        if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
+        {
+            set_status_message("GameScript.dll の読み込みに失敗しました。", true);
+            return scriptLoadResult;
+        }
 
         result = reload_current_scene();
         if (!result)
@@ -120,7 +142,16 @@ namespace Cue::Editor
             return result;
         }
 
-        set_status_message("プロジェクトを開きました。", false);
+        if (!scriptLoadResult && scriptLoadResult.code == Code::NotFound)
+        {
+            set_status_message(
+                "プロジェクトを開きました。GameScript.dll はまだ見つかっていません。",
+                true);
+        }
+        else
+        {
+            set_status_message("プロジェクトを開きました。", false);
+        }
         return Result::ok();
     }
 
