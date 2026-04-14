@@ -1,3 +1,5 @@
+find_package(nlohmann_json CONFIG REQUIRED)
+
 # Engine の CMakeLists.txt
 
 # Static ライブラリを作成
@@ -15,7 +17,7 @@ add_library(Engine STATIC
     "Passes/StaticMeshBatchingPass.h"
     "Passes/StaticMeshForwardPass.h"
     "Asset/AssetManager.h"
-    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h")
+    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h" "GameCore/SceneSerializer.h" "GameCore/SceneSerializer.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC
@@ -26,6 +28,7 @@ target_link_libraries(Engine PUBLIC
     ECS
     PAL
     RHI
+    nlohmann_json::nlohmann_json
 )
 
 # インクルードディレクトリの追加
