@@ -34,12 +34,12 @@ namespace Cue
 
         Result create_object() override
         {
-            return m_gameWorld.create_object("TestObject");
+            return m_gameWorld.add_object();
         }
 
         Result remove_object(uint32_t a_objectId) override
         {
-            return m_gameWorld.destroy_object(a_objectId);
+            return m_gameWorld.remove_object(a_objectId);
         }
 
         Result set_main_camera(uint32_t a_cameraIndex) override
@@ -122,7 +122,7 @@ namespace Cue
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
-        std::unique_ptr<GameCoreLegacy> m_gameCore = nullptr;
+        std::unique_ptr<GameCore::GameWorld> m_gameWorld = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};
@@ -130,5 +130,6 @@ namespace Cue
         RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
         uint32_t m_cubeIndexCount = 0;
+        uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
     };
 } // namespace Cue

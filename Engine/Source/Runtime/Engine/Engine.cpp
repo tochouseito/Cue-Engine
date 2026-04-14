@@ -88,6 +88,21 @@ namespace Cue
         m_cubeIndexCount =
             static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
 
+        RHI::StaticMeshHandle cubeStaticMeshHandle{};
+        result = m_assetManager.get_static_mesh_handle(
+            cubeModelHandle, 0, cubeStaticMeshHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
+        if (!result)
+        {
+            return result;
+        }
+
         // GenerateVisibleObjectList 用バッファを作成
         auto* bufferManager = m_backend->get_buffer_manager();
         if (bufferManager == nullptr)
@@ -103,28 +118,28 @@ namespace Cue
                 "Failed to get view manager from backend.");
         }
 
-        m_gameCore = std::make_unique<GameCoreLegacy>();
-        result = m_gameCore->initialize(
+        m_gameWorld = std::make_unique<GameCore::GameWorld>();
+        result = m_gameWorld->initialize(
             bufferManager, viewManager, m_backend->buffer_count(),
-            m_backend->width(), m_backend->height());
+            m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
         if (!result)
         {
             return result;
         }
 
-        result = m_gameCore->add_object();
+        result = m_gameWorld->add_object();
         if (!result)
         {
             return result;
         }
 
-        result = m_gameCore->add_object();
+        result = m_gameWorld->add_object();
         if (!result)
         {
             return result;
         }
 
-        result = m_gameCore->add_object();
+        result = m_gameWorld->add_object();
         if (!result)
         {
             return result;
@@ -142,7 +157,8 @@ namespace Cue
             return result;
         }
 
-        result = m_gameCore->update(0.0f, 0, m_backend->width(), m_backend->height());
+        result = m_gameWorld->update(
+            0.0f, 0, m_backend->width(), m_backend->height());
         if (!result)
         {
             return result;
@@ -205,7 +221,7 @@ namespace Cue
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
-            EngineCommandContext commandContext(*m_gameCore);
+            EngineCommandContext commandContext(*m_gameWorld);
             Result result = m_editorBridge->drain_commands(commandContext);
             if (!result)
             {
@@ -335,16 +351,16 @@ namespace Cue
         }
 
         m_frameGraph->add_pass(std::make_unique<ObjectInfoCopyPass>(
-            m_gameCore->render_scene_state()));
+            m_gameWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_gameCore->render_scene_state()));
+            m_gameWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_gameCore->render_scene_state()));
+            m_gameWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_gameCore->render_scene_state()));
+            m_gameWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_gameCore->render_scene_state(), m_cubeIndexCount));
+            m_gameWorld->render_scene_state(), m_cubeIndexCount));
         result = m_frameGraph->build();
         if (!result)
         {
@@ -443,11 +459,11 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            Result updateResult = m_gameCore->update(deltaTime, a_index,
+            Result updateResult = m_gameWorld->update(deltaTime, a_index,
                 m_backend->width(), m_backend->height());
             if (!updateResult)
             {
-                CUE_ASSERTF(false, "GameCore update failed: %s",
+                CUE_ASSERTF(false, "GameWorld update failed: %s",
                     updateResult.message.data());
                 return;
             }

@@ -9,6 +9,9 @@
 // === Engine includes ===
 #include "GameCoreTypes.h"
 
+// === C++ includes ===
+#include <limits>
+
 namespace Cue::GameCore
 {
     // GameWorld が全 GameObject に共通で持たせる基本情報。
@@ -31,6 +34,9 @@ namespace Cue::GameCore
 
 namespace Cue::ECS
 {
+    inline constexpr uint32_t k_invalidMeshId =
+        (std::numeric_limits<uint32_t>::max)();
+
     struct RenderObjectComponent : public IComponentTag
     {
         RenderObjectComponent() = default;
@@ -77,7 +83,7 @@ namespace Cue::ECS
         MeshFilterComponent& operator=(const MeshFilterComponent&) = default;
         MeshFilterComponent(MeshFilterComponent&&) = default;
         MeshFilterComponent& operator=(MeshFilterComponent&&) = default;
-        uint32_t meshId = 0; // メッシュアセットの識別子
+        uint32_t meshId = k_invalidMeshId; // StaticMeshPool に登録されたメッシュ ID
     };
 
     struct StaticMeshRendererComponent : public IComponentTag
@@ -88,5 +94,6 @@ namespace Cue::ECS
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         uint32_t materialId = 0; // マテリアルアセットの識別子
+        bool isEnabled = true;
     };
 }

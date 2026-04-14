@@ -2,16 +2,23 @@
 
 // === Base includes ===
 #include <Result.h>
+#include <CueMath.h>
 
 // === Engine includes ===
 #include "Components.h"
 #include "GameObject.h"
+#include "RenderSceneState.h"
 #include "SceneAsset.h"
 #include "SceneInstance.h"
+#include "Systems/CameraSystem.h"
+#include "Systems/ObjectInfoSystem.h"
+#include "Systems/TransformSystem.h"
+#include "WorldResources.h"
 
 // === C++ includes ===
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <cctype>
 #include <exception>
 #include <span>
@@ -28,6 +35,8 @@ namespace Cue::GameCore
     class GameWorld final
     {
     public:
+        static constexpr uint32_t k_maxRenderObjectCount = 1000;
+
         struct LoadSceneResult final
         {
             SceneId sceneId = k_invalidSceneId;
@@ -50,6 +59,203 @@ namespace Cue::GameCore
         {
             a_outEcs = &m_ecs;
             return Result::ok();
+        }
+
+        [[nodiscard]] Result initialize(RHI::IBufferManager* a_bufferManager,
+            RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
+            uint32_t a_renderWidth, uint32_t a_renderHeight,
+            uint32_t a_defaultStaticMeshId)
+        {
+            if (a_bufferManager == nullptr || a_viewManager == nullptr)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld requires valid buffer and view managers.");
+            }
+            if (a_defaultStaticMeshId == ECS::k_invalidMeshId)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld default static mesh id is invalid.");
+            }
+
+            m_defaultStaticMeshId = a_defaultStaticMeshId;
+            m_staticMeshCount = 0;
+            m_renderSceneState.resize(a_bufferCount);
+            for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
+            {
+                sync_render_scene_state(bufferIndex, a_renderWidth, a_renderHeight);
+            }
+
+            m_worldResources =
+                std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
+
+            Result result =
+                m_worldResources->create_object_info_buffer(k_maxRenderObjectCount);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_worldResources->create_transform_buffer(k_maxRenderObjectCount);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_worldResources->create_view_projection_buffer();
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_worldResources->create_render_object_buffer(
+                k_maxRenderObjectCount);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_worldResources->create_object_count_buffer();
+            if (!result)
+            {
+                return result;
+            }
+
+            m_ecs.add_system<ECS::ObjectInfoSystem>(
+                m_worldResources->object_info_uploaders());
+            m_ecs.add_system<ECS::TransformSystem>(
+                m_worldResources->transform_uploaders());
+            m_ecs.add_system<ECS::CameraSystem>(
+                m_worldResources->view_projection_uploaders(), m_renderSceneState);
+
+            return create_default_cameras();
+        }
+
+        [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
+            uint32_t a_renderWidth, uint32_t a_renderHeight)
+        {
+            execute_deferred_deletions_internal();
+            animate_static_mesh_objects(a_deltaTime);
+
+            Result result = rebuild_render_objects();
+            if (!result)
+            {
+                return result;
+            }
+
+            sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
+
+            ECS::UpdateContext updateContext{};
+            updateContext.bufferIndex = a_bufferIndex;
+            m_ecs.update_all_systems(updateContext);
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result add_object()
+        {
+            return add_object(make_spawn_position());
+        }
+
+        [[nodiscard]] Result add_object(const Math::float3& a_position)
+        {
+            if (m_defaultStaticMeshId == ECS::k_invalidMeshId)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld default static mesh id is invalid.");
+            }
+
+            GameObject object{};
+            Result result = create_object("StaticMeshObject", object);
+            if (!result)
+            {
+                return result;
+            }
+
+            ECS::TransformComponent* transform = nullptr;
+            result =
+                add_component<ECS::TransformComponent>(object.entity_id(), transform);
+            if (!result || transform == nullptr)
+            {
+                destroy_object_immediately(object.entity_id());
+                return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                    "Failed to add transform component for object.") : result;
+            }
+
+            ECS::MeshFilterComponent* meshFilter = nullptr;
+            result =
+                add_component<ECS::MeshFilterComponent>(object.entity_id(), meshFilter);
+            if (!result || meshFilter == nullptr)
+            {
+                destroy_object_immediately(object.entity_id());
+                return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                    "Failed to add mesh filter component for object.") : result;
+            }
+
+            ECS::StaticMeshRendererComponent* renderer = nullptr;
+            result = add_component<ECS::StaticMeshRendererComponent>(
+                object.entity_id(), renderer);
+            if (!result || renderer == nullptr)
+            {
+                destroy_object_immediately(object.entity_id());
+                return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                    "Failed to add static mesh renderer component for object.")
+                              : result;
+            }
+
+            transform->position = a_position;
+            transform->rotation = Math::float3::zero();
+            transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+            meshFilter->meshId = m_defaultStaticMeshId;
+            renderer->materialId = 0;
+            renderer->isEnabled = true;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept
+        {
+            EntityId entityId = k_invalidEntityId;
+            if (!try_get_static_mesh_entity(a_objectId, entityId))
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Static mesh object id was not found.");
+            }
+
+            return destroy_object(entityId);
+        }
+
+        [[nodiscard]] Result set_main_camera(uint32_t a_cameraIndex)
+        {
+            std::vector<EntityId> cameraEntities = collect_camera_entities();
+            if (a_cameraIndex >= cameraEntities.size())
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Error, "Camera index was not found.");
+            }
+
+            for (uint32_t cameraIndex = 0;
+                 cameraIndex < cameraEntities.size(); ++cameraIndex)
+            {
+                ECS::CameraComponent* camera =
+                    get_component<ECS::CameraComponent>(cameraEntities[cameraIndex]);
+                if (camera == nullptr)
+                {
+                    continue;
+                }
+
+                camera->isMain = (cameraIndex == a_cameraIndex);
+            }
+
+            m_mainCameraIndex = a_cameraIndex;
+            return Result::ok();
+        }
+
+        RenderSceneState& render_scene_state() noexcept
+        {
+            return m_renderSceneState;
+        }
+
+        const RenderSceneState& render_scene_state() const noexcept
+        {
+            return m_renderSceneState;
         }
 
         [[nodiscard]] Result create_object(std::string_view a_name,
@@ -549,6 +755,239 @@ namespace Cue::GameCore
         }
 
     private:
+        [[nodiscard]] Math::float3 make_spawn_position() const noexcept
+        {
+            const size_t objectIndex = count_active_static_mesh_objects();
+            const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
+            const uint32_t row = static_cast<uint32_t>(objectIndex / 3u);
+
+            return Math::float3{
+                (static_cast<float>(column) - 1.0f) * 2.0f,
+                0.0f,
+                static_cast<float>(row) * 2.5f
+            };
+        }
+
+        Result create_camera(const Math::float3& a_position, bool a_isMain)
+        {
+            GameObject object{};
+            Result result = create_object(a_isMain ? "MainCamera" : "Camera", object);
+            if (!result)
+            {
+                return result;
+            }
+
+            ECS::TransformComponent* transform = nullptr;
+            result =
+                add_component<ECS::TransformComponent>(object.entity_id(), transform);
+            if (!result || transform == nullptr)
+            {
+                destroy_object_immediately(object.entity_id());
+                return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                    "Failed to add transform component for camera.") : result;
+            }
+
+            ECS::CameraComponent* camera = nullptr;
+            result = add_component<ECS::CameraComponent>(object.entity_id(), camera);
+            if (!result || camera == nullptr)
+            {
+                destroy_object_immediately(object.entity_id());
+                return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                    "Failed to add camera component.") : result;
+            }
+
+            transform->position = a_position;
+            transform->rotation = Math::float3::zero();
+            transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+
+            camera->isMain = a_isMain;
+            camera->fovY = 60.0f;
+            camera->nearZ = 0.1f;
+            camera->farZ = 1000.0f;
+            return Result::ok();
+        }
+
+        Result create_default_cameras()
+        {
+            Result result = create_camera(Math::float3(0.0f, 0.0f, -6.0f), true);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = create_camera(Math::float3(0.0f, 0.0f, -12.0f), false);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_mainCameraIndex = 0;
+            return Result::ok();
+        }
+
+        void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
+            uint32_t a_renderHeight) noexcept
+        {
+            if (a_bufferIndex >= m_renderSceneState.frameStates.size())
+            {
+                return;
+            }
+
+            RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
+            frameState.objectCount = m_staticMeshCount;
+            frameState.renderWidth = a_renderWidth;
+            frameState.renderHeight = a_renderHeight;
+        }
+
+        void animate_static_mesh_objects(float a_deltaTime)
+        {
+            std::vector<EntityId> entities = collect_active_static_mesh_entities();
+            for (size_t entityIndex = 0; entityIndex < entities.size(); ++entityIndex)
+            {
+                ECS::TransformComponent* transform =
+                    get_component<ECS::TransformComponent>(entities[entityIndex]);
+                if (transform == nullptr)
+                {
+                    continue;
+                }
+
+                switch (entityIndex)
+                {
+                case 0:
+                    transform->rotation.y += a_deltaTime * 1.25f;
+                    break;
+                case 1:
+                    transform->rotation.x += a_deltaTime * 0.75f;
+                    break;
+                case 2:
+                    transform->rotation.y -= a_deltaTime * 1.0f;
+                    break;
+                default:
+                    transform->rotation.y += a_deltaTime * 0.5f;
+                    break;
+                }
+            }
+        }
+
+        Result rebuild_render_objects()
+        {
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+            {
+                if (!contains_object(entity) ||
+                    !has_component<ECS::RenderObjectComponent>(entity))
+                {
+                    continue;
+                }
+
+                m_ecs.remove_component<ECS::RenderObjectComponent>(entity);
+            }
+
+            m_staticMeshCount = 0;
+            const std::vector<EntityId> entities = collect_active_static_mesh_entities();
+            for (const EntityId entity : entities)
+            {
+                ECS::MeshFilterComponent* meshFilter =
+                    get_component<ECS::MeshFilterComponent>(entity);
+                if (meshFilter == nullptr)
+                {
+                    continue;
+                }
+
+                ECS::RenderObjectComponent* renderObject = nullptr;
+                Result result = add_component<ECS::RenderObjectComponent>(
+                    entity, renderObject);
+                if (!result || renderObject == nullptr)
+                {
+                    return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                        "Failed to add render object component.")
+                                  : result;
+                }
+
+                renderObject->objectId = m_staticMeshCount;
+                renderObject->meshId = meshFilter->meshId;
+                renderObject->transformId = m_staticMeshCount;
+                renderObject->visible = true;
+                ++m_staticMeshCount;
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const
+        {
+            std::vector<EntityId> entities{};
+            entities.reserve(m_liveObjectCount);
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+            {
+                if (!contains_object(entity) || !m_ecs.is_entity_active(entity))
+                {
+                    continue;
+                }
+
+                const BaseComponent* base = get_component<BaseComponent>(entity);
+                const ECS::TransformComponent* transform =
+                    get_component<ECS::TransformComponent>(entity);
+                const ECS::MeshFilterComponent* meshFilter =
+                    get_component<ECS::MeshFilterComponent>(entity);
+                const ECS::StaticMeshRendererComponent* renderer =
+                    get_component<ECS::StaticMeshRendererComponent>(entity);
+                if (base == nullptr || transform == nullptr || meshFilter == nullptr ||
+                    renderer == nullptr)
+                {
+                    continue;
+                }
+                if (!base->isActiveSelf || !renderer->isEnabled ||
+                    meshFilter->meshId == ECS::k_invalidMeshId)
+                {
+                    continue;
+                }
+
+                entities.push_back(entity);
+            }
+
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<EntityId> collect_camera_entities() const
+        {
+            std::vector<EntityId> entities{};
+            entities.reserve(m_liveObjectCount);
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+            {
+                if (!contains_object(entity) ||
+                    !has_component<ECS::CameraComponent>(entity))
+                {
+                    continue;
+                }
+
+                entities.push_back(entity);
+            }
+
+            return entities;
+        }
+
+        [[nodiscard]] size_t count_active_static_mesh_objects() const
+        {
+            return collect_active_static_mesh_entities().size();
+        }
+
+        [[nodiscard]] bool try_get_static_mesh_entity(uint32_t a_objectId,
+            EntityId& a_outEntityId) const noexcept
+        {
+            a_outEntityId = k_invalidEntityId;
+            const std::vector<EntityId> entities = collect_active_static_mesh_entities();
+            if (a_objectId >= entities.size())
+            {
+                return false;
+            }
+
+            a_outEntityId = entities[a_objectId];
+            return true;
+        }
+
         template <typename F>
         [[nodiscard]] static Result capture_result(F&& a_func)
         {
@@ -1470,6 +1909,8 @@ namespace Cue::GameCore
         }
 
         ECS::ECSManager m_ecs{};
+        std::unique_ptr<WorldResources> m_worldResources = nullptr;
+        RenderSceneState m_renderSceneState{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_tagIndex{};
@@ -1479,6 +1920,9 @@ namespace Cue::GameCore
         std::vector<SceneId> m_pendingUnloadedScenes{};
         SceneId m_nextSceneId = 1;
         size_t m_liveObjectCount = 0;
+        uint32_t m_staticMeshCount = 0;
+        uint32_t m_mainCameraIndex = 0;
+        uint32_t m_defaultStaticMeshId = ECS::k_invalidMeshId;
     };
 
     inline GameObject::GameObject(GameWorld* a_world, EntityId a_entityId,
