@@ -16,7 +16,7 @@ namespace Cue
 {
     enum class WorldResourceType : uint32_t
     {
-        ObjectInfoBuffer = 0,
+        RenderableInfoBuffer = 0,
         TransformBuffer,
         ViewProjectionBuffer,
         RenderObjectBuffer,
@@ -36,15 +36,16 @@ namespace Cue
         WorldResources& operator=(WorldResources&&) = default;
 
         // ワールド全体で共有されるリソース
-        Result create_object_info_buffer(const uint32_t a_maxObjectCount);
+        Result create_renderable_info_buffer(const uint32_t a_maxObjectCount);
         Result create_transform_buffer(const uint32_t a_maxObjectCount);
         Result create_view_projection_buffer();
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
 
-        std::vector<RHI::SlotUploader<GpuData::ObjectInfo>>& object_info_uploaders() noexcept
+        std::vector<RHI::SlotUploader<GpuData::RenderableInfo>>&
+            renderable_info_uploaders() noexcept
         {
-            return m_objectInfoUploaders;
+            return m_renderableInfoUploaders;
         }
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>& transform_uploaders() noexcept
         {
@@ -61,7 +62,8 @@ namespace Cue
 
         std::array<RHI::BufferHandle, static_cast<size_t>(WorldResourceType::Count)> m_bufferHandles{};
         std::array<RHI::ViewHandle, static_cast<size_t>(WorldResourceType::Count)> m_viewHandles{};
-        std::vector<RHI::SlotUploader<GpuData::ObjectInfo>> m_objectInfoUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::RenderableInfo>>
+            m_renderableInfoUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};
     };

@@ -26,7 +26,8 @@ namespace Cue
         {
             // 必要なバッファをフレームグラフに宣言する。
             Result result =
-                builder.get_buffer("ObjectInfoBuffer", m_objectInfoBufferHandle);
+                builder.get_buffer("RenderableInfoBuffer",
+                    m_renderableInfoBufferHandle);
             if (!result)
             {
                 return result;
@@ -44,7 +45,8 @@ namespace Cue
                 return result;
             }
             result =
-                builder.get_view("ObjectInfoBufferSRV", m_objectInfoBufferSrvHandle);
+                builder.get_view("RenderableInfoBufferSRV",
+                    m_renderableInfoBufferSrvHandle);
             if (!result)
             {
                 return result;
@@ -127,7 +129,8 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_renderableInfoBufferHandle,
+                    barrierDesc);
             }
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
@@ -147,7 +150,8 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_renderableInfoBufferHandle,
+                    barrierDesc);
                 commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
                 commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
                     barrierDesc);
@@ -156,7 +160,7 @@ namespace Cue
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
             commandContext->set_32bit_constant(0, frameState.objectCount);
-            commandContext->set_srv(1, m_objectInfoBufferHandle);
+            commandContext->set_srv(1, m_renderableInfoBufferHandle);
             commandContext->set_uav(2, m_renderObjectBufferHandle);
             commandContext->set_uav(3, m_visibleObjectCountBufferHandle);
 
@@ -166,16 +170,17 @@ namespace Cue
             {
                 RHI::ResourceBarrierDesc barrierDesc{};
                 barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
+                commandContext->resource_barrier(m_renderableInfoBufferHandle,
+                    barrierDesc);
             }
         }
 
     private:
         const RenderSceneState& m_renderSceneState;
-        RHI::BufferHandle m_objectInfoBufferHandle{};
+        RHI::BufferHandle m_renderableInfoBufferHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::ViewHandle m_objectInfoBufferSrvHandle{};
+        RHI::ViewHandle m_renderableInfoBufferSrvHandle{};
         RHI::ViewHandle m_renderObjectBufferUavHandle{};
         RHI::ViewHandle m_visibleObjectCountBufferUavHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};

@@ -1,6 +1,6 @@
 #include "Engine.h"
 #include "Passes/GenerateVisibleList.h"
-#include "Passes/ObjectInfoCopyPass.h"
+#include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
@@ -350,7 +350,7 @@ namespace Cue
                 "Failed to create render frame graph.");
         }
 
-        m_frameGraph->add_pass(std::make_unique<ObjectInfoCopyPass>(
+        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
             m_gameWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
             m_gameWorld->render_scene_state()));

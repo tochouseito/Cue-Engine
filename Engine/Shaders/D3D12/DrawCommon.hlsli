@@ -1,4 +1,4 @@
-struct ObjectInfo
+struct RenderableInfo
 {
     uint id;
     uint visible;

@@ -9,13 +9,13 @@ add_library(Engine STATIC
     "GpuData/Transform.h"
     "GpuData/Batching.h"
     "Passes/GenerateVisibleList.h"
-    "Passes/ObjectInfoCopyPass.h"
+    "Passes/RenderableInfoCopyPass.h"
     "Passes/TransformBufferCopyPass.h"
     "Passes/UploadBufferCopyPass.h"
     "Passes/StaticMeshBatchingPass.h"
     "Passes/StaticMeshForwardPass.h"
     "Asset/AssetManager.h"
-    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h"  "GameCore/Systems/TransformSystem.h" "GameCore/Systems/ObjectInfoSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h")
+    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC

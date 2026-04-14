@@ -8,14 +8,14 @@
 
 namespace Cue
 {
-    class ObjectInfoCopyPass final : public RHI::FrameGraphPass
+    class RenderableInfoCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit ObjectInfoCopyPass(const RenderSceneState& a_renderSceneState)
+        explicit RenderableInfoCopyPass(const RenderSceneState& a_renderSceneState)
             : m_renderSceneState(a_renderSceneState)
         {}
 
-        const char* name() const noexcept override { return "ObjectInfoCopy"; }
+        const char* name() const noexcept override { return "RenderableInfoCopy"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -24,14 +24,15 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("ObjectInfoBuffer", m_objectInfoBufferHandle);
+            return builder.get_buffer("RenderableInfoBuffer",
+                m_renderableInfoBufferHandle);
         }
 
         void execute(RHI::FrameGraphContext& context) override
         {
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
-            if (!m_objectInfoBufferHandle.valid() || frameState.objectCount == 0)
+            if (!m_renderableInfoBufferHandle.valid() || frameState.objectCount == 0)
             {
                 return;
             }
@@ -43,18 +44,18 @@ namespace Cue
             }
 
             RHI::BufferCopyRegion region{};
-            region.srcBufferHandle = m_objectInfoBufferHandle;
+            region.srcBufferHandle = m_renderableInfoBufferHandle;
             region.srcUploadResourceIndex = 0;
             region.srcByteOffset = 0;
-            region.dstBufferHandle = m_objectInfoBufferHandle;
+            region.dstBufferHandle = m_renderableInfoBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
             region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
-                sizeof(GpuData::ObjectInfo);
+                sizeof(GpuData::RenderableInfo);
 
             RHI::ResourceBarrierDesc toCopyDestBarrier{};
             toCopyDestBarrier.after = RHI::ResourceState::CopyDest;
-            if (!commandContext->resource_barrier(m_objectInfoBufferHandle,
+            if (!commandContext->resource_barrier(m_renderableInfoBufferHandle,
                 toCopyDestBarrier))
             {
                 return;
@@ -64,7 +65,7 @@ namespace Cue
 
             RHI::ResourceBarrierDesc toCommonBarrier{};
             toCommonBarrier.after = RHI::ResourceState::Common;
-            if (!commandContext->resource_barrier(m_objectInfoBufferHandle,
+            if (!commandContext->resource_barrier(m_renderableInfoBufferHandle,
                 toCommonBarrier))
             {
                 return;
@@ -75,6 +76,6 @@ namespace Cue
 
     private:
         const RenderSceneState& m_renderSceneState;
-        RHI::BufferHandle m_objectInfoBufferHandle{};
+        RHI::BufferHandle m_renderableInfoBufferHandle{};
     };
 } // namespace Cue

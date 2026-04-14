@@ -36,18 +36,19 @@ namespace Cue::ECS
 {
     inline constexpr uint32_t k_invalidMeshId =
         (std::numeric_limits<uint32_t>::max)();
+    inline constexpr uint32_t k_invalidRenderableId =
+        (std::numeric_limits<uint32_t>::max)();
 
-    struct ObjectInfoComponent : public IComponentTag
+    struct RenderableInfoComponent : public IComponentTag
     {
-        ObjectInfoComponent() = default;
-        ObjectInfoComponent(const ObjectInfoComponent&) = default;
-        ObjectInfoComponent& operator=(const ObjectInfoComponent&) = default;
-        ObjectInfoComponent(ObjectInfoComponent&&) = default;
-        ObjectInfoComponent& operator=(ObjectInfoComponent&&) = default;
-        uint32_t objectId = 0;
-        uint32_t meshId = 0;
-        uint32_t transformId = 0;
-        bool visible = true;
+        RenderableInfoComponent() = default;
+        RenderableInfoComponent(const RenderableInfoComponent&) = default;
+        RenderableInfoComponent& operator=(const RenderableInfoComponent&) =
+            default;
+        RenderableInfoComponent(RenderableInfoComponent&&) = default;
+        RenderableInfoComponent& operator=(RenderableInfoComponent&&) = default;
+        uint32_t objectId = k_invalidRenderableId;
+        uint32_t transformId = k_invalidRenderableId;
     };
 
     struct TransformComponent : public IComponentTag
@@ -94,6 +95,6 @@ namespace Cue::ECS
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         uint32_t materialId = 0; // マテリアルアセットの識別子
-        bool isEnabled = true;
+        bool visible = true;
     };
 }

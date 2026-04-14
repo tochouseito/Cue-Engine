@@ -10,10 +10,10 @@
 
 namespace Cue::GpuData
 {
-    // オブジェクト
-    struct ObjectInfo
+    // 描画可能オブジェクト
+    struct RenderableInfo
     {
-        uint32_t objectId = 0;     // オブジェクトID
+        uint32_t objectId = 0;    // オブジェクトID
         uint32_t visible = 1;     // 可視フラグ（0: 非表示、1: 表示）
         uint32_t meshId = 0;      // メッシュID
         uint32_t transformId = 0; // 変換ID

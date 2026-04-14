@@ -11,8 +11,7 @@
 #include "SceneAsset.h"
 #include "SceneInstance.h"
 #include "Systems/CameraSystem.h"
-#include "Systems/ObjectInfoSystem.h"
-#include "Systems/TransformSystem.h"
+#include "Systems/RenderableObjectSystem.h"
 #include "WorldResources.h"
 
 // === C++ includes ===
@@ -78,7 +77,6 @@ namespace Cue::GameCore
             }
 
             m_defaultStaticMeshId = a_defaultStaticMeshId;
-            m_staticMeshCount = 0;
             m_renderSceneState.resize(a_bufferCount);
             for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
             {
@@ -88,8 +86,8 @@ namespace Cue::GameCore
             m_worldResources =
                 std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
 
-            Result result =
-                m_worldResources->create_object_info_buffer(k_maxRenderObjectCount);
+            Result result = m_worldResources->create_renderable_info_buffer(
+                k_maxRenderObjectCount);
             if (!result)
             {
                 return result;
@@ -120,10 +118,10 @@ namespace Cue::GameCore
                 return result;
             }
 
-            m_ecs.add_system<ECS::ObjectInfoSystem>(
-                m_worldResources->object_info_uploaders());
-            m_ecs.add_system<ECS::TransformSystem>(
-                m_worldResources->transform_uploaders());
+            m_ecs.add_system<ECS::RenderableObjectSystem>(
+                m_worldResources->renderable_info_uploaders(),
+                m_worldResources->transform_uploaders(),
+                m_renderSceneState);
             m_ecs.add_system<ECS::CameraSystem>(
                 m_worldResources->view_projection_uploaders(), m_renderSceneState);
 
@@ -135,12 +133,6 @@ namespace Cue::GameCore
         {
             execute_deferred_deletions_internal();
             animate_static_mesh_objects(a_deltaTime);
-
-            Result result = rebuild_render_objects();
-            if (!result)
-            {
-                return result;
-            }
 
             sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 
@@ -218,7 +210,7 @@ namespace Cue::GameCore
             transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
             meshFilter->meshId = m_defaultStaticMeshId;
             renderer->materialId = 0;
-            renderer->isEnabled = true;
+            renderer->visible = true;
             return Result::ok();
         }
 
@@ -925,7 +917,7 @@ namespace Cue::GameCore
             }
 
             RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
-            frameState.objectCount = m_staticMeshCount;
+            frameState.objectCount = 0;
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
         }
@@ -960,51 +952,6 @@ namespace Cue::GameCore
             }
         }
 
-        Result rebuild_render_objects()
-        {
-            for (EntityId entity = 0;
-                 entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
-            {
-                if (!contains_object(entity) ||
-                    !has_component<ECS::ObjectInfoComponent>(entity))
-                {
-                    continue;
-                }
-
-                m_ecs.remove_component<ECS::ObjectInfoComponent>(entity);
-            }
-
-            m_staticMeshCount = 0;
-            const std::vector<EntityId> entities = collect_active_static_mesh_entities();
-            for (const EntityId entity : entities)
-            {
-                ECS::MeshFilterComponent* meshFilter =
-                    get_component<ECS::MeshFilterComponent>(entity);
-                if (meshFilter == nullptr)
-                {
-                    continue;
-                }
-
-                ECS::ObjectInfoComponent* renderObject = nullptr;
-                Result result = add_component<ECS::ObjectInfoComponent>(
-                    entity, renderObject);
-                if (!result || renderObject == nullptr)
-                {
-                    return result ? Result::fail(Code::CreateFailed, Severity::Error,
-                        "Failed to add render object component.")
-                                  : result;
-                }
-
-                renderObject->objectId = m_staticMeshCount;
-                renderObject->meshId = meshFilter->meshId;
-                renderObject->transformId = m_staticMeshCount;
-                renderObject->visible = true;
-                ++m_staticMeshCount;
-            }
-
-            return Result::ok();
-        }
-
         [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const
         {
             std::vector<EntityId> entities{};
@@ -1029,7 +976,7 @@ namespace Cue::GameCore
                 {
                     continue;
                 }
-                if (!base->isActiveSelf || !renderer->isEnabled ||
+                if (!base->isActiveSelf || !renderer->visible ||
                     meshFilter->meshId == ECS::k_invalidMeshId)
                 {
                     continue;
@@ -1589,6 +1536,8 @@ namespace Cue::GameCore
             bool a_isPersistent)
         {
             BaseComponent* base = m_ecs.get_component<BaseComponent>(a_entityId);
+            ECS::RenderableInfoComponent* renderableInfo =
+                m_ecs.get_component<ECS::RenderableInfoComponent>(a_entityId);
             std::string previousName{};
             std::string previousTag{};
             const bool hadBaseComponent = base != nullptr;
@@ -1602,10 +1551,16 @@ namespace Cue::GameCore
             {
                 base = m_ecs.add_component<BaseComponent>(a_entityId);
             }
-
-            if (base == nullptr)
+            if (renderableInfo == nullptr)
             {
-                throw std::runtime_error("GameWorld failed to initialize BaseComponent.");
+                renderableInfo =
+                    m_ecs.add_component<ECS::RenderableInfoComponent>(a_entityId);
+            }
+
+            if (base == nullptr || renderableInfo == nullptr)
+            {
+                throw std::runtime_error(
+                    "GameWorld failed to initialize BaseComponent.");
             }
 
             base->name = make_unique_object_name(a_name, a_entityId);
@@ -1614,6 +1569,8 @@ namespace Cue::GameCore
             base->parent = a_parent;
             base->isActiveSelf = a_isActive;
             base->isPersistent = a_isPersistent;
+            renderableInfo->objectId = ECS::k_invalidRenderableId;
+            renderableInfo->transformId = ECS::k_invalidRenderableId;
 
             if (hadBaseComponent && previousName != base->name)
             {
@@ -2058,7 +2015,6 @@ namespace Cue::GameCore
         std::vector<SceneId> m_pendingUnloadedScenes{};
         SceneId m_nextSceneId = 1;
         size_t m_liveObjectCount = 0;
-        uint32_t m_staticMeshCount = 0;
         uint32_t m_mainCameraIndex = 0;
         uint32_t m_defaultStaticMeshId = ECS::k_invalidMeshId;
     };

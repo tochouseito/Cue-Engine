@@ -5,62 +5,66 @@
 
 namespace Cue
 {
-    Result WorldResources::create_object_info_buffer(const uint32_t a_maxObjectCount)
+    Result WorldResources::create_renderable_info_buffer(
+        const uint32_t a_maxObjectCount)
     {
-        // ObjectInfoBuffer の設定
-        RHI::BufferDesc objectInfoBufferDesc{};
-        objectInfoBufferDesc.name = "ObjectInfoBuffer";
-        objectInfoBufferDesc.type = RHI::BufferType::Structured;
-        objectInfoBufferDesc.defaultHeapCount = 1;
-        objectInfoBufferDesc.uploadHeapCount = 1;
-        objectInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
-        objectInfoBufferDesc.stride = sizeof(GpuData::ObjectInfo);
-        objectInfoBufferDesc.elementCount = a_maxObjectCount;
-        objectInfoBufferDesc.size =
-            objectInfoBufferDesc.stride * objectInfoBufferDesc.elementCount;
-        objectInfoBufferDesc.alignment = alignof(GpuData::ObjectInfo);
+        // RenderableInfoBuffer の設定
+        RHI::BufferDesc renderableInfoBufferDesc{};
+        renderableInfoBufferDesc.name = "RenderableInfoBuffer";
+        renderableInfoBufferDesc.type = RHI::BufferType::Structured;
+        renderableInfoBufferDesc.defaultHeapCount = 1;
+        renderableInfoBufferDesc.uploadHeapCount = 1;
+        renderableInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        renderableInfoBufferDesc.stride = sizeof(GpuData::RenderableInfo);
+        renderableInfoBufferDesc.elementCount = a_maxObjectCount;
+        renderableInfoBufferDesc.size =
+            renderableInfoBufferDesc.stride *
+            renderableInfoBufferDesc.elementCount;
+        renderableInfoBufferDesc.alignment = alignof(GpuData::RenderableInfo);
 
-        // ObjectInfoBuffer の作成
-        RHI::BufferHandle& objectInfoBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::ObjectInfoBuffer)];
+        // RenderableInfoBuffer の作成
+        RHI::BufferHandle& renderableInfoBufferHandle =
+            m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)];
         Result result = m_bufferManager->create_buffer(
-            objectInfoBufferDesc, objectInfoBufferHandle);
+            renderableInfoBufferDesc, renderableInfoBufferHandle);
         if (!result)
         {
             return result;
         }
 
-        // ObjectInfoBuffer の uploader 作成
+        // RenderableInfoBuffer の uploader 作成
         result = m_bufferManager->create_slot_uploaders(
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::ObjectInfoBuffer)],
-            1, m_objectInfoUploaders);
+            m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)],
+            1, m_renderableInfoUploaders);
         if (!result)
         {
             return result;
         }
-        if(m_objectInfoUploaders.size() != 1)
+        if (m_renderableInfoUploaders.size() != 1)
         {
             return Result::fail(
                 Code::InternalError,
                 Severity::Fatal,
-                "ObjectInfoBuffer uploader was not created.");
+                "RenderableInfoBuffer uploader was not created.");
         }
 
-        // ObjectInfoBuffer の SRV 作成
-        RHI::ViewDesc objectInfoBufferSrvDesc{};
-        objectInfoBufferSrvDesc.name = "ObjectInfoBufferSRV";
-        objectInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
-        objectInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
-        objectInfoBufferSrvDesc.bufferHandle = objectInfoBufferHandle;
-        objectInfoBufferSrvDesc.firstElement = 0;
-        objectInfoBufferSrvDesc.numElements = objectInfoBufferDesc.elementCount;
-        objectInfoBufferSrvDesc.structureByteStride = objectInfoBufferDesc.stride;
+        // RenderableInfoBuffer の SRV 作成
+        RHI::ViewDesc renderableInfoBufferSrvDesc{};
+        renderableInfoBufferSrvDesc.name = "RenderableInfoBufferSRV";
+        renderableInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        renderableInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        renderableInfoBufferSrvDesc.bufferHandle = renderableInfoBufferHandle;
+        renderableInfoBufferSrvDesc.firstElement = 0;
+        renderableInfoBufferSrvDesc.numElements =
+            renderableInfoBufferDesc.elementCount;
+        renderableInfoBufferSrvDesc.structureByteStride =
+            renderableInfoBufferDesc.stride;
         
         // ビューの作成
-        RHI::ViewHandle& objectInfoBufferSrvHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::ObjectInfoBuffer)];
-        result = m_viewManager->create_view(objectInfoBufferSrvDesc,
-            objectInfoBufferSrvHandle);
+        RHI::ViewHandle& renderableInfoBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)];
+        result = m_viewManager->create_view(renderableInfoBufferSrvDesc,
+            renderableInfoBufferSrvHandle);
         if (!result)
         {
             return result;
