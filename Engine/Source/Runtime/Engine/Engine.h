@@ -82,7 +82,94 @@ namespace Cue
             return m_gameWorld.restore_deleted_object(a_snapshot, a_outObjectId);
         }
 
+        Result add_component(GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) override
+        {
+            switch (a_componentType)
+            {
+            case AddableComponentType::Camera:
+                return add_component_internal<ECS::CameraComponent>(
+                    a_objectId, "CameraComponent already exists.");
+
+            case AddableComponentType::MeshFilter:
+                return add_component_internal<ECS::MeshFilterComponent>(
+                    a_objectId, "MeshFilterComponent already exists.");
+
+            case AddableComponentType::StaticMeshRenderer:
+                return add_component_internal<ECS::StaticMeshRendererComponent>(
+                    a_objectId,
+                    "StaticMeshRendererComponent already exists.");
+            }
+
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Unknown component type was requested.");
+        }
+
+        Result remove_component(GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) override
+        {
+            switch (a_componentType)
+            {
+            case AddableComponentType::Camera:
+                return remove_component_internal<ECS::CameraComponent>(
+                    a_objectId, "CameraComponent was not found.");
+
+            case AddableComponentType::MeshFilter:
+                return remove_component_internal<ECS::MeshFilterComponent>(
+                    a_objectId, "MeshFilterComponent was not found.");
+
+            case AddableComponentType::StaticMeshRenderer:
+                return remove_component_internal<ECS::StaticMeshRendererComponent>(
+                    a_objectId,
+                    "StaticMeshRendererComponent was not found.");
+            }
+
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Unknown component type was requested.");
+        }
+
     private:
+        template <typename T>
+        Result add_component_internal(GameCore::EntityId a_objectId,
+            const char* a_alreadyExistsMessage)
+        {
+            bool hasComponent = false;
+            Result hasResult = m_gameWorld.has_component<T>(a_objectId, hasComponent);
+            if (!hasResult)
+            {
+                return hasResult;
+            }
+
+            if (hasComponent)
+            {
+                return Result::fail(Code::InvalidState, Severity::Warning,
+                    a_alreadyExistsMessage);
+            }
+
+            T* component = nullptr;
+            return m_gameWorld.add_component<T>(a_objectId, component);
+        }
+
+        template <typename T>
+        Result remove_component_internal(GameCore::EntityId a_objectId,
+            const char* a_notFoundMessage)
+        {
+            bool hasComponent = false;
+            Result hasResult = m_gameWorld.has_component<T>(a_objectId, hasComponent);
+            if (!hasResult)
+            {
+                return hasResult;
+            }
+
+            if (!hasComponent)
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    a_notFoundMessage);
+            }
+
+            return m_gameWorld.remove_component<T>(a_objectId);
+        }
+
         GameCore::GameWorld& m_gameWorld;
     };
 

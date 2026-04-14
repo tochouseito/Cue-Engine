@@ -28,8 +28,11 @@ namespace Cue::Editor
             GameCore::EntityId entityId = GameCore::k_invalidEntityId;
         };
 
-        Hierarchy(Core::CQRS::Bridge* bridge, GameCore::GameWorld* gameWorld)
-            : editorBridge(bridge), m_gameWorld(gameWorld)
+        Hierarchy(Core::CQRS::Bridge* bridge, GameCore::GameWorld* gameWorld,
+            GameCore::EntityId* a_selectedEntityId)
+            : editorBridge(bridge)
+            , m_gameWorld(gameWorld)
+            , m_selectedEntityId(a_selectedEntityId)
         {
         }
         ~Hierarchy() = default;
@@ -109,11 +112,11 @@ namespace Cue::Editor
                 std::any_of(m_objects.begin(), m_objects.end(),
                     [this](const ObjectEntry& a_object)
                     {
-                        return a_object.entityId == m_selectedEntityId;
+                        return a_object.entityId == selected_entity_id();
                     });
             if (!hasSelectedObject)
             {
-                m_selectedEntityId = GameCore::k_invalidEntityId;
+                set_selected_entity_id(GameCore::k_invalidEntityId);
             }
 
             const bool hasRenamingObject =
@@ -162,10 +165,11 @@ namespace Cue::Editor
             }
             else
             {
-                const bool isSelected = m_selectedEntityId == a_object.entityId;
+                const bool isSelected =
+                    selected_entity_id() == a_object.entityId;
                 if (ImGui::Selectable(a_object.name.c_str(), isSelected))
                 {
-                    m_selectedEntityId = a_object.entityId;
+                    set_selected_entity_id(a_object.entityId);
                 }
 
                 if (ImGui::IsItemHovered() &&
@@ -177,7 +181,7 @@ namespace Cue::Editor
 
             if (ImGui::BeginPopupContextItem("HierarchyContextMenu"))
             {
-                m_selectedEntityId = a_object.entityId;
+                set_selected_entity_id(a_object.entityId);
 
                 if (ImGui::MenuItem("名前変更"))
                 {
@@ -197,7 +201,7 @@ namespace Cue::Editor
 
         void begin_rename(const ObjectEntry& a_object)
         {
-            m_selectedEntityId = a_object.entityId;
+            set_selected_entity_id(a_object.entityId);
             m_renamingEntityId = a_object.entityId;
             m_focusRenameInput = true;
             std::fill(m_renameBuffer.begin(), m_renameBuffer.end(), '\0');
@@ -256,9 +260,9 @@ namespace Cue::Editor
                     result.line, result.function);
             }
 
-            if (m_selectedEntityId == a_entityId)
+            if (selected_entity_id() == a_entityId)
             {
-                m_selectedEntityId = GameCore::k_invalidEntityId;
+                set_selected_entity_id(GameCore::k_invalidEntityId);
             }
             if (m_renamingEntityId == a_entityId)
             {
@@ -266,10 +270,25 @@ namespace Cue::Editor
             }
         }
 
+        [[nodiscard]] GameCore::EntityId selected_entity_id() const noexcept
+        {
+            return m_selectedEntityId != nullptr
+                ? *m_selectedEntityId
+                : GameCore::k_invalidEntityId;
+        }
+
+        void set_selected_entity_id(GameCore::EntityId a_entityId) noexcept
+        {
+            if (m_selectedEntityId != nullptr)
+            {
+                *m_selectedEntityId = a_entityId;
+            }
+        }
+
         Core::CQRS::Bridge* editorBridge = nullptr;
         GameCore::GameWorld* m_gameWorld = nullptr;
         std::vector<ObjectEntry> m_objects{};
-        GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
+        GameCore::EntityId* m_selectedEntityId = nullptr;
         GameCore::EntityId m_renamingEntityId = GameCore::k_invalidEntityId;
         std::array<char, 256> m_renameBuffer{};
         bool m_focusRenameInput = false;

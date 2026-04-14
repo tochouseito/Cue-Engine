@@ -42,5 +42,6 @@ namespace Cue::Editor
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
+        GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
     };
 }

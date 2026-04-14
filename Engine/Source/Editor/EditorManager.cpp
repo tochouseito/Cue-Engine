@@ -9,8 +9,10 @@ namespace Cue::Editor
     {
         m_statistics = std::make_unique<Statistics>(m_engine->frame_controller());
         m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
-        m_hierarchy = std::make_unique<Hierarchy>(m_bridge, m_engine->game_world());
-        m_inspector = std::make_unique<Inspector>(m_bridge);
+        m_hierarchy = std::make_unique<Hierarchy>(
+            m_bridge, m_engine->game_world(), &m_selectedEntityId);
+        m_inspector = std::make_unique<Inspector>(
+            m_bridge, m_engine->game_world(), &m_selectedEntityId);
     }
 
     void EditorManager::undo_last_command()

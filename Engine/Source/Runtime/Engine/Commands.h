@@ -17,6 +17,13 @@
 
 namespace Cue
 {
+    enum class AddableComponentType : uint8_t
+    {
+        Camera,
+        MeshFilter,
+        StaticMeshRenderer
+    };
+
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext
     {
     public:
@@ -37,6 +44,12 @@ namespace Cue
         virtual Result restore_deleted_object(
             const GameCore::DeletedObjectSnapshot& a_snapshot,
             GameCore::EntityId& a_outObjectId) = 0;
+        virtual Result add_component(
+            GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) = 0;
+        virtual Result remove_component(
+            GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) = 0;
     };
 
     class AddObjectCommand final : public Core::CQRS::IUndoableCommand
@@ -343,5 +356,67 @@ namespace Cue
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         GameCore::DeletedObjectSnapshot m_snapshot{};
         bool m_hasSnapshot = false;
+    };
+
+    class AddComponentCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        AddComponentCommand(GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) noexcept
+            : m_objectId(a_objectId)
+            , m_componentType(a_componentType)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component addition.");
+            }
+
+            Result result =
+                gameCommandContext->add_component(m_objectId, m_componentType);
+            if (result)
+            {
+                m_hasAddedComponent = true;
+            }
+
+            return result;
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component addition undo.");
+            }
+
+            if (!m_hasAddedComponent)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Add component command has not been executed.");
+            }
+
+            return gameCommandContext->remove_component(
+                m_objectId, m_componentType);
+        }
+
+    private:
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        AddableComponentType m_componentType = AddableComponentType::Camera;
+        bool m_hasAddedComponent = false;
     };
 } // namespace Cue
