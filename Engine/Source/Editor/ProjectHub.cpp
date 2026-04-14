@@ -12,6 +12,10 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <span>
+
+// === ThirdParty includes ===
+#include <nlohmann/json.hpp>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -252,9 +256,47 @@ namespace Cue::Editor
             return false;
         }
 
+        if (!write_project_file(projectName, projectPath.utf8()))
+        {
+            return false;
+        }
+
         m_projectPath = projectPath.utf8();
         m_errorMessage.clear();
         m_isOpen = false;
+        return true;
+    }
+
+    bool ProjectHub::write_project_file(
+        const std::string& a_projectName,
+        const std::string& a_projectPath
+    )
+    {
+        nlohmann::json projectJson = {
+            { "name", a_projectName },
+            { "engineVersion", 1 },
+            { "assetRoot", "Assets" },
+            { "scriptRoot", "." },
+            { "startupScene", "Assets/Scenes/Main.cuescene" }
+        };
+
+        std::string jsonText = projectJson.dump(4);
+        jsonText.push_back('\n');
+
+        const Core::IO::Path projectFilePath = Core::IO::Path::join(
+            Core::IO::Path(a_projectPath),
+            Core::IO::Path("cueproject.json"));
+
+        const std::span<const char> textSpan(jsonText.data(), jsonText.size());
+        const std::span<const std::byte> byteSpan = std::as_bytes(textSpan);
+        const Result result =
+            m_fileSystem.write_all(projectFilePath, byteSpan, false);
+        if (!result)
+        {
+            m_errorMessage = "cueproject.json の書き込みに失敗しました。";
+            return false;
+        }
+
         return true;
     }
 

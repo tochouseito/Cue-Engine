@@ -2,6 +2,7 @@
 
 find_package(directx-dxc CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
 add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Icon.h" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h" "Hierarchy.h" "Inspector.h" "ProjectHub.h" "ProjectHub.cpp")
@@ -15,6 +16,7 @@ target_link_libraries(Editor PRIVATE
     d3d12_backend
     Engine
     imgui::imgui
+    nlohmann_json::nlohmann_json
 )
 
 # インクルードディレクトリの追加

@@ -27,6 +27,10 @@ namespace Cue::Editor
         void draw_create_project_modal();
         bool browse_project_directory();
         bool create_project();
+        bool write_project_file(
+            const std::string& a_projectName,
+            const std::string& a_projectPath
+        );
         [[nodiscard]] bool has_invalid_project_name_character(
             const std::string& a_projectName
         ) const;
