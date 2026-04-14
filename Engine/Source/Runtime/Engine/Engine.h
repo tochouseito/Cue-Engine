@@ -15,7 +15,7 @@
 #include "Asset/AssetManager.h"
 #include "FrameController.h"
 #include "Commands.h"
-#include "GameCore/GameCore.h"
+#include "GameCore/GameWorld.h"
 
 // === C++ includes ===
 #include <functional>
@@ -27,28 +27,28 @@ namespace Cue
     class EngineCommandContext final : public IGameCommandContext
     {
     public:
-        explicit EngineCommandContext(GameCoreLegacy& a_gameCore) noexcept
-            : m_gameCore(a_gameCore)
+        explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld) noexcept
+            : m_gameWorld(a_gameWorld)
         {
         }
 
-        Result add_object() override
+        Result create_object() override
         {
-            return m_gameCore.add_object();
+            return m_gameWorld.create_object("TestObject");
         }
 
         Result remove_object(uint32_t a_objectId) override
         {
-            return m_gameCore.remove_object(a_objectId);
+            return m_gameWorld.destroy_object(a_objectId);
         }
 
         Result set_main_camera(uint32_t a_cameraIndex) override
         {
-            return m_gameCore.set_main_camera(a_cameraIndex);
+            return m_gameWorld.set_main_camera(a_cameraIndex);
         }
 
     private:
-        GameCoreLegacy& m_gameCore;
+        GameCore::GameWorld& m_gameWorld;
     };
 
     /// @brief Engine 初期化時に必要な依存オブジェクトです。

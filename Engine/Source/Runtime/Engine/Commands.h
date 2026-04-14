@@ -16,7 +16,7 @@ namespace Cue
     public:
         ~IGameCommandContext() override = default;
 
-        virtual Result add_object() = 0;
+        virtual Result create_object() = 0;
         virtual Result remove_object(uint32_t a_objectId) = 0;
         virtual Result set_main_camera(uint32_t a_cameraIndex) = 0;
     };
@@ -36,7 +36,7 @@ namespace Cue
                     "Command context does not support object creation.");
             }
 
-            return gameCommandContext->add_object();
+            return gameCommandContext->create_object();
         }
     };
 
