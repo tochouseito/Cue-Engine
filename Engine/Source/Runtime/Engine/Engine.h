@@ -101,6 +101,16 @@ namespace Cue
             return m_assetManager;
         }
 
+        GameCore::GameWorld* game_world() noexcept
+        {
+            return m_gameWorld.get();
+        }
+
+        const GameCore::GameWorld* game_world() const noexcept
+        {
+            return m_gameWorld.get();
+        }
+
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
