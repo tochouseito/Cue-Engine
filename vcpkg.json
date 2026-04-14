@@ -13,6 +13,9 @@
         "dx12-binding",
         "docking-experimental"
       ]
+    },
+    {
+      "name": "nlohmann-json"
     }
   ]
 }
