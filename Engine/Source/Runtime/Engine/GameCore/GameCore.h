@@ -21,11 +21,11 @@
 
 namespace Cue
 {
-    class GameCore final
+    class GameCoreLegacy final
     {
     public:
-        GameCore() = default;
-        ~GameCore() = default;
+        GameCoreLegacy() = default;
+        ~GameCoreLegacy() = default;
 
         Result initialize(RHI::IBufferManager* a_bufferManager,
             RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,

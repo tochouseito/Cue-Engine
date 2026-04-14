@@ -27,7 +27,7 @@ namespace Cue
     class EngineCommandContext final : public IGameCommandContext
     {
     public:
-        explicit EngineCommandContext(GameCore& a_gameCore) noexcept
+        explicit EngineCommandContext(GameCoreLegacy& a_gameCore) noexcept
             : m_gameCore(a_gameCore)
         {
         }
@@ -48,7 +48,7 @@ namespace Cue
         }
 
     private:
-        GameCore& m_gameCore;
+        GameCoreLegacy& m_gameCore;
     };
 
     /// @brief Engine 初期化時に必要な依存オブジェクトです。
@@ -122,7 +122,7 @@ namespace Cue
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
-        std::unique_ptr<GameCore> m_gameCore = nullptr;
+        std::unique_ptr<GameCoreLegacy> m_gameCore = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};

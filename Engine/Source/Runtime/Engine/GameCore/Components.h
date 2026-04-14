@@ -6,15 +6,38 @@
 // === ECS includes ===
 #include <ECSManager.h>
 
+// === Engine includes ===
+#include "GameCoreTypes.h"
+
+namespace Cue::GameCore
+{
+    // GameWorld が全 GameObject に共通で持たせる基本情報。
+    struct BaseComponent final : public ECS::IComponentTag
+    {
+        // GameWorld 内で一意になるよう管理される表示名。
+        std::string name{};
+        // 検索用の分類ラベル。
+        std::string tag{ "Default" };
+        // 所属 Scene。永続 Object の場合は無効 SceneId を持つ。
+        SceneId owningSceneId = k_invalidSceneId;
+        // 親子関係を表す親 Entity。
+        EntityId parent = k_invalidEntityId;
+        // 自身のアクティブ状態。
+        bool isActiveSelf = true;
+        // Scene アンロード時に削除せず残すかどうか。
+        bool isPersistent = false;
+    };
+}
+
 namespace Cue::ECS
 {
-    struct ObjectInfoComponent : public IComponentTag
+    struct RenderObjectComponent : public IComponentTag
     {
-        ObjectInfoComponent() = default;
-        ObjectInfoComponent(const ObjectInfoComponent&) = default;
-        ObjectInfoComponent& operator=(const ObjectInfoComponent&) = default;
-        ObjectInfoComponent(ObjectInfoComponent&&) = default;
-        ObjectInfoComponent& operator=(ObjectInfoComponent&&) = default;
+        RenderObjectComponent() = default;
+        RenderObjectComponent(const RenderObjectComponent&) = default;
+        RenderObjectComponent& operator=(const RenderObjectComponent&) = default;
+        RenderObjectComponent(RenderObjectComponent&&) = default;
+        RenderObjectComponent& operator=(RenderObjectComponent&&) = default;
         uint32_t objectId = 0;
         uint32_t meshId = 0;
         uint32_t transformId = 0;
@@ -45,5 +68,25 @@ namespace Cue::ECS
         float aspectRatio = 16.0f / 9.0f; // アスペクト比
         float nearZ = 0.1f; // ニアクリップ距離
         float farZ = 1000.0f; // ファークリップ距離
+    };
+
+    struct MeshFilterComponent : public IComponentTag
+    {
+        MeshFilterComponent() = default;
+        MeshFilterComponent(const MeshFilterComponent&) = default;
+        MeshFilterComponent& operator=(const MeshFilterComponent&) = default;
+        MeshFilterComponent(MeshFilterComponent&&) = default;
+        MeshFilterComponent& operator=(MeshFilterComponent&&) = default;
+        uint32_t meshId = 0; // メッシュアセットの識別子
+    };
+
+    struct StaticMeshRendererComponent : public IComponentTag
+    {
+        StaticMeshRendererComponent() = default;
+        StaticMeshRendererComponent(const StaticMeshRendererComponent&) = default;
+        StaticMeshRendererComponent& operator=(const StaticMeshRendererComponent&) = default;
+        StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
+        StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
+        uint32_t materialId = 0; // マテリアルアセットの識別子
     };
 }

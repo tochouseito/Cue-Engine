@@ -88,7 +88,7 @@ namespace Cue::ECS
 
     class ECSManager
     {
-        friend class IPrefab;
+        friend class Prototype;
 
     public:
         /*---------------------------------------------------------------------
@@ -2865,10 +2865,10 @@ namespace Cue::ECS
             onRestoreMulti;
     };
 
-    class IPrefab
+    class Prototype
     {
     public:
-        IPrefab() = default;
+        Prototype() = default;
 
         // ――――――――――――――――――
         //  ① 事前登録：扱う型すべてに対して呼ぶ
@@ -2921,9 +2921,9 @@ namespace Cue::ECS
         // ――――――――――――――――――
         //  ② 既存エンティティから Prefab を作る
         // ――――――――――――――――――
-        static IPrefab from_entity(ECSManager& a_ecs, Entity a_e)
+        static Prototype from_entity(ECSManager& a_ecs, Entity a_e)
         {
-            IPrefab prefab;
+            Prototype prefab;
             const Archetype& arch = a_ecs.get_archetype(a_e);
 
             for (size_t id = 0; id < arch.size(); ++id)
@@ -3001,7 +3001,7 @@ namespace Cue::ECS
         // ――――――――――――――――――
         //  ⑤ 子 Prefab を追加
         // ――――――――――――――――――
-        void add_sub_prefab(std::shared_ptr<IPrefab> a_child)
+        void add_sub_prefab(std::shared_ptr<Prototype> a_child)
         {
             m_subPrefabs.push_back(std::move(a_child));
             // 必要なら m_Archetype にもビットを立てる
@@ -3010,12 +3010,12 @@ namespace Cue::ECS
         // ――――――――――――――――――
         //  ⑥ 子 Prefab 一覧取得
         // ――――――――――――――――――
-        std::vector<std::shared_ptr<IPrefab>>& get_sub_prefabs() noexcept
+        std::vector<std::shared_ptr<Prototype>>& get_sub_prefabs() noexcept
         {
             return m_subPrefabs;
         }
 
-        const std::vector<std::shared_ptr<IPrefab>>&
+        const std::vector<std::shared_ptr<Prototype>>&
             get_sub_prefabs() const noexcept
         {
             return m_subPrefabs;
@@ -3238,7 +3238,7 @@ namespace Cue::ECS
         std::unordered_map<CompID, std::shared_ptr<void>> m_multiComponents;
 
         // 追加：ネストされた Prefab のリスト
-        std::vector<std::shared_ptr<IPrefab>> m_subPrefabs;
+        std::vector<std::shared_ptr<Prototype>> m_subPrefabs;
 
         // インスタンス化用マップ
         inline static std::unordered_map<

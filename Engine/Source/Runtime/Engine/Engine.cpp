@@ -103,7 +103,7 @@ namespace Cue
                 "Failed to get view manager from backend.");
         }
 
-        m_gameCore = std::make_unique<GameCore>();
+        m_gameCore = std::make_unique<GameCoreLegacy>();
         result = m_gameCore->initialize(
             bufferManager, viewManager, m_backend->buffer_count(),
             m_backend->width(), m_backend->height());

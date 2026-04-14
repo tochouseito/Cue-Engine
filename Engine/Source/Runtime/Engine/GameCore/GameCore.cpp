@@ -2,7 +2,7 @@
 
 namespace Cue
 {
-    void GameCore::sync_render_scene_state(uint32_t a_bufferIndex,
+    void GameCoreLegacy::sync_render_scene_state(uint32_t a_bufferIndex,
         uint32_t a_renderWidth, uint32_t a_renderHeight) noexcept
     {
         if (a_bufferIndex >= m_renderSceneState.frameStates.size())
@@ -16,7 +16,7 @@ namespace Cue
         frameState.renderHeight = a_renderHeight;
     }
 
-    Math::float3 GameCore::make_spawn_position() const noexcept
+    Math::float3 GameCoreLegacy::make_spawn_position() const noexcept
     {
         const size_t objectIndex = m_objectCount;
         const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
@@ -29,12 +29,12 @@ namespace Cue
         };
     }
 
-    void GameCore::rebuild_object_indices()
+    void GameCoreLegacy::rebuild_object_indices()
     {
         for (size_t entityIndex = 0; entityIndex < m_objectCount; ++entityIndex)
         {
-            ECS::ObjectInfoComponent* objectInfo =
-                m_ecsManager->get_component<ECS::ObjectInfoComponent>(m_entities[entityIndex]);
+            ECS::RenderObjectComponent* objectInfo =
+                m_ecsManager->get_component<ECS::RenderObjectComponent>(m_entities[entityIndex]);
             if (objectInfo == nullptr)
             {
                 continue;
@@ -47,7 +47,7 @@ namespace Cue
         }
     }
 
-    Result GameCore::create_camera(const Math::float3& a_position, bool a_isMain)
+    Result GameCoreLegacy::create_camera(const Math::float3& a_position, bool a_isMain)
     {
         ECS::Entity entity = m_ecsManager->generate_entity();
         ECS::TransformComponent* transform =
@@ -75,7 +75,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::create_default_cameras()
+    Result GameCoreLegacy::create_default_cameras()
     {
         Result result = create_camera(Math::float3(0.0f, 0.0f, -6.0f), true);
         if (!result)
@@ -93,7 +93,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::initialize(RHI::IBufferManager* a_bufferManager,
+    Result GameCoreLegacy::initialize(RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
         uint32_t a_renderWidth, uint32_t a_renderHeight)
     {
@@ -124,7 +124,7 @@ namespace Cue
         return create_default_cameras();
     }
 
-    Result GameCore::update(float a_deltaTime, const uint32_t a_bufferIndex,
+    Result GameCoreLegacy::update(float a_deltaTime, const uint32_t a_bufferIndex,
         uint32_t a_renderWidth, uint32_t a_renderHeight)
     {
         sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
@@ -161,17 +161,17 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::add_object()
+    Result GameCoreLegacy::add_object()
     {
         return add_object(make_spawn_position());
     }
 
-    Result GameCore::add_object(const Math::float3& a_position)
+    Result GameCoreLegacy::add_object(const Math::float3& a_position)
     {
         ECS::Entity entity = m_ecsManager->generate_entity();
 
-        ECS::ObjectInfoComponent* objectInfo =
-            m_ecsManager->add_component<ECS::ObjectInfoComponent>(entity);
+        ECS::RenderObjectComponent* objectInfo =
+            m_ecsManager->add_component<ECS::RenderObjectComponent>(entity);
         ECS::TransformComponent* transform =
             m_ecsManager->add_component<ECS::TransformComponent>(entity);
         if (objectInfo == nullptr || transform == nullptr)
@@ -206,7 +206,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::remove_object(uint32_t objectId)
+    Result GameCoreLegacy::remove_object(uint32_t objectId)
     {
         if (objectId >= m_objectCount)
         {
@@ -234,7 +234,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result GameCore::set_main_camera(uint32_t a_cameraIndex)
+    Result GameCoreLegacy::set_main_camera(uint32_t a_cameraIndex)
     {
         if (a_cameraIndex >= m_cameraEntities.size())
         {
