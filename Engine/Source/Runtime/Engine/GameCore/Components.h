@@ -37,13 +37,13 @@ namespace Cue::ECS
     inline constexpr uint32_t k_invalidMeshId =
         (std::numeric_limits<uint32_t>::max)();
 
-    struct RenderObjectComponent : public IComponentTag
+    struct ObjectInfoComponent : public IComponentTag
     {
-        RenderObjectComponent() = default;
-        RenderObjectComponent(const RenderObjectComponent&) = default;
-        RenderObjectComponent& operator=(const RenderObjectComponent&) = default;
-        RenderObjectComponent(RenderObjectComponent&&) = default;
-        RenderObjectComponent& operator=(RenderObjectComponent&&) = default;
+        ObjectInfoComponent() = default;
+        ObjectInfoComponent(const ObjectInfoComponent&) = default;
+        ObjectInfoComponent& operator=(const ObjectInfoComponent&) = default;
+        ObjectInfoComponent(ObjectInfoComponent&&) = default;
+        ObjectInfoComponent& operator=(ObjectInfoComponent&&) = default;
         uint32_t objectId = 0;
         uint32_t meshId = 0;
         uint32_t transformId = 0;

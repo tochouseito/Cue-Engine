@@ -1,5 +1,8 @@
 #include "EditorManager.h"
 
+// === Base includes ===
+#include <CueAssert.h>
+
 namespace Cue::Editor
 {
     void EditorManager::initialize()
@@ -9,6 +12,71 @@ namespace Cue::Editor
         m_hierarchy = std::make_unique<Hierarchy>(m_bridge, m_engine->game_world());
         m_inspector = std::make_unique<Inspector>(m_bridge);
     }
+
+    void EditorManager::undo_last_command()
+    {
+        if (m_bridge == nullptr || m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return;
+        }
+
+        EngineCommandContext commandContext(*m_engine->game_world());
+        Result result = m_bridge->undo_last_command(commandContext);
+        if (!result && result.code != Code::InvalidState)
+        {
+            CUE_ASSERTF(false,
+                "Failed to undo command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                result.message.data(), Cue::to_string(result.code),
+                Cue::to_string(result.severity), result.file,
+                result.line, result.function);
+        }
+    }
+
+    void EditorManager::redo_last_command()
+    {
+        if (m_bridge == nullptr || m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return;
+        }
+
+        EngineCommandContext commandContext(*m_engine->game_world());
+        Result result = m_bridge->redo_last_command(commandContext);
+        if (!result && result.code != Code::InvalidState)
+        {
+            CUE_ASSERTF(false,
+                "Failed to redo command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                result.message.data(), Cue::to_string(result.code),
+                Cue::to_string(result.severity), result.file,
+                result.line, result.function);
+        }
+    }
+
+    void EditorManager::handle_shortcuts()
+    {
+        if (m_bridge == nullptr)
+        {
+            return;
+        }
+
+        const ImGuiIO& io = ImGui::GetIO();
+        if (io.WantTextInput)
+        {
+            return;
+        }
+
+        if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))
+        {
+            undo_last_command();
+        }
+
+        if (io.KeyCtrl &&
+            (ImGui::IsKeyPressed(ImGuiKey_Y, false) ||
+                (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))))
+        {
+            redo_last_command();
+        }
+    }
+
     void EditorManager::update()
     {
         // ビューポート全体をカバーするドックスペースを作成
@@ -37,9 +105,30 @@ namespace Cue::Editor
         static bool showMetricsWindow = false;
         static bool showDemoWindow = false;
         static bool showStyleEditor = false;
+
+        handle_shortcuts();
+
         // メニューバー
         if (ImGui::BeginMenuBar())
         {
+            if (ImGui::BeginMenu("編集"))
+            {
+                const bool canUndo = m_bridge != nullptr && m_bridge->can_undo();
+                const bool canRedo = m_bridge != nullptr && m_bridge->can_redo();
+
+                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo))
+                {
+                    undo_last_command();
+                }
+
+                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
+                {
+                    redo_last_command();
+                }
+
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Test"))
             {
                 if (ImGui::MenuItem("Show Metrics Window"))

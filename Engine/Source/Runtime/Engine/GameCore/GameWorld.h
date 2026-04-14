@@ -155,16 +155,28 @@ namespace Cue::GameCore
             return add_object(make_spawn_position());
         }
 
+        [[nodiscard]] Result add_object(GameObject& a_outObject)
+        {
+            return add_object(make_spawn_position(), a_outObject);
+        }
+
         [[nodiscard]] Result add_object(const Math::float3& a_position)
         {
+            GameObject object{};
+            return add_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_object(
+            const Math::float3& a_position, GameObject& a_outObject)
+        {
+            a_outObject = {};
             if (m_defaultStaticMeshId == ECS::k_invalidMeshId)
             {
                 return Result::fail(Code::InvalidState, Severity::Error,
                     "GameWorld default static mesh id is invalid.");
             }
 
-            GameObject object{};
-            Result result = create_object("StaticMeshObject", object);
+            Result result = create_object("StaticMeshObject", a_outObject);
             if (!result)
             {
                 return result;
@@ -172,30 +184,30 @@ namespace Cue::GameCore
 
             ECS::TransformComponent* transform = nullptr;
             result =
-                add_component<ECS::TransformComponent>(object.entity_id(), transform);
+                add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
             if (!result || transform == nullptr)
             {
-                destroy_object_immediately(object.entity_id());
+                destroy_object_immediately(a_outObject.entity_id());
                 return result ? Result::fail(Code::CreateFailed, Severity::Error,
                     "Failed to add transform component for object.") : result;
             }
 
             ECS::MeshFilterComponent* meshFilter = nullptr;
             result =
-                add_component<ECS::MeshFilterComponent>(object.entity_id(), meshFilter);
+                add_component<ECS::MeshFilterComponent>(a_outObject.entity_id(), meshFilter);
             if (!result || meshFilter == nullptr)
             {
-                destroy_object_immediately(object.entity_id());
+                destroy_object_immediately(a_outObject.entity_id());
                 return result ? Result::fail(Code::CreateFailed, Severity::Error,
                     "Failed to add mesh filter component for object.") : result;
             }
 
             ECS::StaticMeshRendererComponent* renderer = nullptr;
             result = add_component<ECS::StaticMeshRendererComponent>(
-                object.entity_id(), renderer);
+                a_outObject.entity_id(), renderer);
             if (!result || renderer == nullptr)
             {
-                destroy_object_immediately(object.entity_id());
+                destroy_object_immediately(a_outObject.entity_id());
                 return result ? Result::fail(Code::CreateFailed, Severity::Error,
                     "Failed to add static mesh renderer component for object.")
                               : result;
@@ -220,6 +232,15 @@ namespace Cue::GameCore
             }
 
             return destroy_object(entityId);
+        }
+
+        [[nodiscard]] Result get_render_object_entity(
+            uint32_t a_objectId, EntityId& a_outEntityId) const noexcept
+        {
+            return try_get_static_mesh_entity(a_objectId, a_outEntityId)
+                ? Result::ok()
+                : Result::fail(Code::NotFound, Severity::Error,
+                    "Static mesh object id was not found.");
         }
 
         [[nodiscard]] Result set_main_camera(uint32_t a_cameraIndex)
@@ -435,6 +456,76 @@ namespace Cue::GameCore
                 ? Result::ok()
                 : Result::fail(
                     Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+        }
+
+        [[nodiscard]] Result capture_deleted_object(
+            EntityId a_entityId, DeletedObjectSnapshot& a_outSnapshot) const
+        {
+            a_outSnapshot = {};
+            if (!contains_object(a_entityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+
+            const BaseComponent* base = get_component<BaseComponent>(a_entityId);
+            const EntityRecord* record = try_get_entity_record(a_entityId);
+            if (base == nullptr || record == nullptr || !record->isAlive)
+            {
+                return Result::fail(
+                    Code::InvalidState, Severity::Error, "GameWorld object snapshot could not be captured.");
+            }
+
+            ObjectDefinition definition{};
+            definition.localObjectId = record->sourceLocalObjectId;
+            definition.isActive = m_ecs.is_entity_active(a_entityId);
+            definition.isPersistent = base->isPersistent;
+            definition.prototype = build_object_prototype(a_entityId, *base);
+
+            if (base->parent != k_invalidEntityId)
+            {
+                const EntityRecord* parentRecord = try_get_entity_record(base->parent);
+                if (parentRecord != nullptr &&
+                    parentRecord->isAlive &&
+                    parentRecord->sourceSceneId == record->sourceSceneId &&
+                    parentRecord->sourceLocalObjectId != k_invalidLocalObjectId)
+                {
+                    definition.parentLocalObjectId = parentRecord->sourceLocalObjectId;
+                }
+            }
+
+            a_outSnapshot.sourceSceneId = record->sourceSceneId;
+            a_outSnapshot.definition = std::move(definition);
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result restore_deleted_object(
+            const DeletedObjectSnapshot& a_snapshot, EntityId& a_outObjectId)
+        {
+            a_outObjectId = k_invalidEntityId;
+
+            GameObject object{};
+            if (a_snapshot.sourceSceneId != k_invalidSceneId)
+            {
+                Result appendResult = append_object_to_scene(
+                    a_snapshot.sourceSceneId, a_snapshot.definition, object);
+                if (!appendResult)
+                {
+                    return appendResult;
+                }
+            }
+            else
+            {
+                object = instantiate_object(a_snapshot.definition);
+                if (!object.is_valid())
+                {
+                    return Result::fail(
+                        Code::CreateFailed, Severity::Error, "GameWorld object restore failed.");
+                }
+            }
+
+            a_outObjectId = object.entity_id();
+            return Result::ok();
         }
 
         [[nodiscard]] Result set_object_active(
@@ -875,12 +966,12 @@ namespace Cue::GameCore
                  entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
             {
                 if (!contains_object(entity) ||
-                    !has_component<ECS::RenderObjectComponent>(entity))
+                    !has_component<ECS::ObjectInfoComponent>(entity))
                 {
                     continue;
                 }
 
-                m_ecs.remove_component<ECS::RenderObjectComponent>(entity);
+                m_ecs.remove_component<ECS::ObjectInfoComponent>(entity);
             }
 
             m_staticMeshCount = 0;
@@ -894,8 +985,8 @@ namespace Cue::GameCore
                     continue;
                 }
 
-                ECS::RenderObjectComponent* renderObject = nullptr;
-                Result result = add_component<ECS::RenderObjectComponent>(
+                ECS::ObjectInfoComponent* renderObject = nullptr;
+                Result result = add_component<ECS::ObjectInfoComponent>(
                     entity, renderObject);
                 if (!result || renderObject == nullptr)
                 {
@@ -1069,6 +1160,17 @@ namespace Cue::GameCore
             return make_handle(entity);
         }
 
+        [[nodiscard]] GameObject instantiate_object(const ObjectDefinition& a_object)
+        {
+            const EntityId entity =
+                create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
+            a_object.prototype.restore_components_into(entity, m_ecs);
+            initialize_base_component(entity, a_object.name(), a_object.tag(),
+                k_invalidSceneId, k_invalidEntityId, a_object.isActive,
+                a_object.isPersistent);
+            return make_handle(entity);
+        }
+
         [[nodiscard]] LoadSceneResult load_scene(const SceneAsset& a_asset)
         {
             const SceneId sceneId = generate_scene_id();
@@ -1207,6 +1309,42 @@ namespace Cue::GameCore
             }
 
             return base->name;
+        }
+
+        [[nodiscard]] GameObjectProto build_object_prototype(
+            EntityId a_entityId, const BaseComponent& a_base) const
+        {
+            GameObjectProto prototype(std::string(a_base.name), std::string(a_base.tag));
+
+            if (const ECS::TransformComponent* transform =
+                get_component<ECS::TransformComponent>(a_entityId);
+                transform != nullptr)
+            {
+                prototype.add_component(*transform);
+            }
+
+            if (const ECS::CameraComponent* camera =
+                get_component<ECS::CameraComponent>(a_entityId);
+                camera != nullptr)
+            {
+                prototype.add_component(*camera);
+            }
+
+            if (const ECS::MeshFilterComponent* meshFilter =
+                get_component<ECS::MeshFilterComponent>(a_entityId);
+                meshFilter != nullptr)
+            {
+                prototype.add_component(*meshFilter);
+            }
+
+            if (const ECS::StaticMeshRendererComponent* renderer =
+                get_component<ECS::StaticMeshRendererComponent>(a_entityId);
+                renderer != nullptr)
+            {
+                prototype.add_component(*renderer);
+            }
+
+            return prototype;
         }
 
         [[nodiscard]] bool is_object_persistent(EntityId a_entityId) const noexcept

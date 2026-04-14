@@ -32,19 +32,54 @@ namespace Cue
         {
         }
 
-        Result create_object() override
+        Result create_object(GameCore::EntityId& a_outObjectId) override
         {
-            return m_gameWorld.add_object();
+            GameCore::GameObject object{};
+            Result result = m_gameWorld.add_object(object);
+            a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
+            return result;
         }
 
-        Result remove_object(uint32_t a_objectId) override
+        Result destroy_object(GameCore::EntityId a_objectId) override
         {
-            return m_gameWorld.remove_object(a_objectId);
+            return m_gameWorld.destroy_object(a_objectId);
+        }
+
+        Result resolve_render_object_entity(
+            uint32_t a_objectId, GameCore::EntityId& a_outEntityId) override
+        {
+            return m_gameWorld.get_render_object_entity(a_objectId, a_outEntityId);
         }
 
         Result set_main_camera(uint32_t a_cameraIndex) override
         {
             return m_gameWorld.set_main_camera(a_cameraIndex);
+        }
+
+        Result get_object_name(
+            GameCore::EntityId a_objectId, std::string& a_outName) override
+        {
+            return m_gameWorld.get_object_name(a_objectId, a_outName);
+        }
+
+        Result rename_object(
+            GameCore::EntityId a_objectId, std::string_view a_name) override
+        {
+            return m_gameWorld.set_object_name(a_objectId, a_name);
+        }
+
+        Result capture_deleted_object(
+            GameCore::EntityId a_objectId,
+            GameCore::DeletedObjectSnapshot& a_outSnapshot) override
+        {
+            return m_gameWorld.capture_deleted_object(a_objectId, a_outSnapshot);
+        }
+
+        Result restore_deleted_object(
+            const GameCore::DeletedObjectSnapshot& a_snapshot,
+            GameCore::EntityId& a_outObjectId) override
+        {
+            return m_gameWorld.restore_deleted_object(a_snapshot, a_outObjectId);
         }
 
     private:

@@ -16,20 +16,20 @@
 namespace Cue::ECS
 {
     class TransformSystem final
-        : public ECSManager::System<RenderObjectComponent, TransformComponent>
+        : public ECSManager::System<ObjectInfoComponent, TransformComponent>
     {
     public:
         explicit TransformSystem(std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>& a_transformUploaders)
-            : ECSManager::System<RenderObjectComponent, TransformComponent>(
-                [this](Entity a_entity, RenderObjectComponent& a_objectInfo,
+            : ECSManager::System<ObjectInfoComponent, TransformComponent>(
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo,
                     TransformComponent& a_transform, const UpdateContext& a_context) {
                     update_component(a_entity, a_objectInfo, a_transform, a_context);
                 },
-                [this](Entity a_entity, RenderObjectComponent& a_objectInfo,
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo,
                     TransformComponent& a_transform, const InitializeContext& a_context) {
                     initialize_component(a_entity, a_objectInfo, a_transform, a_context);
                 },
-                [this](Entity a_entity, RenderObjectComponent& a_objectInfo,
+                [this](Entity a_entity, ObjectInfoComponent& a_objectInfo,
                     TransformComponent& a_transform, const FinalizeContext& a_context) {
                     finalize_component(a_entity, a_objectInfo, a_transform, a_context);
                 }),
@@ -51,7 +51,7 @@ namespace Cue::ECS
                 }
             }
 
-            ECSManager::System<RenderObjectComponent, TransformComponent>::update(a_context);
+            ECSManager::System<ObjectInfoComponent, TransformComponent>::update(a_context);
             if (m_currentUploader != nullptr && !m_currentUploader->commit())
             {
                 CUE_ASSERTF(false, "Failed to commit transform uploads.");
@@ -59,7 +59,7 @@ namespace Cue::ECS
         }
 
     private:
-        void update_component(Entity a_entity, RenderObjectComponent& a_objectInfo,
+        void update_component(Entity a_entity, ObjectInfoComponent& a_objectInfo,
             TransformComponent& a_transform, const UpdateContext& a_context)
         {
             a_entity;
@@ -77,7 +77,7 @@ namespace Cue::ECS
             }
         }
 
-        void initialize_component(Entity a_entity, RenderObjectComponent& a_objectInfo,
+        void initialize_component(Entity a_entity, ObjectInfoComponent& a_objectInfo,
             TransformComponent& a_transform, const InitializeContext& a_context)
         {
             a_entity;
@@ -86,7 +86,7 @@ namespace Cue::ECS
             a_context;
         }
 
-        void finalize_component(Entity a_entity, RenderObjectComponent& a_objectInfo,
+        void finalize_component(Entity a_entity, ObjectInfoComponent& a_objectInfo,
             TransformComponent& a_transform, const FinalizeContext& a_context)
         {
             a_entity;

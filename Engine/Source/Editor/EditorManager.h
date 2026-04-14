@@ -30,6 +30,10 @@ namespace Cue::Editor
         void initialize();
         void update();
     private:
+        void undo_last_command();
+        void redo_last_command();
+        void handle_shortcuts();
+
         Core::CQRS::Bridge* m_bridge = nullptr;
         PAL::Win::WinPlatform* m_platform = nullptr;
         RHI::DX12::D3D12Backend* m_backend = nullptr;

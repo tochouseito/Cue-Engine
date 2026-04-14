@@ -44,6 +44,12 @@ namespace Cue::GameCore
         [[nodiscard]] const std::string& tag() const noexcept { return prototype.tag(); }
     };
 
+    struct DeletedObjectSnapshot final
+    {
+        SceneId sourceSceneId = k_invalidSceneId;
+        ObjectDefinition definition{};
+    };
+
     // Scene をロードする前段階の定義データ。
     class SceneAsset final
     {
