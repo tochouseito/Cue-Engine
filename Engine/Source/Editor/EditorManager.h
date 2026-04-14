@@ -18,23 +18,48 @@
 #include "Hierarchy.h"
 #include "Inspector.h"
 
+// === C++ includes ===
+#include <string>
+
+namespace Cue::Core::IO
+{
+    class IFileSystem;
+}
+
 namespace Cue::Editor
 {
     class EditorManager final
     {
     public:
-        EditorManager(Core::CQRS::Bridge* bridge, PAL::Win::WinPlatform* platform, RHI::DX12::D3D12Backend* backend, Engine* engine)
-            : m_bridge(bridge), m_platform(platform), m_backend(backend), m_engine(engine) {}
+        EditorManager(Core::CQRS::Bridge* bridge,
+            Core::IO::IFileSystem* fileSystem,
+            PAL::Win::WinPlatform* platform,
+            RHI::DX12::D3D12Backend* backend,
+            Engine* engine)
+            : m_bridge(bridge)
+            , m_fileSystem(fileSystem)
+            , m_platform(platform)
+            , m_backend(backend)
+            , m_engine(engine)
+        {
+        }
         ~EditorManager() = default;
 
         void initialize();
         void update();
+        Result open_project(const std::string& a_projectPath);
     private:
+        Result save_current_scene();
+        Result reload_current_scene();
+        Result unload_current_scene();
+        Result drain_pending_editor_commands();
+        void set_status_message(std::string a_message, bool a_isError);
         void undo_last_command();
         void redo_last_command();
         void handle_shortcuts();
 
         Core::CQRS::Bridge* m_bridge = nullptr;
+        Core::IO::IFileSystem* m_fileSystem = nullptr;
         PAL::Win::WinPlatform* m_platform = nullptr;
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         Engine* m_engine = nullptr;
@@ -43,5 +68,11 @@ namespace Cue::Editor
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
+        GameCore::SceneId m_currentSceneId = GameCore::k_invalidSceneId;
+        GameCore::SceneAsset m_loadedSceneAsset{};
+        std::string m_projectPath{};
+        std::string m_currentScenePath{};
+        std::string m_statusMessage{};
+        bool m_hasStatusError = false;
     };
 }

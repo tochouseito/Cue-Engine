@@ -2,6 +2,32 @@
 
 namespace Cue::GameCore
 {
+    namespace
+    {
+        [[nodiscard]] ObjectDefinition make_default_static_mesh_object_definition(
+            const Math::float3& a_position, uint32_t a_meshId)
+        {
+            ObjectDefinition objectDefinition("StaticMeshObject");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::MeshFilterComponent meshFilter{};
+            meshFilter.meshId = a_meshId;
+            objectDefinition.prototype.add_component(meshFilter);
+
+            ECS::StaticMeshRendererComponent renderer{};
+            renderer.materialId = 0;
+            renderer.visible = true;
+            objectDefinition.prototype.add_component(renderer);
+
+            return objectDefinition;
+        }
+    }
+
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
         uint32_t a_renderWidth, uint32_t a_renderHeight,
@@ -67,7 +93,7 @@ namespace Cue::GameCore
         m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
 
-        return create_default_cameras();
+        return Result::ok();
     }
 
     [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
@@ -138,6 +164,27 @@ namespace Cue::GameCore
         renderer->materialId = 0;
         renderer->visible = true;
         return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::add_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+        if (m_defaultStaticMeshId == ECS::k_invalidMeshId)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "GameWorld default static mesh id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_static_mesh_object_definition(
+                a_position, m_defaultStaticMeshId);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 
     [[nodiscard]] Result GameWorld::remove_object(uint32_t a_objectId) noexcept

@@ -27,15 +27,19 @@ namespace Cue
     class EngineCommandContext final : public IGameCommandContext
     {
     public:
-        explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld) noexcept
+        explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld,
+            GameCore::SceneId a_currentSceneId = GameCore::k_invalidSceneId) noexcept
             : m_gameWorld(a_gameWorld)
+            , m_currentSceneId(a_currentSceneId)
         {
         }
 
         Result create_object(GameCore::EntityId& a_outObjectId) override
         {
             GameCore::GameObject object{};
-            Result result = m_gameWorld.add_object(object);
+            Result result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_object(object);
             a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
             return result;
         }
@@ -171,6 +175,7 @@ namespace Cue
         }
 
         GameCore::GameWorld& m_gameWorld;
+        GameCore::SceneId m_currentSceneId = GameCore::k_invalidSceneId;
     };
 
     /// @brief Engine 初期化時に必要な依存オブジェクトです。
@@ -233,6 +238,16 @@ namespace Cue
             return m_gameWorld.get();
         }
 
+        void set_editor_scene_id(GameCore::SceneId a_sceneId) noexcept
+        {
+            m_editorSceneId = a_sceneId;
+        }
+
+        [[nodiscard]] GameCore::SceneId editor_scene_id() const noexcept
+        {
+            return m_editorSceneId;
+        }
+
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
@@ -263,5 +278,6 @@ namespace Cue
         RHI::ViewHandle m_finalColorSrvHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
+        GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;
     };
 } // namespace Cue

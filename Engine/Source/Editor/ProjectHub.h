@@ -26,7 +26,11 @@ namespace Cue::Editor
         void open_create_project_modal();
         void draw_create_project_modal();
         bool browse_project_directory();
+        bool open_existing_project();
+        bool validate_project_directory(const std::string& a_projectPath);
         bool create_project();
+        bool create_project_directories(const std::string& a_projectPath);
+        bool write_default_scene(const std::string& a_projectPath);
         bool write_project_file(
             const std::string& a_projectName,
             const std::string& a_projectPath

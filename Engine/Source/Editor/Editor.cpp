@@ -2,6 +2,9 @@
 #include <CueAssert.h>
 #include <Result.h>
 
+// === Core includes ===
+#include <IO/Logger.h>
+
 // === Windows includes ===
 #include <WinPlatform.h>
 
@@ -175,7 +178,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // エディタマネージャの生成と初期化
-    editorManager = std::make_unique<Editor::EditorManager>(&editorBridge, platform.get(), backend.get(), engine.get());
+    editorManager = std::make_unique<Editor::EditorManager>(
+        &editorBridge, &platform->file_system(), platform.get(), backend.get(),
+        engine.get());
     editorManager->initialize();
 
     // プロジェクトハブの生成と初期化
@@ -186,8 +191,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // メインループ
     bool isRunning = true;
-    bool showProjectHub = projectPath.empty(); // プロジェクトパスが空の場合は Project Hub を表示
-    showProjectHub = false;
+    bool showProjectHub = projectPath.empty();
     while (isRunning)
     {
         // プラットフォームのメッセージを処理
@@ -201,11 +205,30 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // ImGui マネージャのフレーム開始処理
         if (imGuiManager->begin_frame())
         {
-            if(showProjectHub)
+            if (showProjectHub)
             {
                 projectHub->update();
-                showProjectHub = projectHub->is_open();
-                projectPath = projectHub->project_path();
+                const std::string createdProjectPath = projectHub->project_path();
+                if (!projectHub->is_open() && !createdProjectPath.empty())
+                {
+                    const Result openResult =
+                        editorManager->open_project(createdProjectPath);
+                    if (openResult)
+                    {
+                        projectPath = createdProjectPath;
+                        showProjectHub = false;
+                    }
+                    else
+                    {
+                        Core::IO::log(Core::IO::LogSink::debugConsole,
+                            "Failed to open project: {} (code: {}, severity: {}) at {}:{} in function {}",
+                            openResult.message, Cue::to_string(openResult.code),
+                            Cue::to_string(openResult.severity), openResult.file,
+                            openResult.line, openResult.function);
+                        projectHub = std::make_unique<Editor::ProjectHub>(
+                            platform->file_system());
+                    }
+                }
             }
             else
             {

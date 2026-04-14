@@ -7,6 +7,10 @@
 #include <IO/IFileSystem.h>
 #include <IO/Path.h>
 
+// === Engine includes ===
+#include <GameCore/Components.h>
+#include <GameCore/SceneSerializer.h>
+
 // === PAL includes ===
 #include <Dialog/DirectoryDialog.h>
 
@@ -26,6 +30,49 @@ namespace Cue::Editor
     {
         constexpr const char* k_createProjectPopupName = "新規プロジェクト作成";
         constexpr const char* k_defaultProjectRoot = CUE_PROJECT_ROOT_PATH;
+
+        [[nodiscard]] GameCore::ObjectDefinition make_default_camera_object()
+        {
+            GameCore::ObjectDefinition camera("MainCamera");
+
+            ECS::TransformComponent transform{};
+            transform.position = Math::float3(0.0f, 0.0f, -6.0f);
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            camera.prototype.add_component(transform);
+
+            ECS::CameraComponent cameraComponent{};
+            cameraComponent.isMain = true;
+            cameraComponent.fovY = 60.0f;
+            cameraComponent.aspectRatio = 16.0f / 9.0f;
+            cameraComponent.nearZ = 0.1f;
+            cameraComponent.farZ = 1000.0f;
+            camera.prototype.add_component(cameraComponent);
+
+            return camera;
+        }
+
+        [[nodiscard]] GameCore::ObjectDefinition make_default_cube_object()
+        {
+            GameCore::ObjectDefinition cube("Cube");
+
+            ECS::TransformComponent transform{};
+            transform.position = Math::float3::zero();
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            cube.prototype.add_component(transform);
+
+            ECS::MeshFilterComponent meshFilter{};
+            meshFilter.meshId = 0;
+            cube.prototype.add_component(meshFilter);
+
+            ECS::StaticMeshRendererComponent renderer{};
+            renderer.materialId = 0;
+            renderer.visible = true;
+            cube.prototype.add_component(renderer);
+
+            return cube;
+        }
     }
 
     ProjectHub::ProjectHub(Core::IO::IFileSystem& a_fileSystem)
@@ -46,6 +93,19 @@ namespace Cue::Editor
         if (ImGui::Button("新規プロジェクト作成"))
         {
             open_create_project_modal();
+        }
+
+        if (ImGui::Button("プロジェクトを開く"))
+        {
+            open_existing_project();
+        }
+
+        if (!m_errorMessage.empty())
+        {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
+            ImGui::TextWrapped("%s", m_errorMessage.c_str());
+            ImGui::PopStyleColor();
         }
 
         draw_create_project_modal();
@@ -174,6 +234,105 @@ namespace Cue::Editor
         return true;
     }
 
+    bool ProjectHub::open_existing_project()
+    {
+        bool wasSelected = false;
+        std::string selectedDirectory{};
+        const Result result = Cue::PAL::Win::pick_directory_dialog(
+            "プロジェクトフォルダを選択",
+            trim_text(m_projectDirectoryBuffer.data()),
+            &selectedDirectory,
+            &wasSelected
+        );
+        if (!result)
+        {
+            m_errorMessage = "フォルダ選択ダイアログを開けませんでした。";
+            return false;
+        }
+
+        if (!wasSelected)
+        {
+            return false;
+        }
+
+        if (!validate_project_directory(selectedDirectory))
+        {
+            return false;
+        }
+
+        m_projectPath = selectedDirectory;
+        m_errorMessage.clear();
+        m_isOpen = false;
+        return true;
+    }
+
+    bool ProjectHub::validate_project_directory(const std::string& a_projectPath)
+    {
+        const Core::IO::Path projectPath(a_projectPath);
+
+        bool exists = false;
+        Result result = m_fileSystem.exists(projectPath, &exists);
+        if (!result)
+        {
+            m_errorMessage = "プロジェクトフォルダの確認に失敗しました。";
+            return false;
+        }
+
+        if (!exists)
+        {
+            m_errorMessage = "指定したプロジェクトフォルダが存在しません。";
+            return false;
+        }
+
+        Core::IO::FileStat directoryStat{};
+        result = m_fileSystem.stat(projectPath, &directoryStat);
+        if (!result)
+        {
+            m_errorMessage = "プロジェクトフォルダの情報取得に失敗しました。";
+            return false;
+        }
+
+        if (directoryStat.type != Core::IO::FileType::directory)
+        {
+            m_errorMessage = "指定したパスはフォルダではありません。";
+            return false;
+        }
+
+        const Core::IO::Path projectFilePath = Core::IO::Path::join(
+            projectPath,
+            Core::IO::Path("cueproject.json"));
+
+        bool projectFileExists = false;
+        result = m_fileSystem.exists(projectFilePath, &projectFileExists);
+        if (!result)
+        {
+            m_errorMessage = "cueproject.json の確認に失敗しました。";
+            return false;
+        }
+
+        if (!projectFileExists)
+        {
+            m_errorMessage = "cueproject.json が見つかりません。";
+            return false;
+        }
+
+        Core::IO::FileStat projectFileStat{};
+        result = m_fileSystem.stat(projectFilePath, &projectFileStat);
+        if (!result)
+        {
+            m_errorMessage = "cueproject.json の情報取得に失敗しました。";
+            return false;
+        }
+
+        if (projectFileStat.type != Core::IO::FileType::regular)
+        {
+            m_errorMessage = "cueproject.json がファイルではありません。";
+            return false;
+        }
+
+        return true;
+    }
+
     bool ProjectHub::create_project()
     {
         const std::string projectName = trim_text(m_projectNameBuffer.data());
@@ -256,6 +415,16 @@ namespace Cue::Editor
             return false;
         }
 
+        if (!create_project_directories(projectPath.utf8()))
+        {
+            return false;
+        }
+
+        if (!write_default_scene(projectPath.utf8()))
+        {
+            return false;
+        }
+
         if (!write_project_file(projectName, projectPath.utf8()))
         {
             return false;
@@ -264,6 +433,50 @@ namespace Cue::Editor
         m_projectPath = projectPath.utf8();
         m_errorMessage.clear();
         m_isOpen = false;
+        return true;
+    }
+
+    bool ProjectHub::create_project_directories(const std::string& a_projectPath)
+    {
+        const Core::IO::Path rootPath(a_projectPath);
+        const std::array<Core::IO::Path, 4> directories = {
+            Core::IO::Path::join(rootPath, Core::IO::Path("Assets")),
+            Core::IO::Path::join(rootPath, Core::IO::Path("Assets/Scenes")),
+            Core::IO::Path::join(rootPath, Core::IO::Path("Saved")),
+            Core::IO::Path::join(rootPath, Core::IO::Path("Intermediate")),
+        };
+
+        for (const Core::IO::Path& directoryPath : directories)
+        {
+            const Result result = m_fileSystem.create_directories(directoryPath);
+            if (!result)
+            {
+                m_errorMessage =
+                    "プロジェクト初期フォルダの作成に失敗しました。";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool ProjectHub::write_default_scene(const std::string& a_projectPath)
+    {
+        GameCore::SceneAsset sceneAsset("Main");
+        sceneAsset.add_object(make_default_camera_object());
+        sceneAsset.add_object(make_default_cube_object());
+
+        const Core::IO::Path scenePath = Core::IO::Path::join(
+            Core::IO::Path(a_projectPath),
+            Core::IO::Path("Assets/Scenes/Main.cuescene"));
+        const Result result = GameCore::SceneSerializer::save_scene_asset(
+            sceneAsset, m_fileSystem, scenePath);
+        if (!result)
+        {
+            m_errorMessage = "Main.cuescene の作成に失敗しました。";
+            return false;
+        }
+
         return true;
     }
 

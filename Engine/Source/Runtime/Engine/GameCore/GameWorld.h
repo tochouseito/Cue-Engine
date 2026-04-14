@@ -87,6 +87,27 @@ namespace Cue::GameCore
         [[nodiscard]] Result add_object(
             const Math::float3& a_position, GameObject& a_outObject);
 
+        [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId)
+        {
+            return add_object_to_scene(a_sceneId, make_spawn_position());
+        }
+
+        [[nodiscard]] Result add_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_object_to_scene(a_sceneId, make_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+
         [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept;
 
         [[nodiscard]] Result get_render_object_entity(
@@ -712,63 +733,6 @@ namespace Cue::GameCore
                 0.0f,
                 static_cast<float>(row) * 2.5f
             };
-        }
-
-        Result create_camera(const Math::float3& a_position, bool a_isMain)
-        {
-            GameObject object{};
-            Result result = create_object(a_isMain ? "MainCamera" : "Camera", object);
-            if (!result)
-            {
-                return result;
-            }
-
-            ECS::TransformComponent* transform = nullptr;
-            result =
-                add_component<ECS::TransformComponent>(object.entity_id(), transform);
-            if (!result || transform == nullptr)
-            {
-                destroy_object_immediately(object.entity_id());
-                return result ? Result::fail(Code::CreateFailed, Severity::Error,
-                    "Failed to add transform component for camera.") : result;
-            }
-
-            ECS::CameraComponent* camera = nullptr;
-            result = add_component<ECS::CameraComponent>(object.entity_id(), camera);
-            if (!result || camera == nullptr)
-            {
-                destroy_object_immediately(object.entity_id());
-                return result ? Result::fail(Code::CreateFailed, Severity::Error,
-                    "Failed to add camera component.") : result;
-            }
-
-            transform->position = a_position;
-            transform->rotation = Math::float3::zero();
-            transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
-
-            camera->isMain = a_isMain;
-            camera->fovY = 60.0f;
-            camera->nearZ = 0.1f;
-            camera->farZ = 1000.0f;
-            return Result::ok();
-        }
-
-        Result create_default_cameras()
-        {
-            Result result = create_camera(Math::float3(0.0f, 0.0f, -6.0f), true);
-            if (!result)
-            {
-                return result;
-            }
-
-            result = create_camera(Math::float3(0.0f, 0.0f, -12.0f), false);
-            if (!result)
-            {
-                return result;
-            }
-
-            m_mainCameraIndex = 0;
-            return Result::ok();
         }
 
         void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,

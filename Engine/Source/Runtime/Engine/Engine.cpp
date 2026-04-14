@@ -127,24 +127,6 @@ namespace Cue
             return result;
         }
 
-        result = m_gameWorld->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        result = m_gameWorld->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        result = m_gameWorld->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
         result = create_final_color_resources();
         if (!result)
         {
@@ -221,7 +203,7 @@ namespace Cue
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
-            EngineCommandContext commandContext(*m_gameWorld);
+            EngineCommandContext commandContext(*m_gameWorld, m_editorSceneId);
             Result result = m_editorBridge->drain_commands(commandContext);
             if (!result)
             {
