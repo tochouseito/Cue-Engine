@@ -21,7 +21,8 @@ namespace Cue
     {
         Camera,
         MeshFilter,
-        StaticMeshRenderer
+        StaticMeshRenderer,
+        Script
     };
 
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext

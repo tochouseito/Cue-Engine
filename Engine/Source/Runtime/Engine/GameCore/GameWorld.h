@@ -1118,6 +1118,13 @@ namespace Cue::GameCore
                 prototype.add_component(*renderer);
             }
 
+            if (const ECS::ScriptComponent* script =
+                get_component<ECS::ScriptComponent>(a_entityId);
+                script != nullptr)
+            {
+                prototype.add_component(*script);
+            }
+
             return prototype;
         }
 

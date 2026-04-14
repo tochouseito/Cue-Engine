@@ -11,6 +11,7 @@
 
 // === C++ includes ===
 #include <limits>
+#include <string>
 
 namespace Cue::GameCore
 {
@@ -96,5 +97,16 @@ namespace Cue::ECS
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         uint32_t materialId = 0; // マテリアルアセットの識別子
         bool visible = true;
+    };
+
+    struct ScriptComponent : public IComponentTag
+    {
+        ScriptComponent() = default;
+        ScriptComponent(const ScriptComponent&) = default;
+        ScriptComponent& operator=(const ScriptComponent&) = default;
+        ScriptComponent(ScriptComponent&&) = default;
+        ScriptComponent& operator=(ScriptComponent&&) = default;
+        std::string className{};
+        bool isEnabled = true;
     };
 }

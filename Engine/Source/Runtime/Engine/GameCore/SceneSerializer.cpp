@@ -101,6 +101,24 @@ namespace Cue::GameCore
             a_outComponent.visible = a_json.at("visible").get<bool>();
         }
 
+        [[nodiscard]] Json serialize_script(
+            const ECS::ScriptComponent& a_component)
+        {
+            return Json{
+                { "className", a_component.className },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_script(
+            const Json& a_json, ECS::ScriptComponent& a_outComponent)
+        {
+            a_outComponent.className =
+                a_json.value("className", std::string{});
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", true);
+        }
+
         [[nodiscard]] Json serialize_object_definition(
             const ObjectDefinition& a_definition)
         {
@@ -146,6 +164,13 @@ namespace Cue::GameCore
             {
                 componentsJson["staticMeshRenderer"] =
                     serialize_static_mesh_renderer(*renderer);
+            }
+
+            if (const ECS::ScriptComponent* script =
+                a_definition.prototype.get_component_ptr<ECS::ScriptComponent>();
+                script != nullptr)
+            {
+                componentsJson["script"] = serialize_script(*script);
             }
 
             objectJson["components"] = std::move(componentsJson);
@@ -215,6 +240,15 @@ namespace Cue::GameCore
                     ECS::StaticMeshRendererComponent renderer{};
                     deserialize_static_mesh_renderer(*rendererIt, renderer);
                     objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator scriptIt =
+                    componentsJson.find("script");
+                    scriptIt != componentsJson.end())
+                {
+                    ECS::ScriptComponent script{};
+                    deserialize_script(*scriptIt, script);
+                    objectDefinition.prototype.add_component(script);
                 }
 
                 a_outDefinition = std::move(objectDefinition);

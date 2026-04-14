@@ -30,7 +30,8 @@ namespace Cue::Editor
             Transform,
             Camera,
             MeshFilter,
-            StaticMeshRenderer
+            StaticMeshRenderer,
+            Script
         };
 
         struct ComponentTabEntry final
@@ -127,7 +128,7 @@ namespace Cue::Editor
             const GameCore::GameObject& a_object) const
         {
             std::vector<ComponentTabEntry> tabs{};
-            tabs.reserve(6);
+            tabs.reserve(7);
 
             if (has_component<GameCore::BaseComponent>(a_object))
             {
@@ -161,6 +162,11 @@ namespace Cue::Editor
                     { ComponentTab::StaticMeshRenderer, "S" });
             }
 
+            if (has_component<ECS::ScriptComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Script, "Sc" });
+            }
+
             return tabs;
         }
 
@@ -168,7 +174,7 @@ namespace Cue::Editor
             const GameCore::GameObject& a_object) const
         {
             std::vector<AddableComponentEntry> components{};
-            components.reserve(3);
+            components.reserve(4);
 
             if (!has_component<ECS::CameraComponent>(a_object))
             {
@@ -187,6 +193,12 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::StaticMeshRenderer,
                         "StaticMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::ScriptComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::Script, "ScriptComponent" });
             }
 
             return components;
@@ -300,6 +312,10 @@ namespace Cue::Editor
             case ComponentTab::StaticMeshRenderer:
                 draw_static_mesh_renderer_component(a_object);
                 break;
+
+            case ComponentTab::Script:
+                draw_script_component(a_object);
+                break;
             }
         }
 
@@ -410,6 +426,23 @@ namespace Cue::Editor
             ImGui::Separator();
             ImGui::Text("materialId: %u", component->materialId);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
+        }
+
+        void draw_script_component(GameCore::GameObject& a_object)
+        {
+            ECS::ScriptComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("ScriptComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("ScriptComponent");
+            ImGui::Separator();
+            ImGui::Text("className: %s",
+                component->className.empty() ? "<empty>" : component->className.c_str());
+            ImGui::Text("isEnabled: %s",
+                component->isEnabled ? "true" : "false");
         }
 
         void draw_float3_text(const char* a_label, const Math::float3& a_value)
