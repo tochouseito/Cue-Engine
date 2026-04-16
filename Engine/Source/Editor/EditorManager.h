@@ -13,6 +13,7 @@
 #include <Engine.h>
 
 // === Editor includes ===
+#include "BuildSystem.h"
 #include "Statistics.h"
 #include "DebugView.h"
 #include "Hierarchy.h"
@@ -63,6 +64,7 @@ namespace Cue::Editor
         PAL::Win::WinPlatform* m_platform = nullptr;
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         Engine* m_engine = nullptr;
+        std::unique_ptr<BuildSystem> m_buildSystem = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;

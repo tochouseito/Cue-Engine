@@ -84,6 +84,10 @@ namespace Cue::Editor
 
     void EditorManager::initialize()
     {
+        if (m_fileSystem != nullptr)
+        {
+            m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
+        }
         m_statistics = std::make_unique<Statistics>(m_engine->frame_controller());
         m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
         m_hierarchy = std::make_unique<Hierarchy>(

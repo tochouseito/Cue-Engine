@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ProjectGenerator.h"
+
 // === C++ includes ===
 #include <array>
 #include <string>
@@ -30,30 +32,11 @@ namespace Cue::Editor
         bool open_existing_project();
         bool validate_project_directory(const std::string& a_projectPath);
         bool create_project();
-        bool create_project_directories(const std::string& a_projectPath);
-        bool write_script_project_files(
-            const std::string& a_projectName,
-            const std::string& a_projectPath
-        );
-        bool write_default_scene(const std::string& a_projectPath);
-        bool write_project_file(
-            const std::string& a_projectName,
-            const std::string& a_projectPath
-        );
-        bool write_text_file(
-            const Core::IO::Path& a_filePath,
-            const std::string& a_text
-        );
-        [[nodiscard]] bool has_invalid_project_name_character(
-            const std::string& a_projectName
-        ) const;
-        [[nodiscard]] std::string make_cmake_project_name(
-            const std::string& a_projectName
-        ) const;
         [[nodiscard]] std::string trim_text(const char* a_text) const;
 
     private:
         Core::IO::IFileSystem& m_fileSystem;
+        ProjectGenerator m_projectGenerator;
         bool m_isOpen = true;
         bool m_openCreateProjectModal = false;
         std::string m_projectPath = "";
