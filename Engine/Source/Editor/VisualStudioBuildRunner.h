@@ -9,7 +9,11 @@ namespace Cue::Editor
     class VisualStudioBuildRunner final : public IBuildRunner
     {
     public:
-        VisualStudioBuildRunner() = default;
+        explicit VisualStudioBuildRunner(Core::IO::IFileSystem& a_fileSystem) noexcept
+            : m_fileSystem(a_fileSystem)
+            , m_bridge(a_fileSystem)
+        {
+        }
         ~VisualStudioBuildRunner() override = default;
 
         [[nodiscard]] Result plan_script_build(
@@ -23,6 +27,7 @@ namespace Cue::Editor
             BuildResult& a_outResult) const noexcept override;
 
     private:
-        VisualStudioBridge m_bridge{};
+        Core::IO::IFileSystem& m_fileSystem;
+        VisualStudioBridge m_bridge;
     };
 }

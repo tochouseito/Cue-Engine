@@ -64,6 +64,7 @@ namespace Cue::Editor
         Result reload_script_module();
         Result save_script_build_configuration(
             BuildConfiguration a_configuration);
+        Result save_script_build_backend(BuildBackend a_backend);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
@@ -91,6 +92,7 @@ namespace Cue::Editor
         std::string m_statusMessage{};
         BuildConfiguration m_scriptBuildConfiguration =
             BuildConfiguration::Debug;
+        BuildBackend m_scriptBuildBackend = BuildBackend::CMake;
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         uint32_t m_pendingScriptActionDelayFrames = 0;

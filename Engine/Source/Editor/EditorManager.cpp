@@ -28,6 +28,7 @@ namespace Cue::Editor
             std::string scriptRoot{};
             BuildConfiguration scriptBuildConfiguration =
                 BuildConfiguration::Debug;
+            BuildBackend scriptBuildBackend = BuildBackend::CMake;
         };
 
         void log_result(std::string_view a_prefix, const Result& a_result)
@@ -92,6 +93,40 @@ namespace Cue::Editor
                 "scriptBuildConfiguration が不正です。");
         }
 
+        [[nodiscard]] Result parse_build_backend(
+            std::string_view a_text,
+            BuildBackend& a_outBackend) noexcept
+        {
+            if (a_text == "CMake")
+            {
+                a_outBackend = BuildBackend::CMake;
+                return Result::ok();
+            }
+
+            if (a_text == "VisualStudio")
+            {
+                a_outBackend = BuildBackend::VisualStudio;
+                return Result::ok();
+            }
+
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "scriptBuildBackend が不正です。");
+        }
+
+        [[nodiscard]] const char* to_build_backend_name(
+            BuildBackend a_backend) noexcept
+        {
+            switch (a_backend)
+            {
+            case BuildBackend::CMake:
+                return "CMake";
+            case BuildBackend::VisualStudio:
+                return "VisualStudio";
+            }
+
+            return "CMake";
+        }
+
         [[nodiscard]] Result save_project_settings(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_projectPath,
@@ -115,6 +150,8 @@ namespace Cue::Editor
                 root["scriptBuildConfiguration"] =
                     BuildSystem::to_configuration_name(
                         a_settings.scriptBuildConfiguration);
+                root["scriptBuildBackend"] =
+                    to_build_backend_name(a_settings.scriptBuildBackend);
 
                 std::string updatedText = root.dump(4);
                 updatedText.push_back('\n');
@@ -172,6 +209,16 @@ namespace Cue::Editor
                 result = parse_build_configuration(
                     buildConfigurationText,
                     a_outSettings.scriptBuildConfiguration);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const std::string buildBackendText =
+                    root.value("scriptBuildBackend", std::string("CMake"));
+                result = parse_build_backend(
+                    buildBackendText,
+                    a_outSettings.scriptBuildBackend);
                 if (!result)
                 {
                     return result;
@@ -236,6 +283,7 @@ namespace Cue::Editor
         m_projectPath = a_projectPath;
         m_currentScenePath = scenePath.utf8();
         m_scriptBuildConfiguration = projectSettings.scriptBuildConfiguration;
+        m_scriptBuildBackend = projectSettings.scriptBuildBackend;
 
         const Result scriptLoadResult = m_engine->load_script_module(scriptRootPath);
         if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
@@ -372,53 +420,53 @@ namespace Cue::Editor
         return Result::ok();
     }
 
-        Result EditorManager::build_script_module()
+    Result EditorManager::build_script_module()
+    {
+        if (m_buildSystem == nullptr || m_engine == nullptr)
         {
-            if (m_buildSystem == nullptr || m_engine == nullptr)
-            {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "BuildSystem dependencies are not initialized.");
         }
 
         Core::IO::Path scriptRoot{};
-            Result result = resolve_script_root(scriptRoot);
-            if (!result)
-            {
-                return result;
-            }
+        Result result = resolve_script_root(scriptRoot);
+        if (!result)
+        {
+            return result;
+        }
 
-            const ScriptBuildRequest request{
-                scriptRoot,
-                "win-x64",
-                m_scriptBuildConfiguration,
-                "GameScript",
-                BuildBackend::CMake
-            };
+        const ScriptBuildRequest request{
+            scriptRoot,
+            "win-x64",
+            m_scriptBuildConfiguration,
+            "GameScript",
+            m_scriptBuildBackend
+        };
 
-            ScriptBuildValidation validation{};
-            result = m_buildSystem->validate_script_build_environment(
-                request,
-                validation);
-            if (!result)
-            {
-                return result;
-            }
+        ScriptBuildValidation validation{};
+        result = m_buildSystem->validate_script_build_environment(
+            request,
+            validation);
+        if (!result)
+        {
+            return result;
+        }
 
-            m_engine->unload_script_module();
+        m_engine->unload_script_module();
 
-            BuildResult buildResult{};
-            result = m_buildSystem->execute_script_build(request, buildResult);
+        BuildResult buildResult{};
+        result = m_buildSystem->execute_script_build(request, buildResult);
 
-            for (const BuildStageResult& stageResult : buildResult.stageResults)
-            {
-                log_build_output(
-                    to_stage_prefix(stageResult.stage),
-                    stageResult.output);
-            }
+        for (const BuildStageResult& stageResult : buildResult.stageResults)
+        {
+            log_build_output(
+                to_stage_prefix(stageResult.stage),
+                stageResult.output);
+        }
 
-            if (!result)
-            {
-                return result;
+        if (!result)
+        {
+            return result;
         }
 
         return reload_script_module();
@@ -479,6 +527,40 @@ namespace Cue::Editor
         }
 
         m_scriptBuildConfiguration = a_configuration;
+        return Result::ok();
+    }
+
+    Result EditorManager::save_script_build_backend(
+        BuildBackend a_backend)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        settings.scriptBuildBackend = a_backend;
+        result = save_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptBuildBackend = a_backend;
         return Result::ok();
     }
 
@@ -871,6 +953,42 @@ namespace Cue::Editor
                         BuildConfiguration::RelWithDebInfo);
                     draw_configuration_item("Release",
                         BuildConfiguration::Release);
+
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("GameScript backend", canEditBuildSettings))
+                {
+                    const auto draw_backend_item =
+                        [this](const char* a_label, BuildBackend a_backend)
+                    {
+                        const bool isSelected =
+                            m_scriptBuildBackend == a_backend;
+                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
+                            !isSelected)
+                        {
+                            const Result result =
+                                save_script_build_backend(a_backend);
+                            if (!result)
+                            {
+                                log_result(
+                                    "Failed to save GameScript build backend",
+                                    result);
+                                set_status_message(
+                                    "GameScript の build backend 保存に失敗しました。", true);
+                            }
+                            else
+                            {
+                                set_status_message(
+                                    std::string("GameScript backend を ") + a_label +
+                                        " に変更しました。",
+                                    false);
+                            }
+                        }
+                    };
+
+                    draw_backend_item("CMake", BuildBackend::CMake);
+                    draw_backend_item("VisualStudio", BuildBackend::VisualStudio);
 
                     ImGui::EndMenu();
                 }

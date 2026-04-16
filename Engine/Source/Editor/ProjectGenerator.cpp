@@ -676,6 +676,7 @@ namespace Cue::Editor
             { "assetRoot", "Assets" },
             { "scriptRoot", "." },
             { "scriptBuildConfiguration", "Debug" },
+            { "scriptBuildBackend", "CMake" },
             { "startupScene", "Assets/Scenes/Main.cuescene" }
         };
 

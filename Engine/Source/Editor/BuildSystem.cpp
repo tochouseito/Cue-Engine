@@ -10,7 +10,7 @@ namespace Cue::Editor
     BuildSystem::BuildSystem(Core::IO::IFileSystem& a_fileSystem) noexcept
         : m_fileSystem(a_fileSystem)
         , m_cmakeBuildRunner(std::make_unique<CMakeBuildRunner>(a_fileSystem))
-        , m_visualStudioBuildRunner(std::make_unique<VisualStudioBuildRunner>())
+        , m_visualStudioBuildRunner(std::make_unique<VisualStudioBuildRunner>(a_fileSystem))
     {
     }
 
