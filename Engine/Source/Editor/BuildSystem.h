@@ -43,6 +43,15 @@ namespace Cue::Editor
         bool requiresConfigure = false;
     };
 
+    struct ScriptBuildValidation final
+    {
+        Core::IO::Path scriptRoot{};
+        Core::IO::Path presetsPath{};
+        std::string cmakePath{};
+        std::string vcpkgRoot{};
+        bool requiresVcpkgRoot = false;
+    };
+
     struct CommandExecutionResult final
     {
         std::string command{};
@@ -67,6 +76,9 @@ namespace Cue::Editor
         [[nodiscard]] Result plan_script_build(
             const ScriptBuildRequest& a_request,
             ScriptBuildPlan& a_outPlan) const noexcept;
+        [[nodiscard]] Result validate_script_build_environment(
+            const ScriptBuildRequest& a_request,
+            ScriptBuildValidation& a_outValidation) const noexcept;
         [[nodiscard]] Result execute_script_build(
             const ScriptBuildRequest& a_request,
             ScriptBuildResult& a_outResult) const noexcept;

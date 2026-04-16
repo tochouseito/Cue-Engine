@@ -292,6 +292,20 @@ namespace Cue::Editor
             return result;
         }
 
+        ScriptBuildValidation validation{};
+        result = m_buildSystem->validate_script_build_environment(
+            ScriptBuildRequest{
+                scriptRoot,
+                "win-x64",
+                BuildConfiguration::Debug,
+                "GameScript"
+            },
+            validation);
+        if (!result)
+        {
+            return result;
+        }
+
         m_engine->unload_script_module();
 
         ScriptBuildResult buildResult{};

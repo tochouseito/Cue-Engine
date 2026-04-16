@@ -8,6 +8,7 @@
 
 // === C++ includes ===
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace Cue::Editor
@@ -43,6 +44,52 @@ namespace Cue::Editor
                 reinterpret_cast<const char*>(data.data()),
                 data.size());
             return Result::ok();
+        }
+
+        [[nodiscard]] Result resolve_executable_path(
+            std::wstring_view a_fileName,
+            std::string& a_outPath) noexcept
+        {
+            a_outPath.clear();
+
+            wchar_t buffer[MAX_PATH]{};
+            const DWORD length = ::SearchPathW(nullptr, a_fileName.data(), nullptr,
+                static_cast<DWORD>(std::size(buffer)), buffer, nullptr);
+            if (length == 0)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "cmake.exe が見つかりません。PATH を確認してください。");
+            }
+
+            return PAL::Win::wide_to_utf8(
+                std::wstring_view(buffer, length), &a_outPath);
+        }
+
+        [[nodiscard]] Result read_environment_variable(
+            std::wstring_view a_name,
+            std::string& a_outValue) noexcept
+        {
+            a_outValue.clear();
+
+            const DWORD requiredLength =
+                ::GetEnvironmentVariableW(a_name.data(), nullptr, 0);
+            if (requiredLength == 0)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "VCPKG_ROOT が設定されていません。");
+            }
+
+            std::vector<wchar_t> wideValue(requiredLength);
+            const DWORD written = ::GetEnvironmentVariableW(
+                a_name.data(), wideValue.data(), requiredLength);
+            if (written == 0)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "環境変数の取得に失敗しました。");
+            }
+
+            return PAL::Win::wide_to_utf8(
+                std::wstring_view(wideValue.data(), written), &a_outValue);
         }
 
         [[nodiscard]] Result execute_command(
@@ -170,6 +217,49 @@ namespace Cue::Editor
     {
         a_outPlan = {};
 
+        ScriptBuildValidation validation{};
+        Result result =
+            validate_script_build_environment(a_request, validation);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path configureDirectory = Core::IO::Path::join(
+            a_request.scriptRoot,
+            Core::IO::Path("out/build/" + a_request.configurePreset));
+        const Core::IO::Path buildDirectory = Core::IO::Path::join(
+            configureDirectory,
+            Core::IO::Path(a_request.target));
+        bool buildDirectoryExists = false;
+        result = m_fileSystem.exists(configureDirectory, &buildDirectoryExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Script build ディレクトリの確認に失敗しました。");
+        }
+
+        a_outPlan.scriptRoot = a_request.scriptRoot;
+        a_outPlan.presetsPath = validation.presetsPath;
+        a_outPlan.configureDirectory = configureDirectory;
+        a_outPlan.buildDirectory = buildDirectory;
+        a_outPlan.requiresConfigure = !buildDirectoryExists;
+        a_outPlan.configureCommand =
+            "cmake --preset " + a_request.configurePreset;
+        a_outPlan.buildCommand =
+            "cmake --build out/build/" + a_request.configurePreset + "/" +
+            a_request.target +
+            " --config " + to_configuration_name(a_request.configuration) +
+            " --target " + a_request.target;
+        return Result::ok();
+    }
+
+    Result BuildSystem::validate_script_build_environment(
+        const ScriptBuildRequest& a_request,
+        ScriptBuildValidation& a_outValidation) const noexcept
+    {
+        a_outValidation = {};
+
         if (a_request.scriptRoot.is_empty())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
@@ -220,32 +310,69 @@ namespace Cue::Editor
                 "CMakePresets.json が見つかりません。");
         }
 
-        const Core::IO::Path configureDirectory = Core::IO::Path::join(
-            a_request.scriptRoot,
-            Core::IO::Path("out/build/" + a_request.configurePreset));
-        const Core::IO::Path buildDirectory = Core::IO::Path::join(
-            configureDirectory,
-            Core::IO::Path(a_request.target));
-        bool buildDirectoryExists = false;
-        result = m_fileSystem.exists(configureDirectory, &buildDirectoryExists);
+        std::string presetsText{};
+        result = read_text_file(m_fileSystem, presetsPath, presetsText);
         if (!result)
         {
             return Result::fail(Code::GetFailed, Severity::Error,
-                "Script build ディレクトリの確認に失敗しました。");
+                "CMakePresets.json の読み込みに失敗しました。");
         }
 
-        a_outPlan.scriptRoot = a_request.scriptRoot;
-        a_outPlan.presetsPath = presetsPath;
-        a_outPlan.configureDirectory = configureDirectory;
-        a_outPlan.buildDirectory = buildDirectory;
-        a_outPlan.requiresConfigure = !buildDirectoryExists;
-        a_outPlan.configureCommand =
-            "cmake --preset " + a_request.configurePreset;
-        a_outPlan.buildCommand =
-            "cmake --build out/build/" + a_request.configurePreset + "/" +
-            a_request.target +
-            " --config " + to_configuration_name(a_request.configuration) +
-            " --target " + a_request.target;
+        std::string cmakePath{};
+        result = resolve_executable_path(L"cmake.exe", cmakePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outValidation.scriptRoot = a_request.scriptRoot;
+        a_outValidation.presetsPath = presetsPath;
+        a_outValidation.cmakePath = std::move(cmakePath);
+        a_outValidation.requiresVcpkgRoot =
+            presetsText.find("$env{VCPKG_ROOT}") != std::string::npos;
+
+        if (!a_outValidation.requiresVcpkgRoot)
+        {
+            return Result::ok();
+        }
+
+        std::string vcpkgRoot{};
+        result = read_environment_variable(L"VCPKG_ROOT", vcpkgRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path vcpkgRootPath(vcpkgRoot);
+        bool vcpkgRootExists = false;
+        result = m_fileSystem.exists(vcpkgRootPath, &vcpkgRootExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "VCPKG_ROOT の確認に失敗しました。");
+        }
+
+        if (!vcpkgRootExists)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "VCPKG_ROOT が指すディレクトリが存在しません。");
+        }
+
+        Core::IO::FileStat vcpkgRootStat{};
+        result = m_fileSystem.stat(vcpkgRootPath, &vcpkgRootStat);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "VCPKG_ROOT の情報取得に失敗しました。");
+        }
+
+        if (vcpkgRootStat.type != Core::IO::FileType::directory)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "VCPKG_ROOT はディレクトリである必要があります。");
+        }
+
+        a_outValidation.vcpkgRoot = std::move(vcpkgRoot);
         return Result::ok();
     }
 
