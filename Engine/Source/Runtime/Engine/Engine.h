@@ -353,6 +353,7 @@ namespace Cue
         RHI::ViewHandle m_finalColorSrvHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
+        uint64_t m_scriptModuleShadowCopyId = 0;
         GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;
         Core::IO::Path m_scriptRoot{};
     };

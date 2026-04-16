@@ -11,6 +11,8 @@
 
 // === C++ includes ===
 #include <array>
+#include <cstddef>
+#include <vector>
 
 namespace Cue
 {
@@ -44,6 +46,81 @@ namespace Cue
         PAL::PlatformRuntimeState& m_state;
         FrameController* m_frameController = nullptr;
     };
+
+    namespace
+    {
+        [[nodiscard]] Result copy_file(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath) noexcept
+        {
+            std::vector<std::byte> fileData{};
+            Result result = a_fileSystem.read_all(a_sourcePath, &fileData);
+            if (!result)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "Script module ファイルの読み込みに失敗しました。");
+            }
+
+            result = a_fileSystem.write_all(
+                a_destinationPath,
+                std::span<const std::byte>(fileData.data(), fileData.size()),
+                true);
+            if (!result)
+            {
+                return Result::fail(Code::CreateFailed, Severity::Error,
+                    "Script module shadow copy の書き込みに失敗しました。");
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result create_script_module_shadow_copy(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_scriptRoot,
+            const Core::IO::Path& a_modulePath,
+            uint64_t a_shadowCopyId,
+            Core::IO::Path& a_outShadowModulePath) noexcept
+        {
+            const Core::IO::Path shadowDirectory = Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path("Intermediate/ScriptRuntime"));
+            const std::string shadowBaseName =
+                a_modulePath.stem() + "_" + std::to_string(a_shadowCopyId);
+
+            a_outShadowModulePath = Core::IO::Path::join(
+                shadowDirectory,
+                Core::IO::Path(shadowBaseName + a_modulePath.extension()));
+
+            Result result = copy_file(
+                a_fileSystem, a_modulePath, a_outShadowModulePath);
+            if (!result)
+            {
+                return result;
+            }
+
+            const Core::IO::Path sourcePdbPath = Core::IO::Path::join(
+                a_modulePath.parent(),
+                Core::IO::Path(a_modulePath.stem() + ".pdb"));
+            bool sourcePdbExists = false;
+            result = a_fileSystem.exists(sourcePdbPath, &sourcePdbExists);
+            if (!result)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "Script module PDB の確認に失敗しました。");
+            }
+
+            if (!sourcePdbExists)
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path shadowPdbPath = Core::IO::Path::join(
+                shadowDirectory,
+                Core::IO::Path(shadowBaseName + ".pdb"));
+            return copy_file(a_fileSystem, sourcePdbPath, shadowPdbPath);
+        }
+    }
 
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
@@ -475,9 +552,6 @@ namespace Cue
 
     Result Engine::load_script_module(const Core::IO::Path& a_scriptRoot) noexcept
     {
-        unload_script_module();
-        m_scriptRoot = a_scriptRoot;
-
         if (m_platform == nullptr || m_scriptModule == nullptr || m_scriptRuntime == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
@@ -491,21 +565,74 @@ namespace Cue
             return result;
         }
 
-        result = m_scriptModule->load(modulePath);
+        Core::IO::Path shadowModulePath{};
+        result = create_script_module_shadow_copy(
+            m_platform->file_system(),
+            a_scriptRoot,
+            modulePath,
+            ++m_scriptModuleShadowCopyId,
+            shadowModulePath);
         if (!result)
         {
             return result;
         }
 
+        std::unique_ptr<ScriptModule> nextModule = std::make_unique<ScriptModule>();
+        result = nextModule->load_shadow_copy(modulePath, shadowModulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        {
+            ScriptRuntime validationRuntime(*m_gameWorld);
+            result = nextModule->register_scripts(validationRuntime.engine_api());
+        }
+        m_scriptRuntime->activate();
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
+        result = m_scriptRuntime->reset();
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
+        std::unique_ptr<ScriptModule> previousModule = std::move(m_scriptModule);
+        m_scriptModule = std::move(nextModule);
         m_scriptRuntime->set_module(m_scriptModule.get());
         result = m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
         if (!result)
         {
             m_scriptRuntime->set_module(nullptr);
             m_scriptModule->unload();
+            m_scriptModule = std::move(previousModule);
+            if (m_scriptModule != nullptr)
+            {
+                m_scriptRuntime->set_module(m_scriptModule.get());
+                const Result restoreResult =
+                    m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
+                if (!restoreResult)
+                {
+                    m_scriptRuntime->set_module(nullptr);
+                    m_scriptModule->unload();
+                    m_scriptModule = nullptr;
+                    m_scriptRoot = {};
+                }
+            }
             return result;
         }
 
+        if (previousModule != nullptr)
+        {
+            previousModule->unload();
+        }
+
+        m_scriptRoot = a_scriptRoot;
         return Result::ok();
     }
 

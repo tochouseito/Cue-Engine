@@ -43,6 +43,7 @@ namespace Cue
             std::string_view a_className) const noexcept;
         [[nodiscard]] const std::vector<ECS::ScriptFieldValue>&
             script_field_defaults(std::string_view a_className) const noexcept;
+        void activate() noexcept;
         void set_module(const ScriptModule* a_module) noexcept;
 
         [[nodiscard]] Result update(float a_deltaTimeSeconds) noexcept;

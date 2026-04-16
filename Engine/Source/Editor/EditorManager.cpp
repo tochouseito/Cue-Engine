@@ -452,8 +452,6 @@ namespace Cue::Editor
             return result;
         }
 
-        m_engine->unload_script_module();
-
         BuildResult buildResult{};
         result = m_buildSystem->execute_script_build(request, buildResult);
 

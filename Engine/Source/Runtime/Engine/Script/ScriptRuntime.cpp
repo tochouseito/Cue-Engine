@@ -149,6 +149,11 @@ namespace Cue
         return infoIt->second.fieldDefaults;
     }
 
+    void ScriptRuntime::activate() noexcept
+    {
+        s_activeInstance = this;
+    }
+
     void ScriptRuntime::set_module(const ScriptModule* a_module) noexcept
     {
         m_module = a_module;

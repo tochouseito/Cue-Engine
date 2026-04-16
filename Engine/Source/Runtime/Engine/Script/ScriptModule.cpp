@@ -42,6 +42,30 @@ namespace Cue
             return Result::ok();
         }
 
+        void delete_file_if_exists(const Core::IO::Path& a_filePath) noexcept
+        {
+            if (a_filePath.is_empty())
+            {
+                return;
+            }
+
+            std::wstring wideFilePath{};
+            const Result result = utf8_to_wide(a_filePath.utf8(), wideFilePath);
+            if (!result)
+            {
+                return;
+            }
+
+            if (::DeleteFileW(wideFilePath.c_str()) == FALSE)
+            {
+                const DWORD error = ::GetLastError();
+                if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+                {
+                    return;
+                }
+            }
+        }
+
         [[nodiscard]] Result convert_script_result(CueResult a_result) noexcept
         {
             switch (a_result)
@@ -82,10 +106,24 @@ namespace Cue
 
     Result ScriptModule::load(const Core::IO::Path& a_modulePath) noexcept
     {
+        return load_internal(a_modulePath, a_modulePath);
+    }
+
+    Result ScriptModule::load_shadow_copy(
+        const Core::IO::Path& a_modulePath,
+        const Core::IO::Path& a_shadowModulePath) noexcept
+    {
+        return load_internal(a_modulePath, a_shadowModulePath);
+    }
+
+    Result ScriptModule::load_internal(
+        const Core::IO::Path& a_modulePath,
+        const Core::IO::Path& a_loadPath) noexcept
+    {
         unload();
 
         std::wstring wideModulePath{};
-        Result result = utf8_to_wide(a_modulePath.utf8(), wideModulePath);
+        Result result = utf8_to_wide(a_loadPath.utf8(), wideModulePath);
         if (!result)
         {
             return result;
@@ -142,6 +180,7 @@ namespace Cue
 
         m_nativeHandle = moduleHandle;
         m_modulePath = a_modulePath;
+        m_loadedModulePath = a_loadPath;
         m_exports = exports;
         return Result::ok();
     }
@@ -154,7 +193,16 @@ namespace Cue
             m_nativeHandle = nullptr;
         }
 
+        if (!m_loadedModulePath.is_empty() && m_loadedModulePath.utf8() != m_modulePath.utf8())
+        {
+            delete_file_if_exists(m_loadedModulePath);
+            delete_file_if_exists(Core::IO::Path::join(
+                m_loadedModulePath.parent(),
+                Core::IO::Path(m_loadedModulePath.stem() + ".pdb")));
+        }
+
         m_modulePath = {};
+        m_loadedModulePath = {};
         m_exports = {};
     }
 
