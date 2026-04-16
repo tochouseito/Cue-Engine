@@ -5,7 +5,7 @@ find_package(imgui CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
-add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Icon.h" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h" "Hierarchy.h" "Inspector.h" "ProjectHub.h" "ProjectHub.cpp" "ProjectGenerator.h" "ProjectGenerator.cpp" "BuildSystem.h" "BuildSystem.cpp")
+add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Icon.h" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h" "Hierarchy.h" "Inspector.h" "ProjectHub.h" "ProjectHub.cpp" "ProjectGenerator.h" "ProjectGenerator.cpp" "BuildSystem.h" "BuildSystem.cpp" "IBuildRunner.h" "CMakeBuildRunner.h" "CMakeBuildRunner.cpp" "VisualStudioBridge.h" "VisualStudioBridge.cpp" "VisualStudioBuildRunner.h" "VisualStudioBuildRunner.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE

@@ -8,7 +8,9 @@
 
 // === C++ includes ===
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace Cue::Core::IO
 {
@@ -17,11 +19,34 @@ namespace Cue::Core::IO
 
 namespace Cue::Editor
 {
+    class IBuildRunner;
+
     enum class BuildConfiguration : uint8_t
     {
         Debug,
         RelWithDebInfo,
         Release
+    };
+
+    enum class BuildBackend : uint8_t
+    {
+        CMake,
+        VisualStudio
+    };
+
+    enum class BuildStage : uint8_t
+    {
+        General,
+        Configure,
+        Build,
+        Attach
+    };
+
+    enum class BuildMessageSeverity : uint8_t
+    {
+        Info,
+        Warning,
+        Error
     };
 
     struct ScriptBuildRequest final
@@ -30,6 +55,7 @@ namespace Cue::Editor
         std::string configurePreset = "win-x64";
         BuildConfiguration configuration = BuildConfiguration::Debug;
         std::string target = "GameScript";
+        BuildBackend backend = BuildBackend::CMake;
     };
 
     struct ScriptBuildPlan final
@@ -52,18 +78,40 @@ namespace Cue::Editor
         bool requiresVcpkgRoot = false;
     };
 
-    struct CommandExecutionResult final
+    struct BuildStageResult final
     {
+        BuildStage stage = BuildStage::General;
         std::string command{};
         std::string output{};
+        Core::IO::Path logPath{};
         uint32_t exitCode = 0;
+        bool succeeded = false;
     };
 
-    struct ScriptBuildResult final
+    struct BuildMessage final
+    {
+        BuildMessageSeverity severity = BuildMessageSeverity::Info;
+        BuildStage stage = BuildStage::General;
+        std::string text{};
+    };
+
+    struct BuildArtifact final
+    {
+        std::string name{};
+        Core::IO::Path path{};
+    };
+
+    struct BuildResult final
     {
         ScriptBuildPlan plan{};
-        CommandExecutionResult configureStep{};
-        CommandExecutionResult buildStep{};
+        std::vector<BuildStageResult> stageResults{};
+        std::vector<BuildMessage> messages{};
+        std::vector<BuildArtifact> artifacts{};
+        Core::IO::Path configureLogPath{};
+        Core::IO::Path buildLogPath{};
+        std::string summary{};
+        uint32_t exitCode = 0;
+        bool succeeded = false;
         bool didConfigure = false;
     };
 
@@ -71,7 +119,7 @@ namespace Cue::Editor
     {
     public:
         explicit BuildSystem(Core::IO::IFileSystem& a_fileSystem) noexcept;
-        ~BuildSystem() = default;
+        ~BuildSystem();
 
         [[nodiscard]] Result plan_script_build(
             const ScriptBuildRequest& a_request,
@@ -81,7 +129,7 @@ namespace Cue::Editor
             ScriptBuildValidation& a_outValidation) const noexcept;
         [[nodiscard]] Result execute_script_build(
             const ScriptBuildRequest& a_request,
-            ScriptBuildResult& a_outResult) const noexcept;
+            BuildResult& a_outResult) const noexcept;
 
         [[nodiscard]] static const char* to_configuration_name(
             BuildConfiguration a_configuration) noexcept;
@@ -89,6 +137,12 @@ namespace Cue::Editor
             BuildConfiguration a_configuration);
 
     private:
+        [[nodiscard]] const IBuildRunner* resolve_runner(
+            BuildBackend a_backend) const noexcept;
+
+    private:
         Core::IO::IFileSystem& m_fileSystem;
+        std::unique_ptr<IBuildRunner> m_cmakeBuildRunner = nullptr;
+        std::unique_ptr<IBuildRunner> m_visualStudioBuildRunner = nullptr;
     };
 }

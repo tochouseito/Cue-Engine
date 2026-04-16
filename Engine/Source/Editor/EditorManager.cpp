@@ -50,6 +50,22 @@ namespace Cue::Editor
                 "{}:\n{}", a_prefix, a_output);
         }
 
+        [[nodiscard]] const char* to_stage_prefix(BuildStage a_stage) noexcept
+        {
+            switch (a_stage)
+            {
+            case BuildStage::Configure:
+                return "[Script][Configure]";
+            case BuildStage::Build:
+                return "[Script][Build]";
+            case BuildStage::Attach:
+                return "[Script][Attach]";
+            case BuildStage::General:
+            default:
+                return "[Script]";
+            }
+        }
+
         [[nodiscard]] Result parse_build_configuration(
             std::string_view a_text,
             BuildConfiguration& a_outConfiguration) noexcept
@@ -356,53 +372,53 @@ namespace Cue::Editor
         return Result::ok();
     }
 
-    Result EditorManager::build_script_module()
-    {
-        if (m_buildSystem == nullptr || m_engine == nullptr)
+        Result EditorManager::build_script_module()
         {
+            if (m_buildSystem == nullptr || m_engine == nullptr)
+            {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "BuildSystem dependencies are not initialized.");
         }
 
         Core::IO::Path scriptRoot{};
-        Result result = resolve_script_root(scriptRoot);
-        if (!result)
-        {
-            return result;
-        }
+            Result result = resolve_script_root(scriptRoot);
+            if (!result)
+            {
+                return result;
+            }
 
-        ScriptBuildValidation validation{};
-        result = m_buildSystem->validate_script_build_environment(
-            ScriptBuildRequest{
+            const ScriptBuildRequest request{
                 scriptRoot,
                 "win-x64",
                 m_scriptBuildConfiguration,
-                "GameScript"
-            },
-            validation);
-        if (!result)
-        {
-            return result;
-        }
+                "GameScript",
+                BuildBackend::CMake
+            };
 
-        m_engine->unload_script_module();
+            ScriptBuildValidation validation{};
+            result = m_buildSystem->validate_script_build_environment(
+                request,
+                validation);
+            if (!result)
+            {
+                return result;
+            }
 
-        ScriptBuildResult buildResult{};
-        result = m_buildSystem->execute_script_build(
-            ScriptBuildRequest{
-                scriptRoot,
-                "win-x64",
-                m_scriptBuildConfiguration,
-                "GameScript"
-            },
-            buildResult);
+            m_engine->unload_script_module();
 
-        log_build_output("[Script][Configure]", buildResult.configureStep.output);
-        log_build_output("[Script][Build]", buildResult.buildStep.output);
+            BuildResult buildResult{};
+            result = m_buildSystem->execute_script_build(request, buildResult);
 
-        if (!result)
-        {
-            return result;
+            for (const BuildStageResult& stageResult : buildResult.stageResults)
+            {
+                log_build_output(
+                    to_stage_prefix(stageResult.stage),
+                    stageResult.output);
+            }
+
+            if (!result)
+            {
+                return result;
         }
 
         return reload_script_module();
