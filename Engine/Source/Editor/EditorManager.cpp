@@ -10,6 +10,10 @@
 
 // === Engine includes ===
 #include <GameCore/SceneSerializer.h>
+#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
+
+// === Win includes ===
+#include <shellapi.h>
 
 // === C++ includes ===
 #include <span>
@@ -586,6 +590,38 @@ namespace Cue::Editor
             scriptRoot, "win-x64", ::GetCurrentProcessId());
     }
 
+    Result EditorManager::open_path_in_shell(
+        const Core::IO::Path& a_path) const
+    {
+        if (a_path.is_empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Open path is empty.");
+        }
+
+        std::wstring widePath{};
+        Result result = PAL::Win::utf8_to_wide(a_path.utf8(), &widePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        const HINSTANCE executeResult = ::ShellExecuteW(
+            nullptr,
+            L"open",
+            widePath.c_str(),
+            nullptr,
+            nullptr,
+            SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(executeResult) <= 32)
+        {
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                "Shell でパスを開けませんでした。");
+        }
+
+        return Result::ok();
+    }
+
     Result EditorManager::reload_script_module()
     {
         m_lastScriptBuildResult = {};
@@ -987,8 +1023,50 @@ namespace Cue::Editor
         ImGui::Text("Did Configure: %s",
             m_lastScriptBuildResult.didConfigure ? "Yes" : "No");
 
+        if (ImGui::Button("Open Solution"))
+        {
+            const Result result = open_script_solution_in_visual_studio();
+            if (!result)
+            {
+                log_result("Failed to open GameScript solution", result);
+                set_status_message(
+                    "GameScript solution を開けませんでした。", true);
+            }
+            else
+            {
+                set_status_message(
+                    "GameScript solution を Visual Studio で開きました。",
+                    false);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Attach Editor"))
+        {
+            const Result result = attach_editor_debugger_in_visual_studio();
+            if (!result)
+            {
+                log_result("Failed to attach debugger", result);
+                set_status_message(
+                    "Visual Studio から Editor にアタッチできませんでした。",
+                    true);
+            }
+            else
+            {
+                set_status_message(
+                    "Visual Studio から Editor にアタッチしました。",
+                    false);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Output"))
+        {
+            m_lastScriptBuildResult = {};
+            ImGui::End();
+            return;
+        }
+
         const auto draw_path_row =
-            [](const char* a_label, const Core::IO::Path& a_path)
+            [this](const char* a_label, const Core::IO::Path& a_path)
         {
             if (a_path.is_empty())
             {
@@ -1009,6 +1087,22 @@ namespace Cue::Editor
             if (ImGui::Button((std::string("Copy##") + a_label).c_str()))
             {
                 ImGui::SetClipboardText(pathText.c_str());
+            }
+            ImGui::SameLine();
+            if (ImGui::Button((std::string("Open##") + a_label).c_str()))
+            {
+                const Result result = open_path_in_shell(a_path);
+                if (!result)
+                {
+                    log_result("Failed to open path", result);
+                    set_status_message(
+                        std::string(a_label) + " を開けませんでした。", true);
+                }
+                else
+                {
+                    set_status_message(
+                        std::string(a_label) + " を開きました。", false);
+                }
             }
         };
 

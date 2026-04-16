@@ -70,6 +70,7 @@ namespace Cue::Editor
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result open_script_solution_in_visual_studio();
         Result attach_editor_debugger_in_visual_studio();
+        Result open_path_in_shell(const Core::IO::Path& a_path) const;
         void draw_script_build_output();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
