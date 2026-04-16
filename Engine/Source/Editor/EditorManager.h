@@ -32,6 +32,13 @@ namespace Cue::Editor
     class EditorManager final
     {
     public:
+        enum class PendingScriptAction : uint8_t
+        {
+            None,
+            Reload,
+            Build,
+        };
+
         EditorManager(Core::CQRS::Bridge* bridge,
             Core::IO::IFileSystem* fileSystem,
             PAL::Win::WinPlatform* platform,
@@ -58,6 +65,8 @@ namespace Cue::Editor
         Result save_script_build_configuration(
             BuildConfiguration a_configuration);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
+        void queue_script_action(PendingScriptAction a_action);
+        void process_pending_script_action();
         Result drain_pending_editor_commands();
         void set_status_message(std::string a_message, bool a_isError);
         void undo_last_command();
@@ -82,6 +91,10 @@ namespace Cue::Editor
         std::string m_statusMessage{};
         BuildConfiguration m_scriptBuildConfiguration =
             BuildConfiguration::Debug;
+        PendingScriptAction m_pendingScriptAction =
+            PendingScriptAction::None;
+        uint32_t m_pendingScriptActionDelayFrames = 0;
+        bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
     };
 }

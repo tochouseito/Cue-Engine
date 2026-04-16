@@ -466,6 +466,88 @@ namespace Cue::Editor
         return Result::ok();
     }
 
+    void EditorManager::queue_script_action(PendingScriptAction a_action)
+    {
+        if (a_action == PendingScriptAction::None)
+        {
+            return;
+        }
+
+        m_pendingScriptAction = a_action;
+        m_pendingScriptActionDelayFrames = 1;
+        m_isScriptActionActive = true;
+
+        switch (a_action)
+        {
+        case PendingScriptAction::Reload:
+            set_status_message("GameScript を再読み込みしています...", false);
+            break;
+
+        case PendingScriptAction::Build:
+            set_status_message("GameScript をビルドしています...", false);
+            break;
+
+        case PendingScriptAction::None:
+            break;
+        }
+    }
+
+    void EditorManager::process_pending_script_action()
+    {
+        if (m_pendingScriptAction == PendingScriptAction::None)
+        {
+            m_isScriptActionActive = false;
+            return;
+        }
+
+        if (m_pendingScriptActionDelayFrames > 0)
+        {
+            --m_pendingScriptActionDelayFrames;
+            return;
+        }
+
+        const PendingScriptAction action = m_pendingScriptAction;
+        m_pendingScriptAction = PendingScriptAction::None;
+
+        Result result = Result::ok();
+        switch (action)
+        {
+        case PendingScriptAction::Reload:
+            result = reload_script_module();
+            if (!result)
+            {
+                log_result("Failed to reload GameScript", result);
+                set_status_message("GameScript の再読み込みに失敗しました。",
+                    true);
+            }
+            else
+            {
+                set_status_message("GameScript を再読み込みしました。",
+                    false);
+            }
+            break;
+
+        case PendingScriptAction::Build:
+            result = build_script_module();
+            if (!result)
+            {
+                log_result("Failed to build GameScript", result);
+                set_status_message("GameScript のビルドに失敗しました。", true);
+            }
+            else
+            {
+                set_status_message(
+                    "GameScript をビルドして再読み込みしました。", false);
+            }
+            break;
+
+        case PendingScriptAction::None:
+            break;
+        }
+
+        m_isScriptActionActive = false;
+    }
+
     Result EditorManager::reload_current_scene()
     {
         if (m_fileSystem == nullptr || m_engine == nullptr ||
@@ -650,6 +732,8 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
+        process_pending_script_action();
+
         // ビューポート全体をカバーするドックスペースを作成
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->Pos);
@@ -728,12 +812,15 @@ namespace Cue::Editor
 
             if (ImGui::BeginMenu("ビルド"))
             {
+                const bool canEditBuildSettings = !m_isScriptActionActive;
                 const bool canBuildScript =
-                    m_buildSystem != nullptr && !m_projectPath.empty();
+                    m_buildSystem != nullptr && !m_projectPath.empty() &&
+                    !m_isScriptActionActive;
                 const bool canReloadScript =
-                    m_engine != nullptr && !m_projectPath.empty();
+                    m_engine != nullptr && !m_projectPath.empty() &&
+                    !m_isScriptActionActive;
 
-                if (ImGui::BeginMenu("GameScript 構成"))
+                if (ImGui::BeginMenu("GameScript 構成", canEditBuildSettings))
                 {
                     const auto draw_configuration_item =
                         [this](const char* a_label, BuildConfiguration a_configuration)
@@ -775,34 +862,13 @@ namespace Cue::Editor
                 if (ImGui::MenuItem(
                         "GameScript を再読み込み", nullptr, false, canReloadScript))
                 {
-                    const Result result = reload_script_module();
-                    if (!result)
-                    {
-                        log_result("Failed to reload GameScript", result);
-                        set_status_message("GameScript の再読み込みに失敗しました。",
-                            true);
-                    }
-                    else
-                    {
-                        set_status_message("GameScript を再読み込みしました。",
-                            false);
-                    }
+                    queue_script_action(PendingScriptAction::Reload);
                 }
 
                 if (ImGui::MenuItem(
                         "GameScript をビルド", nullptr, false, canBuildScript))
                 {
-                    const Result result = build_script_module();
-                    if (!result)
-                    {
-                        log_result("Failed to build GameScript", result);
-                        set_status_message("GameScript のビルドに失敗しました。", true);
-                    }
-                    else
-                    {
-                        set_status_message(
-                            "GameScript をビルドして再読み込みしました。", false);
-                    }
+                    queue_script_action(PendingScriptAction::Build);
                 }
 
                 ImGui::EndMenu();
