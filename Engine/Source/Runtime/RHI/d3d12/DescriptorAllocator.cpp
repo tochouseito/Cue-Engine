@@ -225,6 +225,79 @@ namespace Cue::RHI::DX12
         return handle;
     }
 
+    Result DescriptorAllocator::allocate_shader_visible_texture_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle)
+    {
+        TableID id = allocate(TableKind::Textures);
+        if (!id.valid())
+        {
+            return Result::fail(
+                Code::OutOfMemory,
+                Severity::Error,
+                "Failed to allocate shader-visible texture descriptor.");
+        }
+
+        a_outCpuHandle = get_cpu_handle_gpu_visible(id);
+        a_outGpuHandle = get_gpu_handle(id);
+        return Result::ok();
+    }
+
+    void DescriptorAllocator::free_shader_visible_texture_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle)
+    {
+        if (!m_gpuSrvUavDescriptorHeap || a_cpuHandle.ptr == 0 || a_gpuHandle.ptr == 0)
+        {
+            return;
+        }
+
+        Table& textureTable = get_table(TableKind::Textures);
+        const SIZE_T descriptorSize =
+            static_cast<SIZE_T>(m_descriptorSizes[static_cast<size_t>(HeapType::CBV_SRV_UAV)]);
+        if (descriptorSize == 0)
+        {
+            return;
+        }
+
+        const D3D12_CPU_DESCRIPTOR_HANDLE heapCpuStart =
+            m_gpuSrvUavDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+        const D3D12_GPU_DESCRIPTOR_HANDLE heapGpuStart =
+            m_gpuSrvUavDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+        if (a_cpuHandle.ptr < heapCpuStart.ptr || a_gpuHandle.ptr < heapGpuStart.ptr)
+        {
+            return;
+        }
+
+        const SIZE_T cpuOffset = a_cpuHandle.ptr - heapCpuStart.ptr;
+        const UINT64 gpuOffset = a_gpuHandle.ptr - heapGpuStart.ptr;
+        if ((cpuOffset % descriptorSize) != 0 || (gpuOffset % descriptorSize) != 0)
+        {
+            return;
+        }
+
+        const uint32_t cpuSlot = static_cast<uint32_t>(cpuOffset / descriptorSize);
+        const uint32_t gpuSlot = static_cast<uint32_t>(gpuOffset / descriptorSize);
+        if (cpuSlot != gpuSlot)
+        {
+            return;
+        }
+
+        if (cpuSlot < textureTable.baseIndex)
+        {
+            return;
+        }
+
+        const uint32_t localIndex = cpuSlot - textureTable.baseIndex;
+        if (localIndex >= textureTable.capacity)
+        {
+            return;
+        }
+
+        free_table(TableID{ TableKind::Textures, textureTable.generation, localIndex });
+    }
+
     ID3D12DescriptorHeap* DescriptorAllocator::get_descriptor_heap(HeapType a_type) const noexcept
     {
         // 1) GPU 可視 heap を要求する種別だけ分岐させると、呼び出し側の条件分岐を減らせます。

@@ -8,6 +8,8 @@
 
 namespace
 {
+    inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;
+
     struct ScriptInstance final
     {
         CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
@@ -216,7 +218,8 @@ extern "C"
                 }
 
                 instance.elapsedSeconds += a_deltaTimeSeconds;
-                transform.rotation.y += a_deltaTimeSeconds * 45.0f;
+                transform.rotation.y +=
+                    a_deltaTimeSeconds * k_rotationSpeedRadiansPerSecond;
 
                 result = g_engineApi->setTransform(
                     instance.entityHandle, &transform);

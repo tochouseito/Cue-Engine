@@ -232,7 +232,7 @@ namespace Cue::Editor
             configureDirectory,
             Core::IO::Path(a_request.target));
         bool buildDirectoryExists = false;
-        result = m_fileSystem.exists(configureDirectory, &buildDirectoryExists);
+        result = m_fileSystem.exists(buildDirectory, &buildDirectoryExists);
         if (!result)
         {
             return Result::fail(Code::GetFailed, Severity::Error,
@@ -245,10 +245,9 @@ namespace Cue::Editor
         a_outPlan.buildDirectory = buildDirectory;
         a_outPlan.requiresConfigure = !buildDirectoryExists;
         a_outPlan.configureCommand =
-            "cmake --preset " + a_request.configurePreset;
+            "cmake --preset " + a_request.configurePreset + " --fresh";
         a_outPlan.buildCommand =
-            "cmake --build out/build/" + a_request.configurePreset + "/" +
-            a_request.target +
+            "cmake --build out/build/" + a_request.configurePreset +
             " --config " + to_configuration_name(a_request.configuration) +
             " --target " + a_request.target;
         return Result::ok();

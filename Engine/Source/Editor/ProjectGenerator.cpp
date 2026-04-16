@@ -233,10 +233,6 @@ namespace Cue::Editor
                     { "generator", "Visual Studio 18 2026" },
                     { "binaryDir", "${sourceDir}/out/build/${presetName}" },
                     { "installDir", "${sourceDir}/out/install/${presetName}" },
-                    { "cacheVariables", {
-                        { "CMAKE_TOOLCHAIN_FILE",
-                            "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" }
-                    } },
                     { "condition", {
                         { "type", "equals" },
                         { "lhs", "${hostSystemName}" },
@@ -323,6 +319,8 @@ namespace Cue::Editor
             "\n"
             "namespace\n"
             "{\n"
+            "    inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;\n"
+            "\n"
             "    struct ScriptInstance final\n"
             "    {\n"
             "        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };\n"
@@ -531,7 +529,8 @@ namespace Cue::Editor
             "                }\n"
             "\n"
             "                instance.elapsedSeconds += a_deltaTimeSeconds;\n"
-            "                transform.rotation.y += a_deltaTimeSeconds * 45.0f;\n"
+            "                transform.rotation.y +=\n"
+            "                    a_deltaTimeSeconds * k_rotationSpeedRadiansPerSecond;\n"
             "\n"
             "                result = g_engineApi->setTransform(\n"
             "                    instance.entityHandle, &transform);\n"

@@ -80,6 +80,16 @@ namespace Cue::RHI::DX12
         /// @brief CPU ヒープ上のハンドルを取得します。
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID a_id);
 
+        /// @brief shader-visible な texture descriptor を 1 つ割り当てます。
+        [[nodiscard]] Result allocate_shader_visible_texture_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle);
+
+        /// @brief shader-visible な texture descriptor を解放します。
+        void free_shader_visible_texture_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle);
+
         /// @brief 指定ヒープ種別に対応するヒープを取得します。
         ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
 

@@ -100,7 +100,8 @@ namespace Cue::GameCore
         uint32_t a_renderWidth, uint32_t a_renderHeight)
     {
         execute_deferred_deletions_internal();
-        animate_static_mesh_objects(a_deltaTime);
+        a_deltaTime;
+        //animate_static_mesh_objects(a_deltaTime);
 
         sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 

@@ -191,21 +191,46 @@ namespace Cue::RHI::DX12
         return r ? commandQueue : nullptr;
     }
 
-    ImGuiFontSRVInfo D3D12Backend::get_font_srv_for_imgui() const
+    ID3D12DescriptorHeap* D3D12Backend::get_imgui_srv_descriptor_heap() const
     {
-        ImGuiFontSRVInfo result{};
         if (!m_descriptorAllocator)
         {
             CUE_ASSERT_MSG(false, "DescriptorAllocator is not initialized in D3D12Backend.");
+            return nullptr;
         }
-        else
+
+        return m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
+    }
+
+    Result D3D12Backend::allocate_imgui_srv_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle)
+    {
+        if (!m_descriptorAllocator)
         {
-            TableID fontTable = m_descriptorAllocator->allocate(TableKind::Textures);
-            result.srvDescHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
-            result.cpuDescHandle = m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
-            result.gpuDescHandle = m_descriptorAllocator->get_gpu_handle(fontTable);
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "DescriptorAllocator is not initialized in D3D12Backend.");
         }
-        return result;
+
+        return m_descriptorAllocator->allocate_shader_visible_texture_descriptor(
+            a_outCpuHandle,
+            a_outGpuHandle);
+    }
+
+    void D3D12Backend::free_imgui_srv_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle)
+    {
+        if (!m_descriptorAllocator)
+        {
+            return;
+        }
+
+        m_descriptorAllocator->free_shader_visible_texture_descriptor(
+            a_cpuHandle,
+            a_gpuHandle);
     }
 
     D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)

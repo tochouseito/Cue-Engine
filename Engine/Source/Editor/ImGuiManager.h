@@ -39,8 +39,7 @@ namespace Cue::Editor
         ID3D12CommandQueue* commandQueue = nullptr;
         DXGI_FORMAT rtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
         ID3D12DescriptorHeap* srvDescHeap = nullptr;
-        D3D12_CPU_DESCRIPTOR_HANDLE fontSrvCpuDescHandle = {};
-        D3D12_GPU_DESCRIPTOR_HANDLE fontSrvGpuDescHandle = {};
+        RHI::DX12::D3D12Backend* backend = nullptr;
         Core::IO::IFileSystem* fileSystem = nullptr;
         bool enableDocking = true;
         bool enableMultiViewport = false;

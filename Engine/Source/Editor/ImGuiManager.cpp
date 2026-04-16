@@ -395,6 +395,39 @@ namespace Cue::Editor
             return runtimeLayoutPath.utf8();
 #endif
         }
+
+        void imgui_srv_descriptor_alloc(
+            ImGui_ImplDX12_InitInfo* a_info,
+            D3D12_CPU_DESCRIPTOR_HANDLE* a_outCpuDescHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE* a_outGpuDescHandle)
+        {
+            auto* backend = static_cast<RHI::DX12::D3D12Backend*>(a_info->UserData);
+            if (backend == nullptr || a_outCpuDescHandle == nullptr || a_outGpuDescHandle == nullptr)
+            {
+                CUE_ASSERT_MSG(false, "ImGui DX12 descriptor allocation callback received invalid arguments.");
+                return;
+            }
+
+            const Result result = backend->allocate_imgui_srv_descriptor(
+                *a_outCpuDescHandle,
+                *a_outGpuDescHandle);
+            CUE_ASSERT_MSG(result, "Failed to allocate ImGui DX12 descriptor.");
+        }
+
+        void imgui_srv_descriptor_free(
+            ImGui_ImplDX12_InitInfo* a_info,
+            D3D12_CPU_DESCRIPTOR_HANDLE a_cpuDescHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE a_gpuDescHandle)
+        {
+            auto* backend = static_cast<RHI::DX12::D3D12Backend*>(a_info->UserData);
+            if (backend == nullptr)
+            {
+                CUE_ASSERT_MSG(false, "ImGui DX12 descriptor free callback received null backend.");
+                return;
+            }
+
+            backend->free_imgui_srv_descriptor(a_cpuDescHandle, a_gpuDescHandle);
+        }
     }
 
     ImGuiManager::ImGuiManager(const ImGuiSetupInfo& a_info)
@@ -445,8 +478,9 @@ namespace Cue::Editor
         initInfo.RTVFormat = a_info.rtvFormat;
         initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN; // dsv フォーマット未使用値設定
         initInfo.SrvDescriptorHeap = a_info.srvDescHeap;
-        initInfo.LegacySingleSrvCpuDescriptor = a_info.fontSrvCpuDescHandle;
-        initInfo.LegacySingleSrvGpuDescriptor = a_info.fontSrvGpuDescHandle;
+        initInfo.UserData = a_info.backend;
+        initInfo.SrvDescriptorAllocFn = imgui_srv_descriptor_alloc;
+        initInfo.SrvDescriptorFreeFn = imgui_srv_descriptor_free;
         ImGui_ImplDX12_Init(&initInfo);
         m_isInitialized = true;
     }

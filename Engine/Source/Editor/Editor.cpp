@@ -118,10 +118,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiInfo.hwnd = platform->get_window_handle();
     imGuiInfo.device = backend->get_device();
     imGuiInfo.commandQueue = backend->get_graphics_command_queue();
-    Cue::RHI::DX12::ImGuiFontSRVInfo fontSrvInfo = backend->get_font_srv_for_imgui();
-    imGuiInfo.srvDescHeap = fontSrvInfo.srvDescHeap;
-    imGuiInfo.fontSrvCpuDescHandle = fontSrvInfo.cpuDescHandle;
-    imGuiInfo.fontSrvGpuDescHandle = fontSrvInfo.gpuDescHandle;
+    imGuiInfo.srvDescHeap = backend->get_imgui_srv_descriptor_heap();
+    imGuiInfo.backend = backend.get();
     imGuiInfo.fileSystem = &platform->file_system();
     imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
 
