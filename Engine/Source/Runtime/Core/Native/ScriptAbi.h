@@ -9,7 +9,7 @@
 // - DLL 境界では POD と関数ポインタだけを扱う
 // - 例外は DLL 境界を跨がせない
 // - このヘッダは C++ から利用するが、関数境界は C ABI に固定する
-// - v1 ABI では Transform 操作とログ出力だけを公開する
+    // - v1 ABI では Transform 操作、ログ出力、manual field 登録を公開する
 // - ABI 拡張は末尾追加のみとし、既存フィールドの順序変更や削除は行わない
 // - `structSize` は呼び出し側が見えている構造体サイズを示す
 // - 受け手は `structSize` を見て、既知範囲だけを安全に読む
@@ -104,6 +104,27 @@ extern "C"
         CueFloat3 scale;
     };
 
+    /// @brief Script public field の型です。
+    enum CueScriptFieldType : uint32_t
+    {
+        CueScriptFieldType_Float = 0,
+        CueScriptFieldType_Int32 = 1,
+        CueScriptFieldType_Bool = 2,
+    };
+
+    /// @brief DLL 境界で渡す Script public field 値です。
+    struct CueScriptFieldValue
+    {
+        CueStringView name;
+        CueScriptFieldType type;
+        float floatValue;
+        int32_t intValue;
+        uint8_t boolValue;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
     using CueLogFn = CueResult (CUE_SCRIPT_CALL*)(
         CueLogSeverity a_severity,
         CueStringView a_message
@@ -136,6 +157,12 @@ extern "C"
         CueStringView a_scriptClassName
     );
 
+    /// @brief Script クラスに属する public field を Engine へ通知します。
+    using CueRegisterScriptFieldFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName,
+        const CueScriptFieldValue* a_fieldValue
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// v1 では末尾拡張のみを許可します。
     struct CueEngineApi
@@ -151,6 +178,8 @@ extern "C"
         CueSetTransformFn setTransform;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRegisterScriptClassFn registerScriptClass;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRegisterScriptFieldFn registerScriptField;
     };
 
     /// @brief Script インスタンス生成時の入力です。
@@ -160,6 +189,10 @@ extern "C"
         CueEntityHandle entityHandle;
         /// 生成対象 Script クラス名です。UTF-8、非所有です。
         CueStringView scriptName;
+        /// Script public field 値配列です。null の場合は field なしとして扱います。
+        const CueScriptFieldValue* fieldValues;
+        /// `fieldValues` の要素数です。
+        uint32_t fieldValueCount;
     };
 
     /// @brief Script DLL 側で利用可能な Script 種別を登録します。

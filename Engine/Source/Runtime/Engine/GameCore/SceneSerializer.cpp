@@ -101,12 +101,74 @@ namespace Cue::GameCore
             a_outComponent.visible = a_json.at("visible").get<bool>();
         }
 
+        [[nodiscard]] const char* to_string(ECS::ScriptFieldType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case ECS::ScriptFieldType::Float:
+                return "Float";
+            case ECS::ScriptFieldType::Int32:
+                return "Int32";
+            case ECS::ScriptFieldType::Bool:
+                return "Bool";
+            }
+
+            return "Float";
+        }
+
+        [[nodiscard]] ECS::ScriptFieldType parse_script_field_type(
+            const Json& a_json) noexcept
+        {
+            const std::string typeName = a_json.get<std::string>();
+            if (typeName == "Int32")
+            {
+                return ECS::ScriptFieldType::Int32;
+            }
+            if (typeName == "Bool")
+            {
+                return ECS::ScriptFieldType::Bool;
+            }
+
+            return ECS::ScriptFieldType::Float;
+        }
+
+        [[nodiscard]] Json serialize_script_field_value(
+            const ECS::ScriptFieldValue& a_fieldValue)
+        {
+            return Json{
+                { "name", a_fieldValue.name },
+                { "type", to_string(a_fieldValue.type) },
+                { "floatValue", a_fieldValue.floatValue },
+                { "intValue", a_fieldValue.intValue },
+                { "boolValue", a_fieldValue.boolValue },
+            };
+        }
+
+        void deserialize_script_field_value(
+            const Json& a_json,
+            ECS::ScriptFieldValue& a_outFieldValue)
+        {
+            a_outFieldValue.name = a_json.value("name", std::string{});
+            a_outFieldValue.type =
+                parse_script_field_type(a_json.value("type", std::string("Float")));
+            a_outFieldValue.floatValue = a_json.value("floatValue", 0.0f);
+            a_outFieldValue.intValue = a_json.value("intValue", 0);
+            a_outFieldValue.boolValue = a_json.value("boolValue", false);
+        }
+
         [[nodiscard]] Json serialize_script(
             const ECS::ScriptComponent& a_component)
         {
+            Json fieldValues = Json::array();
+            for (const ECS::ScriptFieldValue& fieldValue : a_component.fieldValues)
+            {
+                fieldValues.push_back(serialize_script_field_value(fieldValue));
+            }
+
             return Json{
                 { "className", a_component.className },
                 { "isEnabled", a_component.isEnabled },
+                { "fieldValues", std::move(fieldValues) },
             };
         }
 
@@ -117,6 +179,22 @@ namespace Cue::GameCore
                 a_json.value("className", std::string{});
             a_outComponent.isEnabled =
                 a_json.value("isEnabled", true);
+            a_outComponent.fieldValues.clear();
+
+            const Json fieldValuesJson =
+                a_json.value("fieldValues", Json::array());
+            if (!fieldValuesJson.is_array())
+            {
+                return;
+            }
+
+            a_outComponent.fieldValues.reserve(fieldValuesJson.size());
+            for (const Json& fieldValueJson : fieldValuesJson)
+            {
+                ECS::ScriptFieldValue fieldValue{};
+                deserialize_script_field_value(fieldValueJson, fieldValue);
+                a_outComponent.fieldValues.push_back(std::move(fieldValue));
+            }
         }
 
         [[nodiscard]] Json serialize_object_definition(

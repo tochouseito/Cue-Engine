@@ -14,6 +14,7 @@ namespace
     {
         CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
         float elapsedSeconds = 0.0f;
+        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
     };
 
     const CueEngineApi* g_engineApi = nullptr;
@@ -32,6 +33,16 @@ namespace
             offsetof(CueEngineApi, registerScriptClass) +
                 sizeof(CueRegisterScriptClassFn) &&
             a_engineApi->registerScriptClass != nullptr;
+    }
+
+    [[nodiscard]] bool supports_register_script_field(
+        const CueEngineApi* a_engineApi)
+    {
+        return a_engineApi != nullptr &&
+            a_engineApi->structSize >=
+            offsetof(CueEngineApi, registerScriptField) +
+                sizeof(CueRegisterScriptFieldFn) &&
+            a_engineApi->registerScriptField != nullptr;
     }
 
     [[nodiscard]] CueResult validate_engine_api(const CueEngineApi* a_engineApi)
@@ -92,6 +103,29 @@ namespace
 
         return std::memcmp(a_left.data, a_right.data(), a_right.size()) == 0;
     }
+
+    [[nodiscard]] const CueScriptFieldValue* find_field_value(
+        const CueScriptCreateInfo* a_createInfo,
+        std::string_view a_fieldName)
+    {
+        if (a_createInfo == nullptr ||
+            a_createInfo->fieldValues == nullptr ||
+            a_createInfo->fieldValueCount == 0)
+        {
+            return nullptr;
+        }
+
+        for (uint32_t index = 0; index < a_createInfo->fieldValueCount; ++index)
+        {
+            const CueScriptFieldValue& fieldValue = a_createInfo->fieldValues[index];
+            if (string_view_equals(fieldValue.name, a_fieldName))
+            {
+                return &fieldValue;
+            }
+        }
+
+        return nullptr;
+    }
 }
 
 extern "C"
@@ -131,6 +165,21 @@ extern "C"
                         return registerResult;
                     }
                 }
+                if (supports_register_script_field(g_engineApi))
+                {
+                    CueScriptFieldValue fieldValue{};
+                    fieldValue.name = make_string_view("rotationSpeed");
+                    fieldValue.type = CueScriptFieldType_Float;
+                    fieldValue.floatValue = k_rotationSpeedRadiansPerSecond;
+                    const CueResult registerResult =
+                        g_engineApi->registerScriptField(
+                            make_string_view("RotateCube"),
+                            &fieldValue);
+                    if (registerResult != CueResult_Ok)
+                    {
+                        return registerResult;
+                    }
+                }
 
                 log_message(CueLogSeverity_Info,
                     "GameScript module registered.");
@@ -162,10 +211,18 @@ extern "C"
                 }
 
                 const uint64_t instanceId = g_nextInstanceId++;
-                g_instances.emplace(instanceId, ScriptInstance{
-                    a_createInfo->entityHandle,
-                    0.0f
-                });
+                ScriptInstance instance{};
+                instance.entityHandle = a_createInfo->entityHandle;
+
+                const CueScriptFieldValue* rotationSpeedField =
+                    find_field_value(a_createInfo, "rotationSpeed");
+                if (rotationSpeedField != nullptr &&
+                    rotationSpeedField->type == CueScriptFieldType_Float)
+                {
+                    instance.rotationSpeed = rotationSpeedField->floatValue;
+                }
+
+                g_instances.emplace(instanceId, instance);
                 a_outInstanceHandle->value = instanceId;
                 return CueResult_Ok;
             };
@@ -219,7 +276,7 @@ extern "C"
 
                 instance.elapsedSeconds += a_deltaTimeSeconds;
                 transform.rotation.y +=
-                    a_deltaTimeSeconds * k_rotationSpeedRadiansPerSecond;
+                    a_deltaTimeSeconds * instance.rotationSpeed;
 
                 result = g_engineApi->setTransform(
                     instance.entityHandle, &transform);

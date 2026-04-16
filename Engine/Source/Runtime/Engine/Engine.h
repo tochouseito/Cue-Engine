@@ -305,6 +305,15 @@ namespace Cue
                 m_scriptRuntime->has_registered_script_class(a_className);
         }
 
+        [[nodiscard]] const std::vector<ECS::ScriptFieldValue>&
+            script_field_defaults(std::string_view a_className) const noexcept
+        {
+            static const std::vector<ECS::ScriptFieldValue> k_emptyFieldValues{};
+            return m_scriptRuntime != nullptr
+                ? m_scriptRuntime->script_field_defaults(a_className)
+                : k_emptyFieldValues;
+        }
+
         [[nodiscard]] Result load_script_module(
             const Core::IO::Path& a_scriptRoot) noexcept;
         void unload_script_module() noexcept;

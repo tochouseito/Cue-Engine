@@ -10,8 +10,10 @@
 #include "GameCoreTypes.h"
 
 // === C++ includes ===
+#include <cstdint>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace Cue::GameCore
 {
@@ -99,6 +101,27 @@ namespace Cue::ECS
         bool visible = true;
     };
 
+    enum class ScriptFieldType : uint8_t
+    {
+        Float,
+        Int32,
+        Bool
+    };
+
+    struct ScriptFieldValue final
+    {
+        ScriptFieldValue() = default;
+        ScriptFieldValue(const ScriptFieldValue&) = default;
+        ScriptFieldValue& operator=(const ScriptFieldValue&) = default;
+        ScriptFieldValue(ScriptFieldValue&&) = default;
+        ScriptFieldValue& operator=(ScriptFieldValue&&) = default;
+        std::string name{};
+        ScriptFieldType type = ScriptFieldType::Float;
+        float floatValue = 0.0f;
+        int32_t intValue = 0;
+        bool boolValue = false;
+    };
+
     struct ScriptComponent : public IComponentTag
     {
         ScriptComponent() = default;
@@ -108,5 +131,6 @@ namespace Cue::ECS
         ScriptComponent& operator=(ScriptComponent&&) = default;
         std::string className{};
         bool isEnabled = true;
+        std::vector<ScriptFieldValue> fieldValues{};
     };
 }

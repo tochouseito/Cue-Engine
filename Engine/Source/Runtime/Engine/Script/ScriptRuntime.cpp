@@ -16,6 +16,80 @@
 
 namespace Cue
 {
+    namespace
+    {
+        [[nodiscard]] std::string_view to_string_view(CueStringView a_value) noexcept
+        {
+            return a_value.data != nullptr
+                ? std::string_view(a_value.data, a_value.size)
+                : std::string_view{};
+        }
+
+        [[nodiscard]] CueStringView make_string_view(std::string_view a_value) noexcept
+        {
+            return CueStringView{
+                a_value.data(),
+                static_cast<uint32_t>(a_value.size())
+            };
+        }
+
+        [[nodiscard]] ECS::ScriptFieldType to_script_field_type(
+            CueScriptFieldType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case CueScriptFieldType_Int32:
+                return ECS::ScriptFieldType::Int32;
+            case CueScriptFieldType_Bool:
+                return ECS::ScriptFieldType::Bool;
+            case CueScriptFieldType_Float:
+            default:
+                return ECS::ScriptFieldType::Float;
+            }
+        }
+
+        [[nodiscard]] CueScriptFieldType to_cue_script_field_type(
+            ECS::ScriptFieldType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case ECS::ScriptFieldType::Int32:
+                return CueScriptFieldType_Int32;
+            case ECS::ScriptFieldType::Bool:
+                return CueScriptFieldType_Bool;
+            case ECS::ScriptFieldType::Float:
+            default:
+                return CueScriptFieldType_Float;
+            }
+        }
+
+        [[nodiscard]] bool are_script_field_values_equal(
+            const std::vector<ECS::ScriptFieldValue>& a_left,
+            const std::vector<ECS::ScriptFieldValue>& a_right) noexcept
+        {
+            if (a_left.size() != a_right.size())
+            {
+                return false;
+            }
+
+            for (size_t index = 0; index < a_left.size(); ++index)
+            {
+                const ECS::ScriptFieldValue& left = a_left[index];
+                const ECS::ScriptFieldValue& right = a_right[index];
+                if (left.name != right.name ||
+                    left.type != right.type ||
+                    left.floatValue != right.floatValue ||
+                    left.intValue != right.intValue ||
+                    left.boolValue != right.boolValue)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
 
     ScriptRuntime::ScriptRuntime(GameCore::GameWorld& a_gameWorld) noexcept
@@ -30,6 +104,7 @@ namespace Cue
         m_engineApi.hasTransform = &ScriptRuntime::has_transform_bridge;
         m_engineApi.getTransform = &ScriptRuntime::get_transform_bridge;
         m_engineApi.setTransform = &ScriptRuntime::set_transform_bridge;
+        m_engineApi.registerScriptField = &ScriptRuntime::register_script_field_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -60,10 +135,25 @@ namespace Cue
                    a_className) != m_registeredScriptClasses.end();
     }
 
+    const std::vector<ECS::ScriptFieldValue>&
+        ScriptRuntime::script_field_defaults(std::string_view a_className) const noexcept
+    {
+        static const std::vector<ECS::ScriptFieldValue> k_emptyFieldValues{};
+
+        const auto infoIt = m_scriptClassInfos.find(std::string(a_className));
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return k_emptyFieldValues;
+        }
+
+        return infoIt->second.fieldDefaults;
+    }
+
     void ScriptRuntime::set_module(const ScriptModule* a_module) noexcept
     {
         m_module = a_module;
         m_registeredScriptClasses.clear();
+        m_scriptClassInfos.clear();
     }
 
     Result ScriptRuntime::update(float a_deltaTimeSeconds) noexcept
@@ -162,10 +252,15 @@ namespace Cue
                 }
 
                 desiredEntities.insert(a_entityId);
+                const std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
+                    resolve_script_field_values(*script);
 
                 const auto bindingIt = m_bindings.find(a_entityId);
                 if (bindingIt != m_bindings.end() &&
-                    bindingIt->second.className == script->className)
+                    bindingIt->second.className == script->className &&
+                    are_script_field_values_equal(
+                        bindingIt->second.fieldValues,
+                        resolvedFieldValues))
                 {
                     return;
                 }
@@ -180,7 +275,7 @@ namespace Cue
                 }
 
                 syncResult = create_instance(
-                    a_entityId, script->className);
+                    a_entityId, *script);
                 if (!syncResult)
                 {
                     return;
@@ -219,7 +314,7 @@ namespace Cue
 
     Result ScriptRuntime::create_instance(
         GameCore::EntityId a_entityId,
-        const std::string& a_className) noexcept
+        const ECS::ScriptComponent& a_scriptComponent) noexcept
     {
         if (m_module == nullptr || !m_module->is_loaded())
         {
@@ -235,10 +330,28 @@ namespace Cue
 
         CueScriptCreateInfo createInfo{};
         createInfo.entityHandle = to_entity_handle(a_entityId);
-        createInfo.scriptName = CueStringView{
-            a_className.data(),
-            static_cast<uint32_t>(a_className.size())
-        };
+        createInfo.scriptName = make_string_view(a_scriptComponent.className);
+
+        std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
+            resolve_script_field_values(a_scriptComponent);
+
+        std::vector<CueScriptFieldValue> fieldValues{};
+        fieldValues.reserve(resolvedFieldValues.size());
+        for (const ECS::ScriptFieldValue& fieldValue : resolvedFieldValues)
+        {
+            fieldValues.push_back(CueScriptFieldValue{
+                make_string_view(fieldValue.name),
+                to_cue_script_field_type(fieldValue.type),
+                fieldValue.floatValue,
+                fieldValue.intValue,
+                static_cast<uint8_t>(fieldValue.boolValue ? 1 : 0),
+                0,
+                0,
+                0
+            });
+        }
+        createInfo.fieldValues = fieldValues.empty() ? nullptr : fieldValues.data();
+        createInfo.fieldValueCount = static_cast<uint32_t>(fieldValues.size());
 
         CueScriptInstanceHandle instanceHandle{ k_cueInvalidHandleValue };
         const CueResult createResult =
@@ -251,9 +364,35 @@ namespace Cue
 
         m_bindings[a_entityId] = ScriptBinding{
             instanceHandle,
-            a_className
+            a_scriptComponent.className,
+            resolvedFieldValues
         };
         return Result::ok();
+    }
+
+    std::vector<ECS::ScriptFieldValue> ScriptRuntime::resolve_script_field_values(
+        const ECS::ScriptComponent& a_scriptComponent) const
+    {
+        std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
+            script_field_defaults(a_scriptComponent.className);
+        for (const ECS::ScriptFieldValue& fieldValue : a_scriptComponent.fieldValues)
+        {
+            const auto existingIt =
+                std::find_if(resolvedFieldValues.begin(), resolvedFieldValues.end(),
+                    [&fieldValue](const ECS::ScriptFieldValue& a_existingValue)
+                    {
+                        return a_existingValue.name == fieldValue.name;
+                    });
+            if (existingIt != resolvedFieldValues.end())
+            {
+                *existingIt = fieldValue;
+                continue;
+            }
+
+            resolvedFieldValues.push_back(fieldValue);
+        }
+
+        return resolvedFieldValues;
     }
 
     Result ScriptRuntime::destroy_instance(GameCore::EntityId a_entityId) noexcept
@@ -321,6 +460,16 @@ namespace Cue
     {
         return s_activeInstance != nullptr
             ? s_activeInstance->register_script_class_internal(a_scriptClassName)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::register_script_field_bridge(
+        CueStringView a_scriptClassName,
+        const CueScriptFieldValue* a_fieldValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->register_script_field_internal(
+                a_scriptClassName, a_fieldValue)
             : CueResult_InvalidState;
     }
 
@@ -399,12 +548,71 @@ namespace Cue
 
         const std::string className(
             a_scriptClassName.data, a_scriptClassName.size);
+        if (!m_scriptClassInfos.contains(className))
+        {
+            m_scriptClassInfos.emplace(className, ScriptClassInfo{ className, {} });
+        }
         if (has_registered_script_class(className))
         {
             return CueResult_Ok;
         }
 
         m_registeredScriptClasses.push_back(className);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::register_script_field_internal(
+        CueStringView a_scriptClassName,
+        const CueScriptFieldValue* a_fieldValue) noexcept
+    {
+        if (a_fieldValue == nullptr ||
+            a_scriptClassName.data == nullptr ||
+            a_scriptClassName.size == 0 ||
+            a_fieldValue->name.data == nullptr ||
+            a_fieldValue->name.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const std::string className(
+            a_scriptClassName.data, a_scriptClassName.size);
+        const CueResult registerClassResult =
+            register_script_class_internal(a_scriptClassName);
+        if (registerClassResult != CueResult_Ok)
+        {
+            return registerClassResult;
+        }
+
+        auto infoIt = m_scriptClassInfos.find(className);
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return CueResult_InternalError;
+        }
+
+        ECS::ScriptFieldValue nextFieldValue{};
+        nextFieldValue.name.assign(
+            a_fieldValue->name.data,
+            a_fieldValue->name.size);
+        nextFieldValue.type = to_script_field_type(a_fieldValue->type);
+        nextFieldValue.floatValue = a_fieldValue->floatValue;
+        nextFieldValue.intValue = a_fieldValue->intValue;
+        nextFieldValue.boolValue = a_fieldValue->boolValue != 0;
+
+        std::vector<ECS::ScriptFieldValue>& fieldDefaults =
+            infoIt->second.fieldDefaults;
+        const auto existingIt =
+            std::find_if(fieldDefaults.begin(), fieldDefaults.end(),
+                [&nextFieldValue](const ECS::ScriptFieldValue& a_value)
+                {
+                    return a_value.name == nextFieldValue.name;
+                });
+        if (existingIt != fieldDefaults.end())
+        {
+            *existingIt = std::move(nextFieldValue);
+            return CueResult_Ok;
+        }
+
+        fieldDefaults.push_back(std::move(nextFieldValue));
         return CueResult_Ok;
     }
 

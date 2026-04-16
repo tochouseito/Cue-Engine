@@ -7,6 +7,7 @@
 #include <Native/ScriptAbi.h>
 
 // === Engine includes ===
+#include "../GameCore/Components.h"
 #include "../GameCore/GameCoreTypes.h"
 
 // === C++ includes ===
@@ -40,6 +41,8 @@ namespace Cue
             registered_script_classes() const noexcept;
         [[nodiscard]] bool has_registered_script_class(
             std::string_view a_className) const noexcept;
+        [[nodiscard]] const std::vector<ECS::ScriptFieldValue>&
+            script_field_defaults(std::string_view a_className) const noexcept;
         void set_module(const ScriptModule* a_module) noexcept;
 
         [[nodiscard]] Result update(float a_deltaTimeSeconds) noexcept;
@@ -50,20 +53,32 @@ namespace Cue
         {
             CueScriptInstanceHandle instanceHandle{ k_cueInvalidHandleValue };
             std::string className{};
+            std::vector<ECS::ScriptFieldValue> fieldValues{};
+        };
+
+        struct ScriptClassInfo final
+        {
+            std::string className{};
+            std::vector<ECS::ScriptFieldValue> fieldDefaults{};
         };
 
         [[nodiscard]] Result sync_instances() noexcept;
         [[nodiscard]] Result create_instance(
             GameCore::EntityId a_entityId,
-            const std::string& a_className) noexcept;
+            const ECS::ScriptComponent& a_scriptComponent) noexcept;
         [[nodiscard]] Result destroy_instance(GameCore::EntityId a_entityId) noexcept;
         [[nodiscard]] Result destroy_all_instances() noexcept;
+        [[nodiscard]] std::vector<ECS::ScriptFieldValue> resolve_script_field_values(
+            const ECS::ScriptComponent& a_scriptComponent) const;
 
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL log_bridge(
             CueLogSeverity a_severity,
             CueStringView a_message);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL register_script_class_bridge(
             CueStringView a_scriptClassName);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL register_script_field_bridge(
+            CueStringView a_scriptClassName,
+            const CueScriptFieldValue* a_fieldValue);
         [[nodiscard]] static uint8_t CUE_SCRIPT_CALL is_entity_valid_bridge(
             CueEntityHandle a_entityHandle);
         [[nodiscard]] static uint8_t CUE_SCRIPT_CALL has_transform_bridge(
@@ -80,6 +95,9 @@ namespace Cue
             CueStringView a_message) noexcept;
         [[nodiscard]] CueResult register_script_class_internal(
             CueStringView a_scriptClassName) noexcept;
+        [[nodiscard]] CueResult register_script_field_internal(
+            CueStringView a_scriptClassName,
+            const CueScriptFieldValue* a_fieldValue) noexcept;
         [[nodiscard]] uint8_t is_entity_valid_internal(
             CueEntityHandle a_entityHandle) const noexcept;
         [[nodiscard]] uint8_t has_transform_internal(
@@ -105,5 +123,6 @@ namespace Cue
         CueEngineApi m_engineApi{};
         std::unordered_map<GameCore::EntityId, ScriptBinding> m_bindings{};
         std::vector<std::string> m_registeredScriptClasses{};
+        std::unordered_map<std::string, ScriptClassInfo> m_scriptClassInfos{};
     };
 }

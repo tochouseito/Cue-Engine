@@ -449,6 +449,10 @@ namespace Cue::Editor
             const bool isKnownClass = component->className.empty() ||
                 (m_engine != nullptr &&
                     m_engine->has_registered_script_class(component->className));
+            const std::vector<ECS::ScriptFieldValue>& defaultFieldValues =
+                m_engine != nullptr
+                ? m_engine->script_field_defaults(component->className)
+                : get_empty_script_field_value_list();
             const char* previewValue = component->className.empty()
                 ? "<empty>"
                 : component->className.c_str();
@@ -459,6 +463,7 @@ namespace Cue::Editor
                 {
                     ECS::ScriptComponent nextComponent = *component;
                     nextComponent.className.clear();
+                    nextComponent.fieldValues.clear();
                     submit_set_script_component_command(nextComponent);
                 }
 
@@ -469,6 +474,10 @@ namespace Cue::Editor
                     {
                         ECS::ScriptComponent nextComponent = *component;
                         nextComponent.className = className;
+                        nextComponent.fieldValues =
+                            m_engine != nullptr
+                            ? m_engine->script_field_defaults(className)
+                            : std::vector<ECS::ScriptFieldValue>{};
                         submit_set_script_component_command(nextComponent);
                     }
                 }
@@ -500,6 +509,84 @@ namespace Cue::Editor
                 ECS::ScriptComponent nextComponent = *component;
                 nextComponent.isEnabled = isEnabled;
                 submit_set_script_component_command(nextComponent);
+            }
+
+            if (!component->className.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextUnformatted("public fields");
+
+                if (defaultFieldValues.size() != component->fieldValues.size() &&
+                    !defaultFieldValues.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
+                        "field 定義が現在の保存値と一致していません。");
+                }
+
+                if (m_engine != nullptr &&
+                    !component->className.empty() &&
+                    ImGui::Button("Reset Fields"))
+                {
+                    ECS::ScriptComponent nextComponent = *component;
+                    nextComponent.fieldValues =
+                        m_engine->script_field_defaults(component->className);
+                    submit_set_script_component_command(nextComponent);
+                }
+
+                if (component->fieldValues.empty())
+                {
+                    ImGui::TextUnformatted("public field はありません。");
+                }
+                else
+                {
+                    for (size_t fieldIndex = 0;
+                        fieldIndex < component->fieldValues.size();
+                        ++fieldIndex)
+                    {
+                        const ECS::ScriptFieldValue& fieldValue =
+                            component->fieldValues[fieldIndex];
+                        ImGui::PushID(static_cast<int>(fieldIndex));
+
+                        switch (fieldValue.type)
+                        {
+                        case ECS::ScriptFieldType::Float:
+                        {
+                            float value = fieldValue.floatValue;
+                            if (ImGui::DragFloat(fieldValue.name.c_str(), &value, 0.01f))
+                            {
+                                ECS::ScriptComponent nextComponent = *component;
+                                nextComponent.fieldValues[fieldIndex].floatValue = value;
+                                submit_set_script_component_command(nextComponent);
+                            }
+                            break;
+                        }
+                        case ECS::ScriptFieldType::Int32:
+                        {
+                            int value = fieldValue.intValue;
+                            if (ImGui::DragInt(fieldValue.name.c_str(), &value, 1.0f))
+                            {
+                                ECS::ScriptComponent nextComponent = *component;
+                                nextComponent.fieldValues[fieldIndex].intValue = value;
+                                submit_set_script_component_command(nextComponent);
+                            }
+                            break;
+                        }
+                        case ECS::ScriptFieldType::Bool:
+                        {
+                            bool value = fieldValue.boolValue;
+                            if (ImGui::Checkbox(fieldValue.name.c_str(), &value))
+                            {
+                                ECS::ScriptComponent nextComponent = *component;
+                                nextComponent.fieldValues[fieldIndex].boolValue = value;
+                                submit_set_script_component_command(nextComponent);
+                            }
+                            break;
+                        }
+                        }
+
+                        ImGui::PopID();
+                    }
+                }
             }
         }
 
@@ -576,6 +663,13 @@ namespace Cue::Editor
             get_empty_script_class_list()
         {
             static const std::vector<std::string> k_empty{};
+            return k_empty;
+        }
+
+        [[nodiscard]] static const std::vector<ECS::ScriptFieldValue>&
+            get_empty_script_field_value_list()
+        {
+            static const std::vector<ECS::ScriptFieldValue> k_empty{};
             return k_empty;
         }
 
