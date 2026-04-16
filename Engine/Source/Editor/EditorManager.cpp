@@ -405,6 +405,24 @@ namespace Cue::Editor
             return result;
         }
 
+        return reload_script_module();
+    }
+
+    Result EditorManager::reload_script_module()
+    {
+        if (m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+        }
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
+        if (!result)
+        {
+            return result;
+        }
+
         result = m_engine->load_script_module(scriptRoot);
         if (!result)
         {
@@ -712,6 +730,8 @@ namespace Cue::Editor
             {
                 const bool canBuildScript =
                     m_buildSystem != nullptr && !m_projectPath.empty();
+                const bool canReloadScript =
+                    m_engine != nullptr && !m_projectPath.empty();
 
                 if (ImGui::BeginMenu("GameScript 構成"))
                 {
@@ -750,6 +770,23 @@ namespace Cue::Editor
                         BuildConfiguration::Release);
 
                     ImGui::EndMenu();
+                }
+
+                if (ImGui::MenuItem(
+                        "GameScript を再読み込み", nullptr, false, canReloadScript))
+                {
+                    const Result result = reload_script_module();
+                    if (!result)
+                    {
+                        log_result("Failed to reload GameScript", result);
+                        set_status_message("GameScript の再読み込みに失敗しました。",
+                            true);
+                    }
+                    else
+                    {
+                        set_status_message("GameScript を再読み込みしました。",
+                            false);
+                    }
                 }
 
                 if (ImGui::MenuItem(

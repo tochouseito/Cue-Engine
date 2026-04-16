@@ -54,6 +54,7 @@ namespace Cue::Editor
         Result reload_current_scene();
         Result unload_current_scene();
         Result build_script_module();
+        Result reload_script_module();
         Result save_script_build_configuration(
             BuildConfiguration a_configuration);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
