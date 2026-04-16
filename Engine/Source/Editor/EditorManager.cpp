@@ -36,6 +36,17 @@ namespace Cue::Editor
                 a_result.function);
         }
 
+        void log_build_output(std::string_view a_prefix, std::string_view a_output)
+        {
+            if (a_output.empty())
+            {
+                return;
+            }
+
+            Core::IO::log(Core::IO::LogSink::debugConsole,
+                "{}:\n{}", a_prefix, a_output);
+        }
+
         [[nodiscard]] Result load_project_settings(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_projectPath,
@@ -229,6 +240,84 @@ namespace Cue::Editor
 
         m_loadedSceneAsset = std::move(sceneAsset);
         set_status_message("シーンを保存しました。", false);
+        return Result::ok();
+    }
+
+    Result EditorManager::resolve_script_root(
+        Core::IO::Path& a_outScriptRoot) const
+    {
+        a_outScriptRoot = {};
+
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings projectSettings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outScriptRoot = Core::IO::Path(projectSettings.scriptRoot);
+        if (!a_outScriptRoot.is_absolute())
+        {
+            a_outScriptRoot = Core::IO::Path::join(
+                Core::IO::Path(m_projectPath), a_outScriptRoot);
+        }
+
+        return Result::ok();
+    }
+
+    Result EditorManager::build_script_module()
+    {
+        if (m_buildSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "BuildSystem dependencies are not initialized.");
+        }
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_engine->unload_script_module();
+
+        ScriptBuildResult buildResult{};
+        result = m_buildSystem->execute_script_build(
+            ScriptBuildRequest{
+                scriptRoot,
+                "win-x64",
+                BuildConfiguration::Debug,
+                "GameScript"
+            },
+            buildResult);
+
+        log_build_output("[Script][Configure]", buildResult.configureStep.output);
+        log_build_output("[Script][Build]", buildResult.buildStep.output);
+
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->load_script_module(scriptRoot);
+        if (!result)
+        {
+            return result;
+        }
+
         return Result::ok();
     }
 
@@ -487,6 +576,29 @@ namespace Cue::Editor
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
                 {
                     redo_last_command();
+                }
+
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("ビルド"))
+            {
+                const bool canBuildScript =
+                    m_buildSystem != nullptr && !m_projectPath.empty();
+                if (ImGui::MenuItem(
+                        "GameScript をビルド", nullptr, false, canBuildScript))
+                {
+                    const Result result = build_script_module();
+                    if (!result)
+                    {
+                        log_result("Failed to build GameScript", result);
+                        set_status_message("GameScript のビルドに失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            "GameScript をビルドして再読み込みしました。", false);
+                    }
                 }
 
                 ImGui::EndMenu();

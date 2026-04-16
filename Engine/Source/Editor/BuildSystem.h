@@ -35,11 +35,27 @@ namespace Cue::Editor
     struct ScriptBuildPlan final
     {
         Core::IO::Path scriptRoot{};
+        Core::IO::Path configureDirectory{};
         Core::IO::Path buildDirectory{};
         Core::IO::Path presetsPath{};
         std::string configureCommand{};
         std::string buildCommand{};
         bool requiresConfigure = false;
+    };
+
+    struct CommandExecutionResult final
+    {
+        std::string command{};
+        std::string output{};
+        uint32_t exitCode = 0;
+    };
+
+    struct ScriptBuildResult final
+    {
+        ScriptBuildPlan plan{};
+        CommandExecutionResult configureStep{};
+        CommandExecutionResult buildStep{};
+        bool didConfigure = false;
     };
 
     class BuildSystem final
@@ -51,6 +67,9 @@ namespace Cue::Editor
         [[nodiscard]] Result plan_script_build(
             const ScriptBuildRequest& a_request,
             ScriptBuildPlan& a_outPlan) const noexcept;
+        [[nodiscard]] Result execute_script_build(
+            const ScriptBuildRequest& a_request,
+            ScriptBuildResult& a_outResult) const noexcept;
 
         [[nodiscard]] static const char* to_configuration_name(
             BuildConfiguration a_configuration) noexcept;

@@ -53,6 +53,8 @@ namespace Cue::Editor
         Result save_current_scene();
         Result reload_current_scene();
         Result unload_current_scene();
+        Result build_script_module();
+        Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result drain_pending_editor_commands();
         void set_status_message(std::string a_message, bool a_isError);
         void undo_last_command();
