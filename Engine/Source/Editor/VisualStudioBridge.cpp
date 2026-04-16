@@ -20,6 +20,17 @@ namespace Cue::Editor
     {
         using Json = nlohmann::json;
 
+        [[nodiscard]] Core::IO::Path get_tool_project_path() noexcept
+        {
+#ifdef CUE_PROJECT_ROOT_PATH
+            return Core::IO::Path(
+                std::string(CUE_PROJECT_ROOT_PATH) +
+                "/Tools/VisualStudioBridge/VisualStudioBridge.csproj");
+#else
+            return Core::IO::Path("Tools/VisualStudioBridge/VisualStudioBridge.csproj");
+#endif
+        }
+
         [[nodiscard]] Result read_text_file(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_filePath,
@@ -186,6 +197,10 @@ namespace Cue::Editor
             {
                 return BuildStage::Build;
             }
+            if (a_stage == "Reload")
+            {
+                return BuildStage::Reload;
+            }
             if (a_stage == "Attach")
             {
                 return BuildStage::Attach;
@@ -264,6 +279,55 @@ namespace Cue::Editor
                     "VisualStudioBridge の結果 JSON 解析に失敗しました。");
             }
         }
+
+        [[nodiscard]] Result execute_tool_command(
+            Core::IO::IFileSystem& a_fileSystem,
+            std::string_view a_toolCommand,
+            std::string_view a_toolArguments,
+            const Core::IO::Path& a_logPath,
+            std::string_view a_failureMessage,
+            std::string& a_outOutput) noexcept
+        {
+            a_outOutput.clear();
+
+            std::string dotnetPath{};
+            Result result = resolve_executable_path(L"dotnet.exe", dotnetPath);
+            if (!result)
+            {
+                return result;
+            }
+
+            const Core::IO::Path toolProjectPath = get_tool_project_path();
+            std::string command =
+                "\"" + dotnetPath + "\" run --project \"" + toolProjectPath.utf8() +
+                "\" --configuration Debug -- " + std::string(a_toolCommand);
+            if (!a_toolArguments.empty())
+            {
+                command += " ";
+                command += a_toolArguments;
+            }
+
+            uint32_t exitCode = 0;
+            result = execute_command(
+                a_fileSystem,
+                toolProjectPath.parent(),
+                command,
+                a_logPath,
+                exitCode,
+                a_outOutput);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (exitCode == 0)
+            {
+                return Result::ok();
+            }
+
+            return Result::fail(Code::InvalidState, Severity::Error,
+                a_failureMessage);
+        }
     }
 
     Result VisualStudioBridge::execute_script_build(
@@ -290,16 +354,10 @@ namespace Cue::Editor
             return result;
         }
 
-        const std::string toolProjectPath =
-#ifdef CUE_PROJECT_ROOT_PATH
-            std::string(CUE_PROJECT_ROOT_PATH) +
-            "/Tools/VisualStudioBridge/VisualStudioBridge.csproj";
-#else
-            std::string("Tools/VisualStudioBridge/VisualStudioBridge.csproj");
-#endif
+        const Core::IO::Path toolProjectPath = get_tool_project_path();
 
         std::string command =
-            "\"" + dotnetPath + "\" run --project \"" + toolProjectPath +
+            "\"" + dotnetPath + "\" run --project \"" + toolProjectPath.utf8() +
             "\" --configuration Debug -- build-script" +
             " --script-root \"" + a_request.scriptRoot.utf8() + "\"" +
             " --configure-preset \"" + a_request.configurePreset + "\"" +
@@ -316,7 +374,7 @@ namespace Cue::Editor
         std::string toolOutput{};
         result = execute_command(
             m_fileSystem,
-            Core::IO::Path(toolProjectPath).parent(),
+            toolProjectPath.parent(),
             command,
             toolOutputPath,
             exitCode,
@@ -380,5 +438,45 @@ namespace Cue::Editor
                 a_outResult.summary.empty()
                     ? "VisualStudioBridge build failed."
                     : a_outResult.summary);
+    }
+
+    Result VisualStudioBridge::open_solution(
+        const Core::IO::Path& a_scriptRoot,
+        std::string_view a_configurePreset) const noexcept
+    {
+        const Core::IO::Path logPath = Core::IO::Path::join(
+            a_scriptRoot,
+            Core::IO::Path("Intermediate/BuildSystem/OpenSolution.log"));
+        std::string toolOutput{};
+        const Result result = execute_tool_command(
+            m_fileSystem,
+            "open-solution",
+            std::string("--script-root \"") + a_scriptRoot.utf8() +
+                "\" --configure-preset \"" + std::string(a_configurePreset) + "\"",
+            logPath,
+            "VisualStudioBridge solution open failed.",
+            toolOutput);
+        return result;
+    }
+
+    Result VisualStudioBridge::attach_debugger(
+        const Core::IO::Path& a_scriptRoot,
+        std::string_view a_configurePreset,
+        uint32_t a_processId) const noexcept
+    {
+        const Core::IO::Path logPath = Core::IO::Path::join(
+            a_scriptRoot,
+            Core::IO::Path("Intermediate/BuildSystem/AttachDebugger.log"));
+        std::string toolOutput{};
+        const Result result = execute_tool_command(
+            m_fileSystem,
+            "attach-debugger",
+            std::string("--script-root \"") + a_scriptRoot.utf8() +
+                "\" --configure-preset \"" + std::string(a_configurePreset) +
+                "\" --process-id \"" + std::to_string(a_processId) + "\"",
+            logPath,
+            "VisualStudioBridge debugger attach failed.",
+            toolOutput);
+        return result;
     }
 }

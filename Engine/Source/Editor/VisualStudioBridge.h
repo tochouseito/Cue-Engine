@@ -6,6 +6,9 @@
 // === Editor includes ===
 #include "BuildSystem.h"
 
+// === C++ includes ===
+#include <string_view>
+
 namespace Cue::Editor
 {
     class VisualStudioBridge final
@@ -20,6 +23,13 @@ namespace Cue::Editor
         [[nodiscard]] Result execute_script_build(
             const ScriptBuildRequest& a_request,
             BuildResult& a_outResult) const noexcept;
+        [[nodiscard]] Result open_solution(
+            const Core::IO::Path& a_scriptRoot,
+            std::string_view a_configurePreset) const noexcept;
+        [[nodiscard]] Result attach_debugger(
+            const Core::IO::Path& a_scriptRoot,
+            std::string_view a_configurePreset,
+            uint32_t a_processId) const noexcept;
 
     private:
         Core::IO::IFileSystem& m_fileSystem;

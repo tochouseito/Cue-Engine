@@ -59,12 +59,75 @@ namespace Cue::Editor
                 return "[Script][Configure]";
             case BuildStage::Build:
                 return "[Script][Build]";
+            case BuildStage::Reload:
+                return "[Script][Reload]";
             case BuildStage::Attach:
                 return "[Script][Attach]";
             case BuildStage::General:
             default:
                 return "[Script]";
             }
+        }
+
+        [[nodiscard]] const char* to_stage_name(BuildStage a_stage) noexcept
+        {
+            switch (a_stage)
+            {
+            case BuildStage::Configure:
+                return "Configure";
+            case BuildStage::Build:
+                return "Build";
+            case BuildStage::Reload:
+                return "Reload";
+            case BuildStage::Attach:
+                return "Attach";
+            case BuildStage::General:
+            default:
+                return "General";
+            }
+        }
+
+        [[nodiscard]] const char* to_severity_name(
+            BuildMessageSeverity a_severity) noexcept
+        {
+            switch (a_severity)
+            {
+            case BuildMessageSeverity::Warning:
+                return "Warning";
+            case BuildMessageSeverity::Error:
+                return "Error";
+            case BuildMessageSeverity::Info:
+            default:
+                return "Info";
+            }
+        }
+
+        void push_build_message(
+            BuildResult& a_result,
+            BuildMessageSeverity a_severity,
+            BuildStage a_stage,
+            std::string a_text)
+        {
+            a_result.messages.push_back(BuildMessage{
+                a_severity,
+                a_stage,
+                std::move(a_text)
+            });
+        }
+
+        [[nodiscard]] bool has_stage_result(
+            const BuildResult& a_result,
+            BuildStage a_stage) noexcept
+        {
+            for (const BuildStageResult& stageResult : a_result.stageResults)
+            {
+                if (stageResult.stage == a_stage)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         [[nodiscard]] Result parse_build_configuration(
@@ -239,6 +302,8 @@ namespace Cue::Editor
         if (m_fileSystem != nullptr)
         {
             m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
+            m_visualStudioBridge =
+                std::make_unique<VisualStudioBridge>(*m_fileSystem);
         }
         m_statistics = std::make_unique<Statistics>(m_engine->frame_controller());
         m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
@@ -452,10 +517,11 @@ namespace Cue::Editor
             return result;
         }
 
-        BuildResult buildResult{};
-        result = m_buildSystem->execute_script_build(request, buildResult);
+        m_lastScriptBuildResult = {};
+        result = m_buildSystem->execute_script_build(
+            request, m_lastScriptBuildResult);
 
-        for (const BuildStageResult& stageResult : buildResult.stageResults)
+        for (const BuildStageResult& stageResult : m_lastScriptBuildResult.stageResults)
         {
             log_build_output(
                 to_stage_prefix(stageResult.stage),
@@ -467,15 +533,28 @@ namespace Cue::Editor
             return result;
         }
 
-        return reload_script_module();
+        result = reload_script_module(m_lastScriptBuildResult);
+        if (!m_lastScriptBuildResult.stageResults.empty())
+        {
+            const BuildStageResult& stageResult =
+                m_lastScriptBuildResult.stageResults.back();
+            if (stageResult.stage == BuildStage::Reload)
+            {
+                log_build_output(
+                    to_stage_prefix(stageResult.stage),
+                    stageResult.output);
+            }
+        }
+
+        return result;
     }
 
-    Result EditorManager::reload_script_module()
+    Result EditorManager::open_script_solution_in_visual_studio()
     {
-        if (m_engine == nullptr)
+        if (m_visualStudioBridge == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
-                "Engine is not initialized.");
+                "VisualStudioBridge is not initialized.");
         }
 
         Core::IO::Path scriptRoot{};
@@ -485,13 +564,125 @@ namespace Cue::Editor
             return result;
         }
 
-        result = m_engine->load_script_module(scriptRoot);
+        return m_visualStudioBridge->open_solution(scriptRoot, "win-x64");
+    }
+
+    Result EditorManager::attach_editor_debugger_in_visual_studio()
+    {
+        if (m_visualStudioBridge == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "VisualStudioBridge is not initialized.");
+        }
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
         if (!result)
         {
             return result;
         }
 
-        return Result::ok();
+        return m_visualStudioBridge->attach_debugger(
+            scriptRoot, "win-x64", ::GetCurrentProcessId());
+    }
+
+    Result EditorManager::reload_script_module()
+    {
+        m_lastScriptBuildResult = {};
+        Result result = reload_script_module(m_lastScriptBuildResult);
+        if (!m_lastScriptBuildResult.stageResults.empty())
+        {
+            const BuildStageResult& stageResult =
+                m_lastScriptBuildResult.stageResults.back();
+            if (stageResult.stage == BuildStage::Reload)
+            {
+                log_build_output(
+                    to_stage_prefix(stageResult.stage),
+                    stageResult.output);
+            }
+        }
+
+        return result;
+    }
+
+    Result EditorManager::reload_script_module(BuildResult& a_inOutBuildResult)
+    {
+        if (m_engine == nullptr)
+        {
+            const Result result = Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+            a_inOutBuildResult.stageResults.push_back(BuildStageResult{
+                BuildStage::Reload,
+                "Engine::load_script_module",
+                std::string(result.message),
+                {},
+                1,
+                false
+            });
+            a_inOutBuildResult.summary = std::string(result.message);
+            a_inOutBuildResult.exitCode = 1;
+            a_inOutBuildResult.succeeded = false;
+            push_build_message(a_inOutBuildResult, BuildMessageSeverity::Error,
+                BuildStage::Reload, std::string(result.message));
+            return result;
+        }
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
+        if (!result)
+        {
+            a_inOutBuildResult.stageResults.push_back(BuildStageResult{
+                BuildStage::Reload,
+                "Engine::load_script_module",
+                std::string(result.message),
+                {},
+                1,
+                false
+            });
+            a_inOutBuildResult.summary = std::string(result.message);
+            a_inOutBuildResult.exitCode = 1;
+            a_inOutBuildResult.succeeded = false;
+            push_build_message(a_inOutBuildResult, BuildMessageSeverity::Error,
+                BuildStage::Reload, std::string(result.message));
+            return result;
+        }
+
+        result = m_engine->load_script_module(scriptRoot);
+        const bool reloadSucceeded = static_cast<bool>(result);
+        const bool hasBuildStage =
+            has_stage_result(a_inOutBuildResult, BuildStage::Build) ||
+            has_stage_result(a_inOutBuildResult, BuildStage::Configure);
+        const std::string reloadOutput = reloadSucceeded
+            ? std::string("GameScript の再読み込みに成功しました。")
+            : std::string(result.message);
+
+        a_inOutBuildResult.stageResults.push_back(BuildStageResult{
+            BuildStage::Reload,
+            "Engine::load_script_module",
+            reloadOutput,
+            {},
+            reloadSucceeded ? 0u : 1u,
+            reloadSucceeded
+        });
+        a_inOutBuildResult.exitCode = reloadSucceeded ? 0u : 1u;
+        a_inOutBuildResult.succeeded =
+            hasBuildStage ? (a_inOutBuildResult.succeeded && reloadSucceeded)
+                          : reloadSucceeded;
+        a_inOutBuildResult.summary = reloadSucceeded
+            ? (hasBuildStage
+                ? "GameScript のビルドと再読み込みに成功しました。"
+                : "GameScript の再読み込みに成功しました。")
+            : (hasBuildStage
+                ? "GameScript のビルド後の再読み込みに失敗しました。"
+                : "GameScript の再読み込みに失敗しました。");
+        push_build_message(
+            a_inOutBuildResult,
+            reloadSucceeded ? BuildMessageSeverity::Info
+                            : BuildMessageSeverity::Error,
+            BuildStage::Reload,
+            reloadOutput);
+
+        return result;
     }
 
     Result EditorManager::save_script_build_configuration(
@@ -750,6 +941,189 @@ namespace Cue::Editor
         m_hasStatusError = a_isError;
     }
 
+    void EditorManager::draw_script_build_output()
+    {
+        if (!m_showScriptBuildOutput)
+        {
+            return;
+        }
+
+        if (!ImGui::Begin("Script Build Output", &m_showScriptBuildOutput))
+        {
+            ImGui::End();
+            return;
+        }
+
+        const bool hasBuildResult =
+            !m_lastScriptBuildResult.summary.empty() ||
+            !m_lastScriptBuildResult.stageResults.empty() ||
+            !m_lastScriptBuildResult.messages.empty() ||
+            !m_lastScriptBuildResult.artifacts.empty();
+
+        if (!hasBuildResult)
+        {
+            ImGui::TextUnformatted(
+                "まだ GameScript build は実行されていません。");
+            ImGui::End();
+            return;
+        }
+
+        const ImVec4 successColor = ImVec4(0.35f, 0.85f, 0.45f, 1.0f);
+        const ImVec4 errorColor = ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+        const ImVec4 warningColor = ImVec4(0.95f, 0.75f, 0.30f, 1.0f);
+
+        ImGui::Text("Summary");
+        ImGui::Separator();
+        ImGui::Text("Result: ");
+        ImGui::SameLine();
+        ImGui::TextColored(
+            m_lastScriptBuildResult.succeeded ? successColor : errorColor,
+            m_lastScriptBuildResult.succeeded ? "Succeeded" : "Failed");
+        if (!m_lastScriptBuildResult.summary.empty())
+        {
+            ImGui::TextWrapped("%s", m_lastScriptBuildResult.summary.c_str());
+        }
+        ImGui::Text("Exit Code: %u", m_lastScriptBuildResult.exitCode);
+        ImGui::Text("Did Configure: %s",
+            m_lastScriptBuildResult.didConfigure ? "Yes" : "No");
+
+        const auto draw_path_row =
+            [](const char* a_label, const Core::IO::Path& a_path)
+        {
+            if (a_path.is_empty())
+            {
+                return;
+            }
+
+            ImGui::Text("%s", a_label);
+            ImGui::SameLine();
+            ImGui::PushItemWidth(-80.0f);
+            std::string pathText = a_path.utf8();
+            ImGui::InputText(
+                (std::string("##") + a_label).c_str(),
+                pathText.data(),
+                pathText.size() + 1,
+                ImGuiInputTextFlags_ReadOnly);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            if (ImGui::Button((std::string("Copy##") + a_label).c_str()))
+            {
+                ImGui::SetClipboardText(pathText.c_str());
+            }
+        };
+
+        draw_path_row("Configure Log", m_lastScriptBuildResult.configureLogPath);
+        draw_path_row("Build Log", m_lastScriptBuildResult.buildLogPath);
+
+        ImGui::Spacing();
+        ImGui::Text("Stages");
+        ImGui::Separator();
+        if (m_lastScriptBuildResult.stageResults.empty())
+        {
+            ImGui::TextUnformatted("stage result はありません。");
+        }
+        else
+        {
+            for (size_t index = 0;
+                 index < m_lastScriptBuildResult.stageResults.size();
+                 ++index)
+            {
+                const BuildStageResult& stageResult =
+                    m_lastScriptBuildResult.stageResults[index];
+                const ImVec4 stageColor =
+                    stageResult.succeeded ? successColor : errorColor;
+                const std::string stageLabel =
+                    "[" + std::string(to_stage_name(stageResult.stage)) + "] " +
+                    (stageResult.succeeded ? "Succeeded" : "Failed") +
+                    "##stage" + std::to_string(index);
+
+                if (ImGui::TreeNodeEx(
+                        stageLabel.c_str(),
+                        ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Text("Stage: %s", to_stage_name(stageResult.stage));
+                    ImGui::SameLine();
+                    ImGui::TextColored(
+                        stageColor,
+                        "%s",
+                        stageResult.succeeded ? "Succeeded" : "Failed");
+                    ImGui::Text("Exit Code: %u", stageResult.exitCode);
+                    if (!stageResult.command.empty())
+                    {
+                        ImGui::TextWrapped("Command: %s",
+                            stageResult.command.c_str());
+                    }
+                    if (!stageResult.logPath.is_empty())
+                    {
+                        draw_path_row("Stage Log", stageResult.logPath);
+                    }
+                    if (!stageResult.output.empty())
+                    {
+                        ImGui::TextUnformatted("Output");
+                        ImGui::BeginChild(
+                            (std::string("StageOutput##") + std::to_string(index)).c_str(),
+                            ImVec2(0.0f, 120.0f),
+                            true);
+                        ImGui::TextUnformatted(stageResult.output.c_str());
+                        ImGui::EndChild();
+                    }
+                    ImGui::TreePop();
+                }
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Messages");
+        ImGui::Separator();
+        if (m_lastScriptBuildResult.messages.empty())
+        {
+            ImGui::TextUnformatted("message はありません。");
+        }
+        else
+        {
+            ImGui::BeginChild("BuildMessages", ImVec2(0.0f, 140.0f), true);
+            for (const BuildMessage& message : m_lastScriptBuildResult.messages)
+            {
+                ImVec4 color = successColor;
+                if (message.severity == BuildMessageSeverity::Warning)
+                {
+                    color = warningColor;
+                }
+                else if (message.severity == BuildMessageSeverity::Error)
+                {
+                    color = errorColor;
+                }
+
+                ImGui::TextColored(
+                    color,
+                    "[%s][%s]",
+                    to_stage_name(message.stage),
+                    to_severity_name(message.severity));
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", message.text.c_str());
+            }
+            ImGui::EndChild();
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Artifacts");
+        ImGui::Separator();
+        if (m_lastScriptBuildResult.artifacts.empty())
+        {
+            ImGui::TextUnformatted("artifact はありません。");
+        }
+        else
+        {
+            for (const BuildArtifact& artifact : m_lastScriptBuildResult.artifacts)
+            {
+                ImGui::Text("%s", artifact.name.c_str());
+                draw_path_row("Path", artifact.path);
+            }
+        }
+
+        ImGui::End();
+    }
+
     void EditorManager::undo_last_command()
     {
         if (m_bridge == nullptr || m_engine == nullptr || m_engine->game_world() == nullptr)
@@ -1003,6 +1377,54 @@ namespace Cue::Editor
                     queue_script_action(PendingScriptAction::Build);
                 }
 
+                ImGui::Separator();
+                if (ImGui::MenuItem(
+                        "GameScript solution を開く", nullptr, false,
+                        m_visualStudioBridge != nullptr && !m_projectPath.empty()))
+                {
+                    const Result result = open_script_solution_in_visual_studio();
+                    if (!result)
+                    {
+                        log_result("Failed to open GameScript solution", result);
+                        set_status_message(
+                            "GameScript solution を開けませんでした。", true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            "GameScript solution を Visual Studio で開きました。",
+                            false);
+                    }
+                }
+
+                if (ImGui::MenuItem(
+                        "Editor にデバッガをアタッチ", nullptr, false,
+                        m_visualStudioBridge != nullptr && !m_projectPath.empty()))
+                {
+                    const Result result =
+                        attach_editor_debugger_in_visual_studio();
+                    if (!result)
+                    {
+                        log_result("Failed to attach debugger", result);
+                        set_status_message(
+                            "Visual Studio から Editor にアタッチできませんでした。",
+                            true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            "Visual Studio から Editor にアタッチしました。",
+                            false);
+                    }
+                }
+
+                ImGui::Separator();
+                ImGui::MenuItem(
+                    "Script Build Output",
+                    nullptr,
+                    &m_showScriptBuildOutput,
+                    true);
+
                 ImGui::EndMenu();
             }
 
@@ -1062,6 +1484,7 @@ namespace Cue::Editor
 
         m_statistics->update();
         m_debugView->update();
+        draw_script_build_output();
         m_hierarchy->update();
         m_inspector->update();
     }

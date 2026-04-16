@@ -18,6 +18,7 @@
 #include "DebugView.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
+#include "VisualStudioBridge.h"
 
 // === C++ includes ===
 #include <string>
@@ -62,10 +63,14 @@ namespace Cue::Editor
         Result unload_current_scene();
         Result build_script_module();
         Result reload_script_module();
+        Result reload_script_module(BuildResult& a_inOutBuildResult);
         Result save_script_build_configuration(
             BuildConfiguration a_configuration);
         Result save_script_build_backend(BuildBackend a_backend);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
+        Result open_script_solution_in_visual_studio();
+        Result attach_editor_debugger_in_visual_studio();
+        void draw_script_build_output();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
         Result drain_pending_editor_commands();
@@ -80,6 +85,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         Engine* m_engine = nullptr;
         std::unique_ptr<BuildSystem> m_buildSystem = nullptr;
+        std::unique_ptr<VisualStudioBridge> m_visualStudioBridge = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
@@ -90,12 +96,14 @@ namespace Cue::Editor
         std::string m_projectPath{};
         std::string m_currentScenePath{};
         std::string m_statusMessage{};
+        BuildResult m_lastScriptBuildResult{};
         BuildConfiguration m_scriptBuildConfiguration =
             BuildConfiguration::Debug;
         BuildBackend m_scriptBuildBackend = BuildBackend::CMake;
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         uint32_t m_pendingScriptActionDelayFrames = 0;
+        bool m_showScriptBuildOutput = true;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
     };

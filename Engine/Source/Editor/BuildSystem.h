@@ -39,6 +39,7 @@ namespace Cue::Editor
         General,
         Configure,
         Build,
+        Reload,
         Attach
     };
 

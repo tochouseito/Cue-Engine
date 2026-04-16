@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace Cue.VisualStudioBridge;
 
@@ -10,6 +13,7 @@ internal enum BuildStage
     General,
     Configure,
     Build,
+    Reload,
     Attach
 }
 
@@ -67,6 +71,20 @@ internal sealed class BuildScriptOptions
     public string BuildLogPath { get; set; } = string.Empty;
 }
 
+internal sealed class SolutionOptions
+{
+    public string ScriptRoot { get; set; } = string.Empty;
+    public string ConfigurePreset { get; set; } = string.Empty;
+}
+
+internal sealed class AttachDebuggerOptions
+{
+    public string ScriptRoot { get; set; } = string.Empty;
+    public string ConfigurePreset { get; set; } = string.Empty;
+    public uint ProcessId { get; set; }
+}
+
+[SupportedOSPlatform("windows")]
 internal static class Program
 {
     private static readonly JsonSerializerOptions s_jsonOptions = new()
@@ -75,6 +93,7 @@ internal static class Program
         DefaultIgnoreCondition = JsonIgnoreCondition.Never
     };
 
+    [STAThread]
     private static int Main(string[] args)
     {
         if (args.Length == 0)
@@ -85,44 +104,61 @@ internal static class Program
 
         string command = args[0];
         string[] commandArgs = args.Skip(1).ToArray();
-        if (!string.Equals(command, "build-script", StringComparison.OrdinalIgnoreCase))
-        {
-            Console.Error.WriteLine($"Unsupported command: {command}");
-            return 1;
-        }
-
-        BuildScriptOptions? options = ParseBuildScriptOptions(commandArgs);
-        if (options is null)
-        {
-            return 1;
-        }
-
-        ToolBuildResult result = ExecuteBuildScript(options);
         try
         {
-            WriteBuildResult(options.ResultPath, result);
+            if (string.Equals(command, "build-script", StringComparison.OrdinalIgnoreCase))
+            {
+                BuildScriptOptions? options = ParseBuildScriptOptions(commandArgs);
+                if (options is null)
+                {
+                    return 1;
+                }
+
+                ToolBuildResult result = ExecuteBuildScript(options);
+                WriteBuildResult(options.ResultPath, result);
+                return result.Succeeded ? 0 : 1;
+            }
+
+            if (string.Equals(command, "open-solution", StringComparison.OrdinalIgnoreCase))
+            {
+                SolutionOptions? options = ParseSolutionOptions(commandArgs);
+                if (options is null)
+                {
+                    return 1;
+                }
+
+                OpenSolution(options);
+                return 0;
+            }
+
+            if (string.Equals(command, "attach-debugger", StringComparison.OrdinalIgnoreCase))
+            {
+                AttachDebuggerOptions? options = ParseAttachDebuggerOptions(commandArgs);
+                if (options is null)
+                {
+                    return 1;
+                }
+
+                AttachDebugger(options);
+                return 0;
+            }
+
+            Console.Error.WriteLine($"Unsupported command: {command}");
+            return 1;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(ex);
             return 1;
         }
-
-        return result.Succeeded ? 0 : 1;
     }
 
     private static BuildScriptOptions? ParseBuildScriptOptions(string[] args)
     {
-        Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
-        for (int index = 0; index < args.Length; index += 2)
+        Dictionary<string, string>? values = ParseArgumentMap(args);
+        if (values is null)
         {
-            if (index + 1 >= args.Length || !args[index].StartsWith("--", StringComparison.Ordinal))
-            {
-                Console.Error.WriteLine("Invalid arguments.");
-                return null;
-            }
-
-            values[args[index]] = args[index + 1];
+            return null;
         }
 
         string[] requiredKeys =
@@ -157,6 +193,96 @@ internal static class Program
         };
     }
 
+    private static SolutionOptions? ParseSolutionOptions(string[] args)
+    {
+        Dictionary<string, string>? values = ParseArgumentMap(args);
+        if (values is null)
+        {
+            return null;
+        }
+
+        string[] requiredKeys =
+        {
+            "--script-root",
+            "--configure-preset"
+        };
+
+        foreach (string requiredKey in requiredKeys)
+        {
+            if (!values.ContainsKey(requiredKey))
+            {
+                Console.Error.WriteLine($"Missing argument: {requiredKey}");
+                return null;
+            }
+        }
+
+        return new SolutionOptions
+        {
+            ScriptRoot = values["--script-root"],
+            ConfigurePreset = values["--configure-preset"]
+        };
+    }
+
+    private static AttachDebuggerOptions? ParseAttachDebuggerOptions(string[] args)
+    {
+        Dictionary<string, string>? values = ParseArgumentMap(args);
+        if (values is null)
+        {
+            return null;
+        }
+
+        string[] requiredKeys =
+        {
+            "--script-root",
+            "--configure-preset",
+            "--process-id"
+        };
+
+        foreach (string requiredKey in requiredKeys)
+        {
+            if (!values.ContainsKey(requiredKey))
+            {
+                Console.Error.WriteLine($"Missing argument: {requiredKey}");
+                return null;
+            }
+        }
+
+        if (!uint.TryParse(
+                values["--process-id"],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out uint processId))
+        {
+            Console.Error.WriteLine("Invalid process id.");
+            return null;
+        }
+
+        return new AttachDebuggerOptions
+        {
+            ScriptRoot = values["--script-root"],
+            ConfigurePreset = values["--configure-preset"],
+            ProcessId = processId
+        };
+    }
+
+    private static Dictionary<string, string>? ParseArgumentMap(string[] args)
+    {
+        Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < args.Length; index += 2)
+        {
+            if (index + 1 >= args.Length ||
+                !args[index].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("Invalid arguments.");
+                return null;
+            }
+
+            values[args[index]] = args[index + 1];
+        }
+
+        return values;
+    }
+
     private static ToolBuildResult ExecuteBuildScript(BuildScriptOptions options)
     {
         ToolBuildResult result = new()
@@ -182,7 +308,6 @@ internal static class Program
             string? solutionPath = FindSolutionFile(configureDirectory);
             if (solutionPath is null)
             {
-                string configureCommand = $"cmake --preset {options.ConfigurePreset} --fresh";
                 ToolBuildStageResult configureStage = ExecuteProcess(
                     "cmake",
                     $"--preset {options.ConfigurePreset} --fresh",
@@ -260,6 +385,46 @@ internal static class Program
         }
     }
 
+    private static void OpenSolution(SolutionOptions options)
+    {
+        string solutionPath = EnsureSolutionPath(
+            options.ScriptRoot, options.ConfigurePreset);
+        dynamic dte = OpenSolutionInVisualStudio(solutionPath);
+        dte.MainWindow.Visible = true;
+        dte.UserControl = true;
+    }
+
+    private static void AttachDebugger(AttachDebuggerOptions options)
+    {
+        string solutionPath = EnsureSolutionPath(
+            options.ScriptRoot, options.ConfigurePreset);
+        dynamic dte = OpenSolutionInVisualStudio(solutionPath);
+        dte.MainWindow.Visible = true;
+        dte.UserControl = true;
+
+        const int retryCount = 20;
+        for (int attempt = 0; attempt < retryCount; ++attempt)
+        {
+            foreach (dynamic process in dte.Debugger.LocalProcesses)
+            {
+                int processId = Convert.ToInt32(
+                    process.ProcessID, CultureInfo.InvariantCulture);
+                if (processId != options.ProcessId)
+                {
+                    continue;
+                }
+
+                process.Attach();
+                return;
+            }
+
+            Thread.Sleep(500);
+        }
+
+        throw new InvalidOperationException(
+            $"Process {options.ProcessId} was not found in Visual Studio debugger.");
+    }
+
     private static ToolBuildResult Fail(
         ToolBuildResult result,
         uint exitCode,
@@ -276,6 +441,156 @@ internal static class Program
             Text = message
         });
         return result;
+    }
+
+    private static string EnsureSolutionPath(
+        string scriptRoot,
+        string configurePreset)
+    {
+        if (!Directory.Exists(scriptRoot))
+        {
+            throw new DirectoryNotFoundException(
+                $"Script root does not exist: {scriptRoot}");
+        }
+
+        string configureDirectory = Path.Combine(
+            scriptRoot,
+            "out",
+            "build",
+            configurePreset);
+        string? solutionPath = FindSolutionFile(configureDirectory);
+        if (!string.IsNullOrWhiteSpace(solutionPath))
+        {
+            return solutionPath;
+        }
+
+        string configureLogPath = Path.GetTempFileName();
+        try
+        {
+            ToolBuildStageResult configureStage = ExecuteProcess(
+                "cmake",
+                $"--preset {configurePreset} --fresh",
+                scriptRoot,
+                configureLogPath,
+                BuildStage.Configure);
+            if (!configureStage.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "Failed to configure CMake preset for Visual Studio solution.");
+            }
+        }
+        finally
+        {
+            TryDeleteFile(configureLogPath);
+        }
+
+        solutionPath = FindSolutionFile(configureDirectory);
+        if (string.IsNullOrWhiteSpace(solutionPath))
+        {
+            throw new FileNotFoundException(
+                "Visual Studio solution file was not found after configure.",
+                configureDirectory);
+        }
+
+        return solutionPath;
+    }
+
+    private static dynamic OpenSolutionInVisualStudio(string solutionPath)
+    {
+        dynamic dte = CreateVisualStudioDte();
+        dte.MainWindow.Visible = true;
+        dte.UserControl = true;
+
+        string currentSolutionPath = string.Empty;
+        try
+        {
+            currentSolutionPath = dte.Solution.FullName as string ?? string.Empty;
+        }
+        catch
+        {
+            currentSolutionPath = string.Empty;
+        }
+
+        if (!string.Equals(
+                currentSolutionPath,
+                solutionPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            dte.Solution.Open(solutionPath);
+        }
+
+        WaitForVisualStudioReady(dte);
+        return dte;
+    }
+
+    private static dynamic CreateVisualStudioDte()
+    {
+        foreach (string progId in EnumerateDteProgIds())
+        {
+            Type? dteType = Type.GetTypeFromProgID(progId, throwOnError: false);
+            if (dteType is null)
+            {
+                continue;
+            }
+
+            object? dte = Activator.CreateInstance(dteType);
+            if (dte is not null)
+            {
+                return dte;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Visual Studio DTE could not be created.");
+    }
+
+    private static IEnumerable<string> EnumerateDteProgIds()
+    {
+        SortedSet<int> majorVersions = new(Comparer<int>.Create(
+            static (left, right) => right.CompareTo(left)));
+
+        foreach (string visualStudioRoot in EnumerateVisualStudioRoots())
+        {
+            if (!Directory.Exists(visualStudioRoot))
+            {
+                continue;
+            }
+
+            foreach (string versionDirectory in Directory.EnumerateDirectories(visualStudioRoot))
+            {
+                string versionName = Path.GetFileName(versionDirectory);
+                if (int.TryParse(
+                        versionName,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int majorVersion))
+                {
+                    majorVersions.Add(majorVersion);
+                }
+            }
+        }
+
+        foreach (int majorVersion in majorVersions)
+        {
+            yield return $"VisualStudio.DTE.{majorVersion}.0";
+        }
+    }
+
+    private static void WaitForVisualStudioReady(dynamic dte)
+    {
+        const int retryCount = 40;
+        for (int attempt = 0; attempt < retryCount; ++attempt)
+        {
+            try
+            {
+                _ = dte.Debugger.LocalProcesses;
+                return;
+            }
+            catch
+            {
+                Thread.Sleep(250);
+            }
+        }
     }
 
     private static void WriteBuildResult(string resultPath, ToolBuildResult result)
@@ -487,5 +802,19 @@ internal static class Program
     private static string Quote(string value)
     {
         return "\"" + value + "\"";
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 }
