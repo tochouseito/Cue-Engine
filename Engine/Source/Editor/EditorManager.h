@@ -54,6 +54,8 @@ namespace Cue::Editor
         Result reload_current_scene();
         Result unload_current_scene();
         Result build_script_module();
+        Result save_script_build_configuration(
+            BuildConfiguration a_configuration);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result drain_pending_editor_commands();
         void set_status_message(std::string a_message, bool a_isError);
@@ -77,6 +79,8 @@ namespace Cue::Editor
         std::string m_projectPath{};
         std::string m_currentScenePath{};
         std::string m_statusMessage{};
+        BuildConfiguration m_scriptBuildConfiguration =
+            BuildConfiguration::Debug;
         bool m_hasStatusError = false;
     };
 }

@@ -12,6 +12,7 @@
 #include <GameCore/SceneSerializer.h>
 
 // === C++ includes ===
+#include <span>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -25,6 +26,8 @@ namespace Cue::Editor
         {
             std::string startupScene{};
             std::string scriptRoot{};
+            BuildConfiguration scriptBuildConfiguration =
+                BuildConfiguration::Debug;
         };
 
         void log_result(std::string_view a_prefix, const Result& a_result)
@@ -45,6 +48,71 @@ namespace Cue::Editor
 
             Core::IO::log(Core::IO::LogSink::debugConsole,
                 "{}:\n{}", a_prefix, a_output);
+        }
+
+        [[nodiscard]] Result parse_build_configuration(
+            std::string_view a_text,
+            BuildConfiguration& a_outConfiguration) noexcept
+        {
+            if (a_text == "Debug")
+            {
+                a_outConfiguration = BuildConfiguration::Debug;
+                return Result::ok();
+            }
+
+            if (a_text == "RelWithDebInfo")
+            {
+                a_outConfiguration = BuildConfiguration::RelWithDebInfo;
+                return Result::ok();
+            }
+
+            if (a_text == "Release")
+            {
+                a_outConfiguration = BuildConfiguration::Release;
+                return Result::ok();
+            }
+
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "scriptBuildConfiguration が不正です。");
+        }
+
+        [[nodiscard]] Result save_project_settings(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectPath,
+            const ProjectSettings& a_settings) noexcept
+        {
+            const Core::IO::Path projectFilePath = Core::IO::Path::join(
+                a_projectPath, Core::IO::Path("cueproject.json"));
+            std::vector<std::byte> fileData{};
+            Result result = a_fileSystem.read_all(projectFilePath, &fileData);
+            if (!result)
+            {
+                return result;
+            }
+
+            try
+            {
+                const std::string text(
+                    reinterpret_cast<const char*>(fileData.data()),
+                    fileData.size());
+                nlohmann::json root = nlohmann::json::parse(text);
+                root["scriptBuildConfiguration"] =
+                    BuildSystem::to_configuration_name(
+                        a_settings.scriptBuildConfiguration);
+
+                std::string updatedText = root.dump(4);
+                updatedText.push_back('\n');
+                const std::span<const char> textSpan(
+                    updatedText.data(), updatedText.size());
+                const std::span<const std::byte> byteSpan =
+                    std::as_bytes(textSpan);
+                return a_fileSystem.write_all(projectFilePath, byteSpan, false);
+            }
+            catch (...)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "cueproject.json could not be updated.");
+            }
         }
 
         [[nodiscard]] Result load_project_settings(
@@ -81,6 +149,16 @@ namespace Cue::Editor
                 if (a_outSettings.scriptRoot.empty())
                 {
                     a_outSettings.scriptRoot = ".";
+                }
+
+                const std::string buildConfigurationText =
+                    root.value("scriptBuildConfiguration", std::string("Debug"));
+                result = parse_build_configuration(
+                    buildConfigurationText,
+                    a_outSettings.scriptBuildConfiguration);
+                if (!result)
+                {
+                    return result;
                 }
 
                 return Result::ok();
@@ -141,6 +219,7 @@ namespace Cue::Editor
 
         m_projectPath = a_projectPath;
         m_currentScenePath = scenePath.utf8();
+        m_scriptBuildConfiguration = projectSettings.scriptBuildConfiguration;
 
         const Result scriptLoadResult = m_engine->load_script_module(scriptRootPath);
         if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
@@ -297,7 +376,7 @@ namespace Cue::Editor
             ScriptBuildRequest{
                 scriptRoot,
                 "win-x64",
-                BuildConfiguration::Debug,
+                m_scriptBuildConfiguration,
                 "GameScript"
             },
             validation);
@@ -313,7 +392,7 @@ namespace Cue::Editor
             ScriptBuildRequest{
                 scriptRoot,
                 "win-x64",
-                BuildConfiguration::Debug,
+                m_scriptBuildConfiguration,
                 "GameScript"
             },
             buildResult);
@@ -332,6 +411,40 @@ namespace Cue::Editor
             return result;
         }
 
+        return Result::ok();
+    }
+
+    Result EditorManager::save_script_build_configuration(
+        BuildConfiguration a_configuration)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        settings.scriptBuildConfiguration = a_configuration;
+        result = save_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptBuildConfiguration = a_configuration;
         return Result::ok();
     }
 
@@ -599,6 +712,46 @@ namespace Cue::Editor
             {
                 const bool canBuildScript =
                     m_buildSystem != nullptr && !m_projectPath.empty();
+
+                if (ImGui::BeginMenu("GameScript 構成"))
+                {
+                    const auto draw_configuration_item =
+                        [this](const char* a_label, BuildConfiguration a_configuration)
+                    {
+                        const bool isSelected =
+                            m_scriptBuildConfiguration == a_configuration;
+                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
+                            !isSelected)
+                        {
+                            const Result result =
+                                save_script_build_configuration(a_configuration);
+                            if (!result)
+                            {
+                                log_result(
+                                    "Failed to save GameScript build configuration",
+                                    result);
+                                set_status_message(
+                                    "GameScript のビルド構成保存に失敗しました。", true);
+                            }
+                            else
+                            {
+                                set_status_message(
+                                    std::string("GameScript 構成を ") + a_label +
+                                        " に変更しました。",
+                                    false);
+                            }
+                        }
+                    };
+
+                    draw_configuration_item("Debug", BuildConfiguration::Debug);
+                    draw_configuration_item("RelWithDebInfo",
+                        BuildConfiguration::RelWithDebInfo);
+                    draw_configuration_item("Release",
+                        BuildConfiguration::Release);
+
+                    ImGui::EndMenu();
+                }
+
                 if (ImGui::MenuItem(
                         "GameScript をビルド", nullptr, false, canBuildScript))
                 {
