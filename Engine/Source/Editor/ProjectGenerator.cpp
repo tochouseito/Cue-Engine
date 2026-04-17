@@ -308,391 +308,344 @@ namespace Cue::Editor
             "    OUTPUT_NAME \"GameScript\"\n"
             ")\n";
 
-        const std::string gameScriptModuleText =
-            "#include <Native/ScriptAbi.h>\n"
-            "\n"
-            "// === C++ includes ===\n"
-            "#include <cstddef>\n"
-            "#include <cstring>\n"
-            "#include <string_view>\n"
-            "#include <unordered_map>\n"
-            "\n"
-            "namespace\n"
-            "{\n"
-            "    inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;\n"
-            "    inline constexpr uint32_t k_stateVersion = 1u;\n"
-            "\n"
-            "    struct ScriptInstance final\n"
-            "    {\n"
-            "        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };\n"
-            "        float elapsedSeconds = 0.0f;\n"
-            "        float rotationSpeed = k_rotationSpeedRadiansPerSecond;\n"
-            "    };\n"
-            "\n"
-            "    struct ScriptStateBlob final\n"
-            "    {\n"
-            "        uint32_t version = k_stateVersion;\n"
-            "        float elapsedSeconds = 0.0f;\n"
-            "        float rotationSpeed = k_rotationSpeedRadiansPerSecond;\n"
-            "    };\n"
-            "\n"
-            "    const CueEngineApi* g_engineApi = nullptr;\n"
-            "    std::unordered_map<uint64_t, ScriptInstance> g_instances{};\n"
-            "    uint64_t g_nextInstanceId = 1;\n"
-            "\n"
-            "    inline constexpr uint32_t k_requiredEngineApiSize =\n"
-            "        static_cast<uint32_t>(\n"
-            "            offsetof(CueEngineApi, setTransform) + sizeof(CueSetTransformFn));\n"
-            "\n"
-            "    [[nodiscard]] bool supports_register_script_class(\n"
-            "        const CueEngineApi* a_engineApi)\n"
-            "    {\n"
-            "        return a_engineApi != nullptr &&\n"
-            "            a_engineApi->structSize >=\n"
-            "            offsetof(CueEngineApi, registerScriptClass) +\n"
-            "                sizeof(CueRegisterScriptClassFn) &&\n"
-            "            a_engineApi->registerScriptClass != nullptr;\n"
-            "    }\n"
-            "\n"
-            "    [[nodiscard]] bool supports_register_script_field(\n"
-            "        const CueEngineApi* a_engineApi)\n"
-            "    {\n"
-            "        return a_engineApi != nullptr &&\n"
-            "            a_engineApi->structSize >=\n"
-            "            offsetof(CueEngineApi, registerScriptField) +\n"
-            "                sizeof(CueRegisterScriptFieldFn) &&\n"
-            "            a_engineApi->registerScriptField != nullptr;\n"
-            "    }\n"
-            "\n"
-            "    [[nodiscard]] CueResult validate_engine_api(const CueEngineApi* a_engineApi)\n"
-            "    {\n"
-            "        if (a_engineApi == nullptr)\n"
-            "        {\n"
-            "            return CueResult_InvalidArgument;\n"
-            "        }\n"
-            "        if (a_engineApi->structSize < k_requiredEngineApiSize)\n"
-            "        {\n"
-            "            return CueResult_InvalidArgument;\n"
-            "        }\n"
-            "        if (a_engineApi->abiVersion != k_cueScriptAbiVersion)\n"
-            "        {\n"
-            "            return CueResult_Unsupported;\n"
-            "        }\n"
-            "        if (a_engineApi->log == nullptr ||\n"
-            "            a_engineApi->isEntityValid == nullptr ||\n"
-            "            a_engineApi->hasTransform == nullptr ||\n"
-            "            a_engineApi->getTransform == nullptr ||\n"
-            "            a_engineApi->setTransform == nullptr)\n"
-            "        {\n"
-            "            return CueResult_InvalidArgument;\n"
-            "        }\n"
-            "\n"
-            "        return CueResult_Ok;\n"
-            "    }\n"
-            "\n"
-            "    [[nodiscard]] CueStringView make_string_view(std::string_view a_text)\n"
-            "    {\n"
-            "        return CueStringView{\n"
-            "            a_text.data(),\n"
-            "            static_cast<uint32_t>(a_text.size())\n"
-            "        };\n"
-            "    }\n"
-            "\n"
-            "    void log_message(CueLogSeverity a_severity, std::string_view a_message)\n"
-            "    {\n"
-            "        if (g_engineApi == nullptr || g_engineApi->log == nullptr)\n"
-            "        {\n"
-            "            return;\n"
-            "        }\n"
-            "\n"
-            "        (void)g_engineApi->log(a_severity, make_string_view(a_message));\n"
-            "    }\n"
-            "\n"
-            "    [[nodiscard]] bool string_view_equals(\n"
-            "        CueStringView a_left, std::string_view a_right)\n"
-            "    {\n"
-            "        if (a_left.data == nullptr)\n"
-            "        {\n"
-            "            return false;\n"
-            "        }\n"
-            "        if (a_left.size != a_right.size())\n"
-            "        {\n"
-            "            return false;\n"
-            "        }\n"
-            "\n"
-            "        return std::memcmp(a_left.data, a_right.data(), a_right.size()) == 0;\n"
-            "    }\n"
-            "\n"
-            "    [[nodiscard]] const CueScriptFieldValue* find_field_value(\n"
-            "        const CueScriptCreateInfo* a_createInfo,\n"
-            "        std::string_view a_fieldName)\n"
-            "    {\n"
-            "        if (a_createInfo == nullptr ||\n"
-            "            a_createInfo->fieldValues == nullptr ||\n"
-            "            a_createInfo->fieldValueCount == 0)\n"
-            "        {\n"
-            "            return nullptr;\n"
-            "        }\n"
-            "\n"
-            "        for (uint32_t index = 0; index < a_createInfo->fieldValueCount; ++index)\n"
-            "        {\n"
-            "            const CueScriptFieldValue& fieldValue = a_createInfo->fieldValues[index];\n"
-            "            if (string_view_equals(fieldValue.name, a_fieldName))\n"
-            "            {\n"
-            "                return &fieldValue;\n"
-            "            }\n"
-            "        }\n"
-            "\n"
-            "        return nullptr;\n"
-            "    }\n"
-            "}\n"
-            "\n"
-            "extern \"C\"\n"
-            "{\n"
-            "    CueScriptAbiVersion CUE_SCRIPT_CALL cue_script_get_abi_version(void)\n"
-            "    {\n"
-            "        return k_cueScriptAbiVersion;\n"
-            "    }\n"
-            "\n"
-            "    CueResult CUE_SCRIPT_CALL cue_script_get_exports(\n"
-            "        CueScriptExports* a_outExports)\n"
-            "    {\n"
-            "        if (a_outExports == nullptr)\n"
-            "        {\n"
-            "            return CueResult_InvalidArgument;\n"
-            "        }\n"
-            "\n"
-            "        a_outExports->structSize = sizeof(CueScriptExports);\n"
-            "        a_outExports->abiVersion = k_cueScriptAbiVersion;\n"
-            "        a_outExports->registerScripts =\n"
-            "            [](const CueEngineApi* a_engineApi) -> CueResult\n"
-            "            {\n"
-            "                const CueResult result = validate_engine_api(a_engineApi);\n"
-            "                if (result != CueResult_Ok)\n"
-            "                {\n"
-            "                    return result;\n"
-            "                }\n"
-            "\n"
-            "                g_engineApi = a_engineApi;\n"
-            "                if (supports_register_script_class(g_engineApi))\n"
-            "                {\n"
-            "                    const CueResult registerResult =\n"
-            "                        g_engineApi->registerScriptClass(\n"
-            "                            make_string_view(\"RotateCube\"));\n"
-            "                    if (registerResult != CueResult_Ok)\n"
-            "                    {\n"
-            "                        return registerResult;\n"
-            "                    }\n"
-            "                }\n"
-            "                if (supports_register_script_field(g_engineApi))\n"
-            "                {\n"
-            "                    CueScriptFieldValue fieldValue{};\n"
-            "                    fieldValue.name = make_string_view(\"rotationSpeed\");\n"
-            "                    fieldValue.type = CueScriptFieldType_Float;\n"
-            "                    fieldValue.floatValue = k_rotationSpeedRadiansPerSecond;\n"
-            "                    const CueResult registerResult =\n"
-            "                        g_engineApi->registerScriptField(\n"
-            "                            make_string_view(\"RotateCube\"),\n"
-            "                            &fieldValue);\n"
-            "                    if (registerResult != CueResult_Ok)\n"
-            "                    {\n"
-            "                        return registerResult;\n"
-            "                    }\n"
-            "                }\n"
-            "\n"
-            "                log_message(CueLogSeverity_Info,\n"
-            "                    \"GameScript module registered.\");\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "        a_outExports->createScriptInstance =\n"
-            "            [](const CueScriptCreateInfo* a_createInfo,\n"
-            "                CueScriptInstanceHandle* a_outInstanceHandle) -> CueResult\n"
-            "            {\n"
-            "                if (g_engineApi == nullptr)\n"
-            "                {\n"
-            "                    return CueResult_InvalidState;\n"
-            "                }\n"
-            "                if (a_createInfo == nullptr || a_outInstanceHandle == nullptr)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "                if (a_createInfo->entityHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "                if (g_engineApi->isEntityValid(a_createInfo->entityHandle) == 0)\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "                if (!string_view_equals(a_createInfo->scriptName, \"RotateCube\"))\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                const uint64_t instanceId = g_nextInstanceId++;\n"
-            "                ScriptInstance instance{};\n"
-            "                instance.entityHandle = a_createInfo->entityHandle;\n"
-            "\n"
-            "                const CueScriptFieldValue* rotationSpeedField =\n"
-            "                    find_field_value(a_createInfo, \"rotationSpeed\");\n"
-            "                if (rotationSpeedField != nullptr &&\n"
-            "                    rotationSpeedField->type == CueScriptFieldType_Float)\n"
-            "                {\n"
-            "                    instance.rotationSpeed = rotationSpeedField->floatValue;\n"
-            "                }\n"
-            "\n"
-            "                g_instances.emplace(instanceId, instance);\n"
-            "                a_outInstanceHandle->value = instanceId;\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "        a_outExports->destroyScriptInstance =\n"
-            "            [](CueScriptInstanceHandle a_instanceHandle) -> CueResult\n"
-            "            {\n"
-            "                if (a_instanceHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "\n"
-            "                const size_t erased = g_instances.erase(a_instanceHandle.value);\n"
-            "                return erased > 0 ? CueResult_Ok : CueResult_NotFound;\n"
-            "            };\n"
-            "        a_outExports->updateScriptInstance =\n"
-            "            [](CueScriptInstanceHandle a_instanceHandle,\n"
-            "                float a_deltaTimeSeconds) -> CueResult\n"
-            "            {\n"
-            "                if (g_engineApi == nullptr)\n"
-            "                {\n"
-            "                    return CueResult_InvalidState;\n"
-            "                }\n"
-            "                if (a_instanceHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "\n"
-            "                const auto instanceIt = g_instances.find(a_instanceHandle.value);\n"
-            "                if (instanceIt == g_instances.end())\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                ScriptInstance& instance = instanceIt->second;\n"
-            "                if (g_engineApi->isEntityValid(instance.entityHandle) == 0)\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "                if (g_engineApi->hasTransform(instance.entityHandle) == 0)\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                CueTransformData transform{};\n"
-            "                CueResult result = g_engineApi->getTransform(\n"
-            "                    instance.entityHandle, &transform);\n"
-            "                if (result != CueResult_Ok)\n"
-            "                {\n"
-            "                    return result;\n"
-            "                }\n"
-            "\n"
-            "                instance.elapsedSeconds += a_deltaTimeSeconds;\n"
-            "                transform.rotation.y +=\n"
-            "                    a_deltaTimeSeconds * instance.rotationSpeed;\n"
-            "\n"
-            "                result = g_engineApi->setTransform(\n"
-            "                    instance.entityHandle, &transform);\n"
-            "                if (result != CueResult_Ok)\n"
-            "                {\n"
-            "                    return result;\n"
-            "                }\n"
-            "\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "        a_outExports->getScriptInstanceStateSize =\n"
-            "            [](CueScriptInstanceHandle a_instanceHandle,\n"
-            "                uint32_t* a_outStateSize) -> CueResult\n"
-            "            {\n"
-            "                if (a_outStateSize == nullptr)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "                if (a_instanceHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "\n"
-            "                const auto instanceIt = g_instances.find(a_instanceHandle.value);\n"
-            "                if (instanceIt == g_instances.end())\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                *a_outStateSize = static_cast<uint32_t>(sizeof(ScriptStateBlob));\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "        a_outExports->serializeScriptInstance =\n"
-            "            [](CueScriptInstanceHandle a_instanceHandle,\n"
-            "                void* a_outStateBuffer,\n"
-            "                uint32_t a_stateBufferSize) -> CueResult\n"
-            "            {\n"
-            "                if (a_instanceHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "                if (a_outStateBuffer == nullptr ||\n"
-            "                    a_stateBufferSize != sizeof(ScriptStateBlob))\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "\n"
-            "                const auto instanceIt = g_instances.find(a_instanceHandle.value);\n"
-            "                if (instanceIt == g_instances.end())\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                const ScriptInstance& instance = instanceIt->second;\n"
-            "                ScriptStateBlob blob{};\n"
-            "                blob.elapsedSeconds = instance.elapsedSeconds;\n"
-            "                blob.rotationSpeed = instance.rotationSpeed;\n"
-            "                std::memcpy(a_outStateBuffer, &blob, sizeof(blob));\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "        a_outExports->restoreScriptInstance =\n"
-            "            [](CueScriptInstanceHandle a_instanceHandle,\n"
-            "                const void* a_stateBuffer,\n"
-            "                uint32_t a_stateBufferSize) -> CueResult\n"
-            "            {\n"
-            "                if (a_instanceHandle.value == k_cueInvalidHandleValue)\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "                if (a_stateBuffer == nullptr ||\n"
-            "                    a_stateBufferSize != sizeof(ScriptStateBlob))\n"
-            "                {\n"
-            "                    return CueResult_InvalidArgument;\n"
-            "                }\n"
-            "\n"
-            "                const auto instanceIt = g_instances.find(a_instanceHandle.value);\n"
-            "                if (instanceIt == g_instances.end())\n"
-            "                {\n"
-            "                    return CueResult_NotFound;\n"
-            "                }\n"
-            "\n"
-            "                ScriptStateBlob blob{};\n"
-            "                std::memcpy(&blob, a_stateBuffer, sizeof(blob));\n"
-            "                if (blob.version != k_stateVersion)\n"
-            "                {\n"
-            "                    return CueResult_Unsupported;\n"
-            "                }\n"
-            "\n"
-            "                ScriptInstance& instance = instanceIt->second;\n"
-            "                instance.elapsedSeconds = blob.elapsedSeconds;\n"
-            "                instance.rotationSpeed = blob.rotationSpeed;\n"
-            "                return CueResult_Ok;\n"
-            "            };\n"
-            "\n"
-            "        return CueResult_Ok;\n"
-            "    }\n"
-            "}\n";
+        const std::string gameScriptModuleText = R"(#include <Native/ScriptAbi.h>
+#include <Native/ScriptModuleRuntime.h>
+
+// === C++ includes ===
+#include <array>
+#include <cstddef>
+#include <cstring>
+#include <new>
+#include <span>
+#include <string_view>
+
+namespace
+{
+    using Cue::Core::Native::ScriptClassDefinition;
+    using Cue::Core::Native::ScriptModuleRuntime;
+    using Cue::Core::Native::make_script_string_view;
+    using Cue::Core::Native::string_view_equals;
+
+    inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;
+    inline constexpr uint32_t k_stateVersion = 1u;
+
+    struct RotateCubeState final
+    {
+        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
+        float elapsedSeconds = 0.0f;
+        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
+    };
+
+    struct RotateCubeStateBlob final
+    {
+        uint32_t version = k_stateVersion;
+        float elapsedSeconds = 0.0f;
+        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
+    };
+
+    inline constexpr uint32_t k_requiredEngineApiSize =
+        static_cast<uint32_t>(
+            offsetof(CueEngineApi, setTransform) + sizeof(CueSetTransformFn));
+
+    [[nodiscard]] CueResult validate_engine_api(
+        const CueEngineApi* a_engineApi)
+    {
+        if (a_engineApi == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_engineApi->structSize < k_requiredEngineApiSize)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_engineApi->abiVersion != k_cueScriptAbiVersion)
+        {
+            return CueResult_Unsupported;
+        }
+        if (a_engineApi->log == nullptr ||
+            a_engineApi->isEntityValid == nullptr ||
+            a_engineApi->hasTransform == nullptr ||
+            a_engineApi->getTransform == nullptr ||
+            a_engineApi->setTransform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        return CueResult_Ok;
+    }
+
+    void log_message(const CueEngineApi* a_engineApi,
+        CueLogSeverity a_severity,
+        std::string_view a_message)
+    {
+        if (a_engineApi == nullptr || a_engineApi->log == nullptr)
+        {
+            return;
+        }
+
+        (void)a_engineApi->log(a_severity,
+            make_script_string_view(
+                a_message.data(),
+                static_cast<uint32_t>(a_message.size())));
+    }
+
+    [[nodiscard]] const CueScriptFieldValue* find_field_value(
+        const CueScriptCreateInfo* a_createInfo,
+        CueStringView a_fieldName)
+    {
+        if (a_createInfo == nullptr ||
+            a_createInfo->fieldValues == nullptr ||
+            a_createInfo->fieldValueCount == 0)
+        {
+            return nullptr;
+        }
+
+        for (uint32_t fieldIndex = 0;
+             fieldIndex < a_createInfo->fieldValueCount;
+             ++fieldIndex)
+        {
+            const CueScriptFieldValue& fieldValue =
+                a_createInfo->fieldValues[fieldIndex];
+            if (string_view_equals(fieldValue.name, a_fieldName))
+            {
+                return &fieldValue;
+            }
+        }
+
+        return nullptr;
+    }
+
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL create_rotate_cube_state(
+        const CueEngineApi*,
+        const CueScriptCreateInfo* a_createInfo,
+        void** a_outState)
+    {
+        if (a_createInfo == nullptr || a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        auto* state = new (std::nothrow) RotateCubeState();
+        if (state == nullptr)
+        {
+            return CueResult_InternalError;
+        }
+
+        state->entityHandle = a_createInfo->entityHandle;
+        const CueScriptFieldValue* rotationSpeedField =
+            find_field_value(
+                a_createInfo, CUE_SCRIPT_STRING_VIEW("rotationSpeed"));
+        if (rotationSpeedField != nullptr &&
+            rotationSpeedField->type == CueScriptFieldType_Float)
+        {
+            state->rotationSpeed = rotationSpeedField->floatValue;
+        }
+
+        *a_outState = state;
+        return CueResult_Ok;
+    }
+
+    void CUE_SCRIPT_CALL destroy_rotate_cube_state(void* a_state)
+    {
+        delete static_cast<RotateCubeState*>(a_state);
+    }
+
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL update_rotate_cube_state(
+        const CueEngineApi* a_engineApi,
+        void* a_state,
+        float a_deltaTimeSeconds)
+    {
+        if (a_engineApi == nullptr || a_state == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        auto* state = static_cast<RotateCubeState*>(a_state);
+        if (a_engineApi->isEntityValid(state->entityHandle) == 0)
+        {
+            return CueResult_NotFound;
+        }
+        if (a_engineApi->hasTransform(state->entityHandle) == 0)
+        {
+            return CueResult_NotFound;
+        }
+
+        CueTransformData transform{};
+        CueResult result =
+            a_engineApi->getTransform(state->entityHandle, &transform);
+        if (result != CueResult_Ok)
+        {
+            return result;
+        }
+
+        state->elapsedSeconds += a_deltaTimeSeconds;
+        transform.rotation.y += a_deltaTimeSeconds * state->rotationSpeed;
+        return a_engineApi->setTransform(state->entityHandle, &transform);
+    }
+
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL serialize_rotate_cube_state(
+        const void* a_state,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        if (a_state == nullptr || a_outStateBuffer == nullptr ||
+            a_stateBufferSize != sizeof(RotateCubeStateBlob))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const auto* state = static_cast<const RotateCubeState*>(a_state);
+        RotateCubeStateBlob blob{};
+        blob.elapsedSeconds = state->elapsedSeconds;
+        blob.rotationSpeed = state->rotationSpeed;
+        std::memcpy(a_outStateBuffer, &blob, sizeof(blob));
+        return CueResult_Ok;
+    }
+
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL restore_rotate_cube_state(
+        void* a_state,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        if (a_state == nullptr || a_stateBuffer == nullptr ||
+            a_stateBufferSize != sizeof(RotateCubeStateBlob))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        RotateCubeStateBlob blob{};
+        std::memcpy(&blob, a_stateBuffer, sizeof(blob));
+        if (blob.version != k_stateVersion)
+        {
+            return CueResult_Unsupported;
+        }
+
+        auto* state = static_cast<RotateCubeState*>(a_state);
+        state->elapsedSeconds = blob.elapsedSeconds;
+        state->rotationSpeed = blob.rotationSpeed;
+        return CueResult_Ok;
+    }
+
+    inline constexpr std::array<CueScriptFieldValue, 1> k_rotateCubeFields = {
+        CUE_FIELD_FLOAT("rotationSpeed", k_rotationSpeedRadiansPerSecond)
+    };
+
+    inline constexpr ScriptClassDefinition k_rotateCubeScript = CUE_SCRIPT(
+        "RotateCube",
+        k_stateVersion,
+        RotateCubeStateBlob,
+        "RotateCube:v1:elapsedSeconds:f32;rotationSpeed:f32",
+        k_rotateCubeFields,
+        &create_rotate_cube_state,
+        &destroy_rotate_cube_state,
+        &update_rotate_cube_state,
+        &serialize_rotate_cube_state,
+        &restore_rotate_cube_state);
+
+    inline constexpr std::array<ScriptClassDefinition, 1> k_scriptClasses = {
+        k_rotateCubeScript
+    };
+
+    [[nodiscard]] std::span<const ScriptClassDefinition> script_classes() noexcept
+    {
+        return std::span<const ScriptClassDefinition>(
+            k_scriptClasses.data(), k_scriptClasses.size());
+    }
+
+    ScriptModuleRuntime g_scriptRuntime{};
+}
+
+extern "C"
+{
+    CueScriptAbiVersion CUE_SCRIPT_CALL cue_script_get_abi_version(void)
+    {
+        return k_cueScriptAbiVersion;
+    }
+
+    CueResult CUE_SCRIPT_CALL cue_script_get_exports(
+        CueScriptExports* a_outExports)
+    {
+        if (a_outExports == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        a_outExports->structSize = sizeof(CueScriptExports);
+        a_outExports->abiVersion = k_cueScriptAbiVersion;
+        a_outExports->registerScripts =
+            [](const CueEngineApi* a_engineApi) -> CueResult
+            {
+                const CueResult result = validate_engine_api(a_engineApi);
+                if (result != CueResult_Ok)
+                {
+                    return result;
+                }
+
+                const CueResult registerResult =
+                    g_scriptRuntime.register_scripts(
+                        a_engineApi, script_classes());
+                if (registerResult != CueResult_Ok)
+                {
+                    return registerResult;
+                }
+
+                log_message(a_engineApi, CueLogSeverity_Info,
+                    "GameScript module registered.");
+                return CueResult_Ok;
+            };
+        a_outExports->createScriptInstance =
+            [](const CueScriptCreateInfo* a_createInfo,
+                CueScriptInstanceHandle* a_outInstanceHandle) -> CueResult
+            {
+                return g_scriptRuntime.create_script_instance(
+                    script_classes(), a_createInfo, a_outInstanceHandle);
+            };
+        a_outExports->destroyScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle) -> CueResult
+            {
+                return g_scriptRuntime.destroy_script_instance(a_instanceHandle);
+            };
+        a_outExports->updateScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                float a_deltaTimeSeconds) -> CueResult
+            {
+                return g_scriptRuntime.update_script_instance(
+                    a_instanceHandle, a_deltaTimeSeconds);
+            };
+        a_outExports->getScriptInstanceStateSize =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                uint32_t* a_outStateSize) -> CueResult
+            {
+                return g_scriptRuntime.get_script_instance_state_size(
+                    a_instanceHandle, a_outStateSize);
+            };
+        a_outExports->serializeScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                void* a_outStateBuffer,
+                uint32_t a_stateBufferSize) -> CueResult
+            {
+                return g_scriptRuntime.serialize_script_instance(
+                    a_instanceHandle, a_outStateBuffer, a_stateBufferSize);
+            };
+        a_outExports->restoreScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                const void* a_stateBuffer,
+                uint32_t a_stateBufferSize) -> CueResult
+            {
+                return g_scriptRuntime.restore_script_instance(
+                    a_instanceHandle, a_stateBuffer, a_stateBufferSize);
+            };
+        a_outExports->getScriptStateDescriptor =
+            [](CueStringView a_scriptClassName,
+                CueScriptStateDescriptor* a_outDescriptor) -> CueResult
+            {
+                return g_scriptRuntime.get_script_state_descriptor(
+                    script_classes(), a_scriptClassName, a_outDescriptor);
+            };
+        return CueResult_Ok;
+    }
+}
+)";
 
         Result result = write_text_file(
             Core::IO::Path::join(a_projectPath, Core::IO::Path("CMakeLists.txt")),

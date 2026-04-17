@@ -125,6 +125,14 @@ extern "C"
         uint8_t reserved2;
     };
 
+    /// @brief Script state の互換性判定に使う署名です。
+    struct CueScriptStateDescriptor
+    {
+        uint32_t stateVersion;
+        uint32_t stateSize;
+        uint64_t schemaHash;
+    };
+
     using CueLogFn = CueResult (CUE_SCRIPT_CALL*)(
         CueLogSeverity a_severity,
         CueStringView a_message
@@ -239,6 +247,12 @@ extern "C"
         uint32_t a_stateBufferSize
     );
 
+    /// @brief Script クラスの state 署名を返します。
+    using CueGetScriptStateDescriptorFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName,
+        CueScriptStateDescriptor* a_outDescriptor
+    );
+
     /// @brief Script DLL が Engine へ返す関数テーブルです。
     /// v1 では末尾拡張のみを許可します。
     struct CueScriptExports
@@ -257,6 +271,8 @@ extern "C"
         CueSerializeScriptInstanceFn serializeScriptInstance;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRestoreScriptInstanceFn restoreScriptInstance;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptStateDescriptorFn getScriptStateDescriptor;
     };
 
     /// @brief Script DLL の ABI version を返します。

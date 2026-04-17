@@ -33,6 +33,8 @@ namespace Cue
         {
             GameCore::EntityId entityId = GameCore::k_invalidEntityId;
             std::string className{};
+            CueScriptStateDescriptor stateDescriptor{};
+            bool hasStateDescriptor = false;
             std::vector<std::byte> bytes{};
         };
 

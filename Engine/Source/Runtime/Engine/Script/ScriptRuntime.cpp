@@ -118,6 +118,70 @@ namespace Cue
                     sizeof(CueRestoreScriptInstanceFn) &&
                 a_exports->restoreScriptInstance != nullptr;
         }
+
+        [[nodiscard]] bool supports_state_descriptor_query(
+            const CueScriptExports* a_exports) noexcept
+        {
+            return a_exports != nullptr &&
+                a_exports->structSize >=
+                offsetof(CueScriptExports, getScriptStateDescriptor) +
+                    sizeof(CueGetScriptStateDescriptorFn) &&
+                a_exports->getScriptStateDescriptor != nullptr;
+        }
+
+        [[nodiscard]] Result query_state_descriptor(
+            const CueScriptExports* a_exports,
+            std::string_view a_className,
+            CueScriptStateDescriptor& a_outDescriptor) noexcept
+        {
+            a_outDescriptor = {};
+            if (!supports_state_descriptor_query(a_exports))
+            {
+                return Result::fail(Code::Unsupported, Severity::Warning,
+                    "Script state descriptor query is not supported.");
+            }
+
+            const CueResult descriptorResult =
+                a_exports->getScriptStateDescriptor(
+                    make_string_view(a_className), &a_outDescriptor);
+            switch (descriptorResult)
+            {
+            case CueResult_Ok:
+                return Result::ok();
+
+            case CueResult_InvalidArgument:
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Script state descriptor query returned InvalidArgument.");
+
+            case CueResult_NotFound:
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "Script state descriptor query returned NotFound.");
+
+            case CueResult_Unsupported:
+                return Result::fail(Code::Unsupported, Severity::Warning,
+                    "Script state descriptor query returned Unsupported.");
+
+            case CueResult_InvalidState:
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Script state descriptor query returned InvalidState.");
+
+            case CueResult_InternalError:
+                return Result::fail(Code::InternalError, Severity::Error,
+                    "Script state descriptor query returned InternalError.");
+            }
+
+            return Result::fail(Code::UnknownError, Severity::Error,
+                "Script state descriptor query returned unknown error.");
+        }
+
+        [[nodiscard]] bool are_state_descriptors_compatible(
+            const CueScriptStateDescriptor& a_left,
+            const CueScriptStateDescriptor& a_right) noexcept
+        {
+            return a_left.stateVersion == a_right.stateVersion &&
+                a_left.stateSize == a_right.stateSize &&
+                a_left.schemaHash == a_right.schemaHash;
+        }
     }
 
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
@@ -223,6 +287,23 @@ namespace Cue
         a_outSnapshots.reserve(m_bindings.size());
         for (const auto& [entityId, binding] : m_bindings)
         {
+            StateSnapshot snapshot{};
+            snapshot.entityId = entityId;
+            snapshot.className = binding.className;
+
+            Result descriptorResult = query_state_descriptor(
+                exports, binding.className, snapshot.stateDescriptor);
+            if (descriptorResult)
+            {
+                snapshot.hasStateDescriptor = true;
+            }
+            else
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state descriptor capture unavailable: entity={}, class={}, message={}",
+                    entityId, binding.className, descriptorResult.message);
+            }
+
             uint32_t stateSize = 0;
             Result sizeResult = convert_script_result(
                 exports->getScriptInstanceStateSize(
@@ -235,9 +316,6 @@ namespace Cue
                 continue;
             }
 
-            StateSnapshot snapshot{};
-            snapshot.entityId = entityId;
-            snapshot.className = binding.className;
             if (stateSize > 0)
             {
                 snapshot.bytes.resize(stateSize);
@@ -299,8 +377,40 @@ namespace Cue
                     snapshot.entityId, snapshot.className, bindingIt->second.className);
                 continue;
             }
+            if (!snapshot.hasStateDescriptor)
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state restore skipped without old descriptor: entity={}, class={}",
+                    snapshot.entityId, snapshot.className);
+                continue;
+            }
             if (snapshot.bytes.empty())
             {
+                continue;
+            }
+
+            CueScriptStateDescriptor nextDescriptor{};
+            Result descriptorResult = query_state_descriptor(
+                exports, bindingIt->second.className, nextDescriptor);
+            if (!descriptorResult)
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state restore skipped without new descriptor: entity={}, class={}, message={}",
+                    snapshot.entityId, snapshot.className, descriptorResult.message);
+                continue;
+            }
+            if (!are_state_descriptors_compatible(
+                    snapshot.stateDescriptor, nextDescriptor))
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state restore skipped by descriptor mismatch: entity={}, class={}, oldVersion={}, newVersion={}, oldSize={}, newSize={}, oldHash={}, newHash={}",
+                    snapshot.entityId, snapshot.className,
+                    snapshot.stateDescriptor.stateVersion,
+                    nextDescriptor.stateVersion,
+                    snapshot.stateDescriptor.stateSize,
+                    nextDescriptor.stateSize,
+                    snapshot.stateDescriptor.schemaHash,
+                    nextDescriptor.schemaHash);
                 continue;
             }
 
