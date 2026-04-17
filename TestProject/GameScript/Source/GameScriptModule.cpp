@@ -9,10 +9,18 @@
 namespace
 {
     inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;
+    inline constexpr uint32_t k_stateVersion = 1u;
 
     struct ScriptInstance final
     {
         CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
+        float elapsedSeconds = 0.0f;
+        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
+    };
+
+    struct ScriptStateBlob final
+    {
+        uint32_t version = k_stateVersion;
         float elapsedSeconds = 0.0f;
         float rotationSpeed = k_rotationSpeedRadiansPerSecond;
     };
@@ -285,6 +293,89 @@ extern "C"
                     return result;
                 }
 
+                return CueResult_Ok;
+            };
+        a_outExports->getScriptInstanceStateSize =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                uint32_t* a_outStateSize) -> CueResult
+            {
+                if (a_outStateSize == nullptr)
+                {
+                    return CueResult_InvalidArgument;
+                }
+                if (a_instanceHandle.value == k_cueInvalidHandleValue)
+                {
+                    return CueResult_InvalidArgument;
+                }
+
+                const auto instanceIt = g_instances.find(a_instanceHandle.value);
+                if (instanceIt == g_instances.end())
+                {
+                    return CueResult_NotFound;
+                }
+
+                *a_outStateSize = static_cast<uint32_t>(sizeof(ScriptStateBlob));
+                return CueResult_Ok;
+            };
+        a_outExports->serializeScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                void* a_outStateBuffer,
+                uint32_t a_stateBufferSize) -> CueResult
+            {
+                if (a_instanceHandle.value == k_cueInvalidHandleValue)
+                {
+                    return CueResult_InvalidArgument;
+                }
+                if (a_outStateBuffer == nullptr ||
+                    a_stateBufferSize != sizeof(ScriptStateBlob))
+                {
+                    return CueResult_InvalidArgument;
+                }
+
+                const auto instanceIt = g_instances.find(a_instanceHandle.value);
+                if (instanceIt == g_instances.end())
+                {
+                    return CueResult_NotFound;
+                }
+
+                const ScriptInstance& instance = instanceIt->second;
+                ScriptStateBlob blob{};
+                blob.elapsedSeconds = instance.elapsedSeconds;
+                blob.rotationSpeed = instance.rotationSpeed;
+                std::memcpy(a_outStateBuffer, &blob, sizeof(blob));
+                return CueResult_Ok;
+            };
+        a_outExports->restoreScriptInstance =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                const void* a_stateBuffer,
+                uint32_t a_stateBufferSize) -> CueResult
+            {
+                if (a_instanceHandle.value == k_cueInvalidHandleValue)
+                {
+                    return CueResult_InvalidArgument;
+                }
+                if (a_stateBuffer == nullptr ||
+                    a_stateBufferSize != sizeof(ScriptStateBlob))
+                {
+                    return CueResult_InvalidArgument;
+                }
+
+                const auto instanceIt = g_instances.find(a_instanceHandle.value);
+                if (instanceIt == g_instances.end())
+                {
+                    return CueResult_NotFound;
+                }
+
+                ScriptStateBlob blob{};
+                std::memcpy(&blob, a_stateBuffer, sizeof(blob));
+                if (blob.version != k_stateVersion)
+                {
+                    return CueResult_Unsupported;
+                }
+
+                ScriptInstance& instance = instanceIt->second;
+                instance.elapsedSeconds = blob.elapsedSeconds;
+                instance.rotationSpeed = blob.rotationSpeed;
                 return CueResult_Ok;
             };
 

@@ -4,12 +4,18 @@
 #include <windows.h>
 
 // === C++ includes ===
+#include <cstddef>
 #include <string>
 
 namespace Cue
 {
     namespace
     {
+        inline constexpr uint32_t k_requiredScriptExportsSize =
+            static_cast<uint32_t>(
+                offsetof(CueScriptExports, updateScriptInstance) +
+                sizeof(CueUpdateScriptInstanceFn));
+
         [[nodiscard]] Result utf8_to_wide(
             std::string_view a_text,
             std::wstring& a_outText) noexcept
@@ -167,7 +173,7 @@ namespace Cue
             return result;
         }
 
-        if (exports.structSize < sizeof(CueScriptExports) ||
+        if (exports.structSize < k_requiredScriptExportsSize ||
             exports.abiVersion != k_cueScriptAbiVersion ||
             exports.createScriptInstance == nullptr ||
             exports.destroyScriptInstance == nullptr ||

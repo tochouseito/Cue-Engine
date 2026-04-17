@@ -11,6 +11,7 @@
 #include "../GameCore/GameCoreTypes.h"
 
 // === C++ includes ===
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -28,6 +29,13 @@ namespace Cue
     class ScriptRuntime final
     {
     public:
+        struct StateSnapshot final
+        {
+            GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+            std::string className{};
+            std::vector<std::byte> bytes{};
+        };
+
         explicit ScriptRuntime(GameCore::GameWorld& a_gameWorld) noexcept;
         ~ScriptRuntime();
 
@@ -46,6 +54,10 @@ namespace Cue
         void activate() noexcept;
         void set_module(const ScriptModule* a_module) noexcept;
         [[nodiscard]] Result set_game_world(GameCore::GameWorld& a_gameWorld) noexcept;
+        [[nodiscard]] Result capture_instance_states(
+            std::vector<StateSnapshot>& a_outSnapshots) const noexcept;
+        [[nodiscard]] Result restore_instance_states(
+            const std::vector<StateSnapshot>& a_snapshots) noexcept;
 
         [[nodiscard]] Result update(float a_deltaTimeSeconds) noexcept;
         [[nodiscard]] Result reset() noexcept;

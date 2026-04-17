@@ -88,6 +88,36 @@ namespace Cue
 
             return true;
         }
+
+        [[nodiscard]] bool supports_instance_state_size(
+            const CueScriptExports* a_exports) noexcept
+        {
+            return a_exports != nullptr &&
+                a_exports->structSize >=
+                offsetof(CueScriptExports, getScriptInstanceStateSize) +
+                    sizeof(CueGetScriptInstanceStateSizeFn) &&
+                a_exports->getScriptInstanceStateSize != nullptr;
+        }
+
+        [[nodiscard]] bool supports_instance_state_serialize(
+            const CueScriptExports* a_exports) noexcept
+        {
+            return a_exports != nullptr &&
+                a_exports->structSize >=
+                offsetof(CueScriptExports, serializeScriptInstance) +
+                    sizeof(CueSerializeScriptInstanceFn) &&
+                a_exports->serializeScriptInstance != nullptr;
+        }
+
+        [[nodiscard]] bool supports_instance_state_restore(
+            const CueScriptExports* a_exports) noexcept
+        {
+            return a_exports != nullptr &&
+                a_exports->structSize >=
+                offsetof(CueScriptExports, restoreScriptInstance) +
+                    sizeof(CueRestoreScriptInstanceFn) &&
+                a_exports->restoreScriptInstance != nullptr;
+        }
     }
 
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
@@ -170,6 +200,123 @@ namespace Cue
         }
 
         m_gameWorld = &a_gameWorld;
+        return Result::ok();
+    }
+
+    Result ScriptRuntime::capture_instance_states(
+        std::vector<StateSnapshot>& a_outSnapshots) const noexcept
+    {
+        a_outSnapshots.clear();
+
+        if (m_module == nullptr || !m_module->is_loaded())
+        {
+            return Result::ok();
+        }
+
+        const CueScriptExports* exports = m_module->exports();
+        if (!supports_instance_state_size(exports) ||
+            !supports_instance_state_serialize(exports))
+        {
+            return Result::ok();
+        }
+
+        a_outSnapshots.reserve(m_bindings.size());
+        for (const auto& [entityId, binding] : m_bindings)
+        {
+            uint32_t stateSize = 0;
+            Result sizeResult = convert_script_result(
+                exports->getScriptInstanceStateSize(
+                    binding.instanceHandle, &stateSize));
+            if (!sizeResult)
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state size capture skipped: entity={}, class={}, message={}",
+                    entityId, binding.className, sizeResult.message);
+                continue;
+            }
+
+            StateSnapshot snapshot{};
+            snapshot.entityId = entityId;
+            snapshot.className = binding.className;
+            if (stateSize > 0)
+            {
+                snapshot.bytes.resize(stateSize);
+                Result serializeResult = convert_script_result(
+                    exports->serializeScriptInstance(
+                        binding.instanceHandle,
+                        snapshot.bytes.data(),
+                        stateSize));
+                if (!serializeResult)
+                {
+                    Core::IO::log(Core::IO::LogSink::debugConsole,
+                        "Script state serialize skipped: entity={}, class={}, message={}",
+                        entityId, binding.className, serializeResult.message);
+                    continue;
+                }
+            }
+
+            a_outSnapshots.push_back(std::move(snapshot));
+        }
+
+        return Result::ok();
+    }
+
+    Result ScriptRuntime::restore_instance_states(
+        const std::vector<StateSnapshot>& a_snapshots) noexcept
+    {
+        if (a_snapshots.empty())
+        {
+            return Result::ok();
+        }
+        if (m_module == nullptr || !m_module->is_loaded())
+        {
+            return Result::ok();
+        }
+
+        const CueScriptExports* exports = m_module->exports();
+        if (!supports_instance_state_restore(exports))
+        {
+            return Result::ok();
+        }
+
+        Result syncResult = sync_instances();
+        if (!syncResult)
+        {
+            return syncResult;
+        }
+
+        for (const StateSnapshot& snapshot : a_snapshots)
+        {
+            const auto bindingIt = m_bindings.find(snapshot.entityId);
+            if (bindingIt == m_bindings.end())
+            {
+                continue;
+            }
+            if (bindingIt->second.className != snapshot.className)
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state restore skipped by class mismatch: entity={}, old={}, new={}",
+                    snapshot.entityId, snapshot.className, bindingIt->second.className);
+                continue;
+            }
+            if (snapshot.bytes.empty())
+            {
+                continue;
+            }
+
+            Result restoreResult = convert_script_result(
+                exports->restoreScriptInstance(
+                    bindingIt->second.instanceHandle,
+                    snapshot.bytes.data(),
+                    static_cast<uint32_t>(snapshot.bytes.size())));
+            if (!restoreResult)
+            {
+                Core::IO::log(Core::IO::LogSink::debugConsole,
+                    "Script state restore skipped: entity={}, class={}, message={}",
+                    snapshot.entityId, snapshot.className, restoreResult.message);
+            }
+        }
+
         return Result::ok();
     }
 

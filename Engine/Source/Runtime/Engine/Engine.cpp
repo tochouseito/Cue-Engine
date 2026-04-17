@@ -648,6 +648,14 @@ namespace Cue
             return result;
         }
 
+        std::vector<ScriptRuntime::StateSnapshot> preservedStateSnapshots{};
+        result = m_scriptRuntime->capture_instance_states(preservedStateSnapshots);
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
         result = m_scriptRuntime->reset();
         if (!result)
         {
@@ -659,6 +667,28 @@ namespace Cue
         m_scriptModule = std::move(nextModule);
         m_scriptRuntime->set_module(m_scriptModule.get());
         result = m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
+        if (!result)
+        {
+            m_scriptRuntime->set_module(nullptr);
+            m_scriptModule->unload();
+            m_scriptModule = std::move(previousModule);
+            if (m_scriptModule != nullptr)
+            {
+                m_scriptRuntime->set_module(m_scriptModule.get());
+                const Result restoreResult =
+                    m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
+                if (!restoreResult)
+                {
+                    m_scriptRuntime->set_module(nullptr);
+                    m_scriptModule->unload();
+                    m_scriptModule = nullptr;
+                    m_scriptRoot = {};
+                }
+            }
+            return result;
+        }
+
+        result = m_scriptRuntime->restore_instance_states(preservedStateSnapshots);
         if (!result)
         {
             m_scriptRuntime->set_module(nullptr);

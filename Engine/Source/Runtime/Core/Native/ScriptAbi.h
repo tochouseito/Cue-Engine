@@ -219,6 +219,26 @@ extern "C"
         float a_deltaTimeSeconds
     );
 
+    /// @brief ScriptInstance の state サイズを返します。
+    using CueGetScriptInstanceStateSizeFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        uint32_t* a_outStateSize
+    );
+
+    /// @brief ScriptInstance の state を呼び出し側バッファへ serialize します。
+    using CueSerializeScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize
+    );
+
+    /// @brief ScriptInstance の state を復元します。
+    using CueRestoreScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize
+    );
+
     /// @brief Script DLL が Engine へ返す関数テーブルです。
     /// v1 では末尾拡張のみを許可します。
     struct CueScriptExports
@@ -231,6 +251,12 @@ extern "C"
         CueCreateScriptInstanceFn createScriptInstance;
         CueDestroyScriptInstanceFn destroyScriptInstance;
         CueUpdateScriptInstanceFn updateScriptInstance;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptInstanceStateSizeFn getScriptInstanceStateSize;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSerializeScriptInstanceFn serializeScriptInstance;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRestoreScriptInstanceFn restoreScriptInstance;
     };
 
     /// @brief Script DLL の ABI version を返します。
