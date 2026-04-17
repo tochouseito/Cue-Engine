@@ -314,31 +314,22 @@ namespace Cue::Editor
 // === C++ includes ===
 #include <array>
 #include <cstddef>
-#include <cstring>
-#include <new>
 #include <span>
 #include <string_view>
 
 namespace
 {
     using Cue::Core::Native::ScriptClassDefinition;
+    using Cue::Core::Native::ScriptFieldReader;
     using Cue::Core::Native::ScriptModuleRuntime;
+    using Cue::Core::Native::make_script_class_definition;
     using Cue::Core::Native::make_script_string_view;
-    using Cue::Core::Native::string_view_equals;
 
     inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;
-    inline constexpr uint32_t k_stateVersion = 1u;
-
-    struct RotateCubeState final
-    {
-        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
-        float elapsedSeconds = 0.0f;
-        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
-    };
 
     struct RotateCubeStateBlob final
     {
-        uint32_t version = k_stateVersion;
+        uint32_t version = 1u;
         float elapsedSeconds = 0.0f;
         float rotationSpeed = k_rotationSpeedRadiansPerSecond;
     };
@@ -389,160 +380,102 @@ namespace
                 static_cast<uint32_t>(a_message.size())));
     }
 
-    [[nodiscard]] const CueScriptFieldValue* find_field_value(
-        const CueScriptCreateInfo* a_createInfo,
-        CueStringView a_fieldName)
+    struct RotateCubeScript final
     {
-        if (a_createInfo == nullptr ||
-            a_createInfo->fieldValues == nullptr ||
-            a_createInfo->fieldValueCount == 0)
+        using StateBlob = RotateCubeStateBlob;
+
+        static constexpr std::string_view k_className = "RotateCube";
+        static constexpr uint32_t k_stateVersion = 1u;
+        static constexpr std::string_view k_stateSchema =
+            "RotateCube:v1:elapsedSeconds:f32;rotationSpeed:f32";
+
+        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
+        float elapsedSeconds = 0.0f;
+        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
+
+        [[nodiscard]] static std::span<const CueScriptFieldValue> script_fields() noexcept
         {
-            return nullptr;
+            static constexpr std::array<CueScriptFieldValue, 1> k_fields = {
+                CUE_FIELD_FLOAT("rotationSpeed", k_rotationSpeedRadiansPerSecond)
+            };
+
+            return std::span<const CueScriptFieldValue>(
+                k_fields.data(),
+                k_fields.size());
         }
 
-        for (uint32_t fieldIndex = 0;
-             fieldIndex < a_createInfo->fieldValueCount;
-             ++fieldIndex)
+        [[nodiscard]] static CueResult create(
+            const CueScriptCreateInfo* a_createInfo,
+            RotateCubeScript& a_state)
         {
-            const CueScriptFieldValue& fieldValue =
-                a_createInfo->fieldValues[fieldIndex];
-            if (string_view_equals(fieldValue.name, a_fieldName))
+            if (a_createInfo == nullptr)
             {
-                return &fieldValue;
+                return CueResult_InvalidArgument;
             }
+
+            ScriptFieldReader fieldReader(a_createInfo);
+            a_state.entityHandle = fieldReader.entity_handle();
+            (void)fieldReader.read_float(
+                CUE_SCRIPT_STRING_VIEW("rotationSpeed"),
+                a_state.rotationSpeed);
+            return CueResult_Ok;
         }
 
-        return nullptr;
-    }
-
-    [[nodiscard]] CueResult CUE_SCRIPT_CALL create_rotate_cube_state(
-        const CueEngineApi*,
-        const CueScriptCreateInfo* a_createInfo,
-        void** a_outState)
-    {
-        if (a_createInfo == nullptr || a_outState == nullptr)
+        [[nodiscard]] CueResult update(
+            const CueEngineApi* a_engineApi,
+            float a_deltaTimeSeconds)
         {
-            return CueResult_InvalidArgument;
+            if (a_engineApi == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+            if (a_engineApi->isEntityValid(entityHandle) == 0)
+            {
+                return CueResult_NotFound;
+            }
+            if (a_engineApi->hasTransform(entityHandle) == 0)
+            {
+                return CueResult_NotFound;
+            }
+
+            CueTransformData transform{};
+            const CueResult result =
+                a_engineApi->getTransform(entityHandle, &transform);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+
+            elapsedSeconds += a_deltaTimeSeconds;
+            transform.rotation.y += a_deltaTimeSeconds * rotationSpeed;
+            return a_engineApi->setTransform(entityHandle, &transform);
         }
 
-        auto* state = new (std::nothrow) RotateCubeState();
-        if (state == nullptr)
+        [[nodiscard]] CueResult serialize(StateBlob& a_outState) const
         {
-            return CueResult_InternalError;
+            a_outState.version = k_stateVersion;
+            a_outState.elapsedSeconds = elapsedSeconds;
+            a_outState.rotationSpeed = rotationSpeed;
+            return CueResult_Ok;
         }
 
-        state->entityHandle = a_createInfo->entityHandle;
-        const CueScriptFieldValue* rotationSpeedField =
-            find_field_value(
-                a_createInfo, CUE_SCRIPT_STRING_VIEW("rotationSpeed"));
-        if (rotationSpeedField != nullptr &&
-            rotationSpeedField->type == CueScriptFieldType_Float)
+        [[nodiscard]] CueResult restore(const StateBlob& a_state)
         {
-            state->rotationSpeed = rotationSpeedField->floatValue;
+            if (a_state.version != k_stateVersion)
+            {
+                return CueResult_Unsupported;
+            }
+
+            elapsedSeconds = a_state.elapsedSeconds;
+            rotationSpeed = a_state.rotationSpeed;
+            return CueResult_Ok;
         }
-
-        *a_outState = state;
-        return CueResult_Ok;
-    }
-
-    void CUE_SCRIPT_CALL destroy_rotate_cube_state(void* a_state)
-    {
-        delete static_cast<RotateCubeState*>(a_state);
-    }
-
-    [[nodiscard]] CueResult CUE_SCRIPT_CALL update_rotate_cube_state(
-        const CueEngineApi* a_engineApi,
-        void* a_state,
-        float a_deltaTimeSeconds)
-    {
-        if (a_engineApi == nullptr || a_state == nullptr)
-        {
-            return CueResult_InvalidState;
-        }
-
-        auto* state = static_cast<RotateCubeState*>(a_state);
-        if (a_engineApi->isEntityValid(state->entityHandle) == 0)
-        {
-            return CueResult_NotFound;
-        }
-        if (a_engineApi->hasTransform(state->entityHandle) == 0)
-        {
-            return CueResult_NotFound;
-        }
-
-        CueTransformData transform{};
-        CueResult result =
-            a_engineApi->getTransform(state->entityHandle, &transform);
-        if (result != CueResult_Ok)
-        {
-            return result;
-        }
-
-        state->elapsedSeconds += a_deltaTimeSeconds;
-        transform.rotation.y += a_deltaTimeSeconds * state->rotationSpeed;
-        return a_engineApi->setTransform(state->entityHandle, &transform);
-    }
-
-    [[nodiscard]] CueResult CUE_SCRIPT_CALL serialize_rotate_cube_state(
-        const void* a_state,
-        void* a_outStateBuffer,
-        uint32_t a_stateBufferSize)
-    {
-        if (a_state == nullptr || a_outStateBuffer == nullptr ||
-            a_stateBufferSize != sizeof(RotateCubeStateBlob))
-        {
-            return CueResult_InvalidArgument;
-        }
-
-        const auto* state = static_cast<const RotateCubeState*>(a_state);
-        RotateCubeStateBlob blob{};
-        blob.elapsedSeconds = state->elapsedSeconds;
-        blob.rotationSpeed = state->rotationSpeed;
-        std::memcpy(a_outStateBuffer, &blob, sizeof(blob));
-        return CueResult_Ok;
-    }
-
-    [[nodiscard]] CueResult CUE_SCRIPT_CALL restore_rotate_cube_state(
-        void* a_state,
-        const void* a_stateBuffer,
-        uint32_t a_stateBufferSize)
-    {
-        if (a_state == nullptr || a_stateBuffer == nullptr ||
-            a_stateBufferSize != sizeof(RotateCubeStateBlob))
-        {
-            return CueResult_InvalidArgument;
-        }
-
-        RotateCubeStateBlob blob{};
-        std::memcpy(&blob, a_stateBuffer, sizeof(blob));
-        if (blob.version != k_stateVersion)
-        {
-            return CueResult_Unsupported;
-        }
-
-        auto* state = static_cast<RotateCubeState*>(a_state);
-        state->elapsedSeconds = blob.elapsedSeconds;
-        state->rotationSpeed = blob.rotationSpeed;
-        return CueResult_Ok;
-    }
-
-    inline constexpr std::array<CueScriptFieldValue, 1> k_rotateCubeFields = {
-        CUE_FIELD_FLOAT("rotationSpeed", k_rotationSpeedRadiansPerSecond)
     };
 
-    inline constexpr ScriptClassDefinition k_rotateCubeScript = CUE_SCRIPT(
-        "RotateCube",
-        k_stateVersion,
-        RotateCubeStateBlob,
-        "RotateCube:v1:elapsedSeconds:f32;rotationSpeed:f32",
-        k_rotateCubeFields,
-        &create_rotate_cube_state,
-        &destroy_rotate_cube_state,
-        &update_rotate_cube_state,
-        &serialize_rotate_cube_state,
-        &restore_rotate_cube_state);
+    const ScriptClassDefinition k_rotateCubeScript =
+        make_script_class_definition<RotateCubeScript>();
 
-    inline constexpr std::array<ScriptClassDefinition, 1> k_scriptClasses = {
+    const std::array<ScriptClassDefinition, 1> k_scriptClasses = {
         k_rotateCubeScript
     };
 

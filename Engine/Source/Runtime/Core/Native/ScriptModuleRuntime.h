@@ -4,11 +4,14 @@
 #include "ScriptAbi.h"
 
 // === C++ includes ===
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 
 namespace Cue::Core::Native
@@ -63,6 +66,344 @@ namespace Cue::Core::Native
     [[nodiscard]] inline bool string_view_equals(
         CueStringView a_left,
         CueStringView a_right) noexcept;
+
+    class ScriptFieldReader final
+    {
+    public:
+        explicit ScriptFieldReader(const CueScriptCreateInfo* a_createInfo) noexcept
+            : m_createInfo(a_createInfo)
+        {
+        }
+
+        [[nodiscard]] CueEntityHandle entity_handle() const noexcept
+        {
+            return m_createInfo != nullptr
+                ? m_createInfo->entityHandle
+                : CueEntityHandle{ k_cueInvalidHandleValue };
+        }
+
+        [[nodiscard]] const CueScriptFieldValue* find(
+            CueStringView a_fieldName) const noexcept
+        {
+            if (m_createInfo == nullptr ||
+                m_createInfo->fieldValues == nullptr ||
+                m_createInfo->fieldValueCount == 0)
+            {
+                return nullptr;
+            }
+
+            for (uint32_t fieldIndex = 0;
+                 fieldIndex < m_createInfo->fieldValueCount;
+                 ++fieldIndex)
+            {
+                const CueScriptFieldValue& fieldValue =
+                    m_createInfo->fieldValues[fieldIndex];
+                if (string_view_equals(fieldValue.name, a_fieldName))
+                {
+                    return &fieldValue;
+                }
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] bool read_float(
+            CueStringView a_fieldName,
+            float& a_outValue) const noexcept
+        {
+            const CueScriptFieldValue* fieldValue = find(a_fieldName);
+            if (fieldValue == nullptr ||
+                fieldValue->type != CueScriptFieldType_Float)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue->floatValue;
+            return true;
+        }
+
+        [[nodiscard]] bool read_int32(
+            CueStringView a_fieldName,
+            int32_t& a_outValue) const noexcept
+        {
+            const CueScriptFieldValue* fieldValue = find(a_fieldName);
+            if (fieldValue == nullptr ||
+                fieldValue->type != CueScriptFieldType_Int32)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue->intValue;
+            return true;
+        }
+
+        [[nodiscard]] bool read_bool(
+            CueStringView a_fieldName,
+            bool& a_outValue) const noexcept
+        {
+            const CueScriptFieldValue* fieldValue = find(a_fieldName);
+            if (fieldValue == nullptr ||
+                fieldValue->type != CueScriptFieldType_Bool)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue->boolValue != 0;
+            return true;
+        }
+
+    private:
+        const CueScriptCreateInfo* m_createInfo = nullptr;
+    };
+
+    template<typename T>
+    concept ScriptStateHasFields = requires
+    {
+        { T::script_fields() } -> std::convertible_to<std::span<const CueScriptFieldValue>>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasBlobType = requires
+    {
+        typename T::StateBlob;
+    };
+
+    template<typename T>
+    concept ScriptStateHasCreate = requires(
+        const CueScriptCreateInfo* a_createInfo,
+        T& a_state)
+    {
+        { T::create(a_createInfo, a_state) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasUpdate = requires(
+        const CueEngineApi* a_engineApi,
+        T& a_state,
+        float a_deltaTimeSeconds)
+    {
+        { a_state.update(a_engineApi, a_deltaTimeSeconds) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasRawSerialize = requires(
+        const T& a_state,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        { a_state.serialize(a_outStateBuffer, a_stateBufferSize) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasRawRestore = requires(
+        T& a_state,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        { a_state.restore(a_stateBuffer, a_stateBufferSize) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    using script_state_blob_type_t = std::conditional_t<
+        ScriptStateHasBlobType<T>,
+        typename T::StateBlob,
+        T>;
+
+    template<typename T>
+    concept ScriptStateHasBlobSerialize = requires(
+        const T& a_state,
+        script_state_blob_type_t<T>& a_stateBlob)
+    {
+        { a_state.serialize(a_stateBlob) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasBlobRestore = requires(
+        T& a_state,
+        const script_state_blob_type_t<T>& a_stateBlob)
+    {
+        { a_state.restore(a_stateBlob) } -> std::convertible_to<CueResult>;
+    };
+
+    template<typename T>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL create_script_state_adapter(
+        const CueEngineApi*,
+        const CueScriptCreateInfo* a_createInfo,
+        void** a_outState)
+    {
+        static_assert(ScriptStateHasCreate<T>,
+            "Script state must implement static CueResult create(const CueScriptCreateInfo*, T&).");
+
+        if (a_createInfo == nullptr || a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        auto* state = new (std::nothrow) T{};
+        if (state == nullptr)
+        {
+            return CueResult_InternalError;
+        }
+
+        const CueResult createResult = T::create(a_createInfo, *state);
+        if (createResult != CueResult_Ok)
+        {
+            delete state;
+            return createResult;
+        }
+
+        *a_outState = state;
+        return CueResult_Ok;
+    }
+
+    template<typename T>
+    void CUE_SCRIPT_CALL destroy_script_state_adapter(void* a_state)
+    {
+        delete static_cast<T*>(a_state);
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL update_script_state_adapter(
+        const CueEngineApi* a_engineApi,
+        void* a_state,
+        float a_deltaTimeSeconds)
+    {
+        static_assert(ScriptStateHasUpdate<T>,
+            "Script state must implement CueResult update(const CueEngineApi*, float).");
+
+        if (a_engineApi == nullptr || a_state == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        return static_cast<T*>(a_state)->update(a_engineApi, a_deltaTimeSeconds);
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL serialize_script_state_adapter(
+        const void* a_state,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        if (a_state == nullptr || a_outStateBuffer == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        if constexpr (ScriptStateHasRawSerialize<T>)
+        {
+            return static_cast<const T*>(a_state)->serialize(
+                a_outStateBuffer, a_stateBufferSize);
+        }
+        else if constexpr (ScriptStateHasBlobSerialize<T>)
+        {
+            using StateBlob = script_state_blob_type_t<T>;
+
+            if (a_stateBufferSize != sizeof(StateBlob))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            StateBlob blob{};
+            const CueResult serializeResult =
+                static_cast<const T*>(a_state)->serialize(blob);
+            if (serializeResult != CueResult_Ok)
+            {
+                return serializeResult;
+            }
+
+            std::memcpy(a_outStateBuffer, &blob, sizeof(StateBlob));
+            return CueResult_Ok;
+        }
+        else if constexpr (!ScriptStateHasBlobType<T> &&
+            std::is_trivially_copyable_v<T>)
+        {
+            if (a_stateBufferSize != sizeof(T))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            std::memcpy(a_outStateBuffer, a_state, sizeof(T));
+            return CueResult_Ok;
+        }
+        else
+        {
+            return CueResult_InvalidState;
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL restore_script_state_adapter(
+        void* a_state,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        if (a_state == nullptr || a_stateBuffer == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        if constexpr (ScriptStateHasRawRestore<T>)
+        {
+            return static_cast<T*>(a_state)->restore(
+                a_stateBuffer, a_stateBufferSize);
+        }
+        else if constexpr (ScriptStateHasBlobRestore<T>)
+        {
+            using StateBlob = script_state_blob_type_t<T>;
+
+            if (a_stateBufferSize != sizeof(StateBlob))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            StateBlob blob{};
+            std::memcpy(&blob, a_stateBuffer, sizeof(StateBlob));
+            return static_cast<T*>(a_state)->restore(blob);
+        }
+        else if constexpr (!ScriptStateHasBlobType<T> &&
+            std::is_trivially_copyable_v<T>)
+        {
+            if (a_stateBufferSize != sizeof(T))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            std::memcpy(a_state, a_stateBuffer, sizeof(T));
+            return CueResult_Ok;
+        }
+        else
+        {
+            return CueResult_InvalidState;
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] ScriptClassDefinition make_script_class_definition()
+    {
+        static_assert(ScriptStateHasFields<T>,
+            "Script state must implement static std::span<const CueScriptFieldValue> script_fields().");
+
+        const std::span<const CueScriptFieldValue> fields = T::script_fields();
+        using StateBlob = script_state_blob_type_t<T>;
+        return ScriptClassDefinition{
+            make_script_string_view(
+                T::k_className.data(),
+                static_cast<uint32_t>(T::k_className.size())),
+            fields.data(),
+            static_cast<uint32_t>(fields.size()),
+            CueScriptStateDescriptor{
+                static_cast<uint32_t>(T::k_stateVersion),
+                static_cast<uint32_t>(sizeof(StateBlob)),
+                hash_script_schema(T::k_stateSchema)
+            },
+            &create_script_state_adapter<T>,
+            &destroy_script_state_adapter<T>,
+            &update_script_state_adapter<T>,
+            &serialize_script_state_adapter<T>,
+            &restore_script_state_adapter<T>
+        };
+    }
 
     class ScriptModuleRuntime final
     {
