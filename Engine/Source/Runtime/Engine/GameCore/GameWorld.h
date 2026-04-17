@@ -65,6 +65,11 @@ namespace Cue::GameCore
             uint32_t a_renderWidth, uint32_t a_renderHeight,
             uint32_t a_defaultStaticMeshId);
 
+        [[nodiscard]] Result simulate(float a_deltaTime);
+        [[nodiscard]] Result editor_update(
+            uint32_t a_bufferIndex,
+            uint32_t a_renderWidth,
+            uint32_t a_renderHeight);
         [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
             uint32_t a_renderWidth, uint32_t a_renderHeight);
 

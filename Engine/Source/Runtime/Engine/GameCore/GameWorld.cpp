@@ -96,12 +96,19 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
-    [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
-        uint32_t a_renderWidth, uint32_t a_renderHeight)
+    [[nodiscard]] Result GameWorld::simulate(float a_deltaTime)
+    {
+        a_deltaTime;
+        // 将来の Physics / Animation / Gameplay 更新はここへ寄せる。
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::editor_update(
+        uint32_t a_bufferIndex,
+        uint32_t a_renderWidth,
+        uint32_t a_renderHeight)
     {
         execute_deferred_deletions_internal();
-        a_deltaTime;
-        //animate_static_mesh_objects(a_deltaTime);
 
         sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 
@@ -109,6 +116,18 @@ namespace Cue::GameCore
         updateContext.bufferIndex = a_bufferIndex;
         m_ecs.update_all_systems(updateContext);
         return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
+        uint32_t a_renderWidth, uint32_t a_renderHeight)
+    {
+        Result result = simulate(a_deltaTime);
+        if (!result)
+        {
+            return result;
+        }
+
+        return editor_update(a_bufferIndex, a_renderWidth, a_renderHeight);
     }
 
     [[nodiscard]] Result GameWorld::add_object(

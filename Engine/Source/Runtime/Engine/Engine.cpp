@@ -223,8 +223,8 @@ namespace Cue
             return result;
         }
 
-        result = m_gameWorld->update(
-            0.0f, 0, m_backend->width(), m_backend->height());
+        result = m_gameWorld->editor_update(
+            0, m_backend->width(), m_backend->height());
         if (!result)
         {
             return result;
@@ -539,11 +539,19 @@ namespace Cue
                 }
             }
 
-            Result updateResult = m_gameWorld->update(deltaTime, a_index,
+            Result simulateResult = m_gameWorld->simulate(deltaTime);
+            if (!simulateResult)
+            {
+                CUE_ASSERTF(false, "GameWorld simulate failed: %s",
+                    simulateResult.message.data());
+                return;
+            }
+
+            Result updateResult = m_gameWorld->editor_update(a_index,
                 m_backend->width(), m_backend->height());
             if (!updateResult)
             {
-                CUE_ASSERTF(false, "GameWorld update failed: %s",
+                CUE_ASSERTF(false, "GameWorld editor update failed: %s",
                     updateResult.message.data());
                 return;
             }
