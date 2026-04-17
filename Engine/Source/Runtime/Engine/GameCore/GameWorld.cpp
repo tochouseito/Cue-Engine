@@ -86,20 +86,33 @@ namespace Cue::GameCore
             return result;
         }
 
-        m_ecs.add_system<ECS::RenderableObjectSystem>(
+        auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_worldResources->renderable_info_uploaders(),
             m_worldResources->transform_uploaders(),
             m_renderSceneState);
-        m_ecs.add_system<ECS::CameraSystem>(
+        auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
+
+        m_editorPipeline.add_system(&renderableObjectSystem);
+        m_editorPipeline.add_system(&cameraSystem);
+        m_editorPipeline.awake(m_ecs);
+        m_editorPipeline.initialize(m_ecs);
 
         return Result::ok();
     }
 
     [[nodiscard]] Result GameWorld::simulate(float a_deltaTime)
     {
-        a_deltaTime;
-        // 将来の Physics / Animation / Gameplay 更新はここへ寄せる。
+        ECS::UpdateContext updateContext{};
+        updateContext.deltaTime = a_deltaTime;
+        m_simulationPipeline.update(m_ecs, updateContext);
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::finalize_systems() noexcept
+    {
+        m_simulationPipeline.finalize(m_ecs);
+        m_editorPipeline.finalize(m_ecs);
         return Result::ok();
     }
 
@@ -114,7 +127,7 @@ namespace Cue::GameCore
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
-        m_ecs.update_all_systems(updateContext);
+        m_editorPipeline.update(m_ecs, updateContext);
         return Result::ok();
     }
 

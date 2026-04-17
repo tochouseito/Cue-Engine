@@ -64,6 +64,7 @@ namespace Cue::GameCore
             RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
             uint32_t a_renderWidth, uint32_t a_renderHeight,
             uint32_t a_defaultStaticMeshId);
+        [[nodiscard]] Result finalize_systems() noexcept;
 
         [[nodiscard]] Result simulate(float a_deltaTime);
         [[nodiscard]] Result editor_update(
@@ -1844,6 +1845,8 @@ namespace Cue::GameCore
         }
 
         ECS::ECSManager m_ecs{};
+        ECS::ECSManager::SystemPipeline m_editorPipeline{};
+        ECS::ECSManager::SystemPipeline m_simulationPipeline{};
         std::unique_ptr<WorldResources> m_worldResources = nullptr;
         RenderSceneState m_renderSceneState{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};

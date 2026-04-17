@@ -257,6 +257,24 @@ namespace Cue
         unload_script_module();
         m_scriptRuntime.reset();
         m_scriptModule.reset();
+        if (m_playWorld != nullptr)
+        {
+            const Result finalizeResult = m_playWorld->finalize_systems();
+            if (!finalizeResult)
+            {
+                CUE_ASSERTF(false, "Failed to finalize play world systems: %s",
+                    finalizeResult.message.data());
+            }
+        }
+        if (m_editorWorld != nullptr)
+        {
+            const Result finalizeResult = m_editorWorld->finalize_systems();
+            if (!finalizeResult)
+            {
+                CUE_ASSERTF(false, "Failed to finalize editor world systems: %s",
+                    finalizeResult.message.data());
+            }
+        }
         m_activeWorld = nullptr;
         m_playWorld.reset();
         m_editorWorld.reset();

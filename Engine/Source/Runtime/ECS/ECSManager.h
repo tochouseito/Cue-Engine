@@ -58,6 +58,7 @@ namespace Cue::ECS
     struct UpdateContext final
     {
         uint32_t bufferIndex = 0;
+        float deltaTime = 0.0f;
     };
     struct FinalizeContext final {};
 
@@ -91,6 +92,9 @@ namespace Cue::ECS
         friend class Prototype;
 
     public:
+        class ISystem;
+        class SystemPipeline;
+
         /*---------------------------------------------------------------------
                 エンティティ管理
             ---------------------------------------------------------------------*/
@@ -886,6 +890,7 @@ namespace Cue::ECS
             // 所属する ECSManager のポインタを渡す
             raw->on_register(this);
             m_systems.push_back(std::move(ptr));
+            m_allSystemsPipeline.add_system(raw);
             return *raw;
         }
         template <typename S> S* get_system()
@@ -905,141 +910,32 @@ namespace Cue::ECS
 
         // ① ゲーム開始前に一度だけ
         void initialize_all_systems() { initialize_all_systems(InitializeContext{}); }
-
         void initialize_all_systems(const InitializeContext& a_context)
         {
-            m_isUpdating = true;
-            m_cancelUpdate = false; // ← 毎フレーム最初にリセット
-            const Math::TimeSpan t0Total = capture_now();
-
-            sort_systems_by_priority();
-            for (auto& sys : m_systems)
-            {
-                if (sys->is_enabled())
-                {
-                    const Math::TimeSpan t0 = capture_now();
-                    sys->initialize(a_context);
-                    const Math::TimeSpan t1 = capture_now();
-                    std::type_index ti(typeid(*sys));
-                    m_lastSystemInitializeTimeMs[ti] = elapsed_ms(t0, t1);
-                }
-            }
-
-            m_isUpdating = false;
-            m_cancelUpdate = false;
-
-            const Math::TimeSpan t1Total = capture_now();
-            m_lastTotalInitializeTimeMs = elapsed_ms(t0Total, t1Total);
+            initialize_pipeline(m_allSystemsPipeline, a_context);
         }
 
         // ――――――――――――――――――
         //  フレーム毎に呼ぶ：全システムを優先度順に更新
         // ――――――――――――――――――
         void update_all_systems() { update_all_systems(UpdateContext{}); }
-
         void update_all_systems(const UpdateContext& a_context)
         {
-            m_isUpdating = true;
-            m_cancelUpdate = false; // ← 毎フレーム最初にリセット
-
-            const Math::TimeSpan t0Total = capture_now();
-
-            // 追加直後の Entity を初期化システムに通す
-            const InitializeContext initializeContext{};
-            for (Entity e : m_newEntitiesLastFrame)
-            {
-                for (auto& sys : m_systems)
-                {
-                    sys->initialize_entity(e, initializeContext);
-                }
-            }
-            m_newEntitiesLastFrame.clear();
-
-            // システム更新
-            sort_systems_by_priority();
-            for (auto& sys : m_systems)
-            {
-                if (sys->is_enabled())
-                {
-                    if (m_cancelUpdate)
-                    {
-                        break; // 中止判定
-                    }
-                    const Math::TimeSpan t0 = capture_now();
-                    sys->update(a_context);
-                    const Math::TimeSpan t1 = capture_now();
-                    std::type_index ti(typeid(*sys));
-                    m_lastSystemUpdateTimeMs[ti] = elapsed_ms(t0, t1);
-                }
-            }
-
-            m_isUpdating = false;
-            m_cancelUpdate = false;
-            flush_staging_entities();
-            flush_staging_components();
-            flush_deferred();
-
-            const Math::TimeSpan t1Total = capture_now();
-            m_lastTotalUpdateTimeMs = elapsed_ms(t0Total, t1Total);
+            update_pipeline(m_allSystemsPipeline, a_context);
         }
 
         // ③ ゲーム終了後に一度だけ
         void finalize_all_systems() { finalize_all_systems(FinalizeContext{}); }
-
         void finalize_all_systems(const FinalizeContext& a_context)
         {
-            m_isUpdating = true;
-            m_cancelUpdate = false; // ← 毎フレーム最初にリセット
-            const Math::TimeSpan t0Total = capture_now();
-
-            sort_systems_by_priority();
-            for (auto& sys : m_systems)
-            {
-                if (sys->is_enabled())
-                {
-                    const Math::TimeSpan t0 = capture_now();
-                    sys->finalize(a_context);
-                    const Math::TimeSpan t1 = capture_now();
-
-                    std::type_index ti(typeid(*sys));
-                    m_lastSystemFinalizeTimeMs[ti] = elapsed_ms(t0, t1);
-                }
-            }
-
-            m_isUpdating = false;
-            m_cancelUpdate = false;
-
-            const Math::TimeSpan t1Total = capture_now();
-            m_lastTotalFinalizeTimeMs = elapsed_ms(t0Total, t1Total);
+            finalize_pipeline(m_allSystemsPipeline, a_context);
         }
 
         // ① ゲーム開始前に一度だけ
         void awake_all_systems() { awake_all_systems(AwakeContext{}); }
-
         void awake_all_systems(const AwakeContext& a_context)
         {
-            m_isUpdating = true;
-            m_cancelUpdate = false; // ← 毎フレーム最初にリセット
-            const Math::TimeSpan t0Total = capture_now();
-
-            sort_systems_by_priority();
-            for (auto& sys : m_systems)
-            {
-                if (sys->is_enabled())
-                {
-                    const Math::TimeSpan t0 = capture_now();
-                    sys->awake(a_context);
-                    const Math::TimeSpan t1 = capture_now();
-                    std::type_index ti(typeid(*sys));
-                    m_lastSystemAwakeTimeMs[ti] = elapsed_ms(t0, t1);
-                }
-            }
-
-            m_isUpdating = false;
-            m_cancelUpdate = false;
-
-            const Math::TimeSpan t1Total = capture_now();
-            m_lastTotalAwakeTimeMs = elapsed_ms(t0Total, t1Total);
+            awake_pipeline(m_allSystemsPipeline, a_context);
         }
 
         /// 最後のフレームで更新に要した「全システム分」の時間を取得(ms)
@@ -1107,8 +1003,11 @@ namespace Cue::ECS
                 // Archetype バケットに登録
                 m_archToEntities[m_stagingEntityArchetypes[i]].add(e);
 
-                // 新規Entityリストに追加
-                m_newEntitiesLastFrame.push_back(e);
+                // 新規 Entity を各システムの初期化待ちへ積む。
+                for (auto& system : m_systems)
+                {
+                    m_pendingInitBeforeUpdate[system.get()].push_back(e);
+                }
             }
 
             // 一時バッファをクリア
@@ -1782,6 +1681,120 @@ namespace Cue::ECS
             bool m_enabled = true;   // 有効フラグ
         };
 
+        class SystemPipeline final
+        {
+        public:
+            void add_system(ISystem* a_system)
+            {
+                if (a_system == nullptr || contains_system(a_system))
+                {
+                    return;
+                }
+
+                m_systems.push_back(a_system);
+                m_requiresSort = true;
+            }
+
+            void remove_system(ISystem* a_system)
+            {
+                if (a_system == nullptr)
+                {
+                    return;
+                }
+
+                const auto it = std::remove(
+                    m_systems.begin(), m_systems.end(), a_system);
+                if (it == m_systems.end())
+                {
+                    return;
+                }
+
+                m_systems.erase(it, m_systems.end());
+                m_requiresSort = true;
+            }
+
+            void clear() noexcept
+            {
+                m_systems.clear();
+                m_requiresSort = false;
+            }
+
+            [[nodiscard]] bool empty() const noexcept
+            {
+                return m_systems.empty();
+            }
+
+            [[nodiscard]] bool contains_system(ISystem* a_system) const noexcept
+            {
+                return std::find(
+                    m_systems.begin(), m_systems.end(), a_system) != m_systems.end();
+            }
+
+            void awake(ECSManager& a_ecs)
+            {
+                awake(a_ecs, AwakeContext{});
+            }
+
+            void awake(ECSManager& a_ecs, const AwakeContext& a_context)
+            {
+                a_ecs.awake_pipeline(*this, a_context);
+            }
+
+            void initialize(ECSManager& a_ecs)
+            {
+                initialize(a_ecs, InitializeContext{});
+            }
+
+            void initialize(
+                ECSManager& a_ecs,
+                const InitializeContext& a_context)
+            {
+                a_ecs.initialize_pipeline(*this, a_context);
+            }
+
+            void update(ECSManager& a_ecs)
+            {
+                update(a_ecs, UpdateContext{});
+            }
+
+            void update(ECSManager& a_ecs, const UpdateContext& a_context)
+            {
+                a_ecs.update_pipeline(*this, a_context);
+            }
+
+            void finalize(ECSManager& a_ecs)
+            {
+                finalize(a_ecs, FinalizeContext{});
+            }
+
+            void finalize(
+                ECSManager& a_ecs,
+                const FinalizeContext& a_context)
+            {
+                a_ecs.finalize_pipeline(*this, a_context);
+            }
+
+        private:
+            friend class ECSManager;
+
+            void sort_by_priority()
+            {
+                if (!m_requiresSort)
+                {
+                    return;
+                }
+
+                std::sort(m_systems.begin(), m_systems.end(),
+                    [](const ISystem* a_left, const ISystem* a_right) {
+                        return a_left->get_priority() < a_right->get_priority();
+                    });
+                m_requiresSort = false;
+            }
+
+            std::vector<ISystem*> m_systems{};
+            bool m_requiresSort = false;
+        };
+
         /*---------------------------------------------------------------------
             System & MultiSystem  (unchanged logic)
         ---------------------------------------------------------------------*/
@@ -2418,6 +2431,157 @@ namespace Cue::ECS
             AwakeWithContextFunc m_awakeWithContext;
         };
 
+        void initialize_pipeline(SystemPipeline& a_pipeline)
+        {
+            initialize_pipeline(a_pipeline, InitializeContext{});
+        }
+
+        void initialize_pipeline(
+            SystemPipeline& a_pipeline,
+            const InitializeContext& a_context)
+        {
+            m_isUpdating = true;
+            m_cancelUpdate = false;
+            const Math::TimeSpan t0Total = capture_now();
+
+            a_pipeline.sort_by_priority();
+            for (ISystem* system : a_pipeline.m_systems)
+            {
+                if (system == nullptr || !system->is_enabled())
+                {
+                    continue;
+                }
+
+                const Math::TimeSpan t0 = capture_now();
+                system->initialize(a_context);
+                const Math::TimeSpan t1 = capture_now();
+                m_lastSystemInitializeTimeMs[std::type_index(typeid(*system))] =
+                    elapsed_ms(t0, t1);
+            }
+
+            m_isUpdating = false;
+            m_cancelUpdate = false;
+            m_lastTotalInitializeTimeMs = elapsed_ms(t0Total, capture_now());
+        }
+
+        void awake_pipeline(SystemPipeline& a_pipeline)
+        {
+            awake_pipeline(a_pipeline, AwakeContext{});
+        }
+
+        void awake_pipeline(
+            SystemPipeline& a_pipeline,
+            const AwakeContext& a_context)
+        {
+            m_isUpdating = true;
+            m_cancelUpdate = false;
+            const Math::TimeSpan t0Total = capture_now();
+
+            a_pipeline.sort_by_priority();
+            for (ISystem* system : a_pipeline.m_systems)
+            {
+                if (system == nullptr || !system->is_enabled())
+                {
+                    continue;
+                }
+
+                const Math::TimeSpan t0 = capture_now();
+                system->awake(a_context);
+                const Math::TimeSpan t1 = capture_now();
+                m_lastSystemAwakeTimeMs[std::type_index(typeid(*system))] =
+                    elapsed_ms(t0, t1);
+            }
+
+            m_isUpdating = false;
+            m_cancelUpdate = false;
+            m_lastTotalAwakeTimeMs = elapsed_ms(t0Total, capture_now());
+        }
+
+        void update_pipeline(SystemPipeline& a_pipeline)
+        {
+            update_pipeline(a_pipeline, UpdateContext{});
+        }
+
+        void update_pipeline(
+            SystemPipeline& a_pipeline,
+            const UpdateContext& a_context)
+        {
+            m_isUpdating = true;
+            m_cancelUpdate = false;
+            const Math::TimeSpan t0Total = capture_now();
+            const InitializeContext initializeContext{};
+
+            a_pipeline.sort_by_priority();
+            for (ISystem* system : a_pipeline.m_systems)
+            {
+                if (system == nullptr || !system->is_enabled())
+                {
+                    continue;
+                }
+
+                auto pendingInitIt = m_pendingInitBeforeUpdate.find(system);
+                if (pendingInitIt != m_pendingInitBeforeUpdate.end())
+                {
+                    for (const Entity entity : pendingInitIt->second)
+                    {
+                        system->initialize_entity(entity, initializeContext);
+                    }
+                    pendingInitIt->second.clear();
+                }
+
+                if (m_cancelUpdate)
+                {
+                    break;
+                }
+
+                const Math::TimeSpan t0 = capture_now();
+                system->update(a_context);
+                const Math::TimeSpan t1 = capture_now();
+                m_lastSystemUpdateTimeMs[std::type_index(typeid(*system))] =
+                    elapsed_ms(t0, t1);
+            }
+
+            m_isUpdating = false;
+            m_cancelUpdate = false;
+            flush_staging_entities();
+            flush_staging_components();
+            flush_deferred();
+            m_lastTotalUpdateTimeMs = elapsed_ms(t0Total, capture_now());
+        }
+
+        void finalize_pipeline(SystemPipeline& a_pipeline)
+        {
+            finalize_pipeline(a_pipeline, FinalizeContext{});
+        }
+
+        void finalize_pipeline(
+            SystemPipeline& a_pipeline,
+            const FinalizeContext& a_context)
+        {
+            m_isUpdating = true;
+            m_cancelUpdate = false;
+            const Math::TimeSpan t0Total = capture_now();
+
+            a_pipeline.sort_by_priority();
+            for (ISystem* system : a_pipeline.m_systems)
+            {
+                if (system == nullptr || !system->is_enabled())
+                {
+                    continue;
+                }
+
+                const Math::TimeSpan t0 = capture_now();
+                system->finalize(a_context);
+                const Math::TimeSpan t1 = capture_now();
+                m_lastSystemFinalizeTimeMs[std::type_index(typeid(*system))] =
+                    elapsed_ms(t0, t1);
+            }
+
+            m_isUpdating = false;
+            m_cancelUpdate = false;
+            m_lastTotalFinalizeTimeMs = elapsed_ms(t0Total, capture_now());
+        }
+
         std::unordered_map<Archetype, EntityContainer>& get_arch_to_entities()
         {
             return m_archToEntities;
@@ -2438,14 +2602,6 @@ namespace Cue::ECS
             Math::TimeSpan a_end) const noexcept
         {
             return (a_end - a_begin).ms_f64();
-        }
-
-        void sort_systems_by_priority()
-        {
-            std::sort(m_systems.begin(), m_systems.end(),
-                [](const auto& a_left, const auto& a_right) {
-                    return a_left->get_priority() < a_right->get_priority();
-                });
         }
 
         void notify_component_added(Entity a_e, CompID a_c)
@@ -2558,6 +2714,7 @@ namespace Cue::ECS
         std::vector<std::function<void()>> m_deferredCommands;
         std::vector<std::weak_ptr<IEntityEventListener>> m_entityListeners;
         std::vector<std::unique_ptr<ISystem>> m_systems;
+        SystemPipeline m_allSystemsPipeline{};
         std::vector<std::weak_ptr<IIComponentEventListener>> m_componentListeners;
         std::unordered_map<Archetype, EntityContainer> m_archToEntities;
         std::unordered_map<CompID, std::shared_ptr<IComponentPool>>
@@ -2577,10 +2734,8 @@ namespace Cue::ECS
         std::unordered_map<std::type_index, double> m_lastSystemAwakeTimeMs;
 
         // SystemごとのUpdate直前に処理する初期化対象格納用
-        std::unordered_map<std::type_index, std::vector<Entity>>
+        std::unordered_map<ISystem*, std::vector<Entity>>
             m_pendingInitBeforeUpdate;
-        // 新規に追加された Entity を記録するバッファ
-        std::vector<Entity> m_newEntitiesLastFrame;
     };
 
     struct IComponentEventListener : public IIComponentEventListener
