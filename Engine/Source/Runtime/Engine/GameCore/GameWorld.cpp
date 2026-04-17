@@ -130,6 +130,195 @@ namespace Cue::GameCore
         return editor_update(a_bufferIndex, a_renderWidth, a_renderHeight);
     }
 
+    [[nodiscard]] Result GameWorld::clone_from(const GameWorld& a_source)
+    {
+        if (this == &a_source)
+        {
+            return Result::ok();
+        }
+
+        if (m_worldResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Clone target GameWorld is not initialized.");
+        }
+
+        if (a_source.m_worldResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Clone source GameWorld is not initialized.");
+        }
+
+        Result result = clear();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_mainCameraIndex = a_source.m_mainCameraIndex;
+        m_defaultStaticMeshId = a_source.m_defaultStaticMeshId;
+        m_nextSceneId = a_source.m_nextSceneId;
+
+        std::vector<SceneId> sceneIds{};
+        sceneIds.reserve(a_source.m_scenes.size());
+        for (const auto& [sceneId, _] : a_source.m_scenes)
+        {
+            sceneIds.push_back(sceneId);
+        }
+        std::sort(sceneIds.begin(), sceneIds.end());
+
+        for (const SceneId sceneId : sceneIds)
+        {
+            const auto sourceSceneIt = a_source.m_scenes.find(sceneId);
+            if (sourceSceneIt == a_source.m_scenes.end())
+            {
+                continue;
+            }
+
+            const SceneInstance& sourceScene = sourceSceneIt->second;
+
+            SceneInstance targetScene{};
+            targetScene.sceneId = sourceScene.sceneId;
+            targetScene.asset = sourceScene.asset;
+            targetScene.isLoaded = sourceScene.isLoaded;
+            targetScene.isActive = sourceScene.isActive;
+            targetScene.isPendingUnload = false;
+            targetScene.nextLocalObjectId = sourceScene.nextLocalObjectId;
+
+            m_scenes.emplace(sceneId, std::move(targetScene));
+
+            std::vector<ObjectDefinition> objectDefinitions{};
+            objectDefinitions.reserve(sourceScene.entities.size());
+            for (const EntityId entityId : sourceScene.entities)
+            {
+                if (!a_source.contains_object(entityId))
+                {
+                    continue;
+                }
+
+                const BaseComponent* base =
+                    a_source.get_component<BaseComponent>(entityId);
+                const EntityRecord* record =
+                    a_source.try_get_entity_record(entityId);
+                if (base == nullptr || record == nullptr || !record->isAlive)
+                {
+                    continue;
+                }
+
+                ObjectDefinition definition{};
+                definition.localObjectId = record->sourceLocalObjectId;
+                definition.isActive = base->isActiveSelf;
+                definition.isPersistent = base->isPersistent;
+                definition.prototype =
+                    a_source.build_object_prototype(entityId, *base);
+
+                if (base->parent != k_invalidEntityId &&
+                    a_source.source_scene_id(base->parent) == sceneId)
+                {
+                    const EntityRecord* parentRecord =
+                        a_source.try_get_entity_record(base->parent);
+                    if (parentRecord != nullptr &&
+                        parentRecord->isAlive &&
+                        parentRecord->sourceLocalObjectId != k_invalidLocalObjectId)
+                    {
+                        definition.parentLocalObjectId =
+                            parentRecord->sourceLocalObjectId;
+                    }
+                }
+
+                objectDefinitions.push_back(std::move(definition));
+            }
+
+            try
+            {
+                (void)instantiate_into_scene(
+                    sceneId,
+                    std::span<const ObjectDefinition>(objectDefinitions),
+                    sourceScene.asset);
+            }
+            catch (const std::exception& exception)
+            {
+                return Result::fail(Code::CreateFailed, Severity::Error,
+                    exception.what());
+            }
+        }
+
+        struct PendingLooseParent final
+        {
+            EntityId sourceEntityId = k_invalidEntityId;
+            EntityId targetEntityId = k_invalidEntityId;
+            EntityId sourceParentId = k_invalidEntityId;
+        };
+
+        std::unordered_map<EntityId, EntityId> looseEntityMap{};
+        std::vector<PendingLooseParent> pendingLooseParents{};
+        looseEntityMap.reserve(a_source.m_entityRecords.size());
+        pendingLooseParents.reserve(a_source.m_entityRecords.size());
+
+        for (EntityId entityId = 0;
+             entityId < static_cast<EntityId>(a_source.m_entityRecords.size());
+             ++entityId)
+        {
+            if (!a_source.contains_object(entityId) ||
+                a_source.source_scene_id(entityId) != k_invalidSceneId)
+            {
+                continue;
+            }
+
+            const BaseComponent* base =
+                a_source.get_component<BaseComponent>(entityId);
+            if (base == nullptr)
+            {
+                continue;
+            }
+
+            ObjectDefinition definition{};
+            definition.isActive = base->isActiveSelf;
+            definition.isPersistent = base->isPersistent;
+            definition.prototype =
+                a_source.build_object_prototype(entityId, *base);
+
+            const GameObject clonedObject = instantiate_object(definition);
+            if (!clonedObject.is_valid())
+            {
+                return Result::fail(Code::CreateFailed, Severity::Error,
+                    "GameWorld loose object clone failed.");
+            }
+
+            looseEntityMap.emplace(entityId, clonedObject.entity_id());
+            if (base->parent != k_invalidEntityId &&
+                a_source.source_scene_id(base->parent) == k_invalidSceneId)
+            {
+                pendingLooseParents.push_back(PendingLooseParent{
+                    entityId,
+                    clonedObject.entity_id(),
+                    base->parent
+                });
+            }
+        }
+
+        for (const PendingLooseParent& pendingParent : pendingLooseParents)
+        {
+            const auto parentIt = looseEntityMap.find(pendingParent.sourceParentId);
+            if (parentIt == looseEntityMap.end())
+            {
+                continue;
+            }
+
+            BaseComponent* base = get_component<BaseComponent>(
+                pendingParent.targetEntityId);
+            if (base == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld cloned BaseComponent is missing.");
+            }
+
+            base->parent = parentIt->second;
+        }
+
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_object(
         const Math::float3& a_position, GameObject& a_outObject)
     {

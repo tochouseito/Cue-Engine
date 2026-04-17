@@ -72,6 +72,7 @@ namespace Cue::GameCore
             uint32_t a_renderHeight);
         [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
             uint32_t a_renderWidth, uint32_t a_renderHeight);
+        [[nodiscard]] Result clone_from(const GameWorld& a_source);
 
         [[nodiscard]] Result add_object()
         {
