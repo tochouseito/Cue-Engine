@@ -1,0 +1,72 @@
+#pragma once
+
+// === Base includes ===
+#include <Result.h>
+
+// === Core includes ===
+#include <IO/IFileSystem.h>
+#include <IO/Path.h>
+
+// === Engine includes ===
+#include "ScriptShadowCopyService.h"
+#include "../GameCore/Components.h"
+
+// === C++ includes ===
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace Cue::GameCore
+{
+    class GameWorld;
+}
+
+namespace Cue
+{
+    class ScriptModule;
+    class ScriptRuntime;
+
+    class ScriptModuleHost final
+    {
+    public:
+        explicit ScriptModuleHost(Core::IO::IFileSystem& a_fileSystem) noexcept;
+        ~ScriptModuleHost();
+
+        ScriptModuleHost(const ScriptModuleHost&) = delete;
+        ScriptModuleHost& operator=(const ScriptModuleHost&) = delete;
+        ScriptModuleHost(ScriptModuleHost&&) = delete;
+        ScriptModuleHost& operator=(ScriptModuleHost&&) = delete;
+
+        [[nodiscard]] Result initialize(GameCore::GameWorld& a_gameWorld) noexcept;
+        [[nodiscard]] Result set_game_world(GameCore::GameWorld& a_gameWorld) noexcept;
+        void activate_runtime() noexcept;
+
+        [[nodiscard]] ScriptRuntime* runtime() noexcept;
+        [[nodiscard]] const ScriptRuntime* runtime() const noexcept;
+        [[nodiscard]] const std::vector<std::string>&
+            registered_script_classes() const noexcept;
+        [[nodiscard]] bool has_registered_script_class(
+            std::string_view a_className) const noexcept;
+        [[nodiscard]] const std::vector<ECS::ScriptFieldValue>&
+            script_field_defaults(std::string_view a_className) const noexcept;
+
+        [[nodiscard]] Result load_module(
+            const Core::IO::Path& a_scriptRoot,
+            GameCore::GameWorld& a_validationWorld) noexcept;
+        void unload_module() noexcept;
+
+    private:
+        [[nodiscard]] Result resolve_script_module_path(
+            const Core::IO::Path& a_scriptRoot,
+            Core::IO::Path& a_outModulePath) noexcept;
+
+    private:
+        Core::IO::IFileSystem& m_fileSystem;
+        ScriptShadowCopyService m_shadowCopyService;
+        std::unique_ptr<ScriptModule> m_module = nullptr;
+        std::unique_ptr<ScriptRuntime> m_runtime = nullptr;
+        Core::IO::Path m_scriptRoot{};
+        uint64_t m_shadowCopyId = 0;
+    };
+}

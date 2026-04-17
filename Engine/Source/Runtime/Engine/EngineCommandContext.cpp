@@ -1,0 +1,154 @@
+#include "EngineCommandContext.h"
+
+namespace Cue
+{
+    EngineCommandContext::EngineCommandContext(
+        GameCore::GameWorld& a_gameWorld,
+        GameCore::SceneId a_currentSceneId) noexcept
+        : m_gameWorld(a_gameWorld)
+        , m_currentSceneId(a_currentSceneId)
+    {
+    }
+
+    Result EngineCommandContext::create_object(
+        GameCore::EntityId& a_outObjectId)
+    {
+        GameCore::GameObject object{};
+        Result result = m_currentSceneId != GameCore::k_invalidSceneId
+            ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
+            : m_gameWorld.add_object(object);
+        a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
+        return result;
+    }
+
+    Result EngineCommandContext::destroy_object(GameCore::EntityId a_objectId)
+    {
+        return m_gameWorld.destroy_object(a_objectId);
+    }
+
+    Result EngineCommandContext::resolve_render_object_entity(
+        uint32_t a_objectId,
+        GameCore::EntityId& a_outEntityId)
+    {
+        return m_gameWorld.get_render_object_entity(a_objectId, a_outEntityId);
+    }
+
+    Result EngineCommandContext::set_main_camera(uint32_t a_cameraIndex)
+    {
+        return m_gameWorld.set_main_camera(a_cameraIndex);
+    }
+
+    Result EngineCommandContext::get_object_name(
+        GameCore::EntityId a_objectId,
+        std::string& a_outName)
+    {
+        return m_gameWorld.get_object_name(a_objectId, a_outName);
+    }
+
+    Result EngineCommandContext::rename_object(
+        GameCore::EntityId a_objectId,
+        std::string_view a_name)
+    {
+        return m_gameWorld.set_object_name(a_objectId, a_name);
+    }
+
+    Result EngineCommandContext::capture_deleted_object(
+        GameCore::EntityId a_objectId,
+        GameCore::DeletedObjectSnapshot& a_outSnapshot)
+    {
+        return m_gameWorld.capture_deleted_object(a_objectId, a_outSnapshot);
+    }
+
+    Result EngineCommandContext::restore_deleted_object(
+        const GameCore::DeletedObjectSnapshot& a_snapshot,
+        GameCore::EntityId& a_outObjectId)
+    {
+        return m_gameWorld.restore_deleted_object(a_snapshot, a_outObjectId);
+    }
+
+    Result EngineCommandContext::add_component(
+        GameCore::EntityId a_objectId,
+        AddableComponentType a_componentType)
+    {
+        switch (a_componentType)
+        {
+        case AddableComponentType::Camera:
+            return add_component_internal<ECS::CameraComponent>(
+                a_objectId, "CameraComponent already exists.");
+
+        case AddableComponentType::MeshFilter:
+            return add_component_internal<ECS::MeshFilterComponent>(
+                a_objectId, "MeshFilterComponent already exists.");
+
+        case AddableComponentType::StaticMeshRenderer:
+            return add_component_internal<ECS::StaticMeshRendererComponent>(
+                a_objectId, "StaticMeshRendererComponent already exists.");
+
+        case AddableComponentType::Script:
+            return add_component_internal<ECS::ScriptComponent>(
+                a_objectId, "ScriptComponent already exists.");
+        }
+
+        return Result::fail(Code::InvalidArgument, Severity::Error,
+            "Unknown component type was requested.");
+    }
+
+    Result EngineCommandContext::remove_component(
+        GameCore::EntityId a_objectId,
+        AddableComponentType a_componentType)
+    {
+        switch (a_componentType)
+        {
+        case AddableComponentType::Camera:
+            return remove_component_internal<ECS::CameraComponent>(
+                a_objectId, "CameraComponent was not found.");
+
+        case AddableComponentType::MeshFilter:
+            return remove_component_internal<ECS::MeshFilterComponent>(
+                a_objectId, "MeshFilterComponent was not found.");
+
+        case AddableComponentType::StaticMeshRenderer:
+            return remove_component_internal<ECS::StaticMeshRendererComponent>(
+                a_objectId, "StaticMeshRendererComponent was not found.");
+
+        case AddableComponentType::Script:
+            return remove_component_internal<ECS::ScriptComponent>(
+                a_objectId, "ScriptComponent was not found.");
+        }
+
+        return Result::fail(Code::InvalidArgument, Severity::Error,
+            "Unknown component type was requested.");
+    }
+
+    Result EngineCommandContext::get_script_component(
+        GameCore::EntityId a_objectId,
+        ECS::ScriptComponent& a_outComponent)
+    {
+        ECS::ScriptComponent* component = nullptr;
+        Result result =
+            m_gameWorld.get_component<ECS::ScriptComponent>(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        a_outComponent = *component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::set_script_component(
+        GameCore::EntityId a_objectId,
+        const ECS::ScriptComponent& a_component)
+    {
+        ECS::ScriptComponent* component = nullptr;
+        Result result =
+            m_gameWorld.get_component<ECS::ScriptComponent>(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        *component = a_component;
+        return Result::ok();
+    }
+}

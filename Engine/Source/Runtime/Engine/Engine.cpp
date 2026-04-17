@@ -1,10 +1,12 @@
 #include "Engine.h"
+#include "PlatformCommandContext.h"
 #include "Passes/GenerateVisibleList.h"
 #include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
 #include "Passes/ViewProjectionCopyPass.h"
+#include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
@@ -16,112 +18,6 @@
 
 namespace Cue
 {
-    class PlatformCommandContext final : public PAL::IPlatformCommandContext
-    {
-    public:
-        PlatformCommandContext(PAL::PlatformRuntimeState& a_state,
-            FrameController* a_frameController) noexcept
-            : m_state(a_state)
-            , m_frameController(a_frameController)
-        {
-        }
-
-        Result request_window_resize(uint32_t a_width, uint32_t a_height) override
-        {
-            Result result = m_state.request_window_resize(a_width, a_height);
-            if (!result)
-            {
-                return result;
-            }
-
-            if (m_frameController != nullptr)
-            {
-                m_frameController->poll_resize_request();
-            }
-
-            return Result::ok();
-        }
-
-    private:
-        PAL::PlatformRuntimeState& m_state;
-        FrameController* m_frameController = nullptr;
-    };
-
-    namespace
-    {
-        [[nodiscard]] Result copy_file(
-            Core::IO::IFileSystem& a_fileSystem,
-            const Core::IO::Path& a_sourcePath,
-            const Core::IO::Path& a_destinationPath) noexcept
-        {
-            std::vector<std::byte> fileData{};
-            Result result = a_fileSystem.read_all(a_sourcePath, &fileData);
-            if (!result)
-            {
-                return Result::fail(Code::GetFailed, Severity::Error,
-                    "Script module ファイルの読み込みに失敗しました。");
-            }
-
-            result = a_fileSystem.write_all(
-                a_destinationPath,
-                std::span<const std::byte>(fileData.data(), fileData.size()),
-                true);
-            if (!result)
-            {
-                return Result::fail(Code::CreateFailed, Severity::Error,
-                    "Script module shadow copy の書き込みに失敗しました。");
-            }
-
-            return Result::ok();
-        }
-
-        [[nodiscard]] Result create_script_module_shadow_copy(
-            Core::IO::IFileSystem& a_fileSystem,
-            const Core::IO::Path& a_scriptRoot,
-            const Core::IO::Path& a_modulePath,
-            uint64_t a_shadowCopyId,
-            Core::IO::Path& a_outShadowModulePath) noexcept
-        {
-            const Core::IO::Path shadowDirectory = Core::IO::Path::join(
-                a_scriptRoot,
-                Core::IO::Path("Intermediate/ScriptRuntime"));
-            const std::string shadowBaseName =
-                a_modulePath.stem() + "_" + std::to_string(a_shadowCopyId);
-
-            a_outShadowModulePath = Core::IO::Path::join(
-                shadowDirectory,
-                Core::IO::Path(shadowBaseName + a_modulePath.extension()));
-
-            Result result = copy_file(
-                a_fileSystem, a_modulePath, a_outShadowModulePath);
-            if (!result)
-            {
-                return result;
-            }
-
-            const Core::IO::Path sourcePdbPath = Core::IO::Path::join(
-                a_modulePath.parent(),
-                Core::IO::Path(a_modulePath.stem() + ".pdb"));
-            bool sourcePdbExists = false;
-            result = a_fileSystem.exists(sourcePdbPath, &sourcePdbExists);
-            if (!result)
-            {
-                return Result::fail(Code::GetFailed, Severity::Error,
-                    "Script module PDB の確認に失敗しました。");
-            }
-
-            if (!sourcePdbExists)
-            {
-                return Result::ok();
-            }
-
-            const Core::IO::Path shadowPdbPath = Core::IO::Path::join(
-                shadowDirectory,
-                Core::IO::Path(shadowBaseName + ".pdb"));
-            return copy_file(a_fileSystem, sourcePdbPath, shadowPdbPath);
-        }
-    }
-
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
         // 引数の検査
@@ -210,8 +106,13 @@ namespace Cue
 
         m_activeWorld = m_editorWorld.get();
 
-        m_scriptModule = std::make_unique<ScriptModule>();
-        m_scriptRuntime = std::make_unique<ScriptRuntime>(*m_activeWorld);
+        m_scriptModuleHost =
+            std::make_unique<ScriptModuleHost>(m_platform->file_system());
+        result = m_scriptModuleHost->initialize(*m_activeWorld);
+        if (!result)
+        {
+            return result;
+        }
 
         result = create_final_color_resources();
         if (!result)
@@ -255,8 +156,7 @@ namespace Cue
     void Engine::shutdown()
     {
         unload_script_module();
-        m_scriptRuntime.reset();
-        m_scriptModule.reset();
+        m_scriptModuleHost.reset();
         if (m_playWorld != nullptr)
         {
             const Result finalizeResult = m_playWorld->finalize_systems();
@@ -591,9 +491,11 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            if (m_scriptRuntime != nullptr)
+            if (m_scriptModuleHost != nullptr &&
+                m_scriptModuleHost->runtime() != nullptr)
             {
-                Result scriptResult = m_scriptRuntime->update(deltaTime);
+                Result scriptResult =
+                    m_scriptModuleHost->runtime()->update(deltaTime);
                 if (!scriptResult)
                 {
                     CUE_ASSERTF(false, "Script runtime update failed: %s",
@@ -623,114 +525,17 @@ namespace Cue
 
     Result Engine::load_script_module(const Core::IO::Path& a_scriptRoot) noexcept
     {
-        if (m_platform == nullptr || m_scriptModule == nullptr || m_scriptRuntime == nullptr)
+        if (m_scriptModuleHost == nullptr || m_activeWorld == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine script runtime is not initialized.");
         }
 
-        Core::IO::Path modulePath{};
-        Result result = resolve_script_module_path(a_scriptRoot, modulePath);
+        Result result =
+            m_scriptModuleHost->load_module(a_scriptRoot, *m_activeWorld);
         if (!result)
         {
             return result;
-        }
-
-        Core::IO::Path shadowModulePath{};
-        result = create_script_module_shadow_copy(
-            m_platform->file_system(),
-            a_scriptRoot,
-            modulePath,
-            ++m_scriptModuleShadowCopyId,
-            shadowModulePath);
-        if (!result)
-        {
-            return result;
-        }
-
-        std::unique_ptr<ScriptModule> nextModule = std::make_unique<ScriptModule>();
-        result = nextModule->load_shadow_copy(modulePath, shadowModulePath);
-        if (!result)
-        {
-            return result;
-        }
-
-        {
-            ScriptRuntime validationRuntime(*m_activeWorld);
-            result = nextModule->register_scripts(validationRuntime.engine_api());
-        }
-        m_scriptRuntime->activate();
-        if (!result)
-        {
-            nextModule->unload();
-            return result;
-        }
-
-        std::vector<ScriptRuntime::StateSnapshot> preservedStateSnapshots{};
-        result = m_scriptRuntime->capture_instance_states(preservedStateSnapshots);
-        if (!result)
-        {
-            nextModule->unload();
-            return result;
-        }
-
-        result = m_scriptRuntime->reset();
-        if (!result)
-        {
-            nextModule->unload();
-            return result;
-        }
-
-        std::unique_ptr<ScriptModule> previousModule = std::move(m_scriptModule);
-        m_scriptModule = std::move(nextModule);
-        m_scriptRuntime->set_module(m_scriptModule.get());
-        result = m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
-        if (!result)
-        {
-            m_scriptRuntime->set_module(nullptr);
-            m_scriptModule->unload();
-            m_scriptModule = std::move(previousModule);
-            if (m_scriptModule != nullptr)
-            {
-                m_scriptRuntime->set_module(m_scriptModule.get());
-                const Result restoreResult =
-                    m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
-                if (!restoreResult)
-                {
-                    m_scriptRuntime->set_module(nullptr);
-                    m_scriptModule->unload();
-                    m_scriptModule = nullptr;
-                    m_scriptRoot = {};
-                }
-            }
-            return result;
-        }
-
-        result = m_scriptRuntime->restore_instance_states(preservedStateSnapshots);
-        if (!result)
-        {
-            m_scriptRuntime->set_module(nullptr);
-            m_scriptModule->unload();
-            m_scriptModule = std::move(previousModule);
-            if (m_scriptModule != nullptr)
-            {
-                m_scriptRuntime->set_module(m_scriptModule.get());
-                const Result restoreResult =
-                    m_scriptModule->register_scripts(m_scriptRuntime->engine_api());
-                if (!restoreResult)
-                {
-                    m_scriptRuntime->set_module(nullptr);
-                    m_scriptModule->unload();
-                    m_scriptModule = nullptr;
-                    m_scriptRoot = {};
-                }
-            }
-            return result;
-        }
-
-        if (previousModule != nullptr)
-        {
-            previousModule->unload();
         }
 
         m_scriptRoot = a_scriptRoot;
@@ -739,15 +544,9 @@ namespace Cue
 
     void Engine::unload_script_module() noexcept
     {
-        if (m_scriptRuntime != nullptr)
+        if (m_scriptModuleHost != nullptr)
         {
-            (void)m_scriptRuntime->reset();
-            m_scriptRuntime->set_module(nullptr);
-        }
-
-        if (m_scriptModule != nullptr)
-        {
-            m_scriptModule->unload();
+            m_scriptModuleHost->unload_module();
         }
 
         m_scriptRoot = {};
@@ -804,15 +603,15 @@ namespace Cue
 
         m_activeWorld = m_playWorld.get();
 
-        if (m_scriptRuntime != nullptr)
+        if (m_scriptModuleHost != nullptr)
         {
-            result = m_scriptRuntime->set_game_world(*m_activeWorld);
+            result = m_scriptModuleHost->set_game_world(*m_activeWorld);
             if (!result)
             {
                 m_activeWorld = m_editorWorld.get();
                 return result;
             }
-            m_scriptRuntime->activate();
+            m_scriptModuleHost->activate_runtime();
         }
 
         result = sync_active_world_buffers();
@@ -855,14 +654,14 @@ namespace Cue
 
         m_activeWorld = m_editorWorld.get();
 
-        if (m_scriptRuntime != nullptr)
+        if (m_scriptModuleHost != nullptr)
         {
-            result = m_scriptRuntime->set_game_world(*m_activeWorld);
+            result = m_scriptModuleHost->set_game_world(*m_activeWorld);
             if (!result)
             {
                 return result;
             }
-            m_scriptRuntime->activate();
+            m_scriptModuleHost->activate_runtime();
         }
 
         result = sync_active_world_buffers();
@@ -884,64 +683,6 @@ namespace Cue
     bool Engine::is_playing() const noexcept
     {
         return m_playWorld != nullptr && m_activeWorld == m_playWorld.get();
-    }
-
-    Result Engine::resolve_script_module_path(
-        const Core::IO::Path& a_scriptRoot,
-        Core::IO::Path& a_outModulePath) noexcept
-    {
-        a_outModulePath = {};
-        if (m_platform == nullptr)
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "Platform is not initialized.");
-        }
-
-#if defined(CUE_DEBUG)
-        constexpr const char* k_buildConfig = "Debug";
-#elif defined(CUE_RELWITHDEBINFO)
-        constexpr const char* k_buildConfig = "RelWithDebInfo";
-#else
-        constexpr const char* k_buildConfig = "Release";
-#endif
-
-        const std::array<Core::IO::Path, 4> candidatePaths = {
-            Core::IO::Path::join(
-                a_scriptRoot,
-                Core::IO::Path(std::string("Binaries/") + k_buildConfig + "/GameScript.dll")),
-            Core::IO::Path::join(
-                a_scriptRoot,
-                Core::IO::Path(std::string("out/build/win-x64/GameScript/") +
-                    k_buildConfig + "/GameScript.dll")),
-            Core::IO::Path::join(
-                a_scriptRoot,
-                Core::IO::Path(std::string("out/build/win-x64/") +
-                    k_buildConfig + "/GameScript.dll")),
-            Core::IO::Path::join(
-                a_scriptRoot,
-                Core::IO::Path(std::string("generated/outputs/") +
-                    k_buildConfig + "/GameScript.dll")),
-        };
-
-        Core::IO::IFileSystem& fileSystem = m_platform->file_system();
-        for (const Core::IO::Path& candidatePath : candidatePaths)
-        {
-            bool exists = false;
-            Result result = fileSystem.exists(candidatePath, &exists);
-            if (!result)
-            {
-                return result;
-            }
-
-            if (exists)
-            {
-                a_outModulePath = candidatePath;
-                return Result::ok();
-            }
-        }
-
-        return Result::fail(Code::NotFound, Severity::Warning,
-            "GameScript.dll was not found in the script root.");
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::render()

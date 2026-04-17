@@ -1,0 +1,277 @@
+#include "ScriptModuleHost.h"
+
+// === Engine includes ===
+#include "../GameCore/GameWorld.h"
+#include "ScriptModule.h"
+#include "ScriptRuntime.h"
+
+// === C++ includes ===
+#include <array>
+#include <memory>
+
+namespace Cue
+{
+    ScriptModuleHost::ScriptModuleHost(
+        Core::IO::IFileSystem& a_fileSystem) noexcept
+        : m_fileSystem(a_fileSystem)
+        , m_shadowCopyService(a_fileSystem)
+    {
+    }
+
+    ScriptModuleHost::~ScriptModuleHost()
+    {
+        unload_module();
+    }
+
+    Result ScriptModuleHost::initialize(GameCore::GameWorld& a_gameWorld) noexcept
+    {
+        if (m_runtime != nullptr)
+        {
+            return set_game_world(a_gameWorld);
+        }
+
+        m_module = std::make_unique<ScriptModule>();
+        m_runtime = std::make_unique<ScriptRuntime>(a_gameWorld);
+        return Result::ok();
+    }
+
+    Result ScriptModuleHost::set_game_world(GameCore::GameWorld& a_gameWorld) noexcept
+    {
+        if (m_runtime == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime is not initialized.");
+        }
+
+        return m_runtime->set_game_world(a_gameWorld);
+    }
+
+    void ScriptModuleHost::activate_runtime() noexcept
+    {
+        if (m_runtime != nullptr)
+        {
+            m_runtime->activate();
+        }
+    }
+
+    ScriptRuntime* ScriptModuleHost::runtime() noexcept
+    {
+        return m_runtime.get();
+    }
+
+    const ScriptRuntime* ScriptModuleHost::runtime() const noexcept
+    {
+        return m_runtime.get();
+    }
+
+    const std::vector<std::string>&
+        ScriptModuleHost::registered_script_classes() const noexcept
+    {
+        static const std::vector<std::string> k_empty{};
+        return m_runtime != nullptr
+            ? m_runtime->registered_script_classes()
+            : k_empty;
+    }
+
+    bool ScriptModuleHost::has_registered_script_class(
+        std::string_view a_className) const noexcept
+    {
+        return m_runtime != nullptr &&
+            m_runtime->has_registered_script_class(a_className);
+    }
+
+    const std::vector<ECS::ScriptFieldValue>&
+        ScriptModuleHost::script_field_defaults(
+            std::string_view a_className) const noexcept
+    {
+        static const std::vector<ECS::ScriptFieldValue> k_empty{};
+        return m_runtime != nullptr
+            ? m_runtime->script_field_defaults(a_className)
+            : k_empty;
+    }
+
+    Result ScriptModuleHost::load_module(
+        const Core::IO::Path& a_scriptRoot,
+        GameCore::GameWorld& a_validationWorld) noexcept
+    {
+        if (m_module == nullptr || m_runtime == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script module host is not initialized.");
+        }
+
+        Core::IO::Path modulePath{};
+        Result result = resolve_script_module_path(a_scriptRoot, modulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        Core::IO::Path shadowModulePath{};
+        result = m_shadowCopyService.create_shadow_copy(
+            a_scriptRoot,
+            modulePath,
+            ++m_shadowCopyId,
+            shadowModulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        std::unique_ptr<ScriptModule> nextModule = std::make_unique<ScriptModule>();
+        result = nextModule->load_shadow_copy(modulePath, shadowModulePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        {
+            ScriptRuntime validationRuntime(a_validationWorld);
+            result = nextModule->register_scripts(validationRuntime.engine_api());
+        }
+        activate_runtime();
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
+        std::vector<ScriptRuntime::StateSnapshot> preservedStateSnapshots{};
+        result = m_runtime->capture_instance_states(preservedStateSnapshots);
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
+        result = m_runtime->reset();
+        if (!result)
+        {
+            nextModule->unload();
+            return result;
+        }
+
+        std::unique_ptr<ScriptModule> previousModule = std::move(m_module);
+        m_module = std::move(nextModule);
+        m_runtime->set_module(m_module.get());
+        result = m_module->register_scripts(m_runtime->engine_api());
+        if (!result)
+        {
+            m_runtime->set_module(nullptr);
+            m_module->unload();
+            m_module = std::move(previousModule);
+            if (m_module != nullptr)
+            {
+                m_runtime->set_module(m_module.get());
+                const Result restoreResult =
+                    m_module->register_scripts(m_runtime->engine_api());
+                if (!restoreResult)
+                {
+                    m_runtime->set_module(nullptr);
+                    m_module->unload();
+                    m_module = nullptr;
+                    m_scriptRoot = {};
+                }
+            }
+            return result;
+        }
+
+        result = m_runtime->restore_instance_states(preservedStateSnapshots);
+        if (!result)
+        {
+            m_runtime->set_module(nullptr);
+            m_module->unload();
+            m_module = std::move(previousModule);
+            if (m_module != nullptr)
+            {
+                m_runtime->set_module(m_module.get());
+                const Result restoreResult =
+                    m_module->register_scripts(m_runtime->engine_api());
+                if (!restoreResult)
+                {
+                    m_runtime->set_module(nullptr);
+                    m_module->unload();
+                    m_module = nullptr;
+                    m_scriptRoot = {};
+                }
+            }
+            return result;
+        }
+
+        if (previousModule != nullptr)
+        {
+            previousModule->unload();
+        }
+
+        m_scriptRoot = a_scriptRoot;
+        return Result::ok();
+    }
+
+    void ScriptModuleHost::unload_module() noexcept
+    {
+        if (m_runtime != nullptr)
+        {
+            (void)m_runtime->reset();
+            m_runtime->set_module(nullptr);
+        }
+
+        if (m_module != nullptr)
+        {
+            m_module->unload();
+        }
+
+        m_scriptRoot = {};
+    }
+
+    Result ScriptModuleHost::resolve_script_module_path(
+        const Core::IO::Path& a_scriptRoot,
+        Core::IO::Path& a_outModulePath) noexcept
+    {
+        a_outModulePath = {};
+
+#if defined(CUE_DEBUG)
+        constexpr const char* k_buildConfig = "Debug";
+#elif defined(CUE_RELWITHDEBINFO)
+        constexpr const char* k_buildConfig = "RelWithDebInfo";
+#else
+        constexpr const char* k_buildConfig = "Release";
+#endif
+
+        const std::array<Core::IO::Path, 4> candidatePaths = {
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("Binaries/") + k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("out/build/win-x64/GameScript/") +
+                    k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("out/build/win-x64/") +
+                    k_buildConfig + "/GameScript.dll")),
+            Core::IO::Path::join(
+                a_scriptRoot,
+                Core::IO::Path(std::string("generated/outputs/") +
+                    k_buildConfig + "/GameScript.dll")),
+        };
+
+        for (const Core::IO::Path& candidatePath : candidatePaths)
+        {
+            bool exists = false;
+            Result result = m_fileSystem.exists(candidatePath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (exists)
+            {
+                a_outModulePath = candidatePath;
+                return Result::ok();
+            }
+        }
+
+        return Result::fail(Code::NotFound, Severity::Warning,
+            "GameScript.dll was not found in the script root.");
+    }
+}

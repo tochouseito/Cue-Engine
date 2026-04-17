@@ -138,6 +138,11 @@ namespace Cue::Core::IO
         virtual Result remove(const Path& a_path, bool* a_outRemoved) noexcept = 0;
         /// @brief パスをリネームします。
         virtual Result rename(const Path& a_from, const Path& a_to) noexcept = 0;
+        /// @brief ファイルをコピーします。
+        virtual Result copy_file(
+            const Path& a_from,
+            const Path& a_to,
+            bool a_overwrite) noexcept = 0;
 
         // --- ファイルI/O ---
         /// @brief ファイルを開きます。

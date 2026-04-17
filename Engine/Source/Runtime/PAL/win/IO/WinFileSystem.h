@@ -30,6 +30,10 @@ namespace Cue::PAL::Win
         // --- 変更操作 ---
         Result remove(const Core::IO::Path& a_path, bool* a_outRemoved) noexcept override;
         Result rename(const Core::IO::Path& a_from, const Core::IO::Path& a_to) noexcept override;
+        Result copy_file(
+            const Core::IO::Path& a_from,
+            const Core::IO::Path& a_to,
+            bool a_overwrite) noexcept override;
         Result path_to_native_w(const Core::IO::Path& a_path, std::wstring* a_outText) noexcept;
 
         // --- ファイルI/O ---
