@@ -189,6 +189,54 @@ namespace Cue
         // セーフポイントで適用できるよう記録だけ行う
         m_resizePending.store(true, std::memory_order_relaxed);
     }
+    void FrameController::synchronize()
+    {
+        if (!m_started || m_desc.bufferCount <= 1)
+        {
+            return;
+        }
+
+        for (;;)
+        {
+            bool isIdle = false;
+            switch (m_desc.mode)
+            {
+            case ControllerMode::Fixed:
+                isIdle = (m_fixedState.produceFrame == m_fixedState.totalFrame);
+                break;
+
+            case ControllerMode::Mailbox:
+                if (!m_mailboxState.hasPresented)
+                {
+                    isIdle = (m_mailboxState.produceFrame == 0);
+                }
+                else
+                {
+                    const uint64_t updateFinished = m_updateJob.get_finished_frame();
+                    const uint64_t renderFinished = m_renderJob.get_finished_frame();
+                    const bool noInFlight =
+                        (m_mailboxState.lastPresentedFrame + 1) ==
+                        m_mailboxState.produceFrame;
+                    const bool workersDone =
+                        updateFinished >= m_mailboxState.lastPresentedFrame &&
+                        renderFinished >= m_mailboxState.lastPresentedFrame;
+                    isIdle = noInFlight && workersDone;
+                }
+                break;
+
+            case ControllerMode::Backpressure:
+                isIdle = !m_backpressureState.inFlight;
+                break;
+            }
+
+            if (isIdle)
+            {
+                return;
+            }
+
+            m_waiter.relax();
+        }
+    }
     bool FrameController::start_pipeline()
     {
         // 設定値を検証する

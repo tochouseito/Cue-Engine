@@ -415,31 +415,10 @@ namespace Cue
     }
     Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
     {
-        RHI::FrameGraphDesc frameGraphDesc{};
-        frameGraphDesc.usePresentQueue = false;
-        Result result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
+        Result result = recreate_render_frame_graph();
         if (!result)
         {
-            return Result::fail(result.code, Severity::Fatal,
-                "Failed to create render frame graph.");
-        }
-
-        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
-        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_activeWorld->render_scene_state(), m_cubeIndexCount));
-        result = m_frameGraph->build();
-        if (!result)
-        {
-            return Result::fail(result.code, Severity::Fatal,
-                "Failed to build render frame graph.");
+            return result;
         }
 
         RHI::FrameGraphDesc presentFrameGraphDesc{};
@@ -466,6 +445,67 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        return Result::ok();
+    }
+    Result Engine::recreate_render_frame_graph()
+    {
+        if (m_backend == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine active world is not initialized.");
+        }
+
+        m_frameGraph.reset();
+
+        RHI::FrameGraphDesc frameGraphDesc{};
+        frameGraphDesc.usePresentQueue = false;
+        Result result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
+        if (!result)
+        {
+            return Result::fail(result.code, Severity::Fatal,
+                "Failed to create render frame graph.");
+        }
+
+        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
+        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
+            m_activeWorld->render_scene_state(), m_cubeIndexCount));
+
+        result = m_frameGraph->build();
+        if (!result)
+        {
+            return Result::fail(result.code, Severity::Fatal,
+                "Failed to build render frame graph.");
+        }
+
+        return Result::ok();
+    }
+    Result Engine::sync_active_world_buffers()
+    {
+        if (m_backend == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine active world is not initialized.");
+        }
+
+        for (uint32_t bufferIndex = 0; bufferIndex < m_backend->buffer_count();
+             ++bufferIndex)
+        {
+            Result result = m_activeWorld->editor_update(
+                bufferIndex, m_backend->width(), m_backend->height());
+            if (!result)
+            {
+                return result;
+            }
         }
 
         return Result::ok();
@@ -663,6 +703,139 @@ namespace Cue
         }
 
         m_scriptRoot = {};
+    }
+
+    Result Engine::start_play_mode() noexcept
+    {
+        if (m_editorWorld == nullptr || m_activeWorld == nullptr || m_backend == nullptr ||
+            m_frameController == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine play mode dependencies are not initialized.");
+        }
+
+        if (is_playing())
+        {
+            return Result::ok();
+        }
+
+        m_frameController->synchronize();
+
+        Result result = m_backend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        if (m_playWorld == nullptr)
+        {
+            m_playWorld = std::make_unique<GameCore::GameWorld>();
+            auto* bufferManager = m_backend->get_buffer_manager();
+            auto* viewManager = m_backend->get_view_manager();
+            if (bufferManager == nullptr || viewManager == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Failed to get managers for play world.");
+            }
+
+            result = m_playWorld->initialize(
+                bufferManager, viewManager, m_backend->buffer_count(),
+                m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
+            if (!result)
+            {
+                m_playWorld.reset();
+                return result;
+            }
+        }
+
+        result = m_playWorld->clone_from(*m_editorWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_activeWorld = m_playWorld.get();
+
+        if (m_scriptRuntime != nullptr)
+        {
+            result = m_scriptRuntime->set_game_world(*m_activeWorld);
+            if (!result)
+            {
+                m_activeWorld = m_editorWorld.get();
+                return result;
+            }
+            m_scriptRuntime->activate();
+        }
+
+        result = sync_active_world_buffers();
+        if (!result)
+        {
+            m_activeWorld = m_editorWorld.get();
+            return result;
+        }
+
+        result = recreate_render_frame_graph();
+        if (!result)
+        {
+            m_activeWorld = m_editorWorld.get();
+            return result;
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::stop_play_mode() noexcept
+    {
+        if (m_editorWorld == nullptr || m_backend == nullptr || m_frameController == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine play mode dependencies are not initialized.");
+        }
+
+        if (!is_playing())
+        {
+            return Result::ok();
+        }
+
+        m_frameController->synchronize();
+
+        Result result = m_backend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_activeWorld = m_editorWorld.get();
+
+        if (m_scriptRuntime != nullptr)
+        {
+            result = m_scriptRuntime->set_game_world(*m_activeWorld);
+            if (!result)
+            {
+                return result;
+            }
+            m_scriptRuntime->activate();
+        }
+
+        result = sync_active_world_buffers();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = recreate_render_frame_graph();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_playWorld.reset();
+        return Result::ok();
+    }
+
+    bool Engine::is_playing() const noexcept
+    {
+        return m_playWorld != nullptr && m_activeWorld == m_playWorld.get();
     }
 
     Result Engine::resolve_script_module_path(

@@ -114,6 +114,8 @@ namespace Cue
         void step();
         /// @brief リサイズ要求反映
         void poll_resize_request();
+        /// @brief 実行中フレームを吐き切る
+        void synchronize();
 
         /// @brief frame counter 取得
         Core::Time::FrameCounter& frame_counter() noexcept

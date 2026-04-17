@@ -45,6 +45,7 @@ namespace Cue
             script_field_defaults(std::string_view a_className) const noexcept;
         void activate() noexcept;
         void set_module(const ScriptModule* a_module) noexcept;
+        [[nodiscard]] Result set_game_world(GameCore::GameWorld& a_gameWorld) noexcept;
 
         [[nodiscard]] Result update(float a_deltaTimeSeconds) noexcept;
         [[nodiscard]] Result reset() noexcept;
@@ -119,7 +120,7 @@ namespace Cue
 
         static ScriptRuntime* s_activeInstance;
 
-        GameCore::GameWorld& m_gameWorld;
+        GameCore::GameWorld* m_gameWorld = nullptr;
         const ScriptModule* m_module = nullptr;
         CueEngineApi m_engineApi{};
         std::unordered_map<GameCore::EntityId, ScriptBinding> m_bindings{};

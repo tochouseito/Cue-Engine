@@ -71,6 +71,8 @@ namespace Cue::Editor
         Result open_script_solution_in_visual_studio();
         Result attach_editor_debugger_in_visual_studio();
         Result open_path_in_shell(const Core::IO::Path& a_path) const;
+        Result start_play_mode();
+        Result stop_play_mode();
         void draw_script_build_output();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();

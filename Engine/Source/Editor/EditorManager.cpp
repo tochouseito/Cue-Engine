@@ -326,8 +326,14 @@ namespace Cue::Editor
                 "EditorManager dependencies are not initialized.");
         }
 
+        Result result = stop_play_mode();
+        if (!result)
+        {
+            return result;
+        }
+
         ProjectSettings projectSettings{};
-        Result result = load_project_settings(
+        result = load_project_settings(
             *m_fileSystem, Core::IO::Path(a_projectPath), projectSettings);
         if (!result)
         {
@@ -977,6 +983,28 @@ namespace Cue::Editor
         m_hasStatusError = a_isError;
     }
 
+    Result EditorManager::start_play_mode()
+    {
+        if (m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+        }
+
+        return m_engine->start_play_mode();
+    }
+
+    Result EditorManager::stop_play_mode()
+    {
+        if (m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+        }
+
+        return m_engine->stop_play_mode();
+    }
+
     void EditorManager::draw_script_build_output()
     {
         if (!m_showScriptBuildOutput)
@@ -1369,6 +1397,47 @@ namespace Cue::Editor
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
                 {
                     redo_last_command();
+                }
+
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("実行"))
+            {
+                const bool isPlaying =
+                    m_engine != nullptr && m_engine->is_playing();
+                const bool canStartPlay =
+                    m_engine != nullptr && !m_projectPath.empty() &&
+                    !m_isScriptActionActive && !isPlaying;
+                const bool canStopPlay =
+                    m_engine != nullptr && !m_isScriptActionActive && isPlaying;
+
+                if (ImGui::MenuItem("Play", nullptr, false, canStartPlay))
+                {
+                    const Result result = start_play_mode();
+                    if (!result)
+                    {
+                        log_result("Failed to start play mode", result);
+                        set_status_message("Play 開始に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message("Play を開始しました。", false);
+                    }
+                }
+
+                if (ImGui::MenuItem("Stop", nullptr, false, canStopPlay))
+                {
+                    const Result result = stop_play_mode();
+                    if (!result)
+                    {
+                        log_result("Failed to stop play mode", result);
+                        set_status_message("Play 停止に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message("Play を停止しました。", false);
+                    }
                 }
 
                 ImGui::EndMenu();

@@ -347,11 +347,16 @@ namespace Cue
         [[nodiscard]] Result load_script_module(
             const Core::IO::Path& a_scriptRoot) noexcept;
         void unload_script_module() noexcept;
+        [[nodiscard]] Result start_play_mode() noexcept;
+        [[nodiscard]] Result stop_play_mode() noexcept;
+        [[nodiscard]] bool is_playing() const noexcept;
 
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+        Result recreate_render_frame_graph();
+        Result sync_active_world_buffers();
         Result destroy_size_dependent_resources();
         Result apply_pending_resize();
         [[nodiscard]] Result resolve_script_module_path(

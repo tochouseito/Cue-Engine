@@ -93,7 +93,7 @@ namespace Cue
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
 
     ScriptRuntime::ScriptRuntime(GameCore::GameWorld& a_gameWorld) noexcept
-        : m_gameWorld(a_gameWorld)
+        : m_gameWorld(&a_gameWorld)
     {
         s_activeInstance = this;
         m_engineApi.structSize = sizeof(CueEngineApi);
@@ -161,9 +161,27 @@ namespace Cue
         m_scriptClassInfos.clear();
     }
 
+    Result ScriptRuntime::set_game_world(GameCore::GameWorld& a_gameWorld) noexcept
+    {
+        Result result = reset();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_gameWorld = &a_gameWorld;
+        return Result::ok();
+    }
+
     Result ScriptRuntime::update(float a_deltaTimeSeconds) noexcept
     {
-        Result result = m_gameWorld.execute_deferred_deletions();
+        if (m_gameWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime game world is not initialized.");
+        }
+
+        Result result = m_gameWorld->execute_deferred_deletions();
         if (!result)
         {
             return result;
@@ -231,7 +249,7 @@ namespace Cue
         desiredEntities.reserve(m_bindings.size() + 8);
         Result syncResult = Result::ok();
 
-        Result enumerateResult = m_gameWorld.for_each_object(
+        Result enumerateResult = m_gameWorld->for_each_object(
             [this, &desiredEntities, &syncResult](GameCore::EntityId a_entityId,
                 GameCore::SceneId, GameCore::GameObject& a_object)
             {
@@ -624,13 +642,13 @@ namespace Cue
     uint8_t ScriptRuntime::is_entity_valid_internal(
         CueEntityHandle a_entityHandle) const noexcept
     {
-        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        if (m_gameWorld == nullptr || a_entityHandle.value == k_cueInvalidHandleValue)
         {
             return 0;
         }
 
         bool containsObject = false;
-        const Result result = m_gameWorld.contains_object(
+        const Result result = m_gameWorld->contains_object(
             to_entity_id(a_entityHandle), containsObject);
         return result && containsObject ? 1 : 0;
     }
@@ -638,13 +656,13 @@ namespace Cue
     uint8_t ScriptRuntime::has_transform_internal(
         CueEntityHandle a_entityHandle) const noexcept
     {
-        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        if (m_gameWorld == nullptr || a_entityHandle.value == k_cueInvalidHandleValue)
         {
             return 0;
         }
 
         bool hasTransform = false;
-        const Result result = m_gameWorld.has_component<ECS::TransformComponent>(
+        const Result result = m_gameWorld->has_component<ECS::TransformComponent>(
             to_entity_id(a_entityHandle), hasTransform);
         return result && hasTransform ? 1 : 0;
     }
@@ -661,9 +679,13 @@ namespace Cue
         {
             return CueResult_InvalidArgument;
         }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
 
         ECS::TransformComponent* transform = nullptr;
-        const Result result = m_gameWorld.get_component<ECS::TransformComponent>(
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
             to_entity_id(a_entityHandle), transform);
         if (!result || transform == nullptr)
         {
@@ -691,9 +713,13 @@ namespace Cue
         {
             return CueResult_InvalidArgument;
         }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
 
         ECS::TransformComponent* transform = nullptr;
-        const Result result = m_gameWorld.get_component<ECS::TransformComponent>(
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
             to_entity_id(a_entityHandle), transform);
         if (!result || transform == nullptr)
         {
