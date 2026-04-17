@@ -8,6 +8,8 @@ endif()
 
 add_library(GameScript SHARED
     "Source/GameScriptModule.cpp"
+    "Source/ScriptRegistry.cpp"
+    "Source/Scripts/RotateCubeScript.cpp"
 )
 
 target_include_directories(GameScript PRIVATE
