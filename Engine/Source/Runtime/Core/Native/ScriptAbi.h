@@ -171,6 +171,24 @@ extern "C"
         const CueScriptFieldValue* a_fieldValue
     );
 
+    /// @brief Entity に紐付いた ScriptInstance をクラス名で検索します。
+    using CueFindScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueStringView a_scriptClassName,
+        CueScriptInstanceHandle* a_outInstanceHandle
+    );
+
+    /// @brief ScriptInstanceHandle が現在も有効なら 1、無効なら 0 を返します。
+    using CueIsScriptInstanceValidFn =
+        uint8_t (CUE_SCRIPT_CALL*)(CueScriptInstanceHandle a_instanceHandle);
+
+    /// @brief Script public field 値を取得します。
+    using CueGetScriptFieldFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// v1 では末尾拡張のみを許可します。
     struct CueEngineApi
@@ -188,6 +206,12 @@ extern "C"
         CueRegisterScriptClassFn registerScriptClass;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRegisterScriptFieldFn registerScriptField;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueFindScriptInstanceFn findScriptInstance;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueIsScriptInstanceValidFn isScriptInstanceValid;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptFieldFn getScriptField;
     };
 
     /// @brief Script インスタンス生成時の入力です。

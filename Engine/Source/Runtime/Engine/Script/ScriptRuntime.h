@@ -105,6 +105,16 @@ namespace Cue
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL set_transform_bridge(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL find_script_instance_bridge(
+            CueEntityHandle a_entityHandle,
+            CueStringView a_scriptClassName,
+            CueScriptInstanceHandle* a_outInstanceHandle);
+        [[nodiscard]] static uint8_t CUE_SCRIPT_CALL is_script_instance_valid_bridge(
+            CueScriptInstanceHandle a_instanceHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL get_script_field_bridge(
+            CueScriptInstanceHandle a_instanceHandle,
+            CueStringView a_fieldName,
+            CueScriptFieldValue* a_outFieldValue);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -124,6 +134,16 @@ namespace Cue
         [[nodiscard]] CueResult set_transform_internal(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform) noexcept;
+        [[nodiscard]] CueResult find_script_instance_internal(
+            CueEntityHandle a_entityHandle,
+            CueStringView a_scriptClassName,
+            CueScriptInstanceHandle* a_outInstanceHandle) const noexcept;
+        [[nodiscard]] uint8_t is_script_instance_valid_internal(
+            CueScriptInstanceHandle a_instanceHandle) const noexcept;
+        [[nodiscard]] CueResult get_script_field_internal(
+            CueScriptInstanceHandle a_instanceHandle,
+            CueStringView a_fieldName,
+            CueScriptFieldValue* a_outFieldValue) const noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;
@@ -138,6 +158,7 @@ namespace Cue
         const ScriptModule* m_module = nullptr;
         CueEngineApi m_engineApi{};
         std::unordered_map<GameCore::EntityId, ScriptBinding> m_bindings{};
+        std::unordered_map<uint64_t, GameCore::EntityId> m_entityIdsByInstanceHandle{};
         std::vector<std::string> m_registeredScriptClasses{};
         std::unordered_map<std::string, ScriptClassInfo> m_scriptClassInfos{};
     };

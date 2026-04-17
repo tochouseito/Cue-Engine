@@ -63,6 +63,21 @@ namespace Cue
             }
         }
 
+        [[nodiscard]] CueScriptFieldValue to_cue_script_field_value(
+            const ECS::ScriptFieldValue& a_fieldValue) noexcept
+        {
+            return CueScriptFieldValue{
+                make_string_view(a_fieldValue.name),
+                to_cue_script_field_type(a_fieldValue.type),
+                a_fieldValue.floatValue,
+                a_fieldValue.intValue,
+                static_cast<uint8_t>(a_fieldValue.boolValue ? 1 : 0),
+                0,
+                0,
+                0
+            };
+        }
+
         [[nodiscard]] bool are_script_field_values_equal(
             const std::vector<ECS::ScriptFieldValue>& a_left,
             const std::vector<ECS::ScriptFieldValue>& a_right) noexcept
@@ -199,6 +214,9 @@ namespace Cue
         m_engineApi.getTransform = &ScriptRuntime::get_transform_bridge;
         m_engineApi.setTransform = &ScriptRuntime::set_transform_bridge;
         m_engineApi.registerScriptField = &ScriptRuntime::register_script_field_bridge;
+        m_engineApi.findScriptInstance = &ScriptRuntime::find_script_instance_bridge;
+        m_engineApi.isScriptInstanceValid = &ScriptRuntime::is_script_instance_valid_bridge;
+        m_engineApi.getScriptField = &ScriptRuntime::get_script_field_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -619,16 +637,7 @@ namespace Cue
         fieldValues.reserve(resolvedFieldValues.size());
         for (const ECS::ScriptFieldValue& fieldValue : resolvedFieldValues)
         {
-            fieldValues.push_back(CueScriptFieldValue{
-                make_string_view(fieldValue.name),
-                to_cue_script_field_type(fieldValue.type),
-                fieldValue.floatValue,
-                fieldValue.intValue,
-                static_cast<uint8_t>(fieldValue.boolValue ? 1 : 0),
-                0,
-                0,
-                0
-            });
+            fieldValues.push_back(to_cue_script_field_value(fieldValue));
         }
         createInfo.fieldValues = fieldValues.empty() ? nullptr : fieldValues.data();
         createInfo.fieldValueCount = static_cast<uint32_t>(fieldValues.size());
@@ -647,6 +656,7 @@ namespace Cue
             a_scriptComponent.className,
             resolvedFieldValues
         };
+        m_entityIdsByInstanceHandle[instanceHandle.value] = a_entityId;
         return Result::ok();
     }
 
@@ -701,6 +711,7 @@ namespace Cue
             }
         }
 
+        m_entityIdsByInstanceHandle.erase(bindingIt->second.instanceHandle.value);
         m_bindings.erase(bindingIt);
         return Result::ok();
     }
@@ -786,6 +797,36 @@ namespace Cue
         return s_activeInstance != nullptr
             ? s_activeInstance->set_transform_internal(
                 a_entityHandle, a_transform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::find_script_instance_bridge(
+        CueEntityHandle a_entityHandle,
+        CueStringView a_scriptClassName,
+        CueScriptInstanceHandle* a_outInstanceHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->find_script_instance_internal(
+                a_entityHandle, a_scriptClassName, a_outInstanceHandle)
+            : CueResult_InvalidState;
+    }
+
+    uint8_t CUE_SCRIPT_CALL ScriptRuntime::is_script_instance_valid_bridge(
+        CueScriptInstanceHandle a_instanceHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->is_script_instance_valid_internal(a_instanceHandle)
+            : 0;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_script_field_bridge(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_script_field_internal(
+                a_instanceHandle, a_fieldName, a_outFieldValue)
             : CueResult_InvalidState;
     }
 
@@ -992,6 +1033,113 @@ namespace Cue
         transform->scale =
             Math::float3(a_transform->scale.x, a_transform->scale.y,
                 a_transform->scale.z);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::find_script_instance_internal(
+        CueEntityHandle a_entityHandle,
+        CueStringView a_scriptClassName,
+        CueScriptInstanceHandle* a_outInstanceHandle) const noexcept
+    {
+        if (a_outInstanceHandle == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outInstanceHandle = CueScriptInstanceHandle{ k_cueInvalidHandleValue };
+
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_scriptClassName.data == nullptr ||
+            a_scriptClassName.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const auto bindingIt = m_bindings.find(to_entity_id(a_entityHandle));
+        if (bindingIt == m_bindings.end())
+        {
+            return CueResult_NotFound;
+        }
+
+        const std::string_view className = to_string_view(a_scriptClassName);
+        if (bindingIt->second.className != className)
+        {
+            return CueResult_NotFound;
+        }
+
+        *a_outInstanceHandle = bindingIt->second.instanceHandle;
+        return CueResult_Ok;
+    }
+
+    uint8_t ScriptRuntime::is_script_instance_valid_internal(
+        CueScriptInstanceHandle a_instanceHandle) const noexcept
+    {
+        if (a_instanceHandle.value == k_cueInvalidHandleValue)
+        {
+            return 0;
+        }
+
+        const auto entityIt =
+            m_entityIdsByInstanceHandle.find(a_instanceHandle.value);
+        if (entityIt == m_entityIdsByInstanceHandle.end())
+        {
+            return 0;
+        }
+
+        const auto bindingIt = m_bindings.find(entityIt->second);
+        return bindingIt != m_bindings.end() &&
+                bindingIt->second.instanceHandle.value == a_instanceHandle.value
+            ? 1
+            : 0;
+    }
+
+    CueResult ScriptRuntime::get_script_field_internal(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue) const noexcept
+    {
+        if (a_outFieldValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outFieldValue = {};
+
+        if (a_instanceHandle.value == k_cueInvalidHandleValue ||
+            a_fieldName.data == nullptr ||
+            a_fieldName.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const auto entityIt =
+            m_entityIdsByInstanceHandle.find(a_instanceHandle.value);
+        if (entityIt == m_entityIdsByInstanceHandle.end())
+        {
+            return CueResult_NotFound;
+        }
+
+        const auto bindingIt = m_bindings.find(entityIt->second);
+        if (bindingIt == m_bindings.end() ||
+            bindingIt->second.instanceHandle.value != a_instanceHandle.value)
+        {
+            return CueResult_NotFound;
+        }
+
+        const std::string_view fieldName = to_string_view(a_fieldName);
+        const auto fieldIt =
+            std::find_if(bindingIt->second.fieldValues.begin(),
+                bindingIt->second.fieldValues.end(),
+                [&fieldName](const ECS::ScriptFieldValue& a_fieldValue)
+                {
+                    return a_fieldValue.name == fieldName;
+                });
+        if (fieldIt == bindingIt->second.fieldValues.end())
+        {
+            return CueResult_NotFound;
+        }
+
+        *a_outFieldValue = to_cue_script_field_value(*fieldIt);
         return CueResult_Ok;
     }
 

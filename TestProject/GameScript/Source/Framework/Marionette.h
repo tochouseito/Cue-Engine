@@ -20,6 +20,12 @@ namespace Marionette
 
     using Transform = CueTransformData;
 
+    template<typename T>
+    struct ScriptTypeInfo;
+
+    template<typename T>
+    class ScriptRef;
+
     template<typename... TFieldValues>
     [[nodiscard]] constexpr auto make_fields(
         TFieldValues... a_fieldValues) noexcept
@@ -58,6 +64,21 @@ namespace Marionette
         template<typename>
         inline constexpr bool k_alwaysFalse = false;
 
+        [[nodiscard]] constexpr CueStringView to_cue_string_view(
+            std::string_view a_value) noexcept
+        {
+            return CueStringView{
+                a_value.data(),
+                static_cast<uint32_t>(a_value.size())
+            };
+        }
+
+        template<typename T>
+        [[nodiscard]] constexpr std::string_view class_name() noexcept
+        {
+            return ScriptTypeInfo<T>::k_className;
+        }
+
         template<typename T>
         [[nodiscard]] constexpr uint32_t state_version() noexcept
         {
@@ -83,7 +104,7 @@ namespace Marionette
                 return T::k_stateSchema;
             }
 
-            return T::k_className;
+            return class_name<T>();
         }
 
         template<typename T>
@@ -277,6 +298,100 @@ namespace Marionette
     };
 
     template<typename T>
+    class ScriptRef final
+    {
+    public:
+        ScriptRef() = default;
+
+        ScriptRef(
+            const CueEngineApi* a_engineApi,
+            CueScriptInstanceHandle a_instanceHandle) noexcept
+            : m_engineApi(a_engineApi)
+            , m_instanceHandle(a_instanceHandle)
+        {
+        }
+
+        [[nodiscard]] CueScriptInstanceHandle instance_handle() const noexcept
+        {
+            return m_instanceHandle;
+        }
+
+        [[nodiscard]] bool is_valid() const noexcept
+        {
+            return m_engineApi != nullptr &&
+                m_engineApi->isScriptInstanceValid != nullptr &&
+                m_instanceHandle.value != k_cueInvalidHandleValue &&
+                m_engineApi->isScriptInstanceValid(m_instanceHandle) != 0;
+        }
+
+        [[nodiscard]] bool get_field(
+            std::string_view a_fieldName,
+            CueScriptFieldValue& a_outFieldValue) const noexcept
+        {
+            if (m_engineApi == nullptr ||
+                m_engineApi->getScriptField == nullptr ||
+                a_fieldName.empty())
+            {
+                return false;
+            }
+
+            return m_engineApi->getScriptField(
+                       m_instanceHandle,
+                       Detail::to_cue_string_view(a_fieldName),
+                       &a_outFieldValue) == CueResult_Ok;
+        }
+
+        [[nodiscard]] bool get_float(
+            std::string_view a_fieldName,
+            float& a_outValue) const noexcept
+        {
+            CueScriptFieldValue fieldValue{};
+            if (!get_field(a_fieldName, fieldValue) ||
+                fieldValue.type != CueScriptFieldType_Float)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue.floatValue;
+            return true;
+        }
+
+        [[nodiscard]] bool get_int32(
+            std::string_view a_fieldName,
+            int32_t& a_outValue) const noexcept
+        {
+            CueScriptFieldValue fieldValue{};
+            if (!get_field(a_fieldName, fieldValue) ||
+                fieldValue.type != CueScriptFieldType_Int32)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue.intValue;
+            return true;
+        }
+
+        [[nodiscard]] bool get_bool(
+            std::string_view a_fieldName,
+            bool& a_outValue) const noexcept
+        {
+            CueScriptFieldValue fieldValue{};
+            if (!get_field(a_fieldName, fieldValue) ||
+                fieldValue.type != CueScriptFieldType_Bool)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue.boolValue != 0;
+            return true;
+        }
+
+    private:
+        const CueEngineApi* m_engineApi = nullptr;
+        CueScriptInstanceHandle m_instanceHandle{ k_cueInvalidHandleValue };
+    };
+
+    template<typename T>
     class Behaviour
     {
     public:
@@ -362,6 +477,49 @@ namespace Marionette
         [[nodiscard]] CueEntityHandle entity_handle() const noexcept
         {
             return m_entityHandle;
+        }
+
+        template<typename TOtherScript>
+        [[nodiscard]] ScriptRef<TOtherScript> get_script() const noexcept
+        {
+            return find_script<TOtherScript>(m_entityHandle);
+        }
+
+        template<typename TOtherScript>
+        [[nodiscard]] ScriptRef<TOtherScript> find_script(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            if (m_engineApi == nullptr ||
+                m_engineApi->findScriptInstance == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return {};
+            }
+
+            CueScriptInstanceHandle instanceHandle{ k_cueInvalidHandleValue };
+            if (m_engineApi->findScriptInstance(
+                    a_entityHandle,
+                    Detail::to_cue_string_view(
+                        Detail::class_name<TOtherScript>()),
+                    &instanceHandle) != CueResult_Ok)
+            {
+                return {};
+            }
+
+            return ScriptRef<TOtherScript>(m_engineApi, instanceHandle);
+        }
+
+        template<typename TOtherScript>
+        [[nodiscard]] bool has_script() const noexcept
+        {
+            return get_script<TOtherScript>().is_valid();
+        }
+
+        template<typename TOtherScript>
+        [[nodiscard]] bool has_script(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            return find_script<TOtherScript>(a_entityHandle).is_valid();
         }
 
         [[nodiscard]] bool is_entity_valid() const noexcept
@@ -487,8 +645,8 @@ namespace Marionette
 
         return ScriptClassDefinition{
             make_script_string_view(
-                T::k_className.data(),
-                static_cast<uint32_t>(T::k_className.size())),
+                Detail::class_name<T>().data(),
+                static_cast<uint32_t>(Detail::class_name<T>().size())),
             fields.data(),
             static_cast<uint32_t>(fields.size()),
             CueScriptStateDescriptor{
@@ -521,4 +679,12 @@ namespace Marionette
         return std::span<const CueScriptFieldValue>( \
             k_fields.data(), \
             k_fields.size()); \
+    }
+
+#define MARIONETTE_DECLARE_SCRIPT_TYPE(a_typeName, a_classNameLiteral) \
+    class a_typeName; \
+    template<> \
+    struct ::Marionette::ScriptTypeInfo<a_typeName> final \
+    { \
+        static constexpr std::string_view k_className = a_classNameLiteral; \
     }
