@@ -269,14 +269,44 @@ namespace Cue
             return m_assetManager;
         }
 
+        GameCore::GameWorld* editor_world() noexcept
+        {
+            return m_editorWorld.get();
+        }
+
+        const GameCore::GameWorld* editor_world() const noexcept
+        {
+            return m_editorWorld.get();
+        }
+
+        GameCore::GameWorld* play_world() noexcept
+        {
+            return m_playWorld.get();
+        }
+
+        const GameCore::GameWorld* play_world() const noexcept
+        {
+            return m_playWorld.get();
+        }
+
+        GameCore::GameWorld* active_world() noexcept
+        {
+            return m_activeWorld;
+        }
+
+        const GameCore::GameWorld* active_world() const noexcept
+        {
+            return m_activeWorld;
+        }
+
         GameCore::GameWorld* game_world() noexcept
         {
-            return m_gameWorld.get();
+            return editor_world();
         }
 
         const GameCore::GameWorld* game_world() const noexcept
         {
-            return m_gameWorld.get();
+            return editor_world();
         }
 
         void set_editor_scene_id(GameCore::SceneId a_sceneId) noexcept
@@ -342,7 +372,9 @@ namespace Cue
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
-        std::unique_ptr<GameCore::GameWorld> m_gameWorld = nullptr;
+        std::unique_ptr<GameCore::GameWorld> m_editorWorld = nullptr;
+        std::unique_ptr<GameCore::GameWorld> m_playWorld = nullptr;
+        GameCore::GameWorld* m_activeWorld = nullptr;
         std::unique_ptr<ScriptModule> m_scriptModule = nullptr;
         std::unique_ptr<ScriptRuntime> m_scriptRuntime = nullptr;
         Core::CQRS::Bridge* m_editorBridge = nullptr;

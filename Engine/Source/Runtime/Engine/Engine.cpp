@@ -199,8 +199,8 @@ namespace Cue
                 "Failed to get view manager from backend.");
         }
 
-        m_gameWorld = std::make_unique<GameCore::GameWorld>();
-        result = m_gameWorld->initialize(
+        m_editorWorld = std::make_unique<GameCore::GameWorld>();
+        result = m_editorWorld->initialize(
             bufferManager, viewManager, m_backend->buffer_count(),
             m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
         if (!result)
@@ -208,8 +208,10 @@ namespace Cue
             return result;
         }
 
+        m_activeWorld = m_editorWorld.get();
+
         m_scriptModule = std::make_unique<ScriptModule>();
-        m_scriptRuntime = std::make_unique<ScriptRuntime>(*m_gameWorld);
+        m_scriptRuntime = std::make_unique<ScriptRuntime>(*m_activeWorld);
 
         result = create_final_color_resources();
         if (!result)
@@ -223,7 +225,7 @@ namespace Cue
             return result;
         }
 
-        result = m_gameWorld->editor_update(
+        result = m_activeWorld->editor_update(
             0, m_backend->width(), m_backend->height());
         if (!result)
         {
@@ -255,6 +257,9 @@ namespace Cue
         unload_script_module();
         m_scriptRuntime.reset();
         m_scriptModule.reset();
+        m_activeWorld = nullptr;
+        m_playWorld.reset();
+        m_editorWorld.reset();
         m_frameController.reset();
         if (m_backend != nullptr)
         {
@@ -290,7 +295,7 @@ namespace Cue
         // editor ブリッジがあれば command を処理
         if (m_editorBridge)
         {
-            EngineCommandContext commandContext(*m_gameWorld, m_editorSceneId);
+            EngineCommandContext commandContext(*m_editorWorld, m_editorSceneId);
             Result result = m_editorBridge->drain_commands(commandContext);
             if (!result)
             {
@@ -420,16 +425,16 @@ namespace Cue
         }
 
         m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
-            m_gameWorld->render_scene_state()));
+            m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_gameWorld->render_scene_state()));
+            m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_gameWorld->render_scene_state()));
+            m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_gameWorld->render_scene_state()));
+            m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_gameWorld->render_scene_state(), m_cubeIndexCount));
+            m_activeWorld->render_scene_state(), m_cubeIndexCount));
         result = m_frameGraph->build();
         if (!result)
         {
@@ -539,7 +544,7 @@ namespace Cue
                 }
             }
 
-            Result simulateResult = m_gameWorld->simulate(deltaTime);
+            Result simulateResult = m_activeWorld->simulate(deltaTime);
             if (!simulateResult)
             {
                 CUE_ASSERTF(false, "GameWorld simulate failed: %s",
@@ -547,7 +552,7 @@ namespace Cue
                 return;
             }
 
-            Result updateResult = m_gameWorld->editor_update(a_index,
+            Result updateResult = m_activeWorld->editor_update(a_index,
                 m_backend->width(), m_backend->height());
             if (!updateResult)
             {
@@ -593,7 +598,7 @@ namespace Cue
         }
 
         {
-            ScriptRuntime validationRuntime(*m_gameWorld);
+            ScriptRuntime validationRuntime(*m_activeWorld);
             result = nextModule->register_scripts(validationRuntime.engine_api());
         }
         m_scriptRuntime->activate();
