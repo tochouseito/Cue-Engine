@@ -74,10 +74,16 @@ namespace Cue::Editor
         Result start_play_mode();
         Result stop_play_mode();
         void draw_script_build_output();
+        void draw_script_build_notification_popup();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
         Result drain_pending_editor_commands();
         void set_status_message(std::string a_message, bool a_isError);
+        void set_script_build_notification(
+            std::string a_title,
+            std::string a_message,
+            bool a_isError,
+            bool a_openPopup);
         void undo_last_command();
         void redo_last_command();
         void handle_shortcuts();
@@ -106,8 +112,13 @@ namespace Cue::Editor
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         uint32_t m_pendingScriptActionDelayFrames = 0;
+        std::string m_scriptBuildNotificationTitle{};
+        std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
+        bool m_hasScriptBuildNotification = false;
+        bool m_hasScriptBuildNotificationError = false;
+        bool m_openScriptBuildNotificationPopup = false;
     };
 }

@@ -47,6 +47,13 @@ namespace Cue::Editor
             const char* label = "";
         };
 
+        struct ScriptFieldDiagnostics final
+        {
+            uint32_t missingFieldCount = 0;
+            uint32_t typeMismatchCount = 0;
+            uint32_t orphanFieldCount = 0;
+        };
+
         Inspector(Core::CQRS::Bridge* bridge, GameCore::GameWorld* a_gameWorld,
             GameCore::EntityId* a_selectedEntityId, Engine* a_engine)
             : editorBridge(bridge)
@@ -456,6 +463,13 @@ namespace Cue::Editor
             const char* previewValue = component->className.empty()
                 ? "<empty>"
                 : component->className.c_str();
+            const bool hasClassName = !component->className.empty();
+            const ScriptFieldDiagnostics fieldDiagnostics =
+                diagnose_script_fields(*component, defaultFieldValues);
+            const std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
+                isKnownClass
+                ? build_resolved_script_field_values(*component, defaultFieldValues)
+                : component->fieldValues;
 
             if (ImGui::BeginCombo("className", previewValue))
             {
@@ -496,10 +510,25 @@ namespace Cue::Editor
                     static_cast<uint32_t>(registeredClasses.size()));
             }
 
-            if (!isKnownClass)
+            if (!hasClassName)
+            {
+                ImGui::TextColored(ImVec4(0.90f, 0.80f, 0.35f, 1.0f),
+                    "Script クラスが未選択です。");
+            }
+            else if (!isKnownClass)
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.25f, 1.0f),
-                    "現在の className は未登録です。");
+                    "未解決 Script: 現在の className は未登録です。");
+                if (!component->fieldValues.empty())
+                {
+                    ImGui::TextWrapped(
+                        "保存済み field 値を保持しています。Script を再ビルドして解決するか、別の className を選択してください。");
+                }
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
+                    "解決済み Script");
             }
 
             bool isEnabled = component->isEnabled;
@@ -511,20 +540,36 @@ namespace Cue::Editor
                 submit_set_script_component_command(nextComponent);
             }
 
-            if (!component->className.empty())
+            if (hasClassName)
             {
                 ImGui::Separator();
                 ImGui::TextUnformatted("public fields");
 
-                if (defaultFieldValues.size() != component->fieldValues.size() &&
-                    !defaultFieldValues.empty())
+                if (isKnownClass &&
+                    (fieldDiagnostics.missingFieldCount > 0 ||
+                        fieldDiagnostics.typeMismatchCount > 0 ||
+                        fieldDiagnostics.orphanFieldCount > 0))
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f),
-                        "field 定義が現在の保存値と一致していません。");
+                        "field 定義との差分があります。");
+                    if (fieldDiagnostics.missingFieldCount > 0)
+                    {
+                        ImGui::Text("missing: %u",
+                            fieldDiagnostics.missingFieldCount);
+                    }
+                    if (fieldDiagnostics.typeMismatchCount > 0)
+                    {
+                        ImGui::Text("type mismatch: %u",
+                            fieldDiagnostics.typeMismatchCount);
+                    }
+                    if (fieldDiagnostics.orphanFieldCount > 0)
+                    {
+                        ImGui::Text("orphan: %u",
+                            fieldDiagnostics.orphanFieldCount);
+                    }
                 }
 
-                if (m_engine != nullptr &&
-                    !component->className.empty() &&
+                if (isKnownClass && m_engine != nullptr &&
                     ImGui::Button("Reset Fields"))
                 {
                     ECS::ScriptComponent nextComponent = *component;
@@ -533,61 +578,194 @@ namespace Cue::Editor
                     submit_set_script_component_command(nextComponent);
                 }
 
-                if (component->fieldValues.empty())
+                if (isKnownClass &&
+                    (fieldDiagnostics.missingFieldCount > 0 ||
+                        fieldDiagnostics.typeMismatchCount > 0 ||
+                        fieldDiagnostics.orphanFieldCount > 0))
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("定義に合わせる"))
+                    {
+                        ECS::ScriptComponent nextComponent = *component;
+                        nextComponent.fieldValues = resolvedFieldValues;
+                        submit_set_script_component_command(nextComponent);
+                    }
+                }
+
+                if (!isKnownClass)
+                {
+                    if (component->fieldValues.empty())
+                    {
+                        ImGui::TextUnformatted("保存済み field はありません。");
+                    }
+                    else
+                    {
+                        ImGui::BeginDisabled(true);
+                        draw_script_field_editors(*component,
+                            component->fieldValues);
+                        ImGui::EndDisabled();
+                    }
+                }
+                else if (resolvedFieldValues.empty())
                 {
                     ImGui::TextUnformatted("public field はありません。");
                 }
                 else
                 {
-                    for (size_t fieldIndex = 0;
-                        fieldIndex < component->fieldValues.size();
-                        ++fieldIndex)
-                    {
-                        const ECS::ScriptFieldValue& fieldValue =
-                            component->fieldValues[fieldIndex];
-                        ImGui::PushID(static_cast<int>(fieldIndex));
-
-                        switch (fieldValue.type)
-                        {
-                        case ECS::ScriptFieldType::Float:
-                        {
-                            float value = fieldValue.floatValue;
-                            if (ImGui::DragFloat(fieldValue.name.c_str(), &value, 0.01f))
-                            {
-                                ECS::ScriptComponent nextComponent = *component;
-                                nextComponent.fieldValues[fieldIndex].floatValue = value;
-                                submit_set_script_component_command(nextComponent);
-                            }
-                            break;
-                        }
-                        case ECS::ScriptFieldType::Int32:
-                        {
-                            int value = fieldValue.intValue;
-                            if (ImGui::DragInt(fieldValue.name.c_str(), &value, 1.0f))
-                            {
-                                ECS::ScriptComponent nextComponent = *component;
-                                nextComponent.fieldValues[fieldIndex].intValue = value;
-                                submit_set_script_component_command(nextComponent);
-                            }
-                            break;
-                        }
-                        case ECS::ScriptFieldType::Bool:
-                        {
-                            bool value = fieldValue.boolValue;
-                            if (ImGui::Checkbox(fieldValue.name.c_str(), &value))
-                            {
-                                ECS::ScriptComponent nextComponent = *component;
-                                nextComponent.fieldValues[fieldIndex].boolValue = value;
-                                submit_set_script_component_command(nextComponent);
-                            }
-                            break;
-                        }
-                        }
-
-                        ImGui::PopID();
-                    }
+                    draw_script_field_editors(*component, resolvedFieldValues);
                 }
             }
+        }
+
+        void draw_script_field_editors(
+            const ECS::ScriptComponent& a_component,
+            const std::vector<ECS::ScriptFieldValue>& a_fieldValues)
+        {
+            for (size_t fieldIndex = 0;
+                fieldIndex < a_fieldValues.size();
+                ++fieldIndex)
+            {
+                const ECS::ScriptFieldValue& fieldValue =
+                    a_fieldValues[fieldIndex];
+                ImGui::PushID(static_cast<int>(fieldIndex));
+
+                switch (fieldValue.type)
+                {
+                case ECS::ScriptFieldType::Float:
+                {
+                    float value = fieldValue.floatValue;
+                    if (ImGui::DragFloat(fieldValue.name.c_str(), &value, 0.01f))
+                    {
+                        ECS::ScriptComponent nextComponent = a_component;
+                        nextComponent.fieldValues = a_fieldValues;
+                        nextComponent.fieldValues[fieldIndex].floatValue = value;
+                        submit_set_script_component_command(nextComponent);
+                    }
+                    break;
+                }
+                case ECS::ScriptFieldType::Int32:
+                {
+                    int value = fieldValue.intValue;
+                    if (ImGui::DragInt(fieldValue.name.c_str(), &value, 1.0f))
+                    {
+                        ECS::ScriptComponent nextComponent = a_component;
+                        nextComponent.fieldValues = a_fieldValues;
+                        nextComponent.fieldValues[fieldIndex].intValue = value;
+                        submit_set_script_component_command(nextComponent);
+                    }
+                    break;
+                }
+                case ECS::ScriptFieldType::Bool:
+                {
+                    bool value = fieldValue.boolValue;
+                    if (ImGui::Checkbox(fieldValue.name.c_str(), &value))
+                    {
+                        ECS::ScriptComponent nextComponent = a_component;
+                        nextComponent.fieldValues = a_fieldValues;
+                        nextComponent.fieldValues[fieldIndex].boolValue = value;
+                        submit_set_script_component_command(nextComponent);
+                    }
+                    break;
+                }
+                }
+
+                ImGui::PopID();
+            }
+        }
+
+        [[nodiscard]] static int find_script_field_index(
+            const std::vector<ECS::ScriptFieldValue>& a_fieldValues,
+            const std::string& a_fieldName) noexcept
+        {
+            for (size_t fieldIndex = 0;
+                fieldIndex < a_fieldValues.size();
+                ++fieldIndex)
+            {
+                if (a_fieldValues[fieldIndex].name == a_fieldName)
+                {
+                    return static_cast<int>(fieldIndex);
+                }
+            }
+
+            return -1;
+        }
+
+        [[nodiscard]] static std::vector<ECS::ScriptFieldValue>
+            build_resolved_script_field_values(
+                const ECS::ScriptComponent& a_component,
+                const std::vector<ECS::ScriptFieldValue>& a_defaultFieldValues)
+        {
+            if (a_defaultFieldValues.empty())
+            {
+                return {};
+            }
+
+            std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
+                a_defaultFieldValues;
+            for (size_t defaultIndex = 0;
+                defaultIndex < resolvedFieldValues.size();
+                ++defaultIndex)
+            {
+                ECS::ScriptFieldValue& resolvedField =
+                    resolvedFieldValues[defaultIndex];
+                const int currentFieldIndex = find_script_field_index(
+                    a_component.fieldValues,
+                    resolvedField.name);
+                if (currentFieldIndex < 0)
+                {
+                    continue;
+                }
+
+                const ECS::ScriptFieldValue& currentField =
+                    a_component.fieldValues[static_cast<size_t>(currentFieldIndex)];
+                if (currentField.type != resolvedField.type)
+                {
+                    continue;
+                }
+
+                resolvedField = currentField;
+            }
+
+            return resolvedFieldValues;
+        }
+
+        [[nodiscard]] static ScriptFieldDiagnostics diagnose_script_fields(
+            const ECS::ScriptComponent& a_component,
+            const std::vector<ECS::ScriptFieldValue>& a_defaultFieldValues) noexcept
+        {
+            ScriptFieldDiagnostics diagnostics{};
+
+            for (const ECS::ScriptFieldValue& defaultField : a_defaultFieldValues)
+            {
+                const int currentFieldIndex = find_script_field_index(
+                    a_component.fieldValues,
+                    defaultField.name);
+                if (currentFieldIndex < 0)
+                {
+                    ++diagnostics.missingFieldCount;
+                    continue;
+                }
+
+                const ECS::ScriptFieldValue& currentField =
+                    a_component.fieldValues[static_cast<size_t>(currentFieldIndex)];
+                if (currentField.type != defaultField.type)
+                {
+                    ++diagnostics.typeMismatchCount;
+                }
+            }
+
+            for (const ECS::ScriptFieldValue& currentField : a_component.fieldValues)
+            {
+                const int defaultFieldIndex = find_script_field_index(
+                    a_defaultFieldValues,
+                    currentField.name);
+                if (defaultFieldIndex < 0)
+                {
+                    ++diagnostics.orphanFieldCount;
+                }
+            }
+
+            return diagnostics;
         }
 
         void draw_float3_text(const char* a_label, const Math::float3& a_value)

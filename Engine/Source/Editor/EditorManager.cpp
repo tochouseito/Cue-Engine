@@ -134,6 +134,106 @@ namespace Cue::Editor
             return false;
         }
 
+        [[nodiscard]] const BuildMessage* find_build_message(
+            const BuildResult& a_result,
+            BuildMessageSeverity a_severity) noexcept
+        {
+            for (const BuildMessage& message : a_result.messages)
+            {
+                if (message.severity == a_severity)
+                {
+                    return &message;
+                }
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] const BuildStageResult* find_failed_stage_result(
+            const BuildResult& a_result) noexcept
+        {
+            for (const BuildStageResult& stageResult : a_result.stageResults)
+            {
+                if (!stageResult.succeeded)
+                {
+                    return &stageResult;
+                }
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] std::string make_output_excerpt(
+            std::string_view a_output) noexcept
+        {
+            size_t lineBegin = 0;
+            while (lineBegin < a_output.size())
+            {
+                const size_t lineEnd = a_output.find_first_of("\r\n", lineBegin);
+                const size_t lineSize =
+                    lineEnd == std::string_view::npos
+                    ? (a_output.size() - lineBegin)
+                    : (lineEnd - lineBegin);
+                if (lineSize > 0)
+                {
+                    std::string excerpt(a_output.substr(lineBegin, lineSize));
+                    if (excerpt.size() > 240)
+                    {
+                        excerpt.resize(240);
+                        excerpt += "...";
+                    }
+
+                    return excerpt;
+                }
+
+                if (lineEnd == std::string_view::npos)
+                {
+                    break;
+                }
+
+                lineBegin = lineEnd + 1;
+            }
+
+            return {};
+        }
+
+        [[nodiscard]] std::string make_primary_build_message(
+            const BuildResult& a_result) noexcept
+        {
+            if (const BuildMessage* errorMessage =
+                find_build_message(a_result, BuildMessageSeverity::Error);
+                errorMessage != nullptr && !errorMessage->text.empty())
+            {
+                return errorMessage->text;
+            }
+
+            if (const BuildMessage* warningMessage =
+                find_build_message(a_result, BuildMessageSeverity::Warning);
+                warningMessage != nullptr && !warningMessage->text.empty())
+            {
+                return warningMessage->text;
+            }
+
+            if (const BuildStageResult* failedStageResult =
+                find_failed_stage_result(a_result);
+                failedStageResult != nullptr)
+            {
+                const std::string excerpt =
+                    make_output_excerpt(failedStageResult->output);
+                if (!excerpt.empty())
+                {
+                    return excerpt;
+                }
+            }
+
+            if (!a_result.summary.empty())
+            {
+                return a_result.summary;
+            }
+
+            return {};
+        }
+
         [[nodiscard]] Result parse_build_configuration(
             std::string_view a_text,
             BuildConfiguration& a_outConfiguration) noexcept
@@ -845,13 +945,36 @@ namespace Cue::Editor
             result = reload_script_module();
             if (!result)
             {
+                const std::string detail =
+                    make_primary_build_message(m_lastScriptBuildResult);
                 log_result("Failed to reload GameScript", result);
-                set_status_message("GameScript の再読み込みに失敗しました。",
+                set_status_message(
+                    detail.empty()
+                    ? "GameScript の再読み込みに失敗しました。"
+                    : "GameScript の再読み込みに失敗しました: " + detail,
                     true);
+                set_script_build_notification(
+                    "GameScript Reload Failed",
+                    detail.empty() ? std::string(result.message) : detail,
+                    true,
+                    true);
+                m_showScriptBuildOutput = true;
             }
             else
             {
-                set_status_message("GameScript を再読み込みしました。",
+                const std::string detail =
+                    make_primary_build_message(m_lastScriptBuildResult);
+                set_status_message(
+                    detail.empty()
+                    ? "GameScript を再読み込みしました。"
+                    : "GameScript を再読み込みしました: " + detail,
+                    false);
+                set_script_build_notification(
+                    "GameScript Reload Succeeded",
+                    detail.empty()
+                    ? "GameScript の再読み込みに成功しました。"
+                    : detail,
+                    false,
                     false);
             }
             break;
@@ -860,13 +983,37 @@ namespace Cue::Editor
             result = build_script_module();
             if (!result)
             {
+                const std::string detail =
+                    make_primary_build_message(m_lastScriptBuildResult);
                 log_result("Failed to build GameScript", result);
-                set_status_message("GameScript のビルドに失敗しました。", true);
+                set_status_message(
+                    detail.empty()
+                    ? "GameScript のビルドに失敗しました。"
+                    : "GameScript のビルドに失敗しました: " + detail,
+                    true);
+                set_script_build_notification(
+                    "GameScript Build Failed",
+                    detail.empty() ? std::string(result.message) : detail,
+                    true,
+                    true);
+                m_showScriptBuildOutput = true;
             }
             else
             {
+                const std::string detail =
+                    make_primary_build_message(m_lastScriptBuildResult);
                 set_status_message(
-                    "GameScript をビルドして再読み込みしました。", false);
+                    detail.empty()
+                    ? "GameScript をビルドして再読み込みしました。"
+                    : "GameScript をビルドして再読み込みしました: " + detail,
+                    false);
+                set_script_build_notification(
+                    "GameScript Build Succeeded",
+                    detail.empty()
+                    ? "GameScript のビルドと再読み込みに成功しました。"
+                    : detail,
+                    false,
+                    false);
             }
             break;
 
@@ -983,6 +1130,19 @@ namespace Cue::Editor
         m_hasStatusError = a_isError;
     }
 
+    void EditorManager::set_script_build_notification(
+        std::string a_title,
+        std::string a_message,
+        bool a_isError,
+        bool a_openPopup)
+    {
+        m_scriptBuildNotificationTitle = std::move(a_title);
+        m_scriptBuildNotificationMessage = std::move(a_message);
+        m_hasScriptBuildNotification = true;
+        m_hasScriptBuildNotificationError = a_isError;
+        m_openScriptBuildNotificationPopup = a_openPopup;
+    }
+
     Result EditorManager::start_play_mode()
     {
         if (m_engine == nullptr)
@@ -1043,9 +1203,19 @@ namespace Cue::Editor
         ImGui::TextColored(
             m_lastScriptBuildResult.succeeded ? successColor : errorColor,
             m_lastScriptBuildResult.succeeded ? "Succeeded" : "Failed");
+        const std::string primaryMessage =
+            make_primary_build_message(m_lastScriptBuildResult);
         if (!m_lastScriptBuildResult.summary.empty())
         {
             ImGui::TextWrapped("%s", m_lastScriptBuildResult.summary.c_str());
+        }
+        if (!primaryMessage.empty() &&
+            primaryMessage != m_lastScriptBuildResult.summary)
+        {
+            ImGui::TextColored(
+                m_lastScriptBuildResult.succeeded ? successColor : errorColor,
+                "Primary: %s",
+                primaryMessage.c_str());
         }
         ImGui::Text("Exit Code: %u", m_lastScriptBuildResult.exitCode);
         ImGui::Text("Did Configure: %s",
@@ -1244,6 +1414,55 @@ namespace Cue::Editor
         }
 
         ImGui::End();
+    }
+
+    void EditorManager::draw_script_build_notification_popup()
+    {
+        if (m_openScriptBuildNotificationPopup)
+        {
+            ImGui::OpenPopup("Script Build Notification");
+            m_openScriptBuildNotificationPopup = false;
+        }
+
+        if (!ImGui::BeginPopupModal(
+                "Script Build Notification",
+                nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        const ImVec4 messageColor = m_hasScriptBuildNotificationError
+            ? ImVec4(0.95f, 0.35f, 0.35f, 1.0f)
+            : ImVec4(0.35f, 0.85f, 0.45f, 1.0f);
+        if (!m_scriptBuildNotificationTitle.empty())
+        {
+            ImGui::TextColored(
+                messageColor,
+                "%s",
+                m_scriptBuildNotificationTitle.c_str());
+            ImGui::Separator();
+        }
+
+        if (!m_scriptBuildNotificationMessage.empty())
+        {
+            ImGui::TextWrapped(
+                "%s",
+                m_scriptBuildNotificationMessage.c_str());
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Build Output を開く"))
+        {
+            m_showScriptBuildOutput = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("閉じる"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
     }
 
     void EditorManager::undo_last_command()
@@ -1625,6 +1844,38 @@ namespace Cue::Editor
                 }
             }
 
+            if (m_hasScriptBuildNotification &&
+                !m_scriptBuildNotificationTitle.empty())
+            {
+                ImGui::Separator();
+                if (m_hasScriptBuildNotificationError)
+                {
+                    ImGui::PushStyleColor(
+                        ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
+                }
+                else
+                {
+                    ImGui::PushStyleColor(
+                        ImGuiCol_Text, IM_COL32(96, 220, 120, 255));
+                }
+
+                ImGui::TextUnformatted(
+                    m_scriptBuildNotificationTitle.c_str());
+                ImGui::PopStyleColor();
+
+                if (!m_scriptBuildNotificationMessage.empty())
+                {
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(
+                        m_scriptBuildNotificationMessage.c_str());
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Build Output"))
+                {
+                    m_showScriptBuildOutput = true;
+                }
+            }
+
             ImGui::EndMenuBar();
         }
 
@@ -1647,6 +1898,7 @@ namespace Cue::Editor
 
         m_statistics->update();
         m_debugView->update();
+        draw_script_build_notification_popup();
         draw_script_build_output();
         m_hierarchy->update();
         m_inspector->update();
