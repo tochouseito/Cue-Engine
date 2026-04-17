@@ -1,14 +1,19 @@
 #include "ScriptRegistry.h"
 
-#include "Scripts/RotateCubeScript.h"
-
 // === C++ includes ===
 #include <array>
 
+[[nodiscard]] Cue::Core::Native::ScriptClassDefinition
+make_rotate_cube_script_definition() noexcept;
+
+[[nodiscard]] Cue::Core::Native::ScriptClassDefinition
+make_test_cube_script_definition() noexcept;
+
 namespace
 {
-    const std::array<Cue::Core::Native::ScriptClassDefinition, 1> k_scriptClasses = {
-        make_rotate_cube_script_definition()
+    const std::array<Cue::Core::Native::ScriptClassDefinition, 2> k_scriptClasses = {
+        make_rotate_cube_script_definition(),
+        make_test_cube_script_definition()
     };
 }
 

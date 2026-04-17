@@ -9,10 +9,12 @@ endif()
 add_library(GameScript SHARED
     "Source/GameScriptModule.cpp"
     "Source/ScriptRegistry.cpp"
+    "Source/Scripts/TestCubeScript.cpp"
     "Source/Scripts/RotateCubeScript.cpp"
 )
 
 target_include_directories(GameScript PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core"
 )
 
