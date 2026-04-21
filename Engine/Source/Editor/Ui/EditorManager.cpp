@@ -1299,29 +1299,20 @@ namespace Cue::Editor
         return m_engine->stop_play_mode();
     }
 
-    Result EditorManager::request_exit()
+    Result EditorManager::exit_play_mode()
     {
-        if (m_platform == nullptr)
+        if (m_engine == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
-                "Platform is not initialized.");
+                "Engine is not initialized.");
         }
 
-        const HWND hwnd = m_platform->get_window_handle();
-        if (hwnd == nullptr)
+        if (!m_engine->is_playing())
         {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "Editor window is not initialized.");
+            return Result::ok();
         }
 
-        const BOOL posted = ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
-        if (posted == FALSE)
-        {
-            return Result::fail(Code::CreateFailed, Severity::Error,
-                "Failed to post editor close message.");
-        }
-
-        return Result::ok();
+        return m_engine->stop_play_mode();
     }
 
     void EditorManager::draw_script_build_output()
@@ -1890,17 +1881,17 @@ namespace Cue::Editor
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("Exit"))
+                if (ImGui::MenuItem("Exit", nullptr, false, canStopPlay))
                 {
-                    const Result result = request_exit();
+                    const Result result = exit_play_mode();
                     if (!result)
                     {
-                        log_result("Failed to request editor exit", result);
-                        set_status_message("Editor の終了要求に失敗しました。", true);
+                        log_result("Failed to exit play mode", result);
+                        set_status_message("Play 終了に失敗しました。", true);
                     }
                     else
                     {
-                        set_status_message("Editor を終了します。", false);
+                        set_status_message("Play を終了して editor に戻りました。", false);
                     }
                 }
 

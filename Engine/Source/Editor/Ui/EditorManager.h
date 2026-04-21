@@ -76,7 +76,7 @@ namespace Cue::Editor
         Result open_path_in_shell(const Core::IO::Path& a_path) const;
         Result start_play_mode();
         Result stop_play_mode();
-        Result request_exit();
+        Result exit_play_mode();
         Result refresh_script_project_intellisense(BuildResult& a_outResult);
         void draw_create_script_popup();
         void draw_script_build_output();
