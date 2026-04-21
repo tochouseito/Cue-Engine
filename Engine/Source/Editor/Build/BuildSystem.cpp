@@ -86,6 +86,77 @@ namespace Cue::Editor
         return runner->execute_script_configure(a_request, a_outResult);
     }
 
+    Result BuildSystem::plan_game_release_build(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildPlan& a_outPlan) const noexcept
+    {
+        const IBuildRunner* runner = resolve_runner(a_request.backend);
+        if (runner == nullptr)
+        {
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "対応していない build backend です。");
+        }
+
+        return runner->plan_game_release_build(a_request, a_outPlan);
+    }
+
+    Result BuildSystem::validate_game_release_build_environment(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildValidation& a_outValidation) const noexcept
+    {
+        const IBuildRunner* runner = resolve_runner(a_request.backend);
+        if (runner == nullptr)
+        {
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "対応していない build backend です。");
+        }
+
+        return runner->validate_game_release_build_environment(
+            a_request, a_outValidation);
+    }
+
+    Result BuildSystem::execute_game_release_configure(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildResult& a_outResult) const noexcept
+    {
+        const IBuildRunner* runner = resolve_runner(a_request.backend);
+        if (runner == nullptr)
+        {
+            a_outResult = {};
+            a_outResult.summary = "対応していない build backend です。";
+            a_outResult.messages.push_back(BuildMessage{
+                BuildMessageSeverity::Error,
+                BuildStage::General,
+                a_outResult.summary
+            });
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "Unsupported build backend.");
+        }
+
+        return runner->execute_game_release_configure(a_request, a_outResult);
+    }
+
+    Result BuildSystem::execute_game_release_build(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildResult& a_outResult) const noexcept
+    {
+        const IBuildRunner* runner = resolve_runner(a_request.backend);
+        if (runner == nullptr)
+        {
+            a_outResult = {};
+            a_outResult.summary = "対応していない build backend です。";
+            a_outResult.messages.push_back(BuildMessage{
+                BuildMessageSeverity::Error,
+                BuildStage::General,
+                a_outResult.summary
+            });
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "Unsupported build backend.");
+        }
+
+        return runner->execute_game_release_build(a_request, a_outResult);
+    }
+
     const char* BuildSystem::to_configuration_name(
         BuildConfiguration a_configuration) noexcept
     {

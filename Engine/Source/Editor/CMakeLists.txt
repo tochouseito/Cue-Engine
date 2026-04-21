@@ -58,6 +58,10 @@ target_compile_definitions(Editor PRIVATE
     CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
 )
 
+set_target_properties(Editor PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/Editor/$<CONFIG>"
+)
+
 # サブディレクトリの追加
 
 # ビルド後のコマンドを追加して、必要な DLL をコピー
@@ -65,8 +69,8 @@ add_custom_command(
     TARGET Editor
     POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "$<TARGET_FILE:Microsoft::DirectXShaderCompiler>"
-            "$<TARGET_FILE:Microsoft::DXIL>"
+            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxcompiler.dll"
+            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxil.dll"
             "$<TARGET_FILE_DIR:Editor>"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"

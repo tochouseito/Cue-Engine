@@ -22,5 +22,17 @@ namespace Cue::Editor
         [[nodiscard]] virtual Result execute_script_build(
             const ScriptBuildRequest& a_request,
             BuildResult& a_outResult) const noexcept = 0;
+        [[nodiscard]] virtual Result plan_game_release_build(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildPlan& a_outPlan) const noexcept = 0;
+        [[nodiscard]] virtual Result validate_game_release_build_environment(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildValidation& a_outValidation) const noexcept = 0;
+        [[nodiscard]] virtual Result execute_game_release_configure(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildResult& a_outResult) const noexcept = 0;
+        [[nodiscard]] virtual Result execute_game_release_build(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildResult& a_outResult) const noexcept = 0;
     };
 }

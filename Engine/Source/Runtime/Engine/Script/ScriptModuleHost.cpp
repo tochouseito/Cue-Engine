@@ -11,6 +11,27 @@
 
 namespace Cue
 {
+    namespace
+    {
+        [[nodiscard]] const char* to_build_configuration_name(
+            ScriptModuleBuildConfiguration a_configuration) noexcept
+        {
+            switch (a_configuration)
+            {
+            case ScriptModuleBuildConfiguration::Debug:
+                return "Debug";
+
+            case ScriptModuleBuildConfiguration::RelWithDebInfo:
+                return "RelWithDebInfo";
+
+            case ScriptModuleBuildConfiguration::Release:
+                return "Release";
+            }
+
+            return "Debug";
+        }
+    }
+
     ScriptModuleHost::ScriptModuleHost(
         Core::IO::IFileSystem& a_fileSystem) noexcept
         : m_fileSystem(a_fileSystem)
@@ -106,6 +127,7 @@ namespace Cue
 
     Result ScriptModuleHost::load_module(
         const Core::IO::Path& a_scriptRoot,
+        ScriptModuleBuildConfiguration a_configuration,
         GameCore::GameWorld& a_validationWorld) noexcept
     {
         m_lastReloadReport = {};
@@ -117,7 +139,8 @@ namespace Cue
         }
 
         Core::IO::Path modulePath{};
-        Result result = resolve_script_module_path(a_scriptRoot, modulePath);
+        Result result = resolve_script_module_path(
+            a_scriptRoot, a_configuration, modulePath);
         if (!result)
         {
             return result;
@@ -141,14 +164,49 @@ namespace Cue
             return result;
         }
 
+        return activate_loaded_module(
+            std::move(nextModule), a_scriptRoot, a_validationWorld);
+    }
+
+    Result ScriptModuleHost::load_static_module(
+        CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+        CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*),
+        GameCore::GameWorld& a_validationWorld) noexcept
+    {
+        m_lastReloadReport = {};
+
+        if (m_module == nullptr || m_runtime == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script module host is not initialized.");
+        }
+
+        std::unique_ptr<ScriptModule> nextModule = std::make_unique<ScriptModule>();
+        Result result = nextModule->load_static(a_getAbiVersion, a_getExports);
+        if (!result)
+        {
+            return result;
+        }
+
+        return activate_loaded_module(
+            std::move(nextModule), Core::IO::Path("[static]"), a_validationWorld);
+    }
+
+    Result ScriptModuleHost::activate_loaded_module(
+        std::unique_ptr<ScriptModule> a_nextModule,
+        const Core::IO::Path& a_scriptRoot,
+        GameCore::GameWorld& a_validationWorld) noexcept
+    {
+        Result result{};
+
         {
             ScriptRuntime validationRuntime(a_validationWorld);
-            result = nextModule->register_scripts(validationRuntime.engine_api());
+            result = a_nextModule->register_scripts(validationRuntime.engine_api());
         }
         activate_runtime();
         if (!result)
         {
-            nextModule->unload();
+            a_nextModule->unload();
             return result;
         }
 
@@ -156,19 +214,19 @@ namespace Cue
         result = m_runtime->capture_instance_states(preservedStateSnapshots);
         if (!result)
         {
-            nextModule->unload();
+            a_nextModule->unload();
             return result;
         }
 
         result = m_runtime->reset();
         if (!result)
         {
-            nextModule->unload();
+            a_nextModule->unload();
             return result;
         }
 
         std::unique_ptr<ScriptModule> previousModule = std::move(m_module);
-        m_module = std::move(nextModule);
+        m_module = std::move(a_nextModule);
         m_runtime->set_module(m_module.get());
         result = m_module->register_scripts(m_runtime->engine_api());
         if (!result)
@@ -257,34 +315,31 @@ namespace Cue
 
     Result ScriptModuleHost::resolve_script_module_path(
         const Core::IO::Path& a_scriptRoot,
+        ScriptModuleBuildConfiguration a_configuration,
         Core::IO::Path& a_outModulePath) noexcept
     {
         a_outModulePath = {};
-
-#if defined(CUE_DEBUG)
-        constexpr const char* k_buildConfig = "Debug";
-#elif defined(CUE_RELWITHDEBINFO)
-        constexpr const char* k_buildConfig = "RelWithDebInfo";
-#else
-        constexpr const char* k_buildConfig = "Release";
-#endif
+        const char* buildConfigurationName =
+            to_build_configuration_name(a_configuration);
 
         const std::array<Core::IO::Path, 4> candidatePaths = {
             Core::IO::Path::join(
                 a_scriptRoot,
-                Core::IO::Path(std::string("Binaries/") + k_buildConfig + "/GameScript.dll")),
+                Core::IO::Path(
+                    std::string("Binaries/") + buildConfigurationName +
+                    "/GameScript.dll")),
             Core::IO::Path::join(
                 a_scriptRoot,
                 Core::IO::Path(std::string("out/build/win-x64/GameScript/") +
-                    k_buildConfig + "/GameScript.dll")),
+                    buildConfigurationName + "/GameScript.dll")),
             Core::IO::Path::join(
                 a_scriptRoot,
                 Core::IO::Path(std::string("out/build/win-x64/") +
-                    k_buildConfig + "/GameScript.dll")),
+                    buildConfigurationName + "/GameScript.dll")),
             Core::IO::Path::join(
                 a_scriptRoot,
                 Core::IO::Path(std::string("generated/outputs/") +
-                    k_buildConfig + "/GameScript.dll")),
+                    buildConfigurationName + "/GameScript.dll")),
         };
 
         bool hasResolvedCandidate = false;

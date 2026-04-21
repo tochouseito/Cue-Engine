@@ -64,14 +64,21 @@ namespace Cue::Editor
         Result reload_current_scene();
         Result unload_current_scene();
         Result build_script_module();
+        Result build_game_release();
         Result reload_script_module();
         Result reload_script_module(BuildResult& a_inOutBuildResult);
         Result save_script_build_configuration(
             BuildConfiguration a_configuration);
+        Result save_script_load_configuration(
+            BuildConfiguration a_configuration);
         Result save_script_build_backend(BuildBackend a_backend);
+        Result save_game_release_build_configuration(
+            BuildConfiguration a_configuration);
+        Result save_game_release_build_backend(BuildBackend a_backend);
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result open_script_solution_in_visual_studio();
         Result attach_editor_debugger_in_visual_studio();
+        Result open_game_release_build_directory();
         Result create_script_template(const std::string& a_scriptName);
         Result open_path_in_shell(const Core::IO::Path& a_path) const;
         Result start_play_mode();
@@ -112,9 +119,15 @@ namespace Cue::Editor
         std::string m_currentScenePath{};
         std::string m_statusMessage{};
         BuildResult m_lastScriptBuildResult{};
+        GameReleaseBuildResult m_lastGameReleaseBuildResult{};
         BuildConfiguration m_scriptBuildConfiguration =
             BuildConfiguration::Debug;
+        BuildConfiguration m_scriptLoadConfiguration =
+            BuildConfiguration::Debug;
         BuildBackend m_scriptBuildBackend = BuildBackend::CMake;
+        BuildConfiguration m_gameReleaseBuildConfiguration =
+            BuildConfiguration::Release;
+        BuildBackend m_gameReleaseBuildBackend = BuildBackend::CMake;
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         uint32_t m_pendingScriptActionDelayFrames = 0;

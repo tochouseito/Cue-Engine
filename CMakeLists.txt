@@ -35,9 +35,9 @@ cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 # 生成物の出力先（全ターゲット共通）
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/$<CONFIG>")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/Binaries/$<CONFIG>")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/Binaries/$<CONFIG>")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/Sdk/Lib/$<CONFIG>")
 
 # 警告設定
 add_library(cue_warnings INTERFACE)
@@ -86,6 +86,7 @@ target_include_directories(cue_compile_options INTERFACE
 )
 
 # サブディレクトリの追加
+add_subdirectory("Engine/Source/App")
 add_subdirectory("Engine/Source/Editor")
 add_subdirectory("Engine/Source/Runtime")
 add_subdirectory("Engine/Source/ThirdParty")

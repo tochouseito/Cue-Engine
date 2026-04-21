@@ -1,8 +1,13 @@
 {
     "assetRoot": "Assets",
     "engineVersion": 1,
+    "gameReleaseBuildBackend": "CMake",
+    "gameReleaseBuildConfiguration": "Release",
+    "gameReleaseOutputRoot": "Builds/Windows",
     "name": "TestProject",
+    "scriptBuildBackend": "CMake",
     "scriptBuildConfiguration": "Debug",
+    "scriptLoadConfiguration": "Debug",
     "scriptRoot": ".",
     "startupScene": "Assets/Scenes/Main.cuescene"
 }

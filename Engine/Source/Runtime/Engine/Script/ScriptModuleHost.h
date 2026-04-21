@@ -6,12 +6,14 @@
 // === Core includes ===
 #include <IO/IFileSystem.h>
 #include <IO/Path.h>
+#include <Native/ScriptAbi.h>
 
 // === Engine includes ===
 #include "ScriptShadowCopyService.h"
 #include "../GameCore/Components.h"
 
 // === C++ includes ===
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -28,6 +30,13 @@ namespace Cue
 
     class ScriptModule;
     class ScriptRuntime;
+    
+    enum class ScriptModuleBuildConfiguration : uint8_t
+    {
+        Debug,
+        RelWithDebInfo,
+        Release
+    };
 
     class ScriptModuleHost final
     {
@@ -66,12 +75,22 @@ namespace Cue
 
         [[nodiscard]] Result load_module(
             const Core::IO::Path& a_scriptRoot,
+            ScriptModuleBuildConfiguration a_configuration,
+            GameCore::GameWorld& a_validationWorld) noexcept;
+        [[nodiscard]] Result load_static_module(
+            CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+            CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*),
             GameCore::GameWorld& a_validationWorld) noexcept;
         void unload_module() noexcept;
 
     private:
+        [[nodiscard]] Result activate_loaded_module(
+            std::unique_ptr<ScriptModule> a_nextModule,
+            const Core::IO::Path& a_scriptRoot,
+            GameCore::GameWorld& a_validationWorld) noexcept;
         [[nodiscard]] Result resolve_script_module_path(
             const Core::IO::Path& a_scriptRoot,
+            ScriptModuleBuildConfiguration a_configuration,
             Core::IO::Path& a_outModulePath) noexcept;
 
     private:

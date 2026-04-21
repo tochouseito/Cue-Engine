@@ -38,6 +38,29 @@ namespace Cue::Editor
                 std::wstring_view(buffer, length), &a_outPath);
         }
 
+        [[nodiscard]] Result resolve_cmake_executable_path(
+            std::string& a_outPath) noexcept
+        {
+            a_outPath.clear();
+
+            wchar_t buffer[MAX_PATH]{};
+            const DWORD length = ::SearchPathW(
+                nullptr,
+                L"cmake.exe",
+                nullptr,
+                static_cast<DWORD>(std::size(buffer)),
+                buffer,
+                nullptr);
+            if (length == 0)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "cmake.exe が見つかりません。PATH を確認してください。");
+            }
+
+            return PAL::Win::wide_to_utf8(
+                std::wstring_view(buffer, length), &a_outPath);
+        }
+
         [[nodiscard]] Core::IO::Path get_tool_project_path() noexcept
         {
 #ifdef CUE_PROJECT_ROOT_PATH
@@ -66,6 +89,40 @@ namespace Cue::Editor
                 a_stage,
                 std::move(a_text)
             });
+        }
+
+        void push_message(
+            GameReleaseBuildResult& a_result,
+            BuildMessageSeverity a_severity,
+            BuildStage a_stage,
+            std::string a_text)
+        {
+            a_result.messages.push_back(BuildMessage{
+                a_severity,
+                a_stage,
+                std::move(a_text)
+            });
+        }
+
+        [[nodiscard]] std::string make_cmake_target_arguments(
+            std::string_view a_primaryTarget,
+            std::string_view a_secondaryTarget)
+        {
+            std::string result{};
+
+            if (!a_primaryTarget.empty())
+            {
+                result += " ";
+                result += a_primaryTarget;
+            }
+
+            if (!a_secondaryTarget.empty())
+            {
+                result += " ";
+                result += a_secondaryTarget;
+            }
+
+            return result;
         }
 
         [[nodiscard]] Result execute_command(
@@ -422,6 +479,259 @@ namespace Cue::Editor
         a_outResult.summary = "CMake configure が成功しました。";
         push_message(a_outResult, BuildMessageSeverity::Info,
             BuildStage::Configure, a_outResult.summary);
+        return Result::ok();
+    }
+
+    Result VisualStudioBuildRunner::plan_game_release_build(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildPlan& a_outPlan) const noexcept
+    {
+        a_outPlan = {};
+
+        GameReleaseBuildValidation validation{};
+        Result result =
+            validate_game_release_build_environment(a_request, validation);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path configureDirectory = Core::IO::Path::join(
+            a_request.projectRoot,
+            Core::IO::Path("out/build/" + a_request.configurePreset));
+        const Core::IO::Path buildDirectory = Core::IO::Path::join(
+            configureDirectory,
+            Core::IO::Path(a_request.appTarget.empty()
+                ? a_request.gameTarget
+                : a_request.appTarget));
+
+        bool configureDirectoryExists = false;
+        result = m_fileSystem.exists(configureDirectory, &configureDirectoryExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "VisualStudio configure ディレクトリの確認に失敗しました。");
+        }
+
+        bool hasSolution = false;
+        if (configureDirectoryExists)
+        {
+            std::vector<Core::IO::Path> entries{};
+            result = m_fileSystem.list_directory(configureDirectory, &entries);
+            if (!result)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "VisualStudio solution の確認に失敗しました。");
+            }
+
+            for (const Core::IO::Path& entry : entries)
+            {
+                if (is_solution_file(entry))
+                {
+                    hasSolution = true;
+                    break;
+                }
+            }
+        }
+
+        a_outPlan.projectRoot = a_request.projectRoot;
+        a_outPlan.presetsPath = validation.presetsPath;
+        a_outPlan.configureDirectory = configureDirectory;
+        a_outPlan.buildDirectory = buildDirectory;
+        a_outPlan.requiresConfigure = !hasSolution;
+        a_outPlan.configureCommand =
+            "cmake --preset " + a_request.configurePreset + " --fresh";
+        a_outPlan.buildCommand =
+            "cmake --build out/build/" + a_request.configurePreset +
+            " --config " + BuildSystem::to_configuration_name(a_request.configuration) +
+            " --target" +
+            make_cmake_target_arguments(a_request.gameTarget, a_request.appTarget);
+        return Result::ok();
+    }
+
+    Result VisualStudioBuildRunner::validate_game_release_build_environment(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildValidation& a_outValidation) const noexcept
+    {
+        a_outValidation = {};
+
+        if (a_request.projectRoot.is_empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Project root が指定されていません。");
+        }
+
+        bool projectRootExists = false;
+        Result result = m_fileSystem.exists(a_request.projectRoot, &projectRootExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Project root の確認に失敗しました。");
+        }
+
+        if (!projectRootExists)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "Project root が存在しません。");
+        }
+
+        Core::IO::FileStat projectRootStat{};
+        result = m_fileSystem.stat(a_request.projectRoot, &projectRootStat);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Project root の情報取得に失敗しました。");
+        }
+
+        if (projectRootStat.type != Core::IO::FileType::directory)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Project root はディレクトリである必要があります。");
+        }
+
+        const Core::IO::Path presetsPath = Core::IO::Path::join(
+            a_request.projectRoot, Core::IO::Path("CMakePresets.json"));
+        bool presetsExists = false;
+        result = m_fileSystem.exists(presetsPath, &presetsExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "CMakePresets.json の確認に失敗しました。");
+        }
+
+        if (!presetsExists)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "CMakePresets.json が見つかりません。");
+        }
+
+        std::string cmakePath{};
+        result = resolve_cmake_executable_path(cmakePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outValidation.projectRoot = a_request.projectRoot;
+        a_outValidation.presetsPath = presetsPath;
+        a_outValidation.cmakePath = std::move(cmakePath);
+        return Result::ok();
+    }
+
+    Result VisualStudioBuildRunner::execute_game_release_configure(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildResult& a_outResult) const noexcept
+    {
+        a_outResult = {};
+
+        Result result = plan_game_release_build(a_request, a_outResult.plan);
+        if (!result)
+        {
+            a_outResult.summary = result.message;
+            push_message(a_outResult, BuildMessageSeverity::Error, BuildStage::General,
+                std::string(result.message));
+            return result;
+        }
+
+        const Core::IO::Path logRoot = Core::IO::Path::join(
+            a_request.projectRoot,
+            Core::IO::Path("Intermediate/BuildSystem/GameRelease"));
+        a_outResult.configureLogPath =
+            Core::IO::Path::join(logRoot, Core::IO::Path("Configure.log"));
+
+        BuildStageResult configureStage{};
+        result = execute_command(
+            m_fileSystem,
+            a_request.projectRoot,
+            a_outResult.plan.configureCommand,
+            BuildStage::Configure,
+            a_outResult.configureLogPath,
+            configureStage);
+        a_outResult.didConfigure = true;
+        a_outResult.stageResults.push_back(std::move(configureStage));
+        a_outResult.exitCode = a_outResult.stageResults.back().exitCode;
+        if (!result)
+        {
+            a_outResult.summary = "Game Release 用 configure に失敗しました。";
+            push_message(a_outResult, BuildMessageSeverity::Error,
+                BuildStage::Configure, a_outResult.summary);
+            return result;
+        }
+
+        a_outResult.succeeded = true;
+        a_outResult.summary = "Game Release 用 configure が成功しました。";
+        push_message(a_outResult, BuildMessageSeverity::Info,
+            BuildStage::Configure, a_outResult.summary);
+        return Result::ok();
+    }
+
+    Result VisualStudioBuildRunner::execute_game_release_build(
+        const GameReleaseBuildRequest& a_request,
+        GameReleaseBuildResult& a_outResult) const noexcept
+    {
+        a_outResult = {};
+
+        Result result = plan_game_release_build(a_request, a_outResult.plan);
+        if (!result)
+        {
+            a_outResult.summary = result.message;
+            push_message(a_outResult, BuildMessageSeverity::Error, BuildStage::General,
+                std::string(result.message));
+            return result;
+        }
+
+        const Core::IO::Path logRoot = Core::IO::Path::join(
+            a_request.projectRoot,
+            Core::IO::Path("Intermediate/BuildSystem/GameRelease"));
+        a_outResult.configureLogPath =
+            Core::IO::Path::join(logRoot, Core::IO::Path("Configure.log"));
+        a_outResult.buildLogPath =
+            Core::IO::Path::join(logRoot, Core::IO::Path("Build.log"));
+
+        if (a_outResult.plan.requiresConfigure)
+        {
+            BuildStageResult configureStage{};
+            result = execute_command(
+                m_fileSystem,
+                a_request.projectRoot,
+                a_outResult.plan.configureCommand,
+                BuildStage::Configure,
+                a_outResult.configureLogPath,
+                configureStage);
+            a_outResult.didConfigure = true;
+            a_outResult.stageResults.push_back(std::move(configureStage));
+            if (!result)
+            {
+                a_outResult.exitCode = a_outResult.stageResults.back().exitCode;
+                a_outResult.summary = "Game Release 用 configure に失敗しました。";
+                push_message(a_outResult, BuildMessageSeverity::Error,
+                    BuildStage::Configure, a_outResult.summary);
+                return result;
+            }
+        }
+
+        BuildStageResult buildStage{};
+        result = execute_command(
+            m_fileSystem,
+            a_request.projectRoot,
+            a_outResult.plan.buildCommand,
+            BuildStage::Build,
+            a_outResult.buildLogPath,
+            buildStage);
+        a_outResult.stageResults.push_back(std::move(buildStage));
+        a_outResult.exitCode = a_outResult.stageResults.back().exitCode;
+        if (!result)
+        {
+            a_outResult.summary = "Game Release 用 build に失敗しました。";
+            push_message(a_outResult, BuildMessageSeverity::Error,
+                BuildStage::Build, a_outResult.summary);
+            return result;
+        }
+
+        a_outResult.succeeded = true;
+        a_outResult.summary = "Game Release 用 build が成功しました。";
+        push_message(a_outResult, BuildMessageSeverity::Info,
+            BuildStage::Build, a_outResult.summary);
         return Result::ok();
     }
 }

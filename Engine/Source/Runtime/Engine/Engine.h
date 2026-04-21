@@ -2,6 +2,7 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
+#include <Native/ScriptAbi.h>
 
 // === PAL includes ===
 #include <PAL.h>
@@ -171,7 +172,11 @@ namespace Cue
         }
 
         [[nodiscard]] Result load_script_module(
-            const Core::IO::Path& a_scriptRoot) noexcept;
+            const Core::IO::Path& a_scriptRoot,
+            ScriptModuleBuildConfiguration a_configuration) noexcept;
+        [[nodiscard]] Result load_static_script_module(
+            CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+            CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*)) noexcept;
         void unload_script_module() noexcept;
         [[nodiscard]] Result start_play_mode() noexcept;
         [[nodiscard]] Result stop_play_mode() noexcept;

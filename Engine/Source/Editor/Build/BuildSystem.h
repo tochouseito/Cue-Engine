@@ -116,6 +116,50 @@ namespace Cue::Editor
         bool didConfigure = false;
     };
 
+    struct GameReleaseBuildRequest final
+    {
+        Core::IO::Path projectRoot{};
+        std::string configurePreset = "win-x64";
+        BuildConfiguration configuration = BuildConfiguration::Release;
+        std::string gameTarget = "Game";
+        std::string appTarget = "CueApp";
+        BuildBackend backend = BuildBackend::CMake;
+    };
+
+    struct GameReleaseBuildPlan final
+    {
+        Core::IO::Path projectRoot{};
+        Core::IO::Path configureDirectory{};
+        Core::IO::Path buildDirectory{};
+        Core::IO::Path presetsPath{};
+        std::string configureCommand{};
+        std::string buildCommand{};
+        bool requiresConfigure = false;
+    };
+
+    struct GameReleaseBuildValidation final
+    {
+        Core::IO::Path projectRoot{};
+        Core::IO::Path presetsPath{};
+        std::string cmakePath{};
+        std::string vcpkgRoot{};
+        bool requiresVcpkgRoot = false;
+    };
+
+    struct GameReleaseBuildResult final
+    {
+        GameReleaseBuildPlan plan{};
+        std::vector<BuildStageResult> stageResults{};
+        std::vector<BuildMessage> messages{};
+        std::vector<BuildArtifact> artifacts{};
+        Core::IO::Path configureLogPath{};
+        Core::IO::Path buildLogPath{};
+        std::string summary{};
+        uint32_t exitCode = 0;
+        bool succeeded = false;
+        bool didConfigure = false;
+    };
+
     class BuildSystem final
     {
     public:
@@ -134,6 +178,18 @@ namespace Cue::Editor
         [[nodiscard]] Result execute_script_build(
             const ScriptBuildRequest& a_request,
             BuildResult& a_outResult) const noexcept;
+        [[nodiscard]] Result plan_game_release_build(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildPlan& a_outPlan) const noexcept;
+        [[nodiscard]] Result validate_game_release_build_environment(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildValidation& a_outValidation) const noexcept;
+        [[nodiscard]] Result execute_game_release_configure(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildResult& a_outResult) const noexcept;
+        [[nodiscard]] Result execute_game_release_build(
+            const GameReleaseBuildRequest& a_request,
+            GameReleaseBuildResult& a_outResult) const noexcept;
 
         [[nodiscard]] static const char* to_configuration_name(
             BuildConfiguration a_configuration) noexcept;

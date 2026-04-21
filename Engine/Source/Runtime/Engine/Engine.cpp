@@ -536,7 +536,9 @@ namespace Cue
             };
     }
 
-    Result Engine::load_script_module(const Core::IO::Path& a_scriptRoot) noexcept
+    Result Engine::load_script_module(
+        const Core::IO::Path& a_scriptRoot,
+        ScriptModuleBuildConfiguration a_configuration) noexcept
     {
         if (m_scriptModuleHost == nullptr || m_activeWorld == nullptr)
         {
@@ -545,13 +547,35 @@ namespace Cue
         }
 
         Result result =
-            m_scriptModuleHost->load_module(a_scriptRoot, *m_activeWorld);
+            m_scriptModuleHost->load_module(
+                a_scriptRoot, a_configuration, *m_activeWorld);
         if (!result)
         {
             return result;
         }
 
         m_scriptRoot = a_scriptRoot;
+        return Result::ok();
+    }
+
+    Result Engine::load_static_script_module(
+        CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+        CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*)) noexcept
+    {
+        if (m_scriptModuleHost == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine script runtime is not initialized.");
+        }
+
+        Result result = m_scriptModuleHost->load_static_module(
+            a_getAbiVersion, a_getExports, *m_activeWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptRoot = Core::IO::Path("[static]");
         return Result::ok();
     }
 

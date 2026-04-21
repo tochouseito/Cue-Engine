@@ -115,6 +115,27 @@ namespace Cue
         return load_internal(a_modulePath, a_modulePath);
     }
 
+    Result ScriptModule::load_static(
+        CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+        CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*)) noexcept
+    {
+        unload();
+
+        if (a_getAbiVersion == nullptr || a_getExports == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Static script module exports are missing.");
+        }
+
+        CueScriptExports exports{};
+        return initialize_exports(
+            a_getAbiVersion(),
+            a_getExports(&exports),
+            exports,
+            Core::IO::Path("[static]"),
+            Core::IO::Path("[static]"));
+    }
+
     Result ScriptModule::load_shadow_copy(
         const Core::IO::Path& a_modulePath,
         const Core::IO::Path& a_shadowModulePath) noexcept
@@ -156,38 +177,56 @@ namespace Cue
                 "Script module exports are missing.");
         }
 
-        const CueScriptAbiVersion abiVersion = getAbiVersion();
-        if (abiVersion != k_cueScriptAbiVersion)
-        {
-            ::FreeLibrary(moduleHandle);
-            return Result::fail(Code::Unsupported, Severity::Error,
-                "Script module ABI version is not supported.");
-        }
-
         CueScriptExports exports{};
-        const CueResult getExportsResult = getExports(&exports);
-        result = convert_script_result(getExportsResult);
+        result = initialize_exports(
+            getAbiVersion(),
+            getExports(&exports),
+            exports,
+            a_modulePath,
+            a_loadPath);
         if (!result)
         {
             ::FreeLibrary(moduleHandle);
             return result;
         }
 
-        if (exports.structSize < k_requiredScriptExportsSize ||
-            exports.abiVersion != k_cueScriptAbiVersion ||
-            exports.createScriptInstance == nullptr ||
-            exports.destroyScriptInstance == nullptr ||
-            exports.updateScriptInstance == nullptr)
+        m_nativeHandle = moduleHandle;
+        return Result::ok();
+    }
+
+    Result ScriptModule::initialize_exports(
+        CueScriptAbiVersion a_abiVersion,
+        CueResult a_getExportsResult,
+        const CueScriptExports& a_exports,
+        const Core::IO::Path& a_modulePath,
+        const Core::IO::Path& a_loadPath) noexcept
+    {
+        if (a_abiVersion != k_cueScriptAbiVersion)
         {
-            ::FreeLibrary(moduleHandle);
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "Script module ABI version is not supported.");
+        }
+
+        Result result = convert_script_result(a_getExportsResult);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (a_exports.structSize < k_requiredScriptExportsSize ||
+            a_exports.abiVersion != k_cueScriptAbiVersion ||
+            a_exports.createScriptInstance == nullptr ||
+            a_exports.destroyScriptInstance == nullptr ||
+            a_exports.updateScriptInstance == nullptr)
+        {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Script module exports are invalid.");
         }
 
-        m_nativeHandle = moduleHandle;
+        m_isStaticModule = a_loadPath.utf8() == "[static]";
         m_modulePath = a_modulePath;
         m_loadedModulePath = a_loadPath;
-        m_exports = exports;
+        m_exports = a_exports;
         return Result::ok();
     }
 
@@ -207,6 +246,7 @@ namespace Cue
                 Core::IO::Path(m_loadedModulePath.stem() + ".pdb")));
         }
 
+        m_isStaticModule = false;
         m_modulePath = {};
         m_loadedModulePath = {};
         m_exports = {};
@@ -214,7 +254,7 @@ namespace Cue
 
     bool ScriptModule::is_loaded() const noexcept
     {
-        return m_nativeHandle != nullptr;
+        return m_nativeHandle != nullptr || m_isStaticModule;
     }
 
     const CueScriptExports* ScriptModule::exports() const noexcept

@@ -30,10 +30,17 @@ namespace Cue::Editor
         struct ProjectSettings final
         {
             std::string startupScene{};
+            std::string assetRoot = "Assets";
             std::string scriptRoot{};
             BuildConfiguration scriptBuildConfiguration =
                 BuildConfiguration::Debug;
+            BuildConfiguration scriptLoadConfiguration =
+                BuildConfiguration::Debug;
             BuildBackend scriptBuildBackend = BuildBackend::CMake;
+            BuildConfiguration gameReleaseBuildConfiguration =
+                BuildConfiguration::Release;
+            BuildBackend gameReleaseBuildBackend = BuildBackend::CMake;
+            std::string gameReleaseOutputRoot = "Builds/Windows";
         };
 
         void log_result(std::string_view a_prefix, const Result& a_result)
@@ -151,6 +158,142 @@ namespace Cue::Editor
             });
         }
 
+        void push_build_message(
+            GameReleaseBuildResult& a_result,
+            BuildMessageSeverity a_severity,
+            BuildStage a_stage,
+            std::string a_text)
+        {
+            a_result.messages.push_back(BuildMessage{
+                a_severity,
+                a_stage,
+                std::move(a_text)
+            });
+        }
+
+        void append_game_release_result(
+            GameReleaseBuildResult& a_destination,
+            const GameReleaseBuildResult& a_source)
+        {
+            a_destination.stageResults.insert(
+                a_destination.stageResults.end(),
+                a_source.stageResults.begin(),
+                a_source.stageResults.end());
+            a_destination.messages.insert(
+                a_destination.messages.end(),
+                a_source.messages.begin(),
+                a_source.messages.end());
+            a_destination.artifacts.insert(
+                a_destination.artifacts.end(),
+                a_source.artifacts.begin(),
+                a_source.artifacts.end());
+
+            if (!a_source.configureLogPath.is_empty())
+            {
+                a_destination.configureLogPath = a_source.configureLogPath;
+            }
+            if (!a_source.buildLogPath.is_empty())
+            {
+                a_destination.buildLogPath = a_source.buildLogPath;
+            }
+            if (!a_source.summary.empty())
+            {
+                a_destination.summary = a_source.summary;
+            }
+
+            a_destination.exitCode = a_source.exitCode;
+            a_destination.didConfigure =
+                a_destination.didConfigure || a_source.didConfigure;
+            a_destination.succeeded =
+                a_destination.succeeded && a_source.succeeded;
+        }
+
+        [[nodiscard]] Result copy_directory_recursive(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourceDirectory,
+            const Core::IO::Path& a_destinationDirectory) noexcept
+        {
+            bool sourceExists = false;
+            Result result = a_fileSystem.exists(a_sourceDirectory, &sourceExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!sourceExists)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "コピー元ディレクトリが存在しません。");
+            }
+
+            result = a_fileSystem.create_directories(a_destinationDirectory);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::vector<Core::IO::Path> entries{};
+            result = a_fileSystem.list_directory(a_sourceDirectory, &entries);
+            if (!result)
+            {
+                return result;
+            }
+
+            for (const Core::IO::Path& entryPath : entries)
+            {
+                Core::IO::FileStat stat{};
+                result = a_fileSystem.stat(entryPath, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const Core::IO::Path destinationPath = Core::IO::Path::join(
+                    a_destinationDirectory,
+                    Core::IO::Path(entryPath.filename()));
+
+                if (stat.type == Core::IO::FileType::directory)
+                {
+                    result = copy_directory_recursive(
+                        a_fileSystem,
+                        entryPath,
+                        destinationPath);
+                }
+                else if (stat.type == Core::IO::FileType::regular)
+                {
+                    result = a_fileSystem.copy_file(
+                        entryPath,
+                        destinationPath,
+                        true);
+                }
+                else
+                {
+                    continue;
+                }
+
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Core::IO::Path resolve_game_release_output_directory(
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path outputRoot(a_settings.gameReleaseOutputRoot);
+            if (!outputRoot.is_absolute())
+            {
+                outputRoot = Core::IO::Path::join(a_projectRoot, outputRoot);
+            }
+
+            return Core::IO::Path::join(
+                outputRoot,
+                Core::IO::Path("Release"));
+        }
+
         [[nodiscard]] bool has_stage_result(
             const BuildResult& a_result,
             BuildStage a_stage) noexcept
@@ -181,8 +324,37 @@ namespace Cue::Editor
             return nullptr;
         }
 
+        [[nodiscard]] const BuildMessage* find_build_message(
+            const GameReleaseBuildResult& a_result,
+            BuildMessageSeverity a_severity) noexcept
+        {
+            for (const BuildMessage& message : a_result.messages)
+            {
+                if (message.severity == a_severity)
+                {
+                    return &message;
+                }
+            }
+
+            return nullptr;
+        }
+
         [[nodiscard]] const BuildStageResult* find_failed_stage_result(
             const BuildResult& a_result) noexcept
+        {
+            for (const BuildStageResult& stageResult : a_result.stageResults)
+            {
+                if (!stageResult.succeeded)
+                {
+                    return &stageResult;
+                }
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] const BuildStageResult* find_failed_stage_result(
+            const GameReleaseBuildResult& a_result) noexcept
         {
             for (const BuildStageResult& stageResult : a_result.stageResults)
             {
@@ -231,6 +403,43 @@ namespace Cue::Editor
 
         [[nodiscard]] std::string make_primary_build_message(
             const BuildResult& a_result) noexcept
+        {
+            if (const BuildMessage* errorMessage =
+                find_build_message(a_result, BuildMessageSeverity::Error);
+                errorMessage != nullptr && !errorMessage->text.empty())
+            {
+                return errorMessage->text;
+            }
+
+            if (const BuildMessage* warningMessage =
+                find_build_message(a_result, BuildMessageSeverity::Warning);
+                warningMessage != nullptr && !warningMessage->text.empty())
+            {
+                return warningMessage->text;
+            }
+
+            if (const BuildStageResult* failedStageResult =
+                find_failed_stage_result(a_result);
+                failedStageResult != nullptr)
+            {
+                const std::string excerpt =
+                    make_output_excerpt(failedStageResult->output);
+                if (!excerpt.empty())
+                {
+                    return excerpt;
+                }
+            }
+
+            if (!a_result.summary.empty())
+            {
+                return a_result.summary;
+            }
+
+            return {};
+        }
+
+        [[nodiscard]] std::string make_primary_build_message(
+            const GameReleaseBuildResult& a_result) noexcept
         {
             if (const BuildMessage* errorMessage =
                 find_build_message(a_result, BuildMessageSeverity::Error);
@@ -326,6 +535,25 @@ namespace Cue::Editor
             return "CMake";
         }
 
+        [[nodiscard]] ScriptModuleBuildConfiguration
+            to_script_module_build_configuration(
+                BuildConfiguration a_configuration) noexcept
+        {
+            switch (a_configuration)
+            {
+            case BuildConfiguration::Debug:
+                return ScriptModuleBuildConfiguration::Debug;
+
+            case BuildConfiguration::RelWithDebInfo:
+                return ScriptModuleBuildConfiguration::RelWithDebInfo;
+
+            case BuildConfiguration::Release:
+                return ScriptModuleBuildConfiguration::Release;
+            }
+
+            return ScriptModuleBuildConfiguration::Debug;
+        }
+
         [[nodiscard]] Result save_project_settings(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_projectPath,
@@ -349,8 +577,19 @@ namespace Cue::Editor
                 root["scriptBuildConfiguration"] =
                     BuildSystem::to_configuration_name(
                         a_settings.scriptBuildConfiguration);
+                root["scriptLoadConfiguration"] =
+                    BuildSystem::to_configuration_name(
+                        a_settings.scriptLoadConfiguration);
                 root["scriptBuildBackend"] =
                     to_build_backend_name(a_settings.scriptBuildBackend);
+                root["gameReleaseBuildConfiguration"] =
+                    BuildSystem::to_configuration_name(
+                        a_settings.gameReleaseBuildConfiguration);
+                root["gameReleaseBuildBackend"] =
+                    to_build_backend_name(a_settings.gameReleaseBuildBackend);
+                root["gameReleaseOutputRoot"] =
+                    a_settings.gameReleaseOutputRoot;
+                root["startupScene"] = a_settings.startupScene;
 
                 std::string updatedText = root.dump(4);
                 updatedText.push_back('\n');
@@ -396,6 +635,13 @@ namespace Cue::Editor
                         "Project startup scene is empty.");
                 }
 
+                a_outSettings.assetRoot =
+                    root.value("assetRoot", std::string("Assets"));
+                if (a_outSettings.assetRoot.empty())
+                {
+                    a_outSettings.assetRoot = "Assets";
+                }
+
                 a_outSettings.scriptRoot =
                     root.value("scriptRoot", std::string("."));
                 if (a_outSettings.scriptRoot.empty())
@@ -413,6 +659,16 @@ namespace Cue::Editor
                     return result;
                 }
 
+                const std::string loadConfigurationText =
+                    root.value("scriptLoadConfiguration", buildConfigurationText);
+                result = parse_build_configuration(
+                    loadConfigurationText,
+                    a_outSettings.scriptLoadConfiguration);
+                if (!result)
+                {
+                    return result;
+                }
+
                 const std::string buildBackendText =
                     root.value("scriptBuildBackend", std::string("CMake"));
                 result = parse_build_backend(
@@ -421,6 +677,34 @@ namespace Cue::Editor
                 if (!result)
                 {
                     return result;
+                }
+
+                const std::string gameReleaseConfigurationText =
+                    root.value("gameReleaseBuildConfiguration",
+                        std::string("Release"));
+                result = parse_build_configuration(
+                    gameReleaseConfigurationText,
+                    a_outSettings.gameReleaseBuildConfiguration);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const std::string gameReleaseBackendText =
+                    root.value("gameReleaseBuildBackend", std::string("CMake"));
+                result = parse_build_backend(
+                    gameReleaseBackendText,
+                    a_outSettings.gameReleaseBuildBackend);
+                if (!result)
+                {
+                    return result;
+                }
+
+                a_outSettings.gameReleaseOutputRoot =
+                    root.value("gameReleaseOutputRoot", std::string("Builds/Windows"));
+                if (a_outSettings.gameReleaseOutputRoot.empty())
+                {
+                    a_outSettings.gameReleaseOutputRoot = "Builds/Windows";
                 }
 
                 return Result::ok();
@@ -490,9 +774,16 @@ namespace Cue::Editor
         m_projectPath = a_projectPath;
         m_currentScenePath = scenePath.utf8();
         m_scriptBuildConfiguration = projectSettings.scriptBuildConfiguration;
+        m_scriptLoadConfiguration = projectSettings.scriptLoadConfiguration;
         m_scriptBuildBackend = projectSettings.scriptBuildBackend;
+        m_gameReleaseBuildConfiguration =
+            projectSettings.gameReleaseBuildConfiguration;
+        m_gameReleaseBuildBackend =
+            projectSettings.gameReleaseBuildBackend;
 
-        const Result scriptLoadResult = m_engine->load_script_module(scriptRootPath);
+        const Result scriptLoadResult = m_engine->load_script_module(
+            scriptRootPath,
+            to_script_module_build_configuration(m_scriptLoadConfiguration));
         if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
         {
             set_status_message("GameScript.dll の読み込みに失敗しました。", true);
@@ -698,6 +989,218 @@ namespace Cue::Editor
         return result;
     }
 
+    Result EditorManager::build_game_release()
+    {
+        if (m_buildSystem == nullptr || m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "BuildSystem dependencies are not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings projectSettings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path projectRoot(m_projectPath);
+        const Core::IO::Path engineRoot(CUE_PROJECT_ROOT_PATH);
+        const GameReleaseBuildRequest engineRequest{
+            engineRoot,
+            "win-x64",
+            m_gameReleaseBuildConfiguration,
+            "",
+            "CueApp",
+            m_gameReleaseBuildBackend
+        };
+        const GameReleaseBuildRequest projectRequest{
+            projectRoot,
+            "win-x64",
+            m_gameReleaseBuildConfiguration,
+            "Game",
+            "CueApp",
+            m_gameReleaseBuildBackend
+        };
+
+        GameReleaseBuildValidation validation{};
+        result = m_buildSystem->validate_game_release_build_environment(
+            engineRequest,
+            validation);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_buildSystem->validate_game_release_build_environment(
+            projectRequest,
+            validation);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_lastGameReleaseBuildResult = {};
+        m_lastGameReleaseBuildResult.succeeded = true;
+
+        GameReleaseBuildResult gameBuildResult{};
+        result = m_buildSystem->execute_game_release_build(
+            engineRequest,
+            gameBuildResult);
+        append_game_release_result(m_lastGameReleaseBuildResult, gameBuildResult);
+        for (const BuildStageResult& stageResult : gameBuildResult.stageResults)
+        {
+            log_build_output("[GameRelease]", stageResult.output);
+        }
+        if (!result)
+        {
+            return result;
+        }
+
+        GameReleaseBuildResult appBuildResult{};
+        result = m_buildSystem->execute_game_release_build(
+            projectRequest,
+            appBuildResult);
+        append_game_release_result(m_lastGameReleaseBuildResult, appBuildResult);
+        for (const BuildStageResult& stageResult : appBuildResult.stageResults)
+        {
+            log_build_output("[GameRelease]", stageResult.output);
+        }
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path stagingDirectory =
+            resolve_game_release_output_directory(projectRoot, projectSettings);
+        bool removed = false;
+        result = m_fileSystem->remove(stagingDirectory, &removed);
+        if (!result && result.code != Code::NotFound)
+        {
+            return result;
+        }
+
+        result = m_fileSystem->create_directories(stagingDirectory);
+        if (!result)
+        {
+            return result;
+        }
+
+        const char* configurationName =
+            BuildSystem::to_configuration_name(m_gameReleaseBuildConfiguration);
+        const Core::IO::Path engineAppOutputDirectory = Core::IO::Path::join(
+            engineRoot,
+            Core::IO::Path(std::string("generated/outputs/App/") +
+                configurationName));
+        const Core::IO::Path projectOutputDirectory = Core::IO::Path::join(
+            projectRoot,
+            Core::IO::Path(std::string("out/build/win-x64/") +
+                configurationName));
+        const Core::IO::Path assetRoot = Core::IO::Path::join(
+            projectRoot,
+            Core::IO::Path(projectSettings.assetRoot));
+        const Core::IO::Path cueProjectFile = Core::IO::Path::join(
+            projectRoot,
+            Core::IO::Path("cueproject.json"));
+
+        const Core::IO::Path projectCueAppPath = Core::IO::Path::join(
+            projectOutputDirectory,
+            Core::IO::Path("CueApp.exe"));
+        result = m_fileSystem->copy_file(
+            projectCueAppPath,
+            Core::IO::Path::join(stagingDirectory, Core::IO::Path("CueApp.exe")),
+            true);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::array<std::string, 2> engineFiles = {
+            "dxcompiler.dll",
+            "dxil.dll"
+        };
+        for (const std::string& fileName : engineFiles)
+        {
+            const Core::IO::Path sourcePath = Core::IO::Path::join(
+                engineAppOutputDirectory,
+                Core::IO::Path(fileName));
+            const Core::IO::Path destinationPath = Core::IO::Path::join(
+                stagingDirectory,
+                Core::IO::Path(fileName));
+
+            bool exists = false;
+            result = m_fileSystem->exists(sourcePath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!exists)
+            {
+                continue;
+            }
+
+            result = m_fileSystem->copy_file(sourcePath, destinationPath, true);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        result = copy_directory_recursive(
+            *m_fileSystem,
+            Core::IO::Path::join(
+                engineAppOutputDirectory,
+                Core::IO::Path("EngineResources")),
+            Core::IO::Path::join(stagingDirectory, Core::IO::Path("EngineResources")));
+        if (!result)
+        {
+            return result;
+        }
+
+        result = copy_directory_recursive(
+            *m_fileSystem,
+            Core::IO::Path::join(engineAppOutputDirectory, Core::IO::Path("config")),
+            Core::IO::Path::join(stagingDirectory, Core::IO::Path("config")));
+        if (!result)
+        {
+            return result;
+        }
+
+        result = copy_directory_recursive(
+            *m_fileSystem,
+            assetRoot,
+            Core::IO::Path::join(stagingDirectory, Core::IO::Path("Assets")));
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_fileSystem->copy_file(
+            cueProjectFile,
+            Core::IO::Path::join(stagingDirectory, Core::IO::Path("cueproject.json")),
+            true);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_lastGameReleaseBuildResult.artifacts.push_back(BuildArtifact{
+            "GameReleasePackage",
+            stagingDirectory
+        });
+        m_lastGameReleaseBuildResult.summary =
+            "ゲーム Release 配布フォルダを作成しました。";
+        m_lastGameReleaseBuildResult.succeeded = true;
+
+        return result;
+    }
+
     Result EditorManager::open_script_solution_in_visual_studio()
     {
         if (m_visualStudioBridge == nullptr)
@@ -733,6 +1236,33 @@ namespace Cue::Editor
 
         return m_visualStudioBridge->attach_debugger(
             scriptRoot, "win-x64", ::GetCurrentProcessId());
+    }
+
+    Result EditorManager::open_game_release_build_directory()
+    {
+        if (m_buildSystem == nullptr || m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "BuildSystem が初期化されていません。");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "プロジェクトが開かれていません。");
+        }
+
+        ProjectSettings projectSettings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        return open_path_in_shell(
+            resolve_game_release_output_directory(
+                Core::IO::Path(m_projectPath),
+                projectSettings));
     }
 
     Result EditorManager::open_path_in_shell(
@@ -899,7 +1429,9 @@ namespace Cue::Editor
             return result;
         }
 
-        result = m_engine->load_script_module(scriptRoot);
+        result = m_engine->load_script_module(
+            scriptRoot,
+            to_script_module_build_configuration(m_scriptLoadConfiguration));
         const bool reloadSucceeded = static_cast<bool>(result);
         const bool hasBuildStage =
             has_stage_result(a_inOutBuildResult, BuildStage::Build) ||
@@ -995,6 +1527,40 @@ namespace Cue::Editor
         return Result::ok();
     }
 
+    Result EditorManager::save_script_load_configuration(
+        BuildConfiguration a_configuration)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        settings.scriptLoadConfiguration = a_configuration;
+        result = save_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptLoadConfiguration = a_configuration;
+        return Result::ok();
+    }
+
     Result EditorManager::save_script_build_backend(
         BuildBackend a_backend)
     {
@@ -1026,6 +1592,74 @@ namespace Cue::Editor
         }
 
         m_scriptBuildBackend = a_backend;
+        return Result::ok();
+    }
+
+    Result EditorManager::save_game_release_build_configuration(
+        BuildConfiguration a_configuration)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        settings.gameReleaseBuildConfiguration = a_configuration;
+        result = save_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_gameReleaseBuildConfiguration = a_configuration;
+        return Result::ok();
+    }
+
+    Result EditorManager::save_game_release_build_backend(
+        BuildBackend a_backend)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager file system is not initialized.");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Project is not opened.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        settings.gameReleaseBuildBackend = a_backend;
+        result = save_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_gameReleaseBuildBackend = a_backend;
         return Result::ok();
     }
 
@@ -1904,11 +2538,14 @@ namespace Cue::Editor
                 const bool canBuildScript =
                     m_buildSystem != nullptr && !m_projectPath.empty() &&
                     !m_isScriptActionActive;
+                const bool canBuildGameRelease =
+                    m_buildSystem != nullptr && !m_projectPath.empty() &&
+                    !m_isScriptActionActive;
                 const bool canReloadScript =
                     m_engine != nullptr && !m_projectPath.empty() &&
                     !m_isScriptActionActive;
 
-                if (ImGui::BeginMenu("GameScript 構成", canEditBuildSettings))
+                if (ImGui::BeginMenu("GameScript ビルド構成", canEditBuildSettings))
                 {
                     const auto draw_configuration_item =
                         [this](const char* a_label, BuildConfiguration a_configuration)
@@ -1931,7 +2568,46 @@ namespace Cue::Editor
                             else
                             {
                                 set_status_message(
-                                    std::string("GameScript 構成を ") + a_label +
+                                    std::string("GameScript のビルド構成を ") + a_label +
+                                        " に変更しました。",
+                                    false);
+                            }
+                        }
+                    };
+
+                    draw_configuration_item("Debug", BuildConfiguration::Debug);
+                    draw_configuration_item("RelWithDebInfo",
+                        BuildConfiguration::RelWithDebInfo);
+                    draw_configuration_item("Release",
+                        BuildConfiguration::Release);
+
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("GameScript 読み込み構成", canEditBuildSettings))
+                {
+                    const auto draw_configuration_item =
+                        [this](const char* a_label, BuildConfiguration a_configuration)
+                    {
+                        const bool isSelected =
+                            m_scriptLoadConfiguration == a_configuration;
+                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
+                            !isSelected)
+                        {
+                            const Result result =
+                                save_script_load_configuration(a_configuration);
+                            if (!result)
+                            {
+                                log_result(
+                                    "Failed to save GameScript load configuration",
+                                    result);
+                                set_status_message(
+                                    "GameScript の読み込み構成保存に失敗しました。", true);
+                            }
+                            else
+                            {
+                                set_status_message(
+                                    std::string("GameScript の読み込み構成を ") + a_label +
                                         " に変更しました。",
                                     false);
                             }
@@ -1983,6 +2659,81 @@ namespace Cue::Editor
                     ImGui::EndMenu();
                 }
 
+                if (ImGui::BeginMenu("ゲーム配布ビルド構成", canEditBuildSettings))
+                {
+                    const auto draw_configuration_item =
+                        [this](const char* a_label, BuildConfiguration a_configuration)
+                    {
+                        const bool isSelected =
+                            m_gameReleaseBuildConfiguration == a_configuration;
+                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
+                            !isSelected)
+                        {
+                            const Result result =
+                                save_game_release_build_configuration(a_configuration);
+                            if (!result)
+                            {
+                                log_result(
+                                    "Failed to save game release build configuration",
+                                    result);
+                                set_status_message(
+                                    "ゲーム配布ビルド構成の保存に失敗しました。", true);
+                            }
+                            else
+                            {
+                                set_status_message(
+                                    std::string("ゲーム配布ビルド構成を ") + a_label +
+                                        " に変更しました。",
+                                    false);
+                            }
+                        }
+                    };
+
+                    draw_configuration_item("Debug", BuildConfiguration::Debug);
+                    draw_configuration_item("RelWithDebInfo",
+                        BuildConfiguration::RelWithDebInfo);
+                    draw_configuration_item("Release",
+                        BuildConfiguration::Release);
+
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("ゲーム配布 backend", canEditBuildSettings))
+                {
+                    const auto draw_backend_item =
+                        [this](const char* a_label, BuildBackend a_backend)
+                    {
+                        const bool isSelected =
+                            m_gameReleaseBuildBackend == a_backend;
+                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
+                            !isSelected)
+                        {
+                            const Result result =
+                                save_game_release_build_backend(a_backend);
+                            if (!result)
+                            {
+                                log_result(
+                                    "Failed to save game release build backend",
+                                    result);
+                                set_status_message(
+                                    "ゲーム配布 backend の保存に失敗しました。", true);
+                            }
+                            else
+                            {
+                                set_status_message(
+                                    std::string("ゲーム配布 backend を ") + a_label +
+                                        " に変更しました。",
+                                    false);
+                            }
+                        }
+                    };
+
+                    draw_backend_item("CMake", BuildBackend::CMake);
+                    draw_backend_item("VisualStudio", BuildBackend::VisualStudio);
+
+                    ImGui::EndMenu();
+                }
+
                 if (ImGui::MenuItem(
                         "GameScript を再読み込み", nullptr, false, canReloadScript))
                 {
@@ -1993,6 +2744,64 @@ namespace Cue::Editor
                         "GameScript をビルド", nullptr, false, canBuildScript))
                 {
                     queue_script_action(PendingScriptAction::Build);
+                }
+
+                if (ImGui::MenuItem(
+                        "ゲーム Release ビルド", nullptr, false, canBuildGameRelease))
+                {
+                    set_status_message("ゲーム Release ビルドを開始しています...", false);
+                    const Result result = build_game_release();
+                    if (!result)
+                    {
+                        const std::string detail =
+                            make_primary_build_message(m_lastGameReleaseBuildResult);
+                        log_result("Failed to build game release", result);
+                        set_status_message(
+                            detail.empty()
+                            ? "ゲーム Release ビルドに失敗しました。"
+                            : "ゲーム Release ビルドに失敗しました: " + detail,
+                            true);
+                        set_script_build_notification(
+                            "Game Release Build Failed",
+                            detail.empty() ? std::string(result.message) : detail,
+                            true,
+                            true);
+                    }
+                    else
+                    {
+                        const std::string detail =
+                            make_primary_build_message(m_lastGameReleaseBuildResult);
+                        set_status_message(
+                            detail.empty()
+                            ? "ゲーム Release ビルドが成功しました。"
+                            : "ゲーム Release ビルドが成功しました: " + detail,
+                            false);
+                        set_script_build_notification(
+                            "Game Release Build Succeeded",
+                            detail.empty()
+                            ? "ゲーム Release ビルドに成功しました。"
+                            : detail,
+                            false,
+                            false);
+                    }
+                }
+
+                if (ImGui::MenuItem(
+                        "ゲーム Release ビルドフォルダを開く", nullptr, false,
+                        canBuildGameRelease))
+                {
+                    const Result result = open_game_release_build_directory();
+                    if (!result)
+                    {
+                        log_result("Failed to open game release build directory", result);
+                        set_status_message(
+                            "ゲーム Release ビルドフォルダを開けませんでした。", true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            "ゲーム Release ビルドフォルダを開きました。", false);
+                    }
                 }
 
                 if (ImGui::MenuItem(
