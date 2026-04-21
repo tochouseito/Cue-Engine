@@ -121,16 +121,18 @@ namespace Cue::Editor
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            return builder.use_texture(
+                m_backBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::RenderTarget,
+                RHI::ResourceState::Present);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = RHI::ResourceState::Present;
-                barrierDesc.after = RHI::ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
 
             // バックバッファをクリアしておく。これがないと imgui の一部が描画されないことがある。
             commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
@@ -142,13 +144,6 @@ namespace Cue::Editor
             ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);
             m_imguiManager.render(dxCommandList); // imgui 描画コマンド発行
 
-            // バックバッファをプレゼント状態に戻す。
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = RHI::ResourceState::RenderTarget;
-                barrierDesc.after = RHI::ResourceState::Present;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
         }
     private:
         static constexpr Math::float4 k_finalColorClearColor = Math::float4::from_rgba8(63, 63, 63, 255);

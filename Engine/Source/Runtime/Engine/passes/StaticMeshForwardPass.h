@@ -199,6 +199,115 @@ namespace Cue
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_texture(
+                m_finalColorHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::RenderTarget,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_texture(
+                m_sceneDepthHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::DepthWrite,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_renderObjectBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_transformBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_viewProjectionBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_positionBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_uvBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_normalBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indexBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_meshRangeBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_visibleObjectCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
@@ -209,30 +318,6 @@ namespace Cue
 
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::DepthWrite;
-                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_positionBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_uvBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_normalBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_indexBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_meshRangeBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
 
             commandContext->clear_render_target(m_finalColorRtvHandle,
                 k_clearColorVec.data());
@@ -261,20 +346,6 @@ namespace Cue
                     frameState.objectCount, 0, 0);
             }
 
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
         }
 
     private:

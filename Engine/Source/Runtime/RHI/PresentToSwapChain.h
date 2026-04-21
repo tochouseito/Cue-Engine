@@ -147,23 +147,30 @@ namespace Cue::RHI
             return Result::ok();
         }
 
+        Result describe_resources(FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_texture(
+                m_backBufferHandle,
+                ResourceAccessType::Write,
+                ResourceState::RenderTarget,
+                ResourceState::Present);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_texture(
+                m_finalColorHandle,
+                ResourceAccessType::Read,
+                ResourceState::ShaderResource,
+                ResourceState::Common);
+        }
+
         void execute(FrameGraphContext& context) override
         {
             ICommandContext* commandContext = context.commandContext();
 
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-
             // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする。
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = ResourceState::Present;
-                barrierDesc.after = ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
             commandContext->clear_render_target(
                 m_backBufferRtvHandle,
                 k_swapChainClearColor.data());
@@ -174,18 +181,6 @@ namespace Cue::RHI
             commandContext->set_graphics_descriptor_table(0, m_finalColorSrvHandle);
             commandContext->draw_instanced(3, 1, 0, 0);
 
-            // バックバッファをプレゼント状態に戻す。
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = ResourceState::RenderTarget;
-                barrierDesc.after = ResourceState::Present;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = ResourceState::Common;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
         }
     private:
         static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63);

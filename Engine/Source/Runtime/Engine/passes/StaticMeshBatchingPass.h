@@ -158,6 +158,65 @@ namespace Cue
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_buffer(
+                m_renderObjectBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_transformBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_meshRangeBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_visibleObjectCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indirectCommandBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_indirectCommandCountBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
@@ -171,50 +230,10 @@ namespace Cue
 
             const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_meshRangeBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandBufferHandle,
-                    barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
-                    barrierDesc);
-            }
-
             commandContext->clear_unordered_access_uint(
                 m_indirectCommandCountBufferUavHandle, clearValues);
             if (frameState.objectCount == 0)
             {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_indirectCommandBufferHandle,
-                    barrierDesc);
-                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
-                    barrierDesc);
                 return;
             }
 

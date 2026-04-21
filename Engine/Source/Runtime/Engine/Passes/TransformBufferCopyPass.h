@@ -27,6 +27,15 @@ namespace Cue
             return builder.get_buffer("TransformBuffer", m_transformBufferHandle);
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            return builder.use_buffer(
+                m_transformBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::CopyDest,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             const RenderFrameState& frameState =
@@ -52,23 +61,7 @@ namespace Cue
             region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
                 sizeof(GpuData::ObjectTransformGpu);
 
-            RHI::ResourceBarrierDesc toCopyDestBarrier{};
-            toCopyDestBarrier.after = RHI::ResourceState::CopyDest;
-            if (!commandContext->resource_barrier(m_transformBufferHandle,
-                toCopyDestBarrier))
-            {
-                return;
-            }
-
             Result copyResult = commandContext->copy_buffer_region(region);
-
-            RHI::ResourceBarrierDesc toCommonBarrier{};
-            toCommonBarrier.after = RHI::ResourceState::Common;
-            if (!commandContext->resource_barrier(m_transformBufferHandle,
-                toCommonBarrier))
-            {
-                return;
-            }
 
             (void)copyResult;
         }

@@ -34,6 +34,15 @@ namespace Cue
             return builder.get_buffer(m_bufferName, m_bufferHandle);
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            return builder.use_buffer(
+                m_bufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::CopyDest,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             if (m_hasCopied || !m_bufferHandle.valid() || m_copyByteSize == 0)
@@ -56,21 +65,7 @@ namespace Cue
             region.dstByteOffset = 0;
             region.byteSize = m_copyByteSize;
 
-            RHI::ResourceBarrierDesc toCopyDestBarrier{};
-            toCopyDestBarrier.after = RHI::ResourceState::CopyDest;
-            if (!commandContext->resource_barrier(m_bufferHandle, toCopyDestBarrier))
-            {
-                return;
-            }
-
             Result hasCopied = commandContext->copy_buffer_region(region);
-
-            RHI::ResourceBarrierDesc toCommonBarrier{};
-            toCommonBarrier.after = RHI::ResourceState::Common;
-            if (!commandContext->resource_barrier(m_bufferHandle, toCommonBarrier))
-            {
-                return;
-            }
 
             if (hasCopied)
             {

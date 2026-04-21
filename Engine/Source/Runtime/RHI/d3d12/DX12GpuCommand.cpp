@@ -23,6 +23,16 @@ namespace Cue::RHI::DX12
             CommandListType commandListType,
             D3D12_RESOURCE_STATES state) noexcept
         {
+            if (commandListType == CommandListType::Copy)
+            {
+                if (state != D3D12_RESOURCE_STATE_COMMON &&
+                    state != D3D12_RESOURCE_STATE_COPY_SOURCE &&
+                    state != D3D12_RESOURCE_STATE_COPY_DEST)
+                {
+                    return D3D12_RESOURCE_STATE_COMMON;
+                }
+            }
+
             if (commandListType == CommandListType::Compute)
             {
                 if ((state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) != 0)
@@ -1119,7 +1129,13 @@ namespace Cue::RHI::DX12
             commandLists.push_back(commandList);
         }
 
-        m_commandQueue->ExecuteCommandLists(1, commandLists.data());
+        if (commandLists.empty())
+        {
+            return Result::ok();
+        }
+
+        m_commandQueue->ExecuteCommandLists(
+            static_cast<UINT>(commandLists.size()), commandLists.data());
         return Result::ok();
     }
     Result DX12GpuCommandQueue::signal()

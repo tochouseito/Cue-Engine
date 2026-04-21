@@ -23,6 +23,15 @@ namespace Cue
             return builder.get_buffer("ViewProjectionBuffer", m_viewProjectionBufferHandle);
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            return builder.use_buffer(
+                m_viewProjectionBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::CopyDest,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             if (!m_viewProjectionBufferHandle.valid())
@@ -45,23 +54,7 @@ namespace Cue
             region.dstByteOffset = 0;
             region.byteSize = sizeof(GpuData::ViewProjectionGpu);
 
-            RHI::ResourceBarrierDesc toCopyDestBarrier{};
-            toCopyDestBarrier.after = RHI::ResourceState::CopyDest;
-            if (!commandContext->resource_barrier(
-                m_viewProjectionBufferHandle, toCopyDestBarrier))
-            {
-                return;
-            }
-
             Result copyResult = commandContext->copy_buffer_region(region);
-
-            RHI::ResourceBarrierDesc toCommonBarrier{};
-            toCommonBarrier.after = RHI::ResourceState::Common;
-            if (!commandContext->resource_barrier(
-                m_viewProjectionBufferHandle, toCommonBarrier))
-            {
-                return;
-            }
 
             (void)copyResult;
         }
