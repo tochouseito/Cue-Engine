@@ -90,10 +90,26 @@ namespace Cue
             : k_empty;
     }
 
+    const MarionnetteClass* ScriptModuleHost::find_marionnette_class(
+        std::string_view a_className) const noexcept
+    {
+        return m_runtime != nullptr
+            ? m_runtime->find_marionnette_class(a_className)
+            : nullptr;
+    }
+
+    const ScriptModuleHost::ScriptReloadReport&
+        ScriptModuleHost::last_reload_report() const noexcept
+    {
+        return m_lastReloadReport;
+    }
+
     Result ScriptModuleHost::load_module(
         const Core::IO::Path& a_scriptRoot,
         GameCore::GameWorld& a_validationWorld) noexcept
     {
+        m_lastReloadReport = {};
+
         if (m_module == nullptr || m_runtime == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
@@ -176,7 +192,10 @@ namespace Cue
             return result;
         }
 
-        result = m_runtime->restore_instance_states(preservedStateSnapshots);
+        ScriptRuntime::StateRestoreReport stateRestoreReport{};
+        result = m_runtime->restore_instance_states(
+            preservedStateSnapshots,
+            &stateRestoreReport);
         if (!result)
         {
             m_runtime->set_module(nullptr);
@@ -196,6 +215,19 @@ namespace Cue
                 }
             }
             return result;
+        }
+
+        m_lastReloadReport.restoredStateCount = stateRestoreReport.restoredCount;
+        m_lastReloadReport.skippedStateCount = stateRestoreReport.skippedCount;
+        m_lastReloadReport.warnings.reserve(stateRestoreReport.issues.size());
+        for (const ScriptRuntime::StateRestoreIssue& issue :
+            stateRestoreReport.issues)
+        {
+            m_lastReloadReport.warnings.push_back(
+                std::string("state restore skipped: entity=") +
+                std::to_string(issue.entityId) +
+                ", class=" + issue.className +
+                ", reason=" + issue.detail);
         }
 
         if (previousModule != nullptr)
@@ -255,6 +287,9 @@ namespace Cue
                     k_buildConfig + "/GameScript.dll")),
         };
 
+        bool hasResolvedCandidate = false;
+        int64_t latestModifiedTime = 0;
+
         for (const Core::IO::Path& candidatePath : candidatePaths)
         {
             bool exists = false;
@@ -266,9 +301,26 @@ namespace Cue
 
             if (exists)
             {
-                a_outModulePath = candidatePath;
-                return Result::ok();
+                Core::IO::FileStat fileStat{};
+                result = m_fileSystem.stat(candidatePath, &fileStat);
+                if (!result)
+                {
+                    return result;
+                }
+
+                if (!hasResolvedCandidate ||
+                    fileStat.mtime_ns > latestModifiedTime)
+                {
+                    a_outModulePath = candidatePath;
+                    latestModifiedTime = fileStat.mtime_ns;
+                    hasResolvedCandidate = true;
+                }
             }
+        }
+
+        if (hasResolvedCandidate)
+        {
+            return Result::ok();
         }
 
         return Result::fail(Code::NotFound, Severity::Warning,

@@ -18,9 +18,11 @@
 #include "DebugView.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
+#include "ProjectGenerator.h"
 #include "VisualStudioBridge.h"
 
 // === C++ includes ===
+#include <array>
 #include <string>
 
 namespace Cue::Core::IO
@@ -70,9 +72,13 @@ namespace Cue::Editor
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result open_script_solution_in_visual_studio();
         Result attach_editor_debugger_in_visual_studio();
+        Result create_script_template(const std::string& a_scriptName);
         Result open_path_in_shell(const Core::IO::Path& a_path) const;
         Result start_play_mode();
         Result stop_play_mode();
+        Result request_exit();
+        Result refresh_script_project_intellisense(BuildResult& a_outResult);
+        void draw_create_script_popup();
         void draw_script_build_output();
         void draw_script_build_notification_popup();
         void queue_script_action(PendingScriptAction a_action);
@@ -120,5 +126,8 @@ namespace Cue::Editor
         bool m_hasScriptBuildNotification = false;
         bool m_hasScriptBuildNotificationError = false;
         bool m_openScriptBuildNotificationPopup = false;
+        bool m_openCreateScriptPopup = false;
+        bool m_focusCreateScriptNameInput = false;
+        std::array<char, 128> m_createScriptNameBuffer{};
     };
 }

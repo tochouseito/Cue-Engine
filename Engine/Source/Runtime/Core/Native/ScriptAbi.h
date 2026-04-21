@@ -9,7 +9,8 @@
 // - DLL 境界では POD と関数ポインタだけを扱う
 // - 例外は DLL 境界を跨がせない
 // - このヘッダは C++ から利用するが、関数境界は C ABI に固定する
-    // - v1 ABI では Transform 操作、ログ出力、manual field 登録を公開する
+    // - v2 ABI では Transform 操作、ログ出力、manual field 登録、
+    //   EntityRef / ClassRef field を公開する
 // - ABI 拡張は末尾追加のみとし、既存フィールドの順序変更や削除は行わない
 // - `structSize` は呼び出し側が見えている構造体サイズを示す
 // - 受け手は `structSize` を見て、既知範囲だけを安全に読む
@@ -36,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 1u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 6u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
 
     using CueScriptAbiVersion = uint32_t;
@@ -73,7 +74,7 @@ extern "C"
     };
 
     /// @brief Component を表す外部公開ハンドルです。
-    /// v1 では予約のみで、実利用はまだ行いません。
+    /// 将来拡張向けに残している公開ハンドルです。
     struct CueComponentHandle
     {
         uint64_t value;
@@ -110,6 +111,28 @@ extern "C"
         CueScriptFieldType_Float = 0,
         CueScriptFieldType_Int32 = 1,
         CueScriptFieldType_Bool = 2,
+        CueScriptFieldType_EntityRef = 3,
+        CueScriptFieldType_ClassRef = 4,
+    };
+
+    enum CueScriptFieldReferenceRole : uint32_t
+    {
+        CueScriptFieldReferenceRole_None = 0,
+        CueScriptFieldReferenceRole_ScriptReferenceEntity = 1,
+        CueScriptFieldReferenceRole_ScriptReferenceClass = 2,
+    };
+
+    enum CueScriptFieldFlags : uint32_t
+    {
+        CueScriptFieldFlag_None = 0,
+        CueScriptFieldFlag_EditAnywhere = 1u << 0,
+        CueScriptFieldFlag_Serialize = 1u << 1,
+        CueScriptFieldFlag_ReadOnly = 1u << 2,
+    };
+
+    enum CueScriptFunctionFlags : uint32_t
+    {
+        CueScriptFunctionFlag_None = 0,
     };
 
     /// @brief DLL 境界で渡す Script public field 値です。
@@ -123,6 +146,17 @@ extern "C"
         uint8_t reserved0;
         uint8_t reserved1;
         uint8_t reserved2;
+        CueEntityHandle entityValue;
+        CueStringView classValue;
+        CueStringView groupName;
+        CueScriptFieldReferenceRole referenceRole;
+        CueScriptFieldFlags flags;
+    };
+
+    struct CueScriptFunctionDefinition
+    {
+        CueStringView name;
+        CueScriptFunctionFlags flags;
     };
 
     /// @brief Script state の互換性判定に使う署名です。
@@ -171,6 +205,11 @@ extern "C"
         const CueScriptFieldValue* a_fieldValue
     );
 
+    using CueRegisterScriptFunctionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName,
+        const CueScriptFunctionDefinition* a_functionDefinition
+    );
+
     /// @brief Entity に紐付いた ScriptInstance をクラス名で検索します。
     using CueFindScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
         CueEntityHandle a_entityHandle,
@@ -189,13 +228,37 @@ extern "C"
         CueScriptFieldValue* a_outFieldValue
     );
 
+    using CueGetScriptObjectFn =
+        void* (CUE_SCRIPT_CALL*)(CueScriptInstanceHandle a_instanceHandle);
+
+    /// @brief Script クラスが登録済みなら 1、未登録なら 0 を返します。
+    using CueIsScriptClassRegisteredFn =
+        uint8_t (CUE_SCRIPT_CALL*)(CueStringView a_scriptClassName);
+
+    /// @brief Script クラスに属する public field 定義を取得します。
+    using CueGetScriptClassFieldFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue
+    );
+
+    using CueHasScriptClassFunctionFn = uint8_t (CUE_SCRIPT_CALL*)(
+        CueStringView a_scriptClassName,
+        CueStringView a_functionName
+    );
+
+    using CueInvokeScriptFunctionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_functionName
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
-    /// v1 では末尾拡張のみを許可します。
+    /// 末尾拡張のみを許可します。
     struct CueEngineApi
     {
         /// 呼び出し側がコンパイル時に見えている `CueEngineApi` のサイズです。
         uint32_t structSize;
-        /// 利用する ABI version です。v1 は `k_cueScriptAbiVersion` を使います。
+        /// 利用する ABI version です。現在は `k_cueScriptAbiVersion` を使います。
         CueScriptAbiVersion abiVersion;
         CueLogFn log;
         CueIsEntityValidFn isEntityValid;
@@ -206,12 +269,24 @@ extern "C"
         CueRegisterScriptClassFn registerScriptClass;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRegisterScriptFieldFn registerScriptField;
+        /// v4 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRegisterScriptFunctionFn registerScriptFunction;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueFindScriptInstanceFn findScriptInstance;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueIsScriptInstanceValidFn isScriptInstanceValid;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueGetScriptFieldFn getScriptField;
+        /// v6 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptObjectFn getScriptObject;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueIsScriptClassRegisteredFn isScriptClassRegistered;
+        /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptClassFieldFn getScriptClassField;
+        /// v4 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueHasScriptClassFunctionFn hasScriptClassFunction;
+        /// v5 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueInvokeScriptFunctionFn invokeScriptFunction;
     };
 
     /// @brief Script インスタンス生成時の入力です。
@@ -271,6 +346,12 @@ extern "C"
         uint32_t a_stateBufferSize
     );
 
+    /// @brief ScriptInstance の実体 object pointer を返します。
+    /// `nullptr` は未解決または無効を表します。
+    using CueGetScriptInstanceObjectFn = void* (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle
+    );
+
     /// @brief Script クラスの state 署名を返します。
     using CueGetScriptStateDescriptorFn = CueResult (CUE_SCRIPT_CALL*)(
         CueStringView a_scriptClassName,
@@ -297,6 +378,10 @@ extern "C"
         CueRestoreScriptInstanceFn restoreScriptInstance;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueGetScriptStateDescriptorFn getScriptStateDescriptor;
+        /// v5 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueInvokeScriptFunctionFn invokeScriptFunction;
+        /// v6 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetScriptInstanceObjectFn getScriptInstanceObject;
     };
 
     /// @brief Script DLL の ABI version を返します。

@@ -157,6 +157,30 @@ namespace Cue
     {
         unload_script_module();
         m_scriptModuleHost.reset();
+
+        if (m_frameController != nullptr)
+        {
+            m_frameController->synchronize();
+            m_frameController.reset();
+        }
+
+        if (m_backend != nullptr)
+        {
+            Result waitResult = m_backend->wait_for_idle();
+            if (!waitResult)
+            {
+                CUE_ASSERTF(false, "Failed to wait backend idle during shutdown: %s",
+                    waitResult.message.data());
+            }
+        }
+
+        Result result = destroy_size_dependent_resources();
+        if (!result)
+        {
+            CUE_ASSERTF(false, "Failed to destroy size dependent resources: %s",
+                result.message.data());
+        }
+
         if (m_playWorld != nullptr)
         {
             const Result finalizeResult = m_playWorld->finalize_systems();
@@ -175,25 +199,10 @@ namespace Cue
                     finalizeResult.message.data());
             }
         }
+
         m_activeWorld = nullptr;
         m_playWorld.reset();
         m_editorWorld.reset();
-        m_frameController.reset();
-        if (m_backend != nullptr)
-        {
-            Result waitResult = m_backend->wait_for_idle();
-            if (!waitResult)
-            {
-                CUE_ASSERTF(false, "Failed to wait backend idle during shutdown: %s",
-                    waitResult.message.data());
-            }
-        }
-        Result result = destroy_size_dependent_resources();
-        if (!result)
-        {
-            CUE_ASSERTF(false, "Failed to destroy size dependent resources: %s",
-                result.message.data());
-        }
     }
 
     Result Engine::begin_frame()
@@ -491,7 +500,8 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            if (m_scriptModuleHost != nullptr &&
+            if (is_playing() &&
+                m_scriptModuleHost != nullptr &&
                 m_scriptModuleHost->runtime() != nullptr)
             {
                 Result scriptResult =
@@ -504,12 +514,15 @@ namespace Cue
                 }
             }
 
-            Result simulateResult = m_activeWorld->simulate(deltaTime);
-            if (!simulateResult)
+            if (is_playing())
             {
-                CUE_ASSERTF(false, "GameWorld simulate failed: %s",
-                    simulateResult.message.data());
-                return;
+                Result simulateResult = m_activeWorld->simulate(deltaTime);
+                if (!simulateResult)
+                {
+                    CUE_ASSERTF(false, "GameWorld simulate failed: %s",
+                        simulateResult.message.data());
+                    return;
+                }
             }
 
             Result updateResult = m_activeWorld->editor_update(a_index,

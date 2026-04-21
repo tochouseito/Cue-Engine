@@ -5,7 +5,31 @@ find_package(imgui CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
-add_executable(Editor WIN32 "Editor.cpp" "ImGuiManager.h" "ImGuiManager.cpp" "Icon.h" "Statistics.h" "EditorManager.h" "EditorManager.cpp" "DebugView.h" "Hierarchy.h" "Inspector.h" "ProjectHub.h" "ProjectHub.cpp" "ProjectGenerator.h" "ProjectGenerator.cpp" "BuildSystem.h" "BuildSystem.cpp" "IBuildRunner.h" "CMakeBuildRunner.h" "CMakeBuildRunner.cpp" "VisualStudioBridge.h" "VisualStudioBridge.cpp" "VisualStudioBuildRunner.h" "VisualStudioBuildRunner.cpp")
+add_executable(Editor WIN32
+    "App/Editor.cpp"
+    "ImGui/ImGuiManager.h"
+    "ImGui/ImGuiManager.cpp"
+    "Views/Icon.h"
+    "Views/Statistics.h"
+    "Views/DebugView.h"
+    "Ui/EditorManager.h"
+    "Ui/EditorManager.cpp"
+    "Ui/Hierarchy.h"
+    "Ui/Inspector.h"
+    "Ui/ProjectHub.h"
+    "Ui/ProjectHub.cpp"
+    "Project/ProjectGenerator.h"
+    "Project/ProjectGenerator.cpp"
+    "Build/BuildSystem.h"
+    "Build/BuildSystem.cpp"
+    "Build/IBuildRunner.h"
+    "Build/CMakeBuildRunner.h"
+    "Build/CMakeBuildRunner.cpp"
+    "Build/VisualStudioBridge.h"
+    "Build/VisualStudioBridge.cpp"
+    "Build/VisualStudioBuildRunner.h"
+    "Build/VisualStudioBuildRunner.cpp"
+)
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -22,6 +46,12 @@ target_link_libraries(Editor PRIVATE
 # インクルードディレクトリの追加
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/App"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Ui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Project"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Build"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ImGui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Views"
 )
 
 target_compile_definitions(Editor PRIVATE

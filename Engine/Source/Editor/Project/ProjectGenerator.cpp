@@ -13,6 +13,7 @@
 #include <array>
 #include <cctype>
 #include <span>
+#include <vector>
 
 // === ThirdParty includes ===
 #include <nlohmann/json.hpp>
@@ -60,11 +61,6 @@ namespace Cue::Editor
             renderer.materialId = 0;
             renderer.visible = true;
             cube.prototype.add_component(renderer);
-
-            ECS::ScriptComponent script{};
-            script.className = "RotateCube";
-            script.isEnabled = true;
-            cube.prototype.add_component(script);
 
             return cube;
         }
@@ -180,15 +176,125 @@ namespace Cue::Editor
         return Result::ok();
     }
 
+    Result ProjectGenerator::create_script_template(
+        const std::string& a_projectPath,
+        const std::string& a_scriptName)
+    {
+        if (a_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "プロジェクトパスが未設定です。");
+        }
+        if (a_scriptName.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Script 名を入力してください。");
+        }
+        if (has_invalid_script_name_character(a_scriptName))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Script 名には英数字と _ のみ使用できます。");
+        }
+        if (std::isdigit(static_cast<unsigned char>(a_scriptName.front())) != 0)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Script 名の先頭に数字は使用できません。");
+        }
+
+        const std::string symbolName = make_script_symbol_name(a_scriptName);
+        const Core::IO::Path projectPath(a_projectPath);
+        const Core::IO::Path headerPath = Core::IO::Path::join(
+            projectPath,
+            Core::IO::Path("Assets/Scripts/" + a_scriptName + "Script.h"));
+        const Core::IO::Path sourcePath = Core::IO::Path::join(
+            projectPath,
+            Core::IO::Path("Assets/Scripts/" + a_scriptName + "Script.cpp"));
+
+        bool exists = false;
+        Result result = m_fileSystem.exists(headerPath, &exists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Script ヘッダの存在確認に失敗しました。");
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "同名の Script ヘッダが既に存在します。");
+        }
+
+        result = m_fileSystem.exists(sourcePath, &exists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Script ソースの存在確認に失敗しました。");
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "同名の Script ソースが既に存在します。");
+        }
+
+        const std::string headerText =
+            "#pragma once\n"
+            "\n"
+            "#include <ScriptFramework/Marionette.h>\n"
+            "\n"
+            "MARIONETTE_DECLARE_SCRIPT_TYPE(" + a_scriptName + ", \"" + a_scriptName + "\");\n"
+            "\n"
+            "class " + a_scriptName + " final : public Marionette::Behaviour<" + a_scriptName + ">\n"
+            "{\n"
+            "public:\n"
+            "    using StateBlob = Marionette::StateBlob<" + a_scriptName + ">;\n"
+            "    using Marionette::Behaviour<" + a_scriptName + ">::update;\n"
+            "    MARIONETTE_NO_FIELDS();\n"
+            "    MARIONETTE_NO_FUNCTIONS();\n"
+            "\n"
+            "    void start();\n"
+            "    void update();\n"
+            "};\n"
+            "\n"
+            "[[nodiscard]] Cue::Core::Native::ScriptClassDefinition\n"
+            "make_" + symbolName + "_script_definition() noexcept;\n";
+
+        const std::string sourceText =
+            "#include \"" + a_scriptName + "Script.h\"\n"
+            "\n"
+            "void " + a_scriptName + "::start()\n"
+            "{\n"
+            "}\n"
+            "\n"
+            "void " + a_scriptName + "::update()\n"
+            "{\n"
+            "}\n"
+            "\n"
+            "MARIONETTE_DEFINE_SCRIPT(" + symbolName + ", " + a_scriptName + ");\n";
+
+        result = write_text_file(headerPath, headerText);
+        if (!result)
+        {
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                "Script ヘッダの作成に失敗しました。");
+        }
+
+        result = write_text_file(sourcePath, sourceText);
+        if (!result)
+        {
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                "Script ソースの作成に失敗しました。");
+        }
+
+        return Result::ok();
+    }
+
     Result ProjectGenerator::create_project_directories(
         const Core::IO::Path& a_projectPath)
     {
         const std::array<Core::IO::Path, 6> directories = {
             Core::IO::Path::join(a_projectPath, Core::IO::Path("Assets")),
             Core::IO::Path::join(a_projectPath, Core::IO::Path("Assets/Scenes")),
-            Core::IO::Path::join(a_projectPath, Core::IO::Path("GameScript")),
-            Core::IO::Path::join(
-                a_projectPath, Core::IO::Path("GameScript/Source")),
+            Core::IO::Path::join(a_projectPath, Core::IO::Path("Assets/Scripts")),
+            Core::IO::Path::join(a_projectPath, Core::IO::Path("EngineModule")),
             Core::IO::Path::join(a_projectPath, Core::IO::Path("Saved")),
             Core::IO::Path::join(a_projectPath, Core::IO::Path("Intermediate")),
         };
@@ -222,7 +328,70 @@ namespace Cue::Editor
             "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n"
             "set(CMAKE_CXX_EXTENSIONS OFF)\n"
             "\n"
-            "add_subdirectory(\"GameScript\")\n";
+            "set(CUE_ENGINE_ROOT \"" + engineRoot + "\")\n"
+            "\n"
+            "if(NOT EXISTS \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core/Native/ScriptAbi.h\")\n"
+            "    message(FATAL_ERROR \"Cue Engine root not found: ${CUE_ENGINE_ROOT}\")\n"
+            "endif()\n"
+            "\n"
+            "file(GLOB_RECURSE GAME_SCRIPT_SOURCES CONFIGURE_DEPENDS\n"
+            "    \"${CMAKE_CURRENT_SOURCE_DIR}/Assets/Scripts/*Script.cpp\"\n"
+            ")\n"
+            "\n"
+            "file(GLOB_RECURSE GAME_SCRIPT_HEADERS CONFIGURE_DEPENDS\n"
+            "    \"${CMAKE_CURRENT_SOURCE_DIR}/Assets/Scripts/*Script.h\"\n"
+            ")\n"
+            "\n"
+            "set(CUE_SCRIPT_GENERATED_DIR \"${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Generated\")\n"
+            "set(CUE_SCRIPT_REGISTRY_CPP \"${CUE_SCRIPT_GENERATED_DIR}/ScriptRegistry.gen.cpp\")\n"
+            "\n"
+            "add_custom_command(\n"
+            "    OUTPUT \"${CUE_SCRIPT_REGISTRY_CPP}\"\n"
+            "    COMMAND ${CMAKE_COMMAND} -E make_directory \"${CUE_SCRIPT_GENERATED_DIR}\"\n"
+            "    COMMAND ${CMAKE_COMMAND}\n"
+            "        -DPROJECT_ROOT=${CMAKE_CURRENT_SOURCE_DIR}\n"
+            "        -DASSET_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/Assets\n"
+            "        -DSCRIPT_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/Assets/Scripts\n"
+            "        -DOUTPUT=${CUE_SCRIPT_REGISTRY_CPP}\n"
+            "        -P \"${CUE_ENGINE_ROOT}/Tools/CMake/GenerateScriptRegistry.cmake\"\n"
+            "    DEPENDS\n"
+            "        ${GAME_SCRIPT_HEADERS}\n"
+            "        \"${CMAKE_CURRENT_SOURCE_DIR}/EngineModule/ScriptRegistry.h\"\n"
+            "        \"${CUE_ENGINE_ROOT}/Tools/CMake/GenerateScriptRegistry.cmake\"\n"
+            "    VERBATIM\n"
+            ")\n"
+            "\n"
+            "add_library(GameScript SHARED\n"
+            "    \"EngineModule/ScriptRegistry.h\"\n"
+            "    ${GAME_SCRIPT_SOURCES}\n"
+            "    \"${CUE_SCRIPT_REGISTRY_CPP}\"\n"
+            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine/ScriptFramework/GameScriptModule.cpp\"\n"
+            ")\n"
+            "\n"
+            "target_include_directories(GameScript PRIVATE\n"
+            "    \"${CMAKE_CURRENT_SOURCE_DIR}/EngineModule\"\n"
+            "    \"${CMAKE_CURRENT_SOURCE_DIR}/Assets\"\n"
+            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core\"\n"
+            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine\"\n"
+            "    \"${CUE_SCRIPT_GENERATED_DIR}\"\n"
+            ")\n"
+            "\n"
+            "target_compile_definitions(GameScript PRIVATE\n"
+            "    CUE_SCRIPT_DLL_EXPORTS=1\n"
+            ")\n"
+            "\n"
+            "if(MSVC)\n"
+            "    target_compile_options(GameScript PRIVATE\n"
+            "        /utf-8\n"
+            "        /W4\n"
+            "        /EHsc\n"
+            "        /wd4201\n"
+            "    )\n"
+            "endif()\n"
+            "\n"
+            "set_target_properties(GameScript PROPERTIES\n"
+            "    OUTPUT_NAME \"GameScript\"\n"
+            ")\n";
 
         nlohmann::json presetsJson = {
             { "version", 6 },
@@ -274,313 +443,17 @@ namespace Cue::Editor
         std::string presetsText = presetsJson.dump(4);
         presetsText.push_back('\n');
 
-        const std::string gameScriptCMakeText =
-            "# GameScript module\n"
-            "\n"
-            "set(CUE_ENGINE_ROOT \"" + engineRoot + "\")\n"
-            "\n"
-            "if(NOT EXISTS \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core/Native/ScriptAbi.h\")\n"
-            "    message(FATAL_ERROR \"Cue Engine root not found: ${CUE_ENGINE_ROOT}\")\n"
-            "endif()\n"
-            "\n"
-            "add_library(GameScript SHARED\n"
-            "    \"Source/GameScriptModule.cpp\"\n"
-            ")\n"
-            "\n"
-            "target_include_directories(GameScript PRIVATE\n"
-            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core\"\n"
-            ")\n"
-            "\n"
-            "target_compile_definitions(GameScript PRIVATE\n"
-            "    CUE_SCRIPT_DLL_EXPORTS=1\n"
-            ")\n"
-            "\n"
-            "if(MSVC)\n"
-            "    target_compile_options(GameScript PRIVATE\n"
-            "        /utf-8\n"
-            "        /W4\n"
-            "        /EHsc\n"
-            "        /wd4201\n"
-            "    )\n"
-            "endif()\n"
-            "\n"
-            "set_target_properties(GameScript PROPERTIES\n"
-            "    OUTPUT_NAME \"GameScript\"\n"
-            ")\n";
+        Result result = Result::ok();
+        const std::string scriptRegistryHeaderText = R"(#pragma once
 
-        const std::string gameScriptModuleText = R"(#include <Native/ScriptAbi.h>
 #include <Native/ScriptModuleRuntime.h>
 
-// === C++ includes ===
-#include <array>
-#include <cstddef>
-#include <span>
-#include <string_view>
-
-namespace
-{
-    using Cue::Core::Native::ScriptClassDefinition;
-    using Cue::Core::Native::ScriptFieldReader;
-    using Cue::Core::Native::ScriptModuleRuntime;
-    using Cue::Core::Native::make_script_class_definition;
-    using Cue::Core::Native::make_script_string_view;
-
-    inline constexpr float k_rotationSpeedRadiansPerSecond = 0.78539816339f;
-
-    struct RotateCubeStateBlob final
-    {
-        uint32_t version = 1u;
-        float elapsedSeconds = 0.0f;
-        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
-    };
-
-    inline constexpr uint32_t k_requiredEngineApiSize =
-        static_cast<uint32_t>(
-            offsetof(CueEngineApi, setTransform) + sizeof(CueSetTransformFn));
-
-    [[nodiscard]] CueResult validate_engine_api(
-        const CueEngineApi* a_engineApi)
-    {
-        if (a_engineApi == nullptr)
-        {
-            return CueResult_InvalidArgument;
-        }
-        if (a_engineApi->structSize < k_requiredEngineApiSize)
-        {
-            return CueResult_InvalidArgument;
-        }
-        if (a_engineApi->abiVersion != k_cueScriptAbiVersion)
-        {
-            return CueResult_Unsupported;
-        }
-        if (a_engineApi->log == nullptr ||
-            a_engineApi->isEntityValid == nullptr ||
-            a_engineApi->hasTransform == nullptr ||
-            a_engineApi->getTransform == nullptr ||
-            a_engineApi->setTransform == nullptr)
-        {
-            return CueResult_InvalidArgument;
-        }
-
-        return CueResult_Ok;
-    }
-
-    void log_message(const CueEngineApi* a_engineApi,
-        CueLogSeverity a_severity,
-        std::string_view a_message)
-    {
-        if (a_engineApi == nullptr || a_engineApi->log == nullptr)
-        {
-            return;
-        }
-
-        (void)a_engineApi->log(a_severity,
-            make_script_string_view(
-                a_message.data(),
-                static_cast<uint32_t>(a_message.size())));
-    }
-
-    struct RotateCubeScript final
-    {
-        using StateBlob = RotateCubeStateBlob;
-
-        static constexpr std::string_view k_className = "RotateCube";
-        static constexpr uint32_t k_stateVersion = 1u;
-        static constexpr std::string_view k_stateSchema =
-            "RotateCube:v1:elapsedSeconds:f32;rotationSpeed:f32";
-
-        CueEntityHandle entityHandle{ k_cueInvalidHandleValue };
-        float elapsedSeconds = 0.0f;
-        float rotationSpeed = k_rotationSpeedRadiansPerSecond;
-
-        [[nodiscard]] static std::span<const CueScriptFieldValue> script_fields() noexcept
-        {
-            static constexpr std::array<CueScriptFieldValue, 1> k_fields = {
-                CUE_FIELD_FLOAT("rotationSpeed", k_rotationSpeedRadiansPerSecond)
-            };
-
-            return std::span<const CueScriptFieldValue>(
-                k_fields.data(),
-                k_fields.size());
-        }
-
-        [[nodiscard]] static CueResult create(
-            const CueScriptCreateInfo* a_createInfo,
-            RotateCubeScript& a_state)
-        {
-            if (a_createInfo == nullptr)
-            {
-                return CueResult_InvalidArgument;
-            }
-
-            ScriptFieldReader fieldReader(a_createInfo);
-            a_state.entityHandle = fieldReader.entity_handle();
-            (void)fieldReader.read_float(
-                CUE_SCRIPT_STRING_VIEW("rotationSpeed"),
-                a_state.rotationSpeed);
-            return CueResult_Ok;
-        }
-
-        [[nodiscard]] CueResult update(
-            const CueEngineApi* a_engineApi,
-            float a_deltaTimeSeconds)
-        {
-            if (a_engineApi == nullptr)
-            {
-                return CueResult_InvalidState;
-            }
-            if (a_engineApi->isEntityValid(entityHandle) == 0)
-            {
-                return CueResult_NotFound;
-            }
-            if (a_engineApi->hasTransform(entityHandle) == 0)
-            {
-                return CueResult_NotFound;
-            }
-
-            CueTransformData transform{};
-            const CueResult result =
-                a_engineApi->getTransform(entityHandle, &transform);
-            if (result != CueResult_Ok)
-            {
-                return result;
-            }
-
-            elapsedSeconds += a_deltaTimeSeconds;
-            transform.rotation.y += a_deltaTimeSeconds * rotationSpeed;
-            return a_engineApi->setTransform(entityHandle, &transform);
-        }
-
-        [[nodiscard]] CueResult serialize(StateBlob& a_outState) const
-        {
-            a_outState.version = k_stateVersion;
-            a_outState.elapsedSeconds = elapsedSeconds;
-            a_outState.rotationSpeed = rotationSpeed;
-            return CueResult_Ok;
-        }
-
-        [[nodiscard]] CueResult restore(const StateBlob& a_state)
-        {
-            if (a_state.version != k_stateVersion)
-            {
-                return CueResult_Unsupported;
-            }
-
-            elapsedSeconds = a_state.elapsedSeconds;
-            rotationSpeed = a_state.rotationSpeed;
-            return CueResult_Ok;
-        }
-    };
-
-    const ScriptClassDefinition k_rotateCubeScript =
-        make_script_class_definition<RotateCubeScript>();
-
-    const std::array<ScriptClassDefinition, 1> k_scriptClasses = {
-        k_rotateCubeScript
-    };
-
-    [[nodiscard]] std::span<const ScriptClassDefinition> script_classes() noexcept
-    {
-        return std::span<const ScriptClassDefinition>(
-            k_scriptClasses.data(), k_scriptClasses.size());
-    }
-
-    ScriptModuleRuntime g_scriptRuntime{};
-}
-
-extern "C"
-{
-    CueScriptAbiVersion CUE_SCRIPT_CALL cue_script_get_abi_version(void)
-    {
-        return k_cueScriptAbiVersion;
-    }
-
-    CueResult CUE_SCRIPT_CALL cue_script_get_exports(
-        CueScriptExports* a_outExports)
-    {
-        if (a_outExports == nullptr)
-        {
-            return CueResult_InvalidArgument;
-        }
-
-        a_outExports->structSize = sizeof(CueScriptExports);
-        a_outExports->abiVersion = k_cueScriptAbiVersion;
-        a_outExports->registerScripts =
-            [](const CueEngineApi* a_engineApi) -> CueResult
-            {
-                const CueResult result = validate_engine_api(a_engineApi);
-                if (result != CueResult_Ok)
-                {
-                    return result;
-                }
-
-                const CueResult registerResult =
-                    g_scriptRuntime.register_scripts(
-                        a_engineApi, script_classes());
-                if (registerResult != CueResult_Ok)
-                {
-                    return registerResult;
-                }
-
-                log_message(a_engineApi, CueLogSeverity_Info,
-                    "GameScript module registered.");
-                return CueResult_Ok;
-            };
-        a_outExports->createScriptInstance =
-            [](const CueScriptCreateInfo* a_createInfo,
-                CueScriptInstanceHandle* a_outInstanceHandle) -> CueResult
-            {
-                return g_scriptRuntime.create_script_instance(
-                    script_classes(), a_createInfo, a_outInstanceHandle);
-            };
-        a_outExports->destroyScriptInstance =
-            [](CueScriptInstanceHandle a_instanceHandle) -> CueResult
-            {
-                return g_scriptRuntime.destroy_script_instance(a_instanceHandle);
-            };
-        a_outExports->updateScriptInstance =
-            [](CueScriptInstanceHandle a_instanceHandle,
-                float a_deltaTimeSeconds) -> CueResult
-            {
-                return g_scriptRuntime.update_script_instance(
-                    a_instanceHandle, a_deltaTimeSeconds);
-            };
-        a_outExports->getScriptInstanceStateSize =
-            [](CueScriptInstanceHandle a_instanceHandle,
-                uint32_t* a_outStateSize) -> CueResult
-            {
-                return g_scriptRuntime.get_script_instance_state_size(
-                    a_instanceHandle, a_outStateSize);
-            };
-        a_outExports->serializeScriptInstance =
-            [](CueScriptInstanceHandle a_instanceHandle,
-                void* a_outStateBuffer,
-                uint32_t a_stateBufferSize) -> CueResult
-            {
-                return g_scriptRuntime.serialize_script_instance(
-                    a_instanceHandle, a_outStateBuffer, a_stateBufferSize);
-            };
-        a_outExports->restoreScriptInstance =
-            [](CueScriptInstanceHandle a_instanceHandle,
-                const void* a_stateBuffer,
-                uint32_t a_stateBufferSize) -> CueResult
-            {
-                return g_scriptRuntime.restore_script_instance(
-                    a_instanceHandle, a_stateBuffer, a_stateBufferSize);
-            };
-        a_outExports->getScriptStateDescriptor =
-            [](CueStringView a_scriptClassName,
-                CueScriptStateDescriptor* a_outDescriptor) -> CueResult
-            {
-                return g_scriptRuntime.get_script_state_descriptor(
-                    script_classes(), a_scriptClassName, a_outDescriptor);
-            };
-        return CueResult_Ok;
-    }
-}
+// *** Script classes registered in this module
+[[nodiscard]] std::span<const Cue::Core::Native::ScriptClassDefinition>
+script_classes() noexcept;
 )";
 
-        Result result = write_text_file(
+        result = write_text_file(
             Core::IO::Path::join(a_projectPath, Core::IO::Path("CMakeLists.txt")),
             rootCMakeText);
         if (!result)
@@ -600,23 +473,12 @@ extern "C"
 
         result = write_text_file(
             Core::IO::Path::join(
-                a_projectPath, Core::IO::Path("GameScript/CMakeLists.txt")),
-            gameScriptCMakeText);
+                a_projectPath, Core::IO::Path("EngineModule/ScriptRegistry.h")),
+            scriptRegistryHeaderText);
         if (!result)
         {
             return Result::fail(Code::CreateFailed, Severity::Error,
-                "GameScript/CMakeLists.txt の作成に失敗しました。");
-        }
-
-        result = write_text_file(
-            Core::IO::Path::join(
-                a_projectPath,
-                Core::IO::Path("GameScript/Source/GameScriptModule.cpp")),
-            gameScriptModuleText);
-        if (!result)
-        {
-            return Result::fail(Code::CreateFailed, Severity::Error,
-                "GameScriptModule.cpp の作成に失敗しました。");
+                "ScriptRegistry.h の作成に失敗しました。");
         }
 
         return Result::ok();
@@ -686,11 +548,55 @@ extern "C"
         return m_fileSystem.write_all(a_filePath, byteSpan, false);
     }
 
+    Result ProjectGenerator::read_text_file(
+        const Core::IO::Path& a_filePath,
+        std::string& a_outText)
+    {
+        a_outText.clear();
+
+        bool exists = false;
+        Result result = m_fileSystem.exists(a_filePath, &exists);
+        if (!result)
+        {
+            return result;
+        }
+        if (!exists)
+        {
+            return Result::ok();
+        }
+
+        std::vector<std::byte> data{};
+        result = m_fileSystem.read_all(a_filePath, &data);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outText.assign(
+            reinterpret_cast<const char*>(data.data()),
+            data.size());
+        return Result::ok();
+    }
+
     bool ProjectGenerator::has_invalid_project_name_character(
         const std::string& a_projectName) const
     {
         static constexpr const char* k_invalidChars = "\\/:*?\"<>|";
         return a_projectName.find_first_of(k_invalidChars) != std::string::npos;
+    }
+
+    bool ProjectGenerator::has_invalid_script_name_character(
+        const std::string& a_scriptName) const
+    {
+        for (const unsigned char ch : a_scriptName)
+        {
+            if (std::isalnum(ch) == 0 && ch != '_')
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     std::string ProjectGenerator::make_cmake_project_name(
@@ -719,6 +625,34 @@ extern "C"
         if (std::isdigit(static_cast<unsigned char>(result.front())) != 0)
         {
             result.insert(result.begin(), '_');
+        }
+
+        return result;
+    }
+
+    std::string ProjectGenerator::make_script_symbol_name(
+        const std::string& a_scriptName) const
+    {
+        std::string result{};
+        result.reserve(a_scriptName.size() * 2);
+
+        for (size_t i = 0; i < a_scriptName.size(); ++i)
+        {
+            const unsigned char ch =
+                static_cast<unsigned char>(a_scriptName[i]);
+            if (std::isupper(ch) != 0)
+            {
+                if (!result.empty() && result.back() != '_')
+                {
+                    result.push_back('_');
+                }
+                result.push_back(
+                    static_cast<char>(std::tolower(ch)));
+            }
+            else
+            {
+                result.push_back(static_cast<char>(std::tolower(ch)));
+            }
         }
 
         return result;

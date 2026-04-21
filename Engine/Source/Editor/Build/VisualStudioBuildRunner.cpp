@@ -1,4 +1,4 @@
-#include "CMakeBuildRunner.h"
+#include "VisualStudioBuildRunner.h"
 
 // === Core includes ===
 #include <IO/IFileSystem.h>
@@ -7,7 +7,6 @@
 #include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 // === C++ includes ===
-#include <span>
 #include <string_view>
 #include <vector>
 
@@ -15,37 +14,6 @@ namespace Cue::Editor
 {
     namespace
     {
-        [[nodiscard]] Result read_text_file(
-            Core::IO::IFileSystem& a_fileSystem,
-            const Core::IO::Path& a_filePath,
-            std::string& a_outText) noexcept
-        {
-            a_outText.clear();
-
-            bool exists = false;
-            Result result = a_fileSystem.exists(a_filePath, &exists);
-            if (!result)
-            {
-                return result;
-            }
-            if (!exists)
-            {
-                return Result::ok();
-            }
-
-            std::vector<std::byte> data{};
-            result = a_fileSystem.read_all(a_filePath, &data);
-            if (!result)
-            {
-                return result;
-            }
-
-            a_outText.assign(
-                reinterpret_cast<const char*>(data.data()),
-                data.size());
-            return Result::ok();
-        }
-
         [[nodiscard]] Result resolve_executable_path(
             std::wstring_view a_fileName,
             std::string& a_outPath) noexcept
@@ -53,43 +21,38 @@ namespace Cue::Editor
             a_outPath.clear();
 
             wchar_t buffer[MAX_PATH]{};
-            const DWORD length = ::SearchPathW(nullptr, a_fileName.data(), nullptr,
-                static_cast<DWORD>(std::size(buffer)), buffer, nullptr);
+            const DWORD length = ::SearchPathW(
+                nullptr,
+                a_fileName.data(),
+                nullptr,
+                static_cast<DWORD>(std::size(buffer)),
+                buffer,
+                nullptr);
             if (length == 0)
             {
                 return Result::fail(Code::NotFound, Severity::Error,
-                    "cmake.exe が見つかりません。PATH を確認してください。");
+                    "dotnet.exe が見つかりません。PATH を確認してください。");
             }
 
             return PAL::Win::wide_to_utf8(
                 std::wstring_view(buffer, length), &a_outPath);
         }
 
-        [[nodiscard]] Result read_environment_variable(
-            std::wstring_view a_name,
-            std::string& a_outValue) noexcept
+        [[nodiscard]] Core::IO::Path get_tool_project_path() noexcept
         {
-            a_outValue.clear();
+#ifdef CUE_PROJECT_ROOT_PATH
+            return Core::IO::Path(
+                std::string(CUE_PROJECT_ROOT_PATH) +
+                "/Tools/VisualStudioBridge/VisualStudioBridge.csproj");
+#else
+            return Core::IO::Path("Tools/VisualStudioBridge/VisualStudioBridge.csproj");
+#endif
+        }
 
-            const DWORD requiredLength =
-                ::GetEnvironmentVariableW(a_name.data(), nullptr, 0);
-            if (requiredLength == 0)
-            {
-                return Result::fail(Code::NotFound, Severity::Error,
-                    "VCPKG_ROOT が設定されていません。");
-            }
-
-            std::vector<wchar_t> wideValue(requiredLength);
-            const DWORD written = ::GetEnvironmentVariableW(
-                a_name.data(), wideValue.data(), requiredLength);
-            if (written == 0)
-            {
-                return Result::fail(Code::GetFailed, Severity::Error,
-                    "環境変数の取得に失敗しました。");
-            }
-
-            return PAL::Win::wide_to_utf8(
-                std::wstring_view(wideValue.data(), written), &a_outValue);
+        [[nodiscard]] bool is_solution_file(const Core::IO::Path& a_path) noexcept
+        {
+            const std::string extension = a_path.extension();
+            return extension == ".sln" || extension == ".slnx";
         }
 
         void push_message(
@@ -206,12 +169,29 @@ namespace Cue::Editor
             }
 
             a_outResult.exitCode = static_cast<uint32_t>(exitCode);
-            result = read_text_file(a_fileSystem, a_outputPath, a_outResult.output);
+
+            std::string output{};
+            bool exists = false;
+            result = a_fileSystem.exists(a_outputPath, &exists);
             if (!result)
             {
                 return result;
             }
+            if (exists)
+            {
+                std::vector<std::byte> data{};
+                result = a_fileSystem.read_all(a_outputPath, &data);
+                if (!result)
+                {
+                    return result;
+                }
 
+                output.assign(
+                    reinterpret_cast<const char*>(data.data()),
+                    data.size());
+            }
+
+            a_outResult.output = std::move(output);
             a_outResult.succeeded = exitCode == 0;
             if (!a_outResult.succeeded)
             {
@@ -223,12 +203,7 @@ namespace Cue::Editor
         }
     }
 
-    CMakeBuildRunner::CMakeBuildRunner(Core::IO::IFileSystem& a_fileSystem) noexcept
-        : m_fileSystem(a_fileSystem)
-    {
-    }
-
-    Result CMakeBuildRunner::plan_script_build(
+    Result VisualStudioBuildRunner::plan_script_build(
         const ScriptBuildRequest& a_request,
         ScriptBuildPlan& a_outPlan) const noexcept
     {
@@ -248,29 +223,51 @@ namespace Cue::Editor
         const Core::IO::Path buildDirectory = Core::IO::Path::join(
             configureDirectory,
             Core::IO::Path(a_request.target));
-        bool buildDirectoryExists = false;
-        result = m_fileSystem.exists(buildDirectory, &buildDirectoryExists);
+
+        bool configureDirectoryExists = false;
+        result = m_fileSystem.exists(configureDirectory, &configureDirectoryExists);
         if (!result)
         {
             return Result::fail(Code::GetFailed, Severity::Error,
-                "Script build ディレクトリの確認に失敗しました。");
+                "VisualStudio configure ディレクトリの確認に失敗しました。");
+        }
+
+        bool hasSolution = false;
+        if (configureDirectoryExists)
+        {
+            std::vector<Core::IO::Path> entries{};
+            result = m_fileSystem.list_directory(configureDirectory, &entries);
+            if (!result)
+            {
+                return Result::fail(Code::GetFailed, Severity::Error,
+                    "VisualStudio solution の確認に失敗しました。");
+            }
+
+            for (const Core::IO::Path& entry : entries)
+            {
+                if (is_solution_file(entry))
+                {
+                    hasSolution = true;
+                    break;
+                }
+            }
         }
 
         a_outPlan.scriptRoot = a_request.scriptRoot;
         a_outPlan.presetsPath = validation.presetsPath;
         a_outPlan.configureDirectory = configureDirectory;
         a_outPlan.buildDirectory = buildDirectory;
-        a_outPlan.requiresConfigure = !buildDirectoryExists;
+        a_outPlan.requiresConfigure = !hasSolution;
         a_outPlan.configureCommand =
             "cmake --preset " + a_request.configurePreset + " --fresh";
         a_outPlan.buildCommand =
-            "cmake --build out/build/" + a_request.configurePreset +
-            " --config " + BuildSystem::to_configuration_name(a_request.configuration) +
-            " --target " + a_request.target;
+            "MSBuild <solution> /t:" + a_request.target +
+            " /p:Configuration=" +
+            std::string(BuildSystem::to_configuration_name(a_request.configuration));
         return Result::ok();
     }
 
-    Result CMakeBuildRunner::validate_script_build_environment(
+    Result VisualStudioBuildRunner::validate_script_build_environment(
         const ScriptBuildRequest& a_request,
         ScriptBuildValidation& a_outValidation) const noexcept
     {
@@ -326,73 +323,62 @@ namespace Cue::Editor
                 "CMakePresets.json が見つかりません。");
         }
 
-        std::string presetsText{};
-        result = read_text_file(m_fileSystem, presetsPath, presetsText);
-        if (!result)
-        {
-            return Result::fail(Code::GetFailed, Severity::Error,
-                "CMakePresets.json の読み込みに失敗しました。");
-        }
-
-        std::string cmakePath{};
-        result = resolve_executable_path(L"cmake.exe", cmakePath);
+        std::string dotnetPath{};
+        result = resolve_executable_path(L"dotnet.exe", dotnetPath);
         if (!result)
         {
             return result;
+        }
+
+        const Core::IO::Path toolProjectPath = get_tool_project_path();
+        bool toolProjectExists = false;
+        result = m_fileSystem.exists(toolProjectPath, &toolProjectExists);
+        if (!result)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "VisualStudioBridge.csproj の確認に失敗しました。");
+        }
+
+        if (!toolProjectExists)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "VisualStudioBridge.csproj が見つかりません。");
         }
 
         a_outValidation.scriptRoot = a_request.scriptRoot;
         a_outValidation.presetsPath = presetsPath;
-        a_outValidation.cmakePath = std::move(cmakePath);
-        a_outValidation.requiresVcpkgRoot =
-            presetsText.find("$env{VCPKG_ROOT}") != std::string::npos;
-
-        if (!a_outValidation.requiresVcpkgRoot)
-        {
-            return Result::ok();
-        }
-
-        std::string vcpkgRoot{};
-        result = read_environment_variable(L"VCPKG_ROOT", vcpkgRoot);
-        if (!result)
-        {
-            return result;
-        }
-
-        const Core::IO::Path vcpkgRootPath(vcpkgRoot);
-        bool vcpkgRootExists = false;
-        result = m_fileSystem.exists(vcpkgRootPath, &vcpkgRootExists);
-        if (!result)
-        {
-            return Result::fail(Code::GetFailed, Severity::Error,
-                "VCPKG_ROOT の確認に失敗しました。");
-        }
-
-        if (!vcpkgRootExists)
-        {
-            return Result::fail(Code::NotFound, Severity::Error,
-                "VCPKG_ROOT が指すディレクトリが存在しません。");
-        }
-
-        Core::IO::FileStat vcpkgRootStat{};
-        result = m_fileSystem.stat(vcpkgRootPath, &vcpkgRootStat);
-        if (!result)
-        {
-            return Result::fail(Code::GetFailed, Severity::Error,
-                "VCPKG_ROOT の情報取得に失敗しました。");
-        }
-
-        if (vcpkgRootStat.type != Core::IO::FileType::directory)
-        {
-            return Result::fail(Code::InvalidArgument, Severity::Error,
-                "VCPKG_ROOT はディレクトリである必要があります。");
-        }
-
-        a_outValidation.vcpkgRoot = std::move(vcpkgRoot);
         return Result::ok();
     }
 
-    Result CMakeBuildRunner::execute_script_build(
+    Result VisualStudioBuildRunner::execute_script_build(
+        const ScriptBuildRequest& a_request,
+        BuildResult& a_outResult) const noexcept
+    {
+        a_outResult = {};
+
+        Result result = plan_script_build(a_request, a_outResult.plan);
+        if (!result)
+        {
+            a_outResult.summary = result.message;
+            push_message(a_outResult, BuildMessageSeverity::Error, BuildStage::General,
+                std::string(result.message));
+            return result;
+        }
+
+        const ScriptBuildPlan plan = a_outResult.plan;
+        result = m_bridge.execute_script_build(a_request, a_outResult);
+        a_outResult.plan = plan;
+        if (!result && a_outResult.summary.empty())
+        {
+            a_outResult.summary = result.message;
+            push_message(a_outResult, BuildMessageSeverity::Error, BuildStage::General,
+                std::string(result.message));
+        }
+
+        return result;
+    }
+
+    Result VisualStudioBuildRunner::execute_script_configure(
         const ScriptBuildRequest& a_request,
         BuildResult& a_outResult) const noexcept
     {
@@ -412,53 +398,30 @@ namespace Cue::Editor
             Core::IO::Path("Intermediate/BuildSystem"));
         a_outResult.configureLogPath =
             Core::IO::Path::join(logRoot, Core::IO::Path("Configure.log"));
-        a_outResult.buildLogPath =
-            Core::IO::Path::join(logRoot, Core::IO::Path("Build.log"));
 
-        if (a_outResult.plan.requiresConfigure)
-        {
-            BuildStageResult configureStage{};
-            result = execute_command(
-                m_fileSystem,
-                a_request.scriptRoot,
-                a_outResult.plan.configureCommand,
-                BuildStage::Configure,
-                a_outResult.configureLogPath,
-                configureStage);
-            a_outResult.didConfigure = true;
-            a_outResult.stageResults.push_back(std::move(configureStage));
-            if (!result)
-            {
-                a_outResult.exitCode = a_outResult.stageResults.back().exitCode;
-                a_outResult.summary = "CMake configure に失敗しました。";
-                push_message(a_outResult, BuildMessageSeverity::Error,
-                    BuildStage::Configure, a_outResult.summary);
-                return result;
-            }
-        }
-
-        BuildStageResult buildStage{};
+        BuildStageResult configureStage{};
         result = execute_command(
             m_fileSystem,
             a_request.scriptRoot,
-            a_outResult.plan.buildCommand,
-            BuildStage::Build,
-            a_outResult.buildLogPath,
-            buildStage);
-        a_outResult.stageResults.push_back(std::move(buildStage));
+            a_outResult.plan.configureCommand,
+            BuildStage::Configure,
+            a_outResult.configureLogPath,
+            configureStage);
+        a_outResult.didConfigure = true;
+        a_outResult.stageResults.push_back(std::move(configureStage));
         a_outResult.exitCode = a_outResult.stageResults.back().exitCode;
         if (!result)
         {
-            a_outResult.summary = "CMake build に失敗しました。";
+            a_outResult.summary = "CMake configure に失敗しました。";
             push_message(a_outResult, BuildMessageSeverity::Error,
-                BuildStage::Build, a_outResult.summary);
+                BuildStage::Configure, a_outResult.summary);
             return result;
         }
 
         a_outResult.succeeded = true;
-        a_outResult.summary = "CMake build が成功しました。";
+        a_outResult.summary = "CMake configure が成功しました。";
         push_message(a_outResult, BuildMessageSeverity::Info,
-            BuildStage::Build, a_outResult.summary);
+            BuildStage::Configure, a_outResult.summary);
         return Result::ok();
     }
 }

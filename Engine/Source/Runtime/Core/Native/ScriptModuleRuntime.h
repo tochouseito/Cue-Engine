@@ -31,6 +31,11 @@ namespace Cue::Core::Native
         float a_deltaTimeSeconds
     );
 
+    using CueScriptInvokeStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueEngineApi* a_engineApi,
+        void* a_state
+    );
+
     using CueScriptSerializeStateFn = CueResult (CUE_SCRIPT_CALL*)(
         const void* a_state,
         void* a_outStateBuffer,
@@ -43,11 +48,19 @@ namespace Cue::Core::Native
         uint32_t a_stateBufferSize
     );
 
+    struct ScriptFunctionBinding final
+    {
+        CueScriptFunctionDefinition definition{};
+        CueScriptInvokeStateFn invoke = nullptr;
+    };
+
     struct ScriptClassDefinition final
     {
         CueStringView className{};
         const CueScriptFieldValue* fieldValues = nullptr;
         uint32_t fieldValueCount = 0;
+        const ScriptFunctionBinding* functionBindings = nullptr;
+        uint32_t functionBindingCount = 0;
         CueScriptStateDescriptor stateDescriptor{};
         CueScriptCreateStateFn createState = nullptr;
         CueScriptDestroyStateFn destroyState = nullptr;
@@ -152,6 +165,36 @@ namespace Cue::Core::Native
             return true;
         }
 
+        [[nodiscard]] bool read_entity_handle(
+            CueStringView a_fieldName,
+            CueEntityHandle& a_outValue) const noexcept
+        {
+            const CueScriptFieldValue* fieldValue = find(a_fieldName);
+            if (fieldValue == nullptr ||
+                fieldValue->type != CueScriptFieldType_EntityRef)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue->entityValue;
+            return true;
+        }
+
+        [[nodiscard]] bool read_script_class_name(
+            CueStringView a_fieldName,
+            CueStringView& a_outValue) const noexcept
+        {
+            const CueScriptFieldValue* fieldValue = find(a_fieldName);
+            if (fieldValue == nullptr ||
+                fieldValue->type != CueScriptFieldType_ClassRef)
+            {
+                return false;
+            }
+
+            a_outValue = fieldValue->classValue;
+            return true;
+        }
+
     private:
         const CueScriptCreateInfo* m_createInfo = nullptr;
     };
@@ -160,6 +203,12 @@ namespace Cue::Core::Native
     concept ScriptStateHasFields = requires
     {
         { T::script_fields() } -> std::convertible_to<std::span<const CueScriptFieldValue>>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasFunctions = requires
+    {
+        { T::script_functions() } -> std::convertible_to<std::span<const ScriptFunctionBinding>>;
     };
 
     template<typename T>
@@ -279,6 +328,60 @@ namespace Cue::Core::Native
         return static_cast<T*>(a_state)->update(a_engineApi, a_deltaTimeSeconds);
     }
 
+    template<typename T, auto TFunction>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL invoke_script_state_function_adapter(
+        const CueEngineApi* a_engineApi,
+        void* a_state)
+    {
+        using FunctionType = decltype(TFunction);
+
+        if (a_engineApi == nullptr || a_state == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        static_assert(
+            std::is_same_v<FunctionType, CueResult (T::*)()> ||
+            std::is_same_v<FunctionType, void (T::*)()>,
+            "Script function must be void() or CueResult().");
+
+        T* state = static_cast<T*>(a_state);
+        if constexpr (requires
+            {
+                state->begin_script_call(a_engineApi);
+            })
+        {
+            state->begin_script_call(a_engineApi);
+        }
+
+        if constexpr (std::is_same_v<FunctionType, CueResult (T::*)()>)
+        {
+            const CueResult result = (state->*TFunction)();
+            if constexpr (requires
+                {
+                    state->end_script_call();
+                })
+            {
+                state->end_script_call();
+            }
+
+            return result;
+        }
+        else
+        {
+            (state->*TFunction)();
+            if constexpr (requires
+                {
+                    state->end_script_call();
+                })
+            {
+                state->end_script_call();
+            }
+
+            return CueResult_Ok;
+        }
+    }
+
     template<typename T>
     [[nodiscard]] CueResult CUE_SCRIPT_CALL serialize_script_state_adapter(
         const void* a_state,
@@ -385,6 +488,18 @@ namespace Cue::Core::Native
             "Script state must implement static std::span<const CueScriptFieldValue> script_fields().");
 
         const std::span<const CueScriptFieldValue> fields = T::script_fields();
+        const std::span<const ScriptFunctionBinding> functions =
+            []() noexcept
+        {
+            if constexpr (ScriptStateHasFunctions<T>)
+            {
+                return T::script_functions();
+            }
+            else
+            {
+                return std::span<const ScriptFunctionBinding>{};
+            }
+        }();
         using StateBlob = script_state_blob_type_t<T>;
         return ScriptClassDefinition{
             make_script_string_view(
@@ -392,6 +507,8 @@ namespace Cue::Core::Native
                 static_cast<uint32_t>(T::k_className.size())),
             fields.data(),
             static_cast<uint32_t>(fields.size()),
+            functions.data(),
+            static_cast<uint32_t>(functions.size()),
             CueScriptStateDescriptor{
                 static_cast<uint32_t>(T::k_stateVersion),
                 static_cast<uint32_t>(sizeof(StateBlob)),
@@ -515,6 +632,48 @@ namespace Cue::Core::Native
 
             return instance->scriptClass->updateState(
                 m_engineApi, instance->state, a_deltaTimeSeconds);
+        }
+
+        [[nodiscard]] CueResult invoke_script_instance_function(
+            CueScriptInstanceHandle a_instanceHandle,
+            CueStringView a_functionName) noexcept
+        {
+            const InstanceRecord* instance = find_instance(a_instanceHandle);
+            if (instance == nullptr)
+            {
+                return a_instanceHandle.value == k_cueInvalidHandleValue
+                    ? CueResult_InvalidArgument
+                    : CueResult_NotFound;
+            }
+            if (m_engineApi == nullptr || instance->scriptClass == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            const ScriptFunctionBinding* functionBinding =
+                find_script_function(*instance->scriptClass, a_functionName);
+            if (functionBinding == nullptr)
+            {
+                return CueResult_NotFound;
+            }
+            if (functionBinding->invoke == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return functionBinding->invoke(m_engineApi, instance->state);
+        }
+
+        [[nodiscard]] void* get_script_instance_object(
+            CueScriptInstanceHandle a_instanceHandle) const noexcept
+        {
+            const InstanceRecord* instance = find_instance(a_instanceHandle);
+            if (instance == nullptr)
+            {
+                return nullptr;
+            }
+
+            return instance->state;
         }
 
         [[nodiscard]] CueResult get_script_instance_state_size(
@@ -663,28 +822,55 @@ namespace Cue::Core::Native
                 }
             }
 
-            if (!supports_register_script_field(a_engineApi) ||
-                a_scriptClass.fieldValues == nullptr ||
-                a_scriptClass.fieldValueCount == 0)
+            if (supports_register_script_field(a_engineApi) &&
+                a_scriptClass.fieldValues != nullptr &&
+                a_scriptClass.fieldValueCount != 0)
             {
-                return CueResult_Ok;
+                for (uint32_t fieldIndex = 0;
+                     fieldIndex < a_scriptClass.fieldValueCount;
+                     ++fieldIndex)
+                {
+                    const CueResult fieldResult =
+                        a_engineApi->registerScriptField(
+                            a_scriptClass.className,
+                            &a_scriptClass.fieldValues[fieldIndex]);
+                    if (fieldResult != CueResult_Ok)
+                    {
+                        return fieldResult;
+                    }
+                }
             }
 
-            for (uint32_t fieldIndex = 0;
-                 fieldIndex < a_scriptClass.fieldValueCount;
-                 ++fieldIndex)
+            if (supports_register_script_function(a_engineApi) &&
+                a_scriptClass.functionBindings != nullptr &&
+                a_scriptClass.functionBindingCount != 0)
             {
-                const CueResult fieldResult =
-                    a_engineApi->registerScriptField(
-                        a_scriptClass.className,
-                        &a_scriptClass.fieldValues[fieldIndex]);
-                if (fieldResult != CueResult_Ok)
+                for (uint32_t functionIndex = 0;
+                     functionIndex < a_scriptClass.functionBindingCount;
+                     ++functionIndex)
                 {
-                    return fieldResult;
+                    const CueResult functionResult =
+                        a_engineApi->registerScriptFunction(
+                            a_scriptClass.className,
+                            &a_scriptClass.functionBindings[functionIndex].definition);
+                    if (functionResult != CueResult_Ok)
+                    {
+                        return functionResult;
+                    }
                 }
             }
 
             return CueResult_Ok;
+        }
+
+        [[nodiscard]] static bool supports_register_script_function(
+            const CueEngineApi* a_engineApi) noexcept
+        {
+            return a_engineApi != nullptr &&
+                a_engineApi->structSize >=
+                offsetof(CueEngineApi, registerScriptFunction) +
+                    sizeof(CueRegisterScriptFunctionFn) &&
+                a_engineApi->registerScriptFunction != nullptr;
         }
 
         [[nodiscard]] static const ScriptClassDefinition* find_script_class(
@@ -696,6 +882,35 @@ namespace Cue::Core::Native
                 if (string_view_equals(scriptClass.className, a_scriptClassName))
                 {
                     return &scriptClass;
+                }
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] static const ScriptFunctionBinding* find_script_function(
+            const ScriptClassDefinition& a_scriptClass,
+            CueStringView a_functionName) noexcept
+        {
+            if (a_functionName.data == nullptr ||
+                a_functionName.size == 0 ||
+                a_scriptClass.functionBindings == nullptr ||
+                a_scriptClass.functionBindingCount == 0)
+            {
+                return nullptr;
+            }
+
+            for (uint32_t functionIndex = 0;
+                 functionIndex < a_scriptClass.functionBindingCount;
+                 ++functionIndex)
+            {
+                const ScriptFunctionBinding& functionBinding =
+                    a_scriptClass.functionBindings[functionIndex];
+                if (string_view_equals(
+                        functionBinding.definition.name,
+                        a_functionName))
+                {
+                    return &functionBinding;
                 }
             }
 
@@ -774,7 +989,7 @@ namespace Cue::Core::Native
     ::Cue::Core::Native::make_script_string_view( \
         (a_literal), static_cast<uint32_t>(sizeof(a_literal) - 1u))
 
-#define CUE_FIELD_FLOAT(a_nameLiteral, a_defaultValue) \
+#define CUE_FIELD_FLOAT_META(a_groupNameLiteral, a_nameLiteral, a_defaultValue, a_flags) \
     CueScriptFieldValue{ \
         CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
         CueScriptFieldType_Float, \
@@ -783,10 +998,22 @@ namespace Cue::Core::Native
         0, \
         0, \
         0, \
-        0 \
+        0, \
+        CueEntityHandle{ k_cueInvalidHandleValue }, \
+        CueStringView{ nullptr, 0 }, \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_None, \
+        static_cast<CueScriptFieldFlags>(a_flags) \
     }
 
-#define CUE_FIELD_INT32(a_nameLiteral, a_defaultValue) \
+#define CUE_FIELD_FLOAT(a_nameLiteral, a_defaultValue) \
+    CUE_FIELD_FLOAT_META( \
+        "", \
+        a_nameLiteral, \
+        a_defaultValue, \
+        CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize)
+
+#define CUE_FIELD_INT32_META(a_groupNameLiteral, a_nameLiteral, a_defaultValue, a_flags) \
     CueScriptFieldValue{ \
         CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
         CueScriptFieldType_Int32, \
@@ -795,10 +1022,22 @@ namespace Cue::Core::Native
         0, \
         0, \
         0, \
-        0 \
+        0, \
+        CueEntityHandle{ k_cueInvalidHandleValue }, \
+        CueStringView{ nullptr, 0 }, \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_None, \
+        static_cast<CueScriptFieldFlags>(a_flags) \
     }
 
-#define CUE_FIELD_BOOL(a_nameLiteral, a_defaultValue) \
+#define CUE_FIELD_INT32(a_nameLiteral, a_defaultValue) \
+    CUE_FIELD_INT32_META( \
+        "", \
+        a_nameLiteral, \
+        a_defaultValue, \
+        CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize)
+
+#define CUE_FIELD_BOOL_META(a_groupNameLiteral, a_nameLiteral, a_defaultValue, a_flags) \
     CueScriptFieldValue{ \
         CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
         CueScriptFieldType_Bool, \
@@ -807,15 +1046,125 @@ namespace Cue::Core::Native
         static_cast<uint8_t>((a_defaultValue) ? 1 : 0), \
         0, \
         0, \
-        0 \
+        0, \
+        CueEntityHandle{ k_cueInvalidHandleValue }, \
+        CueStringView{ nullptr, 0 }, \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_None, \
+        static_cast<CueScriptFieldFlags>(a_flags) \
     }
 
+#define CUE_FIELD_BOOL(a_nameLiteral, a_defaultValue) \
+    CUE_FIELD_BOOL_META( \
+        "", \
+        a_nameLiteral, \
+        a_defaultValue, \
+        CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize)
+
+#define CUE_FIELD_ENTITY_META(a_groupNameLiteral, a_nameLiteral, a_defaultValue, a_flags) \
+    CueScriptFieldValue{ \
+        CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
+        CueScriptFieldType_EntityRef, \
+        0.0f, \
+        0, \
+        0, \
+        0, \
+        0, \
+        0, \
+        (a_defaultValue), \
+        CueStringView{ nullptr, 0 }, \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_None, \
+        static_cast<CueScriptFieldFlags>(a_flags) \
+    }
+
+#define CUE_FIELD_ENTITY(a_nameLiteral, a_defaultValue) \
+    CUE_FIELD_ENTITY_META( \
+        "", \
+        a_nameLiteral, \
+        a_defaultValue, \
+        CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize)
+
+#define CUE_FIELD_SCRIPT_CLASS_META(a_groupNameLiteral, a_nameLiteral, a_defaultClassLiteral, a_flags) \
+    CueScriptFieldValue{ \
+        CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
+        CueScriptFieldType_ClassRef, \
+        0.0f, \
+        0, \
+        0, \
+        0, \
+        0, \
+        0, \
+        CueEntityHandle{ k_cueInvalidHandleValue }, \
+        CUE_SCRIPT_STRING_VIEW(a_defaultClassLiteral), \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_None, \
+        static_cast<CueScriptFieldFlags>(a_flags) \
+    }
+
+#define CUE_FIELD_SCRIPT_CLASS(a_nameLiteral, a_defaultClassLiteral) \
+    CUE_FIELD_SCRIPT_CLASS_META( \
+        "", \
+        a_nameLiteral, \
+        a_defaultClassLiteral, \
+        CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize)
+
+#define CUE_FIELD_SCRIPT_REF_ENTITY(a_groupNameLiteral, a_nameLiteral, a_defaultValue) \
+    CueScriptFieldValue{ \
+        CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
+        CueScriptFieldType_EntityRef, \
+        0.0f, \
+        0, \
+        0, \
+        0, \
+        0, \
+        0, \
+        (a_defaultValue), \
+        CueStringView{ nullptr, 0 }, \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_ScriptReferenceEntity, \
+        static_cast<CueScriptFieldFlags>( \
+            CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize) \
+    }
+
+#define CUE_FIELD_SCRIPT_REF_CLASS(a_groupNameLiteral, a_nameLiteral, a_defaultClassLiteral) \
+    CueScriptFieldValue{ \
+        CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
+        CueScriptFieldType_ClassRef, \
+        0.0f, \
+        0, \
+        0, \
+        0, \
+        0, \
+        0, \
+        CueEntityHandle{ k_cueInvalidHandleValue }, \
+        CUE_SCRIPT_STRING_VIEW(a_defaultClassLiteral), \
+        CUE_SCRIPT_STRING_VIEW(a_groupNameLiteral), \
+        CueScriptFieldReferenceRole_ScriptReferenceClass, \
+        static_cast<CueScriptFieldFlags>( \
+            CueScriptFieldFlag_EditAnywhere | CueScriptFieldFlag_Serialize) \
+    }
+
+#define CUE_FUNCTION_META(a_nameLiteral, a_flags, a_invokeFn) \
+    ::Cue::Core::Native::ScriptFunctionBinding{ \
+        CueScriptFunctionDefinition{ \
+            CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
+            static_cast<CueScriptFunctionFlags>(a_flags) \
+        }, \
+        (a_invokeFn) \
+    }
+
+#define CUE_FUNCTION(a_nameLiteral, a_invokeFn) \
+    CUE_FUNCTION_META(a_nameLiteral, CueScriptFunctionFlag_None, a_invokeFn)
+
 #define CUE_SCRIPT(a_nameLiteral, a_stateVersion, a_stateType, a_schemaLiteral, \
-    a_fields, a_createState, a_destroyState, a_updateState, a_serializeState, a_restoreState) \
+    a_fields, a_functions, a_createState, a_destroyState, a_updateState, a_serializeState, a_restoreState) \
     ::Cue::Core::Native::ScriptClassDefinition{ \
         CUE_SCRIPT_STRING_VIEW(a_nameLiteral), \
         (a_fields).data(), \
         static_cast<uint32_t>((a_fields).size()), \
+        (a_functions).data(), \
+        static_cast<uint32_t>((a_functions).size()), \
         CueScriptStateDescriptor{ \
             static_cast<uint32_t>(a_stateVersion), \
             static_cast<uint32_t>(sizeof(a_stateType)), \

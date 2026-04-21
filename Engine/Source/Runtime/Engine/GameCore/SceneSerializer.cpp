@@ -4,6 +4,7 @@
 #include "Components.h"
 
 // === C++ includes ===
+#include <algorithm>
 #include <span>
 #include <vector>
 
@@ -111,6 +112,10 @@ namespace Cue::GameCore
                 return "Int32";
             case ECS::ScriptFieldType::Bool:
                 return "Bool";
+            case ECS::ScriptFieldType::EntityRef:
+                return "EntityRef";
+            case ECS::ScriptFieldType::ClassRef:
+                return "ClassRef";
             }
 
             return "Float";
@@ -128,6 +133,14 @@ namespace Cue::GameCore
             {
                 return ECS::ScriptFieldType::Bool;
             }
+            if (typeName == "EntityRef")
+            {
+                return ECS::ScriptFieldType::EntityRef;
+            }
+            if (typeName == "ClassRef")
+            {
+                return ECS::ScriptFieldType::ClassRef;
+            }
 
             return ECS::ScriptFieldType::Float;
         }
@@ -141,6 +154,11 @@ namespace Cue::GameCore
                 { "floatValue", a_fieldValue.floatValue },
                 { "intValue", a_fieldValue.intValue },
                 { "boolValue", a_fieldValue.boolValue },
+                { "entityValue", a_fieldValue.entityValue },
+                { "classValue", a_fieldValue.classValue },
+                { "groupName", a_fieldValue.groupName },
+                { "referenceRole", static_cast<uint32_t>(a_fieldValue.referenceRole) },
+                { "flags", static_cast<uint32_t>(a_fieldValue.flags) },
             };
         }
 
@@ -154,14 +172,60 @@ namespace Cue::GameCore
             a_outFieldValue.floatValue = a_json.value("floatValue", 0.0f);
             a_outFieldValue.intValue = a_json.value("intValue", 0);
             a_outFieldValue.boolValue = a_json.value("boolValue", false);
+            a_outFieldValue.entityValue =
+                a_json.value("entityValue", k_invalidEntityId);
+            a_outFieldValue.classValue = a_json.value("classValue", std::string{});
+            a_outFieldValue.groupName = a_json.value("groupName", std::string{});
+            a_outFieldValue.referenceRole =
+                static_cast<ECS::ScriptFieldReferenceRole>(
+                    a_json.value("referenceRole", 0u));
+            a_outFieldValue.flags =
+                static_cast<ECS::ScriptFieldFlags>(
+                    a_json.value(
+                        "flags",
+                        static_cast<uint32_t>(
+                            ECS::ScriptFieldFlags::EditAnywhere |
+                            ECS::ScriptFieldFlags::Serialize)));
         }
 
         [[nodiscard]] Json serialize_script(
-            const ECS::ScriptComponent& a_component)
+            const ECS::ScriptComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
         {
             Json fieldValues = Json::array();
-            for (const ECS::ScriptFieldValue& fieldValue : a_component.fieldValues)
+            std::vector<ECS::ScriptFieldValue> allFieldValues =
+                a_component.serializedFieldValues;
+            allFieldValues.reserve(
+                a_component.serializedFieldValues.size() +
+                a_component.transientFieldValues.size());
+            for (const ECS::ScriptFieldValue& fieldValue :
+                a_component.transientFieldValues)
             {
+                const auto existingIt =
+                    std::find_if(allFieldValues.begin(), allFieldValues.end(),
+                        [&fieldValue](const ECS::ScriptFieldValue& a_existingFieldValue)
+                        {
+                            return a_existingFieldValue.name == fieldValue.name;
+                        });
+                if (existingIt != allFieldValues.end())
+                {
+                    continue;
+                }
+
+                allFieldValues.push_back(fieldValue);
+            }
+
+            for (const ECS::ScriptFieldValue& fieldValue : allFieldValues)
+            {
+                if (a_options.shouldSerializeScriptField != nullptr &&
+                    !a_options.shouldSerializeScriptField(
+                        a_component.className,
+                        fieldValue.name,
+                        a_options.userData))
+                {
+                    continue;
+                }
+
                 fieldValues.push_back(serialize_script_field_value(fieldValue));
             }
 
@@ -179,7 +243,8 @@ namespace Cue::GameCore
                 a_json.value("className", std::string{});
             a_outComponent.isEnabled =
                 a_json.value("isEnabled", true);
-            a_outComponent.fieldValues.clear();
+            a_outComponent.serializedFieldValues.clear();
+            a_outComponent.transientFieldValues.clear();
 
             const Json fieldValuesJson =
                 a_json.value("fieldValues", Json::array());
@@ -188,17 +253,18 @@ namespace Cue::GameCore
                 return;
             }
 
-            a_outComponent.fieldValues.reserve(fieldValuesJson.size());
+            a_outComponent.serializedFieldValues.reserve(fieldValuesJson.size());
             for (const Json& fieldValueJson : fieldValuesJson)
             {
                 ECS::ScriptFieldValue fieldValue{};
                 deserialize_script_field_value(fieldValueJson, fieldValue);
-                a_outComponent.fieldValues.push_back(std::move(fieldValue));
+                a_outComponent.serializedFieldValues.push_back(std::move(fieldValue));
             }
         }
 
         [[nodiscard]] Json serialize_object_definition(
-            const ObjectDefinition& a_definition)
+            const ObjectDefinition& a_definition,
+            const SceneSerializer::SaveOptions& a_options)
         {
             Json objectJson = {
                 { "localObjectId", a_definition.localObjectId },
@@ -248,7 +314,7 @@ namespace Cue::GameCore
                 a_definition.prototype.get_component_ptr<ECS::ScriptComponent>();
                 script != nullptr)
             {
-                componentsJson["script"] = serialize_script(*script);
+                componentsJson["script"] = serialize_script(*script, a_options);
             }
 
             objectJson["components"] = std::move(componentsJson);
@@ -342,7 +408,8 @@ namespace Cue::GameCore
 
     Result SceneSerializer::save_scene_asset(const SceneAsset& a_sceneAsset,
         Core::IO::IFileSystem& a_fileSystem,
-        const Core::IO::Path& a_filePath) noexcept
+        const Core::IO::Path& a_filePath,
+        const SaveOptions& a_options) noexcept
     {
         try
         {
@@ -354,7 +421,8 @@ namespace Cue::GameCore
 
             for (const ObjectDefinition& object : a_sceneAsset.objects())
             {
-                root["objects"].push_back(serialize_object_definition(object));
+                root["objects"].push_back(serialize_object_definition(
+                    object, a_options));
             }
 
             std::string text = root.dump(4);

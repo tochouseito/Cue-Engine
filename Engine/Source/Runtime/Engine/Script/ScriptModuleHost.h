@@ -24,12 +24,21 @@ namespace Cue::GameCore
 
 namespace Cue
 {
+    struct MarionnetteClass;
+
     class ScriptModule;
     class ScriptRuntime;
 
     class ScriptModuleHost final
     {
     public:
+        struct ScriptReloadReport final
+        {
+            uint32_t restoredStateCount = 0;
+            uint32_t skippedStateCount = 0;
+            std::vector<std::string> warnings{};
+        };
+
         explicit ScriptModuleHost(Core::IO::IFileSystem& a_fileSystem) noexcept;
         ~ScriptModuleHost();
 
@@ -50,6 +59,10 @@ namespace Cue
             std::string_view a_className) const noexcept;
         [[nodiscard]] const std::vector<ECS::ScriptFieldValue>&
             script_field_defaults(std::string_view a_className) const noexcept;
+        [[nodiscard]] const MarionnetteClass* find_marionnette_class(
+            std::string_view a_className) const noexcept;
+        [[nodiscard]] const ScriptReloadReport&
+            last_reload_report() const noexcept;
 
         [[nodiscard]] Result load_module(
             const Core::IO::Path& a_scriptRoot,
@@ -66,6 +79,7 @@ namespace Cue
         ScriptShadowCopyService m_shadowCopyService;
         std::unique_ptr<ScriptModule> m_module = nullptr;
         std::unique_ptr<ScriptRuntime> m_runtime = nullptr;
+        ScriptReloadReport m_lastReloadReport{};
         Core::IO::Path m_scriptRoot{};
         uint64_t m_shadowCopyId = 0;
     };

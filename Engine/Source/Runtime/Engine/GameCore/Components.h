@@ -105,8 +105,34 @@ namespace Cue::ECS
     {
         Float,
         Int32,
-        Bool
+        Bool,
+        EntityRef,
+        ClassRef,
     };
+
+    enum class ScriptFieldReferenceRole : uint8_t
+    {
+        None,
+        ScriptReferenceEntity,
+        ScriptReferenceClass,
+    };
+
+    enum class ScriptFieldFlags : uint32_t
+    {
+        None = 0,
+        EditAnywhere = 1u << 0,
+        Serialize = 1u << 1,
+        ReadOnly = 1u << 2,
+    };
+
+    [[nodiscard]] inline constexpr ScriptFieldFlags operator|(
+        ScriptFieldFlags a_left,
+        ScriptFieldFlags a_right) noexcept
+    {
+        return static_cast<ScriptFieldFlags>(
+            static_cast<uint32_t>(a_left) |
+            static_cast<uint32_t>(a_right));
+    }
 
     struct ScriptFieldValue final
     {
@@ -120,6 +146,13 @@ namespace Cue::ECS
         float floatValue = 0.0f;
         int32_t intValue = 0;
         bool boolValue = false;
+        GameCore::EntityId entityValue = GameCore::k_invalidEntityId;
+        std::string classValue{};
+        std::string groupName{};
+        ScriptFieldReferenceRole referenceRole =
+            ScriptFieldReferenceRole::None;
+        ScriptFieldFlags flags = ScriptFieldFlags::EditAnywhere |
+            ScriptFieldFlags::Serialize;
     };
 
     struct ScriptComponent : public IComponentTag
@@ -131,6 +164,7 @@ namespace Cue::ECS
         ScriptComponent& operator=(ScriptComponent&&) = default;
         std::string className{};
         bool isEnabled = true;
-        std::vector<ScriptFieldValue> fieldValues{};
+        std::vector<ScriptFieldValue> serializedFieldValues{};
+        std::vector<ScriptFieldValue> transientFieldValues{};
     };
 }

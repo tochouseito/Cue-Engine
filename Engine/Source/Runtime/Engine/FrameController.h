@@ -57,6 +57,9 @@ namespace Cue
         /// @brief 直近実行時間取得
         double get_last_elapsed_ms() const;
 
+        /// @brief キューと実行中処理を含めて完全に空なら true
+        bool is_idle() const;
+
         /// @brief 停止
         void stop();
 
@@ -79,6 +82,7 @@ namespace Cue
         const Core::Time::IClock* m_clock = nullptr;
         double m_lastElapsedMs = 0.0;
         uint64_t m_finishedFrame = 0;
+        bool m_isExecuting = false;
         bool m_exit = false;
     };
 

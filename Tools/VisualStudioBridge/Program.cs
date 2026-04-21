@@ -387,11 +387,7 @@ internal static class Program
 
     private static void OpenSolution(SolutionOptions options)
     {
-        string solutionPath = EnsureSolutionPath(
-            options.ScriptRoot, options.ConfigurePreset);
-        dynamic dte = OpenSolutionInVisualStudio(solutionPath);
-        dte.MainWindow.Visible = true;
-        dte.UserControl = true;
+        OpenFolderInVisualStudio(options.ScriptRoot);
     }
 
     private static void AttachDebugger(AttachDebuggerOptions options)
@@ -523,6 +519,37 @@ internal static class Program
         return dte;
     }
 
+    private static void OpenFolderInVisualStudio(string folderPath)
+    {
+        if (!Directory.Exists(folderPath))
+        {
+            throw new DirectoryNotFoundException(
+                $"Script root does not exist: {folderPath}");
+        }
+
+        string? devenvPath = FindDevenvPath();
+        if (string.IsNullOrWhiteSpace(devenvPath))
+        {
+            throw new InvalidOperationException(
+                "devenv.exe was not found.");
+        }
+
+        ProcessStartInfo startInfo = new()
+        {
+            FileName = devenvPath,
+            Arguments = Quote(folderPath),
+            WorkingDirectory = folderPath,
+            UseShellExecute = false
+        };
+
+        using Process? process = Process.Start(startInfo);
+        if (process is null)
+        {
+            throw new InvalidOperationException(
+                "Visual Studio process could not be started.");
+        }
+    }
+
     private static dynamic CreateVisualStudioDte()
     {
         foreach (string progId in EnumerateDteProgIds())
@@ -574,6 +601,24 @@ internal static class Program
         {
             yield return $"VisualStudio.DTE.{majorVersion}.0";
         }
+    }
+
+    private static string? FindDevenvPath()
+    {
+        foreach (string installationDirectory in EnumerateVisualStudioInstallations())
+        {
+            string candidate = Path.Combine(
+                installationDirectory,
+                "Common7",
+                "IDE",
+                "devenv.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static void WaitForVisualStudioReady(dynamic dte)
@@ -797,6 +842,25 @@ internal static class Program
 
         yield return Path.Combine(programFiles, "Microsoft Visual Studio");
         yield return Path.Combine(programFilesX86, "Microsoft Visual Studio");
+    }
+
+    private static IEnumerable<string> EnumerateVisualStudioInstallations()
+    {
+        foreach (string visualStudioRoot in EnumerateVisualStudioRoots())
+        {
+            if (!Directory.Exists(visualStudioRoot))
+            {
+                continue;
+            }
+
+            foreach (string versionDirectory in Directory.EnumerateDirectories(visualStudioRoot))
+            {
+                foreach (string editionDirectory in Directory.EnumerateDirectories(versionDirectory))
+                {
+                    yield return editionDirectory;
+                }
+            }
+        }
     }
 
     private static string Quote(string value)

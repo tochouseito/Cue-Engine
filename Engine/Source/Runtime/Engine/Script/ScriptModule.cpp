@@ -242,4 +242,24 @@ namespace Cue
 
         return convert_script_result(m_exports.registerScripts(&a_engineApi));
     }
+
+    MarionnetteObject* ScriptModule::get_script_instance_object(
+        CueScriptInstanceHandle a_instanceHandle) const noexcept
+    {
+        if (!is_loaded())
+        {
+            return nullptr;
+        }
+
+        if (m_exports.structSize <
+                offsetof(CueScriptExports, getScriptInstanceObject) +
+                    sizeof(CueGetScriptInstanceObjectFn) ||
+            m_exports.getScriptInstanceObject == nullptr)
+        {
+            return nullptr;
+        }
+
+        return static_cast<MarionnetteObject*>(
+            m_exports.getScriptInstanceObject(a_instanceHandle));
+    }
 }

@@ -10,6 +10,7 @@
 
 // === Engine includes ===
 #include <GameCore/SceneSerializer.h>
+#include <Script/MarionnetteObject.h>
 #include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 // === Win includes ===
@@ -104,6 +105,37 @@ namespace Cue::Editor
             default:
                 return "Info";
             }
+        }
+
+        [[nodiscard]] bool should_serialize_script_field(
+            std::string_view a_scriptClassName,
+            std::string_view a_fieldName,
+            void* a_userData)
+        {
+            const Engine* engine = static_cast<const Engine*>(a_userData);
+            if (engine == nullptr)
+            {
+                return true;
+            }
+
+            const MarionnetteClass* marionnetteClass =
+                engine->find_marionnette_class(a_scriptClassName);
+            if (marionnetteClass == nullptr)
+            {
+                // 未解決 class は保存データを落とさない。
+                return true;
+            }
+
+            const MarionnetteProperty* property =
+                marionnetteClass->find_property(a_fieldName);
+            if (property == nullptr)
+            {
+                return false;
+            }
+
+            return has_any_flags(
+                property->flags,
+                MarionnettePropertyFlag_Serialize);
         }
 
         void push_build_message(
@@ -549,8 +581,15 @@ namespace Cue::Editor
             return captureResult;
         }
 
+        GameCore::SceneSerializer::SaveOptions saveOptions{};
+        saveOptions.shouldSerializeScriptField = &should_serialize_script_field;
+        saveOptions.userData = m_engine;
+
         result = GameCore::SceneSerializer::save_scene_asset(
-            sceneAsset, *m_fileSystem, Core::IO::Path(m_currentScenePath));
+            sceneAsset,
+            *m_fileSystem,
+            Core::IO::Path(m_currentScenePath),
+            saveOptions);
         if (!result)
         {
             return result;
@@ -747,6 +786,77 @@ namespace Cue::Editor
         return result;
     }
 
+    Result EditorManager::create_script_template(
+        const std::string& a_scriptName)
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "FileSystem が初期化されていません。");
+        }
+        if (m_projectPath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "プロジェクトが開かれていません。");
+        }
+
+        ProjectGenerator projectGenerator(*m_fileSystem);
+        Result result = projectGenerator.create_script_template(
+            m_projectPath,
+            a_scriptName);
+        if (!result)
+        {
+            return result;
+        }
+
+        BuildResult configureResult{};
+        result = refresh_script_project_intellisense(configureResult);
+        m_lastScriptBuildResult = std::move(configureResult);
+        if (!m_lastScriptBuildResult.stageResults.empty())
+        {
+            const BuildStageResult& stageResult =
+                m_lastScriptBuildResult.stageResults.back();
+            if (stageResult.stage == BuildStage::Configure)
+            {
+                log_build_output(
+                    to_stage_prefix(stageResult.stage),
+                    stageResult.output);
+            }
+        }
+
+        return result;
+    }
+
+    Result EditorManager::refresh_script_project_intellisense(
+        BuildResult& a_outResult)
+    {
+        a_outResult = {};
+
+        if (m_buildSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "BuildSystem が初期化されていません。");
+        }
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        const ScriptBuildRequest request{
+            scriptRoot,
+            "win-x64",
+            m_scriptBuildConfiguration,
+            "GameScript",
+            m_scriptBuildBackend
+        };
+        return m_buildSystem->execute_script_configure(
+            request,
+            a_outResult);
+    }
+
     Result EditorManager::reload_script_module(BuildResult& a_inOutBuildResult)
     {
         if (m_engine == nullptr)
@@ -823,6 +933,30 @@ namespace Cue::Editor
                             : BuildMessageSeverity::Error,
             BuildStage::Reload,
             reloadOutput);
+
+        if (reloadSucceeded)
+        {
+            const ScriptModuleHost::ScriptReloadReport& reloadReport =
+                m_engine->last_script_reload_report();
+            if (reloadReport.skippedStateCount > 0)
+            {
+                push_build_message(
+                    a_inOutBuildResult,
+                    BuildMessageSeverity::Warning,
+                    BuildStage::Reload,
+                    std::string("state restore skipped: ") +
+                        std::to_string(reloadReport.skippedStateCount) +
+                        " 件");
+                for (const std::string& warning : reloadReport.warnings)
+                {
+                    push_build_message(
+                        a_inOutBuildResult,
+                        BuildMessageSeverity::Warning,
+                        BuildStage::Reload,
+                        warning);
+                }
+            }
+        }
 
         return result;
     }
@@ -1165,6 +1299,31 @@ namespace Cue::Editor
         return m_engine->stop_play_mode();
     }
 
+    Result EditorManager::request_exit()
+    {
+        if (m_platform == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Platform is not initialized.");
+        }
+
+        const HWND hwnd = m_platform->get_window_handle();
+        if (hwnd == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Editor window is not initialized.");
+        }
+
+        const BOOL posted = ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        if (posted == FALSE)
+        {
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to post editor close message.");
+        }
+
+        return Result::ok();
+    }
+
     void EditorManager::draw_script_build_output()
     {
         if (!m_showScriptBuildOutput)
@@ -1465,6 +1624,76 @@ namespace Cue::Editor
         ImGui::EndPopup();
     }
 
+    void EditorManager::draw_create_script_popup()
+    {
+        if (m_openCreateScriptPopup)
+        {
+            ImGui::OpenPopup("Create Script");
+            m_openCreateScriptPopup = false;
+            m_focusCreateScriptNameInput = true;
+        }
+
+        if (!ImGui::BeginPopupModal(
+                "Create Script",
+                nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui::TextUnformatted("Assets/Scripts/ に新しい Script を作成します。");
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Script 名");
+        if (m_focusCreateScriptNameInput)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_focusCreateScriptNameInput = false;
+        }
+
+        const bool submitted = ImGui::InputText(
+            "##CreateScriptName",
+            m_createScriptNameBuffer.data(),
+            m_createScriptNameBuffer.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("例: TestCube");
+
+        auto submit = [this]()
+        {
+            const std::string scriptName = m_createScriptNameBuffer.data();
+            const Result result = create_script_template(scriptName);
+            if (!result)
+            {
+                log_result("Failed to create script template", result);
+                set_status_message(
+                    result.message.empty()
+                        ? "Script 作成に失敗しました。"
+                        : std::string(result.message),
+                    true);
+                return;
+            }
+
+            m_createScriptNameBuffer.fill('\0');
+            set_status_message(
+                std::string("Script を作成しました: ") + scriptName,
+                false);
+            ImGui::CloseCurrentPopup();
+        };
+
+        ImGui::Spacing();
+        if (submitted || ImGui::Button("作成"))
+        {
+            submit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_createScriptNameBuffer.fill('\0');
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     void EditorManager::undo_last_command()
     {
         if (m_bridge == nullptr || m_engine == nullptr || m_engine->game_world() == nullptr)
@@ -1659,6 +1888,22 @@ namespace Cue::Editor
                     }
                 }
 
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Exit"))
+                {
+                    const Result result = request_exit();
+                    if (!result)
+                    {
+                        log_result("Failed to request editor exit", result);
+                        set_status_message("Editor の終了要求に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message("Editor を終了します。", false);
+                    }
+                }
+
                 ImGui::EndMenu();
             }
 
@@ -1757,6 +2002,14 @@ namespace Cue::Editor
                         "GameScript をビルド", nullptr, false, canBuildScript))
                 {
                     queue_script_action(PendingScriptAction::Build);
+                }
+
+                if (ImGui::MenuItem(
+                        "GameScript を追加", nullptr, false,
+                        !m_projectPath.empty() && !m_isScriptActionActive))
+                {
+                    m_createScriptNameBuffer.fill('\0');
+                    m_openCreateScriptPopup = true;
                 }
 
                 ImGui::Separator();
@@ -1898,6 +2151,7 @@ namespace Cue::Editor
 
         m_statistics->update();
         m_debugView->update();
+        draw_create_script_popup();
         draw_script_build_notification_popup();
         draw_script_build_output();
         m_hierarchy->update();

@@ -13,6 +13,7 @@ namespace Cue
         m_exit = false;
         m_lastElapsedMs = 0.0;
         m_finishedFrame = 0;
+        m_isExecuting = false;
         m_queue.clear();
 
         Core::Threading::ThreadDesc desc{};
@@ -53,6 +54,11 @@ namespace Cue
         // 実行時間の読み取りも同じロックで保護する
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_lastElapsedMs;
+    }
+    bool FrameJob::is_idle() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_queue.empty() && !m_isExecuting;
     }
     void FrameJob::stop()
     {
@@ -105,6 +111,7 @@ namespace Cue
 
             const Request req = m_queue.front();
             m_queue.pop_front();
+            m_isExecuting = true;
             currentFrame = req.frameNo;
             const uint32_t index = req.index;
             lock.unlock();
@@ -126,6 +133,7 @@ namespace Cue
             lock.lock();
             m_lastElapsedMs = elapsedMs;
             m_finishedFrame = currentFrame;
+            m_isExecuting = false;
             lock.unlock();
             m_cv.notify_all();
         }
@@ -198,38 +206,7 @@ namespace Cue
 
         for (;;)
         {
-            bool isIdle = false;
-            switch (m_desc.mode)
-            {
-            case ControllerMode::Fixed:
-                isIdle = (m_fixedState.produceFrame == m_fixedState.totalFrame);
-                break;
-
-            case ControllerMode::Mailbox:
-                if (!m_mailboxState.hasPresented)
-                {
-                    isIdle = (m_mailboxState.produceFrame == 0);
-                }
-                else
-                {
-                    const uint64_t updateFinished = m_updateJob.get_finished_frame();
-                    const uint64_t renderFinished = m_renderJob.get_finished_frame();
-                    const bool noInFlight =
-                        (m_mailboxState.lastPresentedFrame + 1) ==
-                        m_mailboxState.produceFrame;
-                    const bool workersDone =
-                        updateFinished >= m_mailboxState.lastPresentedFrame &&
-                        renderFinished >= m_mailboxState.lastPresentedFrame;
-                    isIdle = noInFlight && workersDone;
-                }
-                break;
-
-            case ControllerMode::Backpressure:
-                isIdle = !m_backpressureState.inFlight;
-                break;
-            }
-
-            if (isIdle)
+            if (m_updateJob.is_idle() && m_renderJob.is_idle())
             {
                 return;
             }

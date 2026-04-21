@@ -26,6 +26,8 @@
 
 namespace Cue
 {
+    struct MarionnetteClass;
+
     /// @brief Engine 初期化時に必要な依存オブジェクトです。
     struct EngineSetupInfo final
     {
@@ -149,6 +151,23 @@ namespace Cue
             return m_scriptModuleHost != nullptr
                 ? m_scriptModuleHost->script_field_defaults(a_className)
                 : k_emptyFieldValues;
+        }
+
+        [[nodiscard]] const MarionnetteClass* find_marionnette_class(
+            std::string_view a_className) const noexcept
+        {
+            return m_scriptModuleHost != nullptr
+                ? m_scriptModuleHost->find_marionnette_class(a_className)
+                : nullptr;
+        }
+
+        [[nodiscard]] const ScriptModuleHost::ScriptReloadReport&
+            last_script_reload_report() const noexcept
+        {
+            static const ScriptModuleHost::ScriptReloadReport k_empty{};
+            return m_scriptModuleHost != nullptr
+                ? m_scriptModuleHost->last_reload_report()
+                : k_empty;
         }
 
         [[nodiscard]] Result load_script_module(

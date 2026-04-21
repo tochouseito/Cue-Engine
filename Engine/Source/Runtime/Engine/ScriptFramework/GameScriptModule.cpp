@@ -148,6 +148,19 @@ extern "C"
                 return g_scriptRuntime.get_script_state_descriptor(
                     script_classes(), a_scriptClassName, a_outDescriptor);
             };
+        a_outExports->invokeScriptFunction =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                CueStringView a_functionName) -> CueResult
+            {
+                return g_scriptRuntime.invoke_script_instance_function(
+                    a_instanceHandle, a_functionName);
+            };
+        a_outExports->getScriptInstanceObject =
+            [](CueScriptInstanceHandle a_instanceHandle) -> void*
+            {
+                return g_scriptRuntime.get_script_instance_object(
+                    a_instanceHandle);
+            };
         return CueResult_Ok;
     }
 }

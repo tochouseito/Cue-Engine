@@ -128,6 +128,9 @@ namespace Cue::Editor
         [[nodiscard]] Result validate_script_build_environment(
             const ScriptBuildRequest& a_request,
             ScriptBuildValidation& a_outValidation) const noexcept;
+        [[nodiscard]] Result execute_script_configure(
+            const ScriptBuildRequest& a_request,
+            BuildResult& a_outResult) const noexcept;
         [[nodiscard]] Result execute_script_build(
             const ScriptBuildRequest& a_request,
             BuildResult& a_outResult) const noexcept;

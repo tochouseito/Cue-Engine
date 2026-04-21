@@ -65,6 +65,27 @@ namespace Cue::Editor
         return runner->execute_script_build(a_request, a_outResult);
     }
 
+    Result BuildSystem::execute_script_configure(
+        const ScriptBuildRequest& a_request,
+        BuildResult& a_outResult) const noexcept
+    {
+        const IBuildRunner* runner = resolve_runner(a_request.backend);
+        if (runner == nullptr)
+        {
+            a_outResult = {};
+            a_outResult.summary = "対応していない build backend です。";
+            a_outResult.messages.push_back(BuildMessage{
+                BuildMessageSeverity::Error,
+                BuildStage::General,
+                a_outResult.summary
+            });
+            return Result::fail(Code::Unsupported, Severity::Error,
+                "Unsupported build backend.");
+        }
+
+        return runner->execute_script_configure(a_request, a_outResult);
+    }
+
     const char* BuildSystem::to_configuration_name(
         BuildConfiguration a_configuration) noexcept
     {

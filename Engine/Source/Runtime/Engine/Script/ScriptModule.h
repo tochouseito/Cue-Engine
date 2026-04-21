@@ -9,6 +9,11 @@
 
 namespace Cue
 {
+    class MarionnetteObject;
+}
+
+namespace Cue
+{
     class ScriptModule final
     {
     public:
@@ -29,6 +34,8 @@ namespace Cue
         [[nodiscard]] bool is_loaded() const noexcept;
         [[nodiscard]] const CueScriptExports* exports() const noexcept;
         [[nodiscard]] const Core::IO::Path& module_path() const noexcept;
+        [[nodiscard]] MarionnetteObject* get_script_instance_object(
+            CueScriptInstanceHandle a_instanceHandle) const noexcept;
 
         [[nodiscard]] Result register_scripts(
             const CueEngineApi& a_engineApi) const noexcept;

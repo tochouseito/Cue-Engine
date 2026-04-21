@@ -18,6 +18,25 @@ namespace Cue
 {
     namespace
     {
+        class RuntimeMarionnetteComponent final : public MarionnetteComponent
+        {
+        public:
+            [[nodiscard]] const MarionnetteClass* get_class() const noexcept override
+            {
+                return m_runtimeClass != nullptr
+                    ? m_runtimeClass
+                    : MarionnetteComponent::static_class();
+            }
+
+            void set_runtime_class(const MarionnetteClass* a_runtimeClass) noexcept
+            {
+                m_runtimeClass = a_runtimeClass;
+            }
+
+        private:
+            const MarionnetteClass* m_runtimeClass = nullptr;
+        };
+
         [[nodiscard]] std::string_view to_string_view(CueStringView a_value) noexcept
         {
             return a_value.data != nullptr
@@ -42,6 +61,10 @@ namespace Cue
                 return ECS::ScriptFieldType::Int32;
             case CueScriptFieldType_Bool:
                 return ECS::ScriptFieldType::Bool;
+            case CueScriptFieldType_EntityRef:
+                return ECS::ScriptFieldType::EntityRef;
+            case CueScriptFieldType_ClassRef:
+                return ECS::ScriptFieldType::ClassRef;
             case CueScriptFieldType_Float:
             default:
                 return ECS::ScriptFieldType::Float;
@@ -57,9 +80,78 @@ namespace Cue
                 return CueScriptFieldType_Int32;
             case ECS::ScriptFieldType::Bool:
                 return CueScriptFieldType_Bool;
+            case ECS::ScriptFieldType::EntityRef:
+                return CueScriptFieldType_EntityRef;
+            case ECS::ScriptFieldType::ClassRef:
+                return CueScriptFieldType_ClassRef;
             case ECS::ScriptFieldType::Float:
             default:
                 return CueScriptFieldType_Float;
+            }
+        }
+
+        [[nodiscard]] ECS::ScriptFieldReferenceRole to_script_field_reference_role(
+            CueScriptFieldReferenceRole a_role) noexcept
+        {
+            switch (a_role)
+            {
+            case CueScriptFieldReferenceRole_ScriptReferenceEntity:
+                return ECS::ScriptFieldReferenceRole::ScriptReferenceEntity;
+            case CueScriptFieldReferenceRole_ScriptReferenceClass:
+                return ECS::ScriptFieldReferenceRole::ScriptReferenceClass;
+            case CueScriptFieldReferenceRole_None:
+            default:
+                return ECS::ScriptFieldReferenceRole::None;
+            }
+        }
+
+        [[nodiscard]] CueScriptFieldReferenceRole to_cue_script_field_reference_role(
+            ECS::ScriptFieldReferenceRole a_role) noexcept
+        {
+            switch (a_role)
+            {
+            case ECS::ScriptFieldReferenceRole::ScriptReferenceEntity:
+                return CueScriptFieldReferenceRole_ScriptReferenceEntity;
+            case ECS::ScriptFieldReferenceRole::ScriptReferenceClass:
+                return CueScriptFieldReferenceRole_ScriptReferenceClass;
+            case ECS::ScriptFieldReferenceRole::None:
+            default:
+                return CueScriptFieldReferenceRole_None;
+            }
+        }
+
+        [[nodiscard]] MarionnettePropertyType to_marionnette_property_type(
+            ECS::ScriptFieldType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case ECS::ScriptFieldType::Int32:
+                return MarionnettePropertyType::Int32;
+            case ECS::ScriptFieldType::Bool:
+                return MarionnettePropertyType::Bool;
+            case ECS::ScriptFieldType::EntityRef:
+                return MarionnettePropertyType::EntityRef;
+            case ECS::ScriptFieldType::ClassRef:
+                return MarionnettePropertyType::ClassRef;
+            case ECS::ScriptFieldType::Float:
+            default:
+                return MarionnettePropertyType::Float;
+            }
+        }
+
+        [[nodiscard]] MarionnettePropertyReferenceRole
+            to_marionnette_property_reference_role(
+                ECS::ScriptFieldReferenceRole a_role) noexcept
+        {
+            switch (a_role)
+            {
+            case ECS::ScriptFieldReferenceRole::ScriptReferenceEntity:
+                return MarionnettePropertyReferenceRole::ScriptReferenceEntity;
+            case ECS::ScriptFieldReferenceRole::ScriptReferenceClass:
+                return MarionnettePropertyReferenceRole::ScriptReferenceClass;
+            case ECS::ScriptFieldReferenceRole::None:
+            default:
+                return MarionnettePropertyReferenceRole::None;
             }
         }
 
@@ -74,7 +166,16 @@ namespace Cue
                 static_cast<uint8_t>(a_fieldValue.boolValue ? 1 : 0),
                 0,
                 0,
-                0
+                0,
+                a_fieldValue.entityValue != GameCore::k_invalidEntityId
+                    ? CueEntityHandle{
+                          static_cast<uint64_t>(a_fieldValue.entityValue)
+                      }
+                    : CueEntityHandle{ k_cueInvalidHandleValue },
+                make_string_view(a_fieldValue.classValue),
+                make_string_view(a_fieldValue.groupName),
+                to_cue_script_field_reference_role(a_fieldValue.referenceRole),
+                static_cast<CueScriptFieldFlags>(a_fieldValue.flags)
             };
         }
 
@@ -95,7 +196,12 @@ namespace Cue
                     left.type != right.type ||
                     left.floatValue != right.floatValue ||
                     left.intValue != right.intValue ||
-                    left.boolValue != right.boolValue)
+                    left.boolValue != right.boolValue ||
+                    left.entityValue != right.entityValue ||
+                    left.classValue != right.classValue ||
+                    left.groupName != right.groupName ||
+                    left.referenceRole != right.referenceRole ||
+                    left.flags != right.flags)
                 {
                     return false;
                 }
@@ -214,9 +320,20 @@ namespace Cue
         m_engineApi.getTransform = &ScriptRuntime::get_transform_bridge;
         m_engineApi.setTransform = &ScriptRuntime::set_transform_bridge;
         m_engineApi.registerScriptField = &ScriptRuntime::register_script_field_bridge;
+        m_engineApi.registerScriptFunction =
+            &ScriptRuntime::register_script_function_bridge;
         m_engineApi.findScriptInstance = &ScriptRuntime::find_script_instance_bridge;
         m_engineApi.isScriptInstanceValid = &ScriptRuntime::is_script_instance_valid_bridge;
         m_engineApi.getScriptField = &ScriptRuntime::get_script_field_bridge;
+        m_engineApi.getScriptObject = &ScriptRuntime::get_script_object_bridge;
+        m_engineApi.isScriptClassRegistered =
+            &ScriptRuntime::is_script_class_registered_bridge;
+        m_engineApi.getScriptClassField =
+            &ScriptRuntime::get_script_class_field_bridge;
+        m_engineApi.hasScriptClassFunction =
+            &ScriptRuntime::has_script_class_function_bridge;
+        m_engineApi.invokeScriptFunction =
+            &ScriptRuntime::invoke_script_function_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -259,6 +376,122 @@ namespace Cue
         }
 
         return infoIt->second.fieldDefaults;
+    }
+
+    const MarionnetteClass* ScriptRuntime::find_marionnette_class(
+        std::string_view a_className) const noexcept
+    {
+        const auto infoIt = m_scriptClassInfos.find(std::string(a_className));
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return nullptr;
+        }
+
+        return &infoIt->second.marionnetteClass;
+    }
+
+    const MarionnetteClass* ScriptRuntime::find_marionnette_class(
+        GameCore::EntityId a_entityId) const noexcept
+    {
+        const auto bindingIt = m_bindings.find(a_entityId);
+        if (bindingIt != m_bindings.end())
+        {
+            return find_marionnette_class(bindingIt->second.className);
+        }
+
+        if (m_gameWorld == nullptr)
+        {
+            return nullptr;
+        }
+
+        GameCore::GameObject object{};
+        const Result findResult = m_gameWorld->find_object(a_entityId, object);
+        if (!findResult || !object.is_valid())
+        {
+            return nullptr;
+        }
+
+        ECS::ScriptComponent* script = nullptr;
+        const Result getResult = object.get_component(script);
+        if (!getResult || script == nullptr || script->className.empty())
+        {
+            return nullptr;
+        }
+
+        return find_marionnette_class(script->className);
+    }
+
+    Marionnette* ScriptRuntime::find_marionnette(
+        GameCore::EntityId a_entityId) noexcept
+    {
+        const auto marionnetteIt = m_marionnettes.find(a_entityId);
+        return marionnetteIt != m_marionnettes.end()
+            ? &marionnetteIt->second
+            : nullptr;
+    }
+
+    const Marionnette* ScriptRuntime::find_marionnette(
+        GameCore::EntityId a_entityId) const noexcept
+    {
+        const auto marionnetteIt = m_marionnettes.find(a_entityId);
+        return marionnetteIt != m_marionnettes.end()
+            ? &marionnetteIt->second
+            : nullptr;
+    }
+
+    MarionnetteComponent* ScriptRuntime::find_marionnette_component(
+        GameCore::EntityId a_entityId) noexcept
+    {
+        const auto componentIt = m_marionnetteComponents.find(a_entityId);
+        return componentIt != m_marionnetteComponents.end()
+            ? componentIt->second.get()
+            : nullptr;
+    }
+
+    const MarionnetteComponent* ScriptRuntime::find_marionnette_component(
+        GameCore::EntityId a_entityId) const noexcept
+    {
+        const auto componentIt = m_marionnetteComponents.find(a_entityId);
+        return componentIt != m_marionnetteComponents.end()
+            ? componentIt->second.get()
+            : nullptr;
+    }
+
+    MarionnetteComponent* ScriptRuntime::find_marionnette_component_by_class(
+        GameCore::EntityId a_entityId,
+        const MarionnetteClass* a_componentClass) noexcept
+    {
+        MarionnetteComponent* component = find_marionnette_component(a_entityId);
+        if (component == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (a_componentClass == nullptr || component->is_a(a_componentClass))
+        {
+            return component;
+        }
+
+        return nullptr;
+    }
+
+    const MarionnetteComponent* ScriptRuntime::find_marionnette_component_by_class(
+        GameCore::EntityId a_entityId,
+        const MarionnetteClass* a_componentClass) const noexcept
+    {
+        const MarionnetteComponent* component =
+            find_marionnette_component(a_entityId);
+        if (component == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (a_componentClass == nullptr || component->is_a(a_componentClass))
+        {
+            return component;
+        }
+
+        return nullptr;
     }
 
     void ScriptRuntime::activate() noexcept
@@ -358,8 +591,14 @@ namespace Cue
     }
 
     Result ScriptRuntime::restore_instance_states(
-        const std::vector<StateSnapshot>& a_snapshots) noexcept
+        const std::vector<StateSnapshot>& a_snapshots,
+        StateRestoreReport* a_outReport) noexcept
     {
+        if (a_outReport != nullptr)
+        {
+            *a_outReport = {};
+        }
+
         if (a_snapshots.empty())
         {
             return Result::ok();
@@ -381,6 +620,24 @@ namespace Cue
             return syncResult;
         }
 
+        const auto record_skip =
+            [a_outReport](GameCore::EntityId a_entityId,
+                std::string_view a_className,
+                std::string a_detail)
+        {
+            if (a_outReport == nullptr)
+            {
+                return;
+            }
+
+            ++a_outReport->skippedCount;
+            a_outReport->issues.push_back(StateRestoreIssue{
+                a_entityId,
+                std::string(a_className),
+                std::move(a_detail)
+            });
+        };
+
         for (const StateSnapshot& snapshot : a_snapshots)
         {
             const auto bindingIt = m_bindings.find(snapshot.entityId);
@@ -393,6 +650,11 @@ namespace Cue
                 Core::IO::log(Core::IO::LogSink::debugConsole,
                     "Script state restore skipped by class mismatch: entity={}, old={}, new={}",
                     snapshot.entityId, snapshot.className, bindingIt->second.className);
+                record_skip(
+                    snapshot.entityId,
+                    snapshot.className,
+                    std::string("class mismatch: old=") + snapshot.className +
+                        ", new=" + bindingIt->second.className);
                 continue;
             }
             if (!snapshot.hasStateDescriptor)
@@ -400,6 +662,10 @@ namespace Cue
                 Core::IO::log(Core::IO::LogSink::debugConsole,
                     "Script state restore skipped without old descriptor: entity={}, class={}",
                     snapshot.entityId, snapshot.className);
+                record_skip(
+                    snapshot.entityId,
+                    snapshot.className,
+                    "old descriptor is unavailable");
                 continue;
             }
             if (snapshot.bytes.empty())
@@ -415,6 +681,11 @@ namespace Cue
                 Core::IO::log(Core::IO::LogSink::debugConsole,
                     "Script state restore skipped without new descriptor: entity={}, class={}, message={}",
                     snapshot.entityId, snapshot.className, descriptorResult.message);
+                record_skip(
+                    snapshot.entityId,
+                    snapshot.className,
+                    std::string("new descriptor query failed: ") +
+                        std::string(descriptorResult.message));
                 continue;
             }
             if (!are_state_descriptors_compatible(
@@ -429,6 +700,21 @@ namespace Cue
                     nextDescriptor.stateSize,
                     snapshot.stateDescriptor.schemaHash,
                     nextDescriptor.schemaHash);
+                record_skip(
+                    snapshot.entityId,
+                    snapshot.className,
+                    std::string("descriptor mismatch: oldVersion=") +
+                        std::to_string(snapshot.stateDescriptor.stateVersion) +
+                        ", newVersion=" +
+                        std::to_string(nextDescriptor.stateVersion) +
+                        ", oldSize=" +
+                        std::to_string(snapshot.stateDescriptor.stateSize) +
+                        ", newSize=" +
+                        std::to_string(nextDescriptor.stateSize) +
+                        ", oldHash=" +
+                        std::to_string(snapshot.stateDescriptor.schemaHash) +
+                        ", newHash=" +
+                        std::to_string(nextDescriptor.schemaHash));
                 continue;
             }
 
@@ -442,6 +728,17 @@ namespace Cue
                 Core::IO::log(Core::IO::LogSink::debugConsole,
                     "Script state restore skipped: entity={}, class={}, message={}",
                     snapshot.entityId, snapshot.className, restoreResult.message);
+                record_skip(
+                    snapshot.entityId,
+                    snapshot.className,
+                    std::string("restore failed: ") +
+                        std::string(restoreResult.message));
+                continue;
+            }
+
+            if (a_outReport != nullptr)
+            {
+                ++a_outReport->restoredCount;
             }
         }
 
@@ -651,10 +948,26 @@ namespace Cue
             return result;
         }
 
+        result = bind_marionnette(a_entityId);
+        if (!result)
+        {
+            (void)exports->destroyScriptInstance(instanceHandle);
+            return result;
+        }
+
+        result = bind_marionnette_component(a_entityId, a_scriptComponent);
+        if (!result)
+        {
+            unbind_marionnette(a_entityId);
+            (void)exports->destroyScriptInstance(instanceHandle);
+            return result;
+        }
+
         m_bindings[a_entityId] = ScriptBinding{
             instanceHandle,
             a_scriptComponent.className,
-            resolvedFieldValues
+            resolvedFieldValues,
+            m_module->get_script_instance_object(instanceHandle)
         };
         m_entityIdsByInstanceHandle[instanceHandle.value] = a_entityId;
         return Result::ok();
@@ -665,22 +978,31 @@ namespace Cue
     {
         std::vector<ECS::ScriptFieldValue> resolvedFieldValues =
             script_field_defaults(a_scriptComponent.className);
-        for (const ECS::ScriptFieldValue& fieldValue : a_scriptComponent.fieldValues)
-        {
-            const auto existingIt =
-                std::find_if(resolvedFieldValues.begin(), resolvedFieldValues.end(),
-                    [&fieldValue](const ECS::ScriptFieldValue& a_existingValue)
-                    {
-                        return a_existingValue.name == fieldValue.name;
-                    });
-            if (existingIt != resolvedFieldValues.end())
-            {
-                *existingIt = fieldValue;
-                continue;
-            }
 
-            resolvedFieldValues.push_back(fieldValue);
-        }
+        const auto merge_field_values =
+            [&resolvedFieldValues](
+                const std::vector<ECS::ScriptFieldValue>& a_fieldValues)
+        {
+            for (const ECS::ScriptFieldValue& fieldValue : a_fieldValues)
+            {
+                const auto existingIt =
+                    std::find_if(resolvedFieldValues.begin(), resolvedFieldValues.end(),
+                        [&fieldValue](const ECS::ScriptFieldValue& a_existingValue)
+                        {
+                            return a_existingValue.name == fieldValue.name;
+                        });
+                if (existingIt != resolvedFieldValues.end())
+                {
+                    *existingIt = fieldValue;
+                    continue;
+                }
+
+                resolvedFieldValues.push_back(fieldValue);
+            }
+        };
+
+        merge_field_values(a_scriptComponent.serializedFieldValues);
+        merge_field_values(a_scriptComponent.transientFieldValues);
 
         return resolvedFieldValues;
     }
@@ -690,6 +1012,8 @@ namespace Cue
         const auto bindingIt = m_bindings.find(a_entityId);
         if (bindingIt == m_bindings.end())
         {
+            unbind_marionnette_component(a_entityId);
+            unbind_marionnette(a_entityId);
             return Result::ok();
         }
 
@@ -713,6 +1037,8 @@ namespace Cue
 
         m_entityIdsByInstanceHandle.erase(bindingIt->second.instanceHandle.value);
         m_bindings.erase(bindingIt);
+        unbind_marionnette_component(a_entityId);
+        unbind_marionnette(a_entityId);
         return Result::ok();
     }
 
@@ -761,6 +1087,16 @@ namespace Cue
         return s_activeInstance != nullptr
             ? s_activeInstance->register_script_field_internal(
                 a_scriptClassName, a_fieldValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::register_script_function_bridge(
+        CueStringView a_scriptClassName,
+        const CueScriptFunctionDefinition* a_functionDefinition)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->register_script_function_internal(
+                a_scriptClassName, a_functionDefinition)
             : CueResult_InvalidState;
     }
 
@@ -830,6 +1166,54 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    void* CUE_SCRIPT_CALL ScriptRuntime::get_script_object_bridge(
+        CueScriptInstanceHandle a_instanceHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_script_object_internal(a_instanceHandle)
+            : nullptr;
+    }
+
+    uint8_t CUE_SCRIPT_CALL ScriptRuntime::is_script_class_registered_bridge(
+        CueStringView a_scriptClassName)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->is_script_class_registered_internal(
+                a_scriptClassName)
+            : 0;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_script_class_field_bridge(
+        CueStringView a_scriptClassName,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_script_class_field_internal(
+                a_scriptClassName, a_fieldName, a_outFieldValue)
+            : CueResult_InvalidState;
+    }
+
+    uint8_t CUE_SCRIPT_CALL ScriptRuntime::has_script_class_function_bridge(
+        CueStringView a_scriptClassName,
+        CueStringView a_functionName)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->has_script_class_function_internal(
+                a_scriptClassName, a_functionName)
+            : 0;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::invoke_script_function_bridge(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_functionName)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->invoke_script_function_internal(
+                a_instanceHandle, a_functionName)
+            : CueResult_InvalidState;
+    }
+
     CueResult ScriptRuntime::log_internal(
         CueLogSeverity a_severity,
         CueStringView a_message) noexcept
@@ -871,7 +1255,10 @@ namespace Cue
             a_scriptClassName.data, a_scriptClassName.size);
         if (!m_scriptClassInfos.contains(className))
         {
-            m_scriptClassInfos.emplace(className, ScriptClassInfo{ className, {} });
+            ScriptClassInfo classInfo{};
+            classInfo.className = className;
+            refresh_marionnette_class_info(classInfo);
+            m_scriptClassInfos.emplace(className, std::move(classInfo));
         }
         if (has_registered_script_class(className))
         {
@@ -918,6 +1305,25 @@ namespace Cue
         nextFieldValue.floatValue = a_fieldValue->floatValue;
         nextFieldValue.intValue = a_fieldValue->intValue;
         nextFieldValue.boolValue = a_fieldValue->boolValue != 0;
+        nextFieldValue.entityValue = to_entity_id(a_fieldValue->entityValue);
+        nextFieldValue.classValue.assign(
+            a_fieldValue->classValue.data != nullptr
+                ? a_fieldValue->classValue.data
+                : "",
+            a_fieldValue->classValue.data != nullptr
+                ? a_fieldValue->classValue.size
+                : 0u);
+        nextFieldValue.groupName.assign(
+            a_fieldValue->groupName.data != nullptr
+                ? a_fieldValue->groupName.data
+                : "",
+            a_fieldValue->groupName.data != nullptr
+                ? a_fieldValue->groupName.size
+                : 0u);
+        nextFieldValue.referenceRole =
+            to_script_field_reference_role(a_fieldValue->referenceRole);
+        nextFieldValue.flags =
+            static_cast<ECS::ScriptFieldFlags>(a_fieldValue->flags);
 
         std::vector<ECS::ScriptFieldValue>& fieldDefaults =
             infoIt->second.fieldDefaults;
@@ -930,11 +1336,204 @@ namespace Cue
         if (existingIt != fieldDefaults.end())
         {
             *existingIt = std::move(nextFieldValue);
+            refresh_marionnette_class_info(infoIt->second);
             return CueResult_Ok;
         }
 
         fieldDefaults.push_back(std::move(nextFieldValue));
+        refresh_marionnette_class_info(infoIt->second);
         return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::register_script_function_internal(
+        CueStringView a_scriptClassName,
+        const CueScriptFunctionDefinition* a_functionDefinition) noexcept
+    {
+        if (a_functionDefinition == nullptr ||
+            a_scriptClassName.data == nullptr ||
+            a_scriptClassName.size == 0 ||
+            a_functionDefinition->name.data == nullptr ||
+            a_functionDefinition->name.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const std::string className(
+            a_scriptClassName.data, a_scriptClassName.size);
+        const CueResult registerClassResult =
+            register_script_class_internal(a_scriptClassName);
+        if (registerClassResult != CueResult_Ok)
+        {
+            return registerClassResult;
+        }
+
+        auto infoIt = m_scriptClassInfos.find(className);
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return CueResult_InternalError;
+        }
+
+        const std::string functionName(
+            a_functionDefinition->name.data,
+            a_functionDefinition->name.size);
+        std::vector<std::string>& functionNames = infoIt->second.functionNames;
+        std::vector<MarionnetteFunction>& functions = infoIt->second.functions;
+        const auto existingIt =
+            std::find_if(functionNames.begin(), functionNames.end(),
+                [&functionName](const std::string& a_value)
+                {
+                    return a_value == functionName;
+                });
+        if (existingIt != functionNames.end())
+        {
+            const size_t functionIndex =
+                static_cast<size_t>(std::distance(functionNames.begin(), existingIt));
+            if (functionIndex >= functions.size())
+            {
+                return CueResult_InternalError;
+            }
+
+            functions[functionIndex].flags = a_functionDefinition->flags;
+            refresh_marionnette_class_info(infoIt->second);
+            return CueResult_Ok;
+        }
+
+        functionNames.push_back(functionName);
+        MarionnetteFunction nextFunction{};
+        nextFunction.flags = a_functionDefinition->flags;
+        functions.push_back(nextFunction);
+        refresh_marionnette_class_info(infoIt->second);
+        return CueResult_Ok;
+    }
+
+    void ScriptRuntime::refresh_marionnette_class_info(
+        ScriptClassInfo& a_classInfo) noexcept
+    {
+        a_classInfo.properties.clear();
+        a_classInfo.properties.reserve(a_classInfo.fieldDefaults.size());
+
+        for (const ECS::ScriptFieldValue& fieldValue : a_classInfo.fieldDefaults)
+        {
+            MarionnetteProperty property{};
+            property.name = fieldValue.name.c_str();
+            property.type = to_marionnette_property_type(fieldValue.type);
+            property.offset = 0;
+            property.flags =
+                static_cast<MarionnettePropertyFlags>(fieldValue.flags);
+            property.groupName =
+                fieldValue.groupName.empty() ? nullptr : fieldValue.groupName.c_str();
+            property.referenceRole =
+                to_marionnette_property_reference_role(fieldValue.referenceRole);
+            a_classInfo.properties.push_back(property);
+        }
+
+        if (a_classInfo.functions.size() != a_classInfo.functionNames.size())
+        {
+            a_classInfo.functions.resize(a_classInfo.functionNames.size());
+        }
+
+        for (size_t functionIndex = 0;
+             functionIndex < a_classInfo.functionNames.size();
+             ++functionIndex)
+        {
+            a_classInfo.functions[functionIndex].name =
+                a_classInfo.functionNames[functionIndex].c_str();
+        }
+
+        a_classInfo.marionnetteClass.name = a_classInfo.className.c_str();
+        a_classInfo.marionnetteClass.parent =
+            MarionnetteComponent::static_class();
+        a_classInfo.marionnetteClass.createInstance = nullptr;
+        a_classInfo.marionnetteClass.properties =
+            a_classInfo.properties.empty() ? nullptr : a_classInfo.properties.data();
+        a_classInfo.marionnetteClass.propertyCount =
+            static_cast<uint32_t>(a_classInfo.properties.size());
+        a_classInfo.marionnetteClass.functions =
+            a_classInfo.functions.empty() ? nullptr : a_classInfo.functions.data();
+        a_classInfo.marionnetteClass.functionCount =
+            static_cast<uint32_t>(a_classInfo.functions.size());
+    }
+
+    Result ScriptRuntime::bind_marionnette(GameCore::EntityId a_entityId) noexcept
+    {
+        if (m_gameWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime game world is not initialized.");
+        }
+
+        GameCore::GameObject object{};
+        Result result = m_gameWorld->find_object(a_entityId, object);
+        if (!result || !object.is_valid())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Script runtime marionnette target was not found.");
+        }
+
+        Marionnette marionnette{};
+        marionnette.bind(this, m_gameWorld, a_entityId, object.generation());
+        m_marionnettes[a_entityId] = marionnette;
+        return Result::ok();
+    }
+
+    Result ScriptRuntime::bind_marionnette_component(
+        GameCore::EntityId a_entityId,
+        const ECS::ScriptComponent& a_scriptComponent) noexcept
+    {
+        const MarionnetteClass* runtimeClass =
+            find_marionnette_class(a_scriptComponent.className);
+        if (runtimeClass == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Script runtime marionnette class was not found.");
+        }
+
+        Marionnette* owner = find_marionnette(a_entityId);
+        if (owner == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime marionnette owner is not bound.");
+        }
+
+        GameCore::GameObject object{};
+        Result result = m_gameWorld->find_object(a_entityId, object);
+        if (!result || !object.is_valid())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Script runtime marionnette component target was not found.");
+        }
+
+        auto component = std::make_unique<RuntimeMarionnetteComponent>();
+        component->set_runtime_class(runtimeClass);
+        component->set_enabled(a_scriptComponent.isEnabled);
+        component->bind(this, m_gameWorld, a_entityId, object.generation(), owner);
+        m_marionnetteComponents[a_entityId] = std::move(component);
+        return Result::ok();
+    }
+
+    void ScriptRuntime::unbind_marionnette(GameCore::EntityId a_entityId) noexcept
+    {
+        const auto marionnetteIt = m_marionnettes.find(a_entityId);
+        if (marionnetteIt == m_marionnettes.end())
+        {
+            return;
+        }
+
+        marionnetteIt->second.unbind();
+        m_marionnettes.erase(marionnetteIt);
+    }
+
+    void ScriptRuntime::unbind_marionnette_component(
+        GameCore::EntityId a_entityId) noexcept
+    {
+        const auto componentIt = m_marionnetteComponents.find(a_entityId);
+        if (componentIt == m_marionnetteComponents.end())
+        {
+            return;
+        }
+
+        componentIt->second->unbind();
+        m_marionnetteComponents.erase(componentIt);
     }
 
     uint8_t ScriptRuntime::is_entity_valid_internal(
@@ -1143,6 +1742,139 @@ namespace Cue
         return CueResult_Ok;
     }
 
+    uint8_t ScriptRuntime::is_script_class_registered_internal(
+        CueStringView a_scriptClassName) const noexcept
+    {
+        if (a_scriptClassName.data == nullptr || a_scriptClassName.size == 0)
+        {
+            return 0;
+        }
+
+        return has_registered_script_class(to_string_view(a_scriptClassName)) ? 1 : 0;
+    }
+
+    CueResult ScriptRuntime::get_script_class_field_internal(
+        CueStringView a_scriptClassName,
+        CueStringView a_fieldName,
+        CueScriptFieldValue* a_outFieldValue) const noexcept
+    {
+        if (a_outFieldValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outFieldValue = {};
+
+        if (a_scriptClassName.data == nullptr ||
+            a_scriptClassName.size == 0 ||
+            a_fieldName.data == nullptr ||
+            a_fieldName.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const auto infoIt =
+            m_scriptClassInfos.find(std::string(to_string_view(a_scriptClassName)));
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return CueResult_NotFound;
+        }
+
+        const std::string_view fieldName = to_string_view(a_fieldName);
+        const auto fieldIt =
+            std::find_if(infoIt->second.fieldDefaults.begin(),
+                infoIt->second.fieldDefaults.end(),
+                [&fieldName](const ECS::ScriptFieldValue& a_fieldValue)
+                {
+                    return a_fieldValue.name == fieldName;
+                });
+        if (fieldIt == infoIt->second.fieldDefaults.end())
+        {
+            return CueResult_NotFound;
+        }
+
+        *a_outFieldValue = to_cue_script_field_value(*fieldIt);
+        return CueResult_Ok;
+    }
+
+    uint8_t ScriptRuntime::has_script_class_function_internal(
+        CueStringView a_scriptClassName,
+        CueStringView a_functionName) const noexcept
+    {
+        if (a_scriptClassName.data == nullptr ||
+            a_scriptClassName.size == 0 ||
+            a_functionName.data == nullptr ||
+            a_functionName.size == 0)
+        {
+            return 0;
+        }
+
+        const auto infoIt =
+            m_scriptClassInfos.find(std::string(to_string_view(a_scriptClassName)));
+        if (infoIt == m_scriptClassInfos.end())
+        {
+            return 0;
+        }
+
+        return infoIt->second.marionnetteClass.find_function(
+                   to_string_view(a_functionName)) != nullptr
+            ? 1
+            : 0;
+    }
+
+    CueResult ScriptRuntime::invoke_script_function_internal(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueStringView a_functionName) const noexcept
+    {
+        if (a_instanceHandle.value == k_cueInvalidHandleValue ||
+            a_functionName.data == nullptr ||
+            a_functionName.size == 0)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_module == nullptr || !m_module->is_loaded())
+        {
+            return CueResult_InvalidState;
+        }
+
+        const CueScriptExports* exports = m_module->exports();
+        if (exports == nullptr ||
+            exports->structSize <
+                offsetof(CueScriptExports, invokeScriptFunction) +
+                    sizeof(CueInvokeScriptFunctionFn) ||
+            exports->invokeScriptFunction == nullptr)
+        {
+            return CueResult_Unsupported;
+        }
+
+        return exports->invokeScriptFunction(a_instanceHandle, a_functionName);
+    }
+
+    MarionnetteObject* ScriptRuntime::get_script_object_internal(
+        CueScriptInstanceHandle a_instanceHandle) const noexcept
+    {
+        if (a_instanceHandle.value == k_cueInvalidHandleValue)
+        {
+            return nullptr;
+        }
+
+        const auto entityIt =
+            m_entityIdsByInstanceHandle.find(a_instanceHandle.value);
+        if (entityIt == m_entityIdsByInstanceHandle.end())
+        {
+            return nullptr;
+        }
+
+        const auto bindingIt = m_bindings.find(entityIt->second);
+        if (bindingIt == m_bindings.end() ||
+            bindingIt->second.instanceHandle.value != a_instanceHandle.value)
+        {
+            return nullptr;
+        }
+
+        return bindingIt->second.scriptObject;
+    }
+
     Result ScriptRuntime::convert_script_result(CueResult a_result) noexcept
     {
         switch (a_result)
@@ -1211,12 +1943,16 @@ namespace Cue
     GameCore::EntityId ScriptRuntime::to_entity_id(
         CueEntityHandle a_entityHandle) noexcept
     {
-        return static_cast<GameCore::EntityId>(a_entityHandle.value);
+        return a_entityHandle.value != k_cueInvalidHandleValue
+            ? static_cast<GameCore::EntityId>(a_entityHandle.value)
+            : GameCore::k_invalidEntityId;
     }
 
     CueEntityHandle ScriptRuntime::to_entity_handle(
         GameCore::EntityId a_entityId) noexcept
     {
-        return CueEntityHandle{ static_cast<uint64_t>(a_entityId) };
+        return a_entityId != GameCore::k_invalidEntityId
+            ? CueEntityHandle{ static_cast<uint64_t>(a_entityId) }
+            : CueEntityHandle{ k_cueInvalidHandleValue };
     }
 }
