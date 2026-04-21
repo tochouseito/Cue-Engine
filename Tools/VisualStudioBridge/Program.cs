@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -394,7 +396,9 @@ internal static class Program
     {
         string solutionPath = EnsureSolutionPath(
             options.ScriptRoot, options.ConfigurePreset);
-        dynamic dte = OpenSolutionInVisualStudio(solutionPath);
+        dynamic dte = FindOrOpenVisualStudioInstance(
+            options.ScriptRoot,
+            solutionPath);
         dte.MainWindow.Visible = true;
         dte.UserControl = true;
 
@@ -491,6 +495,21 @@ internal static class Program
         return solutionPath;
     }
 
+    private static dynamic FindOrOpenVisualStudioInstance(
+        string scriptRoot,
+        string solutionPath)
+    {
+        dynamic? existingDte = FindRunningVisualStudioDte(
+            dte => IsMatchingVisualStudioInstance(dte, scriptRoot, solutionPath));
+        if (existingDte is not null)
+        {
+            WaitForVisualStudioReady(existingDte);
+            return existingDte;
+        }
+
+        return OpenSolutionInVisualStudio(solutionPath);
+    }
+
     private static dynamic OpenSolutionInVisualStudio(string solutionPath)
     {
         dynamic dte = CreateVisualStudioDte();
@@ -517,6 +536,139 @@ internal static class Program
 
         WaitForVisualStudioReady(dte);
         return dte;
+    }
+
+    private static dynamic? FindRunningVisualStudioDte(
+        Func<dynamic, bool> predicate)
+    {
+        IRunningObjectTable? runningObjectTable = null;
+        IEnumMoniker? enumMoniker = null;
+
+        try
+        {
+            int hresult = GetRunningObjectTable(0, out runningObjectTable);
+            if (hresult != 0 || runningObjectTable is null)
+            {
+                return null;
+            }
+
+            runningObjectTable.EnumRunning(out enumMoniker);
+            if (enumMoniker is null)
+            {
+                return null;
+            }
+
+            IMoniker[] monikers = new IMoniker[1];
+            while (enumMoniker.Next(1, monikers, IntPtr.Zero) == 0)
+            {
+                IBindCtx? bindContext = null;
+                string displayName = string.Empty;
+
+                try
+                {
+                    CreateBindCtx(0, out bindContext);
+                    if (bindContext is null)
+                    {
+                        continue;
+                    }
+
+                    monikers[0].GetDisplayName(bindContext, null, out displayName);
+                    if (string.IsNullOrWhiteSpace(displayName) ||
+                        displayName.IndexOf("VisualStudio.DTE.",
+                            StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+
+                    runningObjectTable.GetObject(monikers[0], out object? runningObject);
+                    if (runningObject is null)
+                    {
+                        continue;
+                    }
+
+                    dynamic dte = runningObject;
+                    if (predicate(dte))
+                    {
+                        return dte;
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    if (bindContext is not null)
+                    {
+                        Marshal.ReleaseComObject(bindContext);
+                    }
+
+                    if (monikers[0] is not null)
+                    {
+                        Marshal.ReleaseComObject(monikers[0]);
+                        monikers[0] = null!;
+                    }
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            if (enumMoniker is not null)
+            {
+                Marshal.ReleaseComObject(enumMoniker);
+            }
+
+            if (runningObjectTable is not null)
+            {
+                Marshal.ReleaseComObject(runningObjectTable);
+            }
+        }
+    }
+
+    private static bool IsMatchingVisualStudioInstance(
+        dynamic dte,
+        string scriptRoot,
+        string solutionPath)
+    {
+        try
+        {
+            string currentSolutionPath =
+                dte.Solution?.FullName as string ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(currentSolutionPath) &&
+                string.Equals(
+                    currentSolutionPath,
+                    solutionPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            string caption = dte.MainWindow?.Caption as string ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                string normalizedScriptRoot = Path.GetFullPath(scriptRoot)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string projectName = Path.GetFileName(normalizedScriptRoot);
+                if ((!string.IsNullOrWhiteSpace(projectName) &&
+                        caption.IndexOf(projectName, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    caption.IndexOf(normalizedScriptRoot, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private static void OpenFolderInVisualStudio(string folderPath)
@@ -881,4 +1033,14 @@ internal static class Program
         {
         }
     }
+
+    [DllImport("ole32.dll")]
+    private static extern int CreateBindCtx(
+        uint reserved,
+        out IBindCtx bindContext);
+
+    [DllImport("ole32.dll")]
+    private static extern int GetRunningObjectTable(
+        uint reserved,
+        out IRunningObjectTable runningObjectTable);
 }
