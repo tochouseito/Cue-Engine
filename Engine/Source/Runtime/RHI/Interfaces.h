@@ -198,8 +198,9 @@ namespace Cue::RHI
 
         virtual CommandListType type() const = 0;
         virtual Result submit(std::vector<ICommandContext*>& contexts) = 0;
-        virtual Result signal() = 0;
+        virtual Result signal(uint64_t* outFenceValue = nullptr) = 0;
         virtual Result wait() = 0;
+        virtual Result wait_for_fence(uint64_t fenceValue) = 0;
         virtual Result wait_for_queue(IQueueContext& queue) = 0;
         virtual Result get_timestamp_frequency(uint64_t& outFrequency) const = 0;
     };

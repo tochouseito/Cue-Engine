@@ -181,8 +181,9 @@ namespace Cue::RHI::DX12
 
         CommandListType type() const override;
         Result submit(std::vector<ICommandContext*>& contexts) override;
-        Result signal() override;
+        Result signal(uint64_t* outFenceValue = nullptr) override;
         Result wait() override;
+        Result wait_for_fence(uint64_t fenceValue) override;
         Result wait_for_queue(IQueueContext& queue) override;
         Result get_timestamp_frequency(uint64_t& outFrequency) const override;
 

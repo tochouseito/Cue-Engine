@@ -239,6 +239,9 @@ namespace Cue::RHI
         double finalGraphicsWaitMs = 0.0;
         double finalComputeWaitMs = 0.0;
         double finalCopyWaitMs = 0.0;
+        uint64_t graphicsFenceValue = 0;
+        uint64_t computeFenceValue = 0;
+        uint64_t copyFenceValue = 0;
         bool hasGpuFrameMs = false;
         double gpuFrameMs = 0.0;
         std::vector<PassExecutionStats> passStats{};
@@ -254,6 +257,8 @@ namespace Cue::RHI
         ICommandPool* commandPool = nullptr;
         IQueuePool* queuePool = nullptr;
         bool usePresentQueue = true;
+        bool enableProfiling = false;
+        bool waitForCompletion = false;
         uint32_t width = 0;
         uint32_t height = 0;
     };

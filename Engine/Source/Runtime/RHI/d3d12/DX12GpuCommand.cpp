@@ -1406,7 +1406,7 @@ namespace Cue::RHI::DX12
             static_cast<UINT>(commandLists.size()), commandLists.data());
         return Result::ok();
     }
-    Result DX12GpuCommandQueue::signal()
+    Result DX12GpuCommandQueue::signal(uint64_t* outFenceValue)
     {
         // submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す。
         if (!m_commandQueue || !m_fence)
@@ -1427,6 +1427,11 @@ namespace Cue::RHI::DX12
                 "Failed to signal CommandQueue.");
         }
 
+        if (outFenceValue != nullptr)
+        {
+            *outFenceValue = fence;
+        }
+
         return Result::ok();
     }
     Result DX12GpuCommandQueue::wait()
@@ -1443,6 +1448,22 @@ namespace Cue::RHI::DX12
         {
             // 完了通知イベントを張り、指定値まで到達するまで待機する。
             m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
+            WaitForSingleObject(m_fenceEvent, INFINITE);
+        }
+        return Result::ok();
+    }
+    Result DX12GpuCommandQueue::wait_for_fence(uint64_t fenceValue)
+    {
+        if (!m_fence || !m_fenceEvent)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "Fence or Fence event is not initialized.");
+        }
+        if (m_fence->GetCompletedValue() < fenceValue)
+        {
+            m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }
         return Result::ok();

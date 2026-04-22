@@ -531,6 +531,7 @@ namespace Cue::RHI
     Result FrameGraph::execute(uint32_t frameIndex)
     {
         using Clock = std::chrono::steady_clock;
+        const bool isProfilingEnabled = m_desc.enableProfiling;
         auto ms_since =
             [](const Clock::time_point& a_start, const Clock::time_point& a_end)
             {
@@ -546,9 +547,18 @@ namespace Cue::RHI
         double finalComputeWaitMs = 0.0;
         double finalCopyWaitMs = 0.0;
         m_executionStats.passStats.clear();
-        m_executionStats.passStats.reserve(m_passes.size());
+        if (isProfilingEnabled)
+        {
+            m_executionStats.passStats.reserve(m_passes.size());
+        }
+        m_executionStats.graphicsFenceValue = 0;
+        m_executionStats.computeFenceValue = 0;
+        m_executionStats.copyFenceValue = 0;
         std::vector<PendingGpuTiming> pendingGpuTimings{};
-        pendingGpuTimings.reserve(m_passes.size());
+        if (isProfilingEnabled)
+        {
+            pendingGpuTimings.reserve(m_passes.size());
+        }
         std::unordered_map<CommandListType, QueueExecutionState> queues{};
         std::vector<commandContextLease> stagedCommandContexts{};
         stagedCommandContexts.reserve(m_passes.size());
@@ -645,12 +655,15 @@ namespace Cue::RHI
                 {
                     continue;
                 }
-                m_executionStats.passStats.push_back(
-                    FrameGraphExecutionStats::PassExecutionStats{
-                        compiledPass.pass->name(),
-                        compiledPass.pass->type() });
-                FrameGraphExecutionStats::PassExecutionStats& passStats =
-                    m_executionStats.passStats.back();
+                FrameGraphExecutionStats::PassExecutionStats* passStats = nullptr;
+                if (isProfilingEnabled)
+                {
+                    m_executionStats.passStats.push_back(
+                        FrameGraphExecutionStats::PassExecutionStats{
+                            compiledPass.pass->name(),
+                            compiledPass.pass->type() });
+                    passStats = &m_executionStats.passStats.back();
+                }
                 commandContextLease commandContext{};
                 const Clock::time_point acquireStartTime = Clock::now();
                 Result result = m_desc.commandPool->get_command_context(
@@ -688,8 +701,11 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to setup command context for frame graph batch.");
                 }
-                passStats.acquireResetSetupMs =
-                    ms_since(acquireStartTime, Clock::now());
+                if (passStats != nullptr)
+                {
+                    passStats->acquireResetSetupMs =
+                        ms_since(acquireStartTime, Clock::now());
+                }
 
                 const Clock::time_point preBarrierStartTime = Clock::now();
                 for (const ResourceAccess& access :
@@ -719,13 +735,19 @@ namespace Cue::RHI
                             "Failed to transition resource before frame graph pass execution.");
                     }
                 }
-                passStats.preBarrierMs =
-                    ms_since(preBarrierStartTime, Clock::now());
+                if (passStats != nullptr)
+                {
+                    passStats->preBarrierMs =
+                        ms_since(preBarrierStartTime, Clock::now());
+                }
 
                 FrameGraphContext context{ FrameGraphContextDesc{
-                    m_desc.width, m_desc.height, frameIndex, commandContext.get(), &passStats} };
+                    m_desc.width, m_desc.height, frameIndex, commandContext.get(), passStats} };
                 const Clock::time_point passExecuteStartTime = Clock::now();
-                const bool supportsTimestamps = commandContext->supports_timestamps();
+                const bool supportsTimestamps =
+                    isProfilingEnabled &&
+                    m_desc.waitForCompletion &&
+                    commandContext->supports_timestamps();
                 if (supportsTimestamps)
                 {
                     result = commandContext->write_timestamp(0);
@@ -757,8 +779,11 @@ namespace Cue::RHI
                             "Failed to write end timestamp for frame graph pass.");
                     }
                 }
-                passStats.cpuExecuteMs =
-                    ms_since(passExecuteStartTime, Clock::now());
+                if (passStats != nullptr)
+                {
+                    passStats->cpuExecuteMs =
+                        ms_since(passExecuteStartTime, Clock::now());
+                }
 
                 const Clock::time_point postBarrierStartTime = Clock::now();
                 for (const ResourceAccess& access :
@@ -793,8 +818,11 @@ namespace Cue::RHI
                             "Failed to transition resource after frame graph pass execution.");
                     }
                 }
-                passStats.postBarrierMs =
-                    ms_since(postBarrierStartTime, Clock::now());
+                if (passStats != nullptr)
+                {
+                    passStats->postBarrierMs =
+                        ms_since(postBarrierStartTime, Clock::now());
+                }
 
                 const Clock::time_point closeStartTime = Clock::now();
                 result = commandContext->close();
@@ -808,7 +836,10 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to close command context for frame graph batch.");
                 }
-                passStats.closeMs = ms_since(closeStartTime, Clock::now());
+                if (passStats != nullptr)
+                {
+                    passStats->closeMs = ms_since(closeStartTime, Clock::now());
+                }
                 if (supportsTimestamps)
                 {
                     result = commandContext->resolve_timestamps(0, 2);
@@ -830,12 +861,15 @@ namespace Cue::RHI
                     pendingGpuTimings.push_back(PendingGpuTiming{
                         commandContext.get(),
                         batch.queueType,
-                        &passStats,
+                        passStats,
                         0,
                         1 });
                 }
                 stagedCommandContexts.push_back(std::move(commandContext));
-                batchPassStats.push_back(&passStats);
+                if (passStats != nullptr)
+                {
+                    batchPassStats.push_back(passStats);
+                }
             }
 
             QueueExecutionState& queueState = queues.at(batch.queueType);
@@ -876,9 +910,12 @@ namespace Cue::RHI
                         "Failed to wait for producer queue before frame graph batch submission.");
                 }
 
-                const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
-                queueWaitMs += waitElapsedMs;
-                interQueueWaitMs += waitElapsedMs;
+                if (isProfilingEnabled)
+                {
+                    const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
+                    queueWaitMs += waitElapsedMs;
+                    interQueueWaitMs += waitElapsedMs;
+                }
             }
 
             const Clock::time_point submitStartTime = Clock::now();
@@ -894,10 +931,13 @@ namespace Cue::RHI
             }
 
             const double submitExecuteListsMs =
-                ms_since(submitStartTime, Clock::now());
+                isProfilingEnabled
+                ? ms_since(submitStartTime, Clock::now())
+                : 0.0;
 
             const Clock::time_point signalStartTime = Clock::now();
-            Result signalResult = queueState.queue->signal();
+            uint64_t signaledFenceValue = 0;
+            Result signalResult = queueState.queue->signal(&signaledFenceValue);
             if (!signalResult)
             {
                 return_all_command_contexts();
@@ -907,8 +947,24 @@ namespace Cue::RHI
                     Severity::Error,
                     "Failed to signal queue after frame graph batch submission.");
             }
+            switch (batch.queueType)
+            {
+            case CommandListType::Graphics:
+                m_executionStats.graphicsFenceValue = signaledFenceValue;
+                break;
+            case CommandListType::Compute:
+                m_executionStats.computeFenceValue = signaledFenceValue;
+                break;
+            case CommandListType::Copy:
+                m_executionStats.copyFenceValue = signaledFenceValue;
+                break;
+            default:
+                break;
+            }
             const double submitSignalOnlyMs =
-                ms_since(signalStartTime, Clock::now());
+                isProfilingEnabled
+                ? ms_since(signalStartTime, Clock::now())
+                : 0.0;
             const double submitSignalMs =
                 submitExecuteListsMs + submitSignalOnlyMs;
             const double submitSignalMsPerPass =
@@ -941,41 +997,63 @@ namespace Cue::RHI
             queueState.submitted = true;
         }
 
-        for (auto& [queueType, queueState] : queues)
+        if (m_desc.waitForCompletion)
         {
-            (void)queueType;
-            if (!queueState.submitted || queueState.queue == nullptr)
+            for (auto& [queueType, queueState] : queues)
             {
-                continue;
-            }
+                (void)queueType;
+                if (!queueState.submitted || queueState.queue == nullptr)
+                {
+                    continue;
+                }
 
-            const Clock::time_point waitStartTime = Clock::now();
-            Result waitResult = queueState.queue->wait();
-            if (!waitResult)
-            {
-                return_all_command_contexts();
-                return_all_queue_contexts();
-                return Result::fail(
-                    waitResult.code,
-                    Severity::Error,
-                    "Failed to wait for frame graph queue completion.");
-            }
-            const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
-            queueWaitMs += waitElapsedMs;
-            finalQueueWaitMs += waitElapsedMs;
-            switch (queueType)
-            {
-            case CommandListType::Graphics:
-                finalGraphicsWaitMs += waitElapsedMs;
-                break;
-            case CommandListType::Compute:
-                finalComputeWaitMs += waitElapsedMs;
-                break;
-            case CommandListType::Copy:
-                finalCopyWaitMs += waitElapsedMs;
-                break;
-            default:
-                break;
+                const Clock::time_point waitStartTime = Clock::now();
+                uint64_t fenceValue = 0;
+                switch (queueType)
+                {
+                case CommandListType::Graphics:
+                    fenceValue = m_executionStats.graphicsFenceValue;
+                    break;
+                case CommandListType::Compute:
+                    fenceValue = m_executionStats.computeFenceValue;
+                    break;
+                case CommandListType::Copy:
+                    fenceValue = m_executionStats.copyFenceValue;
+                    break;
+                default:
+                    break;
+                }
+
+                Result waitResult = queueState.queue->wait_for_fence(fenceValue);
+                if (!waitResult)
+                {
+                    return_all_command_contexts();
+                    return_all_queue_contexts();
+                    return Result::fail(
+                        waitResult.code,
+                        Severity::Error,
+                        "Failed to wait for frame graph queue completion.");
+                }
+                if (isProfilingEnabled)
+                {
+                    const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
+                    queueWaitMs += waitElapsedMs;
+                    finalQueueWaitMs += waitElapsedMs;
+                    switch (queueType)
+                    {
+                    case CommandListType::Graphics:
+                        finalGraphicsWaitMs += waitElapsedMs;
+                        break;
+                    case CommandListType::Compute:
+                        finalComputeWaitMs += waitElapsedMs;
+                        break;
+                    case CommandListType::Copy:
+                        finalCopyWaitMs += waitElapsedMs;
+                        break;
+                    default:
+                        break;
+                    }
+                }
             }
         }
 
@@ -1030,19 +1108,33 @@ namespace Cue::RHI
 
         return_all_command_contexts();
         return_all_queue_contexts();
-        m_executionStats.totalExecuteMs =
-            ms_since(executeStartTime, Clock::now());
-        m_executionStats.queueWaitMs = queueWaitMs;
-        m_executionStats.interQueueWaitMs = interQueueWaitMs;
-        m_executionStats.finalQueueWaitMs = finalQueueWaitMs;
-        m_executionStats.finalGraphicsWaitMs = finalGraphicsWaitMs;
-        m_executionStats.finalComputeWaitMs = finalComputeWaitMs;
-        m_executionStats.finalCopyWaitMs = finalCopyWaitMs;
-        m_executionStats.submitMs =
-            m_executionStats.totalExecuteMs - m_executionStats.queueWaitMs;
-        if (m_executionStats.submitMs < 0.0)
+        if (isProfilingEnabled)
         {
+            m_executionStats.totalExecuteMs =
+                ms_since(executeStartTime, Clock::now());
+            m_executionStats.queueWaitMs = queueWaitMs;
+            m_executionStats.interQueueWaitMs = interQueueWaitMs;
+            m_executionStats.finalQueueWaitMs = finalQueueWaitMs;
+            m_executionStats.finalGraphicsWaitMs = finalGraphicsWaitMs;
+            m_executionStats.finalComputeWaitMs = finalComputeWaitMs;
+            m_executionStats.finalCopyWaitMs = finalCopyWaitMs;
+            m_executionStats.submitMs =
+                m_executionStats.totalExecuteMs - m_executionStats.queueWaitMs;
+            if (m_executionStats.submitMs < 0.0)
+            {
+                m_executionStats.submitMs = 0.0;
+            }
+        }
+        else
+        {
+            m_executionStats.totalExecuteMs = 0.0;
             m_executionStats.submitMs = 0.0;
+            m_executionStats.queueWaitMs = 0.0;
+            m_executionStats.interQueueWaitMs = 0.0;
+            m_executionStats.finalQueueWaitMs = 0.0;
+            m_executionStats.finalGraphicsWaitMs = 0.0;
+            m_executionStats.finalComputeWaitMs = 0.0;
+            m_executionStats.finalCopyWaitMs = 0.0;
         }
         m_executionStats.hasGpuFrameMs = false;
         m_executionStats.gpuFrameMs = 0.0;

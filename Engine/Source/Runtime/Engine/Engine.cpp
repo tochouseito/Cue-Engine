@@ -352,6 +352,7 @@ namespace Cue
 
         RHI::FrameGraphDesc presentFrameGraphDesc{};
         presentFrameGraphDesc.usePresentQueue = true;
+        presentFrameGraphDesc.enableProfiling = true;
         result =
             m_backend->create_frame_graph(presentFrameGraphDesc, m_presentFrameGraph);
         if (!result)
@@ -390,6 +391,7 @@ namespace Cue
 
         RHI::FrameGraphDesc frameGraphDesc{};
         frameGraphDesc.usePresentQueue = false;
+        frameGraphDesc.enableProfiling = true;
         Result result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
         if (!result)
         {
