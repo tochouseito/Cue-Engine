@@ -182,7 +182,7 @@ namespace Cue
         renderObjectBufferDesc.name = "RenderObjectBuffer";
         renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
         renderObjectBufferDesc.defaultHeapCount = 1;
-        renderObjectBufferDesc.uploadHeapCount = 0;
+        renderObjectBufferDesc.uploadHeapCount = 1;
         renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
         renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
         renderObjectBufferDesc.elementCount = a_maxObjectCount;
@@ -198,6 +198,20 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            renderObjectBufferHandle, 1, m_renderObjectUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_renderObjectUploaders.size() != 1)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "RenderObjectBuffer uploader was not created.");
         }
 
         // RenderObjectBuffer の UAV 作成
@@ -246,6 +260,20 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            renderObjectCountBufferHandle, 1, m_visibleObjectCountUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_visibleObjectCountUploaders.size() != 1)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "VisibleObjectCountBuffer uploader was not created.");
         }
 
         // ObjectCountBuffer の UAV 作成

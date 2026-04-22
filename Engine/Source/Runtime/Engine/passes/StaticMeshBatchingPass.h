@@ -23,6 +23,16 @@ namespace Cue
             return RHI::CommandListType::Compute;
         }
 
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            {
+                return false;
+            }
+
+            return !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+        }
+
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
             constexpr uint32_t k_maxObjectCount = 1000;
@@ -227,6 +237,10 @@ namespace Cue
 
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
+            if (frameState.useCpuBatching)
+            {
+                return;
+            }
 
             const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 

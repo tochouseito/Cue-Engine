@@ -5,11 +5,21 @@
 
 namespace Cue
 {
+    struct CpuIndexedDraw final
+    {
+        uint32_t renderObjectId = 0;
+        uint32_t indexCount = 0;
+        uint32_t startIndex = 0;
+        int32_t baseVertex = 0;
+    };
+
     struct RenderFrameState final
     {
         uint32_t objectCount = 0;
         uint32_t renderWidth = 1;
         uint32_t renderHeight = 1;
+        bool useCpuBatching = false;
+        std::vector<CpuIndexedDraw> cpuIndexedDraws{};
     };
 
     struct RenderSceneState final

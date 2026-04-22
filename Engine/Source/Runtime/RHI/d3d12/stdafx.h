@@ -73,6 +73,8 @@ namespace Cue::RHI::DX12
             return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         case ResourceState::ShaderResource:
             return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        case ResourceState::IndirectArgument:
+            return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
         case ResourceState::DepthWrite:
             return D3D12_RESOURCE_STATE_DEPTH_WRITE;
         case ResourceState::Present:
@@ -100,6 +102,10 @@ namespace Cue::RHI::DX12
         if (state & (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE))
         {
             return ResourceState::ShaderResource;
+        }
+        if (state & D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
+        {
+            return ResourceState::IndirectArgument;
         }
         if (state & D3D12_RESOURCE_STATE_COPY_SOURCE)
         {

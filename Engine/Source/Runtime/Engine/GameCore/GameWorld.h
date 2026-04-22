@@ -61,8 +61,11 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result initialize(RHI::IBufferManager* a_bufferManager,
-            RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
-            uint32_t a_renderWidth, uint32_t a_renderHeight,
+            RHI::IViewManager* a_viewManager,
+            RHI::IStaticMeshPool* a_staticMeshPool,
+            uint32_t a_bufferCount,
+            uint32_t a_renderWidth,
+            uint32_t a_renderHeight,
             uint32_t a_defaultStaticMeshId);
         [[nodiscard]] Result finalize_systems() noexcept;
 
@@ -160,6 +163,16 @@ namespace Cue::GameCore
         const RenderSceneState& render_scene_state() const noexcept
         {
             return m_renderSceneState;
+        }
+
+        void set_cpu_batching_enabled(bool a_enabled) noexcept
+        {
+            m_isCpuBatchingEnabled = a_enabled;
+        }
+
+        [[nodiscard]] bool is_cpu_batching_enabled() const noexcept
+        {
+            return m_isCpuBatchingEnabled;
         }
 
         [[nodiscard]] Result create_object(std::string_view a_name,
@@ -754,6 +767,7 @@ namespace Cue::GameCore
             frameState.objectCount = 0;
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
+            frameState.useCpuBatching = m_isCpuBatchingEnabled;
         }
 
         void animate_static_mesh_objects(float a_deltaTime)
@@ -1848,6 +1862,7 @@ namespace Cue::GameCore
         ECS::ECSManager::SystemPipeline m_editorPipeline{};
         ECS::ECSManager::SystemPipeline m_simulationPipeline{};
         std::unique_ptr<WorldResources> m_worldResources = nullptr;
+        bool m_isCpuBatchingEnabled = false;
         RenderSceneState m_renderSceneState{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};

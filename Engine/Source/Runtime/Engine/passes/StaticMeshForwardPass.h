@@ -116,6 +116,18 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.get_buffer(
+                "IndirectCommandBuffer", m_indirectCommandBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer(
+                "IndirectCommandCountBuffer", m_indirectCommandCountBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.get_buffer("VisibleObjectCountBuffer",
                 m_visibleObjectCountBufferHandle);
             if (!result)
@@ -125,6 +137,10 @@ namespace Cue
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::Vertex,
+                1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::CBV, RHI::ShaderVisibility::Vertex, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
@@ -301,6 +317,26 @@ namespace Cue
                 return result;
             }
 
+            result = builder.use_buffer(
+                m_indirectCommandBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indirectCommandCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
             return builder.use_buffer(
                 m_visibleObjectCountBufferHandle,
                 RHI::ResourceAccessType::Read,
@@ -330,20 +366,41 @@ namespace Cue
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Triangle);
-            commandContext->set_cbv(0, m_viewProjectionBufferHandle);
-            commandContext->set_srv(1, m_renderObjectBufferHandle);
-            commandContext->set_srv(2, m_transformBufferHandle);
-            commandContext->set_srv(3, m_positionBufferHandle);
-            commandContext->set_srv(4, m_uvBufferHandle);
-            commandContext->set_srv(5, m_normalBufferHandle);
-            commandContext->set_srv(6, m_indexBufferHandle);
-            commandContext->set_srv(7, m_meshRangeBufferHandle);
-            commandContext->set_srv(8, m_visibleObjectCountBufferHandle);
+            commandContext->set_32bit_constant(0, 0xffffffffu);
+            commandContext->set_cbv(1, m_viewProjectionBufferHandle);
+            commandContext->set_srv(2, m_renderObjectBufferHandle);
+            commandContext->set_srv(3, m_transformBufferHandle);
+            commandContext->set_srv(4, m_positionBufferHandle);
+            commandContext->set_srv(5, m_uvBufferHandle);
+            commandContext->set_srv(6, m_normalBufferHandle);
+            commandContext->set_srv(7, m_indexBufferHandle);
+            commandContext->set_srv(8, m_meshRangeBufferHandle);
+            commandContext->set_srv(9, m_visibleObjectCountBufferHandle);
 
-            if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+            if (frameState.useCpuBatching)
             {
-                commandContext->draw_instanced(m_indexCountPerInstance,
-                    frameState.objectCount, 0, 0);
+                commandContext->set_index_buffer(
+                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                for (const CpuIndexedDraw& draw : frameState.cpuIndexedDraws)
+                {
+                    if (draw.indexCount == 0)
+                    {
+                        continue;
+                    }
+
+                    commandContext->set_32bit_constant(0, draw.renderObjectId);
+                    commandContext->draw_indexed_instanced(
+                        draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
+                }
+            }
+            else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+            {
+                commandContext->set_index_buffer(
+                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                commandContext->execute_indexed_indirect(
+                    m_indirectCommandBufferHandle,
+                    m_indirectCommandCountBufferHandle,
+                    frameState.objectCount);
             }
 
         }
@@ -365,6 +422,8 @@ namespace Cue
         RHI::BufferHandle m_normalBufferHandle{};
         RHI::BufferHandle m_indexBufferHandle{};
         RHI::BufferHandle m_meshRangeBufferHandle{};
+        RHI::BufferHandle m_indirectCommandBufferHandle{};
+        RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};

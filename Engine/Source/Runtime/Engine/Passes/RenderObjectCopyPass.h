@@ -5,17 +5,18 @@
 
 // === Engine includes ===
 #include <GameCore/RenderSceneState.h>
+#include <GpuData/Batching.h>
 
 namespace Cue
 {
-    class RenderableInfoCopyPass final : public RHI::FrameGraphPass
+    class RenderObjectCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit RenderableInfoCopyPass(const RenderSceneState& a_renderSceneState)
+        explicit RenderObjectCopyPass(const RenderSceneState& a_renderSceneState)
             : m_renderSceneState(a_renderSceneState)
         {}
 
-        const char* name() const noexcept override { return "RenderableInfoCopy"; }
+        const char* name() const noexcept override { return "RenderObjectCopy"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -29,19 +30,20 @@ namespace Cue
                 return false;
             }
 
-            return !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(a_frameIndex);
+            return frameState.useCpuBatching && frameState.objectCount > 0;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("RenderableInfoBuffer",
-                m_renderableInfoBufferHandle);
+            return builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             return builder.use_buffer(
-                m_renderableInfoBufferHandle,
+                m_renderObjectBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::CopyDest,
                 RHI::ResourceState::Common);
@@ -51,8 +53,8 @@ namespace Cue
         {
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
-            if (frameState.useCpuBatching ||
-                !m_renderableInfoBufferHandle.valid() ||
+            if (!frameState.useCpuBatching ||
+                !m_renderObjectBufferHandle.valid() ||
                 frameState.objectCount == 0)
             {
                 return;
@@ -65,22 +67,20 @@ namespace Cue
             }
 
             RHI::BufferCopyRegion region{};
-            region.srcBufferHandle = m_renderableInfoBufferHandle;
+            region.srcBufferHandle = m_renderObjectBufferHandle;
             region.srcUploadResourceIndex = 0;
             region.srcByteOffset = 0;
-            region.dstBufferHandle = m_renderableInfoBufferHandle;
+            region.dstBufferHandle = m_renderObjectBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
             region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
-                sizeof(GpuData::RenderableInfo);
+                sizeof(GpuData::RenderObject);
 
-            Result copyResult = commandContext->copy_buffer_region(region);
-
-            (void)copyResult;
+            (void)commandContext->copy_buffer_region(region);
         }
 
     private:
         const RenderSceneState& m_renderSceneState;
-        RHI::BufferHandle m_renderableInfoBufferHandle{};
+        RHI::BufferHandle m_renderObjectBufferHandle{};
     };
 } // namespace Cue

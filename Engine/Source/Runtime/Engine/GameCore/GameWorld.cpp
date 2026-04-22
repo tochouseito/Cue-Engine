@@ -29,14 +29,18 @@ namespace Cue::GameCore
     }
 
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
-        RHI::IViewManager* a_viewManager, uint32_t a_bufferCount,
-        uint32_t a_renderWidth, uint32_t a_renderHeight,
+        RHI::IViewManager* a_viewManager,
+        RHI::IStaticMeshPool* a_staticMeshPool,
+        uint32_t a_bufferCount,
+        uint32_t a_renderWidth,
+        uint32_t a_renderHeight,
         uint32_t a_defaultStaticMeshId)
     {
-        if (a_bufferManager == nullptr || a_viewManager == nullptr)
+        if (a_bufferManager == nullptr || a_viewManager == nullptr ||
+            a_staticMeshPool == nullptr)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "GameWorld requires valid buffer and view managers.");
+                "GameWorld requires valid buffer, view, and mesh managers.");
         }
         if (a_defaultStaticMeshId == ECS::k_invalidMeshId)
         {
@@ -89,6 +93,9 @@ namespace Cue::GameCore
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_worldResources->renderable_info_uploaders(),
             m_worldResources->transform_uploaders(),
+            m_worldResources->render_object_uploaders(),
+            m_worldResources->visible_object_count_uploaders(),
+            a_staticMeshPool,
             m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
@@ -171,6 +178,7 @@ namespace Cue::GameCore
         m_mainCameraIndex = a_source.m_mainCameraIndex;
         m_defaultStaticMeshId = a_source.m_defaultStaticMeshId;
         m_nextSceneId = a_source.m_nextSceneId;
+        m_isCpuBatchingEnabled = a_source.m_isCpuBatchingEnabled;
 
         std::vector<SceneId> sceneIds{};
         sceneIds.reserve(a_source.m_scenes.size());

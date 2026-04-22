@@ -24,6 +24,8 @@
 
 namespace Cue::RHI
 {
+    enum class IndexFormat : uint8_t;
+
     struct BufferTag {};
     struct TextureTag {};
     struct ViewTag {};
@@ -55,6 +57,7 @@ namespace Cue::RHI
         RenderTarget,
         UnorderedAccess,
         ShaderResource,
+        IndirectArgument,
         DepthWrite,
         Present
     };
@@ -67,6 +70,7 @@ namespace Cue::RHI
         case ResourceState::RenderTarget: return "RenderTarget";
         case ResourceState::UnorderedAccess: return "UnorderedAccess";
         case ResourceState::ShaderResource: return "ShaderResource";
+        case ResourceState::IndirectArgument: return "IndirectArgument";
         case ResourceState::DepthWrite: return "DepthWrite";
         case ResourceState::Present: return "Present";
         default: return "Unknown";
@@ -160,6 +164,7 @@ namespace Cue::RHI
         virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_primitive_topology(PrimitiveTopologyType topology) = 0;
+        virtual Result set_index_buffer(BufferHandle handle, IndexFormat format) = 0;
         virtual Result set_graphics_pipeline(PipelineStateHandle handle) = 0;
         virtual Result set_compute_pipeline(PipelineStateHandle handle) = 0;
         virtual Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) = 0;
@@ -171,6 +176,7 @@ namespace Cue::RHI
         virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
         virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
         virtual Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) = 0;
+        virtual Result execute_indexed_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) = 0;
     };
 
     /// @brief キューコンテキストの共通インターフェースです。

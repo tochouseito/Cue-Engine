@@ -63,6 +63,8 @@ namespace Cue::RHI::DX12
         create_command_allocator(device, type);
         // コマンドリストの作成
         create_command_list(device, type);
+        // DrawIndexedInstanced 用の command signature を用意する。
+        create_draw_indexed_command_signature(device);
 
         m_type = convert_command_list_type(type);
     }
@@ -556,6 +558,56 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_index_buffer(
+        BufferHandle handle, IndexFormat format)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Index buffer can only be set on graphics command lists.");
+        }
+
+        DX12BufferRecord* bufferRecord = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &bufferRecord) ||
+            bufferRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given index buffer handle.");
+        }
+        if (bufferRecord->desc.type != BufferType::Index)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The given buffer is not an index buffer.");
+        }
+
+        uint32_t resourceIndex = 0;
+        Result result = resolve_slice_index(
+            bufferRecord->defaultResources.size(), resourceIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve index buffer resource for the current frame.");
+        }
+
+        DX12GpuResource& resource = bufferRecord->defaultResources[resourceIndex];
+        D3D12_INDEX_BUFFER_VIEW indexBufferView{};
+        indexBufferView.BufferLocation = resource.get_gpu_virtual_address();
+        indexBufferView.SizeInBytes =
+            static_cast<UINT>(resource.get_buffer_size());
+        indexBufferView.Format =
+            (format == IndexFormat::UInt16) ? DXGI_FORMAT_R16_UINT
+                                            : DXGI_FORMAT_R32_UINT;
+        m_commandList->IASetIndexBuffer(&indexBufferView);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::set_graphics_pipeline(PipelineStateHandle handle)
     {
         if (type() != CommandListType::Graphics)
@@ -913,6 +965,49 @@ namespace Cue::RHI::DX12
         
         return Result::ok();
     }
+    Result DX12GpuCommandContext::execute_indexed_indirect(
+        BufferHandle commandBufferHandle,
+        BufferHandle commandCountBufferHandle,
+        uint32_t maxCommandCount)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "ExecuteIndirect can only be issued on a graphics command context.");
+        }
+        if (!m_drawIndexedCommandSignature)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Draw indexed command signature is not initialized.");
+        }
+
+        DX12GpuResource* commandResource = nullptr;
+        Result result = resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* commandCountResource = nullptr;
+        result = resolve_default_buffer(commandCountBufferHandle, 0, &commandCountResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_commandList->ExecuteIndirect(
+            m_drawIndexedCommandSignature.Get(),
+            maxCommandCount,
+            commandResource->get_resource(),
+            0,
+            commandCountResource->get_resource(),
+            0);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         // コマンドアロケータの作成
@@ -927,6 +1022,31 @@ namespace Cue::RHI::DX12
                 "Failed to create CommandAllocator.");
         }
         set_d3d12_name(m_commandAllocator.Get(), L"CommandContext CommandAllocator");
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::create_draw_indexed_command_signature(
+        ID3D12Device& device)
+    {
+        D3D12_INDIRECT_ARGUMENT_DESC argumentDesc{};
+        argumentDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+        D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};
+        signatureDesc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        signatureDesc.NumArgumentDescs = 1;
+        signatureDesc.pArgumentDescs = &argumentDesc;
+
+        HRESULT hr = device.CreateCommandSignature(
+            &signatureDesc,
+            nullptr,
+            IID_PPV_ARGS(m_drawIndexedCommandSignature.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create draw indexed command signature.");
+        }
 
         return Result::ok();
     }

@@ -51,6 +51,16 @@ namespace Cue
         {
             return m_transformUploaders;
         }
+        std::vector<RHI::SlotUploader<GpuData::RenderObject>>&
+            render_object_uploaders() noexcept
+        {
+            return m_renderObjectUploaders;
+        }
+        std::vector<RHI::SlotUploader<uint32_t>>&
+            visible_object_count_uploaders() noexcept
+        {
+            return m_visibleObjectCountUploaders;
+        }
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
             view_projection_uploaders() noexcept
         {
@@ -65,6 +75,8 @@ namespace Cue
         std::vector<RHI::SlotUploader<GpuData::RenderableInfo>>
             m_renderableInfoUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
+        std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};
     };
 }

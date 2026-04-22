@@ -15,6 +15,11 @@ cbuffer ViewProjection : register(b0)
     row_major float4x4 g_projectionMatrix;
 }
 
+cbuffer DrawObjectIndex : register(b1)
+{
+    uint g_drawObjectIndex;
+}
+
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 StructuredBuffer<float4> g_positions : register(t2);
@@ -27,7 +32,10 @@ ByteAddressBuffer g_renderObjectCount : register(t7);
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
-    if (instanceId >= renderObjectCount)
+    const bool useIndexedDrawPath = g_drawObjectIndex != 0xffffffffu;
+    const uint renderObjectIndex =
+        useIndexedDrawPath ? g_drawObjectIndex : instanceId;
+    if (renderObjectIndex >= renderObjectCount)
     {
         VsOut emptyOutput;
         emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
@@ -36,20 +44,9 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         return emptyOutput;
     }
 
-    const RenderObject renderObject = g_renderObjects[instanceId];
+    const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
-    const MeshRange meshRange = g_meshRanges[renderObject.meshId];
-
-    if (vertexId >= meshRange.indexCount)
-    {
-        VsOut emptyOutput;
-        emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
-        emptyOutput.worldNormal = float3(0.0f, 0.0f, 1.0f);
-        emptyOutput.texcoord = float2(0.0f, 0.0f);
-        return emptyOutput;
-    }
-
-    const uint meshVertexIndex = g_indices[meshRange.startIndex + vertexId] + meshRange.baseVertex;
+    const uint meshVertexIndex = vertexId;
     const float4 localPosition = g_positions[meshVertexIndex];
     const float2 localUv = g_uvs[meshVertexIndex];
     const float3 localNormal = g_normals[meshVertexIndex];

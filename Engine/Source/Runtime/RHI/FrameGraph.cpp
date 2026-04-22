@@ -625,6 +625,10 @@ namespace Cue::RHI
                 }
 
                 CompiledPass& compiledPass = m_passes[passIndex];
+                if (!compiledPass.pass->is_enabled(frameIndex))
+                {
+                    continue;
+                }
                 m_executionStats.passStats.push_back(
                     FrameGraphExecutionStats::PassExecutionStats{
                         compiledPass.pass->name(),

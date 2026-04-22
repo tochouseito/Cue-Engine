@@ -29,6 +29,11 @@ namespace Cue::ECS
                 a_renderableInfoUploaders,
             std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>&
                 a_transformUploaders,
+            std::vector<RHI::SlotUploader<GpuData::RenderObject>>&
+                a_renderObjectUploaders,
+            std::vector<RHI::SlotUploader<uint32_t>>&
+                a_visibleObjectCountUploaders,
+            RHI::IStaticMeshPool* a_staticMeshPool,
             RenderSceneState& a_renderSceneState)
             : ECSManager::System<RenderableInfoComponent,
                   TransformComponent,
@@ -45,6 +50,9 @@ namespace Cue::ECS
                   }),
             m_renderableInfoUploaders(a_renderableInfoUploaders),
             m_transformUploaders(a_transformUploaders),
+            m_renderObjectUploaders(a_renderObjectUploaders),
+            m_visibleObjectCountUploaders(a_visibleObjectCountUploaders),
+            m_staticMeshPool(a_staticMeshPool),
             m_renderSceneState(a_renderSceneState)
         {
         }
@@ -72,7 +80,19 @@ namespace Cue::ECS
         {
             m_currentRenderableInfoUploader = nullptr;
             m_currentTransformUploader = nullptr;
+            m_currentRenderObjectUploader = nullptr;
+            m_currentVisibleObjectCountUploader = nullptr;
+            m_currentFrameState = nullptr;
             m_renderableObjectCount = 0;
+            m_isCpuBatchingEnabled = false;
+
+            if (a_context.bufferIndex < m_renderSceneState.frameStates.size())
+            {
+                m_currentFrameState =
+                    &m_renderSceneState.frame_state(a_context.bufferIndex);
+                m_isCpuBatchingEnabled = m_currentFrameState->useCpuBatching;
+                m_currentFrameState->cpuIndexedDraws.clear();
+            }
 
             if (!m_renderableInfoUploaders.empty())
             {
@@ -96,6 +116,32 @@ namespace Cue::ECS
                     m_currentTransformUploader->begin_frame();
                 }
             }
+
+            if (!m_renderObjectUploaders.empty())
+            {
+                const uint32_t uploaderIndex =
+                    (m_renderObjectUploaders.size() == 1) ? 0u : a_context.bufferIndex;
+                if (uploaderIndex < m_renderObjectUploaders.size())
+                {
+                    m_currentRenderObjectUploader =
+                        &m_renderObjectUploaders[uploaderIndex];
+                    m_currentRenderObjectUploader->begin_frame();
+                }
+            }
+
+            if (!m_visibleObjectCountUploaders.empty())
+            {
+                const uint32_t uploaderIndex =
+                    (m_visibleObjectCountUploaders.size() == 1)
+                    ? 0u
+                    : a_context.bufferIndex;
+                if (uploaderIndex < m_visibleObjectCountUploaders.size())
+                {
+                    m_currentVisibleObjectCountUploader =
+                        &m_visibleObjectCountUploaders[uploaderIndex];
+                    m_currentVisibleObjectCountUploader->begin_frame();
+                }
+            }
         }
 
         void commit_uploaders()
@@ -110,6 +156,30 @@ namespace Cue::ECS
                 !m_currentTransformUploader->commit())
             {
                 CUE_ASSERTF(false, "Failed to commit transform uploads.");
+            }
+
+            if (m_isCpuBatchingEnabled &&
+                m_currentVisibleObjectCountUploader != nullptr)
+            {
+                if (!m_currentVisibleObjectCountUploader->push(
+                    0, m_renderableObjectCount))
+                {
+                    CUE_ASSERTF(false,
+                        "Failed to queue visible object count upload.");
+                }
+            }
+
+            if (m_currentRenderObjectUploader != nullptr &&
+                !m_currentRenderObjectUploader->commit())
+            {
+                CUE_ASSERTF(false, "Failed to commit render object uploads.");
+            }
+
+            if (m_currentVisibleObjectCountUploader != nullptr &&
+                !m_currentVisibleObjectCountUploader->commit())
+            {
+                CUE_ASSERTF(false,
+                    "Failed to commit visible object count uploads.");
             }
         }
 
@@ -184,6 +254,37 @@ namespace Cue::ECS
                 return;
             }
 
+            if (m_isCpuBatchingEnabled && m_currentRenderObjectUploader != nullptr)
+            {
+                GpuData::RenderObject renderObject{};
+                renderObject.objectId = a_renderableInfo.objectId;
+                renderObject.meshId = a_meshFilter.meshId;
+                renderObject.transformId = a_renderableInfo.transformId;
+                if (!m_currentRenderObjectUploader->push(
+                    a_renderableInfo.objectId, renderObject))
+                {
+                    CUE_ASSERTF(false,
+                        "Failed to queue render object upload. objectId=%u",
+                        a_renderableInfo.objectId);
+                    return;
+                }
+
+                if (m_currentFrameState != nullptr && m_staticMeshPool != nullptr)
+                {
+                    RHI::StaticMeshRange meshRange{};
+                    if (m_staticMeshPool->get_mesh_range(
+                        a_meshFilter.meshId, meshRange))
+                    {
+                        m_currentFrameState->cpuIndexedDraws.push_back(
+                            CpuIndexedDraw{
+                                a_renderableInfo.objectId,
+                                meshRange.indexCount,
+                                meshRange.startIndex,
+                                meshRange.baseVertex });
+                    }
+                }
+            }
+
             ++m_renderableObjectCount;
         }
 
@@ -192,11 +293,21 @@ namespace Cue::ECS
             m_renderableInfoUploaders;
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>&
             m_transformUploaders;
+        std::vector<RHI::SlotUploader<GpuData::RenderObject>>&
+            m_renderObjectUploaders;
+        std::vector<RHI::SlotUploader<uint32_t>>&
+            m_visibleObjectCountUploaders;
+        RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
         RenderSceneState& m_renderSceneState;
         RHI::SlotUploader<GpuData::RenderableInfo>*
             m_currentRenderableInfoUploader = nullptr;
         RHI::SlotUploader<GpuData::ObjectTransformGpu>*
             m_currentTransformUploader = nullptr;
+        RHI::SlotUploader<GpuData::RenderObject>*
+            m_currentRenderObjectUploader = nullptr;
+        RHI::SlotUploader<uint32_t>* m_currentVisibleObjectCountUploader = nullptr;
+        RenderFrameState* m_currentFrameState = nullptr;
         uint32_t m_renderableObjectCount = 0;
+        bool m_isCpuBatchingEnabled = false;
     };
 } // namespace Cue::ECS

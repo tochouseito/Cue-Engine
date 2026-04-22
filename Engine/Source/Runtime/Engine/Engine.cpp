@@ -1,10 +1,12 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
 #include "Passes/GenerateVisibleList.h"
+#include "Passes/RenderObjectCopyPass.h"
 #include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
+#include "Passes/VisibleObjectCountCopyPass.h"
 #include "Passes/ViewProjectionCopyPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
@@ -97,7 +99,7 @@ namespace Cue
 
         m_editorWorld = std::make_unique<GameCore::GameWorld>();
         result = m_editorWorld->initialize(
-            bufferManager, viewManager, m_backend->buffer_count(),
+            bufferManager, viewManager, staticMeshPool, m_backend->buffer_count(),
             m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
         if (!result)
         {
@@ -400,6 +402,10 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
             m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
+        m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(
+            m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
             m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
@@ -623,7 +629,8 @@ namespace Cue
             }
 
             result = m_playWorld->initialize(
-                bufferManager, viewManager, m_backend->buffer_count(),
+                bufferManager, viewManager, m_backend->get_static_mesh_pool(),
+                m_backend->buffer_count(),
                 m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
             if (!result)
             {

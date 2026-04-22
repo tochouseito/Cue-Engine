@@ -32,7 +32,7 @@ namespace Cue::Editor
             uint32_t presentIndex = 0;
         };
 
-        Statistics(FrameController& frameController, const Engine& engine)
+        Statistics(FrameController& frameController, Engine& engine)
             : frameController(frameController)
             , engine(engine)
         {}
@@ -81,6 +81,33 @@ namespace Cue::Editor
             else
             {
                 ImGui::TextUnformatted("GPU Frame: unavailable");
+            }
+
+            GameCore::GameWorld* displayWorld = engine.active_world();
+            if (displayWorld == nullptr)
+            {
+                displayWorld = engine.editor_world();
+            }
+            if (displayWorld != nullptr)
+            {
+                bool isCpuBatchingEnabled =
+                    displayWorld->is_cpu_batching_enabled();
+                if (ImGui::Checkbox("CPU Batching", &isCpuBatchingEnabled))
+                {
+                    if (GameCore::GameWorld* editorWorld = engine.editor_world();
+                        editorWorld != nullptr)
+                    {
+                        editorWorld->set_cpu_batching_enabled(
+                            isCpuBatchingEnabled);
+                    }
+
+                    if (GameCore::GameWorld* playWorld = engine.play_world();
+                        playWorld != nullptr)
+                    {
+                        playWorld->set_cpu_batching_enabled(
+                            isCpuBatchingEnabled);
+                    }
+                }
             }
 
             ImGui::BeginChild("FrameLogConsole", ImVec2(0.0f, 140.0f), true);
@@ -192,7 +219,7 @@ namespace Cue::Editor
 
     private:
         FrameController& frameController;
-        const Engine& engine;
+        Engine& engine;
         std::deque<FrameLogLine> frameLogs{};
         bool showFpsDetails = false;
         float maxFps = 0.0f;

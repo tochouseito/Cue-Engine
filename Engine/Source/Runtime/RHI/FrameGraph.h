@@ -178,6 +178,11 @@ namespace Cue::RHI
         virtual ~FrameGraphPass() = default;
         virtual const char* name() const noexcept = 0;
         virtual CommandListType type() const noexcept = 0;
+        virtual bool is_enabled(uint32_t a_frameIndex) const noexcept
+        {
+            a_frameIndex;
+            return true;
+        }
         virtual Result setup(FrameGraphBuilder& builder) = 0;
         virtual Result describe_resources(FrameGraphBuilder& builder) = 0;
         virtual void execute(FrameGraphContext& context) = 0;

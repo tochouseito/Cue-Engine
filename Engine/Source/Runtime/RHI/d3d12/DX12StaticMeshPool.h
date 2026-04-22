@@ -95,6 +95,7 @@ namespace Cue::RHI::DX12
         Result allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle) override;
         Result free_mesh(StaticMeshHandle handle) override;
         Result get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const override;
+        Result get_mesh_range(uint32_t meshId, StaticMeshRange& outMeshRange) const override;
         Result get_bindings(StaticMeshPoolBindings& outBindings) const override;
     private:
         Result initialize_streams(const StaticMeshPoolDesc& desc);
@@ -156,6 +157,7 @@ namespace Cue::RHI::DX12
         DX12QueuePool& m_queuePool;
         Core::Registry<StaticMeshTag, StaticMeshRecord> m_meshRegistry;
         std::unordered_map<Core::ResourceNameId, StaticMeshHandle> m_nameToHandlesMap;
+        std::unordered_map<uint32_t, StaticMeshHandle> m_meshIdToHandlesMap;
         StreamState m_positionStream{};
         StreamState m_uvStream{};
         StreamState m_normalStream{};

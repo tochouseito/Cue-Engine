@@ -1038,6 +1038,7 @@ namespace Cue::RHI::DX12
         }
 
         StaticMeshHandle handle = m_meshRegistry.create(record);
+        m_meshIdToHandlesMap[record.meshId] = handle;
         if (record.nameId != 0)
         {
             m_nameToHandlesMap[record.nameId] = handle;
@@ -1079,6 +1080,7 @@ namespace Cue::RHI::DX12
                 m_nameToHandlesMap.erase(it);
             }
         }
+        m_meshIdToHandlesMap.erase(record.meshId);
 
         // 2) registry から外してハンドルを無効化し、次回の再利用に備える。
         if (!m_meshRegistry.destroy(handle))
@@ -1115,6 +1117,37 @@ namespace Cue::RHI::DX12
         outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
         outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
         outBindings.meshRangeSrv = m_meshRangeState.srvHandle;
+        return Result::ok();
+    }
+
+    Result DX12StaticMeshPool::get_mesh_range(
+        uint32_t meshId, StaticMeshRange& outMeshRange) const
+    {
+        outMeshRange = {};
+
+        const auto it = m_meshIdToHandlesMap.find(meshId);
+        if (it == m_meshIdToHandlesMap.end())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh id was not found.");
+        }
+
+        StaticMeshRecord record{};
+        if (!m_meshRegistry.try_copy_get(it->second, record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh record was not found.");
+        }
+
+        outMeshRange.indexCount = record.indexCount;
+        outMeshRange.startIndex =
+            static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
+        outMeshRange.baseVertex =
+            static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
         return Result::ok();
     }
 }

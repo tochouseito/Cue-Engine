@@ -58,6 +58,7 @@ namespace Cue::RHI::DX12
         Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
+        Result set_index_buffer(BufferHandle handle, IndexFormat format) override;
         Result set_graphics_pipeline(PipelineStateHandle handle) override;
         Result set_compute_pipeline(PipelineStateHandle handle) override;
         Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) override;
@@ -69,9 +70,11 @@ namespace Cue::RHI::DX12
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
         Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;
+        Result execute_indexed_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) override;
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
+        Result create_draw_indexed_command_signature(ID3D12Device& device);
         Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
         Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
         Result resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
@@ -84,6 +87,7 @@ namespace Cue::RHI::DX12
         DX12PipelineManager& m_pipelineManager; // パイプラインマネージャへの参照
         comPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         comPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
+        comPtr<ID3D12CommandSignature> m_drawIndexedCommandSignature = nullptr;
         CommandListType m_type = CommandListType::Graphics;
         uint32_t m_frameIndex = 0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
         uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
