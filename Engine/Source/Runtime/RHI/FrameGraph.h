@@ -198,6 +198,28 @@ namespace Cue::RHI
         std::vector<uint32_t> waitBatchIndices{};
     };
 
+    struct FrameGraphExecutionStats final
+    {
+        struct PassExecutionStats final
+        {
+            std::string_view name{};
+            CommandListType queueType = CommandListType::Graphics;
+            double acquireResetSetupMs = 0.0;
+            double preBarrierMs = 0.0;
+            double cpuExecuteMs = 0.0;
+            double postBarrierMs = 0.0;
+            double closeMs = 0.0;
+            double submitSignalMs = 0.0;
+        };
+
+        double totalExecuteMs = 0.0;
+        double submitMs = 0.0;
+        double queueWaitMs = 0.0;
+        bool hasGpuFrameMs = false;
+        double gpuFrameMs = 0.0;
+        std::vector<PassExecutionStats> passStats{};
+    };
+
     struct FrameGraphDesc final
     {
         IBufferManager* bufferManager = nullptr;
@@ -249,6 +271,11 @@ namespace Cue::RHI
         {
             return m_passBuildInfos;
         }
+
+        const FrameGraphExecutionStats& execution_stats() const noexcept
+        {
+            return m_executionStats;
+        }
     private:
         Result cleanup_build_resources();
         Result build_dependencies();
@@ -277,6 +304,7 @@ namespace Cue::RHI
         std::vector<CompiledPass> m_passes;
         std::vector<PassBuildInfo> m_passBuildInfos;
         std::vector<QueueBatchInfo> m_executionPlan;
+        FrameGraphExecutionStats m_executionStats{};
         std::vector<BufferHandle> m_createdBuffers;
         std::vector<TextureHandle> m_createdTextures;
         std::vector<ViewHandle> m_createdViews;

@@ -725,7 +725,8 @@ namespace Cue::Editor
             m_visualStudioBridge =
                 std::make_unique<VisualStudioBridge>(*m_fileSystem);
         }
-        m_statistics = std::make_unique<Statistics>(m_engine->frame_controller());
+        m_statistics =
+            std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
         m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);

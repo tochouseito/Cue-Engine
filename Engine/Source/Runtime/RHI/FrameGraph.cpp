@@ -2,6 +2,7 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <chrono>
 #include <deque>
 #include <unordered_set>
 
@@ -520,6 +521,18 @@ namespace Cue::RHI
 
     Result FrameGraph::execute(uint32_t frameIndex)
     {
+        using Clock = std::chrono::steady_clock;
+        auto ms_since =
+            [](const Clock::time_point& a_start, const Clock::time_point& a_end)
+            {
+                return std::chrono::duration<double, std::milli>(a_end - a_start)
+                    .count();
+            };
+
+        const Clock::time_point executeStartTime = Clock::now();
+        double queueWaitMs = 0.0;
+        m_executionStats.passStats.clear();
+        m_executionStats.passStats.reserve(m_passes.size());
         std::unordered_map<CommandListType, QueueExecutionState> queues{};
         std::vector<commandContextLease> stagedCommandContexts{};
         stagedCommandContexts.reserve(m_passes.size());
@@ -597,6 +610,8 @@ namespace Cue::RHI
 
             std::vector<ICommandContext*> commandContextPointers{};
             commandContextPointers.reserve(batch.passIndices.size());
+            std::vector<FrameGraphExecutionStats::PassExecutionStats*> batchPassStats{};
+            batchPassStats.reserve(batch.passIndices.size());
             for (uint32_t passIndex : batch.passIndices)
             {
                 if (passIndex >= m_passes.size())
@@ -610,7 +625,14 @@ namespace Cue::RHI
                 }
 
                 CompiledPass& compiledPass = m_passes[passIndex];
+                m_executionStats.passStats.push_back(
+                    FrameGraphExecutionStats::PassExecutionStats{
+                        compiledPass.pass->name(),
+                        compiledPass.pass->type() });
+                FrameGraphExecutionStats::PassExecutionStats& passStats =
+                    m_executionStats.passStats.back();
                 commandContextLease commandContext{};
+                const Clock::time_point acquireStartTime = Clock::now();
                 Result result = m_desc.commandPool->get_command_context(
                     compiledPass.pass->type(), commandContext);
                 if (!result)
@@ -646,7 +668,10 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to setup command context for frame graph batch.");
                 }
+                passStats.acquireResetSetupMs =
+                    ms_since(acquireStartTime, Clock::now());
 
+                const Clock::time_point preBarrierStartTime = Clock::now();
                 for (const ResourceAccess& access :
                     compiledPass.buildInfo.resourceAccesses)
                 {
@@ -674,13 +699,19 @@ namespace Cue::RHI
                             "Failed to transition resource before frame graph pass execution.");
                     }
                 }
+                passStats.preBarrierMs =
+                    ms_since(preBarrierStartTime, Clock::now());
 
                 FrameGraphContext context{ FrameGraphContextDesc{
                     m_desc.width, m_desc.height, frameIndex, commandContext.get()} };
+                const Clock::time_point passExecuteStartTime = Clock::now();
                 commandContext->begin_event(compiledPass.pass->name());
                 compiledPass.pass->execute(context);
                 commandContext->end_event();
+                passStats.cpuExecuteMs =
+                    ms_since(passExecuteStartTime, Clock::now());
 
+                const Clock::time_point postBarrierStartTime = Clock::now();
                 for (const ResourceAccess& access :
                     compiledPass.buildInfo.resourceAccesses)
                 {
@@ -713,7 +744,10 @@ namespace Cue::RHI
                             "Failed to transition resource after frame graph pass execution.");
                     }
                 }
+                passStats.postBarrierMs =
+                    ms_since(postBarrierStartTime, Clock::now());
 
+                const Clock::time_point closeStartTime = Clock::now();
                 result = commandContext->close();
                 if (!result)
                 {
@@ -725,9 +759,11 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to close command context for frame graph batch.");
                 }
+                passStats.closeMs = ms_since(closeStartTime, Clock::now());
 
                 commandContextPointers.push_back(commandContext.get());
                 stagedCommandContexts.push_back(std::move(commandContext));
+                batchPassStats.push_back(&passStats);
             }
 
             QueueExecutionState& queueState = queues.at(batch.queueType);
@@ -755,6 +791,7 @@ namespace Cue::RHI
                         "FrameGraph queue state is not initialized.");
                 }
 
+                const Clock::time_point waitStartTime = Clock::now();
                 Result waitResult = queueState.queue->wait_for_queue(
                     *producerQueueState.queue);
                 if (!waitResult)
@@ -766,8 +803,11 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to wait for producer queue before frame graph batch submission.");
                 }
+
+                queueWaitMs += ms_since(waitStartTime, Clock::now());
             }
 
+            const Clock::time_point submitSignalStartTime = Clock::now();
             Result submitResult = queueState.queue->submit(commandContextPointers);
             if (!submitResult)
             {
@@ -789,6 +829,20 @@ namespace Cue::RHI
                     Severity::Error,
                     "Failed to signal queue after frame graph batch submission.");
             }
+            const double submitSignalMs =
+                ms_since(submitSignalStartTime, Clock::now());
+            const double submitSignalMsPerPass =
+                batchPassStats.empty()
+                ? 0.0
+                : (submitSignalMs / static_cast<double>(batchPassStats.size()));
+            for (FrameGraphExecutionStats::PassExecutionStats* passStats :
+                batchPassStats)
+            {
+                if (passStats != nullptr)
+                {
+                    passStats->submitSignalMs = submitSignalMsPerPass;
+                }
+            }
 
             queueState.submitted = true;
         }
@@ -801,6 +855,7 @@ namespace Cue::RHI
                 continue;
             }
 
+            const Clock::time_point waitStartTime = Clock::now();
             Result waitResult = queueState.queue->wait();
             if (!waitResult)
             {
@@ -811,10 +866,22 @@ namespace Cue::RHI
                     Severity::Error,
                     "Failed to wait for frame graph queue completion.");
             }
+            queueWaitMs += ms_since(waitStartTime, Clock::now());
         }
 
         return_all_command_contexts();
         return_all_queue_contexts();
+        m_executionStats.totalExecuteMs =
+            ms_since(executeStartTime, Clock::now());
+        m_executionStats.queueWaitMs = queueWaitMs;
+        m_executionStats.submitMs =
+            m_executionStats.totalExecuteMs - m_executionStats.queueWaitMs;
+        if (m_executionStats.submitMs < 0.0)
+        {
+            m_executionStats.submitMs = 0.0;
+        }
+        m_executionStats.hasGpuFrameMs = false;
+        m_executionStats.gpuFrameMs = 0.0;
         return Result::ok();
     }
 

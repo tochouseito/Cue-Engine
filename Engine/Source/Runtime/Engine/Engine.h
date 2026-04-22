@@ -182,6 +182,15 @@ namespace Cue
         [[nodiscard]] Result stop_play_mode() noexcept;
         [[nodiscard]] bool is_playing() const noexcept;
 
+        [[nodiscard]] const RHI::FrameGraphExecutionStats&
+            render_frame_graph_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_frameGraph != nullptr
+                ? m_frameGraph->execution_stats()
+                : k_emptyStats;
+        }
+
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
