@@ -27,6 +27,8 @@ namespace Cue::Editor
             double renderElapsedMs = 0.0;
             double renderSubmitMs = 0.0;
             double renderQueueWaitMs = 0.0;
+            double renderInterQueueWaitMs = 0.0;
+            double renderFinalQueueWaitMs = 0.0;
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
@@ -59,6 +61,8 @@ namespace Cue::Editor
                     renderElapsedMs,
                     renderStats.submitMs,
                     renderStats.queueWaitMs,
+                    renderStats.interQueueWaitMs,
+                    renderStats.finalQueueWaitMs,
                     updateIndex,
                     renderIndex,
                     presentIndex });
@@ -74,6 +78,15 @@ namespace Cue::Editor
             ImGui::Text("Render Thread: %.3f ms", renderElapsedMs);
             ImGui::Text("Render Submit: %.3f ms", renderStats.submitMs);
             ImGui::Text("Render Queue Wait: %.3f ms", renderStats.queueWaitMs);
+            ImGui::Text(
+                "  Inter-Queue: %.3f ms / Final: %.3f ms",
+                renderStats.interQueueWaitMs,
+                renderStats.finalQueueWaitMs);
+            ImGui::Text(
+                "  Final Gfx: %.3f ms / Compute: %.3f ms / Copy: %.3f ms",
+                renderStats.finalGraphicsWaitMs,
+                renderStats.finalComputeWaitMs,
+                renderStats.finalCopyWaitMs);
             if (renderStats.hasGpuFrameMs)
             {
                 ImGui::Text("GPU Frame: %.3f ms", renderStats.gpuFrameMs);
@@ -114,13 +127,15 @@ namespace Cue::Editor
             for (const FrameLogLine& line : frameLogs)
             {
                 ImGui::Text(
-                    "Frame: %llu, FPS: %.2f, Update: %.3f ms, Render: %.3f ms, Submit: %.3f ms, Wait: %.3f ms, UpdateIndex: %u, RenderIndex: %u, PresentIndex: %u",
+                    "Frame: %llu, FPS: %.2f, Update: %.3f ms, Render: %.3f ms, Submit: %.3f ms, Wait: %.3f ms, InterWait: %.3f ms, FinalWait: %.3f ms, UpdateIndex: %u, RenderIndex: %u, PresentIndex: %u",
                     static_cast<unsigned long long>(line.totalFrame),
                     line.fps,
                     line.updateElapsedMs,
                     line.renderElapsedMs,
                     line.renderSubmitMs,
                     line.renderQueueWaitMs,
+                    line.renderInterQueueWaitMs,
+                    line.renderFinalQueueWaitMs,
                     line.updateIndex,
                     line.renderIndex,
                     line.presentIndex);
@@ -192,6 +207,22 @@ namespace Cue::Editor
                     passStat.postBarrierMs,
                     passStat.closeMs,
                     passStat.submitSignalMs);
+                ImGui::Text(
+                    "  submit_exec %.3f / signal %.3f / cmdlists %u",
+                    passStat.submitExecuteListsMs,
+                    passStat.submitSignalOnlyMs,
+                    passStat.submittedCommandListCount);
+                if (passStat.hasGpuExecuteMs)
+                {
+                    ImGui::Text("  gpu_exec %.3f", passStat.gpuExecuteMs);
+                }
+                for (const auto& detailTiming : passStat.detailTimings)
+                {
+                    ImGui::Text(
+                        "  %s %.3f",
+                        detailTiming.label.c_str(),
+                        detailTiming.elapsedMs);
+                }
             }
 
             if (ImGui::Button("Show FPS Details"))

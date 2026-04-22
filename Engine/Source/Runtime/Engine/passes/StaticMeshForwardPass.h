@@ -8,6 +8,7 @@
 
 // === C++ includes ===
 #include <array>
+#include <chrono>
 
 namespace Cue
 {
@@ -346,26 +347,70 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
+            using Clock = std::chrono::steady_clock;
+            auto ms_since =
+                [](const Clock::time_point& a_start, const Clock::time_point& a_end)
+                {
+                    return std::chrono::duration<double, std::milli>(
+                        a_end - a_start)
+                        .count();
+                };
+
             RHI::ICommandContext* commandContext = context.commandContext();
             if (commandContext == nullptr)
             {
                 return;
             }
 
+            auto* passStats =
+                static_cast<RHI::FrameGraphExecutionStats::PassExecutionStats*>(
+                    context.pass_stats());
+            if (passStats != nullptr)
+            {
+                passStats->detailTimings.clear();
+            }
+
+            auto add_detail_timing =
+                [&](const char* a_label,
+                    const Clock::time_point& a_start,
+                    const Clock::time_point& a_end)
+                {
+                    if (passStats == nullptr)
+                    {
+                        return;
+                    }
+
+                    passStats->detailTimings.push_back(
+                        RHI::FrameGraphExecutionStats::PassExecutionStats::
+                            DetailTiming{
+                                a_label,
+                                ms_since(a_start, a_end) });
+                };
+
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
 
+            const Clock::time_point clearStartTime = Clock::now();
             commandContext->clear_render_target(m_finalColorRtvHandle,
                 k_clearColorVec.data());
             commandContext->clear_depth_stencil(m_sceneDepthDsvHandle, 1.0f, 0);
+            add_detail_timing("clear", clearStartTime, Clock::now());
+
+            const Clock::time_point targetSetupStartTime = Clock::now();
             commandContext->set_render_targets(
                 &m_finalColorRtvHandle,
                 1,
                 m_sceneDepthDsvHandle);
             commandContext->set_viewport_scissor(context.width(), context.height());
+            add_detail_timing("targets_viewport", targetSetupStartTime, Clock::now());
+
+            const Clock::time_point pipelineSetupStartTime = Clock::now();
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Triangle);
+            add_detail_timing("pipeline_topology", pipelineSetupStartTime, Clock::now());
+
+            const Clock::time_point bindingStartTime = Clock::now();
             commandContext->set_32bit_constant(0, 0xffffffffu);
             commandContext->set_cbv(1, m_viewProjectionBufferHandle);
             commandContext->set_srv(2, m_renderObjectBufferHandle);
@@ -376,11 +421,16 @@ namespace Cue
             commandContext->set_srv(7, m_indexBufferHandle);
             commandContext->set_srv(8, m_meshRangeBufferHandle);
             commandContext->set_srv(9, m_visibleObjectCountBufferHandle);
+            add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
             if (frameState.useCpuBatching)
             {
+                const Clock::time_point drawSetupStartTime = Clock::now();
                 commandContext->set_index_buffer(
                     m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                add_detail_timing("index_buffer", drawSetupStartTime, Clock::now());
+
+                const Clock::time_point drawLoopStartTime = Clock::now();
                 for (const CpuIndexedDraw& draw : frameState.cpuIndexedDraws)
                 {
                     if (draw.indexCount == 0)
@@ -392,15 +442,21 @@ namespace Cue
                     commandContext->draw_indexed_instanced(
                         draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
                 }
+                add_detail_timing("cpu_draw_loop", drawLoopStartTime, Clock::now());
             }
             else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
             {
+                const Clock::time_point drawSetupStartTime = Clock::now();
                 commandContext->set_index_buffer(
                     m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                add_detail_timing("index_buffer", drawSetupStartTime, Clock::now());
+
+                const Clock::time_point indirectDrawStartTime = Clock::now();
                 commandContext->execute_indexed_indirect(
                     m_indirectCommandBufferHandle,
                     m_indirectCommandCountBufferHandle,
                     frameState.objectCount);
+                add_detail_timing("execute_indirect", indirectDrawStartTime, Clock::now());
             }
 
         }

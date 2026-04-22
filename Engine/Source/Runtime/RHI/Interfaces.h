@@ -150,6 +150,10 @@ namespace Cue::RHI
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
         virtual void* native_command_list() const = 0;
+        virtual bool supports_timestamps() const = 0;
+        virtual Result write_timestamp(uint32_t queryIndex) = 0;
+        virtual Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) = 0;
+        virtual Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const = 0;
 
         // --- GPU プロファイリング用のイベントマーカー ---
         virtual void begin_event(const char* name) = 0;
@@ -197,6 +201,7 @@ namespace Cue::RHI
         virtual Result signal() = 0;
         virtual Result wait() = 0;
         virtual Result wait_for_queue(IQueueContext& queue) = 0;
+        virtual Result get_timestamp_frequency(uint64_t& outFrequency) const = 0;
     };
 
     using commandContextLease = std::unique_ptr<ICommandContext, std::function<void(ICommandContext*)>>;

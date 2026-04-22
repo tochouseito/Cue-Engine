@@ -65,6 +65,8 @@ namespace Cue::RHI::DX12
         create_command_list(device, type);
         // DrawIndexedInstanced 用の command signature を用意する。
         create_draw_indexed_command_signature(device);
+        // timestamp query の受け皿を作る。
+        create_timestamp_resources(device, type);
 
         m_type = convert_command_list_type(type);
     }
@@ -143,6 +145,85 @@ namespace Cue::RHI::DX12
     CommandListType DX12GpuCommandContext::type() const
     {
         return m_type;
+    }
+    bool DX12GpuCommandContext::supports_timestamps() const
+    {
+        return m_timestampQueryHeap != nullptr &&
+            m_timestampReadbackBuffer != nullptr &&
+            m_timestampReadbackMappedData != nullptr &&
+            type() != CommandListType::Copy;
+    }
+    Result DX12GpuCommandContext::write_timestamp(uint32_t queryIndex)
+    {
+        if (!supports_timestamps())
+        {
+            return Result::ok();
+        }
+        if (queryIndex >= k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query index is out of range.");
+        }
+
+        m_commandList->EndQuery(
+            m_timestampQueryHeap.Get(),
+            D3D12_QUERY_TYPE_TIMESTAMP,
+            queryIndex);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_timestamps(
+        uint32_t firstQueryIndex, uint32_t queryCount)
+    {
+        if (!supports_timestamps())
+        {
+            return Result::ok();
+        }
+        if (queryCount == 0)
+        {
+            return Result::ok();
+        }
+        if (firstQueryIndex + queryCount > k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query range is out of bounds.");
+        }
+
+        m_commandList->ResolveQueryData(
+            m_timestampQueryHeap.Get(),
+            D3D12_QUERY_TYPE_TIMESTAMP,
+            firstQueryIndex,
+            queryCount,
+            m_timestampReadbackBuffer.Get(),
+            static_cast<UINT64>(firstQueryIndex) * sizeof(uint64_t));
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::read_timestamp(
+        uint32_t queryIndex, uint64_t& outValue) const
+    {
+        outValue = 0;
+        if (!supports_timestamps())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Timestamp queries are not supported on this command context.");
+        }
+        if (queryIndex >= k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query index is out of range.");
+        }
+
+        const uint64_t* values =
+            reinterpret_cast<const uint64_t*>(m_timestampReadbackMappedData);
+        outValue = values[queryIndex];
+        return Result::ok();
     }
     void DX12GpuCommandContext::begin_event(const char* name)
     {
@@ -1050,6 +1131,73 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::create_timestamp_resources(
+        ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+    {
+        if (type == D3D12_COMMAND_LIST_TYPE_COPY)
+        {
+            return Result::ok();
+        }
+
+        D3D12_QUERY_HEAP_DESC queryHeapDesc{};
+        queryHeapDesc.Count = k_maxTimestampQueryCount;
+        queryHeapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        HRESULT hr = device.CreateQueryHeap(
+            &queryHeapDesc,
+            IID_PPV_ARGS(m_timestampQueryHeap.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create timestamp query heap.");
+        }
+
+        D3D12_HEAP_PROPERTIES heapProperties{};
+        heapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Width =
+            static_cast<UINT64>(k_maxTimestampQueryCount) * sizeof(uint64_t);
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.SampleDesc = { 1, 0 };
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        hr = device.CreateCommittedResource(
+            &heapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &resourceDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(m_timestampReadbackBuffer.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create timestamp readback buffer.");
+        }
+
+        void* mappedData = nullptr;
+        const D3D12_RANGE readRange{ 0, 0 };
+        hr = m_timestampReadbackBuffer->Map(0, &readRange, &mappedData);
+        if (FAILED(hr) || mappedData == nullptr)
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to map timestamp readback buffer.");
+        }
+        m_timestampReadbackMappedData = static_cast<std::byte*>(mappedData);
+        std::memset(
+            m_timestampReadbackMappedData,
+            0,
+            static_cast<size_t>(resourceDesc.Width));
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const
     {
         if (sliceCount == 0)
@@ -1316,6 +1464,29 @@ namespace Cue::RHI::DX12
                 PAL::Win::convert_hresult_code(hr),
                 Severity::Error,
                 "Failed to wait for another queue.");
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandQueue::get_timestamp_frequency(
+        uint64_t& outFrequency) const
+    {
+        outFrequency = 0;
+        if (!m_commandQueue)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "CommandQueue is not initialized.");
+        }
+
+        HRESULT hr = m_commandQueue->GetTimestampFrequency(&outFrequency);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to query command queue timestamp frequency.");
         }
 
         return Result::ok();

@@ -156,6 +156,7 @@ namespace Cue::RHI
         uint32_t height = 0;
         uint32_t frameIndex = 0;
         ICommandContext* commandContext = nullptr;
+        void* passStats = nullptr;
     };
 
     class FrameGraphContext final
@@ -168,6 +169,7 @@ namespace Cue::RHI
         const uint32_t height() const noexcept { return m_desc.height; }
         const uint32_t frame_index() const noexcept { return m_desc.frameIndex; }
         ICommandContext* commandContext() const noexcept { return m_desc.commandContext; }
+        void* pass_stats() const noexcept { return m_desc.passStats; }
     private:
         FrameGraphContextDesc m_desc{};
     };
@@ -207,6 +209,12 @@ namespace Cue::RHI
     {
         struct PassExecutionStats final
         {
+            struct DetailTiming final
+            {
+                std::string label{};
+                double elapsedMs = 0.0;
+            };
+
             std::string_view name{};
             CommandListType queueType = CommandListType::Graphics;
             double acquireResetSetupMs = 0.0;
@@ -214,12 +222,23 @@ namespace Cue::RHI
             double cpuExecuteMs = 0.0;
             double postBarrierMs = 0.0;
             double closeMs = 0.0;
+            double submitExecuteListsMs = 0.0;
+            double submitSignalOnlyMs = 0.0;
             double submitSignalMs = 0.0;
+            uint32_t submittedCommandListCount = 0;
+            bool hasGpuExecuteMs = false;
+            double gpuExecuteMs = 0.0;
+            std::vector<DetailTiming> detailTimings{};
         };
 
         double totalExecuteMs = 0.0;
         double submitMs = 0.0;
         double queueWaitMs = 0.0;
+        double interQueueWaitMs = 0.0;
+        double finalQueueWaitMs = 0.0;
+        double finalGraphicsWaitMs = 0.0;
+        double finalComputeWaitMs = 0.0;
+        double finalCopyWaitMs = 0.0;
         bool hasGpuFrameMs = false;
         double gpuFrameMs = 0.0;
         std::vector<PassExecutionStats> passStats{};

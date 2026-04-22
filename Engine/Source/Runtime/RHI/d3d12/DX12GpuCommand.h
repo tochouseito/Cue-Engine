@@ -40,6 +40,10 @@ namespace Cue::RHI::DX12
         Result close() override;
         CommandListType type() const override;
         void* native_command_list() const override { return m_commandList.Get(); }
+        bool supports_timestamps() const override;
+        Result write_timestamp(uint32_t queryIndex) override;
+        Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) override;
+        Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const override;
 
         // --- 取得 ---
         ID3D12GraphicsCommandList* d3d12_command_list() const { return m_commandList.Get(); }
@@ -75,6 +79,7 @@ namespace Cue::RHI::DX12
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_draw_indexed_command_signature(ID3D12Device& device);
+        Result create_timestamp_resources(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
         Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
         Result resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
@@ -88,9 +93,13 @@ namespace Cue::RHI::DX12
         comPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         comPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
         comPtr<ID3D12CommandSignature> m_drawIndexedCommandSignature = nullptr;
+        comPtr<ID3D12QueryHeap> m_timestampQueryHeap = nullptr;
+        comPtr<ID3D12Resource> m_timestampReadbackBuffer = nullptr;
+        std::byte* m_timestampReadbackMappedData = nullptr;
         CommandListType m_type = CommandListType::Graphics;
         uint32_t m_frameIndex = 0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
         uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
+        static constexpr uint32_t k_maxTimestampQueryCount = 64;
     };
 
     class DX12CommandPool final : public ICommandPool
@@ -175,6 +184,7 @@ namespace Cue::RHI::DX12
         Result signal() override;
         Result wait() override;
         Result wait_for_queue(IQueueContext& queue) override;
+        Result get_timestamp_frequency(uint64_t& outFrequency) const override;
 
         // --- 取得 ---
         ID3D12CommandQueue* command_queue() const { return m_commandQueue.Get(); }
