@@ -1215,24 +1215,26 @@ namespace Cue::RHI::DX12
             return Result::ok();
         }
 
+        // スワップチェインのような外部リソースは、フレームリング数とは別の実体数を持つことがあります。
+        // Present パスでは m_frameIndex に「現在の back buffer index」が渡されるため、
+        // その index が有効範囲内ならそのまま使います。
+        if (m_frameIndex < sliceCount)
+        {
+            outIndex = m_frameIndex;
+            return Result::ok();
+        }
+
         if (sliceCount != m_bufferCount)
         {
             return Result::fail(
                 Code::InvalidArgument,
                 Severity::Error,
-                "Slice count must be 1 or match the global buffer count.");
+                "Slice count must be 1, match the global buffer count, or contain the current frame index.");
         }
-
-        if (m_frameIndex >= sliceCount)
-        {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Frame index is out of range for the requested resource slice.");
-        }
-
-        outIndex = m_frameIndex;
-        return Result::ok();
+        return Result::fail(
+            Code::InvalidArgument,
+            Severity::Error,
+            "Frame index is out of range for the requested resource slice.");
     }
     Result DX12GpuCommandContext::resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const
     {

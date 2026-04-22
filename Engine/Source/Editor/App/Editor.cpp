@@ -30,7 +30,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint32_t height = 720;
     std::string className = "CueEditorWindowClass";
     std::string title = "Cue Editor";
-    uint32_t bufferCount = 3;
+    uint32_t bufferCount = 1;
     bool enableDebugLayer = true;
     uint32_t maxFps = 60;
 

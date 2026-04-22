@@ -7,6 +7,7 @@ namespace Cue::RHI::DX12
         m_width = width;
         m_height = height;
         m_bufferCount = bufferCount;
+        m_swapChainBufferCount = (bufferCount > 1) ? bufferCount : 2;
         m_format = format;
         // SwapChainの設定
         DXGI_SWAP_CHAIN_DESC1 desc{};
@@ -15,7 +16,7 @@ namespace Cue::RHI::DX12
         desc.Format = format; // バックバッファ形式設定
         desc.SampleDesc.Count = 1; // 単一サンプル設定
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 描画用途設定
-        desc.BufferCount = bufferCount; // バッファ数設定
+        desc.BufferCount = m_swapChainBufferCount; // flip model が要求する実バッファ数を設定
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // flip discard 設定
         desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // tearing 許可
 
@@ -93,7 +94,7 @@ namespace Cue::RHI::DX12
         }
 
         HRESULT hr = m_swapChain->ResizeBuffers(
-            m_bufferCount,
+            m_swapChainBufferCount,
             a_width,
             a_height,
             m_format,
@@ -140,8 +141,8 @@ namespace Cue::RHI::DX12
     Result SwapChain::rebuild_back_buffer_resources()
     {
         std::vector<DX12GpuResource> backBuffers;
-        backBuffers.reserve(m_bufferCount);
-        for (uint32_t i = 0; i < m_bufferCount; ++i)
+        backBuffers.reserve(m_swapChainBufferCount);
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
         {
             comPtr<ID3D12Resource> resource;
             HRESULT hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&resource));
@@ -161,7 +162,7 @@ namespace Cue::RHI::DX12
         record.desc.width = m_width;
         record.desc.height = m_height;
         record.desc.format = ColorFormat::R8G8B8A8_UNORM;
-        record.desc.bufferCount = m_bufferCount;
+        record.desc.bufferCount = m_swapChainBufferCount;
         record.defaultResources = std::move(backBuffers);
 
         Result result =

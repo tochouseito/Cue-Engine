@@ -66,6 +66,7 @@ namespace Cue::RHI::DX12
         uint32_t m_width = 0;
         uint32_t m_height = 0;
         uint32_t m_bufferCount = 0;
+        uint32_t m_swapChainBufferCount = 0;
         DXGI_FORMAT m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
     };
 }
