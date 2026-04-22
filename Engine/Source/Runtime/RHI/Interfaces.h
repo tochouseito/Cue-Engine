@@ -24,6 +24,8 @@
 
 namespace Cue::RHI
 {
+    class IQueueContext;
+
     enum class IndexFormat : uint8_t;
 
     struct BufferTag {};
@@ -154,6 +156,8 @@ namespace Cue::RHI
         virtual Result write_timestamp(uint32_t queryIndex) = 0;
         virtual Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) = 0;
         virtual Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const = 0;
+        virtual void set_pending_fence(IQueueContext* a_queue, uint64_t a_fenceValue) = 0;
+        virtual Result wait_for_pending_fence() = 0;
 
         // --- GPU プロファイリング用のイベントマーカー ---
         virtual void begin_event(const char* name) = 0;

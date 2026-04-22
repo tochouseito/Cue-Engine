@@ -947,6 +947,20 @@ namespace Cue::RHI
                     Severity::Error,
                     "Failed to signal queue after frame graph batch submission.");
             }
+
+            if (signaledFenceValue != 0)
+            {
+                for (ICommandContext* commandContextPointer : commandContextPointers)
+                {
+                    if (commandContextPointer != nullptr)
+                    {
+                        commandContextPointer->set_pending_fence(
+                            queueState.queue,
+                            signaledFenceValue);
+                    }
+                }
+            }
+
             switch (batch.queueType)
             {
             case CommandListType::Graphics:

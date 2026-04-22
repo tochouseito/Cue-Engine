@@ -44,6 +44,8 @@ namespace Cue::RHI::DX12
         Result write_timestamp(uint32_t queryIndex) override;
         Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) override;
         Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const override;
+        void set_pending_fence(IQueueContext* a_queue, uint64_t a_fenceValue) override;
+        Result wait_for_pending_fence() override;
 
         // --- 取得 ---
         ID3D12GraphicsCommandList* d3d12_command_list() const { return m_commandList.Get(); }
@@ -100,6 +102,8 @@ namespace Cue::RHI::DX12
         uint32_t m_frameIndex = 0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
         uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
         static constexpr uint32_t k_maxTimestampQueryCount = 64;
+        IQueueContext* m_pendingQueue = nullptr;
+        uint64_t m_pendingFenceValue = 0;
     };
 
     class DX12CommandPool final : public ICommandPool

@@ -225,6 +225,30 @@ namespace Cue::RHI::DX12
         outValue = values[queryIndex];
         return Result::ok();
     }
+    void DX12GpuCommandContext::set_pending_fence(
+        IQueueContext* a_queue,
+        uint64_t a_fenceValue)
+    {
+        m_pendingQueue = a_queue;
+        m_pendingFenceValue = a_fenceValue;
+    }
+    Result DX12GpuCommandContext::wait_for_pending_fence()
+    {
+        if (m_pendingQueue == nullptr || m_pendingFenceValue == 0)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_pendingQueue->wait_for_fence(m_pendingFenceValue);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_pendingQueue = nullptr;
+        m_pendingFenceValue = 0;
+        return Result::ok();
+    }
     void DX12GpuCommandContext::begin_event(const char* name)
     {
         // コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る。
@@ -1606,6 +1630,17 @@ namespace Cue::RHI::DX12
     }
     Result DX12CommandPool::return_command_context(commandContextLease& context)
     {
+        if (!context)
+        {
+            return Result::ok();
+        }
+
+        Result waitResult = context->wait_for_pending_fence();
+        if (!waitResult)
+        {
+            return waitResult;
+        }
+
         CommandListType type = context->type();
         switch (type)
         {
