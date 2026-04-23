@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
 #include "Passes/GenerateVisibleList.h"
+#include "Passes/MaterialBufferCopyPass.h"
 #include "Passes/RenderObjectCopyPass.h"
 #include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
@@ -415,6 +416,7 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
             m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
+        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>());
         m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
             m_activeWorld->render_scene_state()));
         m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(

@@ -136,6 +136,20 @@ namespace Cue
             Result existingResult = get_material(materialName, outHandle);
             if (existingResult)
             {
+                MaterialAssetRecord* record =
+                    m_materialRegistry.ref_get(outHandle);
+                if (record == nullptr)
+                {
+                    return Result::fail(
+                        Code::InternalError,
+                        Severity::Error,
+                        "Loaded material handle could not be resolved.");
+                }
+
+                // 同名マテリアルの再読込ではハンドルを維持しつつ内容だけ更新し、
+                // Scene 側が保持している参照を壊さずに色変更を反映する。
+                record->name = materialName;
+                record->desc = desc;
                 return Result::ok();
             }
             return add_material(materialName, desc, outHandle);

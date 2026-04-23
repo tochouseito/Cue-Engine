@@ -27,6 +27,7 @@ add_library(Engine STATIC
     "GpuData/Transform.h"
     "GpuData/Batching.h"
     "Passes/GenerateVisibleList.h"
+    "Passes/MaterialBufferCopyPass.h"
     "Passes/RenderableInfoCopyPass.h"
     "Passes/TransformBufferCopyPass.h"
     "Passes/UploadBufferCopyPass.h"
