@@ -1,20 +1,15 @@
-name: build-windows
+name: _build-common
 
 on:
-  push:
-    branches:
-      - release
-      - develop
-  pull_request:
+  workflow_call:
+    inputs:
+      config:
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: windows-2025-vs2026
-
-    strategy:
-      fail-fast: false
-      matrix:
-        config: [Debug, RelWithDebInfo, Release]
 
     steps:
       - name: Checkout
@@ -30,12 +25,12 @@ jobs:
       - name: Build
         run: >
           cmake --build build
-          --config ${{ matrix.config }}
+          --config ${{ inputs.config }}
           --parallel
 
       - name: Test
         working-directory: build
         run: >
           ctest
-          -C ${{ matrix.config }}
+          -C ${{ inputs.config }}
           --output-on-failure
