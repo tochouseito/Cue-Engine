@@ -4,6 +4,7 @@ struct RenderableInfo
     uint visible;
     uint meshId;
     uint transformId;
+    uint materialId;
 };
 
 struct RenderObject
@@ -11,6 +12,12 @@ struct RenderObject
     uint id;
     uint meshId;
     uint transformId;
+    uint materialId;
+};
+
+struct Material
+{
+    float4 color;
 };
 
 struct Transform

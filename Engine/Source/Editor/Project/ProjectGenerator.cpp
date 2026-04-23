@@ -58,7 +58,7 @@ namespace Cue::Editor
             cube.prototype.add_component(meshFilter);
 
             ECS::StaticMeshRendererComponent renderer{};
-            renderer.materialId = 0;
+            renderer.materialHandle = {};
             renderer.visible = true;
             cube.prototype.add_component(renderer);
 

@@ -135,31 +135,38 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.get_buffer("MaterialBuffer", m_materialBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::_32BitConstants,
-                RHI::ShaderVisibility::Vertex,
+                RHI::ShaderVisibility::All,
                 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::CBV, RHI::ShaderVisibility::Vertex, 0 });
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 0 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 1 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 2 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 3 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 4 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 5 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 6 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 7 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -317,6 +324,15 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.use_buffer(
+                m_materialBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
 
             result = builder.use_buffer(
                 m_indirectCommandBufferHandle,
@@ -421,6 +437,7 @@ namespace Cue
             commandContext->set_srv(7, m_indexBufferHandle);
             commandContext->set_srv(8, m_meshRangeBufferHandle);
             commandContext->set_srv(9, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(10, m_materialBufferHandle);
             add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
             if (frameState.useCpuBatching)
@@ -478,6 +495,7 @@ namespace Cue
         RHI::BufferHandle m_normalBufferHandle{};
         RHI::BufferHandle m_indexBufferHandle{};
         RHI::BufferHandle m_meshRangeBufferHandle{};
+        RHI::BufferHandle m_materialBufferHandle{};
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};

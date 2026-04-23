@@ -223,6 +223,7 @@ namespace Cue
         RHI::TextureHandle m_finalColorHandle{};
         RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
+        MaterialHandle m_defaultMaterialHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
         GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;

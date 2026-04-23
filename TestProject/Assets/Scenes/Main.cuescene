@@ -44,7 +44,7 @@
                     "isEnabled": true
                 },
                 "staticMeshRenderer": {
-                    "materialId": 0,
+                    "materialName": "TestRed",
                     "visible": true
                 },
                 "transform": {
@@ -72,5 +72,5 @@
             "tag": "Default"
         }
     ],
-    "version": 1
+    "version": 2
 }

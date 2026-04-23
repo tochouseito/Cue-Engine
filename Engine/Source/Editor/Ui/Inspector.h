@@ -507,7 +507,9 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("StaticMeshRendererComponent");
             ImGui::Separator();
-            ImGui::Text("materialId: %u", component->materialId);
+            ImGui::Text("materialHandle.index: %u", component->materialHandle.index);
+            ImGui::Text("materialHandle.generation: %u",
+                component->materialHandle.generation);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
         }
 

@@ -10,6 +10,7 @@
 #include <ECSManager.h>
 
 // === Engine includes ===
+#include <Asset/AssetManager.h>
 #include <GameCore/Components.h>
 #include <GameCore/RenderSceneState.h>
 #include <GpuData/Batching.h>
@@ -29,11 +30,15 @@ namespace Cue::ECS
                 a_renderableInfoUploaders,
             std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>&
                 a_transformUploaders,
+            std::vector<RHI::SlotUploader<GpuData::MaterialGpu>>&
+                a_materialUploaders,
             std::vector<RHI::SlotUploader<GpuData::RenderObject>>&
                 a_renderObjectUploaders,
             std::vector<RHI::SlotUploader<uint32_t>>&
                 a_visibleObjectCountUploaders,
+            AssetManager* a_assetManager,
             RHI::IStaticMeshPool* a_staticMeshPool,
+            MaterialHandle a_defaultMaterialHandle,
             RenderSceneState& a_renderSceneState)
             : ECSManager::System<RenderableInfoComponent,
                   TransformComponent,
@@ -50,9 +55,12 @@ namespace Cue::ECS
                   }),
             m_renderableInfoUploaders(a_renderableInfoUploaders),
             m_transformUploaders(a_transformUploaders),
+            m_materialUploaders(a_materialUploaders),
             m_renderObjectUploaders(a_renderObjectUploaders),
             m_visibleObjectCountUploaders(a_visibleObjectCountUploaders),
+            m_assetManager(a_assetManager),
             m_staticMeshPool(a_staticMeshPool),
+            m_defaultMaterialHandle(a_defaultMaterialHandle),
             m_renderSceneState(a_renderSceneState)
         {
         }
@@ -80,6 +88,7 @@ namespace Cue::ECS
         {
             m_currentRenderableInfoUploader = nullptr;
             m_currentTransformUploader = nullptr;
+            m_currentMaterialUploader = nullptr;
             m_currentRenderObjectUploader = nullptr;
             m_currentVisibleObjectCountUploader = nullptr;
             m_currentFrameState = nullptr;
@@ -129,6 +138,17 @@ namespace Cue::ECS
                 }
             }
 
+            if (!m_materialUploaders.empty())
+            {
+                const uint32_t uploaderIndex =
+                    (m_materialUploaders.size() == 1) ? 0u : a_context.bufferIndex;
+                if (uploaderIndex < m_materialUploaders.size())
+                {
+                    m_currentMaterialUploader = &m_materialUploaders[uploaderIndex];
+                    m_currentMaterialUploader->begin_frame();
+                }
+            }
+
             if (!m_visibleObjectCountUploaders.empty())
             {
                 const uint32_t uploaderIndex =
@@ -156,6 +176,12 @@ namespace Cue::ECS
                 !m_currentTransformUploader->commit())
             {
                 CUE_ASSERTF(false, "Failed to commit transform uploads.");
+            }
+
+            if (m_currentMaterialUploader != nullptr &&
+                !m_currentMaterialUploader->commit())
+            {
+                CUE_ASSERTF(false, "Failed to commit material uploads.");
             }
 
             if (m_isCpuBatchingEnabled &&
@@ -226,11 +252,22 @@ namespace Cue::ECS
             a_renderableInfo.objectId = m_renderableObjectCount;
             a_renderableInfo.transformId = m_renderableObjectCount;
 
+            const MaterialHandle materialHandle =
+                a_renderer.materialHandle.valid()
+                ? a_renderer.materialHandle
+                : m_defaultMaterialHandle;
+            uint32_t materialId = 0;
+            if (materialHandle.valid())
+            {
+                materialId = materialHandle.index;
+            }
+
             GpuData::RenderableInfo gpuRenderableInfo{};
             gpuRenderableInfo.objectId = a_renderableInfo.objectId;
             gpuRenderableInfo.visible = a_renderer.visible ? 1u : 0u;
             gpuRenderableInfo.meshId = a_meshFilter.meshId;
             gpuRenderableInfo.transformId = a_renderableInfo.transformId;
+            gpuRenderableInfo.materialId = materialId;
             if (!m_currentRenderableInfoUploader->push(
                 a_renderableInfo.objectId, gpuRenderableInfo))
             {
@@ -254,12 +291,31 @@ namespace Cue::ECS
                 return;
             }
 
+            if (m_currentMaterialUploader != nullptr && materialHandle.valid() &&
+                m_assetManager != nullptr)
+            {
+                MaterialDesc materialDesc{};
+                if (m_assetManager->get_material(materialHandle, materialDesc))
+                {
+                    GpuData::MaterialGpu gpuMaterial{};
+                    gpuMaterial.color = materialDesc.color;
+                    if (!m_currentMaterialUploader->push(materialId, gpuMaterial))
+                    {
+                        CUE_ASSERTF(false,
+                            "Failed to queue material upload. materialId=%u",
+                            materialId);
+                        return;
+                    }
+                }
+            }
+
             if (m_isCpuBatchingEnabled && m_currentRenderObjectUploader != nullptr)
             {
                 GpuData::RenderObject renderObject{};
                 renderObject.objectId = a_renderableInfo.objectId;
                 renderObject.meshId = a_meshFilter.meshId;
                 renderObject.transformId = a_renderableInfo.transformId;
+                renderObject.materialId = materialId;
                 if (!m_currentRenderObjectUploader->push(
                     a_renderableInfo.objectId, renderObject))
                 {
@@ -293,16 +349,22 @@ namespace Cue::ECS
             m_renderableInfoUploaders;
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>>&
             m_transformUploaders;
+        std::vector<RHI::SlotUploader<GpuData::MaterialGpu>>&
+            m_materialUploaders;
         std::vector<RHI::SlotUploader<GpuData::RenderObject>>&
             m_renderObjectUploaders;
         std::vector<RHI::SlotUploader<uint32_t>>&
             m_visibleObjectCountUploaders;
+        AssetManager* m_assetManager = nullptr;
         RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
+        MaterialHandle m_defaultMaterialHandle{};
         RenderSceneState& m_renderSceneState;
         RHI::SlotUploader<GpuData::RenderableInfo>*
             m_currentRenderableInfoUploader = nullptr;
         RHI::SlotUploader<GpuData::ObjectTransformGpu>*
             m_currentTransformUploader = nullptr;
+        RHI::SlotUploader<GpuData::MaterialGpu>*
+            m_currentMaterialUploader = nullptr;
         RHI::SlotUploader<GpuData::RenderObject>*
             m_currentRenderObjectUploader = nullptr;
         RHI::SlotUploader<uint32_t>* m_currentVisibleObjectCountUploader = nullptr;

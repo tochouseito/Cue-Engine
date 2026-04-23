@@ -175,6 +175,64 @@ namespace Cue
         return Result::ok();
     }
 
+    Result WorldResources::create_material_buffer(const uint32_t a_maxMaterialCount)
+    {
+        RHI::BufferDesc materialBufferDesc{};
+        materialBufferDesc.name = "MaterialBuffer";
+        materialBufferDesc.type = RHI::BufferType::Structured;
+        materialBufferDesc.defaultHeapCount = 1;
+        materialBufferDesc.uploadHeapCount = 1;
+        materialBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        materialBufferDesc.stride = sizeof(GpuData::MaterialGpu);
+        materialBufferDesc.elementCount = a_maxMaterialCount;
+        materialBufferDesc.size =
+            materialBufferDesc.stride * materialBufferDesc.elementCount;
+        materialBufferDesc.alignment = alignof(GpuData::MaterialGpu);
+
+        RHI::BufferHandle& materialBufferHandle =
+            m_bufferHandles[static_cast<size_t>(WorldResourceType::MaterialBuffer)];
+        Result result = m_bufferManager->create_buffer(
+            materialBufferDesc, materialBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            materialBufferHandle, 1, m_materialUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_materialUploaders.size() != 1)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "MaterialBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc materialBufferSrvDesc{};
+        materialBufferSrvDesc.name = "MaterialBufferSRV";
+        materialBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        materialBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        materialBufferSrvDesc.bufferHandle = materialBufferHandle;
+        materialBufferSrvDesc.firstElement = 0;
+        materialBufferSrvDesc.numElements = materialBufferDesc.elementCount;
+        materialBufferSrvDesc.structureByteStride = materialBufferDesc.stride;
+
+        RHI::ViewHandle& materialBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(WorldResourceType::MaterialBuffer)];
+        result = m_viewManager->create_view(
+            materialBufferSrvDesc, materialBufferSrvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+
     Result WorldResources::create_render_object_buffer(const uint32_t a_maxObjectCount)
     {
         // RenderObjectBuffer の設定

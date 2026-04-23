@@ -13,6 +13,7 @@
 #include "Systems/CameraSystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "WorldResources.h"
+#include <Asset/AssetManager.h>
 
 // === C++ includes ===
 #include <algorithm>
@@ -35,6 +36,7 @@ namespace Cue::GameCore
     {
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
+        static constexpr uint32_t k_maxMaterialCount = 1024;
 
         struct LoadSceneResult final
         {
@@ -63,10 +65,12 @@ namespace Cue::GameCore
         [[nodiscard]] Result initialize(RHI::IBufferManager* a_bufferManager,
             RHI::IViewManager* a_viewManager,
             RHI::IStaticMeshPool* a_staticMeshPool,
+            AssetManager* a_assetManager,
             uint32_t a_bufferCount,
             uint32_t a_renderWidth,
             uint32_t a_renderHeight,
-            uint32_t a_defaultStaticMeshId);
+            uint32_t a_defaultStaticMeshId,
+            MaterialHandle a_defaultMaterialHandle);
         [[nodiscard]] Result finalize_systems() noexcept;
 
         [[nodiscard]] Result simulate(float a_deltaTime);
@@ -1862,8 +1866,10 @@ namespace Cue::GameCore
         ECS::ECSManager::SystemPipeline m_editorPipeline{};
         ECS::ECSManager::SystemPipeline m_simulationPipeline{};
         std::unique_ptr<WorldResources> m_worldResources = nullptr;
+        AssetManager* m_assetManager = nullptr;
         bool m_isCpuBatchingEnabled = false;
         RenderSceneState m_renderSceneState{};
+        MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_tagIndex{};

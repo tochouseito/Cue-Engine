@@ -5,7 +5,8 @@ namespace Cue::GameCore
     namespace
     {
         [[nodiscard]] ObjectDefinition make_default_static_mesh_object_definition(
-            const Math::float3& a_position, uint32_t a_meshId)
+            const Math::float3& a_position, uint32_t a_meshId,
+            MaterialHandle a_defaultMaterialHandle)
         {
             ObjectDefinition objectDefinition("StaticMeshObject");
 
@@ -20,7 +21,7 @@ namespace Cue::GameCore
             objectDefinition.prototype.add_component(meshFilter);
 
             ECS::StaticMeshRendererComponent renderer{};
-            renderer.materialId = 0;
+            renderer.materialHandle = a_defaultMaterialHandle;
             renderer.visible = true;
             objectDefinition.prototype.add_component(renderer);
 
@@ -31,16 +32,18 @@ namespace Cue::GameCore
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager,
         RHI::IStaticMeshPool* a_staticMeshPool,
+        AssetManager* a_assetManager,
         uint32_t a_bufferCount,
         uint32_t a_renderWidth,
         uint32_t a_renderHeight,
-        uint32_t a_defaultStaticMeshId)
+        uint32_t a_defaultStaticMeshId,
+        MaterialHandle a_defaultMaterialHandle)
     {
         if (a_bufferManager == nullptr || a_viewManager == nullptr ||
-            a_staticMeshPool == nullptr)
+            a_staticMeshPool == nullptr || a_assetManager == nullptr)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "GameWorld requires valid buffer, view, and mesh managers.");
+                "GameWorld requires valid buffer, view, mesh, and asset managers.");
         }
         if (a_defaultStaticMeshId == ECS::k_invalidMeshId)
         {
@@ -49,6 +52,8 @@ namespace Cue::GameCore
         }
 
         m_defaultStaticMeshId = a_defaultStaticMeshId;
+        m_assetManager = a_assetManager;
+        m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_renderSceneState.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
@@ -77,6 +82,12 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_worldResources->create_material_buffer(k_maxMaterialCount);
+        if (!result)
+        {
+            return result;
+        }
+
         result = m_worldResources->create_render_object_buffer(
             k_maxRenderObjectCount);
         if (!result)
@@ -93,9 +104,12 @@ namespace Cue::GameCore
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_worldResources->renderable_info_uploaders(),
             m_worldResources->transform_uploaders(),
+            m_worldResources->material_uploaders(),
             m_worldResources->render_object_uploaders(),
             m_worldResources->visible_object_count_uploaders(),
+            m_assetManager,
             a_staticMeshPool,
+            m_defaultMaterialHandle,
             m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
@@ -391,7 +405,7 @@ namespace Cue::GameCore
         transform->rotation = Math::float3::zero();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         meshFilter->meshId = m_defaultStaticMeshId;
-        renderer->materialId = 0;
+        renderer->materialHandle = m_defaultMaterialHandle;
         renderer->visible = true;
         return Result::ok();
     }
@@ -413,7 +427,7 @@ namespace Cue::GameCore
 
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
-                a_position, m_defaultStaticMeshId);
+                a_position, m_defaultStaticMeshId, m_defaultMaterialHandle);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 

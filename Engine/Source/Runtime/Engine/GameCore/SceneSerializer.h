@@ -12,6 +12,11 @@
 // === C++ includes ===
 #include <string_view>
 
+namespace Cue
+{
+    class AssetManager;
+}
+
 namespace Cue::GameCore
 {
     class SceneSerializer final
@@ -26,9 +31,15 @@ namespace Cue::GameCore
         {
             ScriptFieldSerializePredicate shouldSerializeScriptField = nullptr;
             void* userData = nullptr;
+            const AssetManager* assetManager = nullptr;
         };
 
-        static constexpr uint32_t k_currentVersion = 1;
+        struct LoadOptions final
+        {
+            const AssetManager* assetManager = nullptr;
+        };
+
+        static constexpr uint32_t k_currentVersion = 2;
 
         /// @brief SceneAsset を `.cuescene` JSON へ保存します。
         [[nodiscard]] static Result save_scene_asset(const SceneAsset& a_sceneAsset,
@@ -40,6 +51,7 @@ namespace Cue::GameCore
         [[nodiscard]] static Result load_scene_asset(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_filePath,
-            SceneAsset& a_outSceneAsset) noexcept;
+            SceneAsset& a_outSceneAsset,
+            const LoadOptions& a_options = {}) noexcept;
     };
 }

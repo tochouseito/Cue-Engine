@@ -46,6 +46,16 @@ namespace Cue
         m_assetManager.initialize(staticMeshPool);
 
         Result result{};
+        m_defaultMaterialHandle = MaterialHandle{};
+        result = m_assetManager.create_color_material(
+            "DefaultWhite",
+            Math::float4(1.0f, 1.0f, 1.0f, 1.0f),
+            m_defaultMaterialHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         ModelHandle cubeModelHandle{};
         result = m_assetManager.create_cube_model(cubeModelHandle);
         if (!result)
@@ -99,8 +109,9 @@ namespace Cue
 
         m_editorWorld = std::make_unique<GameCore::GameWorld>();
         result = m_editorWorld->initialize(
-            bufferManager, viewManager, staticMeshPool, m_backend->buffer_count(),
-            m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
+            bufferManager, viewManager, staticMeshPool, &m_assetManager,
+            m_backend->buffer_count(), m_backend->width(), m_backend->height(),
+            m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
         {
             return result;
@@ -418,8 +429,7 @@ namespace Cue
         result = m_frameGraph->build();
         if (!result)
         {
-            return Result::fail(result.code, Severity::Fatal,
-                "Failed to build render frame graph.");
+            return result;
         }
 
         return Result::ok();
@@ -632,8 +642,10 @@ namespace Cue
 
             result = m_playWorld->initialize(
                 bufferManager, viewManager, m_backend->get_static_mesh_pool(),
+                &m_assetManager,
                 m_backend->buffer_count(),
-                m_backend->width(), m_backend->height(), m_defaultCubeMeshId);
+                m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
+                m_defaultMaterialHandle);
             if (!result)
             {
                 m_playWorld.reset();

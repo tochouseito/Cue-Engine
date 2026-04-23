@@ -8,6 +8,37 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Resolve-SolutionPath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (Test-Path $Path)
+    {
+        return $Path
+    }
+
+    $solutionName = [System.IO.Path]::GetFileName($Path)
+    $candidates = @(
+        (Join-Path "out/build/win-x64" $solutionName),
+        (Join-Path "out/build/win-x64" ($solutionName -replace " ", "")),
+        (Join-Path "generated" $solutionName),
+        (Join-Path "." $solutionName)
+    )
+
+    foreach ($candidate in $candidates)
+    {
+        if (Test-Path $candidate)
+        {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 function Find-MSBuildExe
 {
     # 1) ユーザー環境で確認済みの Insiders パスを最優先
@@ -45,7 +76,8 @@ function Find-MSBuildExe
 }
 
 # 1) 入力チェック
-if (-not (Test-Path $Solution))
+$resolvedSolution = Resolve-SolutionPath -Path $Solution
+if (-not $resolvedSolution)
 {
     throw "Solution が見つかりません: $Solution"
 }
@@ -57,11 +89,10 @@ $msbuild = Find-MSBuildExe
 $target = if ($Rebuild) { "Rebuild" } else { "Build" }
 
 # 4) ビルド実行（NuGet restore はしない）
-& $msbuild $Solution `
+& $msbuild $resolvedSolution `
     "/t:$target" `
     "/p:Configuration=$Configuration" `
     "/p:Platform=$Platform" `
-    "/m" `
     "/nologo" `
     "/v:m" `
     "/clp:Summary;Verbosity=minimal"

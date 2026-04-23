@@ -8,6 +8,10 @@
 #include <Native/Handle.h>
 #include <Native/EngineNativeStruct.h>
 #include <Container/Registry.h>
+#include <IO/IFileSystem.h>
+
+// === Math Includes ===
+#include <CueMath.h>
 
 // === RHI Includes ===
 #include <StaticMeshPool.h>
@@ -22,15 +26,31 @@ namespace Cue
     struct ModelTag {};
     using ModelHandle = Core::Handle<ModelTag>;
 
+    struct MaterialTag {};
+    using MaterialHandle = Core::Handle<MaterialTag>;
+
+    struct MaterialDesc final
+    {
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+    };
+
     struct ModelAssetRecord final
     {
         Core::Native::ModelData modelData{};
         std::vector<RHI::StaticMeshHandle> staticMeshHandles{};
     };
 
+    struct MaterialAssetRecord final
+    {
+        std::string name{};
+        MaterialDesc desc{};
+    };
+
     class AssetManager final
     {
     public:
+        static constexpr uint32_t k_materialAssetVersion = 1;
+
         AssetManager() = default;
         ~AssetManager() = default;
         void initialize(RHI::IStaticMeshPool* a_staticMeshPool) noexcept
@@ -38,6 +58,15 @@ namespace Cue
             m_staticMeshPool = a_staticMeshPool;
         }
         Result create_cube_model(ModelHandle& outHandle);
+        Result create_material(std::string_view name, const MaterialDesc& desc,
+            MaterialHandle& outHandle);
+        Result create_color_material(std::string_view name,
+            const Math::float4& color, MaterialHandle& outHandle);
+        Result save_material(MaterialHandle handle,
+            Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath) const;
+        Result load_material(Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath, MaterialHandle& outHandle);
         Result get_model(ModelHandle handle, Core::Native::ModelData& outData) const
         {
             // asset manager の registry を唯一の原本として扱い、呼び出し側にはコピーだけ返す。
@@ -72,6 +101,48 @@ namespace Cue
             }
 
             outHandle = record.staticMeshHandles[meshIndex];
+            return Result::ok();
+        }
+        Result get_material(MaterialHandle handle, MaterialDesc& outDesc) const
+        {
+            MaterialAssetRecord record{};
+            if (!m_materialRegistry.try_copy_get(handle, record))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Material not found for the given handle.");
+            }
+
+            outDesc = record.desc;
+            return Result::ok();
+        }
+        Result get_material(std::string_view name, MaterialHandle& outHandle) const
+        {
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (!m_materialNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Material not found for the given name.");
+            }
+
+            outHandle = m_materialNameMap.at(nameId);
+            return Result::ok();
+        }
+        Result get_material_name(MaterialHandle handle, std::string& outName) const
+        {
+            MaterialAssetRecord record{};
+            if (!m_materialRegistry.try_copy_get(handle, record))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Material not found for the given handle.");
+            }
+
+            outName = record.name;
             return Result::ok();
         }
     private:
@@ -119,9 +190,30 @@ namespace Cue
             m_modelNameMap.emplace(nameId, outHandle);
             return Result::ok();
         }
+        Result add_material(std::string_view name, const MaterialDesc& desc,
+            MaterialHandle& outHandle)
+        {
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (m_materialNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Material with the same name already exists.");
+            }
+
+            MaterialAssetRecord record{};
+            record.name = std::string(name);
+            record.desc = desc;
+            outHandle = m_materialRegistry.create(record);
+            m_materialNameMap.emplace(nameId, outHandle);
+            return Result::ok();
+        }
     private:
         RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
         Core::Registry<ModelTag, ModelAssetRecord> m_modelRegistry;
         std::unordered_map<Core::ResourceNameId, ModelHandle> m_modelNameMap;
+        Core::Registry<MaterialTag, MaterialAssetRecord> m_materialRegistry;
+        std::unordered_map<Core::ResourceNameId, MaterialHandle> m_materialNameMap;
     };
 }

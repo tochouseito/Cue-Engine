@@ -87,18 +87,67 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Json serialize_static_mesh_renderer(
-            const ECS::StaticMeshRendererComponent& a_component)
+            const ECS::StaticMeshRendererComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
         {
-            return Json{
-                { "materialId", a_component.materialId },
+            Json rendererJson = {
                 { "visible", a_component.visible },
             };
+
+            if (!a_component.materialHandle.valid())
+            {
+                return rendererJson;
+            }
+
+            if (a_options.assetManager != nullptr)
+            {
+                std::string materialName{};
+                if (a_options.assetManager->get_material_name(
+                    a_component.materialHandle,
+                    materialName))
+                {
+                    rendererJson["materialName"] = materialName;
+                    return rendererJson;
+                }
+            }
+
+            rendererJson["materialHandleIndex"] = a_component.materialHandle.index;
+            rendererJson["materialHandleGeneration"] =
+                a_component.materialHandle.generation;
+            return rendererJson;
         }
 
         void deserialize_static_mesh_renderer(
-            const Json& a_json, ECS::StaticMeshRendererComponent& a_outComponent)
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::StaticMeshRendererComponent& a_outComponent)
         {
-            a_outComponent.materialId = a_json.at("materialId").get<uint32_t>();
+            a_outComponent.materialHandle = {};
+
+            const std::string materialName =
+                a_json.value("materialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(materialName, materialHandle))
+                {
+                    a_outComponent.materialHandle = materialHandle;
+                }
+            }
+
+            if (!a_outComponent.materialHandle.valid())
+            {
+                a_outComponent.materialHandle.index =
+                    a_json.value("materialHandleIndex", MaterialHandle::k_invalid);
+                a_outComponent.materialHandle.generation =
+                    a_json.value("materialHandleGeneration", 0u);
+                if (a_json.contains("materialId"))
+                {
+                    a_outComponent.materialHandle.index =
+                        a_json.at("materialId").get<uint32_t>();
+                    a_outComponent.materialHandle.generation = 0u;
+                }
+            }
             a_outComponent.visible = a_json.at("visible").get<bool>();
         }
 
@@ -307,7 +356,7 @@ namespace Cue::GameCore
                 renderer != nullptr)
             {
                 componentsJson["staticMeshRenderer"] =
-                    serialize_static_mesh_renderer(*renderer);
+                    serialize_static_mesh_renderer(*renderer, a_options);
             }
 
             if (const ECS::ScriptComponent* script =
@@ -322,7 +371,9 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result deserialize_object_definition(
-            const Json& a_json, ObjectDefinition& a_outDefinition) noexcept
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ObjectDefinition& a_outDefinition) noexcept
         {
             try
             {
@@ -382,7 +433,7 @@ namespace Cue::GameCore
                     rendererIt != componentsJson.end())
                 {
                     ECS::StaticMeshRendererComponent renderer{};
-                    deserialize_static_mesh_renderer(*rendererIt, renderer);
+                    deserialize_static_mesh_renderer(*rendererIt, a_options, renderer);
                     objectDefinition.prototype.add_component(renderer);
                 }
 
@@ -442,7 +493,8 @@ namespace Cue::GameCore
     Result SceneSerializer::load_scene_asset(
         Core::IO::IFileSystem& a_fileSystem,
         const Core::IO::Path& a_filePath,
-        SceneAsset& a_outSceneAsset) noexcept
+        SceneAsset& a_outSceneAsset,
+        const LoadOptions& a_options) noexcept
     {
         std::vector<std::byte> fileData{};
         Result result = a_fileSystem.read_all(a_filePath, &fileData);
@@ -459,7 +511,7 @@ namespace Cue::GameCore
             const Json root = Json::parse(text);
 
             const uint32_t version = root.at("version").get<uint32_t>();
-            if (version != k_currentVersion)
+            if (version != 1 && version != k_currentVersion)
             {
                 return Result::fail(Code::Unsupported, Severity::Error,
                     "Scene asset version is not supported.");
@@ -476,7 +528,8 @@ namespace Cue::GameCore
             for (const Json& objectJson : objectsJson)
             {
                 ObjectDefinition objectDefinition{};
-                result = deserialize_object_definition(objectJson, objectDefinition);
+                result = deserialize_object_definition(
+                    objectJson, a_options, objectDefinition);
                 if (!result)
                 {
                     return result;

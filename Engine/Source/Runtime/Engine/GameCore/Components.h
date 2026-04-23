@@ -6,6 +6,9 @@
 // === ECS includes ===
 #include <ECSManager.h>
 
+// === Asset includes ===
+#include <Asset/AssetManager.h>
+
 // === Engine includes ===
 #include "GameCoreTypes.h"
 
@@ -97,7 +100,7 @@ namespace Cue::ECS
         StaticMeshRendererComponent& operator=(const StaticMeshRendererComponent&) = default;
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
-        uint32_t materialId = 0; // マテリアルアセットの識別子
+        MaterialHandle materialHandle{}; // マテリアルアセットへの参照
         bool visible = true;
     };
 

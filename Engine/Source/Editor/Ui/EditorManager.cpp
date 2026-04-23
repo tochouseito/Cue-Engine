@@ -17,6 +17,7 @@
 #include <shellapi.h>
 
 // === C++ includes ===
+#include <algorithm>
 #include <span>
 #include <vector>
 
@@ -399,6 +400,63 @@ namespace Cue::Editor
             }
 
             return {};
+        }
+
+        [[nodiscard]] Result load_project_materials(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path materialRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Materials"));
+            bool materialRootExists = false;
+            Result result = a_fileSystem.exists(materialRoot, &materialRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!materialRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> materialPaths{};
+            result = a_fileSystem.list_directory(materialRoot, &materialPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(materialPaths.begin(), materialPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& materialPath : materialPaths)
+            {
+                if (materialPath.extension() != ".cuematerial")
+                {
+                    continue;
+                }
+
+                MaterialHandle materialHandle{};
+                result = a_engine.asset_manager().load_material(
+                    a_fileSystem, materialPath, materialHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
         }
 
         [[nodiscard]] std::string make_primary_build_message(
@@ -876,6 +934,7 @@ namespace Cue::Editor
         GameCore::SceneSerializer::SaveOptions saveOptions{};
         saveOptions.shouldSerializeScriptField = &should_serialize_script_field;
         saveOptions.userData = m_engine;
+        saveOptions.assetManager = &m_engine->asset_manager();
 
         result = GameCore::SceneSerializer::save_scene_asset(
             sceneAsset,
@@ -1819,9 +1878,29 @@ namespace Cue::Editor
             return result;
         }
 
+        ProjectSettings projectSettings{};
+        result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = load_project_materials(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
         GameCore::SceneAsset sceneAsset{};
+        GameCore::SceneSerializer::LoadOptions loadOptions{};
+        loadOptions.assetManager = &m_engine->asset_manager();
         result = GameCore::SceneSerializer::load_scene_asset(
-            *m_fileSystem, Core::IO::Path(m_currentScenePath), sceneAsset);
+            *m_fileSystem, Core::IO::Path(m_currentScenePath), sceneAsset, loadOptions);
         if (!result)
         {
             return result;

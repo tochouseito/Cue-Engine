@@ -1,7 +1,154 @@
 #include "AssetManager.h"
 
+// === C++ includes ===
+#include <span>
+
+// === ThirdParty includes ===
+#include <nlohmann/json.hpp>
+
 namespace Cue
 {
+    namespace
+    {
+        using Json = nlohmann::json;
+
+        [[nodiscard]] Json serialize_float4(const Math::float4& value)
+        {
+            return Json{
+                { "x", value.x },
+                { "y", value.y },
+                { "z", value.z },
+                { "w", value.w },
+            };
+        }
+
+        void deserialize_float4(const Json& json, Math::float4& outValue)
+        {
+            outValue.x = json.at("x").get<float>();
+            outValue.y = json.at("y").get<float>();
+            outValue.z = json.at("z").get<float>();
+            outValue.w = json.at("w").get<float>();
+        }
+    }
+
+    Result AssetManager::create_material(std::string_view name,
+        const MaterialDesc& desc, MaterialHandle& outHandle)
+    {
+        return add_material(name, desc, outHandle);
+    }
+
+    Result AssetManager::create_color_material(std::string_view name,
+        const Math::float4& color, MaterialHandle& outHandle)
+    {
+        MaterialDesc desc{};
+        desc.color = color;
+        return add_material(name, desc, outHandle);
+    }
+
+    Result AssetManager::save_material(MaterialHandle handle,
+        Core::IO::IFileSystem& fileSystem,
+        const Core::IO::Path& filePath) const
+    {
+        MaterialAssetRecord record{};
+        if (!m_materialRegistry.try_copy_get(handle, record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Material not found for the given handle.");
+        }
+
+        const Core::IO::Path normalizedPath = filePath.normalize();
+        if (normalizedPath.extension() != ".cuematerial")
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Material asset file extension must be .cuematerial.");
+        }
+
+        try
+        {
+            Json root = {
+                { "version", k_materialAssetVersion },
+                { "name", record.name },
+                { "color", serialize_float4(record.desc.color) },
+            };
+
+            std::string text = root.dump(4);
+            text.push_back('\n');
+
+            const std::span<const char> charSpan(text.data(), text.size());
+            const std::span<const std::byte> byteSpan = std::as_bytes(charSpan);
+            return fileSystem.write_all(normalizedPath, byteSpan, true);
+        }
+        catch (...)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Material asset could not be serialized.");
+        }
+    }
+
+    Result AssetManager::load_material(Core::IO::IFileSystem& fileSystem,
+        const Core::IO::Path& filePath, MaterialHandle& outHandle)
+    {
+        outHandle = {};
+
+        const Core::IO::Path normalizedPath = filePath.normalize();
+        if (normalizedPath.extension() != ".cuematerial")
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Material asset file extension must be .cuematerial.");
+        }
+
+        std::vector<std::byte> fileData{};
+        Result result = fileSystem.read_all(normalizedPath, &fileData);
+        if (!result)
+        {
+            return result;
+        }
+
+        try
+        {
+            const std::string text(
+                reinterpret_cast<const char*>(fileData.data()),
+                fileData.size());
+            const Json root = Json::parse(text);
+
+            const uint32_t version = root.at("version").get<uint32_t>();
+            if (version != k_materialAssetVersion)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Material asset version is not supported.");
+            }
+
+            MaterialDesc desc{};
+            deserialize_float4(root.at("color"), desc.color);
+
+            const std::string materialName =
+                root.value("name", normalizedPath.stem());
+            Result existingResult = get_material(materialName, outHandle);
+            if (existingResult)
+            {
+                return Result::ok();
+            }
+            return add_material(materialName, desc, outHandle);
+        }
+        catch (...)
+        {
+            return Result::fail(
+                Code::GetFailed,
+                Severity::Error,
+                "Material asset could not be parsed.");
+        }
+    }
+
     Result AssetManager::create_cube_model(ModelHandle& outHandle)
     {
         // 構造体の用意

@@ -19,6 +19,7 @@ namespace Cue
         RenderableInfoBuffer = 0,
         TransformBuffer,
         ViewProjectionBuffer,
+        MaterialBuffer,
         RenderObjectBuffer,
         VisibleObjectCountBuffer,
         Count
@@ -39,6 +40,7 @@ namespace Cue
         Result create_renderable_info_buffer(const uint32_t a_maxObjectCount);
         Result create_transform_buffer(const uint32_t a_maxObjectCount);
         Result create_view_projection_buffer();
+        Result create_material_buffer(const uint32_t a_maxMaterialCount);
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
 
@@ -55,6 +57,11 @@ namespace Cue
             render_object_uploaders() noexcept
         {
             return m_renderObjectUploaders;
+        }
+        std::vector<RHI::SlotUploader<GpuData::MaterialGpu>>&
+            material_uploaders() noexcept
+        {
+            return m_materialUploaders;
         }
         std::vector<RHI::SlotUploader<uint32_t>>&
             visible_object_count_uploaders() noexcept
@@ -75,6 +82,7 @@ namespace Cue
         std::vector<RHI::SlotUploader<GpuData::RenderableInfo>>
             m_renderableInfoUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::MaterialGpu>> m_materialUploaders{};
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};
