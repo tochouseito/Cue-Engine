@@ -73,6 +73,72 @@ namespace Cue
         {
             return m_viewProjectionUploaders;
         }
+
+        [[nodiscard]] RHI::BufferHandle renderable_info_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::RenderableInfoBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle transform_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::TransformBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle view_projection_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::ViewProjectionBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle material_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::MaterialBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle render_object_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::RenderObjectBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle visible_object_count_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::VisibleObjectCountBuffer)];
+        }
+
+        [[nodiscard]] RHI::ViewHandle renderable_info_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::RenderableInfoBuffer)];
+        }
+
+        [[nodiscard]] RHI::ViewHandle transform_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::TransformBuffer)];
+        }
+
+        [[nodiscard]] RHI::ViewHandle material_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::MaterialBuffer)];
+        }
+
+        [[nodiscard]] RHI::ViewHandle render_object_buffer_uav_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::RenderObjectBuffer)];
+        }
+
+        [[nodiscard]] RHI::ViewHandle visible_object_count_buffer_uav_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::VisibleObjectCountBuffer)];
+        }
     private:
         RHI::IBufferManager* m_bufferManager = nullptr;
         RHI::IViewManager* m_viewManager = nullptr;

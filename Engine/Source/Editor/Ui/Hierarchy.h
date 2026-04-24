@@ -149,16 +149,22 @@ namespace Cue::Editor
                     m_renameBuffer.data(), m_renameBuffer.size(),
                     ImGuiInputTextFlags_AutoSelectAll |
                     ImGuiInputTextFlags_EnterReturnsTrue);
-                const bool deactivated = ImGui::IsItemDeactivatedAfterEdit();
+                const bool deactivatedAfterEdit =
+                    ImGui::IsItemDeactivatedAfterEdit();
+                const bool deactivated = ImGui::IsItemDeactivated();
                 const bool isActive = ImGui::IsItemActive();
                 const bool isEscapePressed =
                     isActive && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 
-                if (submitted || deactivated)
+                if (submitted || deactivatedAfterEdit)
                 {
                     submit_rename_command(a_object.entityId);
                 }
                 else if (isEscapePressed)
+                {
+                    cancel_rename();
+                }
+                else if (deactivated)
                 {
                     cancel_rename();
                 }

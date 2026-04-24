@@ -11,8 +11,10 @@ namespace Cue
     class TransformBufferCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit TransformBufferCopyPass(const RenderSceneState& a_renderSceneState)
+        TransformBufferCopyPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_transformBufferHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_transformBufferHandle(a_transformBufferHandle)
         {}
 
         const char* name() const noexcept override { return "TransformBufferCopy"; }
@@ -24,7 +26,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("TransformBuffer", m_transformBufferHandle);
+            return builder.read_buffer(m_transformBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override

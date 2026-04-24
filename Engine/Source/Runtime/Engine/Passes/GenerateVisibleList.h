@@ -11,8 +11,21 @@ namespace Cue
     class GenerateVisibleListPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit GenerateVisibleListPass(const RenderSceneState& a_renderSceneState)
+        GenerateVisibleListPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderableInfoBufferHandle,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::ViewHandle a_renderableInfoBufferSrvHandle,
+            RHI::ViewHandle a_renderObjectBufferUavHandle,
+            RHI::ViewHandle a_visibleObjectCountBufferUavHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_renderableInfoBufferHandle(a_renderableInfoBufferHandle)
+            , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
+            , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
+            , m_renderableInfoBufferSrvHandle(a_renderableInfoBufferSrvHandle)
+            , m_renderObjectBufferUavHandle(a_renderObjectBufferUavHandle)
+            , m_visibleObjectCountBufferUavHandle(
+                  a_visibleObjectCountBufferUavHandle)
         {}
 
         const char* name() const noexcept override { return "GenerateVisibleList"; }
@@ -34,41 +47,17 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            // 必要なバッファをフレームグラフに宣言する。
-            Result result =
-                builder.get_buffer("RenderableInfoBuffer",
-                    m_renderableInfoBufferHandle);
+            Result result = builder.read_buffer(m_renderableInfoBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            result = builder.read_buffer(m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result =
-                builder.get_view("RenderableInfoBufferSRV",
-                    m_renderableInfoBufferSrvHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("RenderObjectBufferUAV",
-                m_renderObjectBufferUavHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("VisibleObjectCountBufferUAV",
-                m_visibleObjectCountBufferUavHandle);
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;

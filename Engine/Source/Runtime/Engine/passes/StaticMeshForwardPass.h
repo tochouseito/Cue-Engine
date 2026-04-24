@@ -16,8 +16,18 @@ namespace Cue
     {
     public:
         StaticMeshForwardPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_transformBufferHandle,
+            RHI::BufferHandle a_viewProjectionBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::BufferHandle a_materialBufferHandle,
             uint32_t a_indexCountPerInstance)
             : m_renderSceneState(a_renderSceneState),
+            m_renderObjectBufferHandle(a_renderObjectBufferHandle),
+            m_transformBufferHandle(a_transformBufferHandle),
+            m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
+            m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle),
+            m_materialBufferHandle(a_materialBufferHandle),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -73,19 +83,17 @@ namespace Cue
                 return result;
             }
 
-            result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            result = builder.read_buffer(m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("TransformBuffer", m_transformBufferHandle);
+            result = builder.read_buffer(m_transformBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("ViewProjectionBuffer",
-                m_viewProjectionBufferHandle);
+            result = builder.read_buffer(m_viewProjectionBufferHandle);
             if (!result)
             {
                 return result;
@@ -129,13 +137,12 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("MaterialBuffer", m_materialBufferHandle);
+            result = builder.read_buffer(m_materialBufferHandle);
             if (!result)
             {
                 return result;

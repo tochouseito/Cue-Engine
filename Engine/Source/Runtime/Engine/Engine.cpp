@@ -398,6 +398,12 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine active world is not initialized.");
         }
+        const WorldResources* worldResources = m_activeWorld->world_resources();
+        if (worldResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine world resources are not initialized.");
+        }
 
         m_frameGraph.reset();
 
@@ -412,21 +418,42 @@ namespace Cue
         }
 
         m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
-            m_activeWorld->render_scene_state()));
+            m_activeWorld->render_scene_state(),
+            worldResources->renderable_info_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>());
-        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>());
+            m_activeWorld->render_scene_state(),
+            worldResources->transform_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+            worldResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
+            worldResources->material_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
-            m_activeWorld->render_scene_state()));
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(
-            m_activeWorld->render_scene_state()));
+            m_activeWorld->render_scene_state(),
+            worldResources->visible_object_count_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_activeWorld->render_scene_state()));
+            m_activeWorld->render_scene_state(),
+            worldResources->renderable_info_buffer_handle(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle(),
+            worldResources->renderable_info_buffer_srv_handle(),
+            worldResources->render_object_buffer_uav_handle(),
+            worldResources->visible_object_count_buffer_uav_handle()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_activeWorld->render_scene_state()));
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_activeWorld->render_scene_state(), m_cubeIndexCount));
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            worldResources->view_projection_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle(),
+            worldResources->material_buffer_handle(),
+            m_cubeIndexCount));
 
         result = m_frameGraph->build();
         if (!result)

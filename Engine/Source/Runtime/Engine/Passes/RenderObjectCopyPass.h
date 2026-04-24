@@ -12,8 +12,10 @@ namespace Cue
     class RenderObjectCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit RenderObjectCopyPass(const RenderSceneState& a_renderSceneState)
+        RenderObjectCopyPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderObjectBufferHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
         {}
 
         const char* name() const noexcept override { return "RenderObjectCopy"; }
@@ -37,7 +39,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            return builder.read_buffer(m_renderObjectBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override

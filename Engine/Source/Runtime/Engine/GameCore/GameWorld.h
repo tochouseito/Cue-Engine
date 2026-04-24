@@ -169,6 +169,11 @@ namespace Cue::GameCore
             return m_renderSceneState;
         }
 
+        [[nodiscard]] const WorldResources* world_resources() const noexcept
+        {
+            return m_worldResources.get();
+        }
+
         void set_cpu_batching_enabled(bool a_enabled) noexcept
         {
             m_isCpuBatchingEnabled = a_enabled;

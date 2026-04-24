@@ -12,8 +12,14 @@ namespace Cue
     class StaticMeshBatchingPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit StaticMeshBatchingPass(const RenderSceneState& a_renderSceneState)
+        StaticMeshBatchingPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_transformBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
+            , m_transformBufferHandle(a_transformBufferHandle)
+            , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {}
 
         const char* name() const noexcept override { return "StaticMeshBatching"; }
@@ -37,13 +43,12 @@ namespace Cue
         {
             constexpr uint32_t k_maxObjectCount = 1000;
 
-            Result result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            Result result = builder.read_buffer(m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("TransformBuffer", m_transformBufferHandle);
+            result = builder.read_buffer(m_transformBufferHandle);
             if (!result)
             {
                 return result;
@@ -54,8 +59,7 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;

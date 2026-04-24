@@ -12,6 +12,10 @@ namespace Cue
     class MaterialBufferCopyPass final : public RHI::FrameGraphPass
     {
     public:
+        explicit MaterialBufferCopyPass(RHI::BufferHandle a_materialBufferHandle)
+            : m_materialBufferHandle(a_materialBufferHandle)
+        {}
+
         const char* name() const noexcept override { return "MaterialBufferCopy"; }
 
         RHI::CommandListType type() const noexcept override
@@ -21,7 +25,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("MaterialBuffer", m_materialBufferHandle);
+            return builder.read_buffer(m_materialBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override

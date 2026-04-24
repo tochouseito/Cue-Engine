@@ -2541,6 +2541,28 @@ namespace Cue::Editor
             {
                 const bool canUndo = m_bridge != nullptr && m_bridge->can_undo();
                 const bool canRedo = m_bridge != nullptr && m_bridge->can_redo();
+                const bool canAddObject =
+                    m_bridge != nullptr && !m_isScriptActionActive;
+
+                if (ImGui::MenuItem(
+                        "オブジェクトを追加する", nullptr, false, canAddObject))
+                {
+                    const Result result = m_bridge->submit_command(
+                        std::make_unique<AddObjectCommand>());
+                    if (!result)
+                    {
+                        log_result("Failed to add object", result);
+                        set_status_message(
+                            "オブジェクトの追加に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            "オブジェクトを追加しました。", false);
+                    }
+                }
+
+                ImGui::Separator();
 
                 if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo))
                 {

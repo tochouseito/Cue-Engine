@@ -11,6 +11,11 @@ namespace Cue
     class ViewProjectionCopyPass final : public RHI::FrameGraphPass
     {
     public:
+        explicit ViewProjectionCopyPass(
+            RHI::BufferHandle a_viewProjectionBufferHandle)
+            : m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
+        {}
+
         const char* name() const noexcept override { return "ViewProjectionCopy"; }
 
         RHI::CommandListType type() const noexcept override
@@ -20,7 +25,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("ViewProjectionBuffer", m_viewProjectionBufferHandle);
+            return builder.read_buffer(m_viewProjectionBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override

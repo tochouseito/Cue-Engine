@@ -11,8 +11,10 @@ namespace Cue
     class RenderableInfoCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit RenderableInfoCopyPass(const RenderSceneState& a_renderSceneState)
+        RenderableInfoCopyPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderableInfoBufferHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_renderableInfoBufferHandle(a_renderableInfoBufferHandle)
         {}
 
         const char* name() const noexcept override { return "RenderableInfoCopy"; }
@@ -34,7 +36,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer("RenderableInfoBuffer",
+            return builder.read_buffer(
                 m_renderableInfoBufferHandle);
         }
 

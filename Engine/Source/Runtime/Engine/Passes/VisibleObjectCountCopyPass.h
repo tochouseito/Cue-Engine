@@ -11,8 +11,10 @@ namespace Cue
     class VisibleObjectCountCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit VisibleObjectCountCopyPass(const RenderSceneState& a_renderSceneState)
+        VisibleObjectCountCopyPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle)
             : m_renderSceneState(a_renderSceneState)
+            , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {}
 
         const char* name() const noexcept override
@@ -37,8 +39,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.get_buffer(
-                "VisibleObjectCountBuffer", m_visibleObjectCountBufferHandle);
+            return builder.read_buffer(m_visibleObjectCountBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
