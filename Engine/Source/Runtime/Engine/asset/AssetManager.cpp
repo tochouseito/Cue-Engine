@@ -1,16 +1,34 @@
 #include "AssetManager.h"
 
 // === C++ includes ===
+#include <algorithm>
+#include <cstring>
 #include <span>
 
 // === ThirdParty includes ===
 #include <nlohmann/json.hpp>
+
+// === Win includes ===
+#include "../../PAL/Win/ConvertUTF.h"
+#include <wincodec.h>
+#include <wrl/client.h>
 
 namespace Cue
 {
     namespace
     {
         using Json = nlohmann::json;
+        using WicFactory = Microsoft::WRL::ComPtr<IWICImagingFactory>;
+        using WicDecoder = Microsoft::WRL::ComPtr<IWICBitmapDecoder>;
+        using WicFrame = Microsoft::WRL::ComPtr<IWICBitmapFrameDecode>;
+        using WicConverter = Microsoft::WRL::ComPtr<IWICFormatConverter>;
+
+        struct LoadedTextureData final
+        {
+            uint32_t width = 0;
+            uint32_t height = 0;
+            std::vector<std::byte> pixels{};
+        };
 
         [[nodiscard]] Json serialize_float4(const Math::float4& value)
         {
@@ -28,6 +46,121 @@ namespace Cue
             outValue.y = json.at("y").get<float>();
             outValue.z = json.at("z").get<float>();
             outValue.w = json.at("w").get<float>();
+        }
+
+        [[nodiscard]] Result load_png_rgba8(
+            const Core::IO::Path& filePath,
+            LoadedTextureData& outTextureData)
+        {
+            std::wstring widePath{};
+            Result convertResult =
+                PAL::Win::utf8_to_wide(filePath.normalize().utf8(), &widePath);
+            if (!convertResult)
+            {
+                return convertResult;
+            }
+
+            WicFactory factory{};
+            HRESULT hr = ::CoCreateInstance(
+                CLSID_WICImagingFactory,
+                nullptr,
+                CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&factory));
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to create WIC imaging factory.");
+            }
+
+            WicDecoder decoder{};
+            hr = factory->CreateDecoderFromFilename(
+                widePath.c_str(),
+                nullptr,
+                GENERIC_READ,
+                WICDecodeMetadataCacheOnDemand,
+                &decoder);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to open texture image file.");
+            }
+
+            WicFrame frame{};
+            hr = decoder->GetFrame(0, &frame);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to decode texture image frame.");
+            }
+
+            WicConverter converter{};
+            hr = factory->CreateFormatConverter(&converter);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to create WIC format converter.");
+            }
+
+            hr = converter->Initialize(
+                frame.Get(),
+                GUID_WICPixelFormat32bppRGBA,
+                WICBitmapDitherTypeNone,
+                nullptr,
+                0.0f,
+                WICBitmapPaletteTypeCustom);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to convert texture image to RGBA8.");
+            }
+
+            hr = converter->GetSize(&outTextureData.width, &outTextureData.height);
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to get texture image size.");
+            }
+
+            if (outTextureData.width == 0 || outTextureData.height == 0)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Texture image size must be greater than zero.");
+            }
+
+            const uint32_t bytesPerPixel = 4;
+            const uint64_t rowPitch =
+                static_cast<uint64_t>(outTextureData.width) * bytesPerPixel;
+            const uint64_t totalByteSize =
+                rowPitch * static_cast<uint64_t>(outTextureData.height);
+            outTextureData.pixels.resize(static_cast<size_t>(totalByteSize));
+            hr = converter->CopyPixels(
+                nullptr,
+                static_cast<UINT>(rowPitch),
+                static_cast<UINT>(totalByteSize),
+                reinterpret_cast<BYTE*>(outTextureData.pixels.data()));
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to copy texture image pixels.");
+            }
+
+            return Result::ok();
         }
     }
 
@@ -73,6 +206,7 @@ namespace Cue
                 { "version", k_materialAssetVersion },
                 { "name", record.name },
                 { "color", serialize_float4(record.desc.color) },
+                { "textureId", record.desc.textureId },
             };
 
             std::string text = root.dump(4);
@@ -130,6 +264,7 @@ namespace Cue
 
             MaterialDesc desc{};
             deserialize_float4(root.at("color"), desc.color);
+            desc.textureId = root.value("textureId", k_errorTextureId);
 
             const std::string materialName =
                 root.value("name", normalizedPath.stem());
@@ -161,6 +296,110 @@ namespace Cue
                 Severity::Error,
                 "Material asset could not be parsed.");
         }
+    }
+
+    Result AssetManager::register_texture_from_png(std::string_view name,
+        const Core::IO::Path& filePath,
+        uint32_t& outTextureId)
+    {
+        outTextureId = k_errorTextureId;
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        if (m_textureNameMap.contains(nameId))
+        {
+            outTextureId = m_textureNameMap.at(nameId);
+            return Result::ok();
+        }
+
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Texture manager is not initialized in AssetManager.");
+        }
+
+        LoadedTextureData loadedTextureData{};
+        Result result = load_png_rgba8(filePath, loadedTextureData);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::TextureDesc textureDesc{};
+        textureDesc.name = std::string(name);
+        textureDesc.width = loadedTextureData.width;
+        textureDesc.height = loadedTextureData.height;
+        textureDesc.mipLevels = 1;
+        textureDesc.arraySize = 1;
+        textureDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
+
+        const uint32_t rowPitch = loadedTextureData.width * 4u;
+        RHI::TextureSubresourceData subresourceData{};
+        subresourceData.data = loadedTextureData.pixels.data();
+        subresourceData.dataSize = loadedTextureData.pixels.size();
+        subresourceData.rowPitch = rowPitch;
+        subresourceData.slicePitch =
+            rowPitch * loadedTextureData.height;
+
+        RHI::TextureHandle textureHandle{};
+        result = m_textureManager->create_texture(
+            textureDesc,
+            std::span<const RHI::TextureSubresourceData>(&subresourceData, 1),
+            textureHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_textureManager->get_texture_descriptor_index(
+            textureHandle,
+            outTextureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (outTextureId >= m_textures.size())
+        {
+            m_textures.resize(static_cast<size_t>(outTextureId) + 1);
+        }
+
+        m_textures[outTextureId] = TextureAssetRecord{
+            std::string(name),
+            textureHandle
+        };
+        m_textureNameMap.emplace(nameId, outTextureId);
+        return Result::ok();
+    }
+
+    Result AssetManager::register_error_texture_from_png(
+        const Core::IO::Path& filePath)
+    {
+        if (!m_textures.empty())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Error texture must be registered before any other texture.");
+        }
+
+        uint32_t textureId = k_errorTextureId;
+        Result result = register_texture_from_png("CueDummy", filePath, textureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (textureId != k_errorTextureId)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Error texture id must be zero.");
+        }
+
+        return Result::ok();
     }
 
     Result AssetManager::create_cube_model(ModelHandle& outHandle)

@@ -32,6 +32,10 @@ namespace Cue::GpuData
     struct MaterialGpu
     {
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        uint32_t textureId = 0;
+        uint32_t padding0 = 0;
+        uint32_t padding1 = 0;
+        uint32_t padding2 = 0;
     };
 
     // インダイレクト描画コマンド

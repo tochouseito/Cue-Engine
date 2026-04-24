@@ -23,10 +23,9 @@ namespace Cue::RHI::DX12
             case ViewType::ShaderResourceRawBuffer:
             case ViewType::UnorderedAccessBuffer:
             case ViewType::UnorderedAccessRawBuffer:
-                return TableKind::Buffers;
             case ViewType::ShaderResourceTexture2D:
             case ViewType::UnorderedAccessTexture2D:
-                return TableKind::Textures;
+                return TableKind::Buffers;
             case ViewType::RenderTarget:
                 return TableKind::RenderTargets;
             case ViewType::DepthStencil:

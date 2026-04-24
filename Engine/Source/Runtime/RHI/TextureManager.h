@@ -3,6 +3,10 @@
 // === RHI Includes ===
 #include "RHICommon.h"
 
+// === C++ includes ===
+#include <cstddef>
+#include <span>
+
 namespace Cue::RHI
 {
     enum class TextureType : uint8_t
@@ -36,6 +40,14 @@ namespace Cue::RHI
         uint8_t clearStencil = 0; // 深度ステンシル用のクリアステンシル値
     };
 
+    struct TextureSubresourceData final
+    {
+        const std::byte* data = nullptr;
+        uint64_t dataSize = 0;
+        uint32_t rowPitch = 0;
+        uint32_t slicePitch = 0;
+    };
+
     class ITextureManager
     {
     public:
@@ -50,7 +62,12 @@ namespace Cue::RHI
 
         // --- テクスチャの生成と破棄 ---
         virtual Result create_texture(const TextureDesc& desc, TextureHandle& out) = 0;
+        virtual Result create_texture(const TextureDesc& desc,
+            std::span<const TextureSubresourceData> initialData,
+            TextureHandle& out) = 0;
         virtual Result destroy_texture(TextureHandle handle) = 0;
+        virtual Result get_texture_descriptor_index(TextureHandle handle,
+            uint32_t& outIndex) = 0;
 
         // --- 名前からテクスチャハンドルの取得 ---
         virtual Result get_texture(std::string_view name, TextureHandle& out) = 0;

@@ -52,6 +52,10 @@ target_link_libraries(Engine PUBLIC
 # インクルードディレクトリの追加
 target_include_directories(Engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
+target_compile_definitions(Engine PRIVATE
+    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
+)
+
 if(MSVC)
     target_compile_options(Engine PRIVATE /FS)
 endif()

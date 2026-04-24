@@ -35,7 +35,7 @@ namespace Cue::RHI::DX12
 
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
-        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
+        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice, *m_descriptorAllocator);
         m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
         m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_renderDevice, *m_hlslCompiler);
 

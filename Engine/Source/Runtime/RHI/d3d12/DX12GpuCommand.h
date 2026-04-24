@@ -72,6 +72,7 @@ namespace Cue::RHI::DX12
         Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) override;
         Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) override;
+        Result set_graphics_texture_table(uint32_t rootParameterIndex) override;
         Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;

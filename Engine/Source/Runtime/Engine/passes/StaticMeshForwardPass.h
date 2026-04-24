@@ -157,6 +157,12 @@ namespace Cue
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                0,
+                0,
+                1 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
@@ -222,9 +228,7 @@ namespace Cue
             result = builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
             if (!result)
             {
-                return Result::fail(
-                    result.code, Severity::Error,
-                    "Failed to create graphics pipeline for StaticMeshForward pass.");
+                return result;
             }
 
             return Result::ok();
@@ -436,15 +440,16 @@ namespace Cue
             const Clock::time_point bindingStartTime = Clock::now();
             commandContext->set_32bit_constant(0, 0xffffffffu);
             commandContext->set_cbv(1, m_viewProjectionBufferHandle);
-            commandContext->set_srv(2, m_renderObjectBufferHandle);
-            commandContext->set_srv(3, m_transformBufferHandle);
-            commandContext->set_srv(4, m_positionBufferHandle);
-            commandContext->set_srv(5, m_uvBufferHandle);
-            commandContext->set_srv(6, m_normalBufferHandle);
-            commandContext->set_srv(7, m_indexBufferHandle);
-            commandContext->set_srv(8, m_meshRangeBufferHandle);
-            commandContext->set_srv(9, m_visibleObjectCountBufferHandle);
-            commandContext->set_srv(10, m_materialBufferHandle);
+            commandContext->set_graphics_texture_table(2);
+            commandContext->set_srv(3, m_renderObjectBufferHandle);
+            commandContext->set_srv(4, m_transformBufferHandle);
+            commandContext->set_srv(5, m_positionBufferHandle);
+            commandContext->set_srv(6, m_uvBufferHandle);
+            commandContext->set_srv(7, m_normalBufferHandle);
+            commandContext->set_srv(8, m_indexBufferHandle);
+            commandContext->set_srv(9, m_meshRangeBufferHandle);
+            commandContext->set_srv(10, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(11, m_materialBufferHandle);
             add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
             if (frameState.useCpuBatching)

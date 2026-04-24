@@ -436,7 +436,7 @@ namespace Cue::RHI::DX12
             {
                 d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
                 d3dParam.Constants.ShaderRegister = parmDesc.shaderRegister;
-                d3dParam.Constants.RegisterSpace = 0;
+                d3dParam.Constants.RegisterSpace = parmDesc.registerSpace;
                 d3dParam.Constants.Num32BitValues = 1;
                 d3dParameters.push_back(d3dParam);
                 continue;
@@ -446,9 +446,12 @@ namespace Cue::RHI::DX12
             {
                 D3D12_DESCRIPTOR_RANGE descriptorRange{};
                 descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
-                descriptorRange.NumDescriptors = 1;
+                descriptorRange.NumDescriptors =
+                    parmDesc.descriptorCount == 0
+                    ? UINT_MAX
+                    : parmDesc.descriptorCount;
                 descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
-                descriptorRange.RegisterSpace = 0;
+                descriptorRange.RegisterSpace = parmDesc.registerSpace;
                 descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
                 d3dDescriptorRanges.push_back(descriptorRange);
 
@@ -461,7 +464,7 @@ namespace Cue::RHI::DX12
 
             d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
             d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
-            d3dParam.Descriptor.RegisterSpace = 0;
+            d3dParam.Descriptor.RegisterSpace = parmDesc.registerSpace;
             d3dParameters.push_back(d3dParam);
         }
 

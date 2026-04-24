@@ -941,6 +941,21 @@ namespace Cue::RHI::DX12
         m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_graphics_texture_table(uint32_t rootParameterIndex)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Graphics texture tables can only be set on graphics command lists.");
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+            m_descriptorAllocator.get_table_base_gpu(TableKind::Textures);
+        m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
     {
         Result result = validate_root_binding_command_type(

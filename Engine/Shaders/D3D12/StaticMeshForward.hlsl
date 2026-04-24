@@ -32,6 +32,7 @@ StructuredBuffer<uint> g_indices : register(t5);
 StructuredBuffer<MeshRange> g_meshRanges : register(t6);
 ByteAddressBuffer g_renderObjectCount : register(t7);
 StructuredBuffer<Material> g_materials : register(t8);
+Texture2D<float4> g_textures[] : register(t0, space1);
 
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
@@ -72,7 +73,17 @@ float4 ps_main(VsOut input) : SV_Target0
 {
     const float3 lightDirection = normalize(float3(-0.4f, -0.7f, -0.6f));
     const float ndotl = saturate(dot(normalize(input.worldNormal), -lightDirection));
-    const float3 baseColor = g_materials[input.materialId].color.rgb;
+    const Material material = g_materials[input.materialId];
+    uint textureWidth = 1;
+    uint textureHeight = 1;
+    g_textures[material.textureId].GetDimensions(textureWidth, textureHeight);
+    const float2 wrappedUv = frac(input.texcoord);
+    const uint2 texelCoord = uint2(
+        min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
+        min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
+    const float3 textureColor =
+        g_textures[material.textureId].Load(int3(texelCoord, 0)).rgb;
+    const float3 baseColor = material.color.rgb * textureColor;
     const float3 color = baseColor * (0.2f + ndotl * 0.8f);
     return float4(color, 1.0f);
 }

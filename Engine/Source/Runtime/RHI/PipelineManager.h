@@ -29,6 +29,8 @@ namespace Cue::RHI
         RootParameterType type;
         ShaderVisibility visibility;
         uint32_t shaderRegister;
+        uint32_t descriptorCount = 1;
+        uint32_t registerSpace = 0;
     };
 
     struct RootSignatureDesc

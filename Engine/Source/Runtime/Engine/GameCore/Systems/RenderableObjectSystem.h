@@ -299,6 +299,7 @@ namespace Cue::ECS
                 {
                     GpuData::MaterialGpu gpuMaterial{};
                     gpuMaterial.color = materialDesc.color;
+                    gpuMaterial.textureId = materialDesc.textureId;
                     if (!m_currentMaterialUploader->push(materialId, gpuMaterial))
                     {
                         CUE_ASSERTF(false,

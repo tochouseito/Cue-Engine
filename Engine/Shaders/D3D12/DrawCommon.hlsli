@@ -18,6 +18,10 @@ struct RenderObject
 struct Material
 {
     float4 color;
+    uint textureId;
+    uint padding0;
+    uint padding1;
+    uint padding2;
 };
 
 struct Transform

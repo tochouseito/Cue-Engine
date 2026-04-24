@@ -13,6 +13,7 @@
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
+#include <IO/Path.h>
 
 // === C++ includes ===
 #include <array>
@@ -53,7 +54,28 @@ namespace Cue
                 "Failed to get static mesh pool from backend.");
         }
 
-        m_assetManager.initialize(staticMeshPool);
+        auto* textureManager = m_backend->get_texture_manager();
+        if (textureManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get texture manager from backend.");
+        }
+
+        m_assetManager.initialize(staticMeshPool, textureManager);
+
+#ifdef CUE_PROJECT_ROOT_PATH
+        result = m_assetManager.register_error_texture_from_png(
+            Core::IO::Path::join(
+                Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+                Core::IO::Path("Engine/Textures/CueDummy.png")));
+        if (!result)
+        {
+            return result;
+        }
+#else
+        return Result::fail(Code::InvalidState, Severity::Fatal,
+            "CUE_PROJECT_ROOT_PATH is not defined for Engine.");
+#endif
 
         m_defaultMaterialHandle = MaterialHandle{};
         result = m_assetManager.create_color_material(
