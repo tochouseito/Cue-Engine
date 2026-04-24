@@ -448,11 +448,34 @@ namespace Cue::Editor
                 return;
             }
 
+            sync_transform_edit_state(a_object.entity_id(), *component);
+
             ImGui::TextUnformatted("TransformComponent");
             ImGui::Separator();
-            draw_float3_text("position", component->position);
-            draw_float3_text("rotation", component->rotation);
-            draw_float3_text("scale", component->scale);
+
+            bool isEdited = false;
+            bool shouldSubmit = false;
+            shouldSubmit = draw_transform_float3_editor("position",
+                               m_transformEditComponent.position, isEdited) ||
+                shouldSubmit;
+            shouldSubmit = draw_transform_float3_editor("rotation",
+                               m_transformEditComponent.rotation, isEdited) ||
+                shouldSubmit;
+            shouldSubmit = draw_transform_float3_editor("scale",
+                               m_transformEditComponent.scale, isEdited) ||
+                shouldSubmit;
+
+            if (isEdited)
+            {
+                *component = m_transformEditComponent;
+            }
+
+            if (shouldSubmit)
+            {
+                submit_set_transform_component_command(
+                    m_transformOriginalComponent,
+                    m_transformEditComponent);
+            }
         }
 
         void draw_camera_component(GameCore::GameObject& a_object)
@@ -2451,6 +2474,48 @@ namespace Cue::Editor
                 a_value.z);
         }
 
+        void sync_transform_edit_state(GameCore::EntityId a_entityId,
+            const ECS::TransformComponent& a_component)
+        {
+            if (m_transformEditEntityId == a_entityId &&
+                m_isEditingTransform)
+            {
+                return;
+            }
+
+            m_transformEditEntityId = a_entityId;
+            m_transformEditComponent = a_component;
+        }
+
+        [[nodiscard]] bool draw_transform_float3_editor(
+            const char* a_label,
+            Math::float3& a_value,
+            bool& a_outIsEdited)
+        {
+            float values[3] = { a_value.x, a_value.y, a_value.z };
+            if (ImGui::DragFloat3(a_label, values, 0.01f))
+            {
+                a_value.x = values[0];
+                a_value.y = values[1];
+                a_value.z = values[2];
+                a_outIsEdited = true;
+            }
+
+            if (ImGui::IsItemActivated())
+            {
+                m_isEditingTransform = true;
+                m_transformOriginalComponent = m_transformEditComponent;
+            }
+
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                m_isEditingTransform = false;
+                return true;
+            }
+
+            return false;
+        }
+
         void draw_renderable_id_text(const char* a_label, uint32_t a_value)
         {
             if (a_value == ECS::k_invalidRenderableId)
@@ -2486,6 +2551,29 @@ namespace Cue::Editor
             {
                 CUE_ASSERTF(false,
                     "Failed to submit add component command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file,
+                    result.line, result.function);
+            }
+        }
+
+        void submit_set_transform_component_command(
+            const ECS::TransformComponent& a_oldComponent,
+            const ECS::TransformComponent& a_component)
+        {
+            if (editorBridge == nullptr || m_selectedEntityId == nullptr ||
+                *m_selectedEntityId == GameCore::k_invalidEntityId)
+            {
+                return;
+            }
+
+            Result result = editorBridge->submit_command(
+                std::make_unique<SetTransformComponentCommand>(
+                    *m_selectedEntityId, a_oldComponent, a_component));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit set TransformComponent command: %s (code: %s, severity: %s) at %s:%u in function %s",
                     result.message.data(), Cue::to_string(result.code),
                     Cue::to_string(result.severity), result.file,
                     result.line, result.function);
@@ -2569,6 +2657,11 @@ namespace Cue::Editor
         Engine* m_engine = nullptr;
         GameCore::EntityId m_lastInspectedEntityId =
             GameCore::k_invalidEntityId;
+        GameCore::EntityId m_transformEditEntityId =
+            GameCore::k_invalidEntityId;
+        ECS::TransformComponent m_transformEditComponent{};
+        ECS::TransformComponent m_transformOriginalComponent{};
+        bool m_isEditingTransform = false;
         ComponentTab m_currentTab = ComponentTab::Base;
     };
 }

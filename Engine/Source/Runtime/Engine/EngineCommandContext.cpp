@@ -120,6 +120,38 @@ namespace Cue
             "Unknown component type was requested.");
     }
 
+    Result EngineCommandContext::get_transform_component(
+        GameCore::EntityId a_objectId,
+        ECS::TransformComponent& a_outComponent)
+    {
+        ECS::TransformComponent* component = nullptr;
+        Result result = m_gameWorld.get_component<ECS::TransformComponent>(
+            a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        a_outComponent = *component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::set_transform_component(
+        GameCore::EntityId a_objectId,
+        const ECS::TransformComponent& a_component)
+    {
+        ECS::TransformComponent* component = nullptr;
+        Result result = m_gameWorld.get_component<ECS::TransformComponent>(
+            a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        *component = a_component;
+        return Result::ok();
+    }
+
     Result EngineCommandContext::get_script_component(
         GameCore::EntityId a_objectId,
         ECS::ScriptComponent& a_outComponent)

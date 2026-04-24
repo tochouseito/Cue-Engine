@@ -52,6 +52,10 @@ namespace Cue
         virtual Result remove_component(
             GameCore::EntityId a_objectId,
             AddableComponentType a_componentType) = 0;
+        virtual Result get_transform_component(GameCore::EntityId a_objectId,
+            ECS::TransformComponent& a_outComponent) = 0;
+        virtual Result set_transform_component(GameCore::EntityId a_objectId,
+            const ECS::TransformComponent& a_component) = 0;
         virtual Result get_script_component(GameCore::EntityId a_objectId,
             ECS::ScriptComponent& a_outComponent) = 0;
         virtual Result set_script_component(GameCore::EntityId a_objectId,
@@ -424,6 +428,86 @@ namespace Cue
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         AddableComponentType m_componentType = AddableComponentType::Camera;
         bool m_hasAddedComponent = false;
+    };
+
+    class SetTransformComponentCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        SetTransformComponentCommand(GameCore::EntityId a_objectId,
+            ECS::TransformComponent a_newComponent) noexcept
+            : m_objectId(a_objectId)
+            , m_newComponent(std::move(a_newComponent))
+        {
+        }
+
+        SetTransformComponentCommand(GameCore::EntityId a_objectId,
+            ECS::TransformComponent a_oldComponent,
+            ECS::TransformComponent a_newComponent) noexcept
+            : m_objectId(a_objectId)
+            , m_oldComponent(std::move(a_oldComponent))
+            , m_newComponent(std::move(a_newComponent))
+            , m_hasOldComponent(true)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support TransformComponent updates.");
+            }
+
+            if (!m_hasOldComponent)
+            {
+                Result captureResult =
+                    gameCommandContext->get_transform_component(
+                        m_objectId, m_oldComponent);
+                if (!captureResult)
+                {
+                    return captureResult;
+                }
+
+                m_hasOldComponent = true;
+            }
+
+            return gameCommandContext->set_transform_component(
+                m_objectId, m_newComponent);
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support TransformComponent undo.");
+            }
+
+            if (!m_hasOldComponent)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Set TransformComponent command has not been executed.");
+            }
+
+            return gameCommandContext->set_transform_component(
+                m_objectId, m_oldComponent);
+        }
+
+    private:
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        ECS::TransformComponent m_oldComponent{};
+        ECS::TransformComponent m_newComponent{};
+        bool m_hasOldComponent = false;
     };
 
     class SetScriptComponentCommand final : public Core::CQRS::IUndoableCommand

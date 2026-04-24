@@ -34,6 +34,10 @@ namespace Cue
             AddableComponentType a_componentType) override;
         Result remove_component(GameCore::EntityId a_objectId,
             AddableComponentType a_componentType) override;
+        Result get_transform_component(GameCore::EntityId a_objectId,
+            ECS::TransformComponent& a_outComponent) override;
+        Result set_transform_component(GameCore::EntityId a_objectId,
+            const ECS::TransformComponent& a_component) override;
         Result get_script_component(GameCore::EntityId a_objectId,
             ECS::ScriptComponent& a_outComponent) override;
         Result set_script_component(GameCore::EntityId a_objectId,
