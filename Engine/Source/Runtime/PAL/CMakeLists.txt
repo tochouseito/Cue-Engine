@@ -1,7 +1,7 @@
 # Platform Abstraction Layer
 
 # スタティックライブラリを作成
-add_library(PAL STATIC "PAL.cpp" "PAL.h" "PlatformFactory.h" "PlatformMessage.h")
+add_library(PAL STATIC "PAL.cpp" "PAL.h" "PlatformFactory.h" "PlatformMessage.h" "Input/Keyboard.h" "Input/InputManager.h" "Input/InputManager.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(PAL PUBLIC

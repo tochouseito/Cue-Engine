@@ -24,6 +24,11 @@ namespace Cue::GameCore
     class GameWorld;
 }
 
+namespace Cue::PAL
+{
+    class IPlatform;
+}
+
 namespace Cue
 {
     struct MarionnetteClass;
@@ -48,7 +53,9 @@ namespace Cue
             std::vector<std::string> warnings{};
         };
 
-        explicit ScriptModuleHost(Core::IO::IFileSystem& a_fileSystem) noexcept;
+        ScriptModuleHost(
+            Core::IO::IFileSystem& a_fileSystem,
+            PAL::IPlatform* a_platform) noexcept;
         ~ScriptModuleHost();
 
         ScriptModuleHost(const ScriptModuleHost&) = delete;
@@ -95,6 +102,7 @@ namespace Cue
 
     private:
         Core::IO::IFileSystem& m_fileSystem;
+        PAL::IPlatform* m_platform = nullptr;
         ScriptShadowCopyService m_shadowCopyService;
         std::unique_ptr<ScriptModule> m_module = nullptr;
         std::unique_ptr<ScriptRuntime> m_runtime = nullptr;

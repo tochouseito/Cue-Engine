@@ -15,6 +15,7 @@
 #include <Time/Timer.h>
 
 // === PAL includes ===
+#include "Input/InputManager.h"
 #include "PlatformFactory.h"
 #include "PlatformMessage.h"
 
@@ -54,5 +55,6 @@ namespace Cue::PAL
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
         virtual Core::IO::IFileSystem& file_system() = 0;
+        virtual InputManager& input_manager() = 0;
     };
 }

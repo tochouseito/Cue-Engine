@@ -24,6 +24,11 @@ namespace Cue::GameCore
     class GameWorld;
 }
 
+namespace Cue::PAL
+{
+    class IPlatform;
+}
+
 namespace Cue
 {
     class ScriptModule;
@@ -54,7 +59,9 @@ namespace Cue
             std::vector<std::byte> bytes{};
         };
 
-        explicit ScriptRuntime(GameCore::GameWorld& a_gameWorld) noexcept;
+        explicit ScriptRuntime(
+            GameCore::GameWorld& a_gameWorld,
+            PAL::IPlatform* a_platform = nullptr) noexcept;
         ~ScriptRuntime();
 
         ScriptRuntime(const ScriptRuntime&) = delete;
@@ -157,6 +164,8 @@ namespace Cue
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL set_transform_bridge(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform);
+        [[nodiscard]] static uint8_t CUE_SCRIPT_CALL push_key_bridge(
+            CueKey a_key);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL find_script_instance_bridge(
             CueEntityHandle a_entityHandle,
             CueStringView a_scriptClassName,
@@ -203,6 +212,7 @@ namespace Cue
         [[nodiscard]] CueResult set_transform_internal(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform) noexcept;
+        [[nodiscard]] uint8_t push_key_internal(CueKey a_key) const noexcept;
         [[nodiscard]] CueResult find_script_instance_internal(
             CueEntityHandle a_entityHandle,
             CueStringView a_scriptClassName,
@@ -238,6 +248,7 @@ namespace Cue
         static ScriptRuntime* s_activeInstance;
 
         GameCore::GameWorld* m_gameWorld = nullptr;
+        PAL::IPlatform* m_platform = nullptr;
         const ScriptModule* m_module = nullptr;
         CueEngineApi m_engineApi{};
         std::unordered_map<GameCore::EntityId, ScriptBinding> m_bindings{};

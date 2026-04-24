@@ -28,6 +28,81 @@ namespace Marionette
     using EntityHandle = CueEntityHandle;
     using Transform = CueTransformData;
 
+    enum class Key : uint32_t
+    {
+        Unknown = CueKey_Unknown,
+        Escape = CueKey_Escape,
+        Tab = CueKey_Tab,
+        CapsLock = CueKey_CapsLock,
+        LeftShift = CueKey_LeftShift,
+        RightShift = CueKey_RightShift,
+        LeftControl = CueKey_LeftControl,
+        RightControl = CueKey_RightControl,
+        LeftAlt = CueKey_LeftAlt,
+        RightAlt = CueKey_RightAlt,
+        Space = CueKey_Space,
+        Enter = CueKey_Enter,
+        Backspace = CueKey_Backspace,
+        Insert = CueKey_Insert,
+        Delete = CueKey_Delete,
+        Home = CueKey_Home,
+        End = CueKey_End,
+        PageUp = CueKey_PageUp,
+        PageDown = CueKey_PageDown,
+        Left = CueKey_Left,
+        Right = CueKey_Right,
+        Up = CueKey_Up,
+        Down = CueKey_Down,
+        Num0 = CueKey_Num0,
+        Num1 = CueKey_Num1,
+        Num2 = CueKey_Num2,
+        Num3 = CueKey_Num3,
+        Num4 = CueKey_Num4,
+        Num5 = CueKey_Num5,
+        Num6 = CueKey_Num6,
+        Num7 = CueKey_Num7,
+        Num8 = CueKey_Num8,
+        Num9 = CueKey_Num9,
+        A = CueKey_A,
+        B = CueKey_B,
+        C = CueKey_C,
+        D = CueKey_D,
+        E = CueKey_E,
+        F = CueKey_F,
+        G = CueKey_G,
+        H = CueKey_H,
+        I = CueKey_I,
+        J = CueKey_J,
+        K = CueKey_K,
+        L = CueKey_L,
+        M = CueKey_M,
+        N = CueKey_N,
+        O = CueKey_O,
+        P = CueKey_P,
+        Q = CueKey_Q,
+        R = CueKey_R,
+        S = CueKey_S,
+        T = CueKey_T,
+        U = CueKey_U,
+        V = CueKey_V,
+        W = CueKey_W,
+        X = CueKey_X,
+        Y = CueKey_Y,
+        Z = CueKey_Z,
+        F1 = CueKey_F1,
+        F2 = CueKey_F2,
+        F3 = CueKey_F3,
+        F4 = CueKey_F4,
+        F5 = CueKey_F5,
+        F6 = CueKey_F6,
+        F7 = CueKey_F7,
+        F8 = CueKey_F8,
+        F9 = CueKey_F9,
+        F10 = CueKey_F10,
+        F11 = CueKey_F11,
+        F12 = CueKey_F12,
+    };
+
     inline constexpr PropertyFlags None = CueScriptFieldFlag_None;
     inline constexpr PropertyFlags EditAnywhere =
         CueScriptFieldFlag_EditAnywhere;
@@ -1738,6 +1813,20 @@ namespace Marionette
             }
 
             return engineApi->setTransform(m_entityHandle, &a_transform);
+        }
+
+        [[nodiscard]] bool push_key(Key a_key) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, pushKey) + sizeof(CuePushKeyFn) ||
+                engineApi->pushKey == nullptr)
+            {
+                return false;
+            }
+
+            return engineApi->pushKey(static_cast<CueKey>(a_key)) != 0;
         }
 
         void log_info(std::string_view a_message) const noexcept

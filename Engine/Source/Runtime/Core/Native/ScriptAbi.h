@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 6u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 7u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
 
     using CueScriptAbiVersion = uint32_t;
@@ -103,6 +103,83 @@ extern "C"
         CueFloat3 position;
         CueFloat3 rotation;
         CueFloat3 scale;
+    };
+
+    /// @brief Script から参照できるキーボードキーです。
+    enum CueKey : uint32_t
+    {
+        CueKey_Unknown = 0,
+        CueKey_Escape,
+        CueKey_Tab,
+        CueKey_CapsLock,
+        CueKey_LeftShift,
+        CueKey_RightShift,
+        CueKey_LeftControl,
+        CueKey_RightControl,
+        CueKey_LeftAlt,
+        CueKey_RightAlt,
+        CueKey_Space,
+        CueKey_Enter,
+        CueKey_Backspace,
+        CueKey_Insert,
+        CueKey_Delete,
+        CueKey_Home,
+        CueKey_End,
+        CueKey_PageUp,
+        CueKey_PageDown,
+        CueKey_Left,
+        CueKey_Right,
+        CueKey_Up,
+        CueKey_Down,
+        CueKey_Num0,
+        CueKey_Num1,
+        CueKey_Num2,
+        CueKey_Num3,
+        CueKey_Num4,
+        CueKey_Num5,
+        CueKey_Num6,
+        CueKey_Num7,
+        CueKey_Num8,
+        CueKey_Num9,
+        CueKey_A,
+        CueKey_B,
+        CueKey_C,
+        CueKey_D,
+        CueKey_E,
+        CueKey_F,
+        CueKey_G,
+        CueKey_H,
+        CueKey_I,
+        CueKey_J,
+        CueKey_K,
+        CueKey_L,
+        CueKey_M,
+        CueKey_N,
+        CueKey_O,
+        CueKey_P,
+        CueKey_Q,
+        CueKey_R,
+        CueKey_S,
+        CueKey_T,
+        CueKey_U,
+        CueKey_V,
+        CueKey_W,
+        CueKey_X,
+        CueKey_Y,
+        CueKey_Z,
+        CueKey_F1,
+        CueKey_F2,
+        CueKey_F3,
+        CueKey_F4,
+        CueKey_F5,
+        CueKey_F6,
+        CueKey_F7,
+        CueKey_F8,
+        CueKey_F9,
+        CueKey_F10,
+        CueKey_F11,
+        CueKey_F12,
+        CueKey_Count,
     };
 
     /// @brief Script public field の型です。
@@ -193,6 +270,9 @@ extern "C"
         const CueTransformData* a_transform
     );
 
+    /// @brief 指定キーが押されていれば 1、そうでなければ 0 を返します。
+    using CuePushKeyFn = uint8_t (CUE_SCRIPT_CALL*)(CueKey a_key);
+
     /// @brief Script DLL が利用可能な Script クラス名を Engine へ通知します。
     /// `a_scriptClassName` は UTF-8 の非所有文字列です。
     using CueRegisterScriptClassFn = CueResult (CUE_SCRIPT_CALL*)(
@@ -265,6 +345,8 @@ extern "C"
         CueHasTransformFn hasTransform;
         CueGetTransformFn getTransform;
         CueSetTransformFn setTransform;
+        /// v7 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CuePushKeyFn pushKey;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRegisterScriptClassFn registerScriptClass;
         /// v1 拡張です。`structSize` がこのメンバに届く場合だけ参照します。

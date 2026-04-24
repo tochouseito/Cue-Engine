@@ -121,7 +121,8 @@ namespace Cue
         m_activeWorld = m_editorWorld.get();
 
         m_scriptModuleHost =
-            std::make_unique<ScriptModuleHost>(m_platform->file_system());
+            std::make_unique<ScriptModuleHost>(
+                m_platform->file_system(), m_platform);
         result = m_scriptModuleHost->initialize(*m_activeWorld);
         if (!result)
         {
@@ -221,6 +222,15 @@ namespace Cue
 
     Result Engine::begin_frame()
     {
+        if (m_platform != nullptr)
+        {
+            Result platformResult = m_platform->begin_frame();
+            if (!platformResult)
+            {
+                return platformResult;
+            }
+        }
+
         // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
         if (m_platformBridge)
         {
@@ -247,7 +257,15 @@ namespace Cue
         return Result::ok();
     }
 
-    Result Engine::end_frame() { return Result::ok(); }
+    Result Engine::end_frame()
+    {
+        if (m_platform != nullptr)
+        {
+            return m_platform->end_frame();
+        }
+
+        return Result::ok();
+    }
 
     Result Engine::tick()
     {

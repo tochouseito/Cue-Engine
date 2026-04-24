@@ -13,6 +13,7 @@ namespace Cue::PAL::Win
     WinPlatform::WinPlatform()
     {
         m_app = std::make_unique<WinApp>();
+        m_keyboard = std::make_unique<WinKeyboard>();
     }
 
     WinPlatform::~WinPlatform()
@@ -62,6 +63,23 @@ namespace Cue::PAL::Win
                 "Failed to create window.");
         }
 
+        resultValue = m_keyboard->initialize(::GetModuleHandleW(nullptr),
+            m_app->get_window_handle());
+        if (!resultValue)
+        {
+            return Result::fail(
+                resultValue.code, Severity::Fatal,
+                "Failed to initialize keyboard input.");
+        }
+
+        resultValue = m_inputManager.initialize(m_keyboard.get());
+        if (!resultValue)
+        {
+            return Result::fail(
+                resultValue.code, Severity::Fatal,
+                "Failed to initialize input manager.");
+        }
+
         // スレッドファクトリ、クロック、ウェイタを生成する
         m_fileSystem = std::make_unique<WinFileSystem>();
         m_threadFactory = std::make_unique<WinThreadFactory>();
@@ -78,6 +96,13 @@ namespace Cue::PAL::Win
 
     Result WinPlatform::shutdown()
     {
+        m_inputManager.shutdown();
+
+        if (m_keyboard != nullptr)
+        {
+            m_keyboard->shutdown();
+        }
+
         // COM を終了する
         if (m_isComInitialized)
         {
@@ -93,7 +118,7 @@ namespace Cue::PAL::Win
 
     Result WinPlatform::begin_frame()
     {
-        return Result();
+        return m_inputManager.begin_frame();
     }
 
     Result WinPlatform::end_frame()

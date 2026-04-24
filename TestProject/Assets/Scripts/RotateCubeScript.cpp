@@ -16,6 +16,15 @@ void RotateCube::update()
         return;
     }
 
+    if (push_key(Marionette::Key::Left))
+    {
+        rotationDirection = -1.0f;
+    }
+    else if (push_key(Marionette::Key::Right))
+    {
+        rotationDirection = 1.0f;
+    }
+
     Transform transform{};
     if (get_transform(transform) != CueResult_Ok)
     {

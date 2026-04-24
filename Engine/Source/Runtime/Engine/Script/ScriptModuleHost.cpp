@@ -33,8 +33,10 @@ namespace Cue
     }
 
     ScriptModuleHost::ScriptModuleHost(
-        Core::IO::IFileSystem& a_fileSystem) noexcept
+        Core::IO::IFileSystem& a_fileSystem,
+        PAL::IPlatform* a_platform) noexcept
         : m_fileSystem(a_fileSystem)
+        , m_platform(a_platform)
         , m_shadowCopyService(a_fileSystem)
     {
     }
@@ -52,7 +54,7 @@ namespace Cue
         }
 
         m_module = std::make_unique<ScriptModule>();
-        m_runtime = std::make_unique<ScriptRuntime>(a_gameWorld);
+        m_runtime = std::make_unique<ScriptRuntime>(a_gameWorld, m_platform);
         return Result::ok();
     }
 
@@ -200,7 +202,7 @@ namespace Cue
         Result result{};
 
         {
-            ScriptRuntime validationRuntime(a_validationWorld);
+            ScriptRuntime validationRuntime(a_validationWorld, m_platform);
             result = a_nextModule->register_scripts(validationRuntime.engine_api());
         }
         activate_runtime();

@@ -3,6 +3,9 @@
 // === Core includes ===
 #include <IO/Logger.h>
 
+// === PAL includes ===
+#include <PAL.h>
+
 // === Engine includes ===
 #include "../GameCore/Components.h"
 #include "../GameCore/GameObject.h"
@@ -50,6 +53,87 @@ namespace Cue
                 a_value.data(),
                 static_cast<uint32_t>(a_value.size())
             };
+        }
+
+        [[nodiscard]] PAL::Key to_pal_key(CueKey a_key) noexcept
+        {
+            switch (a_key)
+            {
+            case CueKey_Escape: return PAL::Key::Escape;
+            case CueKey_Tab: return PAL::Key::Tab;
+            case CueKey_CapsLock: return PAL::Key::CapsLock;
+            case CueKey_LeftShift: return PAL::Key::LeftShift;
+            case CueKey_RightShift: return PAL::Key::RightShift;
+            case CueKey_LeftControl: return PAL::Key::LeftControl;
+            case CueKey_RightControl: return PAL::Key::RightControl;
+            case CueKey_LeftAlt: return PAL::Key::LeftAlt;
+            case CueKey_RightAlt: return PAL::Key::RightAlt;
+            case CueKey_Space: return PAL::Key::Space;
+            case CueKey_Enter: return PAL::Key::Enter;
+            case CueKey_Backspace: return PAL::Key::Backspace;
+            case CueKey_Insert: return PAL::Key::Insert;
+            case CueKey_Delete: return PAL::Key::Delete;
+            case CueKey_Home: return PAL::Key::Home;
+            case CueKey_End: return PAL::Key::End;
+            case CueKey_PageUp: return PAL::Key::PageUp;
+            case CueKey_PageDown: return PAL::Key::PageDown;
+            case CueKey_Left: return PAL::Key::Left;
+            case CueKey_Right: return PAL::Key::Right;
+            case CueKey_Up: return PAL::Key::Up;
+            case CueKey_Down: return PAL::Key::Down;
+            case CueKey_Num0: return PAL::Key::Num0;
+            case CueKey_Num1: return PAL::Key::Num1;
+            case CueKey_Num2: return PAL::Key::Num2;
+            case CueKey_Num3: return PAL::Key::Num3;
+            case CueKey_Num4: return PAL::Key::Num4;
+            case CueKey_Num5: return PAL::Key::Num5;
+            case CueKey_Num6: return PAL::Key::Num6;
+            case CueKey_Num7: return PAL::Key::Num7;
+            case CueKey_Num8: return PAL::Key::Num8;
+            case CueKey_Num9: return PAL::Key::Num9;
+            case CueKey_A: return PAL::Key::A;
+            case CueKey_B: return PAL::Key::B;
+            case CueKey_C: return PAL::Key::C;
+            case CueKey_D: return PAL::Key::D;
+            case CueKey_E: return PAL::Key::E;
+            case CueKey_F: return PAL::Key::F;
+            case CueKey_G: return PAL::Key::G;
+            case CueKey_H: return PAL::Key::H;
+            case CueKey_I: return PAL::Key::I;
+            case CueKey_J: return PAL::Key::J;
+            case CueKey_K: return PAL::Key::K;
+            case CueKey_L: return PAL::Key::L;
+            case CueKey_M: return PAL::Key::M;
+            case CueKey_N: return PAL::Key::N;
+            case CueKey_O: return PAL::Key::O;
+            case CueKey_P: return PAL::Key::P;
+            case CueKey_Q: return PAL::Key::Q;
+            case CueKey_R: return PAL::Key::R;
+            case CueKey_S: return PAL::Key::S;
+            case CueKey_T: return PAL::Key::T;
+            case CueKey_U: return PAL::Key::U;
+            case CueKey_V: return PAL::Key::V;
+            case CueKey_W: return PAL::Key::W;
+            case CueKey_X: return PAL::Key::X;
+            case CueKey_Y: return PAL::Key::Y;
+            case CueKey_Z: return PAL::Key::Z;
+            case CueKey_F1: return PAL::Key::F1;
+            case CueKey_F2: return PAL::Key::F2;
+            case CueKey_F3: return PAL::Key::F3;
+            case CueKey_F4: return PAL::Key::F4;
+            case CueKey_F5: return PAL::Key::F5;
+            case CueKey_F6: return PAL::Key::F6;
+            case CueKey_F7: return PAL::Key::F7;
+            case CueKey_F8: return PAL::Key::F8;
+            case CueKey_F9: return PAL::Key::F9;
+            case CueKey_F10: return PAL::Key::F10;
+            case CueKey_F11: return PAL::Key::F11;
+            case CueKey_F12: return PAL::Key::F12;
+            case CueKey_Unknown:
+            case CueKey_Count:
+            default:
+                return PAL::Key::Unknown;
+            }
         }
 
         [[nodiscard]] ECS::ScriptFieldType to_script_field_type(
@@ -307,8 +391,11 @@ namespace Cue
 
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
 
-    ScriptRuntime::ScriptRuntime(GameCore::GameWorld& a_gameWorld) noexcept
+    ScriptRuntime::ScriptRuntime(
+        GameCore::GameWorld& a_gameWorld,
+        PAL::IPlatform* a_platform) noexcept
         : m_gameWorld(&a_gameWorld)
+        , m_platform(a_platform)
     {
         s_activeInstance = this;
         m_engineApi.structSize = sizeof(CueEngineApi);
@@ -319,6 +406,7 @@ namespace Cue
         m_engineApi.hasTransform = &ScriptRuntime::has_transform_bridge;
         m_engineApi.getTransform = &ScriptRuntime::get_transform_bridge;
         m_engineApi.setTransform = &ScriptRuntime::set_transform_bridge;
+        m_engineApi.pushKey = &ScriptRuntime::push_key_bridge;
         m_engineApi.registerScriptField = &ScriptRuntime::register_script_field_bridge;
         m_engineApi.registerScriptFunction =
             &ScriptRuntime::register_script_function_bridge;
@@ -1136,6 +1224,13 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    uint8_t CUE_SCRIPT_CALL ScriptRuntime::push_key_bridge(CueKey a_key)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->push_key_internal(a_key)
+            : 0;
+    }
+
     CueResult CUE_SCRIPT_CALL ScriptRuntime::find_script_instance_bridge(
         CueEntityHandle a_entityHandle,
         CueStringView a_scriptClassName,
@@ -1633,6 +1728,16 @@ namespace Cue
             Math::float3(a_transform->scale.x, a_transform->scale.y,
                 a_transform->scale.z);
         return CueResult_Ok;
+    }
+
+    uint8_t ScriptRuntime::push_key_internal(CueKey a_key) const noexcept
+    {
+        if (m_platform == nullptr)
+        {
+            return 0;
+        }
+
+        return m_platform->input_manager().push_key(to_pal_key(a_key)) ? 1 : 0;
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(
