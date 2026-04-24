@@ -184,7 +184,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DX12PipelineManager::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, pipelineStateHandle& out)
+    Result DX12PipelineManager::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out)
     {
         DX12GraphicsPipelineRecord record{};
 
@@ -269,7 +269,7 @@ namespace Cue::RHI::DX12
         // 作成したパイプラインステートをRegistryに登録する。
         record.pipelineState = pipelineState;
         record.desc = desc;
-        pipelineStateHandle handle = m_pipelineRegistry.create(record);
+        PipelineStateHandle handle = m_pipelineRegistry.create(record);
 
         // 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
@@ -281,7 +281,7 @@ namespace Cue::RHI::DX12
         out = handle;
         return Result::ok();
     }
-    Result DX12PipelineManager::destroy_graphics_pipeline(pipelineStateHandle handle)
+    Result DX12PipelineManager::destroy_graphics_pipeline(PipelineStateHandle handle)
     {
         // ハンドルが有効かをチェックする。
         if (!handle.valid())
@@ -312,7 +312,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12PipelineManager::get_graphics_pipeline(std::string_view name, pipelineStateHandle& out)
+    Result DX12PipelineManager::get_graphics_pipeline(std::string_view name, PipelineStateHandle& out)
     {
         if (!m_pipelineNameMap.contains(Core::fnv1a64(name)))
         {
@@ -324,7 +324,7 @@ namespace Cue::RHI::DX12
         out = m_pipelineNameMap[Core::fnv1a64(name)];
         return Result::ok();
     }
-    Result DX12PipelineManager::create_compute_pipeline(const ComputePipelineStateDesc& desc, pipelineStateHandle& out)
+    Result DX12PipelineManager::create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out)
     {
         DX12ComputePipelineRecord record{};
 
@@ -365,7 +365,7 @@ namespace Cue::RHI::DX12
 
         record.pipelineState = pipelineState;
         record.desc = desc;
-        pipelineStateHandle handle = m_computePipelineRegistry.create(record);
+        PipelineStateHandle handle = m_computePipelineRegistry.create(record);
         if (!desc.name.empty())
         {
             m_computePipelineNameMap[Core::fnv1a64(desc.name)] = handle;
@@ -374,7 +374,7 @@ namespace Cue::RHI::DX12
         out = handle;
         return Result::ok();
     }
-    Result DX12PipelineManager::destroy_compute_pipeline(pipelineStateHandle handle)
+    Result DX12PipelineManager::destroy_compute_pipeline(PipelineStateHandle handle)
     {
         if (!handle.valid())
         {
@@ -403,7 +403,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12PipelineManager::get_compute_pipeline(std::string_view name, pipelineStateHandle& out)
+    Result DX12PipelineManager::get_compute_pipeline(std::string_view name, PipelineStateHandle& out)
     {
         if (!m_computePipelineNameMap.contains(Core::fnv1a64(name)))
         {
@@ -416,7 +416,7 @@ namespace Cue::RHI::DX12
         out = m_computePipelineNameMap[Core::fnv1a64(name)];
         return Result::ok();
     }
-    Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, rootSignatureHandle& out)
+    Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
         // D3D12_ROOT_SIGNATURE_DESC を構築する。
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
@@ -436,7 +436,7 @@ namespace Cue::RHI::DX12
             {
                 d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
                 d3dParam.Constants.ShaderRegister = parmDesc.shaderRegister;
-                d3dParam.Constants.RegisterSpace = 0;
+                d3dParam.Constants.RegisterSpace = parmDesc.registerSpace;
                 d3dParam.Constants.Num32BitValues = 1;
                 d3dParameters.push_back(d3dParam);
                 continue;
@@ -446,9 +446,12 @@ namespace Cue::RHI::DX12
             {
                 D3D12_DESCRIPTOR_RANGE descriptorRange{};
                 descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
-                descriptorRange.NumDescriptors = 1;
+                descriptorRange.NumDescriptors =
+                    parmDesc.descriptorCount == 0
+                    ? UINT_MAX
+                    : parmDesc.descriptorCount;
                 descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
-                descriptorRange.RegisterSpace = 0;
+                descriptorRange.RegisterSpace = parmDesc.registerSpace;
                 descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
                 d3dDescriptorRanges.push_back(descriptorRange);
 
@@ -461,7 +464,7 @@ namespace Cue::RHI::DX12
 
             d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
             d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
-            d3dParam.Descriptor.RegisterSpace = 0;
+            d3dParam.Descriptor.RegisterSpace = parmDesc.registerSpace;
             d3dParameters.push_back(d3dParam);
         }
 
@@ -499,7 +502,7 @@ namespace Cue::RHI::DX12
         }
 
         // 作成したルートシグネチャをRegistryに登録する。
-        rootSignatureHandle handle = m_rootSignatureRegistry.create(rootSigRecord);
+        RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSigRecord);
 
         // 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
@@ -511,7 +514,7 @@ namespace Cue::RHI::DX12
         out = handle;
         return Result::ok();
     }
-    Result DX12PipelineManager::destroy_root_signature(rootSignatureHandle handle)
+    Result DX12PipelineManager::destroy_root_signature(RootSignatureHandle handle)
     {
         // ハンドルが有効かをチェックする。
         if (!handle.valid())
@@ -542,7 +545,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12PipelineManager::get_root_signature(std::string_view name, rootSignatureHandle& out)
+    Result DX12PipelineManager::get_root_signature(std::string_view name, RootSignatureHandle& out)
     {
         if (!m_rootSignatureNameMap.contains(Core::fnv1a64(name)))
         {
@@ -554,7 +557,7 @@ namespace Cue::RHI::DX12
         out = m_rootSignatureNameMap[Core::fnv1a64(name)];
         return Result::ok();
     }
-    Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, shaderBlobHandle& out)
+    Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
         // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない。
         ShaderBlobRecord blobRecord{};
@@ -565,7 +568,7 @@ namespace Cue::RHI::DX12
         }
 
         // コンパイル成功時だけレジストリと名前引きを更新する。
-        shaderBlobHandle handle = m_shaderBlobRegistry.create(blobRecord);
+        ShaderBlobHandle handle = m_shaderBlobRegistry.create(blobRecord);
 
         // 名前が指定されていれば名前マップに登録する。
         if (!desc.name.empty())
@@ -577,7 +580,7 @@ namespace Cue::RHI::DX12
         out = std::move(handle);
         return Result::ok();
     }
-    Result DX12PipelineManager::destroy_shader_blob(shaderBlobHandle handle)
+    Result DX12PipelineManager::destroy_shader_blob(ShaderBlobHandle handle)
     {
         // ハンドルが有効かをチェックする。
         if (!handle.valid())
@@ -609,7 +612,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12PipelineManager::get_shader_blob(std::string_view name, shaderBlobHandle& out)
+    Result DX12PipelineManager::get_shader_blob(std::string_view name, ShaderBlobHandle& out)
     {
         if (m_shaderBlobNameMap.contains(Core::fnv1a64(name)))
         {
@@ -624,27 +627,27 @@ namespace Cue::RHI::DX12
                 "Buffer with the given name was not found.");
         }
     }
-    bool DX12PipelineManager::try_get_graphics_pipeline(pipelineStateHandle handle, DX12GraphicsPipelineRecord** outRecord)
+    bool DX12PipelineManager::try_get_graphics_pipeline(PipelineStateHandle handle, DX12GraphicsPipelineRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
         *outRecord = m_pipelineRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
-    bool DX12PipelineManager::try_get_compute_pipeline(pipelineStateHandle handle, DX12ComputePipelineRecord** outRecord)
+    bool DX12PipelineManager::try_get_compute_pipeline(PipelineStateHandle handle, DX12ComputePipelineRecord** outRecord)
     {
         *outRecord = nullptr;
         *outRecord = m_computePipelineRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
-    bool DX12PipelineManager::try_get_root_signature(rootSignatureHandle handle, RootSignatureRecord** outRecord)
+    bool DX12PipelineManager::try_get_root_signature(RootSignatureHandle handle, RootSignatureRecord** outRecord)
     {
         // ハンドルの解決とルートシグネチャの取得
         *outRecord = nullptr;
         *outRecord = m_rootSignatureRegistry.ref_get(handle);
         return *outRecord != nullptr;
     }
-    bool DX12PipelineManager::try_get_shader_blob(shaderBlobHandle handle, ShaderBlobRecord** outRecord)
+    bool DX12PipelineManager::try_get_shader_blob(ShaderBlobHandle handle, ShaderBlobRecord** outRecord)
     {
         // ハンドルの解決とシェーダーブロブの取得
         *outRecord = nullptr;

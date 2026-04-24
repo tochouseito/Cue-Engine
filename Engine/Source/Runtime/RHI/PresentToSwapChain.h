@@ -1,5 +1,7 @@
 #pragma once
 
+// === 
+
 // === RHI includes ===
 #include "FrameGraph.h"
 
@@ -145,24 +147,33 @@ namespace Cue::RHI
             return Result::ok();
         }
 
+        Result describe_resources(FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_texture(
+                m_backBufferHandle,
+                ResourceAccessType::Write,
+                ResourceState::RenderTarget,
+                ResourceState::Present);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_texture(
+                m_finalColorHandle,
+                ResourceAccessType::Read,
+                ResourceState::ShaderResource,
+                ResourceState::Common);
+        }
+
         void execute(FrameGraphContext& context) override
         {
             ICommandContext* commandContext = context.commandContext();
 
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-
             // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする。
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = ResourceState::Present;
-                barrierDesc.after = ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
-            commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
+            commandContext->clear_render_target(
+                m_backBufferRtvHandle,
+                k_swapChainClearColor.data());
             commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
@@ -170,30 +181,18 @@ namespace Cue::RHI
             commandContext->set_graphics_descriptor_table(0, m_finalColorSrvHandle);
             commandContext->draw_instanced(3, 1, 0, 0);
 
-            // バックバッファをプレゼント状態に戻す。
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.before = ResourceState::RenderTarget;
-                barrierDesc.after = ResourceState::Present;
-                commandContext->resource_barrier(m_backBufferHandle, barrierDesc);
-            }
-            {
-                ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = ResourceState::Common;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
         }
     private:
-        static constexpr std::array<float, 4> k_swapChainClearColor = { 0.5f, 0.0f, 0.0f, 1.0f };
+        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63);
 
-        textureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
-        viewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
-        textureHandle m_finalColorHandle; // コピー元となる finalColor のハンドル
-        viewHandle m_finalColorRtvHandle; // finalColor の RTV ビューのハンドル
-        viewHandle m_finalColorSrvHandle; // finalColor の SRV ビューのハンドル
-        rootSignatureHandle m_screenCopyRootSignatureHandle; // ScreenCopy 用ルートシグネチャのハンドル
-        shaderBlobHandle m_screenCopyVsHandle; // ScreenCopy の VS シェーダーハンドル
-        shaderBlobHandle m_screenCopyPsHandle; // ScreenCopy の PS シェーダーハンドル
-        pipelineStateHandle m_screenCopyPipelineHandle; // ScreenCopy のグラフィックスパイプラインハンドル
+        TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
+        ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
+        TextureHandle m_finalColorHandle; // コピー元となる finalColor のハンドル
+        ViewHandle m_finalColorRtvHandle; // finalColor の RTV ビューのハンドル
+        ViewHandle m_finalColorSrvHandle; // finalColor の SRV ビューのハンドル
+        RootSignatureHandle m_screenCopyRootSignatureHandle; // ScreenCopy 用ルートシグネチャのハンドル
+        ShaderBlobHandle m_screenCopyVsHandle; // ScreenCopy の VS シェーダーハンドル
+        ShaderBlobHandle m_screenCopyPsHandle; // ScreenCopy の PS シェーダーハンドル
+        PipelineStateHandle m_screenCopyPipelineHandle; // ScreenCopy のグラフィックスパイプラインハンドル
     };
 }

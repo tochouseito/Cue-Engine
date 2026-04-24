@@ -8,15 +8,26 @@
 
 // === C++ includes ===
 #include <array>
+#include <chrono>
 
 namespace Cue
 {
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
     public:
-        StaticMeshForwardPass(const RenderFrameState& a_frameState,
+        StaticMeshForwardPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_transformBufferHandle,
+            RHI::BufferHandle a_viewProjectionBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::BufferHandle a_materialBufferHandle,
             uint32_t a_indexCountPerInstance)
-            : m_frameState(a_frameState),
+            : m_renderSceneState(a_renderSceneState),
+            m_renderObjectBufferHandle(a_renderObjectBufferHandle),
+            m_transformBufferHandle(a_transformBufferHandle),
+            m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
+            m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle),
+            m_materialBufferHandle(a_materialBufferHandle),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -44,24 +55,45 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_texture("SceneDepth", m_sceneDepthHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("SceneDepthDSV", m_sceneDepthDsvHandle);
+
+            RHI::TextureDesc sceneDepthDesc{};
+            sceneDepthDesc.name = "SceneDepth";
+            sceneDepthDesc.bufferCount = 1;
+            sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
+            sceneDepthDesc.width = builder.width();
+            sceneDepthDesc.height = builder.height();
+            sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+            sceneDepthDesc.clearDepth = 1.0f;
+            sceneDepthDesc.clearStencil = 0;
+            result = builder.create_texture(sceneDepthDesc, m_sceneDepthHandle);
             if (!result)
             {
                 return result;
             }
 
-            result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            RHI::ViewDesc sceneDepthDsvDesc{};
+            sceneDepthDsvDesc.name = "SceneDepthDSV";
+            sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
+            sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+            sceneDepthDsvDesc.textureHandle = m_sceneDepthHandle;
+            sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
+            result = builder.create_view(sceneDepthDsvDesc, m_sceneDepthDsvHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("TransformBuffer", m_transformBufferHandle);
+
+            result = builder.read_buffer(m_renderObjectBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_transformBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_viewProjectionBufferHandle);
             if (!result)
             {
                 return result;
@@ -93,8 +125,24 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
+            result = builder.get_buffer(
+                "IndirectCommandBuffer", m_indirectCommandBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer(
+                "IndirectCommandCountBuffer", m_indirectCommandCountBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_materialBufferHandle);
             if (!result)
             {
                 return result;
@@ -103,21 +151,35 @@ namespace Cue
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 0 });
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::All,
+                1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 1 });
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 2 });
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                0,
+                0,
+                1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 3 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 4 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 5 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 6 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 7 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -166,108 +228,292 @@ namespace Cue
             result = builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
             if (!result)
             {
-                return Result::fail(
-                    result.code, Severity::Error,
-                    "Failed to create graphics pipeline for StaticMeshForward pass.");
+                return result;
             }
 
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_texture(
+                m_finalColorHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::RenderTarget,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_texture(
+                m_sceneDepthHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::DepthWrite,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_renderObjectBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_transformBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_viewProjectionBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_positionBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_uvBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_normalBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indexBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_meshRangeBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_materialBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indirectCommandBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indirectCommandCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_visibleObjectCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
+            using Clock = std::chrono::steady_clock;
+            auto ms_since =
+                [](const Clock::time_point& a_start, const Clock::time_point& a_end)
+                {
+                    return std::chrono::duration<double, std::milli>(
+                        a_end - a_start)
+                        .count();
+                };
+
             RHI::ICommandContext* commandContext = context.commandContext();
             if (commandContext == nullptr)
             {
                 return;
             }
 
+            auto* passStats =
+                static_cast<RHI::FrameGraphExecutionStats::PassExecutionStats*>(
+                    context.pass_stats());
+            if (passStats != nullptr)
             {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::RenderTarget;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::DepthWrite;
-                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_positionBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_uvBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_normalBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_indexBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_meshRangeBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
+                passStats->detailTimings.clear();
             }
 
+            auto add_detail_timing =
+                [&](const char* a_label,
+                    const Clock::time_point& a_start,
+                    const Clock::time_point& a_end)
+                {
+                    if (passStats == nullptr)
+                    {
+                        return;
+                    }
+
+                    passStats->detailTimings.push_back(
+                        RHI::FrameGraphExecutionStats::PassExecutionStats::
+                            DetailTiming{
+                                a_label,
+                                ms_since(a_start, a_end) });
+                };
+
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+
+            const Clock::time_point clearStartTime = Clock::now();
             commandContext->clear_render_target(m_finalColorRtvHandle,
-                k_clearColor.data());
+                k_clearColorVec.data());
             commandContext->clear_depth_stencil(m_sceneDepthDsvHandle, 1.0f, 0);
+            add_detail_timing("clear", clearStartTime, Clock::now());
+
+            const Clock::time_point targetSetupStartTime = Clock::now();
             commandContext->set_render_targets(
                 &m_finalColorRtvHandle,
                 1,
                 m_sceneDepthDsvHandle);
             commandContext->set_viewport_scissor(context.width(), context.height());
+            add_detail_timing("targets_viewport", targetSetupStartTime, Clock::now());
+
+            const Clock::time_point pipelineSetupStartTime = Clock::now();
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Triangle);
-            commandContext->set_srv(0, m_renderObjectBufferHandle);
-            commandContext->set_srv(1, m_transformBufferHandle);
-            commandContext->set_srv(2, m_positionBufferHandle);
-            commandContext->set_srv(3, m_uvBufferHandle);
-            commandContext->set_srv(4, m_normalBufferHandle);
-            commandContext->set_srv(5, m_indexBufferHandle);
-            commandContext->set_srv(6, m_meshRangeBufferHandle);
-            commandContext->set_srv(7, m_visibleObjectCountBufferHandle);
+            add_detail_timing("pipeline_topology", pipelineSetupStartTime, Clock::now());
 
-            if (m_indexCountPerInstance > 0 && m_frameState.objectCount > 0)
+            const Clock::time_point bindingStartTime = Clock::now();
+            commandContext->set_32bit_constant(0, 0xffffffffu);
+            commandContext->set_cbv(1, m_viewProjectionBufferHandle);
+            commandContext->set_graphics_texture_table(2);
+            commandContext->set_srv(3, m_renderObjectBufferHandle);
+            commandContext->set_srv(4, m_transformBufferHandle);
+            commandContext->set_srv(5, m_positionBufferHandle);
+            commandContext->set_srv(6, m_uvBufferHandle);
+            commandContext->set_srv(7, m_normalBufferHandle);
+            commandContext->set_srv(8, m_indexBufferHandle);
+            commandContext->set_srv(9, m_meshRangeBufferHandle);
+            commandContext->set_srv(10, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(11, m_materialBufferHandle);
+            add_detail_timing("resource_bind", bindingStartTime, Clock::now());
+
+            if (frameState.useCpuBatching)
             {
-                commandContext->draw_instanced(m_indexCountPerInstance,
-                    m_frameState.objectCount, 0, 0);
+                const Clock::time_point drawSetupStartTime = Clock::now();
+                commandContext->set_index_buffer(
+                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                add_detail_timing("index_buffer", drawSetupStartTime, Clock::now());
+
+                const Clock::time_point drawLoopStartTime = Clock::now();
+                for (const CpuIndexedDraw& draw : frameState.cpuIndexedDraws)
+                {
+                    if (draw.indexCount == 0)
+                    {
+                        continue;
+                    }
+
+                    commandContext->set_32bit_constant(0, draw.renderObjectId);
+                    commandContext->draw_indexed_instanced(
+                        draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
+                }
+                add_detail_timing("cpu_draw_loop", drawLoopStartTime, Clock::now());
+            }
+            else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+            {
+                const Clock::time_point drawSetupStartTime = Clock::now();
+                commandContext->set_index_buffer(
+                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                add_detail_timing("index_buffer", drawSetupStartTime, Clock::now());
+
+                const Clock::time_point indirectDrawStartTime = Clock::now();
+                commandContext->execute_indexed_indirect(
+                    m_indirectCommandBufferHandle,
+                    m_indirectCommandCountBufferHandle,
+                    frameState.objectCount);
+                add_detail_timing("execute_indirect", indirectDrawStartTime, Clock::now());
             }
 
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_finalColorHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_sceneDepthHandle, barrierDesc);
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
         }
 
     private:
-        static constexpr std::array<float, 4> k_clearColor = { 0.0f, 0.5f, 0.0f, 1.0f };
+        static constexpr Math::float4 k_clearColorVec = Math::float4::from_rgba8(63, 63, 63, 255);
 
-        const RenderFrameState& m_frameState;
+        const RenderSceneState& m_renderSceneState;
         uint32_t m_indexCountPerInstance = 0;
-        RHI::textureHandle m_finalColorHandle{};
-        RHI::textureHandle m_sceneDepthHandle{};
-        RHI::viewHandle m_finalColorRtvHandle{};
-        RHI::viewHandle m_sceneDepthDsvHandle{};
-        RHI::bufferHandle m_renderObjectBufferHandle{};
-        RHI::bufferHandle m_transformBufferHandle{};
-        RHI::bufferHandle m_positionBufferHandle{};
-        RHI::bufferHandle m_uvBufferHandle{};
-        RHI::bufferHandle m_normalBufferHandle{};
-        RHI::bufferHandle m_indexBufferHandle{};
-        RHI::bufferHandle m_meshRangeBufferHandle{};
-        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::rootSignatureHandle m_rootSignatureHandle{};
-        RHI::shaderBlobHandle m_vertexShaderHandle{};
-        RHI::shaderBlobHandle m_pixelShaderHandle{};
-        RHI::pipelineStateHandle m_pipelineHandle{};
+        RHI::TextureHandle m_finalColorHandle{};
+        RHI::TextureHandle m_sceneDepthHandle{};
+        RHI::ViewHandle m_finalColorRtvHandle{};
+        RHI::ViewHandle m_sceneDepthDsvHandle{};
+        RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_transformBufferHandle{};
+        RHI::BufferHandle m_viewProjectionBufferHandle{};
+        RHI::BufferHandle m_positionBufferHandle{};
+        RHI::BufferHandle m_uvBufferHandle{};
+        RHI::BufferHandle m_normalBufferHandle{};
+        RHI::BufferHandle m_indexBufferHandle{};
+        RHI::BufferHandle m_meshRangeBufferHandle{};
+        RHI::BufferHandle m_materialBufferHandle{};
+        RHI::BufferHandle m_indirectCommandBufferHandle{};
+        RHI::BufferHandle m_indirectCommandCountBufferHandle{};
+        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_vertexShaderHandle{};
+        RHI::ShaderBlobHandle m_pixelShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 } // namespace Cue

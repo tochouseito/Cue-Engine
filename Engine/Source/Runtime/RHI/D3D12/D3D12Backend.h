@@ -22,13 +22,6 @@
 
 namespace Cue::RHI::DX12
 {
-    struct ImGuiFontSRVInfo final
-    {
-        ID3D12DescriptorHeap* srvDescHeap = nullptr;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle = {};
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle = {};
-    };
-
     class D3D12Backend final : public IBackend
     {
     public:
@@ -41,11 +34,17 @@ namespace Cue::RHI::DX12
         /// @brief D3D12 バックエンドを終了します。
         Result shutdown() override;
 
+        /// @brief バックエンドで進行中の GPU 作業完了を待機します。
+        Result wait_for_idle() override;
+
         /// @brief 指定フレームの描画処理を実行します。
         Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
         /// @brief 指定フレームの提示処理を実行します。
         Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
+
+        /// @brief サイズ依存のバックエンド資源をリサイズします。
+        Result resize(uint32_t a_width, uint32_t a_height) override;
 
         /// @brief FrameGraph を生成します。
         Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
@@ -74,8 +73,14 @@ namespace Cue::RHI::DX12
         // --- ImGui 用 ---
         ID3D12Device* get_device() const { return m_renderDevice->get_d3d12_device(); }
         ID3D12CommandQueue* get_graphics_command_queue() const;
-        ImGuiFontSRVInfo get_font_srv_for_imgui() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(viewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
+        ID3D12DescriptorHeap* get_imgui_srv_descriptor_heap() const;
+        Result allocate_imgui_srv_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle);
+        void free_imgui_srv_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle);
+        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
     private:
         PAL::Win::WinPlatform* m_platform = nullptr; // プラットフォーム
         std::unique_ptr<ResourceLeakChecker> m_leakChecker = std::make_unique<ResourceLeakChecker>(); // リソースリークチェッカー

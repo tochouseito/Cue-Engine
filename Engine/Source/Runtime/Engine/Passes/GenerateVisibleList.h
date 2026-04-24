@@ -11,8 +11,21 @@ namespace Cue
     class GenerateVisibleListPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit GenerateVisibleListPass(const RenderFrameState& a_frameState)
-            : m_frameState(a_frameState)
+        GenerateVisibleListPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderableInfoBufferHandle,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::ViewHandle a_renderableInfoBufferSrvHandle,
+            RHI::ViewHandle a_renderObjectBufferUavHandle,
+            RHI::ViewHandle a_visibleObjectCountBufferUavHandle)
+            : m_renderSceneState(a_renderSceneState)
+            , m_renderableInfoBufferHandle(a_renderableInfoBufferHandle)
+            , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
+            , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
+            , m_renderableInfoBufferSrvHandle(a_renderableInfoBufferSrvHandle)
+            , m_renderObjectBufferUavHandle(a_renderObjectBufferUavHandle)
+            , m_visibleObjectCountBufferUavHandle(
+                  a_visibleObjectCountBufferUavHandle)
         {}
 
         const char* name() const noexcept override { return "GenerateVisibleList"; }
@@ -22,41 +35,29 @@ namespace Cue
             return RHI::CommandListType::Compute;
         }
 
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            {
+                return false;
+            }
+
+            return !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+        }
+
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            // 必要なバッファをフレームグラフに宣言する。
-            Result result =
-                builder.get_buffer("ObjectInfoBuffer", m_objectInfoBufferHandle);
+            Result result = builder.read_buffer(m_renderableInfoBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            result = builder.read_buffer(m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result =
-                builder.get_view("ObjectInfoBufferSRV", m_objectInfoBufferSrvHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("RenderObjectBufferUAV",
-                m_renderObjectBufferUavHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("VisibleObjectCountBufferUAV",
-                m_visibleObjectCountBufferUavHandle);
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
@@ -111,6 +112,35 @@ namespace Cue
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_buffer(
+                m_renderableInfoBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_renderObjectBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_visibleObjectCountBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
@@ -119,64 +149,42 @@ namespace Cue
                 return;
             }
 
-            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+            if (frameState.useCpuBatching)
+            {
+                return;
+            }
 
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
+            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 
             commandContext->clear_unordered_access_uint(
                 m_visibleObjectCountBufferUavHandle, clearValues);
-            if (m_frameState.objectCount == 0)
+            if (frameState.objectCount == 0)
             {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
                 return;
             }
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
-            commandContext->set_32bit_constant(0, m_frameState.objectCount);
-            commandContext->set_srv(1, m_objectInfoBufferHandle);
+            commandContext->set_32bit_constant(0, frameState.objectCount);
+            commandContext->set_srv(1, m_renderableInfoBufferHandle);
             commandContext->set_uav(2, m_renderObjectBufferHandle);
             commandContext->set_uav(3, m_visibleObjectCountBufferHandle);
 
-            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
+            const uint32_t groupCountX = (frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
-
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_objectInfoBufferHandle, barrierDesc);
-            }
         }
 
     private:
-        const RenderFrameState& m_frameState;
-        RHI::bufferHandle m_objectInfoBufferHandle{};
-        RHI::bufferHandle m_renderObjectBufferHandle{};
-        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::viewHandle m_objectInfoBufferSrvHandle{};
-        RHI::viewHandle m_renderObjectBufferUavHandle{};
-        RHI::viewHandle m_visibleObjectCountBufferUavHandle{};
-        RHI::rootSignatureHandle m_rootSignatureHandle{};
-        RHI::shaderBlobHandle m_computeShaderHandle{};
-        RHI::pipelineStateHandle m_pipelineHandle{};
+        const RenderSceneState& m_renderSceneState;
+        RHI::BufferHandle m_renderableInfoBufferHandle{};
+        RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::ViewHandle m_renderableInfoBufferSrvHandle{};
+        RHI::ViewHandle m_renderObjectBufferUavHandle{};
+        RHI::ViewHandle m_visibleObjectCountBufferUavHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_computeShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 } // namespace Cue

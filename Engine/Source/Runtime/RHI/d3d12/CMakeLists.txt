@@ -25,4 +25,5 @@ target_include_directories(d3d12_backend PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # マクロ
 target_compile_definitions(d3d12_backend PRIVATE
     CUE_BACKEND_DX12
+    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
 )

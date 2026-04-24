@@ -6,6 +6,9 @@ namespace Cue::RHI::DX12
     {
         m_width = width;
         m_height = height;
+        m_bufferCount = bufferCount;
+        m_swapChainBufferCount = (bufferCount > 1) ? bufferCount : 2;
+        m_format = format;
         // SwapChainの設定
         DXGI_SWAP_CHAIN_DESC1 desc{};
         desc.Width = width; // クライアント幅設定
@@ -13,7 +16,7 @@ namespace Cue::RHI::DX12
         desc.Format = format; // バックバッファ形式設定
         desc.SampleDesc.Count = 1; // 単一サンプル設定
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 描画用途設定
-        desc.BufferCount = bufferCount; // バッファ数設定
+        desc.BufferCount = m_swapChainBufferCount; // flip model が要求する実バッファ数を設定
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // flip discard 設定
         desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // tearing 許可
 
@@ -52,46 +55,61 @@ namespace Cue::RHI::DX12
         m_refreshrate = static_cast<uint32_t>(dm.dmDisplayFrequency);
 
         // vsync 併用向けレイテンシ設定
-        m_swapChain->SetMaximumFrameLatency(bufferCount);
+        // m_swapChain->SetMaximumFrameLatency(bufferCount);
 
         // os 標準 full screen 遷移無効化
         m_renderDevice.get_dxgi_factory()->MakeWindowAssociation(
             a_hwnd,
             DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
 
-        std::vector<DX12GpuResource> m_backBuffers;
-        for (uint32_t i = 0; i < bufferCount; ++i)
+        return rebuild_back_buffer_resources();
+    }
+    Result SwapChain::resize(uint32_t a_width, uint32_t a_height)
+    {
+        if (m_swapChain == nullptr)
         {
-            comPtr<ID3D12Resource> pResource;
-            hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&pResource));
-            if (FAILED(hr))
-            {
-                CUE_ASSERTF(false, "Failed to get SwapChain back buffer. HRESULT: {:#X}", static_cast<uint32_t>(hr));
-            }
-            DX12GpuResource backBuffer(pResource, D3D12_RESOURCE_STATE_PRESENT);
-            m_backBuffers.push_back(std::move(backBuffer));
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Failed to resize swap chain because it is not initialized.");
         }
 
-        // バックバッファリソースをTextureManagerに登録
-        DX12TextureRecord record{};
-        record.desc.name = "BackBuffer";
-        record.desc.width = width;
-        record.desc.height = height;
-        record.desc.format = ColorFormat::R8G8B8A8_UNORM;
-        record.desc.bufferCount = bufferCount;
-        record.defaultResources = std::move(m_backBuffers);
-        m_textureManager.register_external_texture(record, m_backBufferTextureHandle);
+        if (a_width == 0 || a_height == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Failed to resize swap chain because the requested size is invalid.");
+        }
 
-        // バックバッファの RTV ビューを ViewManager に登録
-        ViewDesc viewDesc{};
-        viewDesc.name = "BackBufferRTV";
-        viewDesc.type = ViewType::RenderTarget;
-        viewDesc.textureHandle = m_backBufferTextureHandle;
-        viewDesc.bufferKind = BufferKind::Texture;
-        viewDesc.colorFormat = convert_color_format(format);
-        m_viewManager.create_view(viewDesc, m_rtvViewHandle);
+        if (a_width == m_width && a_height == m_height)
+        {
+            return Result::ok();
+        }
 
-        return Result::ok();
+        Result result = destroy_back_buffer_resources();
+        if (!result)
+        {
+            return result;
+        }
+
+        HRESULT hr = m_swapChain->ResizeBuffers(
+            m_swapChainBufferCount,
+            a_width,
+            a_height,
+            m_format,
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to resize swap chain buffers.");
+        }
+
+        m_width = a_width;
+        m_height = a_height;
+        return rebuild_back_buffer_resources();
     }
     Result SwapChain::present(bool vsync)
     {
@@ -115,15 +133,81 @@ namespace Cue::RHI::DX12
     }
     void SwapChain::shutdown()
     {
-        // バックバッファの RTV ビューを ViewManager から破棄
-        m_viewManager.destroy_view(m_rtvViewHandle);
-        m_rtvViewHandle = {};
-
-        // バックバッファリソースを TextureManager から破棄
-        m_textureManager.destroy_texture(m_backBufferTextureHandle);
-        m_backBufferTextureHandle = {};
+        (void)destroy_back_buffer_resources();
 
         // SwapChain を破棄
         m_swapChain.Reset();
+    }
+    Result SwapChain::rebuild_back_buffer_resources()
+    {
+        std::vector<DX12GpuResource> backBuffers;
+        backBuffers.reserve(m_swapChainBufferCount);
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+        {
+            comPtr<ID3D12Resource> resource;
+            HRESULT hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&resource));
+            if (FAILED(hr))
+            {
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to get swap chain back buffer.");
+            }
+
+            backBuffers.emplace_back(resource, D3D12_RESOURCE_STATE_PRESENT);
+        }
+
+        DX12TextureRecord record{};
+        record.desc.name = "BackBuffer";
+        record.desc.width = m_width;
+        record.desc.height = m_height;
+        record.desc.format = ColorFormat::R8G8B8A8_UNORM;
+        record.desc.bufferCount = m_swapChainBufferCount;
+        record.defaultResources = std::move(backBuffers);
+
+        Result result =
+            m_textureManager.register_external_texture(record, m_backBufferTextureHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        ViewDesc viewDesc{};
+        viewDesc.name = "BackBufferRTV";
+        viewDesc.type = ViewType::RenderTarget;
+        viewDesc.textureHandle = m_backBufferTextureHandle;
+        viewDesc.bufferKind = BufferKind::Texture;
+        viewDesc.colorFormat = convert_color_format(m_format);
+        result = m_viewManager.create_view(viewDesc, m_rtvViewHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+    Result SwapChain::destroy_back_buffer_resources()
+    {
+        if (m_rtvViewHandle.valid())
+        {
+            Result result = m_viewManager.destroy_view(m_rtvViewHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_rtvViewHandle = {};
+        }
+
+        if (m_backBufferTextureHandle.valid())
+        {
+            Result result = m_textureManager.destroy_texture(m_backBufferTextureHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_backBufferTextureHandle = {};
+        }
+
+        return Result::ok();
     }
 }

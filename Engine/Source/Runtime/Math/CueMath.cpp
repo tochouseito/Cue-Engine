@@ -40,9 +40,9 @@ namespace Cue::Math
     {
         // 1) 各軸のスケールを対角成分に設定する
         float4x4 matrix = float4x4::identity();
-        matrix.m_values[0][0] = a_scale.m_x;
-        matrix.m_values[1][1] = a_scale.m_y;
-        matrix.m_values[2][2] = a_scale.m_z;
+        matrix.values[0][0] = a_scale.x;
+        matrix.values[1][1] = a_scale.y;
+        matrix.values[2][2] = a_scale.z;
         return matrix;
     }
 
@@ -52,10 +52,10 @@ namespace Cue::Math
         float4x4 matrix = float4x4::identity();
         const float c = std::cos(a_radian);
         const float s = std::sin(a_radian);
-        matrix.m_values[1][1] = c;
-        matrix.m_values[1][2] = s;
-        matrix.m_values[2][1] = -s;
-        matrix.m_values[2][2] = c;
+        matrix.values[1][1] = c;
+        matrix.values[1][2] = s;
+        matrix.values[2][1] = -s;
+        matrix.values[2][2] = c;
         return matrix;
     }
 
@@ -65,10 +65,10 @@ namespace Cue::Math
         float4x4 matrix = float4x4::identity();
         const float c = std::cos(a_radian);
         const float s = std::sin(a_radian);
-        matrix.m_values[0][0] = c;
-        matrix.m_values[0][2] = -s;
-        matrix.m_values[2][0] = s;
-        matrix.m_values[2][2] = c;
+        matrix.values[0][0] = c;
+        matrix.values[0][2] = -s;
+        matrix.values[2][0] = s;
+        matrix.values[2][2] = c;
         return matrix;
     }
 
@@ -78,26 +78,26 @@ namespace Cue::Math
         float4x4 matrix = float4x4::identity();
         const float c = std::cos(a_radian);
         const float s = std::sin(a_radian);
-        matrix.m_values[0][0] = c;
-        matrix.m_values[0][1] = s;
-        matrix.m_values[1][0] = -s;
-        matrix.m_values[1][1] = c;
+        matrix.values[0][0] = c;
+        matrix.values[0][1] = s;
+        matrix.values[1][0] = -s;
+        matrix.values[1][1] = c;
         return matrix;
     }
 
     [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotation) noexcept
     {
         // 1) 各軸回転を合成する
-        return x_axis_matrix(a_rotation.m_x) * y_axis_matrix(a_rotation.m_y) * z_axis_matrix(a_rotation.m_z);
+        return x_axis_matrix(a_rotation.x) * y_axis_matrix(a_rotation.y) * z_axis_matrix(a_rotation.z);
     }
 
     [[nodiscard]] float4x4 translate_matrix(float3 a_translation) noexcept
     {
         // 1) 単位行列に平行移動成分を設定する
         float4x4 matrix = float4x4::identity();
-        matrix.m_values[3][0] = a_translation.m_x;
-        matrix.m_values[3][1] = a_translation.m_y;
-        matrix.m_values[3][2] = a_translation.m_z;
+        matrix.values[3][0] = a_translation.x;
+        matrix.values[3][1] = a_translation.y;
+        matrix.values[3][2] = a_translation.z;
         return matrix;
     }
 
@@ -111,12 +111,12 @@ namespace Cue::Math
     {
         // 1) 画面座標への変換行列を構築する
         float4x4 matrix = float4x4::identity();
-        matrix.m_values[0][0] = a_width / 2.0f;
-        matrix.m_values[1][1] = -a_height / 2.0f; // Y軸反転
-        matrix.m_values[2][2] = a_maxDepth - a_minDepth;
-        matrix.m_values[3][0] = a_left + a_width / 2.0f;
-        matrix.m_values[3][1] = a_top + a_height / 2.0f;
-        matrix.m_values[3][2] = a_minDepth;
+        matrix.values[0][0] = a_width / 2.0f;
+        matrix.values[1][1] = -a_height / 2.0f; // Y軸反転
+        matrix.values[2][2] = a_maxDepth - a_minDepth;
+        matrix.values[3][0] = a_left + a_width / 2.0f;
+        matrix.values[3][1] = a_top + a_height / 2.0f;
+        matrix.values[3][2] = a_minDepth;
         return matrix;
     }
 
@@ -129,11 +129,11 @@ namespace Cue::Math
         // 1) 透視投影行列を構築する
         float4x4 matrix = float4x4::zero();
         const float f = std::tan(a_fovY / 2.0f);
-        matrix.m_values[0][0] = 1.0f / (a_aspectRatio * f);
-        matrix.m_values[1][1] = 1.0f / f;
-        matrix.m_values[2][2] = (a_farClip + a_nearClip) / (a_farClip - a_nearClip);
-        matrix.m_values[2][3] = 1.0f;
-        matrix.m_values[3][2] = -(2.0f * a_farClip * a_nearClip) / (a_farClip - a_nearClip);
+        matrix.values[0][0] = 1.0f / (a_aspectRatio * f);
+        matrix.values[1][1] = 1.0f / f;
+        matrix.values[2][2] = (a_farClip + a_nearClip) / (a_farClip - a_nearClip);
+        matrix.values[2][3] = 1.0f;
+        matrix.values[3][2] = -(2.0f * a_farClip * a_nearClip) / (a_farClip - a_nearClip);
         return matrix;
     }
 
@@ -147,12 +147,12 @@ namespace Cue::Math
     {
         // 1) 正射影行列を構築する
         float4x4 matrix = float4x4::identity();
-        matrix.m_values[0][0] = 2.0f / (a_right - a_left);
-        matrix.m_values[1][1] = 2.0f / (a_top - a_bottom);
-        matrix.m_values[2][2] = 1.0f / (a_farClip - a_nearClip);
-        matrix.m_values[3][0] = (a_left + a_right) / (a_left - a_right);
-        matrix.m_values[3][1] = (a_top + a_bottom) / (a_bottom - a_top);
-        matrix.m_values[3][2] = a_nearClip / (a_nearClip - a_farClip);
+        matrix.values[0][0] = 2.0f / (a_right - a_left);
+        matrix.values[1][1] = 2.0f / (a_top - a_bottom);
+        matrix.values[2][2] = 1.0f / (a_farClip - a_nearClip);
+        matrix.values[3][0] = (a_left + a_right) / (a_left - a_right);
+        matrix.values[3][1] = (a_top + a_bottom) / (a_bottom - a_top);
+        matrix.values[3][2] = a_nearClip / (a_nearClip - a_farClip);
         return matrix;
     }
 

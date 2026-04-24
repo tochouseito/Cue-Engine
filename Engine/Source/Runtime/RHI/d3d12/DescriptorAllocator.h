@@ -34,13 +34,13 @@ namespace Cue::RHI::DX12
     // テーブルID
     struct TableID final
     {
-        TableKind m_kind = TableKind::Buffers;
-        uint16_t  m_generation{};           ///< テーブルの世代（将来の再配置用）
-        uint32_t  m_index = kInvalid;       ///< テーブル内のローカル index（0..capacity-1）
+        TableKind kind = TableKind::Buffers;
+        uint16_t  generation{};           ///< テーブルの世代（将来の再配置用）
+        uint32_t  index = kInvalid;       ///< テーブル内のローカル index（0..capacity-1）
 
         static constexpr uint32_t kInvalid = 0xFFFFFFFF;
 
-        bool valid() const { return m_index != kInvalid; }
+        bool valid() const { return index != kInvalid; }
     };
 
     class DescriptorAllocator final
@@ -80,6 +80,16 @@ namespace Cue::RHI::DX12
         /// @brief CPU ヒープ上のハンドルを取得します。
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID a_id);
 
+        /// @brief shader-visible な texture descriptor を 1 つ割り当てます。
+        [[nodiscard]] Result allocate_shader_visible_texture_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle);
+
+        /// @brief shader-visible な texture descriptor を解放します。
+        void free_shader_visible_texture_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle);
+
         /// @brief 指定ヒープ種別に対応するヒープを取得します。
         ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
 
@@ -104,11 +114,11 @@ namespace Cue::RHI::DX12
         // テーブル内部情報
         struct Table final
         {
-            uint32_t m_baseIndex = 0;            ///< ヒープ内の先頭スロット
-            uint32_t m_capacity = 0;
-            uint16_t m_generation = 0;
-            std::vector<uint32_t> m_freeList;    ///< 空きスロット
-            HeapType m_heapType = HeapType::CBV_SRV_UAV;
+            uint32_t baseIndex = 0;            ///< ヒープ内の先頭スロット
+            uint32_t capacity = 0;
+            uint16_t generation = 0;
+            std::vector<uint32_t> freeList;    ///< 空きスロット
+            HeapType heapType = HeapType::CBV_SRV_UAV;
         };
 
         // --- テーブル管理 ---

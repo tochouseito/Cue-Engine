@@ -23,6 +23,16 @@ namespace Cue::RHI::DX12
             CommandListType commandListType,
             D3D12_RESOURCE_STATES state) noexcept
         {
+            if (commandListType == CommandListType::Copy)
+            {
+                if (state != D3D12_RESOURCE_STATE_COMMON &&
+                    state != D3D12_RESOURCE_STATE_COPY_SOURCE &&
+                    state != D3D12_RESOURCE_STATE_COPY_DEST)
+                {
+                    return D3D12_RESOURCE_STATE_COMMON;
+                }
+            }
+
             if (commandListType == CommandListType::Compute)
             {
                 if ((state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) != 0)
@@ -53,6 +63,10 @@ namespace Cue::RHI::DX12
         create_command_allocator(device, type);
         // コマンドリストの作成
         create_command_list(device, type);
+        // DrawIndexedInstanced 用の command signature を用意する。
+        create_draw_indexed_command_signature(device);
+        // timestamp query の受け皿を作る。
+        create_timestamp_resources(device, type);
 
         m_type = convert_command_list_type(type);
     }
@@ -132,6 +146,109 @@ namespace Cue::RHI::DX12
     {
         return m_type;
     }
+    bool DX12GpuCommandContext::supports_timestamps() const
+    {
+        return m_timestampQueryHeap != nullptr &&
+            m_timestampReadbackBuffer != nullptr &&
+            m_timestampReadbackMappedData != nullptr &&
+            type() != CommandListType::Copy;
+    }
+    Result DX12GpuCommandContext::write_timestamp(uint32_t queryIndex)
+    {
+        if (!supports_timestamps())
+        {
+            return Result::ok();
+        }
+        if (queryIndex >= k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query index is out of range.");
+        }
+
+        m_commandList->EndQuery(
+            m_timestampQueryHeap.Get(),
+            D3D12_QUERY_TYPE_TIMESTAMP,
+            queryIndex);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_timestamps(
+        uint32_t firstQueryIndex, uint32_t queryCount)
+    {
+        if (!supports_timestamps())
+        {
+            return Result::ok();
+        }
+        if (queryCount == 0)
+        {
+            return Result::ok();
+        }
+        if (firstQueryIndex + queryCount > k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query range is out of bounds.");
+        }
+
+        m_commandList->ResolveQueryData(
+            m_timestampQueryHeap.Get(),
+            D3D12_QUERY_TYPE_TIMESTAMP,
+            firstQueryIndex,
+            queryCount,
+            m_timestampReadbackBuffer.Get(),
+            static_cast<UINT64>(firstQueryIndex) * sizeof(uint64_t));
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::read_timestamp(
+        uint32_t queryIndex, uint64_t& outValue) const
+    {
+        outValue = 0;
+        if (!supports_timestamps())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Timestamp queries are not supported on this command context.");
+        }
+        if (queryIndex >= k_maxTimestampQueryCount)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Timestamp query index is out of range.");
+        }
+
+        const uint64_t* values =
+            reinterpret_cast<const uint64_t*>(m_timestampReadbackMappedData);
+        outValue = values[queryIndex];
+        return Result::ok();
+    }
+    void DX12GpuCommandContext::set_pending_fence(
+        IQueueContext* a_queue,
+        uint64_t a_fenceValue)
+    {
+        m_pendingQueue = a_queue;
+        m_pendingFenceValue = a_fenceValue;
+    }
+    Result DX12GpuCommandContext::wait_for_pending_fence()
+    {
+        if (m_pendingQueue == nullptr || m_pendingFenceValue == 0)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_pendingQueue->wait_for_fence(m_pendingFenceValue);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_pendingQueue = nullptr;
+        m_pendingFenceValue = 0;
+        return Result::ok();
+    }
     void DX12GpuCommandContext::begin_event(const char* name)
     {
         // コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る。
@@ -162,7 +279,7 @@ namespace Cue::RHI::DX12
         // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
         m_commandList->EndEvent();
     }
-    Result DX12GpuCommandContext::resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12BufferRecord* record = nullptr;
@@ -211,7 +328,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resource_barrier(textureHandle handle, const ResourceBarrierDesc desc)
+    Result DX12GpuCommandContext::resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc)
     {
         // ハンドルからリソースを取得する
         DX12TextureRecord* record = nullptr;
@@ -308,7 +425,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_render_target(viewHandle handle, const float clearColor[4])
+    Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -344,7 +461,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil)
+    Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
     {
         // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
@@ -387,7 +504,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4])
+    Result DX12GpuCommandContext::clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4])
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -546,7 +663,57 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_pipeline(pipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_index_buffer(
+        BufferHandle handle, IndexFormat format)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Index buffer can only be set on graphics command lists.");
+        }
+
+        DX12BufferRecord* bufferRecord = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &bufferRecord) ||
+            bufferRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given index buffer handle.");
+        }
+        if (bufferRecord->desc.type != BufferType::Index)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The given buffer is not an index buffer.");
+        }
+
+        uint32_t resourceIndex = 0;
+        Result result = resolve_slice_index(
+            bufferRecord->defaultResources.size(), resourceIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve index buffer resource for the current frame.");
+        }
+
+        DX12GpuResource& resource = bufferRecord->defaultResources[resourceIndex];
+        D3D12_INDEX_BUFFER_VIEW indexBufferView{};
+        indexBufferView.BufferLocation = resource.get_gpu_virtual_address();
+        indexBufferView.SizeInBytes =
+            static_cast<UINT>(resource.get_buffer_size());
+        indexBufferView.Format =
+            (format == IndexFormat::UInt16) ? DXGI_FORMAT_R16_UINT
+                                            : DXGI_FORMAT_R32_UINT;
+        m_commandList->IASetIndexBuffer(&indexBufferView);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::set_graphics_pipeline(PipelineStateHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -578,7 +745,7 @@ namespace Cue::RHI::DX12
         m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_compute_pipeline(pipelineStateHandle handle)
+    Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -631,7 +798,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -668,7 +835,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -705,7 +872,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, bufferHandle handle)
+    Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex, BufferHandle handle)
     {
         Result result = validate_root_binding_command_type(
             type(),
@@ -742,7 +909,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle)
+    Result DX12GpuCommandContext::set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle)
     {
         if (type() != CommandListType::Graphics)
         {
@@ -774,6 +941,21 @@ namespace Cue::RHI::DX12
         m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_graphics_texture_table(uint32_t rootParameterIndex)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Graphics texture tables can only be set on graphics command lists.");
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+            m_descriptorAllocator.get_table_base_gpu(TableKind::Textures);
+        m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
     {
         Result result = validate_root_binding_command_type(
@@ -787,7 +969,7 @@ namespace Cue::RHI::DX12
         m_commandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView)
+    Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
     {
         // queue 種別を検証して OM state を設定する。
         if (type() != CommandListType::Graphics)
@@ -903,6 +1085,49 @@ namespace Cue::RHI::DX12
         
         return Result::ok();
     }
+    Result DX12GpuCommandContext::execute_indexed_indirect(
+        BufferHandle commandBufferHandle,
+        BufferHandle commandCountBufferHandle,
+        uint32_t maxCommandCount)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "ExecuteIndirect can only be issued on a graphics command context.");
+        }
+        if (!m_drawIndexedCommandSignature)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Draw indexed command signature is not initialized.");
+        }
+
+        DX12GpuResource* commandResource = nullptr;
+        Result result = resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* commandCountResource = nullptr;
+        result = resolve_default_buffer(commandCountBufferHandle, 0, &commandCountResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_commandList->ExecuteIndirect(
+            m_drawIndexedCommandSignature.Get(),
+            maxCommandCount,
+            commandResource->get_resource(),
+            0,
+            commandCountResource->get_resource(),
+            0);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         // コマンドアロケータの作成
@@ -918,6 +1143,98 @@ namespace Cue::RHI::DX12
         }
         set_d3d12_name(m_commandAllocator.Get(), L"CommandContext CommandAllocator");
 
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::create_draw_indexed_command_signature(
+        ID3D12Device& device)
+    {
+        D3D12_INDIRECT_ARGUMENT_DESC argumentDesc{};
+        argumentDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+        D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};
+        signatureDesc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        signatureDesc.NumArgumentDescs = 1;
+        signatureDesc.pArgumentDescs = &argumentDesc;
+
+        HRESULT hr = device.CreateCommandSignature(
+            &signatureDesc,
+            nullptr,
+            IID_PPV_ARGS(m_drawIndexedCommandSignature.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create draw indexed command signature.");
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::create_timestamp_resources(
+        ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
+    {
+        if (type == D3D12_COMMAND_LIST_TYPE_COPY)
+        {
+            return Result::ok();
+        }
+
+        D3D12_QUERY_HEAP_DESC queryHeapDesc{};
+        queryHeapDesc.Count = k_maxTimestampQueryCount;
+        queryHeapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        HRESULT hr = device.CreateQueryHeap(
+            &queryHeapDesc,
+            IID_PPV_ARGS(m_timestampQueryHeap.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create timestamp query heap.");
+        }
+
+        D3D12_HEAP_PROPERTIES heapProperties{};
+        heapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Width =
+            static_cast<UINT64>(k_maxTimestampQueryCount) * sizeof(uint64_t);
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.SampleDesc = { 1, 0 };
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        hr = device.CreateCommittedResource(
+            &heapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &resourceDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(m_timestampReadbackBuffer.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create timestamp readback buffer.");
+        }
+
+        void* mappedData = nullptr;
+        const D3D12_RANGE readRange{ 0, 0 };
+        hr = m_timestampReadbackBuffer->Map(0, &readRange, &mappedData);
+        if (FAILED(hr) || mappedData == nullptr)
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to map timestamp readback buffer.");
+        }
+        m_timestampReadbackMappedData = static_cast<std::byte*>(mappedData);
+        std::memset(
+            m_timestampReadbackMappedData,
+            0,
+            static_cast<size_t>(resourceDesc.Width));
         return Result::ok();
     }
     Result DX12GpuCommandContext::resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const
@@ -937,26 +1254,28 @@ namespace Cue::RHI::DX12
             return Result::ok();
         }
 
+        // スワップチェインのような外部リソースは、フレームリング数とは別の実体数を持つことがあります。
+        // Present パスでは m_frameIndex に「現在の back buffer index」が渡されるため、
+        // その index が有効範囲内ならそのまま使います。
+        if (m_frameIndex < sliceCount)
+        {
+            outIndex = m_frameIndex;
+            return Result::ok();
+        }
+
         if (sliceCount != m_bufferCount)
         {
             return Result::fail(
                 Code::InvalidArgument,
                 Severity::Error,
-                "Slice count must be 1 or match the global buffer count.");
+                "Slice count must be 1, match the global buffer count, or contain the current frame index.");
         }
-
-        if (m_frameIndex >= sliceCount)
-        {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Frame index is out of range for the requested resource slice.");
-        }
-
-        outIndex = m_frameIndex;
-        return Result::ok();
+        return Result::fail(
+            Code::InvalidArgument,
+            Severity::Error,
+            "Frame index is out of range for the requested resource slice.");
     }
-    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(bufferHandle handle, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1006,7 +1325,7 @@ namespace Cue::RHI::DX12
             Severity::Error,
             "No bindable buffer resource was found for the given handle.");
     }
-    Result DX12GpuCommandContext::resolve_upload_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1029,7 +1348,7 @@ namespace Cue::RHI::DX12
         *outResource = const_cast<DX12GpuResource*>(&record->uploadResources[resourceIndex]);
         return Result::ok();
     }
-    Result DX12GpuCommandContext::resolve_default_buffer(bufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
+    Result DX12GpuCommandContext::resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const
     {
         *outResource = nullptr;
 
@@ -1119,10 +1438,16 @@ namespace Cue::RHI::DX12
             commandLists.push_back(commandList);
         }
 
-        m_commandQueue->ExecuteCommandLists(1, commandLists.data());
+        if (commandLists.empty())
+        {
+            return Result::ok();
+        }
+
+        m_commandQueue->ExecuteCommandLists(
+            static_cast<UINT>(commandLists.size()), commandLists.data());
         return Result::ok();
     }
-    Result DX12GpuCommandQueue::signal()
+    Result DX12GpuCommandQueue::signal(uint64_t* outFenceValue)
     {
         // submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す。
         if (!m_commandQueue || !m_fence)
@@ -1141,6 +1466,11 @@ namespace Cue::RHI::DX12
                 PAL::Win::convert_hresult_code(hr),
                 Severity::Error,
                 "Failed to signal CommandQueue.");
+        }
+
+        if (outFenceValue != nullptr)
+        {
+            *outFenceValue = fence;
         }
 
         return Result::ok();
@@ -1163,6 +1493,22 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
+    Result DX12GpuCommandQueue::wait_for_fence(uint64_t fenceValue)
+    {
+        if (!m_fence || !m_fenceEvent)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "Fence or Fence event is not initialized.");
+        }
+        if (m_fence->GetCompletedValue() < fenceValue)
+        {
+            m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
+            WaitForSingleObject(m_fenceEvent, INFINITE);
+        }
+        return Result::ok();
+    }
     Result DX12GpuCommandQueue::wait_for_queue(IQueueContext& queue)
     {
         DX12GpuCommandQueue& dx12Queue = static_cast<DX12GpuCommandQueue&>(queue);
@@ -1180,6 +1526,29 @@ namespace Cue::RHI::DX12
                 PAL::Win::convert_hresult_code(hr),
                 Severity::Error,
                 "Failed to wait for another queue.");
+        }
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandQueue::get_timestamp_frequency(
+        uint64_t& outFrequency) const
+    {
+        outFrequency = 0;
+        if (!m_commandQueue)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "CommandQueue is not initialized.");
+        }
+
+        HRESULT hr = m_commandQueue->GetTimestampFrequency(&outFrequency);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to query command queue timestamp frequency.");
         }
 
         return Result::ok();
@@ -1276,6 +1645,17 @@ namespace Cue::RHI::DX12
     }
     Result DX12CommandPool::return_command_context(commandContextLease& context)
     {
+        if (!context)
+        {
+            return Result::ok();
+        }
+
+        Result waitResult = context->wait_for_pending_fence();
+        if (!waitResult)
+        {
+            return waitResult;
+        }
+
         CommandListType type = context->type();
         switch (type)
         {

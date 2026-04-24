@@ -138,10 +138,10 @@ namespace Cue::PAL::Win
         }
 
         // 4) コンテキスト設定
-        a_outThread.m_ctx->m_proc = a_proc;
-        a_outThread.m_ctx->m_user = a_user;
-        a_outThread.m_ctx->m_stopSource.reset();
-        a_outThread.m_ctx->m_exitCode.store(0, std::memory_order_relaxed);
+        a_outThread.m_ctx->proc = a_proc;
+        a_outThread.m_ctx->user = a_user;
+        a_outThread.m_ctx->stopSource.reset();
+        a_outThread.m_ctx->exitCode.store(0, std::memory_order_relaxed);
 
         // 5) スレッド生成（_beginthreadex）
         unsigned int tid = 0;
@@ -213,7 +213,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 停止要求
-        m_ctx->m_stopSource.request_stop();
+        m_ctx->stopSource.request_stop();
     }
 
     Core::Threading::StopToken WinThread::stop_token() const noexcept
@@ -225,7 +225,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) トークンを返す
-        return m_ctx->m_stopSource.token();
+        return m_ctx->stopSource.token();
     }
 
     uint32_t WinThread::thread_id() const noexcept
@@ -243,7 +243,7 @@ namespace Cue::PAL::Win
         }
 
         // 2) 終了コード取得
-        return m_ctx->m_exitCode.load(std::memory_order_relaxed);
+        return m_ctx->exitCode.load(std::memory_order_relaxed);
     }
 
     unsigned __stdcall WinThread::thread_entry(void* a_context) noexcept
@@ -257,11 +257,11 @@ namespace Cue::PAL::Win
         }
 
         // 2) StopToken を作ってユーザー処理を実行
-        const Cue::Core::Threading::StopToken token = context->m_stopSource.token();
-        const uint32_t code = context->m_proc(token, context->m_user);
+        const Cue::Core::Threading::StopToken token = context->stopSource.token();
+        const uint32_t code = context->proc(token, context->user);
 
         // 3) 終了コード保存
-        context->m_exitCode.store(code, std::memory_order_relaxed);
+        context->exitCode.store(code, std::memory_order_relaxed);
 
         // 4) 終了
         ::_endthreadex(code);

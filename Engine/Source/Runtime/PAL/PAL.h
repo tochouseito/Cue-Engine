@@ -7,6 +7,7 @@
 #include <Result.h>
 
 // === Core includes ===
+#include <IO/IFileSystem.h>
 #include <Threading/IThread.h>
 #include <Threading/IThreadFactory.h>
 #include <Time/IClock.h>
@@ -14,6 +15,7 @@
 #include <Time/Timer.h>
 
 // === PAL includes ===
+#include "Input/InputManager.h"
 #include "PlatformFactory.h"
 #include "PlatformMessage.h"
 
@@ -52,5 +54,7 @@ namespace Cue::PAL
         virtual Core::Threading::IThreadFactory& thread_factory() = 0;
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
+        virtual Core::IO::IFileSystem& file_system() = 0;
+        virtual InputManager& input_manager() = 0;
     };
 }

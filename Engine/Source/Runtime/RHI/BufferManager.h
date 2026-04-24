@@ -40,18 +40,18 @@ namespace Cue::RHI
         virtual ~IBufferManager() = default;
 
         // --- バッファの生成と破棄 ---
-        virtual Result create_buffer(const BufferDesc& desc, bufferHandle& out) = 0;
-        virtual Result destroy_buffer(bufferHandle handle) = 0;
+        virtual Result create_buffer(const BufferDesc& desc, BufferHandle& out) = 0;
+        virtual Result destroy_buffer(BufferHandle handle) = 0;
 
         // --- 名前からバッファハンドルの取得 ---
-        virtual Result get_buffer(std::string_view name, bufferHandle& out) = 0;
+        virtual Result get_buffer(std::string_view name, BufferHandle& out) = 0;
 
         // --- アップローダーの作成 ---
-        virtual Result get_upload_buffer_view(bufferHandle handle, UploadBufferView& outView) = 0;
+        virtual Result get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView) = 0;
 
         template<typename T>
         Result create_slot_uploaders(
-            bufferHandle handle,
+            BufferHandle handle,
             uint32_t bufferCount,
             std::vector<SlotUploader<T>>& outUploaders)
         {

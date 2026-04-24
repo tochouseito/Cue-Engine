@@ -32,6 +32,8 @@ namespace Cue::RHI::DX12
             DX12GpuCommandQueue& commandQueue,
             DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM);
 
+        Result resize(uint32_t a_width, uint32_t a_height);
+
         Result present(bool vsync);
         void shutdown();
 
@@ -39,25 +41,32 @@ namespace Cue::RHI::DX12
         {
             return static_cast<uint32_t>(m_swapChain->GetCurrentBackBufferIndex());
         }
-        textureHandle get_back_buffer_texture_handle() const noexcept
+        TextureHandle get_back_buffer_texture_handle() const noexcept
         {
             return m_backBufferTextureHandle;
         }
-        viewHandle get_back_buffer_rtv_view_handle() const noexcept
+        ViewHandle get_back_buffer_rtv_view_handle() const noexcept
         {
             return m_rtvViewHandle;
         }
+
         uint32_t width() const noexcept { return m_width; }
         uint32_t height() const noexcept { return m_height; }
     private:
+        Result rebuild_back_buffer_resources();
+        Result destroy_back_buffer_resources();
+
         DX12RenderDevice& m_renderDevice;
         DX12TextureManager& m_textureManager;
         DX12ViewManager& m_viewManager;
         comPtr<IDXGISwapChain4> m_swapChain;
         int32_t m_refreshrate = 60; // デフォルトは 60Hz
-        viewHandle m_rtvViewHandle; // バックバッファの RTV ビュー
-        textureHandle m_backBufferTextureHandle;
+        ViewHandle m_rtvViewHandle; // バックバッファの RTV ビュー
+        TextureHandle m_backBufferTextureHandle;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
+        uint32_t m_bufferCount = 0;
+        uint32_t m_swapChainBufferCount = 0;
+        DXGI_FORMAT m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
     };
 }

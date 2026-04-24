@@ -24,6 +24,10 @@
 
 namespace Cue::RHI
 {
+    class IQueueContext;
+
+    enum class IndexFormat : uint8_t;
+
     struct BufferTag {};
     struct TextureTag {};
     struct ViewTag {};
@@ -32,13 +36,13 @@ namespace Cue::RHI
     struct ShaderBlobTag {};
     struct StaticMeshTag {};
 
-    using bufferHandle = Core::Handle<BufferTag>;
-    using textureHandle = Core::Handle<TextureTag>;
-    using viewHandle = Core::Handle<ViewTag>;
-    using pipelineStateHandle = Core::Handle<PipelineTag>;
-    using rootSignatureHandle = Core::Handle<RootSignatureTag>;
-    using shaderBlobHandle = Core::Handle<ShaderBlobTag>;
-    using staticMeshHandle = Core::Handle<StaticMeshTag>;
+    using BufferHandle = Core::Handle<BufferTag>;
+    using TextureHandle = Core::Handle<TextureTag>;
+    using ViewHandle = Core::Handle<ViewTag>;
+    using PipelineStateHandle = Core::Handle<PipelineTag>;
+    using RootSignatureHandle = Core::Handle<RootSignatureTag>;
+    using ShaderBlobHandle = Core::Handle<ShaderBlobTag>;
+    using StaticMeshHandle = Core::Handle<StaticMeshTag>;
 
     enum class CommandListType : uint8_t
     {
@@ -55,6 +59,7 @@ namespace Cue::RHI
         RenderTarget,
         UnorderedAccess,
         ShaderResource,
+        IndirectArgument,
         DepthWrite,
         Present
     };
@@ -67,6 +72,7 @@ namespace Cue::RHI
         case ResourceState::RenderTarget: return "RenderTarget";
         case ResourceState::UnorderedAccess: return "UnorderedAccess";
         case ResourceState::ShaderResource: return "ShaderResource";
+        case ResourceState::IndirectArgument: return "IndirectArgument";
         case ResourceState::DepthWrite: return "DepthWrite";
         case ResourceState::Present: return "Present";
         default: return "Unknown";
@@ -119,10 +125,10 @@ namespace Cue::RHI
 
     struct BufferCopyRegion final
     {
-        bufferHandle srcBufferHandle = {};
+        BufferHandle srcBufferHandle = {};
         uint32_t srcUploadResourceIndex = 0;
         uint64_t srcByteOffset = 0;
-        bufferHandle dstBufferHandle = {};
+        BufferHandle dstBufferHandle = {};
         uint32_t dstDefaultResourceIndex = 0;
         uint64_t dstByteOffset = 0;
         uint64_t byteSize = 0;
@@ -146,31 +152,40 @@ namespace Cue::RHI
         virtual Result close() = 0;
         virtual CommandListType type() const = 0;
         virtual void* native_command_list() const = 0;
+        virtual bool supports_timestamps() const = 0;
+        virtual Result write_timestamp(uint32_t queryIndex) = 0;
+        virtual Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) = 0;
+        virtual Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const = 0;
+        virtual void set_pending_fence(IQueueContext* a_queue, uint64_t a_fenceValue) = 0;
+        virtual Result wait_for_pending_fence() = 0;
 
         // --- GPU プロファイリング用のイベントマーカー ---
         virtual void begin_event(const char* name) = 0;
         virtual void end_event() = 0;
 
         // --- Commaonds ---
-        virtual Result resource_barrier(bufferHandle handle, const ResourceBarrierDesc desc) = 0;
-        virtual Result resource_barrier(textureHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
+        virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
-        virtual Result clear_render_target(viewHandle handle, const float clearColor[4]) = 0;
-        virtual Result clear_depth_stencil(viewHandle handle, float depth, uint8_t stencil) = 0;
-        virtual Result clear_unordered_access_uint(viewHandle handle, const uint32_t clearValues[4]) = 0;
+        virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
+        virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
+        virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_primitive_topology(PrimitiveTopologyType topology) = 0;
-        virtual Result set_graphics_pipeline(pipelineStateHandle handle) = 0;
-        virtual Result set_compute_pipeline(pipelineStateHandle handle) = 0;
+        virtual Result set_index_buffer(BufferHandle handle, IndexFormat format) = 0;
+        virtual Result set_graphics_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result set_compute_pipeline(PipelineStateHandle handle) = 0;
         virtual Result set_32bit_constant(uint32_t rootParameterIndex, uint32_t value) = 0;
-        virtual Result set_cbv(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_srv(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_uav(uint32_t rootParameterIndex, bufferHandle handle) = 0;
-        virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, viewHandle handle) = 0;
+        virtual Result set_cbv(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) = 0;
+        virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) = 0;
+        virtual Result set_graphics_texture_table(uint32_t rootParameterIndex) = 0;
         virtual Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
-        virtual Result set_render_targets(const viewHandle* renderTargetViews, uint32_t renderTargetCount, viewHandle depthStencilView) = 0;
+        virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;
         virtual Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) = 0;
         virtual Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) = 0;
+        virtual Result execute_indexed_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) = 0;
     };
 
     /// @brief キューコンテキストの共通インターフェースです。
@@ -188,9 +203,11 @@ namespace Cue::RHI
 
         virtual CommandListType type() const = 0;
         virtual Result submit(std::vector<ICommandContext*>& contexts) = 0;
-        virtual Result signal() = 0;
+        virtual Result signal(uint64_t* outFenceValue = nullptr) = 0;
         virtual Result wait() = 0;
+        virtual Result wait_for_fence(uint64_t fenceValue) = 0;
         virtual Result wait_for_queue(IQueueContext& queue) = 0;
+        virtual Result get_timestamp_frequency(uint64_t& outFrequency) const = 0;
     };
 
     using commandContextLease = std::unique_ptr<ICommandContext, std::function<void(ICommandContext*)>>;

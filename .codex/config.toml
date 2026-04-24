@@ -20,9 +20,12 @@ persistence = "save-all"
 # max_bytes = 50000000
 
 [sandbox_workspace_write]
-# 通常はネット無し（セキュリティ優先）
-network_access = false
-writable_roots = []
+network_access = true
+writable_roots = [
+  "C:\\Users\\sinse\\source\\repos\\CueEngine",
+  "C:\\Users\\sinse\\AppData\\Local\\vcpkg",
+  "C:\\Users\\sinse\\AppData\\Local\\Temp",
+]
 
 [features]
 # 画像を扱うなら true

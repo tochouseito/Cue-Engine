@@ -29,6 +29,8 @@ namespace Cue::RHI
         RootParameterType type;
         ShaderVisibility visibility;
         uint32_t shaderRegister;
+        uint32_t descriptorCount = 1;
+        uint32_t registerSpace = 0;
     };
 
     struct RootSignatureDesc
@@ -100,9 +102,9 @@ namespace Cue::RHI
     struct GraphicsPipelineStateDesc
     {
         std::string name = {};
-        rootSignatureHandle rootSignatureHandle = {};
-        shaderBlobHandle vsHandle = {};
-        shaderBlobHandle psHandle = {};
+        RootSignatureHandle rootSignatureHandle = {};
+        ShaderBlobHandle vsHandle = {};
+        ShaderBlobHandle psHandle = {};
         std::vector<InputElementDesc> inputElements = {};
         std::vector<BlendMode> blendMode = { BlendMode::None };
         RasterizerStateDesc rasterizerState = {};
@@ -115,8 +117,8 @@ namespace Cue::RHI
     struct ComputePipelineStateDesc
     {
         std::string name = {};
-        rootSignatureHandle rootSignatureHandle = {};
-        shaderBlobHandle csHandle = {};
+        RootSignatureHandle rootSignatureHandle = {};
+        ShaderBlobHandle csHandle = {};
     };
 
     class IPipelineManager
@@ -131,19 +133,19 @@ namespace Cue::RHI
         IPipelineManager& operator=(IPipelineManager&&) = delete;
         virtual ~IPipelineManager() = default;
 
-        virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, pipelineStateHandle& out) = 0;
-        virtual Result destroy_graphics_pipeline(pipelineStateHandle handle) = 0;
-        virtual Result get_graphics_pipeline(std::string_view name, pipelineStateHandle& out) = 0;
-        virtual Result create_compute_pipeline(const ComputePipelineStateDesc& desc, pipelineStateHandle& out) = 0;
-        virtual Result destroy_compute_pipeline(pipelineStateHandle handle) = 0;
-        virtual Result get_compute_pipeline(std::string_view name, pipelineStateHandle& out) = 0;
+        virtual Result create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out) = 0;
+        virtual Result destroy_graphics_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result get_graphics_pipeline(std::string_view name, PipelineStateHandle& out) = 0;
+        virtual Result create_compute_pipeline(const ComputePipelineStateDesc& desc, PipelineStateHandle& out) = 0;
+        virtual Result destroy_compute_pipeline(PipelineStateHandle handle) = 0;
+        virtual Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out) = 0;
 
-        virtual Result create_root_signature(const RootSignatureDesc& desc, rootSignatureHandle& out) = 0;
-        virtual Result destroy_root_signature(rootSignatureHandle handle) = 0;
-        virtual Result get_root_signature(std::string_view name, rootSignatureHandle& out) = 0;
+        virtual Result create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out) = 0;
+        virtual Result destroy_root_signature(RootSignatureHandle handle) = 0;
+        virtual Result get_root_signature(std::string_view name, RootSignatureHandle& out) = 0;
 
-        virtual Result create_shader_blob(const ShaderCompileDesc& desc, shaderBlobHandle& out) = 0;
-        virtual Result destroy_shader_blob(shaderBlobHandle handle) = 0;
-        virtual Result get_shader_blob(std::string_view name, shaderBlobHandle& out) = 0;
+        virtual Result create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out) = 0;
+        virtual Result destroy_shader_blob(ShaderBlobHandle handle) = 0;
+        virtual Result get_shader_blob(std::string_view name, ShaderBlobHandle& out) = 0;
     };
 }

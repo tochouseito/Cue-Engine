@@ -33,10 +33,10 @@ namespace Cue::RHI::DX12
         {
         }
         ~DX12ViewManager() override = default;
-        Result create_view(const ViewDesc& desc, viewHandle& out) override;
-        Result destroy_view(viewHandle handle) override;
-        Result get_view(std::string_view name, viewHandle& out) override;
-        bool try_get_record(viewHandle handle, DX12ViewRecord** outRecord);
+        Result create_view(const ViewDesc& desc, ViewHandle& out) override;
+        Result destroy_view(ViewHandle handle) override;
+        Result get_view(std::string_view name, ViewHandle& out) override;
+        bool try_get_record(ViewHandle handle, DX12ViewRecord** outRecord);
     private:
         Result create_view_impl(const ViewDesc& desc, DX12GpuResource& resource, std::vector<TableID>& ids);
     private:
@@ -44,6 +44,6 @@ namespace Cue::RHI::DX12
         DX12TextureManager& m_textureManager;
         DescriptorAllocator& m_descriptorAllocator;
         Core::Registry<ViewTag, DX12ViewRecord> m_viewRegistry;
-        std::unordered_map<Core::ResourceNameId, viewHandle> m_nameToHandlesMap;
+        std::unordered_map<Core::ResourceNameId, ViewHandle> m_nameToHandlesMap;
     };
 }

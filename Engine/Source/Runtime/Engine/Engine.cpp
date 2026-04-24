@@ -1,29 +1,51 @@
 #include "Engine.h"
-#include "GpuData/Batching.h"
-#include "GpuData/Transform.h"
+#include "PlatformCommandContext.h"
 #include "Passes/GenerateVisibleList.h"
-#include "Passes/ObjectInfoCopyPass.h"
+#include "Passes/MaterialBufferCopyPass.h"
+#include "Passes/RenderObjectCopyPass.h"
+#include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
+#include "Passes/VisibleObjectCountCopyPass.h"
+#include "Passes/ViewProjectionCopyPass.h"
+#include "Script/ScriptRuntime.h"
+#include <IO/Logger.h>
+#include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
+#include <IO/Path.h>
+
+// === C++ includes ===
+#include <array>
+#include <cstddef>
+#include <vector>
 
 namespace Cue
 {
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
         // 引数の検査
-        if (!a_info.platform || !a_info.backend)
+        if (!a_info.platform || !a_info.backend || !a_info.audioBackend)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
-                "Invalid argument: platform and backend must not be null");
+                "Invalid argument: platform, backend, and audio backend must not be null");
         }
 
         // 依存オブジェクトの保存
         m_platform = a_info.platform;
         m_backend = a_info.backend;
+        m_audioBackend = a_info.audioBackend;
         m_editorBridge = a_info.editorBridge;
+        m_platformBridge = a_info.platformBridge;
+
+        Audio::AudioDeviceDesc audioDeviceDesc{};
+        Result result =
+            m_audioBackend->create_device(audioDeviceDesc, m_audioDevice);
+        if (!result)
+        {
+            return result;
+        }
 
         auto* staticMeshPool = m_backend->get_static_mesh_pool();
         if (staticMeshPool == nullptr)
@@ -32,9 +54,39 @@ namespace Cue
                 "Failed to get static mesh pool from backend.");
         }
 
-        m_assetManager.initialize(staticMeshPool);
+        auto* textureManager = m_backend->get_texture_manager();
+        if (textureManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get texture manager from backend.");
+        }
 
-        Result result{};
+        m_assetManager.initialize(staticMeshPool, textureManager);
+
+#ifdef CUE_PROJECT_ROOT_PATH
+        result = m_assetManager.register_error_texture_from_png(
+            Core::IO::Path::join(
+                Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+                Core::IO::Path("Engine/Textures/CueDummy.png")));
+        if (!result)
+        {
+            return result;
+        }
+#else
+        return Result::fail(Code::InvalidState, Severity::Fatal,
+            "CUE_PROJECT_ROOT_PATH is not defined for Engine.");
+#endif
+
+        m_defaultMaterialHandle = MaterialHandle{};
+        result = m_assetManager.create_color_material(
+            "DefaultWhite",
+            Math::float4(1.0f, 1.0f, 1.0f, 1.0f),
+            m_defaultMaterialHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         ModelHandle cubeModelHandle{};
         result = m_assetManager.create_cube_model(cubeModelHandle);
         if (!result)
@@ -53,8 +105,23 @@ namespace Cue
             return Result::fail(Code::NotFound, Severity::Fatal,
                 "Cube model does not contain any mesh data.");
         }
-        const uint32_t cubeIndexCount =
+        m_cubeIndexCount =
             static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
+
+        RHI::StaticMeshHandle cubeStaticMeshHandle{};
+        result = m_assetManager.get_static_mesh_handle(
+            cubeModelHandle, 0, cubeStaticMeshHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
+        if (!result)
+        {
+            return result;
+        }
 
         // GenerateVisibleObjectList 用バッファを作成
         auto* bufferManager = m_backend->get_buffer_manager();
@@ -64,174 +131,6 @@ namespace Cue
                 "Failed to get buffer manager from backend.");
         }
 
-        constexpr uint32_t k_maxObjectCount =
-            1000; // TODO: 実際のオブジェクト数管理へ置き換える
-
-        m_gameCore = std::make_unique<GameCore>();
-        result = m_gameCore->initialize();
-        if (!result)
-        {
-            return result;
-        }
-
-        result = m_gameCore->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        result = m_gameCore->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        result = m_gameCore->add_object();
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc objectInfoBufferDesc{};
-        objectInfoBufferDesc.name = "ObjectInfoBuffer";
-        objectInfoBufferDesc.type = RHI::BufferType::Structured;
-        objectInfoBufferDesc.defaultHeapCount = 1;
-        objectInfoBufferDesc.uploadHeapCount = 1;
-        objectInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
-        objectInfoBufferDesc.stride = sizeof(GpuData::ObjectInfo);
-        objectInfoBufferDesc.elementCount = k_maxObjectCount;
-        objectInfoBufferDesc.size =
-            objectInfoBufferDesc.stride * objectInfoBufferDesc.elementCount;
-        objectInfoBufferDesc.alignment = alignof(GpuData::ObjectInfo);
-        RHI::bufferHandle objectInfoBufferHandle{};
-        result = bufferManager->create_buffer(objectInfoBufferDesc,
-            objectInfoBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-        m_objectInfoBufferHandle = objectInfoBufferHandle;
-        result = bufferManager->create_slot_uploaders(objectInfoBufferHandle, 1,
-            m_objectInfoUploaders);
-        if (!result)
-        {
-            return result;
-        }
-        if (m_objectInfoUploaders.size() != 1)
-        {
-            return Result::fail(Code::InternalError, Severity::Fatal,
-                "ObjectInfoBuffer uploader was not created.");
-        }
-
-        RHI::BufferDesc transformBufferDesc{};
-        transformBufferDesc.name = "TransformBuffer";
-        transformBufferDesc.type = RHI::BufferType::Structured;
-        transformBufferDesc.defaultHeapCount = 1;
-        transformBufferDesc.uploadHeapCount = 1;
-        transformBufferDesc.initialState = RHI::ResourceState::ShaderResource;
-        transformBufferDesc.stride = sizeof(GpuData::ObjectTransformGpu);
-        transformBufferDesc.elementCount = k_maxObjectCount;
-        transformBufferDesc.size =
-            transformBufferDesc.stride * transformBufferDesc.elementCount;
-        transformBufferDesc.alignment = alignof(GpuData::ObjectTransformGpu);
-        RHI::bufferHandle transformBufferHandle{};
-        result =
-            bufferManager->create_buffer(transformBufferDesc, transformBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        result = bufferManager->create_slot_uploaders(transformBufferHandle, 1,
-            m_transformUploaders);
-        if (!result)
-        {
-            return result;
-        }
-        if (m_transformUploaders.size() != 1)
-        {
-            return Result::fail(Code::InternalError, Severity::Fatal,
-                "TransformBuffer uploader was not created.");
-        }
-
-        m_transformBufferHandle = transformBufferHandle;
-
-        RHI::BufferDesc renderObjectBufferDesc{};
-        renderObjectBufferDesc.name = "RenderObjectBuffer";
-        renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
-        renderObjectBufferDesc.defaultHeapCount = 1;
-        renderObjectBufferDesc.uploadHeapCount = 0;
-        renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-        renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
-        renderObjectBufferDesc.elementCount = k_maxObjectCount;
-        renderObjectBufferDesc.size =
-            renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
-        renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
-        RHI::bufferHandle renderObjectBufferHandle{};
-        result = bufferManager->create_buffer(renderObjectBufferDesc,
-            renderObjectBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc renderObjectCountBufferDesc{};
-        renderObjectCountBufferDesc.name = "VisibleObjectCountBuffer";
-        renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
-        renderObjectCountBufferDesc.defaultHeapCount = 1;
-        renderObjectCountBufferDesc.uploadHeapCount = 1;
-        renderObjectCountBufferDesc.initialState =
-            RHI::ResourceState::UnorderedAccess;
-        renderObjectCountBufferDesc.stride = sizeof(uint32_t);
-        renderObjectCountBufferDesc.elementCount = 1;
-        renderObjectCountBufferDesc.size = sizeof(uint32_t);
-        renderObjectCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::bufferHandle renderObjectCountBufferHandle{};
-        result = bufferManager->create_buffer(renderObjectCountBufferDesc,
-            renderObjectCountBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc indirectCommandBufferDesc{};
-        indirectCommandBufferDesc.name = "IndirectCommandBuffer";
-        indirectCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
-        indirectCommandBufferDesc.defaultHeapCount = 1;
-        indirectCommandBufferDesc.uploadHeapCount = 0;
-        indirectCommandBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-        indirectCommandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
-        indirectCommandBufferDesc.elementCount = k_maxObjectCount;
-        indirectCommandBufferDesc.size =
-            indirectCommandBufferDesc.stride * indirectCommandBufferDesc.elementCount;
-        indirectCommandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
-        RHI::bufferHandle indirectCommandBufferHandle{};
-        result = bufferManager->create_buffer(indirectCommandBufferDesc,
-            indirectCommandBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
-        RHI::BufferDesc indirectCommandCountBufferDesc{};
-        indirectCommandCountBufferDesc.name = "IndirectCommandCountBuffer";
-        indirectCommandCountBufferDesc.type = RHI::BufferType::Raw;
-        indirectCommandCountBufferDesc.defaultHeapCount = 1;
-        indirectCommandCountBufferDesc.uploadHeapCount = 0;
-        indirectCommandCountBufferDesc.initialState =
-            RHI::ResourceState::UnorderedAccess;
-        indirectCommandCountBufferDesc.stride = sizeof(uint32_t);
-        indirectCommandCountBufferDesc.elementCount = 1;
-        indirectCommandCountBufferDesc.size = sizeof(uint32_t);
-        indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
-        RHI::bufferHandle indirectCommandCountBufferHandle{};
-        result = bufferManager->create_buffer(indirectCommandCountBufferDesc,
-            indirectCommandCountBufferHandle);
-        if (!result)
-        {
-            return result;
-        }
-
         auto* viewManager = m_backend->get_view_manager();
         if (viewManager == nullptr)
         {
@@ -239,107 +138,197 @@ namespace Cue
                 "Failed to get view manager from backend.");
         }
 
-        RHI::ViewDesc objectInfoBufferSrvDesc{};
-        objectInfoBufferSrvDesc.name = "ObjectInfoBufferSRV";
-        objectInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
-        objectInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
-        objectInfoBufferSrvDesc.bufferHandle = objectInfoBufferHandle;
-        objectInfoBufferSrvDesc.firstElement = 0;
-        objectInfoBufferSrvDesc.numElements = objectInfoBufferDesc.elementCount;
-        objectInfoBufferSrvDesc.structureByteStride = objectInfoBufferDesc.stride;
-        RHI::viewHandle objectInfoBufferSrvHandle{};
-        result = viewManager->create_view(objectInfoBufferSrvDesc,
-            objectInfoBufferSrvHandle);
+        m_editorWorld = std::make_unique<GameCore::GameWorld>();
+        result = m_editorWorld->initialize(
+            bufferManager, viewManager, staticMeshPool, &m_assetManager,
+            m_backend->buffer_count(), m_backend->width(), m_backend->height(),
+            m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc transformBufferSrvDesc{};
-        transformBufferSrvDesc.name = "TransformBufferSRV";
-        transformBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
-        transformBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
-        transformBufferSrvDesc.bufferHandle = transformBufferHandle;
-        transformBufferSrvDesc.firstElement = 0;
-        transformBufferSrvDesc.numElements = transformBufferDesc.elementCount;
-        transformBufferSrvDesc.structureByteStride = transformBufferDesc.stride;
-        RHI::viewHandle transformBufferSrvHandle{};
-        result = viewManager->create_view(transformBufferSrvDesc,
-            transformBufferSrvHandle);
+        m_activeWorld = m_editorWorld.get();
+
+        m_scriptModuleHost =
+            std::make_unique<ScriptModuleHost>(
+                m_platform->file_system(), m_platform);
+        result = m_scriptModuleHost->initialize(*m_activeWorld);
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc renderObjectBufferUavDesc{};
-        renderObjectBufferUavDesc.name = "RenderObjectBufferUAV";
-        renderObjectBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
-        renderObjectBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        renderObjectBufferUavDesc.bufferHandle = renderObjectBufferHandle;
-        renderObjectBufferUavDesc.firstElement = 0;
-        renderObjectBufferUavDesc.numElements = renderObjectBufferDesc.elementCount;
-        renderObjectBufferUavDesc.structureByteStride = renderObjectBufferDesc.stride;
-        RHI::viewHandle renderObjectBufferUavHandle{};
-        result = viewManager->create_view(renderObjectBufferUavDesc,
-            renderObjectBufferUavHandle);
+        result = create_final_color_resources();
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc indirectCommandBufferUavDesc{};
-        indirectCommandBufferUavDesc.name = "IndirectCommandBufferUAV";
-        indirectCommandBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
-        indirectCommandBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        indirectCommandBufferUavDesc.bufferHandle = indirectCommandBufferHandle;
-        indirectCommandBufferUavDesc.firstElement = 0;
-        indirectCommandBufferUavDesc.numElements =
-            indirectCommandBufferDesc.elementCount;
-        indirectCommandBufferUavDesc.structureByteStride =
-            indirectCommandBufferDesc.stride;
-        RHI::viewHandle indirectCommandBufferUavHandle{};
-        result = viewManager->create_view(indirectCommandBufferUavDesc,
-            indirectCommandBufferUavHandle);
+        result = create_frame_graphs(std::move(a_info.editorPass));
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc indirectCommandCountBufferUavDesc{};
-        indirectCommandCountBufferUavDesc.name = "IndirectCommandCountBufferUAV";
-        indirectCommandCountBufferUavDesc.type =
-            RHI::ViewType::UnorderedAccessRawBuffer;
-        indirectCommandCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        indirectCommandCountBufferUavDesc.bufferHandle =
-            indirectCommandCountBufferHandle;
-        indirectCommandCountBufferUavDesc.firstElement = 0;
-        indirectCommandCountBufferUavDesc.numElements =
-            indirectCommandCountBufferDesc.size / sizeof(uint32_t);
-        RHI::viewHandle indirectCommandCountBufferUavHandle{};
-        result = viewManager->create_view(indirectCommandCountBufferUavDesc,
-            indirectCommandCountBufferUavHandle);
+        result = m_activeWorld->editor_update(
+            0, m_backend->width(), m_backend->height());
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc renderObjectCountBufferUavDesc{};
-        renderObjectCountBufferUavDesc.name = "VisibleObjectCountBufferUAV";
-        renderObjectCountBufferUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-        renderObjectCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
-        renderObjectCountBufferUavDesc.bufferHandle = renderObjectCountBufferHandle;
-        renderObjectCountBufferUavDesc.firstElement = 0;
-        renderObjectCountBufferUavDesc.numElements =
-            renderObjectCountBufferDesc.size / sizeof(uint32_t);
-        RHI::viewHandle renderObjectCountBufferUavHandle{};
-        result = viewManager->create_view(renderObjectCountBufferUavDesc,
-            renderObjectCountBufferUavHandle);
-        if (!result)
+        // フレームコントローラーの生成
+        FrameControllerDesc desc(m_backend->buffer_count());
+        desc.mode = ControllerMode::Fixed;
+        desc.maxFps = a_info.maxFps;
+        m_frameController = std::make_unique<FrameController>(
+            desc, m_platform->thread_factory(), m_platform->clock(),
+            m_platform->waiter(), update(), render(), present(),
+            [this]()
+            {
+                Result resizeResult = apply_pending_resize();
+                if (!resizeResult)
+                {
+                    CUE_ASSERTF(false, "Resize failed: %s",
+                        resizeResult.message.data());
+                }
+            });
+
+        return Result::ok();
+    }
+
+    void Engine::shutdown()
+    {
+        unload_script_module();
+        m_scriptModuleHost.reset();
+
+        if (m_frameController != nullptr)
         {
-            return result;
+            m_frameController->synchronize();
+            m_frameController.reset();
         }
 
-        // FinalColor を作成
+        if (m_backend != nullptr)
+        {
+            Result waitResult = m_backend->wait_for_idle();
+            if (!waitResult)
+            {
+                CUE_ASSERTF(false, "Failed to wait backend idle during shutdown: %s",
+                    waitResult.message.data());
+            }
+        }
+
+        Result result = destroy_size_dependent_resources();
+        if (!result)
+        {
+            CUE_ASSERTF(false, "Failed to destroy size dependent resources: %s",
+                result.message.data());
+        }
+
+        if (m_playWorld != nullptr)
+        {
+            const Result finalizeResult = m_playWorld->finalize_systems();
+            if (!finalizeResult)
+            {
+                CUE_ASSERTF(false, "Failed to finalize play world systems: %s",
+                    finalizeResult.message.data());
+            }
+        }
+        if (m_editorWorld != nullptr)
+        {
+            const Result finalizeResult = m_editorWorld->finalize_systems();
+            if (!finalizeResult)
+            {
+                CUE_ASSERTF(false, "Failed to finalize editor world systems: %s",
+                    finalizeResult.message.data());
+            }
+        }
+
+        m_activeWorld = nullptr;
+        m_playWorld.reset();
+        m_editorWorld.reset();
+
+        if (m_audioBackend != nullptr && m_audioDevice.valid())
+        {
+            const Result destroyAudioResult =
+                m_audioBackend->destroy_device(m_audioDevice);
+            if (!destroyAudioResult)
+            {
+                CUE_ASSERTF(false, "Failed to destroy audio device: %s",
+                    destroyAudioResult.message.data());
+            }
+        }
+        m_audioDevice = {};
+        m_audioBackend = nullptr;
+    }
+
+    Result Engine::begin_frame()
+    {
+        if (m_platform != nullptr)
+        {
+            Result platformResult = m_platform->begin_frame();
+            if (!platformResult)
+            {
+                return platformResult;
+            }
+        }
+
+        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
+        if (m_platformBridge)
+        {
+            PlatformCommandContext platformCommandContext(
+                m_platformRuntimeState, m_frameController.get());
+            Result result = m_platformBridge->drain_commands(platformCommandContext);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        // editor ブリッジがあれば command を処理
+        if (m_editorBridge)
+        {
+            EngineCommandContext commandContext(*m_editorWorld, m_editorSceneId);
+            Result result = m_editorBridge->drain_commands(commandContext);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::end_frame()
+    {
+        if (m_platform != nullptr)
+        {
+            return m_platform->end_frame();
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::tick()
+    {
+        m_frameController->step();
+
+        return Result::ok();
+    }
+
+    Result Engine::create_final_color_resources()
+    {
+        auto* textureManager = m_backend->get_texture_manager();
+        auto* viewManager = m_backend->get_view_manager();
+        if (textureManager == nullptr || viewManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get texture or view manager for size dependent resources.");
+        }
+
         RHI::TextureDesc finalColorDesc{};
         finalColorDesc.name = "FinalColor";
         finalColorDesc.bufferCount = 1;
@@ -347,90 +336,96 @@ namespace Cue
         finalColorDesc.width = m_backend->width();
         finalColorDesc.height = m_backend->height();
         finalColorDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
-        finalColorDesc.clearColor[0] = 0.0f;
-        finalColorDesc.clearColor[1] = 0.5f;
-        finalColorDesc.clearColor[2] = 0.0f;
-        finalColorDesc.clearColor[3] = 1.0f;
-        RHI::textureHandle finalColorHandle{};
-        auto textureManager = m_backend->get_texture_manager();
-        textureManager->create_texture(finalColorDesc, finalColorHandle);
+        Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
+        finalColorDesc.clearColor[0] = clearColor.r;
+        finalColorDesc.clearColor[1] = clearColor.g;
+        finalColorDesc.clearColor[2] = clearColor.b;
+        finalColorDesc.clearColor[3] = clearColor.a;
+        Result result =
+            textureManager->create_texture(finalColorDesc, m_finalColorHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         RHI::ViewDesc finalColorRtvDesc{};
         finalColorRtvDesc.name = "FinalColorRTV";
         finalColorRtvDesc.type = RHI::ViewType::RenderTarget;
         finalColorRtvDesc.bufferKind = RHI::BufferKind::Texture;
-        finalColorRtvDesc.textureHandle = finalColorHandle;
+        finalColorRtvDesc.textureHandle = m_finalColorHandle;
         finalColorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
-        RHI::viewHandle finalColorRtvHandle{};
-        viewManager->create_view(finalColorRtvDesc, finalColorRtvHandle);
+        result = viewManager->create_view(finalColorRtvDesc, m_finalColorRtvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         RHI::ViewDesc finalColorSrvDesc{};
         finalColorSrvDesc.name = "FinalColorSRV";
         finalColorSrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
         finalColorSrvDesc.bufferKind = RHI::BufferKind::Texture;
-        finalColorSrvDesc.textureHandle = finalColorHandle;
+        finalColorSrvDesc.textureHandle = m_finalColorHandle;
         finalColorSrvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
         finalColorSrvDesc.mipLevels = 1;
-        RHI::viewHandle finalColorSrvHandle{};
-        viewManager->create_view(finalColorSrvDesc, finalColorSrvHandle);
-
-        RHI::TextureDesc sceneDepthDesc{};
-        sceneDepthDesc.name = "SceneDepth";
-        sceneDepthDesc.bufferCount = 1;
-        sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
-        sceneDepthDesc.width = m_backend->width();
-        sceneDepthDesc.height = m_backend->height();
-        sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
-        sceneDepthDesc.clearDepth = 1.0f;
-        sceneDepthDesc.clearStencil = 0;
-        RHI::textureHandle sceneDepthHandle{};
-        result = textureManager->create_texture(sceneDepthDesc, sceneDepthHandle);
+        result = viewManager->create_view(finalColorSrvDesc, m_finalColorSrvHandle);
         if (!result)
         {
             return result;
         }
 
-        RHI::ViewDesc sceneDepthDsvDesc{};
-        sceneDepthDsvDesc.name = "SceneDepthDSV";
-        sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
-        sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
-        sceneDepthDsvDesc.textureHandle = sceneDepthHandle;
-        sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-        RHI::viewHandle sceneDepthDsvHandle{};
-        result = viewManager->create_view(sceneDepthDsvDesc, sceneDepthDsvHandle);
+        return Result::ok();
+    }
+    Result Engine::destroy_final_color_resources()
+    {
+        auto* textureManager = m_backend ? m_backend->get_texture_manager() : nullptr;
+        auto* viewManager = m_backend ? m_backend->get_view_manager() : nullptr;
+
+        if (viewManager != nullptr)
+        {
+            if (m_finalColorSrvHandle.valid())
+            {
+                Result result = viewManager->destroy_view(m_finalColorSrvHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                m_finalColorSrvHandle = {};
+            }
+
+            if (m_finalColorRtvHandle.valid())
+            {
+                Result result = viewManager->destroy_view(m_finalColorRtvHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                m_finalColorRtvHandle = {};
+            }
+        }
+
+        if (textureManager != nullptr && m_finalColorHandle.valid())
+        {
+            Result result = textureManager->destroy_texture(m_finalColorHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_finalColorHandle = {};
+        }
+
+        return Result::ok();
+    }
+    Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
+    {
+        Result result = recreate_render_frame_graph();
         if (!result)
         {
             return result;
         }
 
-        // render 用 FrameGraph の生成
-        RHI::FrameGraphDesc frameGraphDesc{};
-        frameGraphDesc.usePresentQueue = false;
-        result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
-        if (!result)
-        {
-            return Result::fail(result.code, Severity::Fatal,
-                "Failed to create render frame graph.");
-        }
-
-        m_frameGraph->add_pass(std::make_unique<ObjectInfoCopyPass>(
-            m_gameCore->render_scene_state().frameState));
-        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_gameCore->render_scene_state().frameState));
-        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_gameCore->render_scene_state().frameState));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_gameCore->render_scene_state().frameState));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            m_gameCore->render_scene_state().frameState, cubeIndexCount));
-        result = m_frameGraph->build();
-        if (!result)
-        {
-            return Result::fail(result.code, Severity::Fatal,
-                "Failed to build render frame graph.");
-        }
-
-        // present 用 FrameGraph の生成
         RHI::FrameGraphDesc presentFrameGraphDesc{};
         presentFrameGraphDesc.usePresentQueue = true;
+        presentFrameGraphDesc.enableProfiling = true;
         result =
             m_backend->create_frame_graph(presentFrameGraphDesc, m_presentFrameGraph);
         if (!result)
@@ -439,9 +434,9 @@ namespace Cue
                 "Failed to create present frame graph.");
         }
 
-        if (a_info.editorPass)
+        if (a_editorPass)
         {
-            m_presentFrameGraph->add_pass(std::move(a_info.editorPass));
+            m_presentFrameGraph->add_pass(std::move(a_editorPass));
         }
         else
         {
@@ -455,48 +450,151 @@ namespace Cue
             return result;
         }
 
-        result = m_gameCore->update(0.0f);
+        return Result::ok();
+    }
+    Result Engine::recreate_render_frame_graph()
+    {
+        if (m_backend == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine active world is not initialized.");
+        }
+        const WorldResources* worldResources = m_activeWorld->world_resources();
+        if (worldResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine world resources are not initialized.");
+        }
+
+        m_frameGraph.reset();
+
+        RHI::FrameGraphDesc frameGraphDesc{};
+        frameGraphDesc.usePresentQueue = false;
+        frameGraphDesc.enableProfiling = true;
+        Result result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
+        if (!result)
+        {
+            return Result::fail(result.code, Severity::Fatal,
+                "Failed to create render frame graph.");
+        }
+
+        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->renderable_info_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->transform_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+            worldResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
+            worldResources->material_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->renderable_info_buffer_handle(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle(),
+            worldResources->renderable_info_buffer_srv_handle(),
+            worldResources->render_object_buffer_uav_handle(),
+            worldResources->visible_object_count_buffer_uav_handle()));
+        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            worldResources->view_projection_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle(),
+            worldResources->material_buffer_handle(),
+            m_cubeIndexCount));
+
+        result = m_frameGraph->build();
         if (!result)
         {
             return result;
         }
 
-        update_object_info_buffer(0);
-        update_transform_buffer(0);
-
-        // フレームコントローラーの生成
-        FrameControllerDesc desc(m_backend->buffer_count());
-        desc.m_mode = ControllerMode::Fixed;
-        desc.m_maxFps = a_info.maxFps;
-        m_frameController = std::make_unique<FrameController>(
-            desc, m_platform->thread_factory(), m_platform->clock(),
-            m_platform->waiter(), update(), render(), present());
-
         return Result::ok();
     }
-
-    void Engine::shutdown() { m_frameController.reset(); }
-
-    Result Engine::begin_frame() { return Result::ok(); }
-
-    Result Engine::end_frame() { return Result::ok(); }
-
-    Result Engine::tick()
+    Result Engine::sync_active_world_buffers()
     {
-        // editor ブリッジがあれば command を処理
-        if (m_editorBridge)
+        if (m_backend == nullptr || m_activeWorld == nullptr)
         {
-            EngineCommandContext commandContext(*m_gameCore);
-            Result result = m_editorBridge->drain_commands(commandContext);
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine active world is not initialized.");
+        }
+
+        for (uint32_t bufferIndex = 0; bufferIndex < m_backend->buffer_count();
+             ++bufferIndex)
+        {
+            Result result = m_activeWorld->editor_update(
+                bufferIndex, m_backend->width(), m_backend->height());
             if (!result)
             {
                 return result;
             }
         }
 
-        m_frameController->step();
-
         return Result::ok();
+    }
+    Result Engine::destroy_size_dependent_resources()
+    {
+        m_presentFrameGraph.reset();
+        m_frameGraph.reset();
+        return destroy_final_color_resources();
+    }
+    Result Engine::apply_pending_resize()
+    {
+        PAL::PendingResizeRequest request{};
+        if (!m_platformRuntimeState.consume_pending_resize_request(request))
+        {
+            return Result::ok();
+        }
+
+        if (request.width == m_backend->width() && request.height == m_backend->height())
+        {
+            return Result::ok();
+        }
+
+        Result result = m_backend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = destroy_final_color_resources();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_backend->resize(request.width, request.height);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_final_color_resources();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_frameGraph->rebuild(m_backend->width(), m_backend->height());
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_presentFrameGraph->rebuild(m_backend->width(), m_backend->height());
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::update()
@@ -510,17 +608,229 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
 
-            Result updateResult = m_gameCore->update(deltaTime);
+            if (is_playing() &&
+                m_scriptModuleHost != nullptr &&
+                m_scriptModuleHost->runtime() != nullptr)
+            {
+                Result scriptResult =
+                    m_scriptModuleHost->runtime()->update(deltaTime);
+                if (!scriptResult)
+                {
+                    CUE_ASSERTF(false, "Script runtime update failed: %s",
+                        scriptResult.message.data());
+                    return;
+                }
+            }
+
+            if (is_playing())
+            {
+                Result simulateResult = m_activeWorld->simulate(deltaTime);
+                if (!simulateResult)
+                {
+                    CUE_ASSERTF(false, "GameWorld simulate failed: %s",
+                        simulateResult.message.data());
+                    return;
+                }
+            }
+
+            Result updateResult = m_activeWorld->editor_update(a_index,
+                m_backend->width(), m_backend->height());
             if (!updateResult)
             {
-                CUE_ASSERTF(false, "GameCore update failed: %s",
+                CUE_ASSERTF(false, "GameWorld editor update failed: %s",
                     updateResult.message.data());
                 return;
             }
-
-            update_object_info_buffer(a_index);
-            update_transform_buffer(a_index);
             };
+    }
+
+    Result Engine::load_script_module(
+        const Core::IO::Path& a_scriptRoot,
+        ScriptModuleBuildConfiguration a_configuration) noexcept
+    {
+        if (m_scriptModuleHost == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine script runtime is not initialized.");
+        }
+
+        Result result =
+            m_scriptModuleHost->load_module(
+                a_scriptRoot, a_configuration, *m_activeWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptRoot = a_scriptRoot;
+        return Result::ok();
+    }
+
+    Result Engine::load_static_script_module(
+        CueScriptAbiVersion(CUE_SCRIPT_CALL* a_getAbiVersion)(void),
+        CueResult(CUE_SCRIPT_CALL* a_getExports)(CueScriptExports*)) noexcept
+    {
+        if (m_scriptModuleHost == nullptr || m_activeWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine script runtime is not initialized.");
+        }
+
+        Result result = m_scriptModuleHost->load_static_module(
+            a_getAbiVersion, a_getExports, *m_activeWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_scriptRoot = Core::IO::Path("[static]");
+        return Result::ok();
+    }
+
+    void Engine::unload_script_module() noexcept
+    {
+        if (m_scriptModuleHost != nullptr)
+        {
+            m_scriptModuleHost->unload_module();
+        }
+
+        m_scriptRoot = {};
+    }
+
+    Result Engine::start_play_mode() noexcept
+    {
+        if (m_editorWorld == nullptr || m_activeWorld == nullptr || m_backend == nullptr ||
+            m_frameController == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine play mode dependencies are not initialized.");
+        }
+
+        if (is_playing())
+        {
+            return Result::ok();
+        }
+
+        m_frameController->synchronize();
+
+        Result result = m_backend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        if (m_playWorld == nullptr)
+        {
+            m_playWorld = std::make_unique<GameCore::GameWorld>();
+            auto* bufferManager = m_backend->get_buffer_manager();
+            auto* viewManager = m_backend->get_view_manager();
+            if (bufferManager == nullptr || viewManager == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Failed to get managers for play world.");
+            }
+
+            result = m_playWorld->initialize(
+                bufferManager, viewManager, m_backend->get_static_mesh_pool(),
+                &m_assetManager,
+                m_backend->buffer_count(),
+                m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
+                m_defaultMaterialHandle);
+            if (!result)
+            {
+                m_playWorld.reset();
+                return result;
+            }
+        }
+
+        result = m_playWorld->clone_from(*m_editorWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_activeWorld = m_playWorld.get();
+
+        if (m_scriptModuleHost != nullptr)
+        {
+            result = m_scriptModuleHost->set_game_world(*m_activeWorld);
+            if (!result)
+            {
+                m_activeWorld = m_editorWorld.get();
+                return result;
+            }
+            m_scriptModuleHost->activate_runtime();
+        }
+
+        result = sync_active_world_buffers();
+        if (!result)
+        {
+            m_activeWorld = m_editorWorld.get();
+            return result;
+        }
+
+        result = recreate_render_frame_graph();
+        if (!result)
+        {
+            m_activeWorld = m_editorWorld.get();
+            return result;
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::stop_play_mode() noexcept
+    {
+        if (m_editorWorld == nullptr || m_backend == nullptr || m_frameController == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine play mode dependencies are not initialized.");
+        }
+
+        if (!is_playing())
+        {
+            return Result::ok();
+        }
+
+        m_frameController->synchronize();
+
+        Result result = m_backend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_activeWorld = m_editorWorld.get();
+
+        if (m_scriptModuleHost != nullptr)
+        {
+            result = m_scriptModuleHost->set_game_world(*m_activeWorld);
+            if (!result)
+            {
+                return result;
+            }
+            m_scriptModuleHost->activate_runtime();
+        }
+
+        result = sync_active_world_buffers();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = recreate_render_frame_graph();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_playWorld.reset();
+        return Result::ok();
+    }
+
+    bool Engine::is_playing() const noexcept
+    {
+        return m_playWorld != nullptr && m_activeWorld == m_playWorld.get();
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::render()
@@ -543,83 +853,4 @@ namespace Cue
             };
     }
 
-    void Engine::update_object_info_buffer(uint32_t a_bufferIndex)
-    {
-        if (!m_objectInfoBufferHandle.valid() || m_objectInfoUploaders.empty() ||
-            m_gameCore == nullptr)
-        {
-            return;
-        }
-
-        const uint32_t uploaderIndex =
-            (m_objectInfoUploaders.size() == 1) ? 0u : a_bufferIndex;
-        if (uploaderIndex >= m_objectInfoUploaders.size())
-        {
-            return;
-        }
-
-        auto& uploader = m_objectInfoUploaders[uploaderIndex];
-        uploader.begin_frame();
-
-        const RenderSceneState& renderSceneState = m_gameCore->render_scene_state();
-        for (size_t objectIndex = 0;
-            objectIndex < renderSceneState.objectInfos.size(); ++objectIndex)
-        {
-            if (!uploader.push(static_cast<uint32_t>(objectIndex),
-                renderSceneState.objectInfos[objectIndex]))
-            {
-                CUE_ASSERTF(false, "Failed to queue object info upload. objectIndex=%zu",
-                    objectIndex);
-                return;
-            }
-        }
-
-        if (!uploader.commit())
-        {
-            CUE_ASSERTF(false, "Failed to commit object info uploads.");
-        }
-    }
-
-    void Engine::update_transform_buffer(uint32_t a_bufferIndex)
-    {
-        if (!m_transformBufferHandle.valid() || m_transformUploaders.empty() ||
-            m_gameCore == nullptr)
-        {
-            return;
-        }
-
-        const uint32_t uploaderIndex =
-            (m_transformUploaders.size() == 1) ? 0u : a_bufferIndex;
-        if (uploaderIndex >= m_transformUploaders.size())
-        {
-            return;
-        }
-
-        auto& uploader = m_transformUploaders[uploaderIndex];
-        uploader.begin_frame();
-
-        const RenderSceneState& renderSceneState = m_gameCore->render_scene_state();
-        for (size_t objectIndex = 0;
-            objectIndex < renderSceneState.localTransforms.size(); ++objectIndex)
-        {
-            const GpuData::LocalTransform& localTransform =
-                renderSceneState.localTransforms[objectIndex];
-            const GpuData::ObjectTransformGpu transformGpu{
-                .worldMatrix = Math::make_affine_matrix(localTransform.scale,
-                                                        localTransform.rotation,
-                                                        localTransform.position) };
-
-            if (!uploader.push(static_cast<uint32_t>(objectIndex), transformGpu))
-            {
-                CUE_ASSERTF(false, "Failed to queue transform upload. objectIndex=%zu",
-                    objectIndex);
-                return;
-            }
-        }
-
-        if (!uploader.commit())
-        {
-            CUE_ASSERTF(false, "Failed to commit transform uploads.");
-        }
-    }
 } // namespace Cue

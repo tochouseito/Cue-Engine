@@ -5,14 +5,21 @@
 
 // === Engine includes ===
 #include <GameCore/RenderSceneState.h>
+#include <GpuData/Batching.h>
 
 namespace Cue
 {
     class StaticMeshBatchingPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit StaticMeshBatchingPass(const RenderFrameState& a_frameState)
-            : m_frameState(a_frameState)
+        StaticMeshBatchingPass(const RenderSceneState& a_renderSceneState,
+            RHI::BufferHandle a_renderObjectBufferHandle,
+            RHI::BufferHandle a_transformBufferHandle,
+            RHI::BufferHandle a_visibleObjectCountBufferHandle)
+            : m_renderSceneState(a_renderSceneState)
+            , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
+            , m_transformBufferHandle(a_transformBufferHandle)
+            , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {}
 
         const char* name() const noexcept override { return "StaticMeshBatching"; }
@@ -22,15 +29,26 @@ namespace Cue
             return RHI::CommandListType::Compute;
         }
 
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            {
+                return false;
+            }
+
+            return !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+        }
+
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            Result result =
-                builder.get_buffer("RenderObjectBuffer", m_renderObjectBufferHandle);
+            constexpr uint32_t k_maxObjectCount = 1000;
+
+            Result result = builder.read_buffer(m_renderObjectBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("TransformBuffer", m_transformBufferHandle);
+            result = builder.read_buffer(m_transformBufferHandle);
             if (!result)
             {
                 return result;
@@ -41,25 +59,61 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_buffer("VisibleObjectCountBuffer",
-                m_visibleObjectCountBufferHandle);
+            result = builder.read_buffer(m_visibleObjectCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandBuffer",
+            RHI::BufferDesc indirectCommandBufferDesc{};
+            indirectCommandBufferDesc.name = "IndirectCommandBuffer";
+            indirectCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
+            indirectCommandBufferDesc.defaultHeapCount = 1;
+            indirectCommandBufferDesc.uploadHeapCount = 0;
+            indirectCommandBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            indirectCommandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
+            indirectCommandBufferDesc.elementCount = k_maxObjectCount;
+            indirectCommandBufferDesc.size =
+                indirectCommandBufferDesc.stride *
+                indirectCommandBufferDesc.elementCount;
+            indirectCommandBufferDesc.alignment =
+                alignof(GpuData::IndirectCommand);
+            result = builder.create_buffer(indirectCommandBufferDesc,
                 m_indirectCommandBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_buffer("IndirectCommandCountBuffer",
+
+            RHI::BufferDesc indirectCommandCountBufferDesc{};
+            indirectCommandCountBufferDesc.name = "IndirectCommandCountBuffer";
+            indirectCommandCountBufferDesc.type = RHI::BufferType::Raw;
+            indirectCommandCountBufferDesc.defaultHeapCount = 1;
+            indirectCommandCountBufferDesc.uploadHeapCount = 0;
+            indirectCommandCountBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            indirectCommandCountBufferDesc.stride = sizeof(uint32_t);
+            indirectCommandCountBufferDesc.elementCount = 1;
+            indirectCommandCountBufferDesc.size = sizeof(uint32_t);
+            indirectCommandCountBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(indirectCommandCountBufferDesc,
                 m_indirectCommandCountBufferHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("IndirectCommandCountBufferUAV",
+
+            RHI::ViewDesc indirectCommandCountBufferUavDesc{};
+            indirectCommandCountBufferUavDesc.name = "IndirectCommandCountBufferUAV";
+            indirectCommandCountBufferUavDesc.type =
+                RHI::ViewType::UnorderedAccessRawBuffer;
+            indirectCommandCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
+            indirectCommandCountBufferUavDesc.bufferHandle =
+                m_indirectCommandCountBufferHandle;
+            indirectCommandCountBufferUavDesc.firstElement = 0;
+            indirectCommandCountBufferUavDesc.numElements =
+                indirectCommandCountBufferDesc.size / sizeof(uint32_t);
+            result = builder.create_view(indirectCommandCountBufferUavDesc,
                 m_indirectCommandCountBufferUavHandle);
             if (!result)
             {
@@ -118,6 +172,65 @@ namespace Cue
             return Result::ok();
         }
 
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_buffer(
+                m_renderObjectBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_transformBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_meshRangeBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_visibleObjectCountBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_indirectCommandBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_indirectCommandCountBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
+        }
+
         void execute(RHI::FrameGraphContext& context) override
         {
             RHI::ICommandContext* commandContext = context.commandContext();
@@ -126,52 +239,19 @@ namespace Cue
                 return;
             }
 
-            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
+            const RenderFrameState& frameState =
+                m_renderSceneState.frame_state(context.frame_index());
+            if (frameState.useCpuBatching)
+            {
+                return;
+            }
 
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_renderObjectBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_transformBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_meshRangeBufferHandle, barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::ShaderResource;
-                commandContext->resource_barrier(m_visibleObjectCountBufferHandle,
-                    barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandBufferHandle,
-                    barrierDesc);
-            }
-            {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::UnorderedAccess;
-                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
-                    barrierDesc);
-            }
+            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
 
             commandContext->clear_unordered_access_uint(
                 m_indirectCommandCountBufferUavHandle, clearValues);
-            if (m_frameState.objectCount == 0)
+            if (frameState.objectCount == 0)
             {
-                RHI::ResourceBarrierDesc barrierDesc{};
-                barrierDesc.after = RHI::ResourceState::Common;
-                commandContext->resource_barrier(m_indirectCommandBufferHandle,
-                    barrierDesc);
-                commandContext->resource_barrier(m_indirectCommandCountBufferHandle,
-                    barrierDesc);
                 return;
             }
 
@@ -183,21 +263,21 @@ namespace Cue
             commandContext->set_uav(4, m_indirectCommandBufferHandle);
             commandContext->set_uav(5, m_indirectCommandCountBufferHandle);
 
-            const uint32_t groupCountX = (m_frameState.objectCount + 63u) / 64u;
+            const uint32_t groupCountX = (frameState.objectCount + 63u) / 64u;
             commandContext->dispatch(groupCountX, 1, 1);
         }
 
     private:
-        const RenderFrameState& m_frameState;
-        RHI::bufferHandle m_renderObjectBufferHandle{};
-        RHI::bufferHandle m_transformBufferHandle{};
-        RHI::bufferHandle m_meshRangeBufferHandle{};
-        RHI::bufferHandle m_visibleObjectCountBufferHandle{};
-        RHI::bufferHandle m_indirectCommandBufferHandle{};
-        RHI::bufferHandle m_indirectCommandCountBufferHandle{};
-        RHI::viewHandle m_indirectCommandCountBufferUavHandle{};
-        RHI::rootSignatureHandle m_rootSignatureHandle{};
-        RHI::shaderBlobHandle m_computeShaderHandle{};
-        RHI::pipelineStateHandle m_pipelineHandle{};
+        const RenderSceneState& m_renderSceneState;
+        RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_transformBufferHandle{};
+        RHI::BufferHandle m_meshRangeBufferHandle{};
+        RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::BufferHandle m_indirectCommandBufferHandle{};
+        RHI::BufferHandle m_indirectCommandCountBufferHandle{};
+        RHI::ViewHandle m_indirectCommandCountBufferUavHandle{};
+        RHI::RootSignatureHandle m_rootSignatureHandle{};
+        RHI::ShaderBlobHandle m_computeShaderHandle{};
+        RHI::PipelineStateHandle m_pipelineHandle{};
     };
 } // namespace Cue

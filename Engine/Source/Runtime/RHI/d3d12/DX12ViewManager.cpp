@@ -4,6 +4,16 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
+        void free_table_ids(DescriptorAllocator& a_descriptorAllocator,
+            std::vector<TableID>& a_ids) noexcept
+        {
+            for (const TableID& tableId : a_ids)
+            {
+                a_descriptorAllocator.free_table(tableId);
+            }
+            a_ids.clear();
+        }
+
         TableKind convert_view_kind(ViewType type)
         {
             switch (type)
@@ -13,10 +23,9 @@ namespace Cue::RHI::DX12
             case ViewType::ShaderResourceRawBuffer:
             case ViewType::UnorderedAccessBuffer:
             case ViewType::UnorderedAccessRawBuffer:
-                return TableKind::Buffers;
             case ViewType::ShaderResourceTexture2D:
             case ViewType::UnorderedAccessTexture2D:
-                return TableKind::Textures;
+                return TableKind::Buffers;
             case ViewType::RenderTarget:
                 return TableKind::RenderTargets;
             case ViewType::DepthStencil:
@@ -40,7 +49,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    Result DX12ViewManager::create_view(const ViewDesc& desc, viewHandle& out)
+    Result DX12ViewManager::create_view(const ViewDesc& desc, ViewHandle& out)
     {
         DX12ViewRecord record{};
         record.desc = desc;
@@ -66,6 +75,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.defaultTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -83,6 +94,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.uploadTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -108,6 +121,8 @@ namespace Cue::RHI::DX12
                 result = create_view_impl(desc, resource, record.defaultTableIds);
                 if (!result)
                 {
+                    free_table_ids(m_descriptorAllocator, record.defaultTableIds);
+                    free_table_ids(m_descriptorAllocator, record.uploadTableIds);
                     return Result::fail(
                         Code::CreateFailed,
                         Severity::Error,
@@ -121,7 +136,7 @@ namespace Cue::RHI::DX12
         }
 
         // レジストリに登録する
-        viewHandle handle = m_viewRegistry.create(record);
+        ViewHandle handle = m_viewRegistry.create(record);
 
         // 名前マップに登録する
         if (!desc.name.empty())
@@ -132,7 +147,7 @@ namespace Cue::RHI::DX12
         out = handle;
         return Result::ok();
     }
-    Result DX12ViewManager::destroy_view(viewHandle handle)
+    Result DX12ViewManager::destroy_view(ViewHandle handle)
     {
         // ハンドルの有効性を検査する
         if (!handle.valid())
@@ -142,6 +157,18 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Invalid view handle.");
         }
+
+        DX12ViewRecord* record = m_viewRegistry.ref_get(handle);
+        if (record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View not found for the given handle.");
+        }
+
+        free_table_ids(m_descriptorAllocator, record->defaultTableIds);
+        free_table_ids(m_descriptorAllocator, record->uploadTableIds);
 
         // 名前マップから削除する
         for (auto it = m_nameToHandlesMap.begin(); it != m_nameToHandlesMap.end(); ++it)
@@ -164,7 +191,7 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
-    bool DX12ViewManager::try_get_record(viewHandle handle, DX12ViewRecord** outRecord)
+    bool DX12ViewManager::try_get_record(ViewHandle handle, DX12ViewRecord** outRecord)
     {
         // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
@@ -301,7 +328,7 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
-    Result DX12ViewManager::get_view(std::string_view name, viewHandle& out)
+    Result DX12ViewManager::get_view(std::string_view name, ViewHandle& out)
     {
         if (m_nameToHandlesMap.contains(Core::fnv1a64(name)))
         {

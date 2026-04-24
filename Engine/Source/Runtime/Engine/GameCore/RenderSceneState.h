@@ -1,24 +1,44 @@
 #pragma once
 
-// === Engine includes ===
-#include <GpuData/Batching.h>
-#include <GpuData/Transform.h>
-
 // === C++ includes ===
-#include <cstdint>
 #include <vector>
 
 namespace Cue
 {
+    struct CpuIndexedDraw final
+    {
+        uint32_t renderObjectId = 0;
+        uint32_t indexCount = 0;
+        uint32_t startIndex = 0;
+        int32_t baseVertex = 0;
+    };
+
     struct RenderFrameState final
     {
         uint32_t objectCount = 0;
+        uint32_t renderWidth = 1;
+        uint32_t renderHeight = 1;
+        bool useCpuBatching = false;
+        std::vector<CpuIndexedDraw> cpuIndexedDraws{};
     };
 
     struct RenderSceneState final
     {
-        RenderFrameState frameState{};
-        std::vector<GpuData::ObjectInfo> objectInfos{};
-        std::vector<GpuData::LocalTransform> localTransforms{};
+        void resize(const uint32_t a_bufferCount)
+        {
+            frameStates.resize(a_bufferCount);
+        }
+
+        RenderFrameState& frame_state(const uint32_t a_bufferIndex) noexcept
+        {
+            return frameStates[a_bufferIndex];
+        }
+
+        const RenderFrameState& frame_state(const uint32_t a_bufferIndex) const noexcept
+        {
+            return frameStates[a_bufferIndex];
+        }
+
+        std::vector<RenderFrameState> frameStates{};
     };
 } // namespace Cue

@@ -1,14 +1,19 @@
 #pragma once
 
-// === C++ includes ===
-#include <memory>
+// === Core includes ===
+#include <CQRS/CQRS.h>
 
 // === PAL includes ===
 #include <PAL.h>
 #include <PlatformMessage.h>
 
+// === C++ includes ===
+#include <memory>
+
 // === Windows API includes ===
 #include "App/WinApp.h"
+#include "Input/WinKeyboard.h"
+#include "IO/WinFileSystem.h"
 #include "Threading/WinThread.h"
 #include "Threading/WinThreadFactory.h"
 #include "Time/WinQpcClock.h"
@@ -48,6 +53,8 @@ namespace Cue::PAL::Win
         [[nodiscard]] uint64_t register_message_handler(WinApp::messageHandler a_handler);
         /// @brief メッセージハンドラ解除
         bool unregister_message_handler(uint64_t handlerId);
+        /// @brief Platform 用 command bridge を設定します。
+        void set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept;
     public:
         // --- 取得 --- 
         Core::Threading::IThreadFactory& thread_factory() override
@@ -62,9 +69,20 @@ namespace Cue::PAL::Win
         {
             return *m_waiter.get();
         }
+        Core::IO::IFileSystem& file_system() override
+        {
+            return *m_fileSystem.get();
+        }
+        InputManager& input_manager() override
+        {
+            return m_inputManager;
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ
+        std::unique_ptr<WinKeyboard> m_keyboard = nullptr; // キーボード入力
+        InputManager m_inputManager{}; // 入力状態マネージャ
+        std::unique_ptr<WinFileSystem> m_fileSystem = nullptr; // ファイルシステム
         std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ
         std::unique_ptr<WinQpcClock> m_clock = nullptr; // クロック
         std::unique_ptr<WinWaiter> m_waiter = nullptr; // ウェイタ

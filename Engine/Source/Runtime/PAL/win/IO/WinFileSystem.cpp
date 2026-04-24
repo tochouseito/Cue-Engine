@@ -534,6 +534,40 @@ namespace Cue::PAL::Win
         return Result::ok();
     }
 
+    Result WinFileSystem::copy_file(
+        const Core::IO::Path& a_from,
+        const Core::IO::Path& a_to,
+        bool a_overwrite) noexcept
+    {
+        std::wstring wfrom{};
+        std::wstring wto{};
+
+        Result result = path_to_native_w(a_from, &wfrom);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = path_to_native_w(a_to, &wto);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (::CopyFileW(
+                wfrom.c_str(),
+                wto.c_str(),
+                a_overwrite ? FALSE : TRUE) == FALSE)
+        {
+            return Result::fail(
+                convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())),
+                Severity::Error,
+                "Failed to copy file.");
+        }
+
+        return Result::ok();
+    }
+
     Result WinFileSystem::path_to_native_w(const Core::IO::Path& a_path, std::wstring* a_outText) noexcept
     {
         // UTF-8 -> UTF-16

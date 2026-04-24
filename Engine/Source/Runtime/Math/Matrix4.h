@@ -18,7 +18,7 @@ namespace Cue::Math
     template <AllowedVector T>
     struct Matrix4 final
     {
-        float m_values[4][4] = {};
+        float values[4][4] = {};
 
         /// @brief 単位行列で初期化
         constexpr void initialize_identity() noexcept
@@ -28,7 +28,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    m_values[row][col] = (row == col) ? T{ 1 } : T{ 0 };
+                    values[row][col] = (row == col) ? T{ 1 } : T{ 0 };
                 }
             }
         }
@@ -50,7 +50,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    m_values[row][col] = T{ 0 };
+                    values[row][col] = T{ 0 };
                 }
             }
         }
@@ -72,7 +72,7 @@ namespace Cue::Math
             {
                 for (int col = row + 1; col < 4; ++col)
                 {
-                    std::swap(m_values[row][col], m_values[col][row]);
+                    std::swap(values[row][col], values[col][row]);
                 }
             }
         }
@@ -86,7 +86,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = a_value.m_values[col][row];
+                    result.values[row][col] = a_value.values[col][row];
                 }
             }
             return result;
@@ -101,12 +101,12 @@ namespace Cue::Math
             {
                 for (int k = 0; k < 4; ++k)
                 {
-                    const T aik = static_cast<T>(m_values[row][k]);
+                    const T aik = static_cast<T>(values[row][k]);
                     // 2) 行の要素を列へ加算する
-                    result.m_values[row][0] += aik * a_other.m_values[k][0];
-                    result.m_values[row][1] += aik * a_other.m_values[k][1];
-                    result.m_values[row][2] += aik * a_other.m_values[k][2];
-                    result.m_values[row][3] += aik * a_other.m_values[k][3];
+                    result.values[row][0] += aik * a_other.values[k][0];
+                    result.values[row][1] += aik * a_other.values[k][1];
+                    result.values[row][2] += aik * a_other.values[k][2];
+                    result.values[row][3] += aik * a_other.values[k][3];
                 }
             }
             return result;
@@ -128,7 +128,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] + a_other.m_values[row][col];
+                    result.values[row][col] = values[row][col] + a_other.values[row][col];
                 }
             }
             return result;
@@ -142,7 +142,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] - a_other.m_values[row][col];
+                    result.values[row][col] = values[row][col] - a_other.values[row][col];
                 }
             }
             return result;
@@ -156,7 +156,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = m_values[row][col] * a_scalar;
+                    result.values[row][col] = values[row][col] * a_scalar;
                 }
             }
             return result;
@@ -170,7 +170,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = -m_values[row][col];
+                    result.values[row][col] = -values[row][col];
                 }
             }
             return result;
@@ -187,8 +187,8 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    const T a = m_values[row][col];
-                    const T b = a_other.m_values[row][col];
+                    const T a = values[row][col];
+                    const T b = a_other.values[row][col];
                     const T diff = (a > b) ? (a - b) : (b - a);
                     const T scale = std::max<T>(std::abs(a), std::abs(b));
                     if (diff > a_absEps + a_relEps * scale)
@@ -227,7 +227,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < size; ++col)
                 {
-                    sweep[row][col] = static_cast<U>(m_values[row][col]);
+                    sweep[row][col] = static_cast<U>(values[row][col]);
                     sweep[row][col + size] = (row == col) ? U{ 1 } : U{ 0 };
                 }
             }
@@ -286,7 +286,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < size; ++col)
                 {
-                    m_values[row][col] = static_cast<T>(sweep[row][col + size]);
+                    values[row][col] = static_cast<T>(sweep[row][col + size]);
                 }
             }
         }
@@ -309,7 +309,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    a_out[row * 4 + col] = m_values[row][col];
+                    a_out[row * 4 + col] = values[row][col];
                 }
             }
         }
@@ -322,7 +322,7 @@ namespace Cue::Math
             {
                 for (int col = 0; col < 4; ++col)
                 {
-                    result.m_values[row][col] = a_in[row * 4 + col];
+                    result.values[row][col] = a_in[row * 4 + col];
                 }
             }
             return result;
@@ -343,8 +343,8 @@ namespace Cue::Math
                     U sum = U{ 0 };
                     for (int k = 0; k < 4; ++k)
                     {
-                        sum += static_cast<U>(a_mat.m_values[row][k]) *
-                            static_cast<U>(a_inv.m_values[k][col]);
+                        sum += static_cast<U>(a_mat.values[row][k]) *
+                            static_cast<U>(a_inv.values[k][col]);
                     }
 
                     const U ideal = (row == col) ? U{ 1 } : U{ 0 };

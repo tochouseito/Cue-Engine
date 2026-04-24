@@ -22,36 +22,36 @@ namespace Cue::Math
         {
             struct
             {
-                T m_x;
-                T m_y;
-                T m_z;
-                T m_w;
+                T x;
+                T y;
+                T z;
+                T w;
             };
             struct
             {
-                T m_r;
-                T m_g;
-                T m_b;
-                T m_a;
+                T r;
+                T g;
+                T b;
+                T a;
             };
-            T m_v[4];
+            T v[4];
         };
 
         // --- コンストラクタ ---
         /// @brief デフォルトコンストラクタ
         constexpr Vector4() noexcept
-            : m_x(static_cast<T>(0))
-            , m_y(static_cast<T>(0))
-            , m_z(static_cast<T>(0))
-            , m_w(static_cast<T>(0))
+            : x(static_cast<T>(0))
+            , y(static_cast<T>(0))
+            , z(static_cast<T>(0))
+            , w(static_cast<T>(0))
         {}
 
         /// @brief 引数付きコンストラクタ
         constexpr Vector4(T a_x, T a_y, T a_z, T a_w) noexcept
-            : m_x(a_x)
-            , m_y(a_y)
-            , m_z(a_z)
-            , m_w(a_w)
+            : x(a_x)
+            , y(a_y)
+            , z(a_z)
+            , w(a_w)
         {}
 
         // --- 判定/初期化 ---
@@ -59,20 +59,20 @@ namespace Cue::Math
         constexpr bool is_zero() const noexcept
         {
             // 1) 全成分が 0 かどうかで判定する
-            return m_x == static_cast<T>(0) &&
-                m_y == static_cast<T>(0) &&
-                m_z == static_cast<T>(0) &&
-                m_w == static_cast<T>(0);
+            return x == static_cast<T>(0) &&
+                y == static_cast<T>(0) &&
+                z == static_cast<T>(0) &&
+                w == static_cast<T>(0);
         }
 
         /// @brief ゼロ初期化
         constexpr void initialize() noexcept
         {
             // 1) 全成分を 0 に初期化する
-            m_x = static_cast<T>(0);
-            m_y = static_cast<T>(0);
-            m_z = static_cast<T>(0);
-            m_w = static_cast<T>(0);
+            x = static_cast<T>(0);
+            y = static_cast<T>(0);
+            z = static_cast<T>(0);
+            w = static_cast<T>(0);
         }
 
         // --- 変換演算子 ---
@@ -92,7 +92,7 @@ namespace Cue::Math
             assert(a_index < 4);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
         }
 
         /// @brief 配列アクセス（読み取り専用）0:x(=r),1:y(=g),2:z(=b),3:w(=a)
@@ -103,7 +103,19 @@ namespace Cue::Math
             assert(a_index < 4);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
+        }
+
+        /// @brief 先頭要素へのポインタを返す
+        constexpr T* data() noexcept
+        {
+            return v;
+        }
+
+        /// @brief 先頭要素への読み取り専用ポインタを返す
+        constexpr const T* data() const noexcept
+        {
+            return v;
         }
 
         // --- 符号演算子 ---
@@ -118,7 +130,7 @@ namespace Cue::Math
         constexpr Vector4 operator-() const noexcept
         {
             // 1) 各成分の符号を反転させる
-            return { -m_x, -m_y, -m_z, -m_w };
+            return { -x, -y, -z, -w };
         }
 
         // --- 二項演算子 ---
@@ -126,28 +138,28 @@ namespace Cue::Math
         constexpr Vector4 operator+(const Vector4& a_other) const noexcept
         {
             // 1) 成分ごとの加算結果を返す
-            return { m_x + a_other.m_x, m_y + a_other.m_y, m_z + a_other.m_z, m_w + a_other.m_w };
+            return { x + a_other.x, y + a_other.y, z + a_other.z, w + a_other.w };
         }
 
         /// @brief 減算
         constexpr Vector4 operator-(const Vector4& a_other) const noexcept
         {
             // 1) 成分ごとの減算結果を返す
-            return { m_x - a_other.m_x, m_y - a_other.m_y, m_z - a_other.m_z, m_w - a_other.m_w };
+            return { x - a_other.x, y - a_other.y, z - a_other.z, w - a_other.w };
         }
 
         /// @brief スカラー乗算
         constexpr Vector4 operator*(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            return { m_x * a_scalar, m_y * a_scalar, m_z * a_scalar, m_w * a_scalar };
+            return { x * a_scalar, y * a_scalar, z * a_scalar, w * a_scalar };
         }
 
         /// @brief スカラー除算
         constexpr Vector4 operator/(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            return { m_x / a_scalar, m_y / a_scalar, m_z / a_scalar, m_w / a_scalar };
+            return { x / a_scalar, y / a_scalar, z / a_scalar, w / a_scalar };
         }
 
         // --- 複合代入演算子 ---
@@ -155,10 +167,10 @@ namespace Cue::Math
         constexpr Vector4& operator+=(const Vector4& a_other) noexcept
         {
             // 1) 成分を加算して自身に反映する
-            m_x += a_other.m_x;
-            m_y += a_other.m_y;
-            m_z += a_other.m_z;
-            m_w += a_other.m_w;
+            x += a_other.x;
+            y += a_other.y;
+            z += a_other.z;
+            w += a_other.w;
             return *this;
         }
 
@@ -166,10 +178,10 @@ namespace Cue::Math
         constexpr Vector4& operator-=(const Vector4& a_other) noexcept
         {
             // 1) 成分を減算して自身に反映する
-            m_x -= a_other.m_x;
-            m_y -= a_other.m_y;
-            m_z -= a_other.m_z;
-            m_w -= a_other.m_w;
+            x -= a_other.x;
+            y -= a_other.y;
+            z -= a_other.z;
+            w -= a_other.w;
             return *this;
         }
 
@@ -177,10 +189,10 @@ namespace Cue::Math
         constexpr Vector4& operator*=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            m_x *= a_scalar;
-            m_y *= a_scalar;
-            m_z *= a_scalar;
-            m_w *= a_scalar;
+            x *= a_scalar;
+            y *= a_scalar;
+            z *= a_scalar;
+            w *= a_scalar;
             return *this;
         }
 
@@ -188,10 +200,10 @@ namespace Cue::Math
         constexpr Vector4& operator/=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            m_x /= a_scalar;
-            m_y /= a_scalar;
-            m_z /= a_scalar;
-            m_w /= a_scalar;
+            x /= a_scalar;
+            y /= a_scalar;
+            z /= a_scalar;
+            w /= a_scalar;
             return *this;
         }
 
@@ -200,10 +212,10 @@ namespace Cue::Math
         constexpr Vector4& operator++() noexcept
         {
             // 1) 全成分を加算して更新する
-            ++m_x;
-            ++m_y;
-            ++m_z;
-            ++m_w;
+            ++x;
+            ++y;
+            ++z;
+            ++w;
             return *this;
         }
 
@@ -221,10 +233,10 @@ namespace Cue::Math
         constexpr Vector4& operator--() noexcept
         {
             // 1) 全成分を減算して更新する
-            --m_x;
-            --m_y;
-            --m_z;
-            --m_w;
+            --x;
+            --y;
+            --z;
+            --w;
             return *this;
         }
 
@@ -243,10 +255,10 @@ namespace Cue::Math
         constexpr bool operator==(const Vector4& a_other) const noexcept
         {
             // 1) 全成分が一致するか判定する
-            return m_x == a_other.m_x &&
-                m_y == a_other.m_y &&
-                m_z == a_other.m_z &&
-                m_w == a_other.m_w;
+            return x == a_other.x &&
+                y == a_other.y &&
+                z == a_other.z &&
+                w == a_other.w;
         }
 
         /// @brief 非等価
@@ -260,40 +272,40 @@ namespace Cue::Math
         constexpr bool operator<(const Vector4& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x < a_other.m_x) &&
-                (m_y < a_other.m_y) &&
-                (m_z < a_other.m_z) &&
-                (m_w < a_other.m_w);
+            return (x < a_other.x) &&
+                (y < a_other.y) &&
+                (z < a_other.z) &&
+                (w < a_other.w);
         }
 
         /// @brief 小なりイコール（全成分）
         constexpr bool operator<=(const Vector4& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x <= a_other.m_x) &&
-                (m_y <= a_other.m_y) &&
-                (m_z <= a_other.m_z) &&
-                (m_w <= a_other.m_w);
+            return (x <= a_other.x) &&
+                (y <= a_other.y) &&
+                (z <= a_other.z) &&
+                (w <= a_other.w);
         }
 
         /// @brief 大なり（全成分）
         constexpr bool operator>(const Vector4& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x > a_other.m_x) &&
-                (m_y > a_other.m_y) &&
-                (m_z > a_other.m_z) &&
-                (m_w > a_other.m_w);
+            return (x > a_other.x) &&
+                (y > a_other.y) &&
+                (z > a_other.z) &&
+                (w > a_other.w);
         }
 
         /// @brief 大なりイコール（全成分）
         constexpr bool operator>=(const Vector4& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x >= a_other.m_x) &&
-                (m_y >= a_other.m_y) &&
-                (m_z >= a_other.m_z) &&
-                (m_w >= a_other.m_w);
+            return (x >= a_other.x) &&
+                (y >= a_other.y) &&
+                (z >= a_other.z) &&
+                (w >= a_other.w);
         }
 
         // --- 計算メンバ関数 ---
@@ -301,14 +313,14 @@ namespace Cue::Math
         T length() const noexcept
         {
             // 1) 4次元の長さを計算する
-            return static_cast<T>(std::sqrt(m_x * m_x + m_y * m_y + m_z * m_z + m_w * m_w));
+            return static_cast<T>(std::sqrt(x * x + y * y + z * z + w * w));
         }
 
         /// @brief 長さの二乗
         constexpr T length_sq() const noexcept
         {
             // 1) 4次元の長さの二乗を返す
-            return m_x * m_x + m_y * m_y + m_z * m_z + m_w * m_w;
+            return x * x + y * y + z * z + w * w;
         }
 
         /// @brief 正規化
@@ -319,10 +331,10 @@ namespace Cue::Math
             if (len != static_cast<T>(0))
             {
                 // 2) 長さで割って正規化する
-                m_x /= len;
-                m_y /= len;
-                m_z /= len;
-                m_w /= len;
+                x /= len;
+                y /= len;
+                z /= len;
+                w /= len;
             }
             return *this;
         }
@@ -331,10 +343,10 @@ namespace Cue::Math
         constexpr T dot(const Vector4& a_other) const noexcept
         {
             // 1) 4次元の内積を計算する
-            return m_x * a_other.m_x +
-                m_y * a_other.m_y +
-                m_z * a_other.m_z +
-                m_w * a_other.m_w;
+            return x * a_other.x +
+                y * a_other.y +
+                z * a_other.z +
+                w * a_other.w;
         }
 
         /// @brief 外積（4次元ベクトルの外積は定義されていないため、3次元ベクトルとして計算し、w成分は0に設定）
@@ -342,9 +354,9 @@ namespace Cue::Math
         {
             // 1) 3次元の外積成分を計算する
             return {
-                m_y * a_other.m_z - m_z * a_other.m_y,
-                m_z * a_other.m_x - m_x * a_other.m_z,
-                m_x * a_other.m_y - m_y * a_other.m_x,
+                y * a_other.z - z * a_other.y,
+                z * a_other.x - x * a_other.z,
+                x * a_other.y - y * a_other.x,
                 static_cast<T>(0)
             };
         }
@@ -360,10 +372,10 @@ namespace Cue::Math
                     {
                         return a_value >= T(0) ? a_value : -a_value;
                     };
-                return abs_value(m_x - a_other.m_x) <= a_epsilon &&
-                    abs_value(m_y - a_other.m_y) <= a_epsilon &&
-                    abs_value(m_z - a_other.m_z) <= a_epsilon &&
-                    abs_value(m_w - a_other.m_w) <= a_epsilon;
+                return abs_value(x - a_other.x) <= a_epsilon &&
+                    abs_value(y - a_other.y) <= a_epsilon &&
+                    abs_value(z - a_other.z) <= a_epsilon &&
+                    abs_value(w - a_other.w) <= a_epsilon;
             }
             // 2) それ以外は完全一致で判定する
             else
@@ -479,6 +491,14 @@ namespace Cue::Math
         {
             // 1) メンバ関数の外積を再利用する
             return a_left.cross(a_right);
+        }
+
+        /// @brief 0~255のRGBA値を0~1の範囲に正規化して変換
+        static constexpr Vector4 from_rgba8(std::uint8_t a_r, std::uint8_t a_g, std::uint8_t a_b, std::uint8_t a_a = 255) noexcept
+        {
+            // 1) 255で割って正規化する
+            constexpr float inv_255 = 1.0f / 255.0f;
+            return { a_r * inv_255, a_g * inv_255, a_b * inv_255, a_a * inv_255 };
         }
     };
 

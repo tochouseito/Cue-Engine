@@ -22,28 +22,28 @@ namespace Cue::Math
         {
             struct
             {
-                T m_x;
-                T m_y;
+                T x;
+                T y;
             };
             struct
             {
-                T m_r;
-                T m_g;
+                T r;
+                T g;
             };
-            T m_v[2];
+            T v[2];
         };
 
         // --- コンストラクタ ---
         /// @brief デフォルトコンストラクタ
         constexpr Vector2() noexcept
-            : m_x(static_cast<T>(0))
-            , m_y(static_cast<T>(0))
+            : x(static_cast<T>(0))
+            , y(static_cast<T>(0))
         {}
 
         /// @brief 引数付きコンストラクタ
         constexpr Vector2(T a_x, T a_y) noexcept
-            : m_x(a_x)
-            , m_y(a_y)
+            : x(a_x)
+            , y(a_y)
         {}
 
         // --- 判定/初期化 ---
@@ -51,15 +51,15 @@ namespace Cue::Math
         constexpr bool is_zero() const noexcept
         {
             // 1) 全成分が 0 かどうかで判定する
-            return m_x == static_cast<T>(0) && m_y == static_cast<T>(0);
+            return x == static_cast<T>(0) && y == static_cast<T>(0);
         }
 
         /// @brief ゼロ初期化
         constexpr void initialize() noexcept
         {
             // 1) 全成分を 0 に初期化する
-            m_x = static_cast<T>(0);
-            m_y = static_cast<T>(0);
+            x = static_cast<T>(0);
+            y = static_cast<T>(0);
         }
 
         // --- 変換演算子 ---
@@ -79,7 +79,7 @@ namespace Cue::Math
             assert(a_index < 2);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
         }
 
         /// @brief 配列アクセス（読み取り専用）0:x(=r),1:y(=g)
@@ -90,7 +90,7 @@ namespace Cue::Math
             assert(a_index < 2);
 #endif
             // 2) 配列としてアクセスする
-            return m_v[a_index];
+            return v[a_index];
         }
 
         // --- 符号演算子 ---
@@ -105,7 +105,7 @@ namespace Cue::Math
         constexpr Vector2 operator-() const noexcept
         {
             // 1) 各成分の符号を反転させる
-            return { -m_x, -m_y };
+            return { -x, -y };
         }
 
         // --- 二項演算子 ---
@@ -113,28 +113,28 @@ namespace Cue::Math
         constexpr Vector2 operator+(const Vector2& a_other) const noexcept
         {
             // 1) 成分ごとの加算結果を返す
-            return { m_x + a_other.m_x, m_y + a_other.m_y };
+            return { x + a_other.x, y + a_other.y };
         }
 
         /// @brief 減算
         constexpr Vector2 operator-(const Vector2& a_other) const noexcept
         {
             // 1) 成分ごとの減算結果を返す
-            return { m_x - a_other.m_x, m_y - a_other.m_y };
+            return { x - a_other.x, y - a_other.y };
         }
 
         /// @brief スカラー乗算
         constexpr Vector2 operator*(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            return { m_x * a_scalar, m_y * a_scalar };
+            return { x * a_scalar, y * a_scalar };
         }
 
         /// @brief スカラー除算
         constexpr Vector2 operator/(T a_scalar) const noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            return { m_x / a_scalar, m_y / a_scalar };
+            return { x / a_scalar, y / a_scalar };
         }
 
         // --- 複合代入演算子 ---
@@ -142,8 +142,8 @@ namespace Cue::Math
         constexpr Vector2& operator+=(const Vector2& a_other) noexcept
         {
             // 1) 成分を加算して自身に反映する
-            m_x += a_other.m_x;
-            m_y += a_other.m_y;
+            x += a_other.x;
+            y += a_other.y;
             return *this;
         }
 
@@ -151,8 +151,8 @@ namespace Cue::Math
         constexpr Vector2& operator-=(const Vector2& a_other) noexcept
         {
             // 1) 成分を減算して自身に反映する
-            m_x -= a_other.m_x;
-            m_y -= a_other.m_y;
+            x -= a_other.x;
+            y -= a_other.y;
             return *this;
         }
 
@@ -160,8 +160,8 @@ namespace Cue::Math
         constexpr Vector2& operator*=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーを掛ける
-            m_x *= a_scalar;
-            m_y *= a_scalar;
+            x *= a_scalar;
+            y *= a_scalar;
             return *this;
         }
 
@@ -169,8 +169,8 @@ namespace Cue::Math
         constexpr Vector2& operator/=(T a_scalar) noexcept
         {
             // 1) 成分ごとにスカラーで割る
-            m_x /= a_scalar;
-            m_y /= a_scalar;
+            x /= a_scalar;
+            y /= a_scalar;
             return *this;
         }
 
@@ -179,8 +179,8 @@ namespace Cue::Math
         constexpr Vector2& operator++() noexcept
         {
             // 1) 全成分を加算して更新する
-            ++m_x;
-            ++m_y;
+            ++x;
+            ++y;
             return *this;
         }
 
@@ -198,8 +198,8 @@ namespace Cue::Math
         constexpr Vector2& operator--() noexcept
         {
             // 1) 全成分を減算して更新する
-            --m_x;
-            --m_y;
+            --x;
+            --y;
             return *this;
         }
 
@@ -218,7 +218,7 @@ namespace Cue::Math
         constexpr bool operator==(const Vector2& a_other) const noexcept
         {
             // 1) 全成分が一致するか判定する
-            return m_x == a_other.m_x && m_y == a_other.m_y;
+            return x == a_other.x && y == a_other.y;
         }
 
         /// @brief 非等価
@@ -232,28 +232,28 @@ namespace Cue::Math
         constexpr bool operator<(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x < a_other.m_x) && (m_y < a_other.m_y);
+            return (x < a_other.x) && (y < a_other.y);
         }
 
         /// @brief 小なりイコール（全成分）
         constexpr bool operator<=(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x <= a_other.m_x) && (m_y <= a_other.m_y);
+            return (x <= a_other.x) && (y <= a_other.y);
         }
 
         /// @brief 大なり（全成分）
         constexpr bool operator>(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x > a_other.m_x) && (m_y > a_other.m_y);
+            return (x > a_other.x) && (y > a_other.y);
         }
 
         /// @brief 大なりイコール（全成分）
         constexpr bool operator>=(const Vector2& a_other) const noexcept
         {
             // 1) 全成分での大小関係を確認する
-            return (m_x >= a_other.m_x) && (m_y >= a_other.m_y);
+            return (x >= a_other.x) && (y >= a_other.y);
         }
 
         // --- 計算メンバ関数 ---
@@ -261,14 +261,14 @@ namespace Cue::Math
         T length() const noexcept
         {
             // 1) 2次元の長さを計算する
-            return static_cast<T>(std::sqrt(m_x * m_x + m_y * m_y));
+            return static_cast<T>(std::sqrt(x * x + y * y));
         }
 
         /// @brief 長さの二乗
         constexpr T length_sq() const noexcept
         {
             // 1) 2次元の長さの二乗を返す
-            return m_x * m_x + m_y * m_y;
+            return x * x + y * y;
         }
 
         /// @brief 正規化
@@ -279,8 +279,8 @@ namespace Cue::Math
             if (len != static_cast<T>(0))
             {
                 // 2) 長さで割って正規化する
-                m_x /= len;
-                m_y /= len;
+                x /= len;
+                y /= len;
             }
             return *this;
         }
@@ -289,7 +289,7 @@ namespace Cue::Math
         constexpr T dot(const Vector2& a_other) const noexcept
         {
             // 1) 2次元の内積を計算する
-            return m_x * a_other.m_x + m_y * a_other.m_y;
+            return x * a_other.x + y * a_other.y;
         }
 
         // --- Epsilon 比較 ---
@@ -303,8 +303,8 @@ namespace Cue::Math
                     {
                         return a_value >= T(0) ? a_value : -a_value;
                     };
-                return abs_value(m_x - a_other.m_x) <= a_epsilon &&
-                    abs_value(m_y - a_other.m_y) <= a_epsilon;
+                return abs_value(x - a_other.x) <= a_epsilon &&
+                    abs_value(y - a_other.y) <= a_epsilon;
             }
             // 2) それ以外は完全一致で判定する
             else

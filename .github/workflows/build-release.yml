@@ -1,0 +1,13 @@
+name: build-release
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/_build-common.yml
+    with:
+      config: Release

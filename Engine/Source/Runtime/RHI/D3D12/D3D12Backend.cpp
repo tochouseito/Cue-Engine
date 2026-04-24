@@ -35,7 +35,7 @@ namespace Cue::RHI::DX12
 
         // バッファマネージャの初期化
         m_bufferManager = std::make_unique<DX12BufferManager>(*m_renderDevice);
-        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice);
+        m_textureManager = std::make_unique<DX12TextureManager>(*m_renderDevice, *m_descriptorAllocator);
         m_viewManager = std::make_unique<DX12ViewManager>(*m_bufferManager, *m_textureManager, *m_descriptorAllocator);
         m_pipelineManager = std::make_unique<DX12PipelineManager>(*m_renderDevice, *m_hlslCompiler);
 
@@ -71,30 +71,10 @@ namespace Cue::RHI::DX12
 
     Result D3D12Backend::shutdown()
     {
-        // graphics キューの完了を待ってからリソースを解放します。
-        if (m_queuePool)
+        Result waitResult = wait_for_idle();
+        if (!waitResult)
         {
-            Result result = m_queuePool->wait_for_graphics_queue();
-            if (!result)
-            {
-                return result;
-            }
-
-            queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
-            if (presentQueueContext != nullptr)
-            {
-                result = presentQueueContext->signal();
-                if (!result)
-                {
-                    return result;
-                }
-
-                result = presentQueueContext->wait();
-                if (!result)
-                {
-                    return result;
-                }
-            }
+            return waitResult;
         }
 
         if (m_swapChain)
@@ -109,6 +89,37 @@ namespace Cue::RHI::DX12
         m_bufferManager.reset();
         m_descriptorAllocator.reset();
         m_renderDevice.reset();
+
+        return Result::ok();
+    }
+    Result D3D12Backend::wait_for_idle()
+    {
+        if (!m_queuePool)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_queuePool->wait_for_graphics_queue();
+        if (!result)
+        {
+            return result;
+        }
+
+        queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+        if (presentQueueContext != nullptr)
+        {
+            result = presentQueueContext->signal();
+            if (!result)
+            {
+                return result;
+            }
+
+            result = presentQueueContext->wait();
+            if (!result)
+            {
+                return result;
+            }
+        }
 
         return Result::ok();
     }
@@ -129,6 +140,24 @@ namespace Cue::RHI::DX12
             return result;
         }
         return m_swapChain->present(vsync);
+    }
+    Result D3D12Backend::resize(uint32_t a_width, uint32_t a_height)
+    {
+        if (!m_swapChain)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Failed to resize backend because swap chain is not initialized.");
+        }
+
+        Result result = wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_swapChain->resize(a_width, a_height);
     }
 
     Result D3D12Backend::create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph)
@@ -162,24 +191,49 @@ namespace Cue::RHI::DX12
         return r ? commandQueue : nullptr;
     }
 
-    ImGuiFontSRVInfo D3D12Backend::get_font_srv_for_imgui() const
+    ID3D12DescriptorHeap* D3D12Backend::get_imgui_srv_descriptor_heap() const
     {
-        ImGuiFontSRVInfo result{};
         if (!m_descriptorAllocator)
         {
             CUE_ASSERT_MSG(false, "DescriptorAllocator is not initialized in D3D12Backend.");
+            return nullptr;
         }
-        else
-        {
-            TableID fontTable = m_descriptorAllocator->allocate(TableKind::Textures);
-            result.srvDescHeap = m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
-            result.cpuDescHandle = m_descriptorAllocator->get_cpu_handle_gpu_visible(fontTable);
-            result.gpuDescHandle = m_descriptorAllocator->get_gpu_handle(fontTable);
-        }
-        return result;
+
+        return m_descriptorAllocator->get_descriptor_heap(HeapType::CBV_SRV_UAV);
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(viewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
+    Result D3D12Backend::allocate_imgui_srv_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle)
+    {
+        if (!m_descriptorAllocator)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "DescriptorAllocator is not initialized in D3D12Backend.");
+        }
+
+        return m_descriptorAllocator->allocate_shader_visible_texture_descriptor(
+            a_outCpuHandle,
+            a_outGpuHandle);
+    }
+
+    void D3D12Backend::free_imgui_srv_descriptor(
+        D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle)
+    {
+        if (!m_descriptorAllocator)
+        {
+            return;
+        }
+
+        m_descriptorAllocator->free_shader_visible_texture_descriptor(
+            a_cpuHandle,
+            a_gpuHandle);
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
     {
         D3D12_GPU_DESCRIPTOR_HANDLE result{};
         if (!m_viewManager || !m_descriptorAllocator || !a_viewHandle.valid())

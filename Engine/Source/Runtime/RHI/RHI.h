@@ -35,11 +35,17 @@ namespace Cue::RHI
         /// @brief バックエンドを終了します。
         virtual Result shutdown() = 0;
 
+        /// @brief バックエンドで進行中の GPU 作業完了を待機します。
+        virtual Result wait_for_idle() = 0;
+
         /// @brief 指定フレームの描画を実行します。
         virtual Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) = 0;
 
         /// @brief 指定フレームの提示処理を実行します。
         virtual Result present(uint64_t a_frameNo, uint32_t a_index,bool vsync, FrameGraph& a_frameGraph) = 0;
+
+        /// @brief サイズ依存のバックエンド資源をリサイズします。
+        virtual Result resize(uint32_t a_width, uint32_t a_height) = 0;
 
         /// @brief FrameGraph の生成
         virtual Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
