@@ -24,18 +24,27 @@ namespace Cue
     Result Engine::initialize(EngineSetupInfo& a_info)
     {
         // 引数の検査
-        if (!a_info.platform || !a_info.backend)
+        if (!a_info.platform || !a_info.backend || !a_info.audioBackend)
         {
             return Result::fail(
                 Code::InvalidArgument, Severity::Error,
-                "Invalid argument: platform and backend must not be null");
+                "Invalid argument: platform, backend, and audio backend must not be null");
         }
 
         // 依存オブジェクトの保存
         m_platform = a_info.platform;
         m_backend = a_info.backend;
+        m_audioBackend = a_info.audioBackend;
         m_editorBridge = a_info.editorBridge;
         m_platformBridge = a_info.platformBridge;
+
+        Audio::AudioDeviceDesc audioDeviceDesc{};
+        Result result =
+            m_audioBackend->create_device(audioDeviceDesc, m_audioDevice);
+        if (!result)
+        {
+            return result;
+        }
 
         auto* staticMeshPool = m_backend->get_static_mesh_pool();
         if (staticMeshPool == nullptr)
@@ -46,7 +55,6 @@ namespace Cue
 
         m_assetManager.initialize(staticMeshPool);
 
-        Result result{};
         m_defaultMaterialHandle = MaterialHandle{};
         result = m_assetManager.create_color_material(
             "DefaultWhite",
@@ -218,6 +226,19 @@ namespace Cue
         m_activeWorld = nullptr;
         m_playWorld.reset();
         m_editorWorld.reset();
+
+        if (m_audioBackend != nullptr && m_audioDevice.valid())
+        {
+            const Result destroyAudioResult =
+                m_audioBackend->destroy_device(m_audioDevice);
+            if (!destroyAudioResult)
+            {
+                CUE_ASSERTF(false, "Failed to destroy audio device: %s",
+                    destroyAudioResult.message.data());
+            }
+        }
+        m_audioDevice = {};
+        m_audioBackend = nullptr;
     }
 
     Result Engine::begin_frame()

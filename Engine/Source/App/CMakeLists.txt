@@ -10,6 +10,7 @@ target_link_libraries(CueApp PRIVATE
     Base
     win_platform
     d3d12_backend
+    xaudio2_backend
     Engine
 )
 

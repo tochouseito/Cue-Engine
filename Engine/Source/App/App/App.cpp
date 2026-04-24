@@ -13,6 +13,9 @@
 // === D3D12 includes ===
 #include <D3D12Backend.h>
 
+// === Audio includes ===
+#include <AudioBackendFactory.h>
+
 // === Engine includes ===
 #include <Engine.h>
 #include <GameCore/SceneSerializer.h>
@@ -341,6 +344,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     auto backend = std::make_unique<RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
 
+    auto audioBackend = Audio::create_backend();
+    if (audioBackend == nullptr)
+    {
+        return -1;
+    }
+
     RHI::BackendSetupInfo backendInfo{};
     backendInfo.enableDebugLayer = k_enableDebugLayer;
     backendInfo.width = k_width;
@@ -354,11 +363,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    result = audioBackend->initialize();
+    if (!result)
+    {
+        log_failure("Audio backend initialize", result);
+        backend->shutdown();
+        return -1;
+    }
+
     auto engine = std::make_unique<Engine>();
 
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
+    engineInfo.audioBackend = audioBackend.get();
     engineInfo.maxFps = k_maxFps;
     engineInfo.platformBridge = &platformBridge;
 
@@ -366,6 +384,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!result)
     {
         log_failure("Engine initialize", result);
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -377,7 +399,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Static game module load", result);
         engine->shutdown();
+        audioBackend->shutdown();
+        audioBackend.reset();
         backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -387,7 +412,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Resolve project root", result);
         engine->shutdown();
+        audioBackend->shutdown();
+        audioBackend.reset();
         backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -400,7 +428,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Project settings load", result);
         engine->shutdown();
+        audioBackend->shutdown();
+        audioBackend.reset();
         backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -410,7 +441,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Startup scene load", result);
         engine->shutdown();
+        audioBackend->shutdown();
+        audioBackend.reset();
         backend->shutdown();
+        backend.reset();
         return -1;
     }
 #endif
@@ -420,7 +454,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Platform start", result);
         engine->shutdown();
+        audioBackend->shutdown();
+        audioBackend.reset();
         backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -458,6 +495,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     engine->shutdown();
     engine.reset();
+
+    audioBackend->shutdown();
+    audioBackend.reset();
 
     backend->shutdown();
     backend.reset();

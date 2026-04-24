@@ -8,6 +8,9 @@
 #include <PAL.h>
 #include <PlatformRuntimeState.h>
 
+// === Audio includes ===
+#include <Audio.h>
+
 // === RHI includes ===
 #include <FrameGraph.h>
 #include <RHI.h>
@@ -34,6 +37,7 @@ namespace Cue
     {
         PAL::IPlatform* platform = nullptr;
         RHI::IBackend* backend = nullptr;
+        Audio::IBackend* audioBackend = nullptr;
         uint32_t maxFps = 60;
 
         std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
@@ -191,6 +195,21 @@ namespace Cue
                 : k_emptyStats;
         }
 
+        [[nodiscard]] Audio::IBackend* audio_backend() noexcept
+        {
+            return m_audioBackend;
+        }
+
+        [[nodiscard]] const Audio::IBackend* audio_backend() const noexcept
+        {
+            return m_audioBackend;
+        }
+
+        [[nodiscard]] Audio::AudioDeviceHandle default_audio_device() const noexcept
+        {
+            return m_audioDevice;
+        }
+
     private:
         Result create_final_color_resources();
         Result destroy_final_color_resources();
@@ -209,6 +228,7 @@ namespace Cue
     private:
         PAL::IPlatform* m_platform = nullptr;
         RHI::IBackend* m_backend = nullptr;
+        Audio::IBackend* m_audioBackend = nullptr;
         AssetManager m_assetManager{};
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
@@ -223,6 +243,7 @@ namespace Cue
         RHI::TextureHandle m_finalColorHandle{};
         RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
+        Audio::AudioDeviceHandle m_audioDevice{};
         MaterialHandle m_defaultMaterialHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;

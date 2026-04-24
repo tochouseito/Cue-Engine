@@ -41,6 +41,7 @@ target_link_libraries(Engine PUBLIC
     cue_warnings
     cue_compile_options
     Base
+    Audio
     Core
     ECS
     PAL

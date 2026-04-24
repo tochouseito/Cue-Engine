@@ -38,6 +38,7 @@ target_link_libraries(Editor PRIVATE
     Base
     win_platform
     d3d12_backend
+    xaudio2_backend
     Engine
     imgui::imgui
     nlohmann_json::nlohmann_json

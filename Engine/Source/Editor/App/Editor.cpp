@@ -11,6 +11,9 @@
 // === D3D12 includes ===
 #include <D3D12Backend.h>
 
+// === Audio includes ===
+#include <AudioBackendFactory.h>
+
 // === Engine includes ===
 #include <Engine.h>
 #include <Commands.h>
@@ -31,13 +34,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::string className = "CueEditorWindowClass";
     std::string title = "Cue Editor";
     uint32_t bufferCount = 3;
-    bool enableDebugLayer = true;
+    bool enableDebugLayer = false;
     uint32_t maxFps = 60;
 
     // 宣言
     Result r = Result::ok();
     std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr;
     std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr;
+    std::unique_ptr<Audio::IBackend> audioBackend = nullptr;
     std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
     Core::CQRS::Bridge editorBridge{};
     Core::CQRS::Bridge platformBridge{};
@@ -83,6 +87,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // レンダリングバックエンドの生成
     backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
+    audioBackend = Audio::create_backend();
+    if (audioBackend == nullptr)
+    {
+        return -1;
+    }
 
     // レンダリングバックエンドの設定
     Cue::RHI::BackendSetupInfo backendInfo{};
@@ -110,6 +119,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.message, Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
 #endif
+        return -1;
+    }
+
+    r = audioBackend->initialize();
+    if (!r)
+    {
+#ifdef CUE_DEBUG
+        CUE_ASSERTF(false,
+            "Failed to initialize audio backend: %s (code: %s, "
+            "severity: %s) at %s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to initialize audio backend: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -148,6 +178,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Cue::EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
+    engineInfo.audioBackend = audioBackend.get();
     engineInfo.maxFps = maxFps;
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
@@ -172,6 +203,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.message, Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
 #endif
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
         return -1;
     }
 
@@ -248,6 +283,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // エンジンのシャットダウン
     engine->shutdown();
     engine.reset();
+
+    audioBackend->shutdown();
+    audioBackend.reset();
 
     // ImGui マネージャのシャットダウン
     imGuiManager->shutdown();
