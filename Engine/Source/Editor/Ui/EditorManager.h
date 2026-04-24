@@ -14,6 +14,7 @@
 
 // === Editor includes ===
 #include "BuildSystem.h"
+#include "AssetBrowser.h"
 #include "Statistics.h"
 #include "DebugView.h"
 #include "Hierarchy.h"
@@ -108,6 +109,7 @@ namespace Cue::Editor
         Engine* m_engine = nullptr;
         std::unique_ptr<BuildSystem> m_buildSystem = nullptr;
         std::unique_ptr<VisualStudioBridge> m_visualStudioBridge = nullptr;
+        std::unique_ptr<AssetBrowser> m_assetBrowser = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;

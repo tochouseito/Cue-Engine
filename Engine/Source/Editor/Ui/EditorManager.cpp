@@ -782,6 +782,7 @@ namespace Cue::Editor
             m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
             m_visualStudioBridge =
                 std::make_unique<VisualStudioBridge>(*m_fileSystem);
+            m_assetBrowser = std::make_unique<AssetBrowser>(m_fileSystem);
         }
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
@@ -839,6 +840,17 @@ namespace Cue::Editor
             projectSettings.gameReleaseBuildConfiguration;
         m_gameReleaseBuildBackend =
             projectSettings.gameReleaseBuildBackend;
+
+        Core::IO::Path assetRootPath(projectSettings.assetRoot);
+        if (!assetRootPath.is_absolute())
+        {
+            assetRootPath = Core::IO::Path::join(
+                Core::IO::Path(a_projectPath), assetRootPath);
+        }
+        if (m_assetBrowser != nullptr)
+        {
+            m_assetBrowser->set_asset_root_path(assetRootPath);
+        }
 
         const Result scriptLoadResult = m_engine->load_script_module(
             scriptRootPath,
@@ -3053,6 +3065,10 @@ namespace Cue::Editor
 
         m_statistics->update();
         m_debugView->update();
+        if (m_assetBrowser != nullptr)
+        {
+            m_assetBrowser->update();
+        }
         draw_create_script_popup();
         draw_script_build_notification_popup();
         draw_script_build_output();
