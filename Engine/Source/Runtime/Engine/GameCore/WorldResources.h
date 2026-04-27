@@ -28,8 +28,13 @@ namespace Cue
     class WorldResources final
     {
     public:
-        WorldResources(RHI::IBufferManager* bufferManager, RHI::IViewManager* viewManager)
-            : m_bufferManager(bufferManager), m_viewManager(viewManager) {}
+        WorldResources(RHI::IBufferManager* bufferManager,
+            RHI::IViewManager* viewManager,
+            uint32_t a_bufferCount)
+            : m_bufferManager(bufferManager)
+            , m_viewManager(viewManager)
+            , m_bufferCount(a_bufferCount)
+        {}
         ~WorldResources() = default;
         WorldResources(const WorldResources&) = delete;
         WorldResources& operator=(const WorldResources&) = delete;
@@ -142,6 +147,7 @@ namespace Cue
     private:
         RHI::IBufferManager* m_bufferManager = nullptr;
         RHI::IViewManager* m_viewManager = nullptr;
+        uint32_t m_bufferCount = 1;
 
         std::array<RHI::BufferHandle, static_cast<size_t>(WorldResourceType::Count)> m_bufferHandles{};
         std::array<RHI::ViewHandle, static_cast<size_t>(WorldResourceType::Count)> m_viewHandles{};

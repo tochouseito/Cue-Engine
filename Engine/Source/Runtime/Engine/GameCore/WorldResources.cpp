@@ -13,7 +13,7 @@ namespace Cue
         renderableInfoBufferDesc.name = "RenderableInfoBuffer";
         renderableInfoBufferDesc.type = RHI::BufferType::Structured;
         renderableInfoBufferDesc.defaultHeapCount = 1;
-        renderableInfoBufferDesc.uploadHeapCount = 1;
+        renderableInfoBufferDesc.uploadHeapCount = m_bufferCount;
         renderableInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         renderableInfoBufferDesc.stride = sizeof(GpuData::RenderableInfo);
         renderableInfoBufferDesc.elementCount = a_maxObjectCount;
@@ -35,12 +35,12 @@ namespace Cue
         // RenderableInfoBuffer の uploader 作成
         result = m_bufferManager->create_slot_uploaders(
             m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)],
-            1, m_renderableInfoUploaders);
+            m_bufferCount, m_renderableInfoUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_renderableInfoUploaders.size() != 1)
+        if (m_renderableInfoUploaders.size() != m_bufferCount)
         {
             return Result::fail(
                 Code::InternalError,
@@ -80,7 +80,7 @@ namespace Cue
         transformBufferDesc.name = "TransformBuffer";
         transformBufferDesc.type = RHI::BufferType::Structured;
         transformBufferDesc.defaultHeapCount = 1;
-        transformBufferDesc.uploadHeapCount = 1;
+        transformBufferDesc.uploadHeapCount = m_bufferCount;
         transformBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         transformBufferDesc.stride = sizeof(GpuData::ObjectTransformGpu);
         transformBufferDesc.elementCount = a_maxObjectCount;
@@ -99,12 +99,12 @@ namespace Cue
 
         // TransformBuffer の uploader 作成
         result = m_bufferManager->create_slot_uploaders(
-            transformBufferHandle, 1,m_transformUploaders);
+            transformBufferHandle, m_bufferCount, m_transformUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_transformUploaders.size() != 1)
+        if (m_transformUploaders.size() != m_bufferCount)
         {
             return Result::fail(Code::InternalError, Severity::Fatal,
                 "TransformBuffer uploader was not created.");
@@ -141,7 +141,7 @@ namespace Cue
         viewProjectionBufferDesc.name = "ViewProjectionBuffer";
         viewProjectionBufferDesc.type = RHI::BufferType::Constant;
         viewProjectionBufferDesc.defaultHeapCount = 1;
-        viewProjectionBufferDesc.uploadHeapCount = 1;
+        viewProjectionBufferDesc.uploadHeapCount = m_bufferCount;
         viewProjectionBufferDesc.initialState = RHI::ResourceState::Common;
         viewProjectionBufferDesc.stride = sizeof(GpuData::ViewProjectionGpu);
         viewProjectionBufferDesc.elementCount = 1;
@@ -159,12 +159,12 @@ namespace Cue
         }
 
         result = m_bufferManager->create_slot_uploaders(
-            viewProjectionBufferHandle, 1, m_viewProjectionUploaders);
+            viewProjectionBufferHandle, m_bufferCount, m_viewProjectionUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_viewProjectionUploaders.size() != 1)
+        if (m_viewProjectionUploaders.size() != m_bufferCount)
         {
             return Result::fail(
                 Code::InternalError,
@@ -181,7 +181,7 @@ namespace Cue
         materialBufferDesc.name = "MaterialBuffer";
         materialBufferDesc.type = RHI::BufferType::Structured;
         materialBufferDesc.defaultHeapCount = 1;
-        materialBufferDesc.uploadHeapCount = 1;
+        materialBufferDesc.uploadHeapCount = m_bufferCount;
         materialBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         materialBufferDesc.stride = sizeof(GpuData::MaterialGpu);
         materialBufferDesc.elementCount = a_maxMaterialCount;
@@ -199,12 +199,12 @@ namespace Cue
         }
 
         result = m_bufferManager->create_slot_uploaders(
-            materialBufferHandle, 1, m_materialUploaders);
+            materialBufferHandle, m_bufferCount, m_materialUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_materialUploaders.size() != 1)
+        if (m_materialUploaders.size() != m_bufferCount)
         {
             return Result::fail(
                 Code::InternalError,
@@ -240,7 +240,7 @@ namespace Cue
         renderObjectBufferDesc.name = "RenderObjectBuffer";
         renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
         renderObjectBufferDesc.defaultHeapCount = 1;
-        renderObjectBufferDesc.uploadHeapCount = 1;
+        renderObjectBufferDesc.uploadHeapCount = m_bufferCount;
         renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
         renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
         renderObjectBufferDesc.elementCount = a_maxObjectCount;
@@ -259,12 +259,12 @@ namespace Cue
         }
 
         result = m_bufferManager->create_slot_uploaders(
-            renderObjectBufferHandle, 1, m_renderObjectUploaders);
+            renderObjectBufferHandle, m_bufferCount, m_renderObjectUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_renderObjectUploaders.size() != 1)
+        if (m_renderObjectUploaders.size() != m_bufferCount)
         {
             return Result::fail(
                 Code::InternalError,
@@ -302,7 +302,7 @@ namespace Cue
         renderObjectCountBufferDesc.name = "VisibleObjectCountBuffer";
         renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
         renderObjectCountBufferDesc.defaultHeapCount = 1;
-        renderObjectCountBufferDesc.uploadHeapCount = 1;
+        renderObjectCountBufferDesc.uploadHeapCount = m_bufferCount;
         renderObjectCountBufferDesc.initialState =
             RHI::ResourceState::UnorderedAccess;
         renderObjectCountBufferDesc.stride = sizeof(uint32_t);
@@ -321,12 +321,12 @@ namespace Cue
         }
 
         result = m_bufferManager->create_slot_uploaders(
-            renderObjectCountBufferHandle, 1, m_visibleObjectCountUploaders);
+            renderObjectCountBufferHandle, m_bufferCount, m_visibleObjectCountUploaders);
         if (!result)
         {
             return result;
         }
-        if (m_visibleObjectCountUploaders.size() != 1)
+        if (m_visibleObjectCountUploaders.size() != m_bufferCount)
         {
             return Result::fail(
                 Code::InternalError,

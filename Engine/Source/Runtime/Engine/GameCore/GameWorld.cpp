@@ -55,6 +55,11 @@ namespace Cue::GameCore
             return Result::fail(Code::InvalidArgument, Severity::Error,
                 "GameWorld default static mesh id is invalid.");
         }
+        if (a_bufferCount == 0)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "GameWorld buffer count must be greater than 0.");
+        }
 
         m_defaultStaticMeshId = a_defaultStaticMeshId;
         m_assetManager = a_assetManager;
@@ -69,7 +74,8 @@ namespace Cue::GameCore
         }
 
         m_worldResources =
-            std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
+            std::make_unique<WorldResources>(
+                a_bufferManager, a_viewManager, a_bufferCount);
 
         Result result = m_worldResources->create_renderable_info_buffer(
             k_maxRenderObjectCount);
