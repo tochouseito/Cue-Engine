@@ -17,8 +17,14 @@
 #include <StaticMeshPool.h>
 #include <TextureManager.h>
 
+// === Engine Includes ===
+#include "ModelAssetFormat.h"
+#include "TextureAssetFormat.h"
+
 // === C++ Includes ===
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -33,11 +39,13 @@ namespace Cue
     struct MaterialDesc final
     {
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        std::string textureName{};
         uint32_t textureId = 0;
     };
 
     struct ModelAssetRecord final
     {
+        std::string name{};
         Core::Native::ModelData modelData{};
         std::vector<RHI::StaticMeshHandle> staticMeshHandles{};
     };
@@ -57,7 +65,7 @@ namespace Cue
     class AssetManager final
     {
     public:
-        static constexpr uint32_t k_materialAssetVersion = 1;
+        static constexpr uint32_t k_materialAssetVersion = 2;
         static constexpr uint32_t k_errorTextureId = 0;
 
         AssetManager() = default;
@@ -69,6 +77,23 @@ namespace Cue
             m_textureManager = a_textureManager;
         }
         Result create_cube_model(ModelHandle& outHandle);
+        Result register_model(
+            std::string_view name,
+            const Core::Native::ModelData& data,
+            ModelHandle& outHandle)
+        {
+            return add_model(name, data, outHandle);
+        }
+        Result load_model_from_obj(
+            Core::IO::IFileSystem& fileSystem,
+            std::string_view name,
+            const Core::IO::Path& filePath,
+            ModelHandle& outHandle);
+        Result register_model_from_cuemodel(
+            Core::IO::IFileSystem& fileSystem,
+            std::string_view name,
+            const Core::IO::Path& filePath,
+            ModelHandle& outHandle);
         Result create_material(std::string_view name, const MaterialDesc& desc,
             MaterialHandle& outHandle);
         Result create_color_material(std::string_view name,
@@ -78,10 +103,34 @@ namespace Cue
             const Core::IO::Path& filePath) const;
         Result load_material(Core::IO::IFileSystem& fileSystem,
             const Core::IO::Path& filePath, MaterialHandle& outHandle);
-        Result register_texture_from_png(std::string_view name,
+        Result register_texture_from_cuetexture(
+            Core::IO::IFileSystem& fileSystem,
+            std::string_view name,
             const Core::IO::Path& filePath,
             uint32_t& outTextureId);
-        Result register_error_texture_from_png(const Core::IO::Path& filePath);
+        Result register_error_texture_from_cuetexture(
+            Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath);
+        Result get_texture_id(std::string_view name, uint32_t& outTextureId) const
+        {
+            if (name.empty())
+            {
+                outTextureId = k_errorTextureId;
+                return Result::ok();
+            }
+
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (!m_textureNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Texture not found for the given name.");
+            }
+
+            outTextureId = m_textureNameMap.at(nameId);
+            return Result::ok();
+        }
         Result get_model(ModelHandle handle, Core::Native::ModelData& outData) const
         {
             // asset manager の registry を唯一の原本として扱い、呼び出し側にはコピーだけ返す。
@@ -97,6 +146,41 @@ namespace Cue
             outData = record.modelData;
             return Result::ok();
         }
+        Result get_model(std::string_view name, ModelHandle& outHandle) const
+        {
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (!m_modelNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Model not found for the given name.");
+            }
+
+            outHandle = m_modelNameMap.at(nameId);
+            return Result::ok();
+        }
+        Result get_model_name(ModelHandle handle, std::string& outName) const
+        {
+            ModelAssetRecord record{};
+            if (!m_modelRegistry.try_copy_get(handle, record))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Model not found for the given handle.");
+            }
+
+            outName = record.name;
+            return Result::ok();
+        }
+        Result get_model_name_from_mesh_id(
+            uint32_t meshId,
+            std::string& outName) const;
+        Result resolve_model_mesh_id(
+            std::string_view name,
+            uint32_t& outMeshId) const;
+        void collect_model_names(std::vector<std::string>& outNames) const;
         Result get_static_mesh_handle(ModelHandle handle, uint32_t meshIndex, RHI::StaticMeshHandle& outHandle) const
         {
             ModelAssetRecord record{};
@@ -197,6 +281,7 @@ namespace Cue
 
             // Core 側の SoA model data を原本として保持しつつ、GPU 側の静的メッシュ登録結果も対応付ける。
             ModelAssetRecord record{};
+            record.name = std::string(name);
             record.modelData = data;
             record.staticMeshHandles.reserve(record.modelData.meshes.size());
             for (const Core::Native::MeshData& meshData : record.modelData.meshes)
@@ -216,6 +301,7 @@ namespace Cue
             }
 
             outHandle = m_modelRegistry.create(record);
+            m_modelHandles.push_back(outHandle);
             m_modelNameMap.emplace(nameId, outHandle);
             return Result::ok();
         }
@@ -242,6 +328,7 @@ namespace Cue
         RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
         RHI::ITextureManager* m_textureManager = nullptr;
         Core::Registry<ModelTag, ModelAssetRecord> m_modelRegistry;
+        std::vector<ModelHandle> m_modelHandles{};
         std::unordered_map<Core::ResourceNameId, ModelHandle> m_modelNameMap;
         Core::Registry<MaterialTag, MaterialAssetRecord> m_materialRegistry;
         std::unordered_map<Core::ResourceNameId, MaterialHandle> m_materialNameMap;

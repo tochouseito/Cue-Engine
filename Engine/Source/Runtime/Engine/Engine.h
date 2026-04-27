@@ -39,6 +39,7 @@ namespace Cue
         RHI::IBackend* backend = nullptr;
         Audio::IBackend* audioBackend = nullptr;
         uint32_t maxFps = 60;
+        Core::IO::Path errorTexturePath{};
 
         std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
         Core::CQRS::Bridge* editorBridge = nullptr;
@@ -186,12 +187,39 @@ namespace Cue
         [[nodiscard]] Result stop_play_mode() noexcept;
         [[nodiscard]] bool is_playing() const noexcept;
 
-        [[nodiscard]] const RHI::FrameGraphExecutionStats&
+        [[nodiscard]] RHI::FrameGraphExecutionStats
             render_frame_graph_stats() const noexcept
         {
             static const RHI::FrameGraphExecutionStats k_emptyStats{};
             return m_frameGraph != nullptr
-                ? m_frameGraph->execution_stats()
+                ? m_frameGraph->execution_stats_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            render_frame_graph_summary_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_frameGraph != nullptr
+                ? m_frameGraph->execution_stats_summary_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            present_frame_graph_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_presentFrameGraph != nullptr
+                ? m_presentFrameGraph->execution_stats_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            present_frame_graph_summary_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_presentFrameGraph != nullptr
+                ? m_presentFrameGraph->execution_stats_summary_copy()
                 : k_emptyStats;
         }
 

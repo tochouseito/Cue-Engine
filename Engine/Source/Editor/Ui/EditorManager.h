@@ -60,6 +60,8 @@ namespace Cue::Editor
         void initialize();
         void update();
         Result open_project(const std::string& a_projectPath);
+        void set_loop_metrics_source(
+            const EditorLoopMetrics* a_loopMetrics) noexcept;
     private:
         Result save_current_scene();
         Result reload_current_scene();
@@ -144,5 +146,7 @@ namespace Cue::Editor
         bool m_openCreateScriptPopup = false;
         bool m_focusCreateScriptNameInput = false;
         std::array<char, 128> m_createScriptNameBuffer{};
+        EditorUpdateMetrics m_currentUpdateMetrics{};
+        EditorUpdateMetrics m_lastUpdateMetrics{};
     };
 }

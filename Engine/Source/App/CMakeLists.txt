@@ -41,6 +41,9 @@ add_custom_command(
             "${CMAKE_SOURCE_DIR}/Engine/Fonts"
             "$<TARGET_FILE_DIR:CueApp>/EngineResources/Fonts"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Engine/Textures"
+            "$<TARGET_FILE_DIR:CueApp>/EngineResources/Textures"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/config"
             "$<TARGET_FILE_DIR:CueApp>/config"
     VERBATIM

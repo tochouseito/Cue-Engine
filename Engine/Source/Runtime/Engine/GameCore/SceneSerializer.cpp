@@ -73,17 +73,61 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Json serialize_mesh_filter(
-            const ECS::MeshFilterComponent& a_component)
+            const ECS::MeshFilterComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
         {
-            return Json{
+            Json meshFilterJson = {
                 { "meshId", a_component.meshId },
             };
+
+            std::string modelName = a_component.modelName;
+            if (modelName.empty() && a_options.assetManager != nullptr &&
+                a_component.meshId != ECS::k_invalidMeshId)
+            {
+                (void)a_options.assetManager->get_model_name_from_mesh_id(
+                    a_component.meshId,
+                    modelName);
+            }
+
+            if (!modelName.empty())
+            {
+                meshFilterJson["modelName"] = modelName;
+            }
+
+            return meshFilterJson;
         }
 
         void deserialize_mesh_filter(
-            const Json& a_json, ECS::MeshFilterComponent& a_outComponent)
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::MeshFilterComponent& a_outComponent)
         {
-            a_outComponent.meshId = a_json.at("meshId").get<uint32_t>();
+            a_outComponent.modelName =
+                a_json.value("modelName", std::string{});
+            a_outComponent.meshId =
+                a_json.value("meshId", ECS::k_invalidMeshId);
+
+            if (!a_outComponent.modelName.empty() &&
+                a_options.assetManager != nullptr)
+            {
+                uint32_t meshId = ECS::k_invalidMeshId;
+                if (a_options.assetManager->resolve_model_mesh_id(
+                    a_outComponent.modelName,
+                    meshId))
+                {
+                    a_outComponent.meshId = meshId;
+                    return;
+                }
+            }
+
+            if (a_outComponent.modelName.empty() &&
+                a_options.assetManager != nullptr &&
+                a_outComponent.meshId != ECS::k_invalidMeshId)
+            {
+                (void)a_options.assetManager->get_model_name_from_mesh_id(
+                    a_outComponent.meshId,
+                    a_outComponent.modelName);
+            }
         }
 
         [[nodiscard]] Json serialize_static_mesh_renderer(
@@ -348,7 +392,8 @@ namespace Cue::GameCore
                 a_definition.prototype.get_component_ptr<ECS::MeshFilterComponent>();
                 meshFilter != nullptr)
             {
-                componentsJson["meshFilter"] = serialize_mesh_filter(*meshFilter);
+                componentsJson["meshFilter"] =
+                    serialize_mesh_filter(*meshFilter, a_options);
             }
 
             if (const ECS::StaticMeshRendererComponent* renderer =
@@ -424,7 +469,7 @@ namespace Cue::GameCore
                     meshFilterIt != componentsJson.end())
                 {
                     ECS::MeshFilterComponent meshFilter{};
-                    deserialize_mesh_filter(*meshFilterIt, meshFilter);
+                    deserialize_mesh_filter(*meshFilterIt, a_options, meshFilter);
                     objectDefinition.prototype.add_component(meshFilter);
                 }
 

@@ -150,6 +150,8 @@ add_executable(CueApp WIN32
 target_include_directories(CueApp PRIVATE
     "${CUE_ENGINE_ROOT}"
     "${CUE_ENGINE_ROOT}/Engine/Source/App/App"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Audio"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Audio/XAudio2"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Base"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Math"
@@ -186,11 +188,13 @@ target_link_libraries(CueApp PRIVATE
     "${CUE_ENGINE_OUTPUT_DIR}/Engine.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/win_platform.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib"
+    "${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib"
     winmm.lib
     ole32.lib
     shell32.lib
     uuid.lib
     d3d12.lib
+    dinput8.lib
     dxgi.lib
     dxcompiler.lib
     dxguid.lib

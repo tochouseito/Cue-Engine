@@ -22,5 +22,6 @@ namespace Cue::GpuData
     struct ObjectTransformGpu
     {
         Math::float4x4 worldMatrix; // ワールド変換行列
+        Math::float4x4 normalMatrix; // 法線変換行列
     };
 }

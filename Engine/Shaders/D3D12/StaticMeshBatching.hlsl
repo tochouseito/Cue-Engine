@@ -2,6 +2,7 @@
 
 struct IndirectCommand
 {
+    uint drawObjectStartIndex;
     uint indexCountPerInstance;
     uint instanceCount;
     uint startIndexLocation;
@@ -57,10 +58,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     g_indirectCommandCount.InterlockedAdd(0, 1, dstIndex);
 
     IndirectCommand indirectCommand;
+    indirectCommand.drawObjectStartIndex = objectId;
     indirectCommand.indexCountPerInstance = meshRange.indexCount;
     indirectCommand.instanceCount = instanceCount;
     indirectCommand.startIndexLocation = meshRange.startIndex;
     indirectCommand.baseVertexLocation = meshRange.baseVertex;
-    indirectCommand.startInstanceLocation = objectId;
+    indirectCommand.startInstanceLocation = 0;
     g_indirectCommands[dstIndex] = indirectCommand;
 }

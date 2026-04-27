@@ -55,7 +55,7 @@ namespace Cue
 
             RHI::BufferCopyRegion region{};
             region.srcBufferHandle = m_transformBufferHandle;
-            region.srcUploadResourceIndex = 0;
+            region.srcUploadResourceIndex = context.frame_index();
             region.srcByteOffset = 0;
             region.dstBufferHandle = m_transformBufferHandle;
             region.dstDefaultResourceIndex = 0;

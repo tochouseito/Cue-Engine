@@ -7,18 +7,20 @@
 #include <IO/IFileSystem.h>
 #include <IO/Logger.h>
 #include <IO/Path.h>
+#include <Time/Timer.h>
 
 // === Engine includes ===
+#include <ModelImporter.h>
+#include <ModelCooker.h>
+#include <TextureCooker.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
-#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 // === Win includes ===
 #include <shellapi.h>
 
 // === C++ includes ===
 #include <algorithm>
-#include <span>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -280,6 +282,169 @@ namespace Cue::Editor
             return Result::ok();
         }
 
+        [[nodiscard]] bool should_copy_release_asset_file(
+            const Core::IO::Path& a_filePath) noexcept
+        {
+            const std::string extension = a_filePath.extension();
+            return extension == ".cuetexture" ||
+                extension == ".cuematerial" ||
+                extension == ".cuescene" ||
+                extension == ".cuemodel" ||
+                extension == ".cuesound";
+        }
+
+        [[nodiscard]] Result copy_release_assets_recursive(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourceDirectory,
+            const Core::IO::Path& a_destinationDirectory) noexcept
+        {
+            bool sourceExists = false;
+            Result result = a_fileSystem.exists(a_sourceDirectory, &sourceExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!sourceExists)
+            {
+                return Result::ok();
+            }
+
+            Core::IO::FileStat sourceStat{};
+            result = a_fileSystem.stat(a_sourceDirectory, &sourceStat);
+            if (!result)
+            {
+                return result;
+            }
+            if (sourceStat.type != Core::IO::FileType::directory)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Release asset source path must be a directory.");
+            }
+
+            std::vector<Core::IO::Path> entries{};
+            result = a_fileSystem.list_directory(a_sourceDirectory, &entries);
+            if (!result)
+            {
+                return result;
+            }
+
+            bool hasCopiedEntry = false;
+            for (const Core::IO::Path& entryPath : entries)
+            {
+                Core::IO::FileStat stat{};
+                result = a_fileSystem.stat(entryPath, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const Core::IO::Path destinationPath = Core::IO::Path::join(
+                    a_destinationDirectory,
+                    Core::IO::Path(entryPath.filename()));
+
+                if (stat.type == Core::IO::FileType::directory)
+                {
+                    result = copy_release_assets_recursive(
+                        a_fileSystem,
+                        entryPath,
+                        destinationPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+
+                    bool destinationExists = false;
+                    result = a_fileSystem.exists(destinationPath, &destinationExists);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    hasCopiedEntry = hasCopiedEntry || destinationExists;
+                    continue;
+                }
+
+                if (stat.type != Core::IO::FileType::regular ||
+                    !should_copy_release_asset_file(entryPath))
+                {
+                    continue;
+                }
+
+                if (!hasCopiedEntry)
+                {
+                    result = a_fileSystem.create_directories(a_destinationDirectory);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    hasCopiedEntry = true;
+                }
+
+                result = a_fileSystem.copy_file(
+                    entryPath,
+                    destinationPath,
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result remove_path_recursive(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_targetPath) noexcept
+        {
+            bool exists = false;
+            Result result = a_fileSystem.exists(a_targetPath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!exists)
+            {
+                return Result::ok();
+            }
+
+            Core::IO::FileStat stat{};
+            result = a_fileSystem.stat(a_targetPath, &stat);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (stat.type == Core::IO::FileType::directory)
+            {
+                std::vector<Core::IO::Path> entries{};
+                result = a_fileSystem.list_directory(a_targetPath, &entries);
+                if (!result)
+                {
+                    return result;
+                }
+
+                for (const Core::IO::Path& entryPath : entries)
+                {
+                    result = remove_path_recursive(a_fileSystem, entryPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+            }
+
+            bool removed = false;
+            result = a_fileSystem.remove(a_targetPath, &removed);
+            if (!result && result.code != Code::NotFound)
+            {
+                return result;
+            }
+
+            return Result::ok();
+        }
+
         [[nodiscard]] Core::IO::Path resolve_game_release_output_directory(
             const Core::IO::Path& a_projectRoot,
             const ProjectSettings& a_settings) noexcept
@@ -450,6 +615,220 @@ namespace Cue::Editor
                 MaterialHandle materialHandle{};
                 result = a_engine.asset_manager().load_material(
                     a_fileSystem, materialPath, materialHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_project_models(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path modelRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Models"));
+            bool modelRootExists = false;
+            Result result = a_fileSystem.exists(modelRoot, &modelRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!modelRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> modelPaths{};
+            result = a_fileSystem.list_directory(modelRoot, &modelPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(modelPaths.begin(), modelPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            std::vector<Core::IO::Path> cookedModelPaths{};
+            std::vector<Core::IO::Path> sourceModelPaths{};
+            for (const Core::IO::Path& modelPath : modelPaths)
+            {
+                if (modelPath.extension() == ".cuemodel")
+                {
+                    cookedModelPaths.push_back(modelPath);
+                }
+                else if (modelPath.extension() == ".obj")
+                {
+                    sourceModelPaths.push_back(modelPath);
+                }
+            }
+
+            for (const Core::IO::Path& sourceModelPath : sourceModelPaths)
+            {
+                const Core::IO::Path cookedModelPath = Core::IO::Path::join(
+                    modelRoot,
+                    Core::IO::Path(sourceModelPath.stem() + ".cuemodel"));
+                result = ModelCooker::ensure_cuemodel_is_up_to_date(
+                    a_fileSystem,
+                    sourceModelPath,
+                    cookedModelPath);
+                if (!result)
+                {
+                    return result;
+                }
+
+                bool hasCookedModel = false;
+                result = a_fileSystem.exists(cookedModelPath, &hasCookedModel);
+                if (!result)
+                {
+                    return result;
+                }
+                if (hasCookedModel)
+                {
+                    cookedModelPaths.push_back(cookedModelPath);
+                }
+            }
+
+            std::sort(cookedModelPaths.begin(), cookedModelPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            cookedModelPaths.erase(
+                std::unique(
+                    cookedModelPaths.begin(),
+                    cookedModelPaths.end(),
+                    [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                    {
+                        return a_left.normalize().utf8() == a_right.normalize().utf8();
+                    }),
+                cookedModelPaths.end());
+
+            for (const Core::IO::Path& cookedModelPath : cookedModelPaths)
+            {
+                const std::string modelName = cookedModelPath.stem();
+                ModelHandle modelHandle{};
+                result = a_engine.asset_manager().register_model_from_cuemodel(
+                    a_fileSystem,
+                    modelName,
+                    cookedModelPath,
+                    modelHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_project_textures(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Textures"));
+            bool textureRootExists = false;
+            Result result = a_fileSystem.exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!textureRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> texturePaths{};
+            result = a_fileSystem.list_directory(textureRoot, &texturePaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::vector<Core::IO::Path> cookedTexturePaths{};
+            std::vector<Core::IO::Path> sourceTexturePaths{};
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() == ".cuetexture")
+                {
+                    cookedTexturePaths.push_back(texturePath);
+                }
+                else if (texturePath.extension() == ".png")
+                {
+                    sourceTexturePaths.push_back(texturePath);
+                }
+            }
+
+            std::sort(sourceTexturePaths.begin(), sourceTexturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& sourceTexturePath : sourceTexturePaths)
+            {
+                const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
+                    textureRoot,
+                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
+                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    a_fileSystem,
+                    sourceTexturePath,
+                    cookedTexturePath);
+                if (!result)
+                {
+                    return result;
+                }
+                cookedTexturePaths.push_back(cookedTexturePath);
+            }
+
+            std::sort(cookedTexturePaths.begin(), cookedTexturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            cookedTexturePaths.erase(
+                std::unique(cookedTexturePaths.begin(), cookedTexturePaths.end(),
+                    [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                    {
+                        return a_left.normalize().utf8() == a_right.normalize().utf8();
+                    }),
+                cookedTexturePaths.end());
+
+            for (const Core::IO::Path& cookedTexturePath : cookedTexturePaths)
+            {
+                const std::string textureName = Core::IO::Path::join(
+                    Core::IO::Path("Textures"),
+                    Core::IO::Path(cookedTexturePath.filename())).utf8();
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                    a_fileSystem,
+                    textureName,
+                    cookedTexturePath,
+                    textureId);
                 if (!result)
                 {
                     return result;
@@ -786,11 +1165,21 @@ namespace Cue::Editor
         }
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
+        m_statistics->set_update_metrics_source(&m_lastUpdateMetrics);
         m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine);
+    }
+
+    void EditorManager::set_loop_metrics_source(
+        const EditorLoopMetrics* a_loopMetrics) noexcept
+    {
+        if (m_statistics != nullptr)
+        {
+            m_statistics->set_loop_metrics_source(a_loopMetrics);
+        }
     }
 
     Result EditorManager::open_project(const std::string& a_projectPath)
@@ -1151,9 +1540,8 @@ namespace Cue::Editor
 
         const Core::IO::Path stagingDirectory =
             resolve_game_release_output_directory(projectRoot, projectSettings);
-        bool removed = false;
-        result = m_fileSystem->remove(stagingDirectory, &removed);
-        if (!result && result.code != Code::NotFound)
+        result = remove_path_recursive(*m_fileSystem, stagingDirectory);
+        if (!result)
         {
             return result;
         }
@@ -1244,7 +1632,7 @@ namespace Cue::Editor
             return result;
         }
 
-        result = copy_directory_recursive(
+        result = copy_release_assets_recursive(
             *m_fileSystem,
             assetRoot,
             Core::IO::Path::join(stagingDirectory, Core::IO::Path("Assets")));
@@ -1898,6 +2286,26 @@ namespace Cue::Editor
             return result;
         }
 
+        result = load_project_textures(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = load_project_models(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
         result = load_project_materials(
             *m_engine,
             *m_fileSystem,
@@ -2489,9 +2897,20 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
+        m_currentUpdateMetrics = EditorUpdateMetrics{};
+        Core::Time::Timer updateTimer(m_platform->clock());
+        updateTimer.start();
+
+        Core::Time::Timer pendingTimer(m_platform->clock());
+        pendingTimer.start();
         process_pending_script_action();
+        pendingTimer.stop();
+        m_currentUpdateMetrics.pendingScriptActionMs =
+            pendingTimer.elapsed_ticks().ms_f64();
 
         // ビューポート全体をカバーするドックスペースを作成
+        Core::Time::Timer dockspaceTimer(m_platform->clock());
+        dockspaceTimer.start();
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
@@ -2511,6 +2930,9 @@ namespace Cue::Editor
 
         ImGui::Begin("DockSpace Window", nullptr, window_flags);
         ImGui::PopStyleVar(2);
+        dockspaceTimer.stop();
+        m_currentUpdateMetrics.dockspaceMs =
+            dockspaceTimer.elapsed_ticks().ms_f64();
 
         static bool showMetricsWindow = false;
         static bool showDemoWindow = false;
@@ -2518,6 +2940,8 @@ namespace Cue::Editor
 
         handle_shortcuts();
 
+        Core::Time::Timer menuBarTimer(m_platform->clock());
+        menuBarTimer.start();
         if (ImGui::BeginMenuBar())
         {
             if (ImGui::BeginMenu("ファイル"))
@@ -3045,11 +3469,16 @@ namespace Cue::Editor
 
             ImGui::EndMenuBar();
         }
+        menuBarTimer.stop();
+        m_currentUpdateMetrics.menuBarMs =
+            menuBarTimer.elapsed_ticks().ms_f64();
 
         ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
         ImGui::End();
 
+        Core::Time::Timer optionalWindowsTimer(m_platform->clock());
+        optionalWindowsTimer.start();
         if (showMetricsWindow)
         {
             ImGui::ShowMetricsWindow(&showMetricsWindow);
@@ -3062,17 +3491,71 @@ namespace Cue::Editor
         {
             ImGui::ShowStyleEditor();
         }
+        optionalWindowsTimer.stop();
+        m_currentUpdateMetrics.optionalWindowsMs =
+            optionalWindowsTimer.elapsed_ticks().ms_f64();
 
+        Core::Time::Timer statisticsTimer(m_platform->clock());
+        statisticsTimer.start();
         m_statistics->update();
+        statisticsTimer.stop();
+        m_currentUpdateMetrics.statisticsMs =
+            statisticsTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer debugViewTimer(m_platform->clock());
+        debugViewTimer.start();
         m_debugView->update();
+        debugViewTimer.stop();
+        m_currentUpdateMetrics.debugViewMs =
+            debugViewTimer.elapsed_ticks().ms_f64();
         if (m_assetBrowser != nullptr)
         {
+            Core::Time::Timer assetBrowserTimer(m_platform->clock());
+            assetBrowserTimer.start();
             m_assetBrowser->update();
+            assetBrowserTimer.stop();
+            m_currentUpdateMetrics.assetBrowserMs =
+                assetBrowserTimer.elapsed_ticks().ms_f64();
         }
+
+        Core::Time::Timer createScriptPopupTimer(m_platform->clock());
+        createScriptPopupTimer.start();
         draw_create_script_popup();
+        createScriptPopupTimer.stop();
+        m_currentUpdateMetrics.createScriptPopupMs =
+            createScriptPopupTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer scriptBuildNotificationTimer(m_platform->clock());
+        scriptBuildNotificationTimer.start();
         draw_script_build_notification_popup();
+        scriptBuildNotificationTimer.stop();
+        m_currentUpdateMetrics.scriptBuildNotificationMs =
+            scriptBuildNotificationTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer scriptBuildOutputTimer(m_platform->clock());
+        scriptBuildOutputTimer.start();
         draw_script_build_output();
+        scriptBuildOutputTimer.stop();
+        m_currentUpdateMetrics.scriptBuildOutputMs =
+            scriptBuildOutputTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer hierarchyTimer(m_platform->clock());
+        hierarchyTimer.start();
         m_hierarchy->update();
+        hierarchyTimer.stop();
+        m_currentUpdateMetrics.hierarchyMs =
+            hierarchyTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer inspectorTimer(m_platform->clock());
+        inspectorTimer.start();
         m_inspector->update();
+        inspectorTimer.stop();
+        m_currentUpdateMetrics.inspectorMs =
+            inspectorTimer.elapsed_ticks().ms_f64();
+
+        updateTimer.stop();
+        m_currentUpdateMetrics.totalMs =
+            updateTimer.elapsed_ticks().ms_f64();
+        m_lastUpdateMetrics = m_currentUpdateMetrics;
     }
 }

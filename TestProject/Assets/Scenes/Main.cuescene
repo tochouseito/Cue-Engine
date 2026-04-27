@@ -37,7 +37,8 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 0
+                    "meshId": 1,
+                    "modelName": "axis"
                 },
                 "script": {
                     "className": "RotateCube",

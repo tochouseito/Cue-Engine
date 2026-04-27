@@ -4,6 +4,7 @@
 
 // === Core includes ===
 #include <IO/Logger.h>
+#include <Time/Timer.h>
 
 // === Windows includes ===
 #include <WinPlatform.h>
@@ -21,6 +22,7 @@
 // === Editor includes ===
 #include "ImGuiManager.h"
 #include "EditorManager.h"
+#include "EditorLoopMetrics.h"
 #include "ProjectHub.h"
 
 using namespace Cue;
@@ -34,7 +36,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::string className = "CueEditorWindowClass";
     std::string title = "Cue Editor";
     uint32_t bufferCount = 3;
-    bool enableDebugLayer = false;
+    bool enableDebugLayer = true;
     uint32_t maxFps = 60;
 
     // 宣言
@@ -49,6 +51,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<Engine> engine = nullptr;
     std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
     std::unique_ptr<Editor::ProjectHub> projectHub = nullptr;
+    Editor::EditorLoopMetrics currentLoopMetrics{};
+    Editor::EditorLoopMetrics lastCompletedLoopMetrics{};
     std::string projectPath = "";
 
     // プラットフォームの生成
@@ -183,6 +187,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
     engineInfo.platformBridge = &platformBridge;
+#if defined(CUE_PROJECT_ROOT_PATH)
+    engineInfo.errorTexturePath = Core::IO::Path::join(
+        Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+        Core::IO::Path("Engine/Textures/CueDummy.cuetexture"));
+#endif
 
     // エンジンの初期化
     r = engine->initialize(engineInfo);
@@ -215,6 +224,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         &editorBridge, &platform->file_system(), platform.get(), backend.get(),
         engine.get());
     editorManager->initialize();
+    editorManager->set_loop_metrics_source(&lastCompletedLoopMetrics);
 
     // プロジェクトハブの生成と初期化
     projectHub = std::make_unique<Editor::ProjectHub>(platform->file_system());
@@ -227,8 +237,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     bool showProjectHub = projectPath.empty();
     while (isRunning)
     {
+        currentLoopMetrics = Editor::EditorLoopMetrics{};
+        Core::Time::Timer loopTimer(platform->clock());
+        loopTimer.start();
+
         // プラットフォームのメッセージを処理
+        Core::Time::Timer pollTimer(platform->clock());
+        pollTimer.start();
         Cue::PAL::PlatformMessage msg = platform->poll_message();
+        pollTimer.stop();
+        currentLoopMetrics.pollMessageMs =
+            pollTimer.elapsed_ticks().ms_f64();
         if (msg == Cue::PAL::PlatformMessage::Quit)
         {
             isRunning = false;
@@ -236,10 +255,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // ImGui マネージャのフレーム開始処理
-        if (imGuiManager->begin_frame())
+        Core::Time::Timer imguiBeginTimer(platform->clock());
+        imguiBeginTimer.start();
+        const Result beginImguiResult = imGuiManager->begin_frame();
+        imguiBeginTimer.stop();
+        currentLoopMetrics.imguiBeginMs =
+            imguiBeginTimer.elapsed_ticks().ms_f64();
+        if (beginImguiResult)
         {
+            currentLoopMetrics.didDrawImgui = true;
             if (showProjectHub)
             {
+                Core::Time::Timer projectHubTimer(platform->clock());
+                projectHubTimer.start();
                 projectHub->update();
                 const std::string createdProjectPath = projectHub->project_path();
                 if (!projectHub->is_open() && !createdProjectPath.empty())
@@ -262,22 +290,55 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                             platform->file_system());
                     }
                 }
+                projectHubTimer.stop();
+                currentLoopMetrics.projectHubUpdateMs =
+                    projectHubTimer.elapsed_ticks().ms_f64();
             }
             else
             {
+                Core::Time::Timer editorUpdateTimer(platform->clock());
+                editorUpdateTimer.start();
                 editorManager->update();
+                editorUpdateTimer.stop();
+                currentLoopMetrics.editorUpdateMs =
+                    editorUpdateTimer.elapsed_ticks().ms_f64();
             }
+            Core::Time::Timer imguiEndTimer(platform->clock());
+            imguiEndTimer.start();
             imGuiManager->end_frame();
+            imguiEndTimer.stop();
+            currentLoopMetrics.imguiEndMs =
+                imguiEndTimer.elapsed_ticks().ms_f64();
         }
 
         // エンジンのフレーム開始処理
+        Core::Time::Timer engineBeginTimer(platform->clock());
+        engineBeginTimer.start();
         r = engine->begin_frame();
+        engineBeginTimer.stop();
+        currentLoopMetrics.engineBeginMs =
+            engineBeginTimer.elapsed_ticks().ms_f64();
 
         // エンジンのティック処理
+        Core::Time::Timer engineTickTimer(platform->clock());
+        engineTickTimer.start();
         r = engine->tick();
+        engineTickTimer.stop();
+        currentLoopMetrics.engineTickMs =
+            engineTickTimer.elapsed_ticks().ms_f64();
 
         // エンジンのフレーム終了処理
+        Core::Time::Timer engineEndTimer(platform->clock());
+        engineEndTimer.start();
         r = engine->end_frame();
+        engineEndTimer.stop();
+        currentLoopMetrics.engineEndMs =
+            engineEndTimer.elapsed_ticks().ms_f64();
+
+        loopTimer.stop();
+        currentLoopMetrics.loopTotalMs =
+            loopTimer.elapsed_ticks().ms_f64();
+        lastCompletedLoopMetrics = currentLoopMetrics;
     }
 
     // エンジンのシャットダウン

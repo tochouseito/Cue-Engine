@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
 #include "Passes/GenerateVisibleList.h"
+#include "Passes/VisibleObjectBucketizePass.h"
 #include "Passes/MaterialBufferCopyPass.h"
 #include "Passes/RenderObjectCopyPass.h"
 #include "Passes/RenderableInfoCopyPass.h"
@@ -63,19 +64,26 @@ namespace Cue
 
         m_assetManager.initialize(staticMeshPool, textureManager);
 
+        Core::IO::Path errorTexturePath = a_info.errorTexturePath;
+        if (errorTexturePath.is_empty())
+        {
 #ifdef CUE_PROJECT_ROOT_PATH
-        result = m_assetManager.register_error_texture_from_png(
-            Core::IO::Path::join(
+            errorTexturePath = Core::IO::Path::join(
                 Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
-                Core::IO::Path("Engine/Textures/CueDummy.png")));
+                Core::IO::Path("Engine/Textures/CueDummy.cuetexture"));
+#else
+            return Result::fail(Code::InvalidState, Severity::Fatal,
+                "Error texture path is not configured for Engine.");
+#endif
+        }
+
+        result = m_assetManager.register_error_texture_from_cuetexture(
+            m_platform->file_system(),
+            errorTexturePath);
         if (!result)
         {
             return result;
         }
-#else
-        return Result::fail(Code::InvalidState, Severity::Fatal,
-            "CUE_PROJECT_ROOT_PATH is not defined for Engine.");
-#endif
 
         m_defaultMaterialHandle = MaterialHandle{};
         result = m_assetManager.create_color_material(
@@ -502,6 +510,16 @@ namespace Cue
             worldResources->renderable_info_buffer_srv_handle(),
             worldResources->render_object_buffer_uav_handle(),
             worldResources->visible_object_count_buffer_uav_handle()));
+        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketCountPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketPrefixPass>(
+            m_activeWorld->render_scene_state()));
+        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketScatterPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
             m_activeWorld->render_scene_state(),
             worldResources->render_object_buffer_handle(),

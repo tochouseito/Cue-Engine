@@ -52,7 +52,7 @@ namespace Cue
 
             RHI::BufferCopyRegion region{};
             region.srcBufferHandle = m_viewProjectionBufferHandle;
-            region.srcUploadResourceIndex = 0;
+            region.srcUploadResourceIndex = context.frame_index();
             region.srcByteOffset = 0;
             region.dstBufferHandle = m_viewProjectionBufferHandle;
             region.dstDefaultResourceIndex = 0;

@@ -150,8 +150,12 @@ namespace Cue
         // 初回のみ初期化して状態を確定させる
         // モードに応じて 1 ステップ進める
         // 終了条件を満たしたらジョブを止める
+        Core::Time::Timer stepTimer(m_clock);
+        stepTimer.start();
         if (m_finished)
         {
+            stepTimer.stop();
+            m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
             return;
         }
 
@@ -160,9 +164,13 @@ namespace Cue
             if (!start_pipeline())
             {
                 m_finished = true;
+                stepTimer.stop();
+                m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
                 return;
             }
         }
+
+        ++m_stepsSincePresent;
 
         bool isRunning = true;
         if (m_desc.bufferCount == 1)
@@ -190,6 +198,9 @@ namespace Cue
             stop_jobs();
             m_finished = true;
         }
+
+        stepTimer.stop();
+        m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
     }
     void FrameController::poll_resize_request()
     {
@@ -232,6 +243,11 @@ namespace Cue
         m_singleState = SingleBufferState{};
         m_updateElapsedMs = 0.0;
         m_renderElapsedMs = 0.0;
+        m_stepElapsedMs = 0.0;
+        m_presentElapsedMs = 0.0;
+        m_counterTickElapsedMs = 0.0;
+        m_stepsSincePresent = 0;
+        m_stepsPerPresent = 0;
 
         if (m_desc.bufferCount > 1)
         {
@@ -291,6 +307,22 @@ namespace Cue
 
         return m_renderJob.get_last_elapsed_ms();
     }
+    double FrameController::step_elapsed_ms() const noexcept
+    {
+        return m_stepElapsedMs;
+    }
+    double FrameController::present_elapsed_ms() const noexcept
+    {
+        return m_presentElapsedMs;
+    }
+    double FrameController::counter_tick_elapsed_ms() const noexcept
+    {
+        return m_counterTickElapsedMs;
+    }
+    uint32_t FrameController::steps_per_present() const noexcept
+    {
+        return m_stepsPerPresent;
+    }
     void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex, uint32_t& presentIndex)
     {
         // 単一バッファは固定で 0 を返す
@@ -323,8 +355,20 @@ namespace Cue
         (void)updateIndex;
         (void)renderIndex;
 
+        Core::Time::Timer presentTimer(m_clock);
+        presentTimer.start();
         m_presentFunc(frameNo, presentIndex);
+        presentTimer.stop();
+        m_presentElapsedMs = presentTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer counterTimer(m_clock);
+        counterTimer.start();
         m_frameCounter.tick();
+        counterTimer.stop();
+        m_counterTickElapsedMs = counterTimer.elapsed_ticks().ms_f64();
+
+        m_stepsPerPresent = m_stepsSincePresent;
+        m_stepsSincePresent = 0;
     }
     void FrameController::apply_resize_for_next_frame(uint64_t nextFrameNo)
     {

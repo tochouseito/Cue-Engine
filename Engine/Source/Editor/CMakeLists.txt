@@ -1,12 +1,20 @@
 # Editor モジュールの CMake 設定
 
 find_package(directx-dxc CONFIG REQUIRED)
+find_package(directxtex CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
+    "Asset/TextureCooker.h"
+    "Asset/TextureCooker.cpp"
+    "Asset/ModelCooker.h"
+    "Asset/ModelCooker.cpp"
+    "Asset/ModelImporter.h"
+    "Asset/ModelImporter.cpp"
     "ImGui/ImGuiManager.h"
     "ImGui/ImGuiManager.cpp"
     "Views/Icon.h"
@@ -40,6 +48,8 @@ target_link_libraries(Editor PRIVATE
     d3d12_backend
     xaudio2_backend
     Engine
+    Microsoft::DirectXTex
+    assimp::assimp
     imgui::imgui
     nlohmann_json::nlohmann_json
 )
@@ -48,6 +58,7 @@ target_link_libraries(Editor PRIVATE
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/App"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Asset"
     "${CMAKE_CURRENT_SOURCE_DIR}/Ui"
     "${CMAKE_CURRENT_SOURCE_DIR}/Project"
     "${CMAKE_CURRENT_SOURCE_DIR}/Build"
@@ -79,6 +90,9 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Fonts"
             "$<TARGET_FILE_DIR:Editor>/EngineResources/Fonts"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Engine/Textures"
+            "$<TARGET_FILE_DIR:Editor>/EngineResources/Textures"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/config"
             "$<TARGET_FILE_DIR:Editor>/config"

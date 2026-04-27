@@ -19,10 +19,10 @@
 // === Engine includes ===
 #include <Engine.h>
 #include <GameCore/SceneSerializer.h>
+#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 #if defined(CUE_STATIC_GAME_LINK)
 #include <Native/ScriptAbi.h>
-#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 #endif
 
 // === C++ includes ===
@@ -33,7 +33,31 @@ using namespace Cue;
 
 namespace
 {
-#if defined(CUE_STATIC_GAME_LINK)
+    [[nodiscard]] Result resolve_executable_directory(
+        Core::IO::Path& a_outExecutableDirectory) noexcept
+    {
+        wchar_t buffer[MAX_PATH]{};
+        const DWORD written = ::GetModuleFileNameW(
+            nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
+        if (written == 0 || written >= std::size(buffer))
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Executable path could not be resolved.");
+        }
+
+        std::string executablePath{};
+        Result result = PAL::Win::wide_to_utf8(
+            std::wstring_view(buffer, written),
+            &executablePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outExecutableDirectory = Core::IO::Path(executablePath).parent();
+        return Result::ok();
+    }
+
     struct ProjectSettings final
     {
         std::string startupScene{};
@@ -205,7 +229,27 @@ namespace
         }
 
 #if defined(CUE_PROJECT_ROOT_PATH)
-        a_outProjectRoot = Core::IO::Path(CUE_PROJECT_ROOT_PATH);
+        const Core::IO::Path repositoryRoot(CUE_PROJECT_ROOT_PATH);
+        const Core::IO::Path defaultProjectRoot = Core::IO::Path::join(
+            repositoryRoot,
+            Core::IO::Path("TestProject"));
+        const Core::IO::Path defaultProjectFile = Core::IO::Path::join(
+            defaultProjectRoot,
+            Core::IO::Path("cueproject.json"));
+
+        exists = false;
+        fileResult = a_fileSystem.exists(defaultProjectFile, &exists);
+        if (!fileResult)
+        {
+            return fileResult;
+        }
+        if (exists)
+        {
+            a_outProjectRoot = defaultProjectRoot;
+            return Result::ok();
+        }
+
+        a_outProjectRoot = repositoryRoot;
         return Result::ok();
 #else
         return Result::fail(Code::NotFound, Severity::Error,
@@ -225,10 +269,101 @@ namespace
             assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
         }
 
+        Result result = Result::ok();
+        const Core::IO::Path textureRoot = Core::IO::Path::join(
+            assetRoot, Core::IO::Path("Textures"));
+        bool textureRootExists = false;
+        result = a_fileSystem.exists(textureRoot, &textureRootExists);
+        if (!result)
+        {
+            return result;
+        }
+        if (textureRootExists)
+        {
+            std::vector<Core::IO::Path> texturePaths{};
+            result = a_fileSystem.list_directory(textureRoot, &texturePaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(texturePaths.begin(), texturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() != ".cuetexture")
+                {
+                    continue;
+                }
+
+                const std::string textureName = Core::IO::Path::join(
+                    Core::IO::Path("Textures"),
+                    Core::IO::Path(texturePath.filename())).utf8();
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                    a_fileSystem,
+                    textureName,
+                    texturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        const Core::IO::Path modelRoot = Core::IO::Path::join(
+            assetRoot, Core::IO::Path("Models"));
+        bool modelRootExists = false;
+        result = a_fileSystem.exists(modelRoot, &modelRootExists);
+        if (!result)
+        {
+            return result;
+        }
+        if (modelRootExists)
+        {
+            std::vector<Core::IO::Path> modelPaths{};
+            result = a_fileSystem.list_directory(modelRoot, &modelPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(modelPaths.begin(), modelPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& modelPath : modelPaths)
+            {
+                if (modelPath.extension() != ".cuemodel")
+                {
+                    continue;
+                }
+
+                const std::string modelName = modelPath.stem();
+                ModelHandle modelHandle{};
+                result = a_engine.asset_manager().register_model_from_cuemodel(
+                    a_fileSystem,
+                    modelName,
+                    modelPath,
+                    modelHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
         const Core::IO::Path materialRoot = Core::IO::Path::join(
             assetRoot, Core::IO::Path("Materials"));
         bool materialRootExists = false;
-        Result result = a_fileSystem.exists(materialRoot, &materialRootExists);
+        result = a_fileSystem.exists(materialRoot, &materialRootExists);
         if (!result)
         {
             return result;
@@ -294,7 +429,6 @@ namespace
         a_engine.set_editor_scene_id(loadResult.sceneId);
         return a_engine.start_play_mode();
     }
-#endif
 
     void log_failure(std::string_view a_step, const Result& a_result)
     {
@@ -379,6 +513,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.audioBackend = audioBackend.get();
     engineInfo.maxFps = k_maxFps;
     engineInfo.platformBridge = &platformBridge;
+    Core::IO::Path executableDirectory{};
+    result = resolve_executable_directory(executableDirectory);
+    if (!result)
+    {
+        log_failure("Resolve executable directory", result);
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
+        return -1;
+    }
+    engineInfo.errorTexturePath = Core::IO::Path::join(
+        executableDirectory,
+        Core::IO::Path("EngineResources/Textures/CueDummy.cuetexture"));
 
     result = engine->initialize(engineInfo);
     if (!result)
@@ -405,6 +553,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         backend.reset();
         return -1;
     }
+#endif
 
     Core::IO::Path projectRoot{};
     result = resolve_project_root(platform->file_system(), projectRoot);
@@ -447,7 +596,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         backend.reset();
         return -1;
     }
-#endif
 
     result = platform->start();
     if (!result)

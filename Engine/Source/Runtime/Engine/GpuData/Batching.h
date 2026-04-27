@@ -41,6 +41,7 @@ namespace Cue::GpuData
     // インダイレクト描画コマンド
     struct IndirectCommand
     {
+        uint32_t drawObjectStartIndex = 0;
         uint32_t indexCountPerInstance = 0;
         uint32_t instanceCount = 0;
         uint32_t startIndexLocation = 0;

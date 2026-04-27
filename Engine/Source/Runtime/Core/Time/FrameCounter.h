@@ -6,7 +6,6 @@
 // === Core includes ===
 #include "IClock.h"
 #include "IWaiter.h"
-#include "Timer.h"
 
 // === Math includes ===
 #include <TimeUnit.h>
@@ -20,11 +19,9 @@ namespace Cue::Core::Time
         /// @brief クロックと待機器でフレームカウンターを初期化します。
         explicit FrameCounter(const IClock& a_clock, IWaiter& a_waiter) noexcept
             : m_clock(&a_clock)
-            , m_timer(a_clock)
             , m_waiter(&a_waiter)
         {
-            // 1) 初期化
-            m_timer.reset();
+            // 初回 tick で基準時刻を作る
         }
 
         ~FrameCounter() noexcept = default;
@@ -33,24 +30,22 @@ namespace Cue::Core::Time
         /// @brief 1 フレーム分の統計を更新します。
         void tick() noexcept
         {
+            const Math::TimeSpan tickNow = m_clock->now_ns();
+
             // 1) 初回のみ：基準点だけ作る
             if (m_initialized == false)
             {
-                m_timer.reset();
-                m_capBaseTick = m_clock->now_ns();
+                m_lastTick = tickNow;
+                m_capBaseTick = tickNow;
                 m_initialized = true;
                 return;
             }
 
-            // 2) fps 制限待機
-            if (m_maxFps > 0)
-            {
-                cap_fps_();
-            }
-
-            // 3) 待機込み delta 計測
-            //    lap_seconds() で内部基準点を更新
-            m_deltaTime = m_timer.lap_seconds();
+            // 2) tick 入口同士の delta を計測する
+            const Math::TimeSpan previousTick = m_lastTick;
+            const Math::TimeSpan deltaTicks = tickNow - previousTick;
+            m_lastTick = tickNow;
+            m_deltaTime = deltaTicks.s_f64();
             if (m_deltaTime > 0.0)
             {
                 m_fps = 1.0 / m_deltaTime;
@@ -60,12 +55,16 @@ namespace Cue::Core::Time
                 m_fps = 0.0;
             }
 
-            // 4) 統計更新
+            // 3) 統計更新
             m_totalFrames += 1;
             m_produceFrame += 1;
 
-            // 5) 次回 cap 判定基準 tick 更新
-            m_capBaseTick = m_clock->now_ns();
+            // 4) fps 制限待機
+            m_capBaseTick = previousTick;
+            if (m_maxFps > 0)
+            {
+                cap_fps_();
+            }
         }
 
         /// @brief 前フレームからの経過秒を返します。
@@ -169,9 +168,11 @@ namespace Cue::Core::Time
     private:
         const IClock* m_clock = nullptr;
         IWaiter* m_waiter = nullptr;
-        Timer m_timer;
 
         bool m_initialized = false;
+
+        // fps / delta 計測用の前回 tick 入口
+        Math::TimeSpan m_lastTick = Math::TimeSpan::zero();
 
         // fps cap 判定基準 tick
         Math::TimeSpan m_capBaseTick = Math::TimeSpan::zero();

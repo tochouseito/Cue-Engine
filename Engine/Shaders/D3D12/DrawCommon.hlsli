@@ -27,6 +27,7 @@ struct Material
 struct Transform
 {
     row_major float4x4 worldMatrix;
+    row_major float4x4 normalMatrix;
 };
 
 struct MeshRange

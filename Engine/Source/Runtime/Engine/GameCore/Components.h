@@ -90,6 +90,7 @@ namespace Cue::ECS
         MeshFilterComponent& operator=(const MeshFilterComponent&) = default;
         MeshFilterComponent(MeshFilterComponent&&) = default;
         MeshFilterComponent& operator=(MeshFilterComponent&&) = default;
+        std::string modelName{};
         uint32_t meshId = k_invalidMeshId; // StaticMeshPool に登録されたメッシュ ID
     };
 

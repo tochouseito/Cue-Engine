@@ -6,6 +6,27 @@ namespace Cue::RHI::DX12
     {
         constexpr UINT k_eventMetadataAnsi = 1u;
 
+        struct IndirectDrawIndexedCommand final
+        {
+            uint32_t drawObjectStartIndex = 0;
+            uint32_t indexCountPerInstance = 0;
+            uint32_t instanceCount = 0;
+            uint32_t startIndexLocation = 0;
+            int32_t baseVertexLocation = 0;
+            uint32_t startInstanceLocation = 0;
+        };
+
+        [[nodiscard]] bool supports_draw_indexed_indirect_signature(
+            const RootSignatureDesc& a_desc) noexcept
+        {
+            if (a_desc.parameters.empty())
+            {
+                return false;
+            }
+
+            return a_desc.parameters[0].type == RootParameterType::_32BitConstants;
+        }
+
         [[nodiscard]] Result validate_root_binding_command_type(CommandListType type, const char* bindTarget)
         {
             if (type == CommandListType::Copy)
@@ -57,14 +78,13 @@ namespace Cue::RHI::DX12
           m_bufferManager(bufferManager),
           m_textureManager(textureManager),
           m_viewManager(viewManager),
-          m_pipelineManager(pipelineManager)
+          m_pipelineManager(pipelineManager),
+          m_device(&device)
     {
         // コマンドアロケータの作成
         create_command_allocator(device, type);
         // コマンドリストの作成
         create_command_list(device, type);
-        // DrawIndexedInstanced 用の command signature を用意する。
-        create_draw_indexed_command_signature(device);
         // timestamp query の受け皿を作る。
         create_timestamp_resources(device, type);
 
@@ -229,23 +249,59 @@ namespace Cue::RHI::DX12
         IQueueContext* a_queue,
         uint64_t a_fenceValue)
     {
-        m_pendingQueue = a_queue;
+        m_pendingFence.Reset();
         m_pendingFenceValue = a_fenceValue;
+        if (a_queue == nullptr || a_fenceValue == 0)
+        {
+            return;
+        }
+
+        DX12GpuCommandQueue& queue = static_cast<DX12GpuCommandQueue&>(*a_queue);
+        m_pendingFence = queue.d3d12_fence();
+    }
+    bool DX12GpuCommandContext::is_pending_fence_complete() const
+    {
+        if (m_pendingFence == nullptr || m_pendingFenceValue == 0)
+        {
+            return true;
+        }
+
+        return m_pendingFence->GetCompletedValue() >= m_pendingFenceValue;
     }
     Result DX12GpuCommandContext::wait_for_pending_fence()
     {
-        if (m_pendingQueue == nullptr || m_pendingFenceValue == 0)
+        if (m_pendingFence == nullptr || m_pendingFenceValue == 0)
         {
             return Result::ok();
         }
 
-        Result result = m_pendingQueue->wait_for_fence(m_pendingFenceValue);
-        if (!result)
+        if (m_pendingFence->GetCompletedValue() < m_pendingFenceValue)
         {
-            return result;
+            HANDLE eventHandle = ::CreateEvent(nullptr, FALSE, FALSE, nullptr);
+            if (eventHandle == nullptr)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create fence wait event.");
+            }
+
+            const HRESULT hr =
+                m_pendingFence->SetEventOnCompletion(m_pendingFenceValue, eventHandle);
+            if (FAILED(hr))
+            {
+                ::CloseHandle(eventHandle);
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to set fence completion event.");
+            }
+
+            ::WaitForSingleObject(eventHandle, INFINITE);
+            ::CloseHandle(eventHandle);
         }
 
-        m_pendingQueue = nullptr;
+        m_pendingFence.Reset();
         m_pendingFenceValue = 0;
         return Result::ok();
     }
@@ -663,6 +719,53 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_vertex_buffer(uint32_t slot, BufferHandle handle)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Vertex buffer can only be set on graphics command lists.");
+        }
+
+        DX12BufferRecord* bufferRecord = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &bufferRecord) ||
+            bufferRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record was not found for the given vertex buffer handle.");
+        }
+        if (bufferRecord->desc.type != BufferType::Vertex)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "The given buffer is not a vertex buffer.");
+        }
+
+        uint32_t resourceIndex = 0;
+        Result result = resolve_slice_index(
+            bufferRecord->defaultResources.size(), resourceIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve vertex buffer resource for the current frame.");
+        }
+
+        DX12GpuResource& resource = bufferRecord->defaultResources[resourceIndex];
+        D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
+        vertexBufferView.BufferLocation = resource.get_gpu_virtual_address();
+        vertexBufferView.SizeInBytes =
+            static_cast<UINT>(resource.get_buffer_size());
+        vertexBufferView.StrideInBytes = bufferRecord->desc.stride;
+        m_commandList->IASetVertexBuffers(slot, 1, &vertexBufferView);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::set_index_buffer(
         BufferHandle handle, IndexFormat format)
     {
@@ -739,6 +842,34 @@ namespace Cue::RHI::DX12
                 Code::NotFound,
                 Severity::Error,
                 "Root signature was not found for the given graphics pipeline.");
+        }
+
+        if (m_device == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "D3D12 device is not initialized for graphics pipeline binding.");
+        }
+
+        if (supports_draw_indexed_indirect_signature(rootSignatureRecord->desc))
+        {
+            if (m_drawIndexedCommandSignature == nullptr ||
+                m_drawIndexedSignatureRootSignature != rootSignatureRecord->rootSignature.Get())
+            {
+                Result signatureResult = create_draw_indexed_command_signature(
+                    *m_device,
+                    rootSignatureRecord->rootSignature.Get());
+                if (!signatureResult)
+                {
+                    return signatureResult;
+                }
+            }
+        }
+        else
+        {
+            m_drawIndexedCommandSignature.Reset();
+            m_drawIndexedSignatureRootSignature = nullptr;
         }
 
         m_commandList->SetGraphicsRootSignature(rootSignatureRecord->rootSignature.Get());
@@ -1146,19 +1277,32 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
     Result DX12GpuCommandContext::create_draw_indexed_command_signature(
-        ID3D12Device& device)
+        ID3D12Device& device,
+        ID3D12RootSignature* rootSignature)
     {
-        D3D12_INDIRECT_ARGUMENT_DESC argumentDesc{};
-        argumentDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+        if (rootSignature == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Root signature is required for draw indexed command signature.");
+        }
+
+        D3D12_INDIRECT_ARGUMENT_DESC argumentDescs[2]{};
+        argumentDescs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+        argumentDescs[0].Constant.RootParameterIndex = 0;
+        argumentDescs[0].Constant.DestOffsetIn32BitValues = 0;
+        argumentDescs[0].Constant.Num32BitValuesToSet = 1;
+        argumentDescs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
 
         D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};
-        signatureDesc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
-        signatureDesc.NumArgumentDescs = 1;
-        signatureDesc.pArgumentDescs = &argumentDesc;
+        signatureDesc.ByteStride = sizeof(IndirectDrawIndexedCommand);
+        signatureDesc.NumArgumentDescs = 2;
+        signatureDesc.pArgumentDescs = argumentDescs;
 
         HRESULT hr = device.CreateCommandSignature(
             &signatureDesc,
-            nullptr,
+            rootSignature,
             IID_PPV_ARGS(m_drawIndexedCommandSignature.ReleaseAndGetAddressOf()));
         if (FAILED(hr))
         {
@@ -1167,6 +1311,8 @@ namespace Cue::RHI::DX12
                 Severity::Error,
                 "Failed to create draw indexed command signature.");
         }
+
+        m_drawIndexedSignatureRootSignature = rootSignature;
 
         return Result::ok();
     }
@@ -1509,6 +1655,15 @@ namespace Cue::RHI::DX12
         }
         return Result::ok();
     }
+    bool DX12GpuCommandQueue::is_fence_complete(uint64_t fenceValue) const
+    {
+        if (!m_fence)
+        {
+            return false;
+        }
+
+        return m_fence->GetCompletedValue() >= fenceValue;
+    }
     Result DX12GpuCommandQueue::wait_for_queue(IQueueContext& queue)
     {
         DX12GpuCommandQueue& dx12Queue = static_cast<DX12GpuCommandQueue&>(queue);
@@ -1610,7 +1765,7 @@ namespace Cue::RHI::DX12
         case Cue::RHI::CommandListType::Graphics:
         {
             std::lock_guard lock(m_graphicsPoolMutex);
-            // グラフィックスコマンドコンテキストをプールから取得
+            recycle_completed_graphics_contexts_locked();
             auto context = m_graphicsContextPool.acquire();
             outContext = commandContextLease(
                 context.release(),
@@ -1620,21 +1775,21 @@ namespace Cue::RHI::DX12
         case Cue::RHI::CommandListType::Compute:
         {
             std::lock_guard lock(m_computePoolMutex);
-            // コンピュートコマンドコンテキストをプールから取得
-                auto context = m_computeContextPool.acquire();
-                outContext = commandContextLease(
-                    context.release(),
-                    [](ICommandContext* raw) {delete raw; });
+            recycle_completed_compute_contexts_locked();
+            auto context = m_computeContextPool.acquire();
+            outContext = commandContextLease(
+                context.release(),
+                [](ICommandContext* raw) {delete raw; });
         }
             break;
         case Cue::RHI::CommandListType::Copy:
         {
             std::lock_guard lock(m_copyPoolMutex);
-            // コピーコマンドコンテキストをプールから取得
-                auto context = m_copyContextPool.acquire();
-                outContext = commandContextLease(
-                    context.release(),
-                    [](ICommandContext* raw) {delete raw; });
+            recycle_completed_copy_contexts_locked();
+            auto context = m_copyContextPool.acquire();
+            outContext = commandContextLease(
+                context.release(),
+                [](ICommandContext* raw) {delete raw; });
         }
             break;
         default:
@@ -1650,34 +1805,67 @@ namespace Cue::RHI::DX12
             return Result::ok();
         }
 
-        Result waitResult = context->wait_for_pending_fence();
-        if (!waitResult)
-        {
-            return waitResult;
-        }
-
         CommandListType type = context->type();
         switch (type)
         {
         case Cue::RHI::CommandListType::Graphics:
         {
-            // グラフィックスコマンドコンテキストをプールへ返却
             std::lock_guard lock(m_graphicsPoolMutex);
-            m_graphicsContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+            recycle_completed_graphics_contexts_locked();
+            if (context->is_pending_fence_complete())
+            {
+                Result result = context->wait_for_pending_fence();
+                if (!result)
+                {
+                    return result;
+                }
+                m_graphicsContextPool.recycle(
+                    static_cast<DX12GpuCommandContext*>(context.release()));
+            }
+            else
+            {
+                m_pendingGraphicsContexts.push_back(std::move(context));
+            }
         }
             break;
         case Cue::RHI::CommandListType::Compute:
         {
-            // コンピュートコマンドコンテキストをプールへ返却
             std::lock_guard lock(m_computePoolMutex);
-            m_computeContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+            recycle_completed_compute_contexts_locked();
+            if (context->is_pending_fence_complete())
+            {
+                Result result = context->wait_for_pending_fence();
+                if (!result)
+                {
+                    return result;
+                }
+                m_computeContextPool.recycle(
+                    static_cast<DX12GpuCommandContext*>(context.release()));
+            }
+            else
+            {
+                m_pendingComputeContexts.push_back(std::move(context));
+            }
         }
             break;
         case Cue::RHI::CommandListType::Copy:
         {
-            // コピーコマンドコンテキストをプールへ返却
             std::lock_guard lock(m_copyPoolMutex);
-            m_copyContextPool.recycle(static_cast<DX12GpuCommandContext*>(context.release()));
+            recycle_completed_copy_contexts_locked();
+            if (context->is_pending_fence_complete())
+            {
+                Result result = context->wait_for_pending_fence();
+                if (!result)
+                {
+                    return result;
+                }
+                m_copyContextPool.recycle(
+                    static_cast<DX12GpuCommandContext*>(context.release()));
+            }
+            else
+            {
+                m_pendingCopyContexts.push_back(std::move(context));
+            }
         }
             break;
         default:
@@ -1685,6 +1873,64 @@ namespace Cue::RHI::DX12
             break;
         }
         return Result::ok();
+    }
+    bool DX12CommandPool::try_recycle_completed_contexts(
+        std::vector<commandContextLease>& pendingContexts,
+        Core::Pool<DX12GpuCommandContext,
+            std::function<void(DX12GpuCommandContext&)>>& pool) noexcept
+    {
+        bool didRecycle = false;
+        size_t writeIndex = 0;
+        for (size_t readIndex = 0; readIndex < pendingContexts.size(); ++readIndex)
+        {
+            commandContextLease& pendingContext = pendingContexts[readIndex];
+            if (!pendingContext)
+            {
+                continue;
+            }
+
+            if (!pendingContext->is_pending_fence_complete())
+            {
+                if (writeIndex != readIndex)
+                {
+                    pendingContexts[writeIndex] = std::move(pendingContext);
+                }
+                ++writeIndex;
+                continue;
+            }
+
+            Result result = pendingContext->wait_for_pending_fence();
+            if (!result)
+            {
+                if (writeIndex != readIndex)
+                {
+                    pendingContexts[writeIndex] = std::move(pendingContext);
+                }
+                ++writeIndex;
+                continue;
+            }
+
+            pool.recycle(static_cast<DX12GpuCommandContext*>(pendingContext.release()));
+            didRecycle = true;
+        }
+
+        pendingContexts.resize(writeIndex);
+        return didRecycle;
+    }
+    void DX12CommandPool::recycle_completed_graphics_contexts_locked() noexcept
+    {
+        (void)try_recycle_completed_contexts(
+            m_pendingGraphicsContexts, m_graphicsContextPool);
+    }
+    void DX12CommandPool::recycle_completed_compute_contexts_locked() noexcept
+    {
+        (void)try_recycle_completed_contexts(
+            m_pendingComputeContexts, m_computeContextPool);
+    }
+    void DX12CommandPool::recycle_completed_copy_contexts_locked() noexcept
+    {
+        (void)try_recycle_completed_contexts(
+            m_pendingCopyContexts, m_copyContextPool);
     }
     Result DX12QueuePool::get_queue_context(CommandListType type, queueContextLease& outContext)
     {

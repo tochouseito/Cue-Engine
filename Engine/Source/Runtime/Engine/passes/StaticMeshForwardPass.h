@@ -40,6 +40,15 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
+            m_sortedRenderObjectBufferHandle = {};
+            Result sortedBufferResult = builder.get_buffer(
+                "SortedRenderObjectBuffer",
+                m_sortedRenderObjectBufferHandle);
+            if (!sortedBufferResult && sortedBufferResult.code != Code::NotFound)
+            {
+                return sortedBufferResult;
+            }
+
             Result result = builder.get_texture("FinalColor", m_finalColorHandle);
             if (!result)
             {
@@ -87,6 +96,14 @@ namespace Cue
             if (!result)
             {
                 return result;
+            }
+            if (m_sortedRenderObjectBufferHandle.valid())
+            {
+                result = builder.read_buffer(m_sortedRenderObjectBufferHandle);
+                if (!result)
+                {
+                    return result;
+                }
             }
             result = builder.read_buffer(m_transformBufferHandle);
             if (!result)
@@ -170,16 +187,6 @@ namespace Cue
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7 });
-            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -218,6 +225,11 @@ namespace Cue
             pipelineDesc.rootSignatureHandle = m_rootSignatureHandle;
             pipelineDesc.vsHandle = m_vertexShaderHandle;
             pipelineDesc.psHandle = m_pixelShaderHandle;
+            pipelineDesc.inputElements = {
+                { "POSITION", 0, RHI::InputElementFormat::R32G32B32A32_Float, 0, 0 },
+                { "TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0 },
+                { "NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0 },
+            };
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Back;
             pipelineDesc.depthStencilState.depthEnable = true;
             pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
@@ -264,6 +276,18 @@ namespace Cue
             if (!result)
             {
                 return result;
+            }
+            if (m_sortedRenderObjectBufferHandle.valid())
+            {
+                result = builder.use_buffer(
+                    m_sortedRenderObjectBufferHandle,
+                    RHI::ResourceAccessType::Read,
+                    RHI::ResourceState::ShaderResource,
+                    RHI::ResourceState::ShaderResource);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             result = builder.use_buffer(
@@ -441,15 +465,17 @@ namespace Cue
             commandContext->set_32bit_constant(0, 0xffffffffu);
             commandContext->set_cbv(1, m_viewProjectionBufferHandle);
             commandContext->set_graphics_texture_table(2);
-            commandContext->set_srv(3, m_renderObjectBufferHandle);
+            const RHI::BufferHandle renderObjectBufferHandle =
+                (!frameState.useCpuBatching && m_sortedRenderObjectBufferHandle.valid())
+                ? m_sortedRenderObjectBufferHandle
+                : m_renderObjectBufferHandle;
+            commandContext->set_srv(3, renderObjectBufferHandle);
             commandContext->set_srv(4, m_transformBufferHandle);
-            commandContext->set_srv(5, m_positionBufferHandle);
-            commandContext->set_srv(6, m_uvBufferHandle);
-            commandContext->set_srv(7, m_normalBufferHandle);
-            commandContext->set_srv(8, m_indexBufferHandle);
-            commandContext->set_srv(9, m_meshRangeBufferHandle);
-            commandContext->set_srv(10, m_visibleObjectCountBufferHandle);
-            commandContext->set_srv(11, m_materialBufferHandle);
+            commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(6, m_materialBufferHandle);
+            commandContext->set_vertex_buffer(0, m_positionBufferHandle);
+            commandContext->set_vertex_buffer(1, m_uvBufferHandle);
+            commandContext->set_vertex_buffer(2, m_normalBufferHandle);
             add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
             if (frameState.useCpuBatching)
@@ -500,6 +526,7 @@ namespace Cue
         RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_sceneDepthDsvHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_sortedRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::BufferHandle m_positionBufferHandle{};

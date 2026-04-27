@@ -151,6 +151,14 @@ namespace Cue
         double update_elapsed_ms() const noexcept;
         /// @brief render 実行時間取得
         double render_elapsed_ms() const noexcept;
+        /// @brief step 全体の実行時間取得
+        double step_elapsed_ms() const noexcept;
+        /// @brief present 実行時間取得
+        double present_elapsed_ms() const noexcept;
+        /// @brief frame counter tick 実行時間取得
+        double counter_tick_elapsed_ms() const noexcept;
+        /// @brief 直近 present までに step した回数取得
+        uint32_t steps_per_present() const noexcept;
 
     private:
         struct FixedState final
@@ -233,6 +241,11 @@ namespace Cue
         bool m_finished = false;
         double m_updateElapsedMs = 0.0;
         double m_renderElapsedMs = 0.0;
+        double m_stepElapsedMs = 0.0;
+        double m_presentElapsedMs = 0.0;
+        double m_counterTickElapsedMs = 0.0;
+        uint32_t m_stepsSincePresent = 0;
+        uint32_t m_stepsPerPresent = 0;
         uint32_t m_updateIndex = 0;
         uint32_t m_renderIndex = 0;
         uint32_t m_presentIndex = 0;

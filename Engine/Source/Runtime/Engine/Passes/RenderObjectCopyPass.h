@@ -70,7 +70,7 @@ namespace Cue
 
             RHI::BufferCopyRegion region{};
             region.srcBufferHandle = m_renderObjectBufferHandle;
-            region.srcUploadResourceIndex = 0;
+            region.srcUploadResourceIndex = context.frame_index();
             region.srcByteOffset = 0;
             region.dstBufferHandle = m_renderObjectBufferHandle;
             region.dstDefaultResourceIndex = 0;

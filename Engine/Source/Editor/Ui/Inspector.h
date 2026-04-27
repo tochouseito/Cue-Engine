@@ -142,7 +142,8 @@ namespace Cue::Editor
         {
             ImGui::Begin("インスペクター");
 
-            if (m_gameWorld == nullptr || m_selectedEntityId == nullptr)
+            GameCore::GameWorld* gameWorld = current_game_world();
+            if (gameWorld == nullptr || m_selectedEntityId == nullptr)
             {
                 ImGui::TextUnformatted("Inspector の依存が初期化されていません。");
                 ImGui::End();
@@ -158,7 +159,7 @@ namespace Cue::Editor
             }
 
             GameCore::GameObject object{};
-            Result visitResult = m_gameWorld->visit_object(
+            Result visitResult = gameWorld->visit_object(
                 *m_selectedEntityId,
                 [&object](GameCore::EntityId, GameCore::SceneId,
                     GameCore::GameObject& a_object)
@@ -207,6 +208,16 @@ namespace Cue::Editor
         }
 
     private:
+        [[nodiscard]] GameCore::GameWorld* current_game_world() const noexcept
+        {
+            if (m_engine != nullptr && m_engine->active_world() != nullptr)
+            {
+                return m_engine->active_world();
+            }
+
+            return m_gameWorld;
+        }
+
         [[nodiscard]] std::vector<ComponentTabEntry> collect_component_tabs(
             const GameCore::GameObject& a_object) const
         {
@@ -508,6 +519,50 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("MeshFilterComponent");
             ImGui::Separator();
+            std::vector<std::string> modelNames{};
+            if (m_engine != nullptr)
+            {
+                m_engine->asset_manager().collect_model_names(modelNames);
+            }
+
+            if (component->modelName.empty() &&
+                m_engine != nullptr &&
+                component->meshId != ECS::k_invalidMeshId)
+            {
+                std::string resolvedModelName{};
+                if (m_engine->asset_manager().get_model_name_from_mesh_id(
+                    component->meshId,
+                    resolvedModelName))
+                {
+                    component->modelName = std::move(resolvedModelName);
+                }
+            }
+
+            const char* previewValue = component->modelName.empty()
+                ? "<empty>"
+                : component->modelName.c_str();
+            if (ImGui::BeginCombo("model", previewValue))
+            {
+                for (const std::string& modelName : modelNames)
+                {
+                    const bool isSelected = modelName == component->modelName;
+                    if (ImGui::Selectable(modelName.c_str(), isSelected))
+                    {
+                        component->modelName = modelName;
+                        uint32_t meshId = ECS::k_invalidMeshId;
+                        if (m_engine != nullptr &&
+                            m_engine->asset_manager().resolve_model_mesh_id(
+                                component->modelName,
+                                meshId))
+                        {
+                            component->meshId = meshId;
+                        }
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
             if (component->meshId == ECS::k_invalidMeshId)
             {
                 ImGui::TextUnformatted("meshId: invalid");

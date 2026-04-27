@@ -17,6 +17,7 @@ namespace Cue::GameCore
             objectDefinition.prototype.add_component(transform);
 
             ECS::MeshFilterComponent meshFilter{};
+            meshFilter.modelName = "Cube";
             meshFilter.meshId = a_meshId;
             objectDefinition.prototype.add_component(meshFilter);
 
