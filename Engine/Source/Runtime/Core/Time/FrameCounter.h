@@ -32,19 +32,23 @@ namespace Cue::Core::Time
         {
             const Math::TimeSpan tickNow = m_clock->now_ns();
 
-            // 1) 初回のみ：基準点だけ作る
             if (m_initialized == false)
             {
                 m_lastTick = tickNow;
-                m_capBaseTick = tickNow;
                 m_initialized = true;
                 return;
             }
 
-            // 2) tick 入口同士の delta を計測する
             const Math::TimeSpan previousTick = m_lastTick;
-            const Math::TimeSpan deltaTicks = tickNow - previousTick;
-            m_lastTick = tickNow;
+
+            Math::TimeSpan frameEndTick = tickNow;
+            if (m_maxFps > 0)
+            {
+                frameEndTick = cap_fps_(previousTick, tickNow);
+            }
+
+            const Math::TimeSpan deltaTicks = frameEndTick - previousTick;
+            m_lastTick = frameEndTick;
             m_deltaTime = deltaTicks.s_f64();
             if (m_deltaTime > 0.0)
             {
@@ -55,16 +59,8 @@ namespace Cue::Core::Time
                 m_fps = 0.0;
             }
 
-            // 3) 統計更新
             m_totalFrames += 1;
             m_produceFrame += 1;
-
-            // 4) fps 制限待機
-            m_capBaseTick = previousTick;
-            if (m_maxFps > 0)
-            {
-                cap_fps_();
-            }
         }
 
         /// @brief 前フレームからの経過秒を返します。
@@ -110,19 +106,16 @@ namespace Cue::Core::Time
         }
 
     private:
-        void cap_fps_() noexcept
+        Math::TimeSpan cap_fps_(Math::TimeSpan a_baseTick, Math::TimeSpan a_now) noexcept
         {
-            // 1) cap 無効時は終了
             if (m_maxFps == 0)
             {
-                return;
+                return a_now;
             }
 
-            // 2) 1 フレーム分 ns 計算
             const Math::TimeSpan frameNs = { static_cast<int64_t>((1'000'000'000.0 / static_cast<double>(m_maxFps)) + 0.5), Math::TimeUnit::nanoseconds };
 
-            // 3) 低 fps 帯用スピン予算計算
-            //    60 fps 付近では約 1 ms を最終スピンへ使用
+            // 60 fps 付近では約 1 ms を最終スピンへ使用する。
             constexpr int64_t k_minSpinNs = 250'000LL;
             constexpr int64_t k_maxSpinNs = 1'000'000LL;
             int64_t spinBudgetNs = frameNs.nano() / 8;
@@ -136,33 +129,30 @@ namespace Cue::Core::Time
             }
             const Math::TimeSpan spinNs = { spinBudgetNs, Math::TimeUnit::nanoseconds };
 
-            // 4) 今フレーム目標時刻計算
-            const Math::TimeSpan now0 = m_clock->now_ns();
-            const Math::TimeSpan targetTick = m_capBaseTick + frameNs;
+            const Math::TimeSpan targetTick = a_baseTick + frameNs;
 
-            // 5) 遅延時は待機省略
-            if (now0 >= targetTick)
+            if (a_now >= targetTick)
             {
-                return;
+                return a_now;
             }
 
-            // 6) 高 fps 帯は sleep を省略
-            //    2 ms 以下はフルスピンへ切替
+            // 2 ms 以下の高 fps 帯では sleep を省略してフルスピンへ切り替える。
             constexpr int64_t k_fullSpinThresholdNs = 2'000'000LL;
             if (frameNs.nano() > k_fullSpinThresholdNs)
             {
                 const Math::TimeSpan sleepUntilNs = targetTick - spinNs;
-                if (sleepUntilNs > now0)
+                if (sleepUntilNs > a_now)
                 {
                     m_waiter->sleep_until(sleepUntilNs);
                 }
             }
 
-            // 7) 目標時刻まで短スピン
             while (m_clock->now_ns() < targetTick)
             {
                 m_waiter->relax();
             }
+
+            return m_clock->now_ns();
         }
 
     private:
@@ -173,9 +163,6 @@ namespace Cue::Core::Time
 
         // fps / delta 計測用の前回 tick 入口
         Math::TimeSpan m_lastTick = Math::TimeSpan::zero();
-
-        // fps cap 判定基準 tick
-        Math::TimeSpan m_capBaseTick = Math::TimeSpan::zero();
 
         double m_deltaTime = 0.0;
         double m_fps = 0;

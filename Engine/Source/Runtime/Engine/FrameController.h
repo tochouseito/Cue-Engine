@@ -81,7 +81,7 @@ namespace Cue
         jobFunc m_func;
         const Core::Time::IClock* m_clock = nullptr;
         double m_lastElapsedMs = 0.0;
-        uint64_t m_finishedFrame = 0;
+        uint64_t m_finishedFrame = UINT64_MAX;
         bool m_isExecuting = false;
         bool m_exit = false;
     };
@@ -164,6 +164,7 @@ namespace Cue
         struct FixedState final
         {
             uint64_t produceFrame = 0;
+            uint64_t renderFrame = 0;
             uint64_t totalFrame = 0;
         };
 
@@ -218,6 +219,10 @@ namespace Cue
 
         /// @brief backpressure 進行
         bool step_backpressure();
+
+        /// @brief 指定フレームのジョブが完了済みかを返す
+        static bool is_frame_finished(uint64_t a_finishedFrame,
+            uint64_t a_frameNo) noexcept;
 
         FrameControllerDesc m_desc;
         Core::Threading::IThreadFactory& m_threadFactory;
