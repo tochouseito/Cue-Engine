@@ -13,6 +13,7 @@
 #include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
 #include "Systems/RenderableObjectSystem.h"
+#include "Systems/SpriteSystem.h"
 #include "WorldResources.h"
 #include <Asset/AssetManager.h>
 
@@ -37,6 +38,7 @@ namespace Cue::GameCore
     {
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
+        static constexpr uint32_t k_maxSpriteCount = 1000;
         static constexpr uint32_t k_maxMaterialCount = 1024;
 
         struct LoadSceneResult final
@@ -108,6 +110,25 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_sprite_object()
+        {
+            GameObject object{};
+            return add_sprite_object(object);
+        }
+
+        [[nodiscard]] Result add_sprite_object(GameObject& a_outObject)
+        {
+            return add_sprite_object(make_sprite_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_sprite_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_sprite_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_sprite_object(
+            const Math::float3& a_position, GameObject& a_outObject);
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId)
         {
@@ -128,6 +149,27 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId)
+        {
+            return add_sprite_object_to_scene(a_sceneId, make_sprite_spawn_position());
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_sprite_object_to_scene(
+                a_sceneId, make_sprite_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_sprite_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
 
         [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept;
@@ -772,6 +814,22 @@ namespace Cue::GameCore
             };
         }
 
+        [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept
+        {
+            if (!m_renderSceneState.frameStates.empty())
+            {
+                const RenderFrameState& frameState =
+                    m_renderSceneState.frameStates.front();
+                return Math::float3{
+                    static_cast<float>(frameState.renderWidth) * 0.5f,
+                    static_cast<float>(frameState.renderHeight) * 0.5f,
+                    0.0f
+                };
+            }
+
+            return Math::float3(320.0f, 180.0f, 0.0f);
+        }
+
         void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
             uint32_t a_renderHeight) noexcept
         {
@@ -782,6 +840,7 @@ namespace Cue::GameCore
 
             RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
             frameState.objectCount = 0;
+            frameState.spriteCount = 0;
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
@@ -1154,6 +1213,13 @@ namespace Cue::GameCore
                 renderer != nullptr)
             {
                 prototype.add_component(*renderer);
+            }
+
+            if (const ECS::SpriteRendererComponent* spriteRenderer =
+                get_component<ECS::SpriteRendererComponent>(a_entityId);
+                spriteRenderer != nullptr)
+            {
+                prototype.add_component(*spriteRenderer);
             }
 
             if (const ECS::AudioSourceComponent* audioSource =

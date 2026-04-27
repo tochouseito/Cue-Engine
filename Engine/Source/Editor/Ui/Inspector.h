@@ -41,6 +41,7 @@ namespace Cue::Editor
             Camera,
             MeshFilter,
             StaticMeshRenderer,
+            SpriteRenderer,
             AudioSource,
             Script
         };
@@ -273,6 +274,11 @@ namespace Cue::Editor
                     { ComponentTab::StaticMeshRenderer, "S" });
             }
 
+            if (has_component<ECS::SpriteRendererComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::SpriteRenderer, "Sp" });
+            }
+
             if (has_component<ECS::AudioSourceComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::AudioSource, "A" });
@@ -309,6 +315,13 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::StaticMeshRenderer,
                         "StaticMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::SpriteRendererComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::SpriteRenderer,
+                        "SpriteRendererComponent" });
             }
 
             if (!has_component<ECS::AudioSourceComponent>(a_object))
@@ -434,6 +447,10 @@ namespace Cue::Editor
 
             case ComponentTab::StaticMeshRenderer:
                 draw_static_mesh_renderer_component(a_object);
+                break;
+
+            case ComponentTab::SpriteRenderer:
+                draw_sprite_renderer_component(a_object);
                 break;
 
             case ComponentTab::AudioSource:
@@ -622,6 +639,68 @@ namespace Cue::Editor
             ImGui::Text("materialHandle.generation: %u",
                 component->materialHandle.generation);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
+        }
+
+        void draw_sprite_renderer_component(GameCore::GameObject& a_object)
+        {
+            ECS::SpriteRendererComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "SpriteRendererComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("SpriteRendererComponent");
+            ImGui::Separator();
+            ImGui::Text("materialHandle.index: %u", component->materialHandle.index);
+            ImGui::Text("materialHandle.generation: %u",
+                component->materialHandle.generation);
+
+            float color[4] = {
+                component->color.r,
+                component->color.g,
+                component->color.b,
+                component->color.a
+            };
+            if (ImGui::ColorEdit4("color", color))
+            {
+                component->color =
+                    Math::float4(color[0], color[1], color[2], color[3]);
+            }
+
+            float uvRect[4] = {
+                component->uvRect.x,
+                component->uvRect.y,
+                component->uvRect.z,
+                component->uvRect.w
+            };
+            if (ImGui::DragFloat4("uvRect", uvRect, 0.001f, 0.0f, 1.0f))
+            {
+                component->uvRect =
+                    Math::float4(uvRect[0], uvRect[1], uvRect[2], uvRect[3]);
+            }
+
+            float size[2] = { component->size.x, component->size.y };
+            if (ImGui::DragFloat2("size", size, 1.0f, 0.0f, 4096.0f))
+            {
+                component->size = Math::float2(size[0], size[1]);
+            }
+
+            float pivot[2] = { component->pivot.x, component->pivot.y };
+            if (ImGui::DragFloat2("pivot", pivot, 0.01f, 0.0f, 1.0f))
+            {
+                component->pivot = Math::float2(pivot[0], pivot[1]);
+            }
+
+            ImGui::DragInt("layer", &component->layer, 1.0f);
+            int order = static_cast<int>(component->order);
+            if (ImGui::DragInt("order", &order, 1.0f, 0, 100000))
+            {
+                component->order = static_cast<uint32_t>((std::max)(order, 0));
+            }
+
+            ImGui::Checkbox("isVisible", &component->isVisible);
         }
 
         void draw_audio_source_component(GameCore::GameObject& a_object)

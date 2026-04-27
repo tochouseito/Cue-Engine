@@ -10,13 +10,25 @@ namespace Cue
     {
     }
 
-    Result EngineCommandContext::create_object(
+    Result EngineCommandContext::create_object(AddObjectType a_objectType,
         GameCore::EntityId& a_outObjectId)
     {
         GameCore::GameObject object{};
-        Result result = m_currentSceneId != GameCore::k_invalidSceneId
-            ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
-            : m_gameWorld.add_object(object);
+        Result result = Result::ok();
+        switch (a_objectType)
+        {
+        case AddObjectType::StaticMesh3D:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_object(object);
+            break;
+        case AddObjectType::Sprite2D:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_sprite_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_sprite_object(object);
+            break;
+        }
+
         a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
         return result;
     }
@@ -84,6 +96,10 @@ namespace Cue
             return add_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent already exists.");
 
+        case AddableComponentType::SpriteRenderer:
+            return add_component_internal<ECS::SpriteRendererComponent>(
+                a_objectId, "SpriteRendererComponent already exists.");
+
         case AddableComponentType::AudioSource:
             return add_component_internal<ECS::AudioSourceComponent>(
                 a_objectId, "AudioSourceComponent already exists.");
@@ -114,6 +130,10 @@ namespace Cue
         case AddableComponentType::StaticMeshRenderer:
             return remove_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent was not found.");
+
+        case AddableComponentType::SpriteRenderer:
+            return remove_component_internal<ECS::SpriteRendererComponent>(
+                a_objectId, "SpriteRendererComponent was not found.");
 
         case AddableComponentType::AudioSource:
             return remove_component_internal<ECS::AudioSourceComponent>(

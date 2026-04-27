@@ -15,7 +15,8 @@ namespace Cue
         explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld,
             GameCore::SceneId a_currentSceneId = GameCore::k_invalidSceneId) noexcept;
 
-        Result create_object(GameCore::EntityId& a_outObjectId) override;
+        Result create_object(AddObjectType a_objectType,
+            GameCore::EntityId& a_outObjectId) override;
         Result destroy_object(GameCore::EntityId a_objectId) override;
         Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) override;

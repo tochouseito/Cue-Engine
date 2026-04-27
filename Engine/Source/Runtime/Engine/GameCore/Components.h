@@ -108,6 +108,23 @@ namespace Cue::ECS
         bool visible = true;
     };
 
+    struct SpriteRendererComponent : public IComponentTag
+    {
+        SpriteRendererComponent() = default;
+        SpriteRendererComponent(const SpriteRendererComponent&) = default;
+        SpriteRendererComponent& operator=(const SpriteRendererComponent&) = default;
+        SpriteRendererComponent(SpriteRendererComponent&&) = default;
+        SpriteRendererComponent& operator=(SpriteRendererComponent&&) = default;
+        MaterialHandle materialHandle{};
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 uvRect = Math::float4(0.0f, 0.0f, 1.0f, 1.0f);
+        Math::float2 size = Math::float2(64.0f, 64.0f);
+        Math::float2 pivot = Math::float2(0.5f, 0.5f);
+        int32_t layer = 0;
+        uint32_t order = 0;
+        bool isVisible = true;
+    };
+
     struct AudioSourceComponent : public IComponentTag
     {
         AudioSourceComponent() = default;

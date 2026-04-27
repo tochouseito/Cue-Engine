@@ -5,6 +5,7 @@
 
 // === Engine includes ===
 #include <GpuData/Batching.h>
+#include <GpuData/Sprite.h>
 #include <GpuData/Transform.h>
 #include <GpuData/ViewProjection.h>
 
@@ -22,6 +23,7 @@ namespace Cue
         MaterialBuffer,
         RenderObjectBuffer,
         VisibleObjectCountBuffer,
+        SpriteInstanceBuffer,
         Count
     };
 
@@ -48,6 +50,7 @@ namespace Cue
         Result create_material_buffer(const uint32_t a_maxMaterialCount);
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
+        Result create_sprite_instance_buffer(const uint32_t a_maxSpriteCount);
 
         std::vector<RHI::SlotUploader<GpuData::RenderableInfo>>&
             renderable_info_uploaders() noexcept
@@ -77,6 +80,11 @@ namespace Cue
             view_projection_uploaders() noexcept
         {
             return m_viewProjectionUploaders;
+        }
+        std::vector<RHI::SlotUploader<GpuData::SpriteInstanceGpu>>&
+            sprite_instance_uploaders() noexcept
+        {
+            return m_spriteInstanceUploaders;
         }
 
         [[nodiscard]] RHI::BufferHandle renderable_info_buffer_handle() const noexcept
@@ -115,6 +123,12 @@ namespace Cue
                 WorldResourceType::VisibleObjectCountBuffer)];
         }
 
+        [[nodiscard]] RHI::BufferHandle sprite_instance_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::SpriteInstanceBuffer)];
+        }
+
         [[nodiscard]] RHI::ViewHandle renderable_info_buffer_srv_handle() const noexcept
         {
             return m_viewHandles[static_cast<size_t>(
@@ -144,6 +158,12 @@ namespace Cue
             return m_viewHandles[static_cast<size_t>(
                 WorldResourceType::VisibleObjectCountBuffer)];
         }
+
+        [[nodiscard]] RHI::ViewHandle sprite_instance_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                WorldResourceType::SpriteInstanceBuffer)];
+        }
     private:
         RHI::IBufferManager* m_bufferManager = nullptr;
         RHI::IViewManager* m_viewManager = nullptr;
@@ -158,5 +178,7 @@ namespace Cue
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::SpriteInstanceGpu>>
+            m_spriteInstanceUploaders{};
     };
 }

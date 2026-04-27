@@ -3062,22 +3062,50 @@ namespace Cue::Editor
                 const bool canAddObject =
                     m_bridge != nullptr && !m_isScriptActionActive;
 
-                if (ImGui::MenuItem(
-                        "オブジェクトを追加する", nullptr, false, canAddObject))
+                if (ImGui::BeginMenu("3D", canAddObject))
                 {
-                    const Result result = m_bridge->submit_command(
-                        std::make_unique<AddObjectCommand>());
-                    if (!result)
+                    if (ImGui::MenuItem("オブジェクトを追加"))
                     {
-                        log_result("Failed to add object", result);
-                        set_status_message(
-                            "オブジェクトの追加に失敗しました。", true);
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::StaticMesh3D));
+                        if (!result)
+                        {
+                            log_result("Failed to add 3D object", result);
+                            set_status_message(
+                                "3D オブジェクトの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message(
+                                "3D オブジェクトを追加しました。", false);
+                        }
                     }
-                    else
+
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("2D", canAddObject))
+                {
+                    if (ImGui::MenuItem("オブジェクトを追加"))
                     {
-                        set_status_message(
-                            "オブジェクトを追加しました。", false);
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::Sprite2D));
+                        if (!result)
+                        {
+                            log_result("Failed to add 2D object", result);
+                            set_status_message(
+                                "2D オブジェクトの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message(
+                                "2D オブジェクトを追加しました。", false);
+                        }
                     }
+
+                    ImGui::EndMenu();
                 }
 
                 ImGui::Separator();

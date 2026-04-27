@@ -5,6 +5,8 @@
 #include "Passes/MaterialBufferCopyPass.h"
 #include "Passes/RenderObjectCopyPass.h"
 #include "Passes/RenderableInfoCopyPass.h"
+#include "Passes/SpriteForwardPass.h"
+#include "Passes/SpriteInstanceCopyPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
@@ -497,6 +499,9 @@ namespace Cue
             worldResources->view_projection_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
             worldResources->material_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->sprite_instance_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
             m_activeWorld->render_scene_state(),
             worldResources->render_object_buffer_handle()));
@@ -534,6 +539,9 @@ namespace Cue
             worldResources->visible_object_count_buffer_handle(),
             worldResources->material_buffer_handle(),
             m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->sprite_instance_buffer_handle()));
 
         result = m_frameGraph->build();
         if (!result)

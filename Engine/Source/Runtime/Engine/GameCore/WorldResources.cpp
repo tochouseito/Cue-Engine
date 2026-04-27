@@ -1,5 +1,6 @@
 #include "WorldResources.h"
 #include <GpuData/Batching.h>
+#include <GpuData/Sprite.h>
 #include <GpuData/Transform.h>
 #include <GpuData/ViewProjection.h>
 
@@ -349,6 +350,70 @@ namespace Cue
             m_viewHandles[static_cast<size_t>(WorldResourceType::VisibleObjectCountBuffer)];
         result = m_viewManager->create_view(renderObjectCountBufferUavDesc,
             renderObjectCountBufferUavHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+
+    Result WorldResources::create_sprite_instance_buffer(
+        const uint32_t a_maxSpriteCount)
+    {
+        RHI::BufferDesc spriteInstanceBufferDesc{};
+        spriteInstanceBufferDesc.name = "SpriteInstanceBuffer";
+        spriteInstanceBufferDesc.type = RHI::BufferType::Structured;
+        spriteInstanceBufferDesc.defaultHeapCount = 1;
+        spriteInstanceBufferDesc.uploadHeapCount = m_bufferCount;
+        spriteInstanceBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        spriteInstanceBufferDesc.stride = sizeof(GpuData::SpriteInstanceGpu);
+        spriteInstanceBufferDesc.elementCount = a_maxSpriteCount;
+        spriteInstanceBufferDesc.size =
+            spriteInstanceBufferDesc.stride *
+            spriteInstanceBufferDesc.elementCount;
+        spriteInstanceBufferDesc.alignment = alignof(GpuData::SpriteInstanceGpu);
+
+        RHI::BufferHandle& spriteInstanceBufferHandle =
+            m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::SpriteInstanceBuffer)];
+        Result result = m_bufferManager->create_buffer(
+            spriteInstanceBufferDesc, spriteInstanceBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            spriteInstanceBufferHandle, m_bufferCount, m_spriteInstanceUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_spriteInstanceUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "SpriteInstanceBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc spriteInstanceBufferSrvDesc{};
+        spriteInstanceBufferSrvDesc.name = "SpriteInstanceBufferSRV";
+        spriteInstanceBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        spriteInstanceBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        spriteInstanceBufferSrvDesc.bufferHandle = spriteInstanceBufferHandle;
+        spriteInstanceBufferSrvDesc.firstElement = 0;
+        spriteInstanceBufferSrvDesc.numElements =
+            spriteInstanceBufferDesc.elementCount;
+        spriteInstanceBufferSrvDesc.structureByteStride =
+            spriteInstanceBufferDesc.stride;
+
+        RHI::ViewHandle& spriteInstanceBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(
+                WorldResourceType::SpriteInstanceBuffer)];
+        result = m_viewManager->create_view(
+            spriteInstanceBufferSrvDesc, spriteInstanceBufferSrvHandle);
         if (!result)
         {
             return result;

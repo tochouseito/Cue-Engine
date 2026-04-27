@@ -28,6 +28,26 @@ namespace Cue::GameCore
 
             return objectDefinition;
         }
+
+        [[nodiscard]] ObjectDefinition make_default_sprite_object_definition(
+            const Math::float3& a_position,
+            MaterialHandle a_defaultMaterialHandle)
+        {
+            ObjectDefinition objectDefinition("SpriteObject");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::SpriteRendererComponent renderer{};
+            renderer.materialHandle = a_defaultMaterialHandle;
+            renderer.isVisible = true;
+            objectDefinition.prototype.add_component(renderer);
+
+            return objectDefinition;
+        }
     }
 
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
@@ -115,6 +135,12 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_worldResources->create_sprite_instance_buffer(k_maxSpriteCount);
+        if (!result)
+        {
+            return result;
+        }
+
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_worldResources->renderable_info_uploaders(),
             m_worldResources->transform_uploaders(),
@@ -125,12 +151,18 @@ namespace Cue::GameCore
             a_staticMeshPool,
             m_defaultMaterialHandle,
             m_renderSceneState);
+        auto& spriteSystem = m_ecs.add_system<ECS::SpriteSystem>(
+            m_worldResources->sprite_instance_uploaders(),
+            m_assetManager,
+            m_defaultMaterialHandle,
+            m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
         auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
 
         m_editorPipeline.add_system(&renderableObjectSystem);
+        m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
         m_simulationPipeline.add_system(&audioSystem);
@@ -430,6 +462,46 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    [[nodiscard]] Result GameWorld::add_sprite_object(
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("SpriteObject", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for sprite object.") : result;
+        }
+
+        ECS::SpriteRendererComponent* renderer = nullptr;
+        result = add_component<ECS::SpriteRendererComponent>(
+            a_outObject.entity_id(), renderer);
+        if (!result || renderer == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add sprite renderer component for object.")
+                : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        renderer->materialHandle = m_defaultMaterialHandle;
+        renderer->isVisible = true;
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_object_to_scene(SceneId a_sceneId,
         const Math::float3& a_position, GameObject& a_outObject)
     {
@@ -448,6 +520,22 @@ namespace Cue::GameCore
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
                 a_position, m_defaultStaticMeshId, m_defaultMaterialHandle);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_sprite_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_sprite_object_definition(
+                a_position, m_defaultMaterialHandle);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 

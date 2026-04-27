@@ -23,8 +23,15 @@ namespace Cue
         Camera,
         MeshFilter,
         StaticMeshRenderer,
+        SpriteRenderer,
         AudioSource,
         Script
+    };
+
+    enum class AddObjectType : uint8_t
+    {
+        StaticMesh3D,
+        Sprite2D
     };
 
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext
@@ -32,7 +39,8 @@ namespace Cue
     public:
         ~IGameCommandContext() override = default;
 
-        virtual Result create_object(GameCore::EntityId& a_outObjectId) = 0;
+        virtual Result create_object(AddObjectType a_objectType,
+            GameCore::EntityId& a_outObjectId) = 0;
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) = 0;
@@ -66,6 +74,12 @@ namespace Cue
     class AddObjectCommand final : public Core::CQRS::IUndoableCommand
     {
     public:
+        explicit AddObjectCommand(
+            AddObjectType a_objectType = AddObjectType::StaticMesh3D) noexcept
+            : m_objectType(a_objectType)
+        {
+        }
+
         Result execute(Core::CQRS::ICommandContext& a_commandContext) override
         {
             IGameCommandContext* gameCommandContext =
@@ -80,7 +94,8 @@ namespace Cue
 
             if (!m_hasSnapshot)
             {
-                Result createResult = gameCommandContext->create_object(m_objectId);
+                Result createResult =
+                    gameCommandContext->create_object(m_objectType, m_objectId);
                 if (!createResult)
                 {
                     return createResult;
@@ -127,6 +142,7 @@ namespace Cue
     private:
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         GameCore::DeletedObjectSnapshot m_snapshot{};
+        AddObjectType m_objectType = AddObjectType::StaticMesh3D;
         bool m_hasSnapshot = false;
     };
 
