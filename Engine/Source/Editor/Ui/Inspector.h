@@ -1,11 +1,16 @@
 #pragma once
 
 // === Engine includes ===
+#include <Audio.h>
 #include <Commands.h>
 #include <Engine.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameWorld.h>
 #include <Script/MarionnetteObject.h>
+#include <SoundCooker.h>
+
+// === Core includes ===
+#include <IO/IFileSystem.h>
 
 // === Editor includes ===
 #include "Icon.h"
@@ -15,6 +20,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -34,6 +41,7 @@ namespace Cue::Editor
             Camera,
             MeshFilter,
             StaticMeshRenderer,
+            AudioSource,
             Script
         };
 
@@ -129,14 +137,23 @@ namespace Cue::Editor
         };
 
         Inspector(Core::CQRS::Bridge* bridge, GameCore::GameWorld* a_gameWorld,
-            GameCore::EntityId* a_selectedEntityId, Engine* a_engine)
+            GameCore::EntityId* a_selectedEntityId, Engine* a_engine,
+            Core::IO::IFileSystem* a_fileSystem)
             : editorBridge(bridge)
             , m_gameWorld(a_gameWorld)
             , m_selectedEntityId(a_selectedEntityId)
             , m_engine(a_engine)
+            , m_fileSystem(a_fileSystem)
         {
         }
         ~Inspector() = default;
+
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath)
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+            m_soundFileNames.clear();
+            m_shouldRefreshSoundFiles = true;
+        }
 
         void update()
         {
@@ -256,6 +273,11 @@ namespace Cue::Editor
                     { ComponentTab::StaticMeshRenderer, "S" });
             }
 
+            if (has_component<ECS::AudioSourceComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::AudioSource, "A" });
+            }
+
             if (has_component<ECS::ScriptComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::Script, "Sc" });
@@ -268,7 +290,7 @@ namespace Cue::Editor
             const GameCore::GameObject& a_object) const
         {
             std::vector<AddableComponentEntry> components{};
-            components.reserve(4);
+            components.reserve(5);
 
             if (!has_component<ECS::CameraComponent>(a_object))
             {
@@ -287,6 +309,13 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::StaticMeshRenderer,
                         "StaticMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::AudioSourceComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::AudioSource,
+                        "AudioSourceComponent" });
             }
 
             if (!has_component<ECS::ScriptComponent>(a_object))
@@ -405,6 +434,10 @@ namespace Cue::Editor
 
             case ComponentTab::StaticMeshRenderer:
                 draw_static_mesh_renderer_component(a_object);
+                break;
+
+            case ComponentTab::AudioSource:
+                draw_audio_source_component(a_object);
                 break;
 
             case ComponentTab::Script:
@@ -589,6 +622,98 @@ namespace Cue::Editor
             ImGui::Text("materialHandle.generation: %u",
                 component->materialHandle.generation);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
+        }
+
+        void draw_audio_source_component(GameCore::GameObject& a_object)
+        {
+            ECS::AudioSourceComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "AudioSourceComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("AudioSourceComponent");
+            ImGui::Separator();
+
+            if (m_shouldRefreshSoundFiles)
+            {
+                const Result refreshResult = refresh_sound_file_names();
+                if (!refreshResult)
+                {
+                    m_audioStatusMessage =
+                        std::string("Sound refresh failed: ") +
+                        std::string(refreshResult.message);
+                    m_audioStatusIsError = true;
+                }
+            }
+
+            const char* previewValue = component->fileName.empty()
+                ? "<empty>"
+                : component->fileName.c_str();
+            if (ImGui::BeginCombo("fileName", previewValue))
+            {
+                if (ImGui::Selectable("<empty>", component->fileName.empty()))
+                {
+                    (void)stop_audio_source(*component);
+                    component->fileName.clear();
+                }
+
+                for (const std::string& fileName : m_soundFileNames)
+                {
+                    const bool isSelected = fileName == component->fileName;
+                    if (ImGui::Selectable(fileName.c_str(), isSelected))
+                    {
+                        (void)stop_audio_source(*component);
+                        component->fileName = fileName;
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh##AudioSourceFiles"))
+            {
+                m_shouldRefreshSoundFiles = true;
+            }
+            if (m_soundFileNames.empty())
+            {
+                ImGui::TextUnformatted(
+                    "Assets/Sounds に cuesound ファイルが見つかりません。");
+            }
+
+            ImGui::Checkbox("Loop", &component->loop);
+            ImGui::Checkbox("playOnStart", &component->playOnStart);
+            ImGui::SliderFloat("SpatialBlend", &component->spatialBlend, 0.0f, 0.0f);
+            ImGui::SliderFloat("volume", &component->volume, 0.0f, 1.0f);
+            ImGui::Text("isPlaying: %s", component->isPlaying ? "true" : "false");
+
+            if (ImGui::Button("Play"))
+            {
+                component->playRequested = true;
+                component->stopRequested = false;
+                m_audioStatusMessage = "Play requested";
+                m_audioStatusIsError = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Stop"))
+            {
+                component->stopRequested = true;
+                component->playRequested = false;
+                m_audioStatusMessage = "Stop requested";
+                m_audioStatusIsError = false;
+            }
+
+            if (!m_audioStatusMessage.empty())
+            {
+                ImGui::TextColored(
+                    m_audioStatusIsError
+                        ? ImVec4(1.0f, 0.45f, 0.25f, 1.0f)
+                        : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
+                    "%s",
+                    m_audioStatusMessage.c_str());
+            }
         }
 
         void draw_script_component(GameCore::GameObject& a_object)
@@ -2680,6 +2805,125 @@ namespace Cue::Editor
             }
         }
 
+        [[nodiscard]] Result refresh_sound_file_names()
+        {
+            m_soundFileNames.clear();
+            m_shouldRefreshSoundFiles = false;
+
+            if (m_fileSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "FileSystem is not initialized for AudioSource.");
+            }
+            if (m_assetRootPath.is_empty())
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path soundRoot = Core::IO::Path::join(
+                m_assetRootPath,
+                Core::IO::Path("Sounds"));
+            bool soundRootExists = false;
+            Result result = m_fileSystem->exists(soundRoot, &soundRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!soundRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> entries{};
+            result = m_fileSystem->list_directory(soundRoot, &entries);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(entries.begin(), entries.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& entryPath : entries)
+            {
+                Core::IO::FileStat stat{};
+                result = m_fileSystem->stat(entryPath, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+                if (stat.type != Core::IO::FileType::regular)
+                {
+                    continue;
+                }
+
+                if (entryPath.extension() == ".wav")
+                {
+                    const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
+                        soundRoot,
+                        Core::IO::Path(entryPath.stem() + ".cuesound"));
+                    result = SoundCooker::ensure_cuesound_is_up_to_date(
+                        *m_fileSystem,
+                        entryPath,
+                        cookedSoundPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+
+                    m_soundFileNames.push_back(cookedSoundPath.filename());
+                    continue;
+                }
+
+                if (entryPath.extension() == ".cuesound")
+                {
+                    m_soundFileNames.push_back(entryPath.filename());
+                }
+            }
+
+            std::sort(m_soundFileNames.begin(), m_soundFileNames.end());
+            m_soundFileNames.erase(
+                std::unique(m_soundFileNames.begin(), m_soundFileNames.end()),
+                m_soundFileNames.end());
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result stop_audio_source(
+            ECS::AudioSourceComponent& a_component) const
+        {
+            if (m_engine == nullptr || m_engine->audio_backend() == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Audio backend is not initialized.");
+            }
+
+            if (!a_component.sourceHandle.valid())
+            {
+                return Result::ok();
+            }
+
+            Audio::IBackend* audioBackend = m_engine->audio_backend();
+            Result result = audioBackend->stop_source(a_component.sourceHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = audioBackend->destroy_source(a_component.sourceHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            a_component.sourceHandle = {};
+            a_component.isPlaying = false;
+            return Result::ok();
+        }
+
         [[nodiscard]] static const std::vector<std::string>&
             get_empty_script_class_list()
         {
@@ -2710,6 +2954,12 @@ namespace Cue::Editor
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
         Engine* m_engine = nullptr;
+        Core::IO::IFileSystem* m_fileSystem = nullptr;
+        Core::IO::Path m_assetRootPath{};
+        std::vector<std::string> m_soundFileNames{};
+        std::string m_audioStatusMessage{};
+        bool m_audioStatusIsError = false;
+        bool m_shouldRefreshSoundFiles = true;
         GameCore::EntityId m_lastInspectedEntityId =
             GameCore::k_invalidEntityId;
         GameCore::EntityId m_transformEditEntityId =

@@ -195,6 +195,36 @@ namespace Cue::GameCore
             a_outComponent.visible = a_json.at("visible").get<bool>();
         }
 
+        [[nodiscard]] Json serialize_audio_source(
+            const ECS::AudioSourceComponent& a_component)
+        {
+            return Json{
+                { "fileName", a_component.fileName },
+                { "loop", a_component.loop },
+                { "playOnStart", a_component.playOnStart },
+                { "spatialBlend", a_component.spatialBlend },
+                { "volume", a_component.volume },
+            };
+        }
+
+        void deserialize_audio_source(
+            const Json& a_json, ECS::AudioSourceComponent& a_outComponent)
+        {
+            a_outComponent.fileName =
+                a_json.value("fileName", std::string{});
+            a_outComponent.loop = a_json.value("loop", false);
+            a_outComponent.playOnStart =
+                a_json.value("playOnStart", false);
+            a_outComponent.spatialBlend =
+                a_json.value("spatialBlend", 0.0f);
+            a_outComponent.volume = a_json.value("volume", 1.0f);
+            a_outComponent.sourceHandle = {};
+            a_outComponent.isPlaying = false;
+            a_outComponent.playRequested = false;
+            a_outComponent.stopRequested = false;
+            a_outComponent.hasStarted = false;
+        }
+
         [[nodiscard]] const char* to_string(ECS::ScriptFieldType a_type) noexcept
         {
             switch (a_type)
@@ -404,6 +434,14 @@ namespace Cue::GameCore
                     serialize_static_mesh_renderer(*renderer, a_options);
             }
 
+            if (const ECS::AudioSourceComponent* audioSource =
+                a_definition.prototype.get_component_ptr<ECS::AudioSourceComponent>();
+                audioSource != nullptr)
+            {
+                componentsJson["audioSource"] =
+                    serialize_audio_source(*audioSource);
+            }
+
             if (const ECS::ScriptComponent* script =
                 a_definition.prototype.get_component_ptr<ECS::ScriptComponent>();
                 script != nullptr)
@@ -480,6 +518,15 @@ namespace Cue::GameCore
                     ECS::StaticMeshRendererComponent renderer{};
                     deserialize_static_mesh_renderer(*rendererIt, a_options, renderer);
                     objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator audioSourceIt =
+                    componentsJson.find("audioSource");
+                    audioSourceIt != componentsJson.end())
+                {
+                    ECS::AudioSourceComponent audioSource{};
+                    deserialize_audio_source(*audioSourceIt, audioSource);
+                    objectDefinition.prototype.add_component(audioSource);
                 }
 
                 if (const Json::const_iterator scriptIt =

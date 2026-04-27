@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 7u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 8u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
 
     using CueScriptAbiVersion = uint32_t;
@@ -332,6 +332,11 @@ extern "C"
         CueStringView a_functionName
     );
 
+    /// @brief Entity の AudioSourceComponent に再生 request を出します。
+    using CueRequestAudioSourcePlayFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -369,6 +374,8 @@ extern "C"
         CueHasScriptClassFunctionFn hasScriptClassFunction;
         /// v5 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueInvokeScriptFunctionFn invokeScriptFunction;
+        /// v8 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRequestAudioSourcePlayFn requestAudioSourcePlay;
     };
 
     /// @brief Script インスタンス生成時の入力です。

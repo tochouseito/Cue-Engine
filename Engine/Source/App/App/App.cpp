@@ -268,6 +268,7 @@ namespace
         {
             assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
         }
+        a_engine.set_asset_root_path(assetRoot);
 
         Result result = Result::ok();
         const Core::IO::Path textureRoot = Core::IO::Path::join(

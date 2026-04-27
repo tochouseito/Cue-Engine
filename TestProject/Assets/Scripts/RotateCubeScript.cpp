@@ -25,6 +25,15 @@ void RotateCube::update()
         rotationDirection = 1.0f;
     }
 
+    if (push_key(Marionette::Key::A))
+    {
+        const CueResult result = request_audio_source_play();
+        if (result != CueResult_Ok)
+        {
+            log_warning("AudioSource の再生 request に失敗しました。");
+        }
+    }
+
     Transform transform{};
     if (get_transform(transform) != CueResult_Ok)
     {

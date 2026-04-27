@@ -42,6 +42,7 @@ namespace Cue::Audio
         uint32_t loopBegin = 0;
         uint32_t loopLength = 0;
         uint32_t loopCount = 0;
+        float volume = 1.0f;
         bool isEndOfStream = true;
     };
 
@@ -64,5 +65,7 @@ namespace Cue::Audio
 
         virtual Result play_source(AudioSourceHandle a_handle) = 0;
         virtual Result stop_source(AudioSourceHandle a_handle) = 0;
+        virtual Result set_source_volume(
+            AudioSourceHandle a_handle, float a_volume) = 0;
     };
 }

@@ -36,6 +36,12 @@
         },
         {
             "components": {
+                "audioSource": {
+                    "fileName": "fanfare.cuesound",
+                    "loop": false,
+                    "spatialBlend": 0.0,
+                    "volume": 0.3880000114440918
+                },
                 "meshFilter": {
                     "meshId": 1,
                     "modelName": "axis"

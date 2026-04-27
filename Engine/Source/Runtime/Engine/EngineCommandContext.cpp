@@ -84,6 +84,10 @@ namespace Cue
             return add_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent already exists.");
 
+        case AddableComponentType::AudioSource:
+            return add_component_internal<ECS::AudioSourceComponent>(
+                a_objectId, "AudioSourceComponent already exists.");
+
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
                 a_objectId, "ScriptComponent already exists.");
@@ -110,6 +114,10 @@ namespace Cue
         case AddableComponentType::StaticMeshRenderer:
             return remove_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent was not found.");
+
+        case AddableComponentType::AudioSource:
+            return remove_component_internal<ECS::AudioSourceComponent>(
+                a_objectId, "AudioSourceComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

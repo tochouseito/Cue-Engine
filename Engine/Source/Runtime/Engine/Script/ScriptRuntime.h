@@ -190,6 +190,8 @@ namespace Cue
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL invoke_script_function_bridge(
             CueScriptInstanceHandle a_instanceHandle,
             CueStringView a_functionName);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL request_audio_source_play_bridge(
+            CueEntityHandle a_entityHandle);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -237,6 +239,8 @@ namespace Cue
             CueStringView a_functionName) const noexcept;
         [[nodiscard]] MarionnetteObject* get_script_object_internal(
             CueScriptInstanceHandle a_instanceHandle) const noexcept;
+        [[nodiscard]] CueResult request_audio_source_play_internal(
+            CueEntityHandle a_entityHandle) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

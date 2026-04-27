@@ -6,6 +6,9 @@
 // === ECS includes ===
 #include <ECSManager.h>
 
+// === Audio includes ===
+#include <Audio.h>
+
 // === Asset includes ===
 #include <Asset/AssetManager.h>
 
@@ -103,6 +106,25 @@ namespace Cue::ECS
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
         bool visible = true;
+    };
+
+    struct AudioSourceComponent : public IComponentTag
+    {
+        AudioSourceComponent() = default;
+        AudioSourceComponent(const AudioSourceComponent&) = default;
+        AudioSourceComponent& operator=(const AudioSourceComponent&) = default;
+        AudioSourceComponent(AudioSourceComponent&&) = default;
+        AudioSourceComponent& operator=(AudioSourceComponent&&) = default;
+        std::string fileName{};
+        float spatialBlend = 0.0f;
+        float volume = 1.0f;
+        Audio::AudioSourceHandle sourceHandle{};
+        bool playOnStart = false;
+        bool isPlaying = false;
+        bool playRequested = false;
+        bool stopRequested = false;
+        bool hasStarted = false;
+        bool loop = false;
     };
 
     enum class ScriptFieldType : uint8_t

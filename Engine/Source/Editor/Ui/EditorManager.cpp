@@ -12,6 +12,7 @@
 // === Engine includes ===
 #include <ModelImporter.h>
 #include <ModelCooker.h>
+#include <SoundCooker.h>
 #include <TextureCooker.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
@@ -838,6 +839,66 @@ namespace Cue::Editor
             return Result::ok();
         }
 
+        [[nodiscard]] Result cook_project_sounds(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path soundRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Sounds"));
+            bool soundRootExists = false;
+            Result result = a_fileSystem.exists(soundRoot, &soundRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!soundRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> soundPaths{};
+            result = a_fileSystem.list_directory(soundRoot, &soundPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(soundPaths.begin(), soundPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& sourceSoundPath : soundPaths)
+            {
+                if (sourceSoundPath.extension() != ".wav")
+                {
+                    continue;
+                }
+
+                const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
+                    soundRoot,
+                    Core::IO::Path(sourceSoundPath.stem() + ".cuesound"));
+                result = SoundCooker::ensure_cuesound_is_up_to_date(
+                    a_fileSystem,
+                    sourceSoundPath,
+                    cookedSoundPath);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
         [[nodiscard]] std::string make_primary_build_message(
             const BuildResult& a_result) noexcept
         {
@@ -1170,7 +1231,8 @@ namespace Cue::Editor
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
-            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine);
+            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine,
+            m_fileSystem);
     }
 
     void EditorManager::set_loop_metrics_source(
@@ -1240,6 +1302,11 @@ namespace Cue::Editor
         {
             m_assetBrowser->set_asset_root_path(assetRootPath);
         }
+        if (m_inspector != nullptr)
+        {
+            m_inspector->set_asset_root_path(assetRootPath);
+        }
+        m_engine->set_asset_root_path(assetRootPath);
 
         const Result scriptLoadResult = m_engine->load_script_module(
             scriptRootPath,
@@ -1627,6 +1694,12 @@ namespace Cue::Editor
             *m_fileSystem,
             Core::IO::Path::join(engineAppOutputDirectory, Core::IO::Path("config")),
             Core::IO::Path::join(stagingDirectory, Core::IO::Path("config")));
+        if (!result)
+        {
+            return result;
+        }
+
+        result = cook_project_sounds(*m_fileSystem, projectRoot, projectSettings);
         if (!result)
         {
             return result;
@@ -2308,6 +2381,15 @@ namespace Cue::Editor
 
         result = load_project_materials(
             *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = cook_project_sounds(
             *m_fileSystem,
             Core::IO::Path(m_projectPath),
             projectSettings);

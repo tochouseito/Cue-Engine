@@ -13,6 +13,8 @@ add_executable(Editor WIN32
     "Asset/TextureCooker.cpp"
     "Asset/ModelCooker.h"
     "Asset/ModelCooker.cpp"
+    "Asset/SoundCooker.h"
+    "Asset/SoundCooker.cpp"
     "Asset/ModelImporter.h"
     "Asset/ModelImporter.cpp"
     "ImGui/ImGuiManager.h"

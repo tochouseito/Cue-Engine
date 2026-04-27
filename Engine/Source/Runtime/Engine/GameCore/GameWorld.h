@@ -10,6 +10,7 @@
 #include "RenderSceneState.h"
 #include "SceneAsset.h"
 #include "SceneInstance.h"
+#include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "WorldResources.h"
@@ -66,12 +67,19 @@ namespace Cue::GameCore
             RHI::IViewManager* a_viewManager,
             RHI::IStaticMeshPool* a_staticMeshPool,
             AssetManager* a_assetManager,
+            Core::IO::IFileSystem* a_fileSystem,
+            Audio::IBackend* a_audioBackend,
+            Audio::AudioDeviceHandle a_audioDevice,
             uint32_t a_bufferCount,
             uint32_t a_renderWidth,
             uint32_t a_renderHeight,
             uint32_t a_defaultStaticMeshId,
             MaterialHandle a_defaultMaterialHandle);
         [[nodiscard]] Result finalize_systems() noexcept;
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath)
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+        }
 
         [[nodiscard]] Result simulate(float a_deltaTime);
         [[nodiscard]] Result editor_update(
@@ -1148,6 +1156,19 @@ namespace Cue::GameCore
                 prototype.add_component(*renderer);
             }
 
+            if (const ECS::AudioSourceComponent* audioSource =
+                get_component<ECS::AudioSourceComponent>(a_entityId);
+                audioSource != nullptr)
+            {
+                ECS::AudioSourceComponent copiedAudioSource = *audioSource;
+                copiedAudioSource.sourceHandle = {};
+                copiedAudioSource.isPlaying = false;
+                copiedAudioSource.playRequested = false;
+                copiedAudioSource.stopRequested = false;
+                copiedAudioSource.hasStarted = false;
+                prototype.add_component(copiedAudioSource);
+            }
+
             if (const ECS::ScriptComponent* script =
                 get_component<ECS::ScriptComponent>(a_entityId);
                 script != nullptr)
@@ -1872,6 +1893,10 @@ namespace Cue::GameCore
         ECS::ECSManager::SystemPipeline m_simulationPipeline{};
         std::unique_ptr<WorldResources> m_worldResources = nullptr;
         AssetManager* m_assetManager = nullptr;
+        Core::IO::IFileSystem* m_fileSystem = nullptr;
+        Audio::IBackend* m_audioBackend = nullptr;
+        Audio::AudioDeviceHandle m_audioDevice{};
+        Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         RenderSceneState m_renderSceneState{};
         MaterialHandle m_defaultMaterialHandle{};

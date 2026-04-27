@@ -34,6 +34,9 @@ namespace Cue::GameCore
         RHI::IViewManager* a_viewManager,
         RHI::IStaticMeshPool* a_staticMeshPool,
         AssetManager* a_assetManager,
+        Core::IO::IFileSystem* a_fileSystem,
+        Audio::IBackend* a_audioBackend,
+        Audio::AudioDeviceHandle a_audioDevice,
         uint32_t a_bufferCount,
         uint32_t a_renderWidth,
         uint32_t a_renderHeight,
@@ -41,10 +44,11 @@ namespace Cue::GameCore
         MaterialHandle a_defaultMaterialHandle)
     {
         if (a_bufferManager == nullptr || a_viewManager == nullptr ||
-            a_staticMeshPool == nullptr || a_assetManager == nullptr)
+            a_staticMeshPool == nullptr || a_assetManager == nullptr ||
+            a_fileSystem == nullptr || a_audioBackend == nullptr)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "GameWorld requires valid buffer, view, mesh, and asset managers.");
+                "GameWorld requires valid buffer, view, mesh, asset, file, and audio managers.");
         }
         if (a_defaultStaticMeshId == ECS::k_invalidMeshId)
         {
@@ -54,6 +58,9 @@ namespace Cue::GameCore
 
         m_defaultStaticMeshId = a_defaultStaticMeshId;
         m_assetManager = a_assetManager;
+        m_fileSystem = a_fileSystem;
+        m_audioBackend = a_audioBackend;
+        m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_renderSceneState.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
@@ -114,11 +121,17 @@ namespace Cue::GameCore
             m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
+        auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
+            m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&cameraSystem);
+        m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);
         m_editorPipeline.initialize(m_ecs);
+        m_simulationPipeline.awake(m_ecs);
+        m_simulationPipeline.initialize(m_ecs);
 
         return Result::ok();
     }

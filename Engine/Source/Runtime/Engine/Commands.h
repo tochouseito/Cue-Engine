@@ -23,6 +23,7 @@ namespace Cue
         Camera,
         MeshFilter,
         StaticMeshRenderer,
+        AudioSource,
         Script
     };
 

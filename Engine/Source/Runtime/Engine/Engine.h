@@ -129,6 +129,19 @@ namespace Cue
             m_editorSceneId = a_sceneId;
         }
 
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+            if (m_editorWorld != nullptr)
+            {
+                m_editorWorld->set_asset_root_path(m_assetRootPath);
+            }
+            if (m_playWorld != nullptr)
+            {
+                m_playWorld->set_asset_root_path(m_assetRootPath);
+            }
+        }
+
         [[nodiscard]] GameCore::SceneId editor_scene_id() const noexcept
         {
             return m_editorSceneId;
@@ -272,6 +285,7 @@ namespace Cue
         RHI::ViewHandle m_finalColorRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
         Audio::AudioDeviceHandle m_audioDevice{};
+        Core::IO::Path m_assetRootPath{};
         MaterialHandle m_defaultMaterialHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;

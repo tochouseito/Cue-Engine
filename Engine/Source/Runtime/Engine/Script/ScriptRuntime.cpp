@@ -422,6 +422,8 @@ namespace Cue
             &ScriptRuntime::has_script_class_function_bridge;
         m_engineApi.invokeScriptFunction =
             &ScriptRuntime::invoke_script_function_bridge;
+        m_engineApi.requestAudioSourcePlay =
+            &ScriptRuntime::request_audio_source_play_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1309,6 +1311,14 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::request_audio_source_play_bridge(
+        CueEntityHandle a_entityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->request_audio_source_play_internal(a_entityHandle)
+            : CueResult_InvalidState;
+    }
+
     CueResult ScriptRuntime::log_internal(
         CueLogSeverity a_severity,
         CueStringView a_message) noexcept
@@ -1738,6 +1748,33 @@ namespace Cue
         }
 
         return m_platform->input_manager().push_key(to_pal_key(a_key)) ? 1 : 0;
+    }
+
+    CueResult ScriptRuntime::request_audio_source_play_internal(
+        CueEntityHandle a_entityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::AudioSourceComponent* audioSource = nullptr;
+        const Result result =
+            m_gameWorld->get_component<ECS::AudioSourceComponent>(
+                to_entity_id(a_entityHandle),
+                audioSource);
+        if (!result || audioSource == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        audioSource->playRequested = true;
+        audioSource->stopRequested = false;
+        return CueResult_Ok;
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(

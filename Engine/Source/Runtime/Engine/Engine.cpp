@@ -149,6 +149,7 @@ namespace Cue
         m_editorWorld = std::make_unique<GameCore::GameWorld>();
         result = m_editorWorld->initialize(
             bufferManager, viewManager, staticMeshPool, &m_assetManager,
+            &m_platform->file_system(), m_audioBackend, m_audioDevice,
             m_backend->buffer_count(), m_backend->width(), m_backend->height(),
             m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
@@ -751,6 +752,7 @@ namespace Cue
             result = m_playWorld->initialize(
                 bufferManager, viewManager, m_backend->get_static_mesh_pool(),
                 &m_assetManager,
+                &m_platform->file_system(), m_audioBackend, m_audioDevice,
                 m_backend->buffer_count(),
                 m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
                 m_defaultMaterialHandle);
@@ -766,6 +768,7 @@ namespace Cue
         {
             return result;
         }
+        m_playWorld->set_asset_root_path(m_assetRootPath);
 
         m_activeWorld = m_playWorld.get();
 
