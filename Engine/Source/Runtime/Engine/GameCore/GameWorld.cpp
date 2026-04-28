@@ -29,6 +29,23 @@ namespace Cue::GameCore
             return objectDefinition;
         }
 
+        [[nodiscard]] ObjectDefinition make_default_camera_object_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("Camera");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::CameraComponent camera{};
+            objectDefinition.prototype.add_component(camera);
+
+            return objectDefinition;
+        }
+
         [[nodiscard]] ObjectDefinition make_default_sprite_object_definition(
             const Math::float3& a_position,
             MaterialHandle a_defaultMaterialHandle)
@@ -466,6 +483,44 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    [[nodiscard]] Result GameWorld::add_camera_object(
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("Camera", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for camera object.") : result;
+        }
+
+        ECS::CameraComponent* camera = nullptr;
+        result =
+            add_component<ECS::CameraComponent>(a_outObject.entity_id(), camera);
+        if (!result || camera == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add camera component for camera object.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        *camera = ECS::CameraComponent{};
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_sprite_object(
         const Math::float3& a_position, GameObject& a_outObject)
     {
@@ -524,6 +579,21 @@ namespace Cue::GameCore
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
                 a_position, m_defaultStaticMeshId, m_defaultMaterialHandle);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_camera_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_camera_object_definition(a_position);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 

@@ -20,7 +20,7 @@ namespace Cue
         Result destroy_object(GameCore::EntityId a_objectId) override;
         Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) override;
-        Result set_main_camera(uint32_t a_cameraIndex) override;
+        Result set_main_camera(GameCore::EntityId a_cameraEntityId) override;
         Result get_object_name(
             GameCore::EntityId a_objectId, std::string& a_outName) override;
         Result rename_object(

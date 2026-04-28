@@ -47,6 +47,13 @@ namespace Cue::Editor
             std::string gameReleaseOutputRoot = "Builds/Windows";
         };
 
+        struct SceneCameraMenuEntry final
+        {
+            GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+            std::string name{};
+            bool isMain = false;
+        };
+
         void log_result(std::string_view a_prefix, const Result& a_result)
         {
             Core::IO::log(Core::IO::LogSink::debugConsole,
@@ -2978,6 +2985,81 @@ namespace Cue::Editor
         }
     }
 
+    void EditorManager::draw_main_camera_menu()
+    {
+        const bool canSelectMainCamera = m_bridge != nullptr &&
+            m_engine != nullptr && m_engine->game_world() != nullptr &&
+            m_currentSceneId != GameCore::k_invalidSceneId &&
+            !m_isScriptActionActive;
+        if (!ImGui::BeginMenu("メインカメラ", canSelectMainCamera))
+        {
+            return;
+        }
+
+        std::vector<SceneCameraMenuEntry> cameras{};
+        const Result collectResult = m_engine->game_world()->for_each_object_in_scene(
+            m_currentSceneId,
+            [&cameras](
+                GameCore::EntityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+            {
+                ECS::CameraComponent* camera = nullptr;
+                if (!a_object.get_component(camera) || camera == nullptr)
+                {
+                    return;
+                }
+
+                SceneCameraMenuEntry entry{};
+                entry.entityId = a_object.entity_id();
+                entry.isMain = camera->isMain;
+                Result nameResult = a_object.name(entry.name);
+                if (!nameResult || entry.name.empty())
+                {
+                    entry.name = "Camera";
+                }
+
+                cameras.push_back(std::move(entry));
+            });
+        if (!collectResult)
+        {
+            ImGui::TextDisabled("Scene のカメラを取得できません。");
+            ImGui::EndMenu();
+            return;
+        }
+
+        if (cameras.empty())
+        {
+            ImGui::TextDisabled("Scene 内にカメラがありません。");
+            ImGui::EndMenu();
+            return;
+        }
+
+        for (size_t cameraIndex = 0; cameraIndex < cameras.size(); ++cameraIndex)
+        {
+            const SceneCameraMenuEntry& camera = cameras[cameraIndex];
+            const std::string label =
+                camera.name + "##MainCamera" + std::to_string(cameraIndex);
+            if (ImGui::MenuItem(label.c_str(), nullptr, camera.isMain, true))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<SetMainCameraCommand>(camera.entityId));
+                if (!result)
+                {
+                    log_result("Failed to set main camera", result);
+                    set_status_message(
+                        "メインカメラの変更に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("メインカメラを変更しました。", false);
+                }
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
     void EditorManager::process_debug_pick_request()
     {
         if (m_debugView == nullptr || m_engine == nullptr)
@@ -3125,6 +3207,23 @@ namespace Cue::Editor
 
                 if (ImGui::BeginMenu("3D", canAddObject))
                 {
+                    if (ImGui::MenuItem("カメラを追加"))
+                    {
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::Camera));
+                        if (!result)
+                        {
+                            log_result("Failed to add camera object", result);
+                            set_status_message(
+                                "カメラの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message("カメラを追加しました。", false);
+                        }
+                    }
+
                     if (ImGui::MenuItem("オブジェクトを追加"))
                     {
                         const Result result = m_bridge->submit_command(
@@ -3168,6 +3267,8 @@ namespace Cue::Editor
 
                     ImGui::EndMenu();
                 }
+
+                draw_main_camera_menu();
 
                 ImGui::Separator();
 

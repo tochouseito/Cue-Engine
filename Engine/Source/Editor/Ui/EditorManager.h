@@ -105,6 +105,7 @@ namespace Cue::Editor
         void undo_last_command();
         void redo_last_command();
         void handle_shortcuts();
+        void draw_main_camera_menu();
         void process_debug_pick_request();
         void sync_debug_selection();
 

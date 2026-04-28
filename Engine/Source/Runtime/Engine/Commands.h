@@ -32,6 +32,7 @@ namespace Cue
 
     enum class AddObjectType : uint8_t
     {
+        Camera,
         StaticMesh3D,
         Sprite2D
     };
@@ -46,7 +47,7 @@ namespace Cue
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) = 0;
-        virtual Result set_main_camera(uint32_t a_cameraIndex) = 0;
+        virtual Result set_main_camera(GameCore::EntityId a_cameraEntityId) = 0;
         virtual Result get_object_name(
             GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(
@@ -225,8 +226,8 @@ namespace Cue
     class SetMainCameraCommand final : public Core::CQRS::ICommand
     {
     public:
-        explicit SetMainCameraCommand(uint32_t a_cameraIndex) noexcept
-            : m_cameraIndex(a_cameraIndex)
+        explicit SetMainCameraCommand(GameCore::EntityId a_cameraEntityId) noexcept
+            : m_cameraEntityId(a_cameraEntityId)
         {
         }
 
@@ -242,11 +243,11 @@ namespace Cue
                     "Command context does not support main camera switching.");
             }
 
-            return gameCommandContext->set_main_camera(m_cameraIndex);
+            return gameCommandContext->set_main_camera(m_cameraEntityId);
         }
 
     private:
-        uint32_t m_cameraIndex = 0;
+        GameCore::EntityId m_cameraEntityId = GameCore::k_invalidEntityId;
     };
 
     class RenameObjectCommand final : public Core::CQRS::IUndoableCommand

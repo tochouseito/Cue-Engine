@@ -584,7 +584,6 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("CameraComponent");
             ImGui::Separator();
-            ImGui::Text("isMain: %s", component->isMain ? "true" : "false");
             ImGui::Text("fovY: %.3f", component->fovY);
             ImGui::Text("aspectRatio: %.3f", component->aspectRatio);
             ImGui::Text("nearZ: %.3f", component->nearZ);

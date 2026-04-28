@@ -24,6 +24,7 @@
 #include <memory>
 #include <cctype>
 #include <exception>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -112,6 +113,25 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_camera_object()
+        {
+            GameObject object{};
+            return add_camera_object(object);
+        }
+
+        [[nodiscard]] Result add_camera_object(GameObject& a_outObject)
+        {
+            return add_camera_object(make_camera_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_camera_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_camera_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_camera_object(
+            const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object()
         {
             GameObject object{};
@@ -152,6 +172,28 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId)
+        {
+            return add_camera_object_to_scene(
+                a_sceneId, make_camera_spawn_position());
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_camera_object_to_scene(
+                a_sceneId, make_camera_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_camera_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId)
         {
             return add_sprite_object_to_scene(a_sceneId, make_sprite_spawn_position());
@@ -185,13 +227,22 @@ namespace Cue::GameCore
                     "Static mesh object id was not found.");
         }
 
-        [[nodiscard]] Result set_main_camera(uint32_t a_cameraIndex)
+        [[nodiscard]] Result set_main_camera(EntityId a_cameraEntityId)
         {
+            if (!contains_object(a_cameraEntityId) ||
+                !has_component<ECS::CameraComponent>(a_cameraEntityId))
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Camera object was not found.");
+            }
+
             std::vector<EntityId> cameraEntities = collect_camera_entities();
-            if (a_cameraIndex >= cameraEntities.size())
+            auto targetIt = std::find(
+                cameraEntities.begin(), cameraEntities.end(), a_cameraEntityId);
+            if (targetIt == cameraEntities.end())
             {
                 return Result::fail(
-                    Code::NotFound, Severity::Error, "Camera index was not found.");
+                    Code::NotFound, Severity::Error, "Camera object was not found.");
             }
 
             for (uint32_t cameraIndex = 0;
@@ -204,10 +255,11 @@ namespace Cue::GameCore
                     continue;
                 }
 
-                camera->isMain = (cameraIndex == a_cameraIndex);
+                camera->isMain = (cameraEntities[cameraIndex] == a_cameraEntityId);
             }
 
-            m_mainCameraIndex = a_cameraIndex;
+            m_mainCameraIndex = static_cast<uint32_t>(
+                std::distance(cameraEntities.begin(), targetIt));
             return Result::ok();
         }
 
@@ -814,6 +866,11 @@ namespace Cue::GameCore
                 0.0f,
                 static_cast<float>(row) * 2.5f
             };
+        }
+
+        [[nodiscard]] Math::float3 make_camera_spawn_position() const noexcept
+        {
+            return Math::float3(0.0f, 0.0f, -6.0f);
         }
 
         [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept

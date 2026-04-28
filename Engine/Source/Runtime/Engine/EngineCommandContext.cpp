@@ -17,6 +17,11 @@ namespace Cue
         Result result = Result::ok();
         switch (a_objectType)
         {
+        case AddObjectType::Camera:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_camera_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_camera_object(object);
+            break;
         case AddObjectType::StaticMesh3D:
             result = m_currentSceneId != GameCore::k_invalidSceneId
                 ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
@@ -45,9 +50,10 @@ namespace Cue
         return m_gameWorld.get_render_object_entity(a_objectId, a_outEntityId);
     }
 
-    Result EngineCommandContext::set_main_camera(uint32_t a_cameraIndex)
+    Result EngineCommandContext::set_main_camera(
+        GameCore::EntityId a_cameraEntityId)
     {
-        return m_gameWorld.set_main_camera(a_cameraIndex);
+        return m_gameWorld.set_main_camera(a_cameraEntityId);
     }
 
     Result EngineCommandContext::get_object_name(
