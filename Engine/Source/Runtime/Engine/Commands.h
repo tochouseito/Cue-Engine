@@ -25,6 +25,8 @@ namespace Cue
         StaticMeshRenderer,
         SpriteRenderer,
         AudioSource,
+        RigidBody,
+        Collider,
         Script
     };
 

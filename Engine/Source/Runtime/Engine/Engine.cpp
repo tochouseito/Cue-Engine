@@ -39,6 +39,7 @@ namespace Cue
         m_platform = a_info.platform;
         m_backend = a_info.backend;
         m_audioBackend = a_info.audioBackend;
+        m_physicsSystem = a_info.physicsSystem;
         m_editorBridge = a_info.editorBridge;
         m_platformBridge = a_info.platformBridge;
 
@@ -152,8 +153,8 @@ namespace Cue
         result = m_editorWorld->initialize(
             bufferManager, viewManager, staticMeshPool, &m_assetManager,
             &m_platform->file_system(), m_audioBackend, m_audioDevice,
-            m_backend->buffer_count(), m_backend->width(), m_backend->height(),
-            m_defaultCubeMeshId, m_defaultMaterialHandle);
+            m_physicsSystem, m_backend->buffer_count(), m_backend->width(),
+            m_backend->height(), m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
         {
             return result;
@@ -272,6 +273,7 @@ namespace Cue
         }
         m_audioDevice = {};
         m_audioBackend = nullptr;
+        m_physicsSystem = nullptr;
     }
 
     Result Engine::begin_frame()
@@ -761,7 +763,7 @@ namespace Cue
                 bufferManager, viewManager, m_backend->get_static_mesh_pool(),
                 &m_assetManager,
                 &m_platform->file_system(), m_audioBackend, m_audioDevice,
-                m_backend->buffer_count(),
+                m_physicsSystem, m_backend->buffer_count(),
                 m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
                 m_defaultMaterialHandle);
             if (!result)

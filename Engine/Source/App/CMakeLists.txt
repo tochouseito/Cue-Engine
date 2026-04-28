@@ -11,6 +11,7 @@ target_link_libraries(CueApp PRIVATE
     win_platform
     d3d12_backend
     xaudio2_backend
+    jolt_physics_backend
     Engine
 )
 

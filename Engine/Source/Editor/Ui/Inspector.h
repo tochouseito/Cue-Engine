@@ -43,6 +43,8 @@ namespace Cue::Editor
             StaticMeshRenderer,
             SpriteRenderer,
             AudioSource,
+            RigidBody,
+            Collider,
             Script
         };
 
@@ -284,6 +286,16 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::AudioSource, "A" });
             }
 
+            if (has_component<ECS::RigidBodyComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::RigidBody, "P" });
+            }
+
+            if (has_component<ECS::ColliderComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Collider, "Co" });
+            }
+
             if (has_component<ECS::ScriptComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::Script, "Sc" });
@@ -329,6 +341,20 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::AudioSource,
                         "AudioSourceComponent" });
+            }
+
+            if (!has_component<ECS::RigidBodyComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::RigidBody,
+                        "RigidBodyComponent" });
+            }
+
+            if (!has_component<ECS::ColliderComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::Collider,
+                        "ColliderComponent" });
             }
 
             if (!has_component<ECS::ScriptComponent>(a_object))
@@ -455,6 +481,14 @@ namespace Cue::Editor
 
             case ComponentTab::AudioSource:
                 draw_audio_source_component(a_object);
+                break;
+
+            case ComponentTab::RigidBody:
+                draw_rigid_body_component(a_object);
+                break;
+
+            case ComponentTab::Collider:
+                draw_collider_component(a_object);
                 break;
 
             case ComponentTab::Script:
@@ -793,6 +827,130 @@ namespace Cue::Editor
                     "%s",
                     m_audioStatusMessage.c_str());
             }
+        }
+
+        void draw_rigid_body_component(GameCore::GameObject& a_object)
+        {
+            ECS::RigidBodyComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "RigidBodyComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("RigidBodyComponent");
+            ImGui::Separator();
+
+            const char* motionPreview = rigid_body_motion_label(component->motion);
+            if (ImGui::BeginCombo("motion", motionPreview))
+            {
+                draw_rigid_body_motion_item(
+                    "Static", Physics::MotionType::Static, component->motion);
+                draw_rigid_body_motion_item(
+                    "Kinematic", Physics::MotionType::Kinematic,
+                    component->motion);
+                draw_rigid_body_motion_item(
+                    "Dynamic", Physics::MotionType::Dynamic, component->motion);
+                ImGui::EndCombo();
+            }
+
+            float linearVelocity[3] = {
+                component->linearVelocity.x,
+                component->linearVelocity.y,
+                component->linearVelocity.z
+            };
+            if (ImGui::DragFloat3("linearVelocity", linearVelocity, 0.01f))
+            {
+                component->linearVelocity = Math::float3(
+                    linearVelocity[0], linearVelocity[1], linearVelocity[2]);
+            }
+
+            float angularVelocity[3] = {
+                component->angularVelocity.x,
+                component->angularVelocity.y,
+                component->angularVelocity.z
+            };
+            if (ImGui::DragFloat3("angularVelocity", angularVelocity, 0.01f))
+            {
+                component->angularVelocity = Math::float3(
+                    angularVelocity[0], angularVelocity[1], angularVelocity[2]);
+            }
+
+            ImGui::DragFloat("mass", &component->mass, 0.01f, 0.0f, 100000.0f);
+            ImGui::DragFloat(
+                "linearDamping", &component->linearDamping, 0.001f, 0.0f, 100.0f);
+            ImGui::DragFloat(
+                "angularDamping", &component->angularDamping, 0.001f, 0.0f, 100.0f);
+            ImGui::Checkbox("useGravity", &component->useGravity);
+            ImGui::Text("body: %s", component->body.valid() ? "valid" : "invalid");
+            ImGui::Text("isCreated: %s", component->isCreated ? "true" : "false");
+        }
+
+        void draw_collider_component(GameCore::GameObject& a_object)
+        {
+            ECS::ColliderComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("ColliderComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("ColliderComponent");
+            ImGui::Separator();
+
+            const char* typePreview = collider_shape_label(component->type);
+            if (ImGui::BeginCombo("type", typePreview))
+            {
+                draw_collider_shape_item(
+                    "Box", Physics::ShapeType::Box, component->type);
+                draw_collider_shape_item(
+                    "Sphere", Physics::ShapeType::Sphere, component->type);
+                draw_collider_shape_item(
+                    "Capsule", Physics::ShapeType::Capsule, component->type);
+                ImGui::EndCombo();
+            }
+
+            float offset[3] = {
+                component->offset.x,
+                component->offset.y,
+                component->offset.z
+            };
+            if (ImGui::DragFloat3("offset", offset, 0.01f))
+            {
+                component->offset = Math::float3(offset[0], offset[1], offset[2]);
+            }
+
+            float halfExtent[3] = {
+                component->halfExtent.x,
+                component->halfExtent.y,
+                component->halfExtent.z
+            };
+            if (ImGui::DragFloat3("halfExtent", halfExtent, 0.01f, 0.001f))
+            {
+                component->halfExtent = Math::float3(
+                    halfExtent[0], halfExtent[1], halfExtent[2]);
+            }
+
+            ImGui::DragFloat("radius", &component->radius, 0.01f, 0.001f);
+            ImGui::DragFloat("halfHeight", &component->halfHeight, 0.01f, 0.001f);
+            ImGui::DragFloat("friction", &component->friction, 0.01f, 0.0f, 10.0f);
+            ImGui::DragFloat(
+                "restitution", &component->restitution, 0.01f, 0.0f, 10.0f);
+
+            int layer = static_cast<int>(component->layer);
+            if (ImGui::DragInt("layer", &layer, 1.0f, 0, 65535))
+            {
+                component->layer = static_cast<uint16_t>((std::max)(layer, 0));
+            }
+
+            int mask = static_cast<int>(component->mask);
+            if (ImGui::DragInt("mask", &mask, 1.0f, 0, 65535))
+            {
+                component->mask = static_cast<uint16_t>((std::max)(mask, 0));
+            }
+
+            ImGui::Checkbox("isTrigger", &component->isTrigger);
         }
 
         void draw_script_component(GameCore::GameObject& a_object)
@@ -2793,6 +2951,70 @@ namespace Cue::Editor
             bool hasComponent = false;
             Result result = a_object.has_component<T>(hasComponent);
             return result && hasComponent;
+        }
+
+        [[nodiscard]] static const char* rigid_body_motion_label(
+            Physics::MotionType a_motion) noexcept
+        {
+            switch (a_motion)
+            {
+            case Physics::MotionType::Static:
+                return "Static";
+            case Physics::MotionType::Kinematic:
+                return "Kinematic";
+            case Physics::MotionType::Dynamic:
+                return "Dynamic";
+            }
+
+            return "Static";
+        }
+
+        static void draw_rigid_body_motion_item(
+            const char* a_label,
+            Physics::MotionType a_value,
+            Physics::MotionType& a_motion)
+        {
+            const bool isSelected = a_motion == a_value;
+            if (ImGui::Selectable(a_label, isSelected))
+            {
+                a_motion = a_value;
+            }
+            if (isSelected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+
+        [[nodiscard]] static const char* collider_shape_label(
+            Physics::ShapeType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case Physics::ShapeType::Box:
+                return "Box";
+            case Physics::ShapeType::Sphere:
+                return "Sphere";
+            case Physics::ShapeType::Capsule:
+                return "Capsule";
+            }
+
+            return "Box";
+        }
+
+        static void draw_collider_shape_item(
+            const char* a_label,
+            Physics::ShapeType a_value,
+            Physics::ShapeType& a_type)
+        {
+            const bool isSelected = a_type == a_value;
+            if (ImGui::Selectable(a_label, isSelected))
+            {
+                a_type = a_value;
+            }
+            if (isSelected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
         }
 
         void submit_add_component_command(AddableComponentType a_type)

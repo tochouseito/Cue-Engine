@@ -104,6 +104,14 @@ namespace Cue
             return add_component_internal<ECS::AudioSourceComponent>(
                 a_objectId, "AudioSourceComponent already exists.");
 
+        case AddableComponentType::RigidBody:
+            return add_component_internal<ECS::RigidBodyComponent>(
+                a_objectId, "RigidBodyComponent already exists.");
+
+        case AddableComponentType::Collider:
+            return add_component_internal<ECS::ColliderComponent>(
+                a_objectId, "ColliderComponent already exists.");
+
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
                 a_objectId, "ScriptComponent already exists.");
@@ -138,6 +146,14 @@ namespace Cue
         case AddableComponentType::AudioSource:
             return remove_component_internal<ECS::AudioSourceComponent>(
                 a_objectId, "AudioSourceComponent was not found.");
+
+        case AddableComponentType::RigidBody:
+            return remove_component_internal<ECS::RigidBodyComponent>(
+                a_objectId, "RigidBodyComponent was not found.");
+
+        case AddableComponentType::Collider:
+            return remove_component_internal<ECS::ColliderComponent>(
+                a_objectId, "ColliderComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

@@ -49,6 +49,7 @@ target_link_libraries(Editor PRIVATE
     win_platform
     d3d12_backend
     xaudio2_backend
+    jolt_physics_backend
     Engine
     Microsoft::DirectXTex
     assimp::assimp

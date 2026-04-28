@@ -15,6 +15,9 @@
 // === Audio includes ===
 #include <AudioBackendFactory.h>
 
+// === Physics includes ===
+#include <JoltPhysicsSystem.h>
+
 // === Engine includes ===
 #include <Engine.h>
 #include <Commands.h>
@@ -44,6 +47,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr;
     std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr;
     std::unique_ptr<Audio::IBackend> audioBackend = nullptr;
+    std::unique_ptr<Physics::Jolt::JoltPhysicsSystem> physicsSystem = nullptr;
     std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
     Core::CQRS::Bridge editorBridge{};
     Core::CQRS::Bridge platformBridge{};
@@ -147,6 +151,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    physicsSystem = std::make_unique<Physics::Jolt::JoltPhysicsSystem>();
+    Physics::PhysicsWorldDesc physicsWorldDesc{};
+    r = physicsSystem->initialize(physicsWorldDesc);
+    if (!r)
+    {
+#ifdef CUE_DEBUG
+        CUE_ASSERTF(false,
+            "Failed to initialize physics system: %s (code: %s, "
+            "severity: %s) at %s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to initialize physics system: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        physicsSystem->shutdown();
+        physicsSystem.reset();
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
+        return -1;
+    }
+
     // ImGui マネージャの初期化
     Cue::Editor::ImGuiSetupInfo imGuiInfo(backend->buffer_count());
     imGuiInfo.hwnd = platform->get_window_handle();
@@ -183,6 +214,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
     engineInfo.audioBackend = audioBackend.get();
+    engineInfo.physicsSystem = physicsSystem.get();
     engineInfo.maxFps = maxFps;
     engineInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     engineInfo.editorBridge = &editorBridge;
@@ -212,6 +244,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             r.message, Cue::to_string(r.code),
             Cue::to_string(r.severity), r.file, r.line, r.function);
 #endif
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -344,6 +378,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // エンジンのシャットダウン
     engine->shutdown();
     engine.reset();
+
+    physicsSystem->shutdown();
+    physicsSystem.reset();
 
     audioBackend->shutdown();
     audioBackend.reset();

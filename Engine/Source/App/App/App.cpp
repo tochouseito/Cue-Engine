@@ -16,6 +16,9 @@
 // === Audio includes ===
 #include <AudioBackendFactory.h>
 
+// === Physics includes ===
+#include <JoltPhysicsSystem.h>
+
 // === Engine includes ===
 #include <Engine.h>
 #include <GameCore/SceneSerializer.h>
@@ -506,12 +509,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    auto physicsSystem = std::make_unique<Physics::Jolt::JoltPhysicsSystem>();
+    Physics::PhysicsWorldDesc physicsWorldDesc{};
+    result = physicsSystem->initialize(physicsWorldDesc);
+    if (!result)
+    {
+        log_failure("Physics initialize", result);
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
+        return -1;
+    }
+
     auto engine = std::make_unique<Engine>();
 
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
     engineInfo.audioBackend = audioBackend.get();
+    engineInfo.physicsSystem = physicsSystem.get();
     engineInfo.maxFps = k_maxFps;
     engineInfo.platformBridge = &platformBridge;
     Core::IO::Path executableDirectory{};
@@ -519,6 +536,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!result)
     {
         log_failure("Resolve executable directory", result);
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -533,6 +552,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!result)
     {
         log_failure("Engine initialize", result);
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -548,6 +569,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Static game module load", result);
         engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -562,6 +585,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Resolve project root", result);
         engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -578,6 +603,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Project settings load", result);
         engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -591,6 +618,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Startup scene load", result);
         engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -603,6 +632,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         log_failure("Platform start", result);
         engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
         audioBackend->shutdown();
         audioBackend.reset();
         backend->shutdown();
@@ -644,6 +675,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     engine->shutdown();
     engine.reset();
+
+    physicsSystem->shutdown();
+    physicsSystem.reset();
 
     audioBackend->shutdown();
     audioBackend.reset();

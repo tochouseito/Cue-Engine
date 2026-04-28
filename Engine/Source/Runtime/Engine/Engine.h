@@ -15,6 +15,9 @@
 #include <FrameGraph.h>
 #include <RHI.h>
 
+// === Physics includes ===
+#include <Physics.h>
+
 // === Engine includes ===
 #include "Asset/AssetManager.h"
 #include "EngineCommandContext.h"
@@ -38,6 +41,7 @@ namespace Cue
         PAL::IPlatform* platform = nullptr;
         RHI::IBackend* backend = nullptr;
         Audio::IBackend* audioBackend = nullptr;
+        Physics::IPhysicsSystem* physicsSystem = nullptr;
         uint32_t maxFps = 60;
         Core::IO::Path errorTexturePath{};
 
@@ -270,6 +274,7 @@ namespace Cue
         PAL::IPlatform* m_platform = nullptr;
         RHI::IBackend* m_backend = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
+        Physics::IPhysicsSystem* m_physicsSystem = nullptr;
         AssetManager m_assetManager{};
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;

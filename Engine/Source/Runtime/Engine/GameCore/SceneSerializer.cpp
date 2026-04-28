@@ -33,6 +33,70 @@ namespace Cue::GameCore
             a_outValue.z = a_json.at("z").get<float>();
         }
 
+        [[nodiscard]] const char* to_string(
+            Physics::MotionType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case Physics::MotionType::Static:
+                return "Static";
+            case Physics::MotionType::Kinematic:
+                return "Kinematic";
+            case Physics::MotionType::Dynamic:
+                return "Dynamic";
+            }
+
+            return "Static";
+        }
+
+        [[nodiscard]] Physics::MotionType parse_motion_type(
+            const Json& a_json) noexcept
+        {
+            const std::string typeName = a_json.get<std::string>();
+            if (typeName == "Kinematic")
+            {
+                return Physics::MotionType::Kinematic;
+            }
+            if (typeName == "Dynamic")
+            {
+                return Physics::MotionType::Dynamic;
+            }
+
+            return Physics::MotionType::Static;
+        }
+
+        [[nodiscard]] const char* to_string(
+            Physics::ShapeType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case Physics::ShapeType::Box:
+                return "Box";
+            case Physics::ShapeType::Sphere:
+                return "Sphere";
+            case Physics::ShapeType::Capsule:
+                return "Capsule";
+            }
+
+            return "Box";
+        }
+
+        [[nodiscard]] Physics::ShapeType parse_shape_type(
+            const Json& a_json) noexcept
+        {
+            const std::string typeName = a_json.get<std::string>();
+            if (typeName == "Sphere")
+            {
+                return Physics::ShapeType::Sphere;
+            }
+            if (typeName == "Capsule")
+            {
+                return Physics::ShapeType::Capsule;
+            }
+
+            return Physics::ShapeType::Box;
+        }
+
         [[nodiscard]] Json serialize_transform(
             const ECS::TransformComponent& a_component)
         {
@@ -223,6 +287,91 @@ namespace Cue::GameCore
             a_outComponent.playRequested = false;
             a_outComponent.stopRequested = false;
             a_outComponent.hasStarted = false;
+        }
+
+        [[nodiscard]] Json serialize_rigid_body(
+            const ECS::RigidBodyComponent& a_component)
+        {
+            return Json{
+                { "motion", to_string(a_component.motion) },
+                { "linearVelocity", serialize_float3(a_component.linearVelocity) },
+                { "angularVelocity", serialize_float3(a_component.angularVelocity) },
+                { "mass", a_component.mass },
+                { "linearDamping", a_component.linearDamping },
+                { "angularDamping", a_component.angularDamping },
+                { "useGravity", a_component.useGravity },
+            };
+        }
+
+        void deserialize_rigid_body(
+            const Json& a_json, ECS::RigidBodyComponent& a_outComponent)
+        {
+            a_outComponent.body = {};
+            a_outComponent.motion = parse_motion_type(
+                a_json.value("motion", std::string("Dynamic")));
+            if (const Json::const_iterator linearVelocityIt =
+                a_json.find("linearVelocity");
+                linearVelocityIt != a_json.end())
+            {
+                deserialize_float3(*linearVelocityIt,
+                    a_outComponent.linearVelocity);
+            }
+            if (const Json::const_iterator angularVelocityIt =
+                a_json.find("angularVelocity");
+                angularVelocityIt != a_json.end())
+            {
+                deserialize_float3(*angularVelocityIt,
+                    a_outComponent.angularVelocity);
+            }
+            a_outComponent.mass = a_json.value("mass", 1.0f);
+            a_outComponent.linearDamping =
+                a_json.value("linearDamping", 0.05f);
+            a_outComponent.angularDamping =
+                a_json.value("angularDamping", 0.05f);
+            a_outComponent.useGravity = a_json.value("useGravity", true);
+            a_outComponent.isCreated = false;
+        }
+
+        [[nodiscard]] Json serialize_collider(
+            const ECS::ColliderComponent& a_component)
+        {
+            return Json{
+                { "type", to_string(a_component.type) },
+                { "offset", serialize_float3(a_component.offset) },
+                { "halfExtent", serialize_float3(a_component.halfExtent) },
+                { "radius", a_component.radius },
+                { "halfHeight", a_component.halfHeight },
+                { "friction", a_component.friction },
+                { "restitution", a_component.restitution },
+                { "layer", a_component.layer },
+                { "mask", a_component.mask },
+                { "isTrigger", a_component.isTrigger },
+            };
+        }
+
+        void deserialize_collider(
+            const Json& a_json, ECS::ColliderComponent& a_outComponent)
+        {
+            a_outComponent.type = parse_shape_type(
+                a_json.value("type", std::string("Box")));
+            if (const Json::const_iterator offsetIt = a_json.find("offset");
+                offsetIt != a_json.end())
+            {
+                deserialize_float3(*offsetIt, a_outComponent.offset);
+            }
+            if (const Json::const_iterator halfExtentIt =
+                a_json.find("halfExtent");
+                halfExtentIt != a_json.end())
+            {
+                deserialize_float3(*halfExtentIt, a_outComponent.halfExtent);
+            }
+            a_outComponent.radius = a_json.value("radius", 0.5f);
+            a_outComponent.halfHeight = a_json.value("halfHeight", 0.5f);
+            a_outComponent.friction = a_json.value("friction", 0.2f);
+            a_outComponent.restitution = a_json.value("restitution", 0.0f);
+            a_outComponent.layer = a_json.value("layer", uint16_t{ 0 });
+            a_outComponent.mask = a_json.value("mask", uint16_t{ 0xFFFFu });
+            a_outComponent.isTrigger = a_json.value("isTrigger", false);
         }
 
         [[nodiscard]] const char* to_string(ECS::ScriptFieldType a_type) noexcept
@@ -442,6 +591,21 @@ namespace Cue::GameCore
                     serialize_audio_source(*audioSource);
             }
 
+            if (const ECS::RigidBodyComponent* rigidBody =
+                a_definition.prototype.get_component_ptr<ECS::RigidBodyComponent>();
+                rigidBody != nullptr)
+            {
+                componentsJson["rigidBody"] =
+                    serialize_rigid_body(*rigidBody);
+            }
+
+            if (const ECS::ColliderComponent* collider =
+                a_definition.prototype.get_component_ptr<ECS::ColliderComponent>();
+                collider != nullptr)
+            {
+                componentsJson["collider"] = serialize_collider(*collider);
+            }
+
             if (const ECS::ScriptComponent* script =
                 a_definition.prototype.get_component_ptr<ECS::ScriptComponent>();
                 script != nullptr)
@@ -527,6 +691,24 @@ namespace Cue::GameCore
                     ECS::AudioSourceComponent audioSource{};
                     deserialize_audio_source(*audioSourceIt, audioSource);
                     objectDefinition.prototype.add_component(audioSource);
+                }
+
+                if (const Json::const_iterator rigidBodyIt =
+                    componentsJson.find("rigidBody");
+                    rigidBodyIt != componentsJson.end())
+                {
+                    ECS::RigidBodyComponent rigidBody{};
+                    deserialize_rigid_body(*rigidBodyIt, rigidBody);
+                    objectDefinition.prototype.add_component(rigidBody);
+                }
+
+                if (const Json::const_iterator colliderIt =
+                    componentsJson.find("collider");
+                    colliderIt != componentsJson.end())
+                {
+                    ECS::ColliderComponent collider{};
+                    deserialize_collider(*colliderIt, collider);
+                    objectDefinition.prototype.add_component(collider);
                 }
 
                 if (const Json::const_iterator scriptIt =

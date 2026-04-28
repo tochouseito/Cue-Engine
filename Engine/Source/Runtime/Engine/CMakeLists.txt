@@ -41,7 +41,7 @@ add_library(Engine STATIC
     "Asset/SoundAssetFormat.h"
     "Asset/TextureAssetFormat.h"
     "Asset/AssetManager.h"
-    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/Systems/SpriteSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h" "GameCore/SceneSerializer.h" "GameCore/SceneSerializer.cpp" "GameCore/GameWorld.cpp")
+    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/Systems/SpriteSystem.h" "GameCore/Systems/PhysicsBodySystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h" "GameCore/SceneSerializer.h" "GameCore/SceneSerializer.cpp" "GameCore/GameWorld.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC
@@ -53,6 +53,7 @@ target_link_libraries(Engine PUBLIC
     ECS
     PAL
     RHI
+    Physics
     nlohmann_json::nlohmann_json
 )
 

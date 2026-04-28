@@ -57,6 +57,7 @@ namespace Cue::GameCore
         Core::IO::IFileSystem* a_fileSystem,
         Audio::IBackend* a_audioBackend,
         Audio::AudioDeviceHandle a_audioDevice,
+        Physics::IPhysicsSystem* a_physicsSystem,
         uint32_t a_bufferCount,
         uint32_t a_renderWidth,
         uint32_t a_renderHeight,
@@ -160,11 +161,14 @@ namespace Cue::GameCore
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
         auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
+        auto& physicsBodySystem = m_ecs.add_system<ECS::PhysicsBodySystem>(
+            a_physicsSystem);
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&physicsBodySystem);
         m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);
         m_editorPipeline.initialize(m_ecs);

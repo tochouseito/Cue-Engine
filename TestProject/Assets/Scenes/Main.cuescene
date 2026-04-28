@@ -39,12 +39,50 @@
                 "audioSource": {
                     "fileName": "fanfare.cuesound",
                     "loop": false,
+                    "playOnStart": false,
                     "spatialBlend": 0.0,
                     "volume": 0.3880000114440918
+                },
+                "collider": {
+                    "friction": 0.20000000298023224,
+                    "halfExtent": {
+                        "x": 0.5,
+                        "y": 0.5,
+                        "z": 0.5
+                    },
+                    "halfHeight": 0.5,
+                    "isTrigger": false,
+                    "layer": 0,
+                    "mask": 65535,
+                    "offset": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "radius": 0.5,
+                    "restitution": 0.0,
+                    "type": "Box"
                 },
                 "meshFilter": {
                     "meshId": 1,
                     "modelName": "axis"
+                },
+                "rigidBody": {
+                    "angularDamping": 0.05000000074505806,
+                    "angularVelocity": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "linearDamping": 0.05000000074505806,
+                    "linearVelocity": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "mass": 1.0,
+                    "motion": "Dynamic",
+                    "useGravity": true
                 },
                 "script": {
                     "className": "RotateCube",

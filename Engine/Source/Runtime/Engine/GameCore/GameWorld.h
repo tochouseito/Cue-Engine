@@ -12,6 +12,7 @@
 #include "SceneInstance.h"
 #include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
+#include "Systems/PhysicsBodySystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "Systems/SpriteSystem.h"
 #include "WorldResources.h"
@@ -72,6 +73,7 @@ namespace Cue::GameCore
             Core::IO::IFileSystem* a_fileSystem,
             Audio::IBackend* a_audioBackend,
             Audio::AudioDeviceHandle a_audioDevice,
+            Physics::IPhysicsSystem* a_physicsSystem,
             uint32_t a_bufferCount,
             uint32_t a_renderWidth,
             uint32_t a_renderHeight,
@@ -1233,6 +1235,23 @@ namespace Cue::GameCore
                 copiedAudioSource.stopRequested = false;
                 copiedAudioSource.hasStarted = false;
                 prototype.add_component(copiedAudioSource);
+            }
+
+            if (const ECS::RigidBodyComponent* rigidBody =
+                get_component<ECS::RigidBodyComponent>(a_entityId);
+                rigidBody != nullptr)
+            {
+                ECS::RigidBodyComponent copiedRigidBody = *rigidBody;
+                copiedRigidBody.body = {};
+                copiedRigidBody.isCreated = false;
+                prototype.add_component(copiedRigidBody);
+            }
+
+            if (const ECS::ColliderComponent* collider =
+                get_component<ECS::ColliderComponent>(a_entityId);
+                collider != nullptr)
+            {
+                prototype.add_component(*collider);
             }
 
             if (const ECS::ScriptComponent* script =
