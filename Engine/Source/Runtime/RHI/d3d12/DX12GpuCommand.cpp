@@ -481,6 +481,127 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+    Result DX12GpuCommandContext::copy_texture_region_to_buffer(
+        const TextureToBufferCopyRegion& region)
+    {
+        if (region.width == 0 || region.height == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Texture copy region size must be greater than 0.");
+        }
+
+        const uint32_t texelSize = color_format_byte_size(region.format);
+        if (texelSize == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Texture copy format is not supported for readback.");
+        }
+
+        DX12TextureRecord* textureRecord = nullptr;
+        if (!m_textureManager.try_get_record(region.srcTextureHandle,
+                &textureRecord) ||
+            textureRecord == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Source texture record was not found.");
+        }
+
+        uint32_t textureResourceIndex = 0;
+        Result result = resolve_slice_index(
+            textureRecord->defaultResources.size(), textureResourceIndex);
+        if (!result)
+        {
+            return result;
+        }
+        DX12GpuResource& textureResource =
+            textureRecord->defaultResources[textureResourceIndex];
+        ID3D12Resource* d3dTexture = textureResource.get_resource();
+        if (d3dTexture == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Source texture resource was not found.");
+        }
+
+        const D3D12_RESOURCE_DESC& textureDesc =
+            textureResource.get_resource_desc();
+        if (region.srcX + region.width > textureDesc.Width ||
+            region.srcY + region.height > textureDesc.Height)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Texture copy source region is out of bounds.");
+        }
+
+        DX12GpuResource* dstResource = nullptr;
+        result = resolve_readback_buffer(
+            region.dstBufferHandle,
+            region.dstReadbackResourceIndex,
+            &dstResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        constexpr uint32_t k_textureDataPitchAlignment =
+            D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+        const uint32_t rowPitch = static_cast<uint32_t>(
+            Math::round_up_to_multiple(
+                static_cast<uint64_t>(region.width) * texelSize,
+                static_cast<uint64_t>(k_textureDataPitchAlignment)));
+        const uint64_t requiredBytes =
+            region.dstByteOffset +
+            static_cast<uint64_t>(rowPitch) * region.height;
+        if (requiredBytes > dstResource->get_buffer_size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Texture copy destination readback buffer is too small.");
+        }
+
+        D3D12_TEXTURE_COPY_LOCATION dstLocation{};
+        dstLocation.pResource = dstResource->get_resource();
+        dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dstLocation.PlacedFootprint.Offset = region.dstByteOffset;
+        dstLocation.PlacedFootprint.Footprint.Format =
+            convert_color_format(region.format);
+        dstLocation.PlacedFootprint.Footprint.Width = region.width;
+        dstLocation.PlacedFootprint.Footprint.Height = region.height;
+        dstLocation.PlacedFootprint.Footprint.Depth = 1;
+        dstLocation.PlacedFootprint.Footprint.RowPitch = rowPitch;
+
+        D3D12_TEXTURE_COPY_LOCATION srcLocation{};
+        srcLocation.pResource = d3dTexture;
+        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcLocation.SubresourceIndex = 0;
+
+        D3D12_BOX srcBox{};
+        srcBox.left = region.srcX;
+        srcBox.top = region.srcY;
+        srcBox.front = 0;
+        srcBox.right = region.srcX + region.width;
+        srcBox.bottom = region.srcY + region.height;
+        srcBox.back = 1;
+
+        m_commandList->CopyTextureRegion(
+            &dstLocation,
+            0,
+            0,
+            0,
+            &srcLocation,
+            &srcBox);
+
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
         // ハンドルからビューを取得する
@@ -1515,6 +1636,33 @@ namespace Cue::RHI::DX12
         }
 
         *outResource = const_cast<DX12GpuResource*>(&record->defaultResources[resourceIndex]);
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::resolve_readback_buffer(
+        BufferHandle handle,
+        uint32_t resourceIndex,
+        DX12GpuResource** outResource) const
+    {
+        *outResource = nullptr;
+
+        DX12BufferRecord* record = nullptr;
+        if (!m_bufferManager.try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Readback buffer record was not found.");
+        }
+        if (resourceIndex >= record->readbackResources.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Readback resource index is out of range.");
+        }
+
+        *outResource =
+            const_cast<DX12GpuResource*>(&record->readbackResources[resourceIndex]);
         return Result::ok();
     }
     Result DX12GpuCommandContext::create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)

@@ -62,6 +62,7 @@ namespace Cue::RHI::DX12
         Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) override;
         Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) override;
         Result copy_buffer_region(const BufferCopyRegion& region) override;
+        Result copy_texture_region_to_buffer(const TextureToBufferCopyRegion& region) override;
         Result clear_render_target(ViewHandle handle, const float clearColor[4]) override;
         Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) override;
         Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) override;
@@ -93,6 +94,7 @@ namespace Cue::RHI::DX12
         Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
         Result resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
         Result resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
+        Result resolve_readback_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
     private:
         DescriptorAllocator& m_descriptorAllocator; // デスクリプタアロケータへの参照
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照

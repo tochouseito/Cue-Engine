@@ -23,6 +23,8 @@
 #include "EngineCommandContext.h"
 #include "FrameController.h"
 #include "GameCore/GameWorld.h"
+#include "GpuData/DebugSelection.h"
+#include "GpuData/DebugPick.h"
 #include "GpuData/ViewProjection.h"
 #include "Script/ScriptModuleHost.h"
 
@@ -211,6 +213,21 @@ namespace Cue
             m_debugViewProjection = a_viewProjection;
         }
 
+        void set_debug_selection(
+            const GpuData::DebugSelectionGpu& a_selection) noexcept
+        {
+            m_debugSelection = a_selection;
+        }
+
+        void set_debug_selected_object_id(uint32_t a_objectId) noexcept
+        {
+            m_debugSelectedObjectId = a_objectId;
+        }
+
+        void request_debug_pick(float a_normalizedX, float a_normalizedY) noexcept;
+        [[nodiscard]] bool consume_debug_pick_result(
+            GameCore::EntityId& a_outEntityId) noexcept;
+
         [[nodiscard]] RHI::FrameGraphExecutionStats
             render_frame_graph_stats() const noexcept
         {
@@ -272,16 +289,23 @@ namespace Cue
 
         Result create_render_target_resources(
             std::string_view a_name,
+            RHI::ColorFormat a_format,
             RenderTargetResources& a_outResources);
         Result destroy_render_target_resources(
             RenderTargetResources& a_resources);
+        Result create_debug_pick_readback_buffer();
+        Result destroy_debug_pick_readback_buffer();
         Result create_view_projection_buffer(
             std::string_view a_name,
             RHI::BufferHandle& a_outBufferHandle,
             std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
                 a_outUploaders);
+        Result create_debug_selection_buffer();
         Result destroy_debug_view_projection_buffer();
+        Result destroy_debug_selection_buffer();
         Result upload_debug_view_projection(uint32_t a_bufferIndex);
+        Result upload_debug_selection(uint32_t a_bufferIndex);
+        void resolve_debug_pick_readback() noexcept;
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
         Result recreate_render_frame_graph();
         Result sync_active_world_buffers();
@@ -312,10 +336,21 @@ namespace Cue
         PAL::PlatformRuntimeState m_platformRuntimeState{};
         RenderTargetResources m_gameRenderTarget{};
         RenderTargetResources m_debugRenderTarget{};
+        RenderTargetResources m_debugObjectIdTarget{};
         RHI::BufferHandle m_debugViewProjectionBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
             m_debugViewProjectionUploaders{};
         GpuData::ViewProjectionGpu m_debugViewProjection{};
+        RHI::BufferHandle m_debugSelectionBufferHandle{};
+        std::vector<RHI::SlotUploader<GpuData::DebugSelectionGpu>>
+            m_debugSelectionUploaders{};
+        GpuData::DebugSelectionGpu m_debugSelection{};
+        RHI::BufferHandle m_debugPickReadbackBufferHandle{};
+        RHI::ReadbackBufferView m_debugPickReadbackView{};
+        GpuData::DebugPickState m_debugPickState{};
+        GameCore::EntityId m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        bool m_hasDebugPickResult = false;
+        uint32_t m_debugSelectedObjectId = 0;
         Audio::AudioDeviceHandle m_audioDevice{};
         Core::IO::Path m_assetRootPath{};
         MaterialHandle m_defaultMaterialHandle{};

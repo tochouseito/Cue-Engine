@@ -2978,6 +2978,66 @@ namespace Cue::Editor
         }
     }
 
+    void EditorManager::process_debug_pick_request()
+    {
+        if (m_debugView == nullptr || m_engine == nullptr)
+        {
+            return;
+        }
+
+        GameCore::EntityId pickedEntityId = GameCore::k_invalidEntityId;
+        if (m_engine->consume_debug_pick_result(pickedEntityId))
+        {
+            m_selectedEntityId = pickedEntityId;
+        }
+
+        DebugView::PickRequest pickRequest{};
+        if (!m_debugView->consume_pick_request(pickRequest))
+        {
+            return;
+        }
+
+        m_engine->request_debug_pick(
+            pickRequest.normalizedX,
+            pickRequest.normalizedY);
+    }
+
+    void EditorManager::sync_debug_selection()
+    {
+        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return;
+        }
+
+        GpuData::DebugSelectionGpu selection{};
+        uint32_t selectedObjectId = 0;
+        if (m_selectedEntityId != GameCore::k_invalidEntityId)
+        {
+            const ECS::TransformComponent* transform = nullptr;
+            if (m_engine->game_world()->get_component<ECS::TransformComponent>(
+                    m_selectedEntityId, transform))
+            {
+                selection.world = Math::make_affine_matrix(
+                    transform->scale * 1.08f,
+                    transform->rotation,
+                    transform->position);
+                selection.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
+                selection.isEnabled = 1;
+            }
+
+            const ECS::RenderableInfoComponent* renderableInfo = nullptr;
+            if (m_engine->game_world()->get_component<ECS::RenderableInfoComponent>(
+                    m_selectedEntityId, renderableInfo) &&
+                renderableInfo->objectId != ECS::k_invalidRenderableId)
+            {
+                selectedObjectId = renderableInfo->objectId + 1u;
+            }
+        }
+
+        m_engine->set_debug_selection(selection);
+        m_engine->set_debug_selected_object_id(selectedObjectId);
+    }
+
     void EditorManager::update()
     {
         m_currentUpdateMetrics = EditorUpdateMetrics{};
@@ -3626,6 +3686,8 @@ namespace Cue::Editor
         debugViewTimer.stop();
         m_currentUpdateMetrics.debugViewMs =
             debugViewTimer.elapsed_ticks().ms_f64();
+        process_debug_pick_request();
+        sync_debug_selection();
         if (m_engine != nullptr)
         {
             m_engine->set_debug_view_camera(m_debugCamera.view_projection());

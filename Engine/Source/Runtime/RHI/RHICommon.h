@@ -10,6 +10,7 @@ namespace Cue::RHI
     {
         R8G8B8A8_UNORM,
         R8G8B8A8_UNORM_SRGB,
+        R32_UINT,
         D24_UNorm_S8_UInt
     };
 
@@ -19,8 +20,22 @@ namespace Cue::RHI
         {
         case ColorFormat::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
         case ColorFormat::R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
+        case ColorFormat::R32_UINT: return "R32_UINT";
         case ColorFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
         default: return "Unknown";
+        }
+    }
+
+    inline uint32_t color_format_byte_size(ColorFormat format) noexcept
+    {
+        switch (format)
+        {
+        case ColorFormat::R8G8B8A8_UNORM:
+        case ColorFormat::R8G8B8A8_UNORM_SRGB:
+        case ColorFormat::R32_UINT:
+            return 4;
+        default:
+            return 0;
         }
     }
 
@@ -38,6 +53,7 @@ namespace Cue::RHI
         Structured,
         UnorderedAccess,
         Raw,
+        Readback,
         Unknown,
     };
 
@@ -51,6 +67,7 @@ namespace Cue::RHI
         case BufferType::Structured: return "Structured";
         case BufferType::UnorderedAccess: return "UnorderedAccess";
         case BufferType::Raw: return "Raw";
+        case BufferType::Readback: return "Readback";
         case BufferType::Unknown: return "Unknown";
         default: return "Unknown";
         }

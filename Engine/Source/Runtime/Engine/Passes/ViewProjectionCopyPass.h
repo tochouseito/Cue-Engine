@@ -6,17 +6,25 @@
 // === Engine includes ===
 #include <GpuData/ViewProjection.h>
 
+// === C++ includes ===
+#include <string>
+#include <string_view>
+
 namespace Cue
 {
     class ViewProjectionCopyPass final : public RHI::FrameGraphPass
     {
     public:
         explicit ViewProjectionCopyPass(
-            RHI::BufferHandle a_viewProjectionBufferHandle)
+            RHI::BufferHandle a_viewProjectionBufferHandle,
+            uint64_t a_byteSize = sizeof(GpuData::ViewProjectionGpu),
+            std::string_view a_name = "ViewProjectionCopy")
             : m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
+            , m_byteSize(a_byteSize)
+            , m_name(a_name)
         {}
 
-        const char* name() const noexcept override { return "ViewProjectionCopy"; }
+        const char* name() const noexcept override { return m_name.c_str(); }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -57,7 +65,7 @@ namespace Cue
             region.dstBufferHandle = m_viewProjectionBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
-            region.byteSize = sizeof(GpuData::ViewProjectionGpu);
+            region.byteSize = m_byteSize;
 
             Result copyResult = commandContext->copy_buffer_region(region);
 
@@ -66,5 +74,7 @@ namespace Cue
 
     private:
         RHI::BufferHandle m_viewProjectionBufferHandle{};
+        uint64_t m_byteSize = sizeof(GpuData::ViewProjectionGpu);
+        std::string m_name{};
     };
 } // namespace Cue

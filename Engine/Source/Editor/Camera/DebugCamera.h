@@ -5,6 +5,7 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <cmath>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -14,6 +15,12 @@ namespace Cue::Editor
     class DebugCamera final
     {
     public:
+        struct Ray final
+        {
+            Math::float3 origin = Math::float3::zero();
+            Math::float3 direction = Math::float3(0.0f, 0.0f, -1.0f);
+        };
+
         DebugCamera() = default;
         ~DebugCamera() = default;
 
@@ -86,6 +93,24 @@ namespace Cue::Editor
                 m_farZ);
 
             return viewProjection;
+        }
+
+        [[nodiscard]] Ray pick_ray(
+            float a_normalizedX,
+            float a_normalizedY) const noexcept
+        {
+            const float tanHalfFov =
+                std::tan((m_fovY * Math::k_pi / 180.0f) * 0.5f);
+            const float viewX =
+                (a_normalizedX * 2.0f - 1.0f) * m_aspectRatio * tanHalfFov;
+            const float viewY = (1.0f - a_normalizedY * 2.0f) * tanHalfFov;
+            Math::float3 direction =
+                right_axis() * viewX +
+                up_axis() * viewY +
+                forward_axis();
+            direction.normalize();
+
+            return Ray{ m_position, direction };
         }
 
     private:

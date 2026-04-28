@@ -130,6 +130,8 @@ namespace Cue::RHI::DX12
             return DXGI_FORMAT_R8G8B8A8_UNORM;
         case ColorFormat::R8G8B8A8_UNORM_SRGB:
             return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        case ColorFormat::R32_UINT:
+            return DXGI_FORMAT_R32_UINT;
         case ColorFormat::D24_UNorm_S8_UInt:
             return DXGI_FORMAT_D24_UNORM_S8_UINT;
         default:
@@ -145,6 +147,8 @@ namespace Cue::RHI::DX12
             return ColorFormat::R8G8B8A8_UNORM;
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
             return ColorFormat::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_R32_UINT:
+            return ColorFormat::R32_UINT;
         case DXGI_FORMAT_D24_UNORM_S8_UINT:
             return ColorFormat::D24_UNorm_S8_UInt;
         default:

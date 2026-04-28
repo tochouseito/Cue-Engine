@@ -17,6 +17,12 @@ namespace Cue::Editor
     class DebugView final
     {
     public:
+        struct PickRequest final
+        {
+            float normalizedX = 0.0f;
+            float normalizedY = 0.0f;
+        };
+
         DebugView(
             RHI::DX12::D3D12Backend* a_backend,
             DebugCamera* a_camera)
@@ -25,6 +31,20 @@ namespace Cue::Editor
         {
         }
         ~DebugView() = default;
+
+        [[nodiscard]] bool consume_pick_request(
+            PickRequest& a_outRequest) noexcept
+        {
+            if (!m_hasPickRequest)
+            {
+                return false;
+            }
+
+            a_outRequest = m_pickRequest;
+            m_hasPickRequest = false;
+            return true;
+        }
+
         void update()
         {
             if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
@@ -72,6 +92,22 @@ namespace Cue::Editor
                 ImGui::Image(
                     static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
                     availableRegion);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+                {
+                    const ImVec2 mousePos = ImGui::GetMousePos();
+                    const ImVec2 itemMin = ImGui::GetItemRectMin();
+                    const ImVec2 itemMax = ImGui::GetItemRectMax();
+                    const float itemWidth = itemMax.x - itemMin.x;
+                    const float itemHeight = itemMax.y - itemMin.y;
+                    if (itemWidth > 0.0f && itemHeight > 0.0f)
+                    {
+                        m_pickRequest.normalizedX =
+                            (mousePos.x - itemMin.x) / itemWidth;
+                        m_pickRequest.normalizedY =
+                            (mousePos.y - itemMin.y) / itemHeight;
+                        m_hasPickRequest = true;
+                    }
+                }
             }
 
             ImGui::End();
@@ -81,5 +117,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         DebugCamera* m_camera = nullptr;
         RHI::ViewHandle m_debugColorSrvHandle{};
+        PickRequest m_pickRequest{};
+        bool m_hasPickRequest = false;
     };
 }

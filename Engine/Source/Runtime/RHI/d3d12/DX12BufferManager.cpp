@@ -22,7 +22,7 @@ namespace Cue::RHI::DX12
         DX12BufferRecord record{};
 
         // --- 引数の検査 ---
-        CUE_ASSERT_MSG(desc.defaultHeapCount + desc.uploadHeapCount > 0, "Buffer must have at least one heap.");
+        CUE_ASSERT_MSG(desc.defaultHeapCount + desc.uploadHeapCount + desc.readbackHeapCount > 0, "Buffer must have at least one heap.");
         CUE_ASSERT_MSG(desc.size > 0, "Buffer size must be greater than 0.");
         CUE_ASSERT_MSG(desc.stride > 0, "Buffer stride must be greater than 0.");
         CUE_ASSERT_MSG(desc.elementCount > 0, "Buffer element count must be greater than 0.");
@@ -103,6 +103,48 @@ namespace Cue::RHI::DX12
             }
             // 成功したらレコードに追加
             record.uploadResources.emplace_back(std::move(resource));
+        }
+
+        // 読み戻しヒープバッファの作成
+        for (uint32_t i = 0; i < desc.readbackHeapCount; ++i)
+        {
+            DX12GpuResource resource;
+            D3D12_HEAP_FLAGS heapFlags = D3D12_HEAP_FLAG_NONE;
+            D3D12_HEAP_PROPERTIES heapProperties = {};
+            heapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC resourceDesc = {};
+            resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resourceDesc.Width = desc.size;
+            resourceDesc.Height = 1;
+            resourceDesc.DepthOrArraySize = 1;
+            resourceDesc.MipLevels = 1;
+            resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+            resourceDesc.SampleDesc = { 1, 0 };
+            resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            resourceDesc.Alignment = 0;
+            resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            std::wstring name = L"";
+            PAL::Win::utf8_to_wide(desc.name, &name);
+            Result createResult = resource.create(
+                *m_renderDevice.get_d3d12_device(),
+                heapProperties,
+                heapFlags,
+                resourceDesc,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr,
+                name);
+            if (!createResult)
+            {
+                return createResult;
+            }
+            Result mapResult = resource.map_persistent();
+            if (!mapResult)
+            {
+                return mapResult;
+            }
+
+            record.readbackResources.emplace_back(std::move(resource));
         }
 
         // レコードの保存
@@ -197,6 +239,57 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
+    Result DX12BufferManager::get_readback_buffer_view(
+        BufferHandle handle,
+        ReadbackBufferView& outView)
+    {
+        DX12BufferRecord* record = nullptr;
+        outView = {};
+        if (!try_get_record(handle, &record) || record == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Buffer record not found for the given handle.");
+        }
+        if (record->desc.elementCount == 0 || record->desc.alignment == 0 ||
+            record->desc.stride == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Buffer description is not valid for readback.");
+        }
+        if (record->readbackResources.empty())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Readback heap resources were not created for the given buffer.");
+        }
+
+        outView.alignment = record->desc.alignment;
+        outView.stride = record->desc.stride;
+        outView.elementCount = record->desc.elementCount;
+        outView.mappedDatas.reserve(record->readbackResources.size());
+        for (DX12GpuResource& resource : record->readbackResources)
+        {
+            if (resource.mapped_data() == nullptr)
+            {
+                outView = {};
+                return Result::fail(
+                    Code::InternalError,
+                    Severity::Error,
+                    "Readback heap resource is not mapped.");
+            }
+
+            outView.mappedDatas.emplace_back(resource.mapped_data());
+        }
+
+        return Result::ok();
+    }
+
     Result DX12BufferManager::destroy_buffer(BufferHandle handle)
     {
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
@@ -218,6 +311,18 @@ namespace Cue::RHI::DX12
                 }
 
                 for (const DX12GpuResource& resource : record.uploadResources)
+                {
+                    if (resource.is_in_use())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+
+                for (const DX12GpuResource& resource : record.readbackResources)
                 {
                     if (resource.is_in_use())
                     {
@@ -254,6 +359,18 @@ namespace Cue::RHI::DX12
                 }
 
                 for (DX12GpuResource& resource : record.uploadResources)
+                {
+                    if (!resource.destroy())
+                    {
+                        result = Result::fail(
+                            Code::AccessDenied,
+                            Severity::Error,
+                            "Failed to destroy buffer because one or more resources are still in use.");
+                        return;
+                    }
+                }
+
+                for (DX12GpuResource& resource : record.readbackResources)
                 {
                     if (!resource.destroy())
                     {

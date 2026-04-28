@@ -27,6 +27,7 @@ namespace Cue::RHI
     class IQueueContext;
 
     enum class IndexFormat : uint8_t;
+    enum class ColorFormat : uint8_t;
 
     struct BufferTag {};
     struct TextureTag {};
@@ -69,6 +70,8 @@ namespace Cue::RHI
         switch (state)
         {
         case ResourceState::Common: return "Common";
+        case ResourceState::CopySource: return "CopySource";
+        case ResourceState::CopyDest: return "CopyDest";
         case ResourceState::RenderTarget: return "RenderTarget";
         case ResourceState::UnorderedAccess: return "UnorderedAccess";
         case ResourceState::ShaderResource: return "ShaderResource";
@@ -134,6 +137,19 @@ namespace Cue::RHI
         uint64_t byteSize = 0;
     };
 
+    struct TextureToBufferCopyRegion final
+    {
+        TextureHandle srcTextureHandle = {};
+        uint32_t srcX = 0;
+        uint32_t srcY = 0;
+        uint32_t width = 1;
+        uint32_t height = 1;
+        ColorFormat format;
+        BufferHandle dstBufferHandle = {};
+        uint32_t dstReadbackResourceIndex = 0;
+        uint64_t dstByteOffset = 0;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェースです。
     class ICommandContext
     {
@@ -168,6 +184,7 @@ namespace Cue::RHI
         virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
+        virtual Result copy_texture_region_to_buffer(const TextureToBufferCopyRegion& region) = 0;
         virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
         virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
         virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;

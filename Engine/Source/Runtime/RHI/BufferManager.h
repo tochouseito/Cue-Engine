@@ -14,12 +14,21 @@ namespace Cue::RHI
         std::vector<std::byte*> mappedDatas{};
     };
 
+    struct ReadbackBufferView
+    {
+        uint32_t alignment = 0;
+        uint32_t stride = 0;
+        uint32_t elementCount = 0;
+        std::vector<std::byte*> mappedDatas{};
+    };
+
     struct BufferDesc
     {
         std::string name;
         BufferType type = BufferType::Unknown;
         uint32_t defaultHeapCount = 0; // デフォルトのヒープ数（バッファリングなしの場合は1）
         uint32_t uploadHeapCount = 0; // アップロードヒープの数（アップロードが必要な場合は1以上）
+        uint32_t readbackHeapCount = 0; // GPU から CPU へ読み戻すヒープ数
         ResourceState initialState = ResourceState::Common;
         uint32_t stride = 0; // StructuredBufferの要素サイズなど、リソースのインスタンスごとのサイズ
         uint32_t elementCount = 0; // StructuredBufferの要素数など、リソースのインスタンスごとの要素数
@@ -48,6 +57,7 @@ namespace Cue::RHI
 
         // --- アップローダーの作成 ---
         virtual Result get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView) = 0;
+        virtual Result get_readback_buffer_view(BufferHandle handle, ReadbackBufferView& outView) = 0;
 
         template<typename T>
         Result create_slot_uploaders(

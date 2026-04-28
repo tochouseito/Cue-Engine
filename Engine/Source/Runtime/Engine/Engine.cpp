@@ -1,5 +1,10 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
+#include "Passes/DebugGridPass.h"
+#include "Passes/DebugObjectIdPass.h"
+#include "Passes/DebugOutlinePass.h"
+#include "Passes/DebugPickReadbackPass.h"
+#include "Passes/DebugSelectionPass.h"
 #include "Passes/GenerateVisibleList.h"
 #include "Passes/VisibleObjectBucketizePass.h"
 #include "Passes/MaterialBufferCopyPass.h"
@@ -20,7 +25,9 @@
 
 // === C++ includes ===
 #include <array>
+#include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace Cue
@@ -171,13 +178,34 @@ namespace Cue
             return result;
         }
 
-        result = create_render_target_resources("GameColor", m_gameRenderTarget);
+        result = create_render_target_resources(
+            "GameColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_gameRenderTarget);
         if (!result)
         {
             return result;
         }
 
-        result = create_render_target_resources("DebugColor", m_debugRenderTarget);
+        result = create_render_target_resources(
+            "DebugColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_debugRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "DebugObjectId",
+            RHI::ColorFormat::R32_UINT,
+            m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_debug_pick_readback_buffer();
         if (!result)
         {
             return result;
@@ -206,6 +234,12 @@ namespace Cue
             debugAspectRatio,
             0.1f,
             1000.0f);
+
+        result = create_debug_selection_buffer();
+        if (!result)
+        {
+            return result;
+        }
 
         result = create_frame_graphs(std::move(a_info.editorPass));
         if (!result)
@@ -273,6 +307,13 @@ namespace Cue
         {
             CUE_ASSERTF(false,
                 "Failed to destroy debug view projection buffer: %s",
+                result.message.data());
+        }
+        result = destroy_debug_selection_buffer();
+        if (!result)
+        {
+            CUE_ASSERTF(false,
+                "Failed to destroy debug selection buffer: %s",
                 result.message.data());
         }
 
@@ -370,6 +411,7 @@ namespace Cue
 
     Result Engine::create_render_target_resources(
         std::string_view a_name,
+        RHI::ColorFormat a_format,
         RenderTargetResources& a_outResources)
     {
         auto* textureManager = m_backend->get_texture_manager();
@@ -389,12 +431,19 @@ namespace Cue
         colorDesc.kind = RHI::TextureKind::RenderTarget;
         colorDesc.width = m_backend->width();
         colorDesc.height = m_backend->height();
-        colorDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
+        colorDesc.format = a_format;
         Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         colorDesc.clearColor[0] = clearColor.r;
         colorDesc.clearColor[1] = clearColor.g;
         colorDesc.clearColor[2] = clearColor.b;
         colorDesc.clearColor[3] = clearColor.a;
+        if (a_format == RHI::ColorFormat::R32_UINT)
+        {
+            colorDesc.clearColor[0] = 0.0f;
+            colorDesc.clearColor[1] = 0.0f;
+            colorDesc.clearColor[2] = 0.0f;
+            colorDesc.clearColor[3] = 0.0f;
+        }
         Result result =
             textureManager->create_texture(colorDesc, a_outResources.colorHandle);
         if (!result)
@@ -407,7 +456,7 @@ namespace Cue
         colorRtvDesc.type = RHI::ViewType::RenderTarget;
         colorRtvDesc.bufferKind = RHI::BufferKind::Texture;
         colorRtvDesc.textureHandle = a_outResources.colorHandle;
-        colorRtvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
+        colorRtvDesc.colorFormat = a_format;
         result = viewManager->create_view(
             colorRtvDesc, a_outResources.colorRtvHandle);
         if (!result)
@@ -420,7 +469,7 @@ namespace Cue
         colorSrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
         colorSrvDesc.bufferKind = RHI::BufferKind::Texture;
         colorSrvDesc.textureHandle = a_outResources.colorHandle;
-        colorSrvDesc.colorFormat = RHI::ColorFormat::R8G8B8A8_UNORM;
+        colorSrvDesc.colorFormat = a_format;
         colorSrvDesc.mipLevels = 1;
         result = viewManager->create_view(
             colorSrvDesc, a_outResources.colorSrvHandle);
@@ -472,6 +521,67 @@ namespace Cue
                 return result;
             }
             a_resources.colorHandle = {};
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::create_debug_pick_readback_buffer()
+    {
+        auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get buffer manager for debug pick readback buffer.");
+        }
+
+        constexpr uint32_t k_readbackStride = 256;
+        RHI::BufferDesc bufferDesc{};
+        bufferDesc.name = "DebugPickReadbackBuffer";
+        bufferDesc.type = RHI::BufferType::Readback;
+        bufferDesc.readbackHeapCount = m_backend->buffer_count();
+        bufferDesc.initialState = RHI::ResourceState::CopyDest;
+        bufferDesc.stride = k_readbackStride;
+        bufferDesc.elementCount = 1;
+        bufferDesc.size = k_readbackStride;
+        bufferDesc.alignment = k_readbackStride;
+
+        Result result = bufferManager->create_buffer(
+            bufferDesc, m_debugPickReadbackBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = bufferManager->get_readback_buffer_view(
+            m_debugPickReadbackBufferHandle,
+            m_debugPickReadbackView);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::destroy_debug_pick_readback_buffer()
+    {
+        auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
+        m_debugPickReadbackView = {};
+        m_debugPickState = {};
+        m_hasDebugPickResult = false;
+        m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        if (bufferManager != nullptr && m_debugPickReadbackBufferHandle.valid())
+        {
+            Result result =
+                bufferManager->destroy_buffer(m_debugPickReadbackBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_debugPickReadbackBufferHandle = {};
         }
 
         return Result::ok();
@@ -546,6 +656,75 @@ namespace Cue
         return Result::ok();
     }
 
+    Result Engine::create_debug_selection_buffer()
+    {
+        auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get buffer manager for debug selection buffer.");
+        }
+
+        constexpr uint32_t k_constantBufferAlignment = 256;
+
+        RHI::BufferDesc bufferDesc{};
+        bufferDesc.name = "DebugSelectionBuffer";
+        bufferDesc.type = RHI::BufferType::Constant;
+        bufferDesc.defaultHeapCount = 1;
+        bufferDesc.uploadHeapCount = m_backend->buffer_count();
+        bufferDesc.initialState = RHI::ResourceState::Common;
+        bufferDesc.stride = sizeof(GpuData::DebugSelectionGpu);
+        bufferDesc.elementCount = 1;
+        bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
+        bufferDesc.alignment = k_constantBufferAlignment;
+
+        Result result = bufferManager->create_buffer(
+            bufferDesc, m_debugSelectionBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = bufferManager->create_slot_uploaders(
+            m_debugSelectionBufferHandle,
+            m_backend->buffer_count(),
+            m_debugSelectionUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_debugSelectionUploaders.size() != m_backend->buffer_count())
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "Debug selection buffer uploader was not created.");
+        }
+
+        m_debugSelection = GpuData::DebugSelectionGpu{};
+        return Result::ok();
+    }
+
+    Result Engine::destroy_debug_selection_buffer()
+    {
+        auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
+        m_debugSelectionUploaders.clear();
+        if (bufferManager != nullptr && m_debugSelectionBufferHandle.valid())
+        {
+            Result result =
+                bufferManager->destroy_buffer(m_debugSelectionBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_debugSelectionBufferHandle = {};
+        }
+
+        return Result::ok();
+    }
+
     Result Engine::upload_debug_view_projection(uint32_t a_bufferIndex)
     {
         if (!m_debugViewProjectionBufferHandle.valid())
@@ -580,6 +759,129 @@ namespace Cue
 
         return Result::ok();
     }
+
+    Result Engine::upload_debug_selection(uint32_t a_bufferIndex)
+    {
+        if (!m_debugSelectionBufferHandle.valid())
+        {
+            return Result::ok();
+        }
+        if (a_bufferIndex >= m_debugSelectionUploaders.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Debug selection upload buffer index is out of range.");
+        }
+
+        RHI::SlotUploader<GpuData::DebugSelectionGpu>& uploader =
+            m_debugSelectionUploaders[a_bufferIndex];
+        uploader.begin_frame();
+        if (!uploader.push(0, m_debugSelection))
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to queue debug selection upload.");
+        }
+        if (!uploader.commit())
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to commit debug selection upload.");
+        }
+
+        return Result::ok();
+    }
+
+    void Engine::request_debug_pick(
+        float a_normalizedX,
+        float a_normalizedY) noexcept
+    {
+        if (m_backend == nullptr || !m_debugPickReadbackBufferHandle.valid())
+        {
+            return;
+        }
+        if (m_debugPickState.isRequested || m_debugPickState.isInFlight)
+        {
+            return;
+        }
+
+        const float x =
+            (std::max)(0.0f, (std::min)(a_normalizedX, 1.0f));
+        const float y =
+            (std::max)(0.0f, (std::min)(a_normalizedY, 1.0f));
+        const uint32_t width = (std::max)(m_backend->width(), 1u);
+        const uint32_t height = (std::max)(m_backend->height(), 1u);
+        m_debugPickState.x =
+            (std::min)(static_cast<uint32_t>(x * width), width - 1u);
+        m_debugPickState.y =
+            (std::min)(static_cast<uint32_t>(y * height), height - 1u);
+        m_debugPickState.isRequested = true;
+        m_hasDebugPickResult = false;
+        m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+    }
+
+    bool Engine::consume_debug_pick_result(
+        GameCore::EntityId& a_outEntityId) noexcept
+    {
+        a_outEntityId = GameCore::k_invalidEntityId;
+        if (!m_hasDebugPickResult)
+        {
+            return false;
+        }
+
+        a_outEntityId = m_debugPickResultEntityId;
+        m_hasDebugPickResult = false;
+        return true;
+    }
+
+    void Engine::resolve_debug_pick_readback() noexcept
+    {
+        if (!m_debugPickState.isInFlight)
+        {
+            return;
+        }
+        if (m_debugPickState.framesUntilReadable > 0)
+        {
+            --m_debugPickState.framesUntilReadable;
+            return;
+        }
+        if (m_debugPickState.readbackResourceIndex >=
+            m_debugPickReadbackView.mappedDatas.size())
+        {
+            m_debugPickState = {};
+            return;
+        }
+
+        const std::byte* mappedData =
+            m_debugPickReadbackView.mappedDatas[m_debugPickState.readbackResourceIndex];
+        if (mappedData == nullptr)
+        {
+            m_debugPickState = {};
+            return;
+        }
+
+        uint32_t encodedObjectId = 0;
+        std::memcpy(&encodedObjectId, mappedData, sizeof(encodedObjectId));
+        GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+        if (encodedObjectId > 0 && m_activeWorld != nullptr)
+        {
+            const Result result = m_activeWorld->get_render_object_entity(
+                encodedObjectId - 1u,
+                entityId);
+            if (!result)
+            {
+                entityId = GameCore::k_invalidEntityId;
+            }
+        }
+
+        m_debugPickResultEntityId = entityId;
+        m_hasDebugPickResult = true;
+        m_debugPickState = {};
+    }
+
     Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
     {
         Result result = recreate_render_frame_graph();
@@ -652,7 +954,9 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
             worldResources->view_projection_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
-            m_debugViewProjectionBufferHandle));
+            m_debugViewProjectionBufferHandle,
+            sizeof(GpuData::ViewProjectionGpu),
+            "DebugViewProjectionCopy"));
         m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
             worldResources->material_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
@@ -719,12 +1023,27 @@ namespace Cue
             worldResources->visible_object_count_buffer_handle(),
             worldResources->material_buffer_handle(),
             m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<DebugObjectIdPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            m_debugViewProjectionBufferHandle,
+            worldResources->visible_object_count_buffer_handle(),
+            m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
+            m_debugViewProjectionBufferHandle));
         m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
             "DebugSpriteForward",
             "DebugColor",
             "DebugColorRTV",
             m_activeWorld->render_scene_state(),
             worldResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DebugOutlinePass>(
+            m_debugSelectedObjectId));
+        m_frameGraph->add_pass(std::make_unique<DebugPickReadbackPass>(
+            m_debugPickState,
+            m_debugPickReadbackBufferHandle,
+            (std::max)(m_backend->buffer_count(), 1u)));
 
         result = m_frameGraph->build();
         if (!result)
@@ -759,7 +1078,19 @@ namespace Cue
     {
         m_presentFrameGraph.reset();
         m_frameGraph.reset();
-        Result result = destroy_render_target_resources(m_debugRenderTarget);
+        Result result = destroy_render_target_resources(m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = destroy_debug_pick_readback_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = destroy_render_target_resources(m_debugRenderTarget);
         if (!result)
         {
             return result;
@@ -786,6 +1117,12 @@ namespace Cue
             return result;
         }
 
+        result = destroy_render_target_resources(m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
         result = destroy_render_target_resources(m_debugRenderTarget);
         if (!result)
         {
@@ -804,13 +1141,28 @@ namespace Cue
             return result;
         }
 
-        result = create_render_target_resources("GameColor", m_gameRenderTarget);
+        result = create_render_target_resources(
+            "GameColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_gameRenderTarget);
         if (!result)
         {
             return result;
         }
 
-        result = create_render_target_resources("DebugColor", m_debugRenderTarget);
+        result = create_render_target_resources(
+            "DebugColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_debugRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "DebugObjectId",
+            RHI::ColorFormat::R32_UINT,
+            m_debugObjectIdTarget);
         if (!result)
         {
             return result;
@@ -829,6 +1181,8 @@ namespace Cue
     {
         return [this](uint64_t a_frameNo, uint32_t a_index) {
             (void)a_frameNo;
+
+            resolve_debug_pick_readback();
 
             const float deltaTime =
                 (m_frameController != nullptr)
@@ -875,6 +1229,13 @@ namespace Cue
             {
                 CUE_ASSERTF(false, "Debug camera upload failed: %s",
                     debugCameraResult.message.data());
+                return;
+            }
+            Result debugSelectionResult = upload_debug_selection(a_index);
+            if (!debugSelectionResult)
+            {
+                CUE_ASSERTF(false, "Debug selection upload failed: %s",
+                    debugSelectionResult.message.data());
                 return;
             }
             };
