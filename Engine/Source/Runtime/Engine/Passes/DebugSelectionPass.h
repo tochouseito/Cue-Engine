@@ -3,6 +3,9 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include <GpuData/DebugSelection.h>
+
 namespace Cue
 {
     class DebugSelectionPass final : public RHI::FrameGraphPass
@@ -38,16 +41,6 @@ namespace Cue
                 return result;
             }
             result = builder.get_view("DebugColorRTV", m_colorRtvHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_view("DebugSceneDepthDSV", m_depthDsvHandle);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_texture("DebugSceneDepth", m_depthHandle);
             if (!result)
             {
                 return result;
@@ -110,12 +103,9 @@ namespace Cue
             pipelineDesc.vsHandle = m_vertexShaderHandle;
             pipelineDesc.psHandle = m_pixelShaderHandle;
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
-            pipelineDesc.depthStencilState.depthEnable = true;
+            pipelineDesc.depthStencilState.depthEnable = false;
             pipelineDesc.depthStencilState.depthWriteMask =
                 RHI::DepthWriteMask::Zero;
-            pipelineDesc.depthStencilState.depthFunc =
-                RHI::ComparisonFunc::LessEqual;
-            pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
             pipelineDesc.primitiveTopologyType =
                 RHI::PrimitiveTopologyType::Line;
             pipelineDesc.blendMode = { RHI::BlendMode::Normal };
@@ -131,16 +121,6 @@ namespace Cue
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::RenderTarget,
                 RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
-
-            result = builder.use_texture(
-                m_depthHandle,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::DepthWrite,
-                RHI::ResourceState::Common);
             if (!result)
             {
                 return result;
@@ -171,17 +151,18 @@ namespace Cue
                 return;
             }
 
-            commandContext->set_render_targets(
-                &m_colorRtvHandle,
-                1,
-                m_depthDsvHandle);
+            commandContext->set_render_targets(&m_colorRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Line);
             commandContext->set_cbv(0, m_viewProjectionBufferHandle);
             commandContext->set_cbv(1, m_selectionBufferHandle);
-            commandContext->draw_instanced(k_vertexCount, 1, 0, 0);
+            commandContext->draw_instanced(
+                k_vertexCount,
+                GpuData::k_maxDebugSelectionItemCount,
+                0,
+                0);
         }
 
     private:
@@ -190,9 +171,7 @@ namespace Cue
         RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::BufferHandle m_selectionBufferHandle{};
         RHI::TextureHandle m_colorHandle{};
-        RHI::TextureHandle m_depthHandle{};
         RHI::ViewHandle m_colorRtvHandle{};
-        RHI::ViewHandle m_depthDsvHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};

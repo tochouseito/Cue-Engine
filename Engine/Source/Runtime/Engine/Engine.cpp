@@ -957,6 +957,10 @@ namespace Cue
             m_debugViewProjectionBufferHandle,
             sizeof(GpuData::ViewProjectionGpu),
             "DebugViewProjectionCopy"));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+            m_debugSelectionBufferHandle,
+            sizeof(GpuData::DebugSelectionGpu),
+            "DebugSelectionCopy"));
         m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
             worldResources->material_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
@@ -1032,6 +1036,9 @@ namespace Cue
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
             m_debugViewProjectionBufferHandle));
+        m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
+            m_debugViewProjectionBufferHandle,
+            m_debugSelectionBufferHandle));
         m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
             "DebugSpriteForward",
             "DebugColor",

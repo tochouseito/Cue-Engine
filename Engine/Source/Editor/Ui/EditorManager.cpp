@@ -3093,18 +3093,67 @@ namespace Cue::Editor
 
         GpuData::DebugSelectionGpu selection{};
         uint32_t selectedObjectId = 0;
+        constexpr float k_cameraFrustumNear = 0.03f;
+        constexpr float k_cameraFrustumFar = 1.0f;
+        auto appendDebugItem =
+            [&selection](const GpuData::DebugSelectionItemGpu& a_item) noexcept
+        {
+            if (selection.itemCount >= GpuData::k_maxDebugSelectionItemCount)
+            {
+                return;
+            }
+
+            selection.items[selection.itemCount] = a_item;
+            ++selection.itemCount;
+        };
+        auto makeCameraItem =
+            [&](const ECS::TransformComponent& a_transform,
+                const ECS::CameraComponent& a_camera,
+                bool a_isSelected) noexcept
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_isSelected
+                ? Math::float4(1.0f, 0.84f, 0.18f, 1.0f)
+                : Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
+            item.camera = Math::float4(
+                std::clamp(a_camera.fovY, 1.0f, 179.0f),
+                a_camera.aspectRatio > 0.0f ? a_camera.aspectRatio : 1.0f,
+                k_cameraFrustumNear,
+                k_cameraFrustumFar);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::CameraFrustum);
+            item.isEnabled = 1;
+            return item;
+        };
         if (m_selectedEntityId != GameCore::k_invalidEntityId)
         {
             const ECS::TransformComponent* transform = nullptr;
-            if (m_engine->game_world()->get_component<ECS::TransformComponent>(
-                    m_selectedEntityId, transform))
+            const Result transformResult =
+                m_engine->game_world()->get_component<ECS::TransformComponent>(
+                    m_selectedEntityId, transform);
+            const ECS::CameraComponent* camera = nullptr;
+            if (transformResult)
             {
-                selection.world = Math::make_affine_matrix(
-                    transform->scale * 1.08f,
-                    transform->rotation,
-                    transform->position);
-                selection.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
-                selection.isEnabled = 1;
+                (void)m_engine->game_world()->get_component<ECS::CameraComponent>(
+                    m_selectedEntityId,
+                    camera);
+                if (camera == nullptr)
+                {
+                    GpuData::DebugSelectionItemGpu item{};
+                    item.world = Math::make_affine_matrix(
+                        transform->scale * 1.08f,
+                        transform->rotation,
+                        transform->position);
+                    item.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
+                    item.shape = static_cast<uint32_t>(
+                        GpuData::DebugSelectionShape::Box);
+                    item.isEnabled = 1;
+                    appendDebugItem(item);
+                }
             }
 
             const ECS::RenderableInfoComponent* renderableInfo = nullptr;
@@ -3114,6 +3163,39 @@ namespace Cue::Editor
             {
                 selectedObjectId = renderableInfo->objectId + 1u;
             }
+        }
+
+        auto appendCameraObject =
+            [this, &appendDebugItem, &makeCameraItem](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+        {
+            ECS::TransformComponent* transform = nullptr;
+            ECS::CameraComponent* camera = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr ||
+                !a_object.get_component(camera) || camera == nullptr)
+            {
+                return;
+            }
+
+            appendDebugItem(makeCameraItem(
+                *transform,
+                *camera,
+                a_entityId == m_selectedEntityId));
+        };
+        bool hasCollectedSceneCameras = false;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            const Result collectResult =
+                m_engine->game_world()->for_each_object_in_scene(
+                m_currentSceneId,
+                appendCameraObject);
+            hasCollectedSceneCameras = static_cast<bool>(collectResult);
+        }
+        if (!hasCollectedSceneCameras)
+        {
+            (void)m_engine->game_world()->for_each_object(appendCameraObject);
         }
 
         m_engine->set_debug_selection(selection);

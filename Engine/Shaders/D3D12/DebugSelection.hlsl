@@ -4,14 +4,28 @@ cbuffer ViewProjection : register(b0)
     row_major float4x4 g_projectionMatrix;
 }
 
+static const uint kMaxDebugSelectionItemCount = 64;
+static const uint kShapeBox = 0;
+static const uint kShapeCameraFrustum = 1;
+
+struct DebugSelectionItem
+{
+    row_major float4x4 worldMatrix;
+    float4 color;
+    float4 camera;
+    uint shape;
+    uint isEnabled;
+    uint padding0;
+    uint padding1;
+};
+
 cbuffer DebugSelection : register(b1)
 {
-    row_major float4x4 g_worldMatrix;
-    float4 g_color;
-    uint g_isEnabled;
+    uint g_itemCount;
     uint g_padding0;
     uint g_padding1;
     uint g_padding2;
+    DebugSelectionItem g_items[kMaxDebugSelectionItemCount];
 }
 
 static const float3 kCorners[8] =
@@ -33,27 +47,47 @@ static const uint kLineVertexToCorner[24] =
     0, 4, 1, 5, 2, 6, 3, 7,
 };
 
+float3 make_camera_frustum_corner(uint cornerIndex, float4 camera)
+{
+    const bool isFar = cornerIndex >= 4;
+    const uint planeCornerIndex = isFar ? cornerIndex - 4 : cornerIndex;
+    const float distance = isFar ? camera.w : camera.z;
+    const float halfHeight = distance * tan(radians(camera.x) * 0.5f);
+    const float halfWidth = halfHeight * camera.y;
+    const float x = (planeCornerIndex == 1 || planeCornerIndex == 2)
+        ? halfWidth
+        : -halfWidth;
+    const float y = planeCornerIndex >= 2 ? halfHeight : -halfHeight;
+    return float3(x, y, distance);
+}
+
 struct VsOut
 {
     float4 position : SV_POSITION;
     float4 color : COLOR0;
 };
 
-VsOut vs_main(uint vertexId : SV_VertexID)
+VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
+    const uint itemIndex = min(instanceId, kMaxDebugSelectionItemCount - 1);
+    const DebugSelectionItem item = g_items[itemIndex];
+    const bool isEnabled = instanceId < g_itemCount && item.isEnabled != 0;
     const uint cornerIndex = kLineVertexToCorner[vertexId];
-    float4 localPosition = float4(kCorners[cornerIndex], 1.0f);
-    if (g_isEnabled == 0)
+    const float3 localCorner = item.shape == kShapeCameraFrustum
+        ? make_camera_frustum_corner(cornerIndex, item.camera)
+        : kCorners[cornerIndex];
+    float4 localPosition = float4(localCorner, 1.0f);
+    if (!isEnabled)
     {
         localPosition = float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
-    const float4 worldPosition = mul(localPosition, g_worldMatrix);
+    const float4 worldPosition = mul(localPosition, item.worldMatrix);
     const float4 viewPosition = mul(worldPosition, g_viewMatrix);
 
     VsOut output;
     output.position = mul(viewPosition, g_projectionMatrix);
-    output.color = g_isEnabled == 0 ? float4(0.0f, 0.0f, 0.0f, 0.0f) : g_color;
+    output.color = !isEnabled ? float4(0.0f, 0.0f, 0.0f, 0.0f) : item.color;
     return output;
 }
 
