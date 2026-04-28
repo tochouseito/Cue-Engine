@@ -1227,7 +1227,8 @@ namespace Cue::Editor
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
         m_statistics->set_update_metrics_source(&m_lastUpdateMetrics);
-        m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
+        m_gameView = std::make_unique<GameView>(m_backend);
+        m_debugView = std::make_unique<DebugView>(m_backend, &m_debugCamera);
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
@@ -3612,12 +3613,23 @@ namespace Cue::Editor
         m_currentUpdateMetrics.statisticsMs =
             statisticsTimer.elapsed_ticks().ms_f64();
 
+        Core::Time::Timer gameViewTimer(m_platform->clock());
+        gameViewTimer.start();
+        m_gameView->update();
+        gameViewTimer.stop();
+        m_currentUpdateMetrics.gameViewMs =
+            gameViewTimer.elapsed_ticks().ms_f64();
+
         Core::Time::Timer debugViewTimer(m_platform->clock());
         debugViewTimer.start();
         m_debugView->update();
         debugViewTimer.stop();
         m_currentUpdateMetrics.debugViewMs =
             debugViewTimer.elapsed_ticks().ms_f64();
+        if (m_engine != nullptr)
+        {
+            m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+        }
         if (m_assetBrowser != nullptr)
         {
             Core::Time::Timer assetBrowserTimer(m_platform->clock());

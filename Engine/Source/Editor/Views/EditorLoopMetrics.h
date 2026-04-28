@@ -24,6 +24,7 @@ namespace Cue::Editor
         double menuBarMs = 0.0;
         double optionalWindowsMs = 0.0;
         double statisticsMs = 0.0;
+        double gameViewMs = 0.0;
         double debugViewMs = 0.0;
         double assetBrowserMs = 0.0;
         double createScriptPopupMs = 0.0;

@@ -23,6 +23,7 @@
 #include "EngineCommandContext.h"
 #include "FrameController.h"
 #include "GameCore/GameWorld.h"
+#include "GpuData/ViewProjection.h"
 #include "Script/ScriptModuleHost.h"
 
 // === C++ includes ===
@@ -204,6 +205,12 @@ namespace Cue
         [[nodiscard]] Result stop_play_mode() noexcept;
         [[nodiscard]] bool is_playing() const noexcept;
 
+        void set_debug_view_camera(
+            const GpuData::ViewProjectionGpu& a_viewProjection) noexcept
+        {
+            m_debugViewProjection = a_viewProjection;
+        }
+
         [[nodiscard]] RHI::FrameGraphExecutionStats
             render_frame_graph_stats() const noexcept
         {
@@ -256,8 +263,25 @@ namespace Cue
         }
 
     private:
-        Result create_final_color_resources();
-        Result destroy_final_color_resources();
+        struct RenderTargetResources final
+        {
+            RHI::TextureHandle colorHandle{};
+            RHI::ViewHandle colorRtvHandle{};
+            RHI::ViewHandle colorSrvHandle{};
+        };
+
+        Result create_render_target_resources(
+            std::string_view a_name,
+            RenderTargetResources& a_outResources);
+        Result destroy_render_target_resources(
+            RenderTargetResources& a_resources);
+        Result create_view_projection_buffer(
+            std::string_view a_name,
+            RHI::BufferHandle& a_outBufferHandle,
+            std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
+                a_outUploaders);
+        Result destroy_debug_view_projection_buffer();
+        Result upload_debug_view_projection(uint32_t a_bufferIndex);
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
         Result recreate_render_frame_graph();
         Result sync_active_world_buffers();
@@ -286,9 +310,12 @@ namespace Cue
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
-        RHI::ViewHandle m_finalColorSrvHandle{};
+        RenderTargetResources m_gameRenderTarget{};
+        RenderTargetResources m_debugRenderTarget{};
+        RHI::BufferHandle m_debugViewProjectionBufferHandle{};
+        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
+            m_debugViewProjectionUploaders{};
+        GpuData::ViewProjectionGpu m_debugViewProjection{};
         Audio::AudioDeviceHandle m_audioDevice{};
         Core::IO::Path m_assetRootPath{};
         MaterialHandle m_defaultMaterialHandle{};

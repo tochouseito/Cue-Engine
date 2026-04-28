@@ -9,20 +9,32 @@
 // === C++ includes ===
 #include <array>
 #include <chrono>
+#include <string>
+#include <utility>
 
 namespace Cue
 {
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
     public:
-        StaticMeshForwardPass(const RenderSceneState& a_renderSceneState,
+        StaticMeshForwardPass(std::string a_name,
+            std::string a_colorName,
+            std::string a_colorRtvName,
+            std::string a_depthName,
+            std::string a_depthDsvName,
+            const RenderSceneState& a_renderSceneState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
             RHI::BufferHandle a_materialBufferHandle,
             uint32_t a_indexCountPerInstance)
-            : m_renderSceneState(a_renderSceneState),
+            : m_name(std::move(a_name)),
+            m_colorName(std::move(a_colorName)),
+            m_colorRtvName(std::move(a_colorRtvName)),
+            m_depthName(std::move(a_depthName)),
+            m_depthDsvName(std::move(a_depthDsvName)),
+            m_renderSceneState(a_renderSceneState),
             m_renderObjectBufferHandle(a_renderObjectBufferHandle),
             m_transformBufferHandle(a_transformBufferHandle),
             m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
@@ -31,7 +43,7 @@ namespace Cue
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
-        const char* name() const noexcept override { return "StaticMeshForward"; }
+        const char* name() const noexcept override { return m_name.c_str(); }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -49,24 +61,24 @@ namespace Cue
                 return sortedBufferResult;
             }
 
-            Result result = builder.get_texture("FinalColor", m_finalColorHandle);
+            Result result = builder.get_texture(m_colorName, m_colorHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.render(&m_finalColorHandle, 1);
+            result = builder.render(&m_colorHandle, 1);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+            result = builder.get_view(m_colorRtvName, m_colorRtvHandle);
             if (!result)
             {
                 return result;
             }
 
             RHI::TextureDesc sceneDepthDesc{};
-            sceneDepthDesc.name = "SceneDepth";
+            sceneDepthDesc.name = m_depthName;
             sceneDepthDesc.bufferCount = 1;
             sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
             sceneDepthDesc.width = builder.width();
@@ -74,19 +86,19 @@ namespace Cue
             sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
             sceneDepthDesc.clearDepth = 1.0f;
             sceneDepthDesc.clearStencil = 0;
-            result = builder.create_texture(sceneDepthDesc, m_sceneDepthHandle);
+            result = builder.create_texture(sceneDepthDesc, m_depthHandle);
             if (!result)
             {
                 return result;
             }
 
             RHI::ViewDesc sceneDepthDsvDesc{};
-            sceneDepthDsvDesc.name = "SceneDepthDSV";
+            sceneDepthDsvDesc.name = m_depthDsvName;
             sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
             sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
-            sceneDepthDsvDesc.textureHandle = m_sceneDepthHandle;
+            sceneDepthDsvDesc.textureHandle = m_depthHandle;
             sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-            result = builder.create_view(sceneDepthDsvDesc, m_sceneDepthDsvHandle);
+            result = builder.create_view(sceneDepthDsvDesc, m_depthDsvHandle);
             if (!result)
             {
                 return result;
@@ -249,7 +261,7 @@ namespace Cue
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             Result result = builder.use_texture(
-                m_finalColorHandle,
+                m_colorHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::RenderTarget,
                 RHI::ResourceState::ShaderResource);
@@ -259,7 +271,7 @@ namespace Cue
             }
 
             result = builder.use_texture(
-                m_sceneDepthHandle,
+                m_depthHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::DepthWrite,
                 RHI::ResourceState::Common);
@@ -442,16 +454,16 @@ namespace Cue
                 m_renderSceneState.frame_state(context.frame_index());
 
             const Clock::time_point clearStartTime = Clock::now();
-            commandContext->clear_render_target(m_finalColorRtvHandle,
+            commandContext->clear_render_target(m_colorRtvHandle,
                 k_clearColorVec.data());
-            commandContext->clear_depth_stencil(m_sceneDepthDsvHandle, 1.0f, 0);
+            commandContext->clear_depth_stencil(m_depthDsvHandle, 1.0f, 0);
             add_detail_timing("clear", clearStartTime, Clock::now());
 
             const Clock::time_point targetSetupStartTime = Clock::now();
             commandContext->set_render_targets(
-                &m_finalColorRtvHandle,
+                &m_colorRtvHandle,
                 1,
-                m_sceneDepthDsvHandle);
+                m_depthDsvHandle);
             commandContext->set_viewport_scissor(context.width(), context.height());
             add_detail_timing("targets_viewport", targetSetupStartTime, Clock::now());
 
@@ -519,12 +531,17 @@ namespace Cue
     private:
         static constexpr Math::float4 k_clearColorVec = Math::float4::from_rgba8(63, 63, 63, 255);
 
+        std::string m_name{};
+        std::string m_colorName{};
+        std::string m_colorRtvName{};
+        std::string m_depthName{};
+        std::string m_depthDsvName{};
         const RenderSceneState& m_renderSceneState;
         uint32_t m_indexCountPerInstance = 0;
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::TextureHandle m_sceneDepthHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
-        RHI::ViewHandle m_sceneDepthDsvHandle{};
+        RHI::TextureHandle m_colorHandle{};
+        RHI::TextureHandle m_depthHandle{};
+        RHI::ViewHandle m_colorRtvHandle{};
+        RHI::ViewHandle m_depthDsvHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_sortedRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};

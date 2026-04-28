@@ -6,18 +6,28 @@
 // === Engine includes ===
 #include <GameCore/RenderSceneState.h>
 
+// === C++ includes ===
+#include <string>
+#include <utility>
+
 namespace Cue
 {
     class SpriteForwardPass final : public RHI::FrameGraphPass
     {
     public:
-        SpriteForwardPass(const RenderSceneState& a_renderSceneState,
+        SpriteForwardPass(std::string a_name,
+            std::string a_colorName,
+            std::string a_colorRtvName,
+            const RenderSceneState& a_renderSceneState,
             RHI::BufferHandle a_spriteInstanceBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_name(std::move(a_name))
+            , m_colorName(std::move(a_colorName))
+            , m_colorRtvName(std::move(a_colorRtvName))
+            , m_renderSceneState(a_renderSceneState)
             , m_spriteInstanceBufferHandle(a_spriteInstanceBufferHandle)
         {}
 
-        const char* name() const noexcept override { return "SpriteForward"; }
+        const char* name() const noexcept override { return m_name.c_str(); }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -36,7 +46,7 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            Result result = builder.get_texture("FinalColor", m_finalColorHandle);
+            Result result = builder.get_texture(m_colorName, m_colorHandle);
             if (!result)
             {
                 return Result::fail(
@@ -45,7 +55,7 @@ namespace Cue
                     "Failed to get final color texture for SpriteForward pass.");
             }
 
-            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+            result = builder.get_view(m_colorRtvName, m_colorRtvHandle);
             if (!result)
             {
                 return Result::fail(
@@ -130,7 +140,7 @@ namespace Cue
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             Result result = builder.use_texture(
-                m_finalColorHandle,
+                m_colorHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::RenderTarget,
                 RHI::ResourceState::ShaderResource);
@@ -162,7 +172,7 @@ namespace Cue
                 return;
             }
 
-            commandContext->set_render_targets(&m_finalColorRtvHandle, 1, {});
+            commandContext->set_render_targets(&m_colorRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_pipelineHandle);
             commandContext->set_primitive_topology(
@@ -173,10 +183,13 @@ namespace Cue
         }
 
     private:
+        std::string m_name{};
+        std::string m_colorName{};
+        std::string m_colorRtvName{};
         const RenderSceneState& m_renderSceneState;
         RHI::BufferHandle m_spriteInstanceBufferHandle{};
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
+        RHI::TextureHandle m_colorHandle{};
+        RHI::ViewHandle m_colorRtvHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};

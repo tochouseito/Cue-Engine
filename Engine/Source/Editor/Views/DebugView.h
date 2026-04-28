@@ -3,13 +3,11 @@
 // === D3D12 includes ===
 #include <D3D12Backend.h>
 
-// === Engine includes ===
-#include <Commands.h>
+// === Editor includes ===
+#include "DebugCamera.h"
 
 // === C++ includes ===
 #include <cstdint>
-#include <memory>
-#include <deque>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -19,15 +17,24 @@ namespace Cue::Editor
     class DebugView final
     {
     public:
-        DebugView(RHI::DX12::D3D12Backend* backend, Core::CQRS::Bridge* bridge)
-            : m_backend(backend), editorBridge(bridge)
+        DebugView(
+            RHI::DX12::D3D12Backend* a_backend,
+            DebugCamera* a_camera)
+            : m_backend(a_backend)
+            , m_camera(a_camera)
         {
         }
         ~DebugView() = default;
         void update()
         {
+            if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
+            {
+                return;
+            }
+
             Result viewResult =
-                m_backend->get_view_manager()->get_view("FinalColorSRV", m_finalColorSrvHandle);
+                m_backend->get_view_manager()->get_view("DebugColorSRV",
+                    m_debugColorSrvHandle);
             if (!viewResult)
             {
                 CUE_ASSERTF(false,
@@ -37,79 +44,42 @@ namespace Cue::Editor
                     viewResult.line, viewResult.function);
             }
 
-            ImGui::Begin("Debug View");
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            const ImGuiWindowFlags windowFlags =
+                ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse;
+            ImGui::Begin("DebugView", nullptr, windowFlags);
 
-            if (ImGui::Button("Use Camera 0"))
+            const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
+            if (m_camera != nullptr && availableRegion.x > 0.0f &&
+                availableRegion.y > 0.0f)
             {
-                Result r = editorBridge->submit_command(
-                    std::make_unique<Cue::SetMainCameraCommand>(0));
-                if (!r)
-                {
-                    CUE_ASSERTF(false,
-                        "Failed to submit set main camera command: %s (code: "
-                        "%s, severity: %s) at %s:%u in function %s",
-                        r.message.data(), Cue::to_string(r.code),
-                        Cue::to_string(r.severity), r.file, r.line,
-                        r.function);
-                }
+                m_camera->set_aspect(availableRegion.x / availableRegion.y);
+                m_camera->update(ImGui::IsWindowHovered());
             }
 
-            if (ImGui::Button("Use Camera 1"))
-            {
-                Result r = editorBridge->submit_command(
-                    std::make_unique<Cue::SetMainCameraCommand>(1));
-                if (!r)
-                {
-                    CUE_ASSERTF(false,
-                        "Failed to submit set main camera command: %s (code: "
-                        "%s, severity: %s) at %s:%u in function %s",
-                        r.message.data(), Cue::to_string(r.code),
-                        Cue::to_string(r.severity), r.file, r.line,
-                        r.function);
-                }
-            }
-
-            D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
+            D3D12_GPU_DESCRIPTOR_HANDLE debugColorSrvGpuDescHandle =
                 m_backend->get_gpu_descriptor_handle(
-                    m_finalColorSrvHandle,
+                    m_debugColorSrvHandle,
                     m_backend->current_back_buffer_index(),
                     m_backend->buffer_count());
-            const uint32_t finalColorWidth = m_backend->width();
-            const uint32_t finalColorHeight = m_backend->height();
-            if (finalColorSrvGpuDescHandle.ptr != 0 &&
-                finalColorWidth > 0 && finalColorHeight > 0)
+            const uint32_t debugColorWidth = m_backend->width();
+            const uint32_t debugColorHeight = m_backend->height();
+            if (debugColorSrvGpuDescHandle.ptr != 0 &&
+                debugColorWidth > 0 && debugColorHeight > 0 &&
+                availableRegion.x > 0.0f && availableRegion.y > 0.0f)
             {
-                ImGui::Text("FinalColor");
-
-                const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
-                float displayWidth = availableRegion.x;
-                float displayHeight =
-                    displayWidth * static_cast<float>(finalColorHeight) /
-                    static_cast<float>(finalColorWidth);
-
-                if (availableRegion.y > 0.0f && displayHeight > availableRegion.y)
-                {
-                    const float scale = availableRegion.y / displayHeight;
-                    displayWidth *= scale;
-                    displayHeight *= scale;
-                }
-
-                if (displayWidth <= 0.0f || displayHeight <= 0.0f)
-                {
-                    ImGui::End();
-                    return;
-                }
-
                 ImGui::Image(
-                    static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
-                    ImVec2(displayWidth, displayHeight));
+                    static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
+                    availableRegion);
             }
 
             ImGui::End();
+            ImGui::PopStyleVar();
         }
     private:
-        Core::CQRS::Bridge* editorBridge = nullptr;
         RHI::DX12::D3D12Backend* m_backend = nullptr;
-        RHI::ViewHandle m_finalColorSrvHandle{};
+        DebugCamera* m_camera = nullptr;
+        RHI::ViewHandle m_debugColorSrvHandle{};
     };
 }

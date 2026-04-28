@@ -118,8 +118,9 @@ namespace Cue::Editor
                     updateMetrics->menuBarMs,
                     updateMetrics->optionalWindowsMs);
                 ImGui::Text(
-                    "  Statistics: %.3f ms / DebugView: %.3f ms / AssetBrowser: %.3f ms",
+                    "  Statistics: %.3f ms / GameView: %.3f ms / DebugView: %.3f ms / AssetBrowser: %.3f ms",
                     updateMetrics->statisticsMs,
+                    updateMetrics->gameViewMs,
                     updateMetrics->debugViewMs,
                     updateMetrics->assetBrowserMs);
                 ImGui::Text(

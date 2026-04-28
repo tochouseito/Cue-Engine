@@ -19,8 +19,10 @@ add_executable(Editor WIN32
     "Asset/ModelImporter.cpp"
     "ImGui/ImGuiManager.h"
     "ImGui/ImGuiManager.cpp"
+    "Camera/DebugCamera.h"
     "Views/Icon.h"
     "Views/Statistics.h"
+    "Views/GameView.h"
     "Views/DebugView.h"
     "Ui/EditorManager.h"
     "Ui/EditorManager.cpp"
@@ -65,6 +67,7 @@ target_include_directories(Editor PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Ui"
     "${CMAKE_CURRENT_SOURCE_DIR}/Project"
     "${CMAKE_CURRENT_SOURCE_DIR}/Build"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Camera"
     "${CMAKE_CURRENT_SOURCE_DIR}/ImGui"
     "${CMAKE_CURRENT_SOURCE_DIR}/Views"
 )

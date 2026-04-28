@@ -13,9 +13,11 @@
 #include <Engine.h>
 
 // === Editor includes ===
+#include "DebugCamera.h"
 #include "BuildSystem.h"
 #include "AssetBrowser.h"
 #include "Statistics.h"
+#include "GameView.h"
 #include "DebugView.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
@@ -113,6 +115,7 @@ namespace Cue::Editor
         std::unique_ptr<VisualStudioBridge> m_visualStudioBridge = nullptr;
         std::unique_ptr<AssetBrowser> m_assetBrowser = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
+        std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
@@ -146,6 +149,7 @@ namespace Cue::Editor
         bool m_openCreateScriptPopup = false;
         bool m_focusCreateScriptNameInput = false;
         std::array<char, 128> m_createScriptNameBuffer{};
+        DebugCamera m_debugCamera{};
         EditorUpdateMetrics m_currentUpdateMetrics{};
         EditorUpdateMetrics m_lastUpdateMetrics{};
     };
