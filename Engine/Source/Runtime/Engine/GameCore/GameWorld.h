@@ -7,11 +7,15 @@
 // === Engine includes ===
 #include "Components.h"
 #include "GameObject.h"
+#include "Navigation/Navigation.h"
 #include "RenderSceneState.h"
 #include "SceneAsset.h"
 #include "SceneInstance.h"
+#include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
+#include "Systems/PhysicsBodySystem.h"
 #include "Systems/RenderableObjectSystem.h"
+#include "Systems/SpriteSystem.h"
 #include "WorldResources.h"
 #include <Asset/AssetManager.h>
 
@@ -21,6 +25,7 @@
 #include <memory>
 #include <cctype>
 #include <exception>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -36,6 +41,7 @@ namespace Cue::GameCore
     {
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
+        static constexpr uint32_t k_maxSpriteCount = 1000;
         static constexpr uint32_t k_maxMaterialCount = 1024;
 
         struct LoadSceneResult final
@@ -66,12 +72,20 @@ namespace Cue::GameCore
             RHI::IViewManager* a_viewManager,
             RHI::IStaticMeshPool* a_staticMeshPool,
             AssetManager* a_assetManager,
+            Core::IO::IFileSystem* a_fileSystem,
+            Audio::IBackend* a_audioBackend,
+            Audio::AudioDeviceHandle a_audioDevice,
+            Physics::IPhysicsSystem* a_physicsSystem,
             uint32_t a_bufferCount,
             uint32_t a_renderWidth,
             uint32_t a_renderHeight,
             uint32_t a_defaultStaticMeshId,
             MaterialHandle a_defaultMaterialHandle);
         [[nodiscard]] Result finalize_systems() noexcept;
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath)
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+        }
 
         [[nodiscard]] Result simulate(float a_deltaTime);
         [[nodiscard]] Result editor_update(
@@ -100,6 +114,44 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_camera_object()
+        {
+            GameObject object{};
+            return add_camera_object(object);
+        }
+
+        [[nodiscard]] Result add_camera_object(GameObject& a_outObject)
+        {
+            return add_camera_object(make_camera_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_camera_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_camera_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_camera_object(
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_sprite_object()
+        {
+            GameObject object{};
+            return add_sprite_object(object);
+        }
+
+        [[nodiscard]] Result add_sprite_object(GameObject& a_outObject)
+        {
+            return add_sprite_object(make_sprite_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_sprite_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_sprite_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_sprite_object(
+            const Math::float3& a_position, GameObject& a_outObject);
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId)
         {
@@ -121,6 +173,49 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId)
+        {
+            return add_camera_object_to_scene(
+                a_sceneId, make_camera_spawn_position());
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_camera_object_to_scene(
+                a_sceneId, make_camera_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_camera_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId)
+        {
+            return add_sprite_object_to_scene(a_sceneId, make_sprite_spawn_position());
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_sprite_object_to_scene(
+                a_sceneId, make_sprite_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_sprite_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
 
         [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept;
 
@@ -133,13 +228,22 @@ namespace Cue::GameCore
                     "Static mesh object id was not found.");
         }
 
-        [[nodiscard]] Result set_main_camera(uint32_t a_cameraIndex)
+        [[nodiscard]] Result set_main_camera(EntityId a_cameraEntityId)
         {
+            if (!contains_object(a_cameraEntityId) ||
+                !has_component<ECS::CameraComponent>(a_cameraEntityId))
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Camera object was not found.");
+            }
+
             std::vector<EntityId> cameraEntities = collect_camera_entities();
-            if (a_cameraIndex >= cameraEntities.size())
+            auto targetIt = std::find(
+                cameraEntities.begin(), cameraEntities.end(), a_cameraEntityId);
+            if (targetIt == cameraEntities.end())
             {
                 return Result::fail(
-                    Code::NotFound, Severity::Error, "Camera index was not found.");
+                    Code::NotFound, Severity::Error, "Camera object was not found.");
             }
 
             for (uint32_t cameraIndex = 0;
@@ -152,10 +256,11 @@ namespace Cue::GameCore
                     continue;
                 }
 
-                camera->isMain = (cameraIndex == a_cameraIndex);
+                camera->isMain = (cameraEntities[cameraIndex] == a_cameraEntityId);
             }
 
-            m_mainCameraIndex = a_cameraIndex;
+            m_mainCameraIndex = static_cast<uint32_t>(
+                std::distance(cameraEntities.begin(), targetIt));
             return Result::ok();
         }
 
@@ -167,6 +272,156 @@ namespace Cue::GameCore
         const RenderSceneState& render_scene_state() const noexcept
         {
             return m_renderSceneState;
+        }
+
+        NavigationWorld& navigation_world() noexcept
+        {
+            return m_navigationWorld;
+        }
+
+        const NavigationWorld& navigation_world() const noexcept
+        {
+            return m_navigationWorld;
+        }
+
+        [[nodiscard]] Result load_navigation_mesh(
+            const NavMeshAssetData& a_asset,
+            NavMeshHandle& a_outHandle) noexcept
+        {
+            Result result = m_navigationWorld.load_nav_mesh(a_asset, a_outHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = set_active_navigation_mesh(a_outHandle, a_asset);
+            if (!result)
+            {
+                (void)m_navigationWorld.unload_nav_mesh(a_outHandle);
+                a_outHandle = {};
+                return result;
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_navigation_mesh_from_path(
+            const Core::IO::Path& a_path,
+            NavMeshHandle& a_outHandle) noexcept
+        {
+            a_outHandle = {};
+            if (m_fileSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld file system is not initialized.");
+            }
+
+            Core::IO::Path navMeshPath = a_path;
+            if (!navMeshPath.is_absolute())
+            {
+                if (m_assetRootPath.is_empty())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "GameWorld asset root path is not initialized.");
+                }
+                navMeshPath = Core::IO::Path::join(m_assetRootPath, navMeshPath);
+            }
+
+            NavMeshAssetData navMeshAsset{};
+            Result result =
+                NavMeshAssetSerializer::load(*m_fileSystem, navMeshPath, navMeshAsset);
+            if (!result)
+            {
+                return result;
+            }
+
+            return load_navigation_mesh(navMeshAsset, a_outHandle);
+        }
+
+        [[nodiscard]] Result set_active_navigation_mesh(
+            NavMeshHandle a_handle) noexcept
+        {
+            if (!a_handle.valid())
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Navigation mesh handle is invalid.");
+            }
+
+            m_activeNavMesh = a_handle;
+            m_activeNavMeshAsset = {};
+            m_hasActiveNavMeshAsset = false;
+            if (m_navigationSystem != nullptr)
+            {
+                m_navigationSystem->set_nav_mesh(a_handle);
+            }
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result set_active_navigation_mesh(
+            NavMeshHandle a_handle,
+            const NavMeshAssetData& a_asset) noexcept
+        {
+            Result result = set_active_navigation_mesh(a_handle);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_activeNavMeshAsset = a_asset;
+            m_hasActiveNavMeshAsset = true;
+            return Result::ok();
+        }
+
+        [[nodiscard]] NavMeshHandle active_navigation_mesh() const noexcept
+        {
+            return m_activeNavMesh;
+        }
+
+        [[nodiscard]] Result set_nav_agent_destination(
+            EntityId a_entityId,
+            const Math::float3& a_destination) noexcept
+        {
+            ECS::NavAgentComponent* agent = get_component<ECS::NavAgentComponent>(
+                a_entityId);
+            if (agent == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "NavAgentComponent was not found.");
+            }
+
+            agent->destination = a_destination;
+            agent->hasDestination = true;
+            agent->hasArrived = false;
+            agent->hasPath = false;
+            agent->hasPathFailed = false;
+            agent->isOnNavMesh = false;
+            agent->pathPoints.clear();
+            agent->pathIndex = 0;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result build_navigation_debug_geometry(
+            NavMeshDebugGeometry& a_outGeometry) noexcept
+        {
+            a_outGeometry = {};
+            if (!m_activeNavMesh.valid())
+            {
+                return Result::fail(Code::InvalidState, Severity::Warning,
+                    "Active navigation mesh is not set.");
+            }
+
+            Result result = m_navigationWorld.build_debug_geometry(
+                m_activeNavMesh, a_outGeometry);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (m_navigationSystem != nullptr)
+            {
+                m_navigationSystem->append_agent_debug_geometry(a_outGeometry);
+            }
+            return Result::ok();
         }
 
         [[nodiscard]] const WorldResources* world_resources() const noexcept
@@ -204,10 +459,30 @@ namespace Cue::GameCore
             const SceneAsset& a_asset, LoadSceneResult& a_outResult)
         {
             a_outResult = {};
-            return capture_result([this, &a_outResult, &a_asset]()
+            Result result = capture_result([this, &a_outResult, &a_asset]()
                 {
                     a_outResult = load_scene(a_asset);
                 });
+            if (!result)
+            {
+                return result;
+            }
+
+            if (!a_asset.navigation_mesh_path().empty())
+            {
+                NavMeshHandle navMeshHandle{};
+                result = load_navigation_mesh_from_path(
+                    Core::IO::Path(a_asset.navigation_mesh_path()), navMeshHandle);
+                if (!result)
+                {
+                    (void)unload_scene(a_outResult.sceneId);
+                    (void)execute_deferred_deletions();
+                    a_outResult = {};
+                    return result;
+                }
+            }
+
+            return Result::ok();
         }
 
         [[nodiscard]] Result append_to_scene(SceneId a_sceneId,
@@ -519,6 +794,24 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result clear() noexcept
         {
+            if (m_activeNavMesh.valid())
+            {
+                const Result navResult =
+                    m_navigationWorld.unload_nav_mesh(m_activeNavMesh);
+                if (!navResult)
+                {
+                    return navResult;
+                }
+            }
+
+            m_activeNavMesh = {};
+            m_activeNavMeshAsset = {};
+            m_hasActiveNavMeshAsset = false;
+            if (m_navigationSystem != nullptr)
+            {
+                m_navigationSystem->set_nav_mesh(m_activeNavMesh);
+            }
+
             // 公開 API を使って削除予約を積み、最後にまとめて flush する。
             std::vector<SceneId> sceneIds{};
             sceneIds.reserve(m_scenes.size());
@@ -764,6 +1057,27 @@ namespace Cue::GameCore
             };
         }
 
+        [[nodiscard]] Math::float3 make_camera_spawn_position() const noexcept
+        {
+            return Math::float3(0.0f, 0.0f, -6.0f);
+        }
+
+        [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept
+        {
+            if (!m_renderSceneState.frameStates.empty())
+            {
+                const RenderFrameState& frameState =
+                    m_renderSceneState.frameStates.front();
+                return Math::float3{
+                    static_cast<float>(frameState.renderWidth) * 0.5f,
+                    static_cast<float>(frameState.renderHeight) * 0.5f,
+                    0.0f
+                };
+            }
+
+            return Math::float3(320.0f, 180.0f, 0.0f);
+        }
+
         void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
             uint32_t a_renderHeight) noexcept
         {
@@ -774,6 +1088,7 @@ namespace Cue::GameCore
 
             RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
             frameState.objectCount = 0;
+            frameState.spriteCount = 0;
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
@@ -1141,11 +1456,67 @@ namespace Cue::GameCore
                 prototype.add_component(*meshFilter);
             }
 
+            if (const ECS::NavAgentComponent* navAgent =
+                get_component<ECS::NavAgentComponent>(a_entityId);
+                navAgent != nullptr)
+            {
+                ECS::NavAgentComponent copiedNavAgent = *navAgent;
+                copiedNavAgent.pathPoints.clear();
+                copiedNavAgent.pathIndex = 0;
+                copiedNavAgent.desiredVelocity = Math::float3::zero();
+                copiedNavAgent.hasPath = false;
+                prototype.add_component(copiedNavAgent);
+            }
+
+            if (const ECS::NavMeshBakeSourceComponent* navMeshBakeSource =
+                get_component<ECS::NavMeshBakeSourceComponent>(a_entityId);
+                navMeshBakeSource != nullptr)
+            {
+                prototype.add_component(*navMeshBakeSource);
+            }
+
             if (const ECS::StaticMeshRendererComponent* renderer =
                 get_component<ECS::StaticMeshRendererComponent>(a_entityId);
                 renderer != nullptr)
             {
                 prototype.add_component(*renderer);
+            }
+
+            if (const ECS::SpriteRendererComponent* spriteRenderer =
+                get_component<ECS::SpriteRendererComponent>(a_entityId);
+                spriteRenderer != nullptr)
+            {
+                prototype.add_component(*spriteRenderer);
+            }
+
+            if (const ECS::AudioSourceComponent* audioSource =
+                get_component<ECS::AudioSourceComponent>(a_entityId);
+                audioSource != nullptr)
+            {
+                ECS::AudioSourceComponent copiedAudioSource = *audioSource;
+                copiedAudioSource.sourceHandle = {};
+                copiedAudioSource.isPlaying = false;
+                copiedAudioSource.playRequested = false;
+                copiedAudioSource.stopRequested = false;
+                copiedAudioSource.hasStarted = false;
+                prototype.add_component(copiedAudioSource);
+            }
+
+            if (const ECS::RigidBodyComponent* rigidBody =
+                get_component<ECS::RigidBodyComponent>(a_entityId);
+                rigidBody != nullptr)
+            {
+                ECS::RigidBodyComponent copiedRigidBody = *rigidBody;
+                copiedRigidBody.body = {};
+                copiedRigidBody.isCreated = false;
+                prototype.add_component(copiedRigidBody);
+            }
+
+            if (const ECS::ColliderComponent* collider =
+                get_component<ECS::ColliderComponent>(a_entityId);
+                collider != nullptr)
+            {
+                prototype.add_component(*collider);
             }
 
             if (const ECS::ScriptComponent* script =
@@ -1870,9 +2241,18 @@ namespace Cue::GameCore
         ECS::ECSManager m_ecs{};
         ECS::ECSManager::SystemPipeline m_editorPipeline{};
         ECS::ECSManager::SystemPipeline m_simulationPipeline{};
+        NavigationWorld m_navigationWorld{};
+        ECS::NavigationSystem* m_navigationSystem = nullptr;
+        NavMeshHandle m_activeNavMesh{};
+        NavMeshAssetData m_activeNavMeshAsset{};
         std::unique_ptr<WorldResources> m_worldResources = nullptr;
         AssetManager* m_assetManager = nullptr;
+        Core::IO::IFileSystem* m_fileSystem = nullptr;
+        Audio::IBackend* m_audioBackend = nullptr;
+        Audio::AudioDeviceHandle m_audioDevice{};
+        Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
+        bool m_hasActiveNavMeshAsset = false;
         RenderSceneState m_renderSceneState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};

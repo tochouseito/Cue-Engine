@@ -1,4 +1,5 @@
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(recastnavigation CONFIG REQUIRED)
 
 # Engine の CMakeLists.txt
 
@@ -26,15 +27,62 @@ add_library(Engine STATIC
     "FrameController.cpp"
     "GpuData/Transform.h"
     "GpuData/Batching.h"
+    "GpuData/Sprite.h"
+    "GpuData/DebugPick.h"
+    "GpuData/DebugSelection.h"
+    "Passes/DebugGridPass.h"
+    "Passes/DebugObjectIdPass.h"
+    "Passes/DebugOutlinePass.h"
+    "Passes/DebugPickReadbackPass.h"
+    "Passes/DebugSelectionPass.h"
     "Passes/GenerateVisibleList.h"
+    "Passes/VisibleObjectBucketizePass.h"
     "Passes/MaterialBufferCopyPass.h"
     "Passes/RenderableInfoCopyPass.h"
     "Passes/TransformBufferCopyPass.h"
     "Passes/UploadBufferCopyPass.h"
+    "Passes/SpriteInstanceCopyPass.h"
+    "Passes/SpriteForwardPass.h"
     "Passes/StaticMeshBatchingPass.h"
     "Passes/StaticMeshForwardPass.h"
+    "Asset/ModelAssetFormat.h"
+    "Asset/SoundAssetFormat.h"
+    "Asset/TextureAssetFormat.h"
     "Asset/AssetManager.h"
-    "Asset/AssetManager.cpp" "GameCore/Components.h" "Commands.h" "GameCore/Systems/RenderableObjectSystem.h" "GameCore/WorldResources.h" "GameCore/WorldResources.cpp" "GpuData/ViewProjection.h" "GameCore/Systems/CameraSystem.h" "GameCore/GameWorld.h" "GameCore/SceneAsset.h" "GameCore/GameObject.h" "GameCore/SceneInstance.h" "GameCore/GameCoreTypes.h" "GameCore/GameObjectProto.h" "GameCore/SceneSerializer.h" "GameCore/SceneSerializer.cpp" "GameCore/GameWorld.cpp")
+    "Asset/AssetManager.cpp"
+    "GameCore/Components.h"
+    "Commands.h"
+    "GameCore/Systems/RenderableObjectSystem.h"
+    "GameCore/Systems/SpriteSystem.h"
+    "GameCore/Systems/PhysicsBodySystem.h"
+    "GameCore/WorldResources.h"
+    "GameCore/WorldResources.cpp"
+    "GpuData/ViewProjection.h"
+    "GameCore/Systems/CameraSystem.h"
+    "GameCore/GameWorld.h"
+    "GameCore/SceneAsset.h"
+    "GameCore/GameObject.h"
+    "GameCore/SceneInstance.h"
+    "GameCore/GameCoreTypes.h"
+    "GameCore/GameObjectProto.h"
+    "GameCore/SceneSerializer.h"
+    "GameCore/SceneSerializer.cpp"
+    "GameCore/GameWorld.cpp"
+    "GameCore/Navigation/NavComponents.h"
+    "GameCore/Navigation/NavMeshAssetFormat.h"
+    "GameCore/Navigation/NavMeshAssetSerializer.h"
+    "GameCore/Navigation/NavMeshAssetSerializer.cpp"
+    "GameCore/Navigation/NavTypes.h"
+    "GameCore/Navigation/Navigation.h"
+    "GameCore/Navigation/NavigationBakePipeline.h"
+    "GameCore/Navigation/NavigationBakePipeline.cpp"
+    "GameCore/Navigation/NavigationGeometryCollector.h"
+    "GameCore/Navigation/NavigationGeometryCollector.cpp"
+    "GameCore/Navigation/NavigationSystem.h"
+    "GameCore/Navigation/NavigationWorld.h"
+    "GameCore/Navigation/NavigationWorld.cpp"
+    "GameCore/Navigation/RecastNavigationBackend.h"
+    "GameCore/Navigation/RecastNavigationBackend.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC
@@ -46,7 +94,10 @@ target_link_libraries(Engine PUBLIC
     ECS
     PAL
     RHI
+    Physics
     nlohmann_json::nlohmann_json
+    RecastNavigation::Detour
+    RecastNavigation::Recast
 )
 
 # インクルードディレクトリの追加

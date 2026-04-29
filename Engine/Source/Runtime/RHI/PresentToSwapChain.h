@@ -51,29 +51,29 @@ namespace Cue::RHI
                     "Failed to get back buffer RTV view handle for present pass.");
             }
 
-            result = builder.get_texture("FinalColor", m_finalColorHandle);
+            result = builder.get_texture("GameColor", m_sourceColorHandle);
             if(!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get final color texture handle for present pass.");
+                    "Failed to get game color texture handle for present pass.");
             }
-            result = builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+            result = builder.get_view("GameColorRTV", m_sourceColorRtvHandle);
             if (!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get final color RTV view handle for present pass.");
+                    "Failed to get game color RTV view handle for present pass.");
             }
-            result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
+            result = builder.get_view("GameColorSRV", m_sourceColorSrvHandle);
             if(!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get final color SRV view handle for present pass.");
+                    "Failed to get game color SRV view handle for present pass.");
             }
 
             RootSignatureDesc rootSignatureDesc{};
@@ -160,7 +160,7 @@ namespace Cue::RHI
             }
 
             return builder.use_texture(
-                m_finalColorHandle,
+                m_sourceColorHandle,
                 ResourceAccessType::Read,
                 ResourceState::ShaderResource,
                 ResourceState::Common);
@@ -178,7 +178,7 @@ namespace Cue::RHI
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
             commandContext->set_primitive_topology(PrimitiveTopologyType::Triangle);
-            commandContext->set_graphics_descriptor_table(0, m_finalColorSrvHandle);
+            commandContext->set_graphics_descriptor_table(0, m_sourceColorSrvHandle);
             commandContext->draw_instanced(3, 1, 0, 0);
 
         }
@@ -187,9 +187,9 @@ namespace Cue::RHI
 
         TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
-        TextureHandle m_finalColorHandle; // コピー元となる finalColor のハンドル
-        ViewHandle m_finalColorRtvHandle; // finalColor の RTV ビューのハンドル
-        ViewHandle m_finalColorSrvHandle; // finalColor の SRV ビューのハンドル
+        TextureHandle m_sourceColorHandle; // コピー元となる color のハンドル
+        ViewHandle m_sourceColorRtvHandle; // color の RTV ビューのハンドル
+        ViewHandle m_sourceColorSrvHandle; // color の SRV ビューのハンドル
         RootSignatureHandle m_screenCopyRootSignatureHandle; // ScreenCopy 用ルートシグネチャのハンドル
         ShaderBlobHandle m_screenCopyVsHandle; // ScreenCopy の VS シェーダーハンドル
         ShaderBlobHandle m_screenCopyPsHandle; // ScreenCopy の PS シェーダーハンドル

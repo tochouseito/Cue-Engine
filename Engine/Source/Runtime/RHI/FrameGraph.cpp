@@ -531,6 +531,7 @@ namespace Cue::RHI
     Result FrameGraph::execute(uint32_t frameIndex)
     {
         using Clock = std::chrono::steady_clock;
+        std::lock_guard statsLock(m_executionStatsMutex);
         const bool isProfilingEnabled = m_desc.enableProfiling;
         auto ms_since =
             [](const Clock::time_point& a_start, const Clock::time_point& a_end)
@@ -543,6 +544,7 @@ namespace Cue::RHI
         double queueWaitMs = 0.0;
         double interQueueWaitMs = 0.0;
         double finalQueueWaitMs = 0.0;
+        double contextRecycleWaitMs = 0.0;
         double finalGraphicsWaitMs = 0.0;
         double finalComputeWaitMs = 0.0;
         double finalCopyWaitMs = 0.0;
@@ -607,7 +609,13 @@ namespace Cue::RHI
             {
                 if (commandContext)
                 {
+                    const Clock::time_point recycleStartTime = Clock::now();
                     m_desc.commandPool->return_command_context(commandContext);
+                    if (isProfilingEnabled)
+                    {
+                        contextRecycleWaitMs +=
+                            ms_since(recycleStartTime, Clock::now());
+                    }
                 }
             }
         };
@@ -1129,6 +1137,7 @@ namespace Cue::RHI
             m_executionStats.queueWaitMs = queueWaitMs;
             m_executionStats.interQueueWaitMs = interQueueWaitMs;
             m_executionStats.finalQueueWaitMs = finalQueueWaitMs;
+            m_executionStats.contextRecycleWaitMs = contextRecycleWaitMs;
             m_executionStats.finalGraphicsWaitMs = finalGraphicsWaitMs;
             m_executionStats.finalComputeWaitMs = finalComputeWaitMs;
             m_executionStats.finalCopyWaitMs = finalCopyWaitMs;
@@ -1146,6 +1155,7 @@ namespace Cue::RHI
             m_executionStats.queueWaitMs = 0.0;
             m_executionStats.interQueueWaitMs = 0.0;
             m_executionStats.finalQueueWaitMs = 0.0;
+            m_executionStats.contextRecycleWaitMs = 0.0;
             m_executionStats.finalGraphicsWaitMs = 0.0;
             m_executionStats.finalComputeWaitMs = 0.0;
             m_executionStats.finalCopyWaitMs = 0.0;
@@ -1153,6 +1163,34 @@ namespace Cue::RHI
         m_executionStats.hasGpuFrameMs = false;
         m_executionStats.gpuFrameMs = 0.0;
         return Result::ok();
+    }
+
+    FrameGraphExecutionStats FrameGraph::execution_stats_copy() const noexcept
+    {
+        std::lock_guard lock(m_executionStatsMutex);
+        return m_executionStats;
+    }
+
+    FrameGraphExecutionStats FrameGraph::execution_stats_summary_copy() const noexcept
+    {
+        std::lock_guard lock(m_executionStatsMutex);
+
+        FrameGraphExecutionStats stats{};
+        stats.totalExecuteMs = m_executionStats.totalExecuteMs;
+        stats.submitMs = m_executionStats.submitMs;
+        stats.queueWaitMs = m_executionStats.queueWaitMs;
+        stats.interQueueWaitMs = m_executionStats.interQueueWaitMs;
+        stats.finalQueueWaitMs = m_executionStats.finalQueueWaitMs;
+        stats.contextRecycleWaitMs = m_executionStats.contextRecycleWaitMs;
+        stats.finalGraphicsWaitMs = m_executionStats.finalGraphicsWaitMs;
+        stats.finalComputeWaitMs = m_executionStats.finalComputeWaitMs;
+        stats.finalCopyWaitMs = m_executionStats.finalCopyWaitMs;
+        stats.graphicsFenceValue = m_executionStats.graphicsFenceValue;
+        stats.computeFenceValue = m_executionStats.computeFenceValue;
+        stats.copyFenceValue = m_executionStats.copyFenceValue;
+        stats.hasGpuFrameMs = m_executionStats.hasGpuFrameMs;
+        stats.gpuFrameMs = m_executionStats.gpuFrameMs;
+        return stats;
     }
 
     ResourceId FrameGraph::make_resource_id(BufferHandle handle) noexcept

@@ -6,6 +6,12 @@
 // === ECS includes ===
 #include <ECSManager.h>
 
+// === Audio includes ===
+#include <Audio.h>
+
+// === Physics includes ===
+#include <Physics.h>
+
 // === Asset includes ===
 #include <Asset/AssetManager.h>
 
@@ -90,6 +96,7 @@ namespace Cue::ECS
         MeshFilterComponent& operator=(const MeshFilterComponent&) = default;
         MeshFilterComponent(MeshFilterComponent&&) = default;
         MeshFilterComponent& operator=(MeshFilterComponent&&) = default;
+        std::string modelName{};
         uint32_t meshId = k_invalidMeshId; // StaticMeshPool に登録されたメッシュ ID
     };
 
@@ -102,6 +109,79 @@ namespace Cue::ECS
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
         bool visible = true;
+    };
+
+    struct SpriteRendererComponent : public IComponentTag
+    {
+        SpriteRendererComponent() = default;
+        SpriteRendererComponent(const SpriteRendererComponent&) = default;
+        SpriteRendererComponent& operator=(const SpriteRendererComponent&) = default;
+        SpriteRendererComponent(SpriteRendererComponent&&) = default;
+        SpriteRendererComponent& operator=(SpriteRendererComponent&&) = default;
+        MaterialHandle materialHandle{};
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 uvRect = Math::float4(0.0f, 0.0f, 1.0f, 1.0f);
+        Math::float2 size = Math::float2(64.0f, 64.0f);
+        Math::float2 pivot = Math::float2(0.5f, 0.5f);
+        int32_t layer = 0;
+        uint32_t order = 0;
+        bool isVisible = true;
+    };
+
+    struct AudioSourceComponent : public IComponentTag
+    {
+        AudioSourceComponent() = default;
+        AudioSourceComponent(const AudioSourceComponent&) = default;
+        AudioSourceComponent& operator=(const AudioSourceComponent&) = default;
+        AudioSourceComponent(AudioSourceComponent&&) = default;
+        AudioSourceComponent& operator=(AudioSourceComponent&&) = default;
+        std::string fileName{};
+        float spatialBlend = 0.0f;
+        float volume = 1.0f;
+        Audio::AudioSourceHandle sourceHandle{};
+        bool playOnStart = false;
+        bool isPlaying = false;
+        bool playRequested = false;
+        bool stopRequested = false;
+        bool hasStarted = false;
+        bool loop = false;
+    };
+
+    struct RigidBodyComponent : public IComponentTag
+    {
+        RigidBodyComponent() = default;
+        RigidBodyComponent(const RigidBodyComponent&) = default;
+        RigidBodyComponent& operator=(const RigidBodyComponent&) = default;
+        RigidBodyComponent(RigidBodyComponent&&) = default;
+        RigidBodyComponent& operator=(RigidBodyComponent&&) = default;
+        Physics::RigidBodyHandle body{};
+        Physics::MotionType motion = Physics::MotionType::Dynamic;
+        Math::float3 linearVelocity = Math::float3::zero();
+        Math::float3 angularVelocity = Math::float3::zero();
+        float mass = 1.0f;
+        float linearDamping = 0.05f;
+        float angularDamping = 0.05f;
+        bool useGravity = true;
+        bool isCreated = false;
+    };
+
+    struct ColliderComponent : public IComponentTag
+    {
+        ColliderComponent() = default;
+        ColliderComponent(const ColliderComponent&) = default;
+        ColliderComponent& operator=(const ColliderComponent&) = default;
+        ColliderComponent(ColliderComponent&&) = default;
+        ColliderComponent& operator=(ColliderComponent&&) = default;
+        Physics::ShapeType type = Physics::ShapeType::Box;
+        Math::float3 offset = Math::float3::zero();
+        Math::float3 halfExtent = Math::float3(0.5f, 0.5f, 0.5f);
+        float radius = 0.5f;
+        float halfHeight = 0.5f;
+        float friction = 0.2f;
+        float restitution = 0.0f;
+        uint16_t layer = 0;
+        uint16_t mask = 0xFFFFu;
+        bool isTrigger = false;
     };
 
     enum class ScriptFieldType : uint8_t

@@ -128,7 +128,7 @@ namespace Cue
                 m_renderObjectBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::Common);
+                RHI::ResourceState::ShaderResource);
             if (!result)
             {
                 return result;
@@ -138,7 +138,7 @@ namespace Cue
                 m_visibleObjectCountBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::Common);
+                RHI::ResourceState::ShaderResource);
         }
 
         void execute(RHI::FrameGraphContext& context) override

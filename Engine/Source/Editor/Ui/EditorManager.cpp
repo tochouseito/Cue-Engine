@@ -7,11 +7,16 @@
 #include <IO/IFileSystem.h>
 #include <IO/Logger.h>
 #include <IO/Path.h>
+#include <Time/Timer.h>
 
 // === Engine includes ===
+#include <ModelImporter.h>
+#include <ModelCooker.h>
+#include <SoundCooker.h>
+#include <TextureCooker.h>
+#include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
-#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 // === Win includes ===
 #include <shellapi.h>
@@ -43,6 +48,37 @@ namespace Cue::Editor
             BuildBackend gameReleaseBuildBackend = BuildBackend::CMake;
             std::string gameReleaseOutputRoot = "Builds/Windows";
         };
+
+        struct SceneCameraMenuEntry final
+        {
+            GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+            std::string name{};
+            bool isMain = false;
+        };
+
+        [[nodiscard]] Core::IO::Path resolve_asset_root(
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+            return assetRoot.normalize();
+        }
+
+        [[nodiscard]] GameCore::NavMeshBakeSettings
+            make_default_nav_mesh_settings() noexcept
+        {
+            GameCore::NavMeshBakeSettings settings{};
+            settings.agentRadius = 0.35f;
+            settings.agentHeight = 1.8f;
+            settings.agentMaxClimb = 0.4f;
+            settings.regionMinSize = 2.0f;
+            settings.regionMergeSize = 8.0f;
+            return settings;
+        }
 
         void log_result(std::string_view a_prefix, const Result& a_result)
         {
@@ -280,6 +316,169 @@ namespace Cue::Editor
             return Result::ok();
         }
 
+        [[nodiscard]] bool should_copy_release_asset_file(
+            const Core::IO::Path& a_filePath) noexcept
+        {
+            const std::string extension = a_filePath.extension();
+            return extension == ".cuetexture" ||
+                extension == ".cuematerial" ||
+                extension == ".cuescene" ||
+                extension == ".cuemodel" ||
+                extension == ".cuesound";
+        }
+
+        [[nodiscard]] Result copy_release_assets_recursive(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourceDirectory,
+            const Core::IO::Path& a_destinationDirectory) noexcept
+        {
+            bool sourceExists = false;
+            Result result = a_fileSystem.exists(a_sourceDirectory, &sourceExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!sourceExists)
+            {
+                return Result::ok();
+            }
+
+            Core::IO::FileStat sourceStat{};
+            result = a_fileSystem.stat(a_sourceDirectory, &sourceStat);
+            if (!result)
+            {
+                return result;
+            }
+            if (sourceStat.type != Core::IO::FileType::directory)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Release asset source path must be a directory.");
+            }
+
+            std::vector<Core::IO::Path> entries{};
+            result = a_fileSystem.list_directory(a_sourceDirectory, &entries);
+            if (!result)
+            {
+                return result;
+            }
+
+            bool hasCopiedEntry = false;
+            for (const Core::IO::Path& entryPath : entries)
+            {
+                Core::IO::FileStat stat{};
+                result = a_fileSystem.stat(entryPath, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const Core::IO::Path destinationPath = Core::IO::Path::join(
+                    a_destinationDirectory,
+                    Core::IO::Path(entryPath.filename()));
+
+                if (stat.type == Core::IO::FileType::directory)
+                {
+                    result = copy_release_assets_recursive(
+                        a_fileSystem,
+                        entryPath,
+                        destinationPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+
+                    bool destinationExists = false;
+                    result = a_fileSystem.exists(destinationPath, &destinationExists);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    hasCopiedEntry = hasCopiedEntry || destinationExists;
+                    continue;
+                }
+
+                if (stat.type != Core::IO::FileType::regular ||
+                    !should_copy_release_asset_file(entryPath))
+                {
+                    continue;
+                }
+
+                if (!hasCopiedEntry)
+                {
+                    result = a_fileSystem.create_directories(a_destinationDirectory);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    hasCopiedEntry = true;
+                }
+
+                result = a_fileSystem.copy_file(
+                    entryPath,
+                    destinationPath,
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result remove_path_recursive(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_targetPath) noexcept
+        {
+            bool exists = false;
+            Result result = a_fileSystem.exists(a_targetPath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!exists)
+            {
+                return Result::ok();
+            }
+
+            Core::IO::FileStat stat{};
+            result = a_fileSystem.stat(a_targetPath, &stat);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (stat.type == Core::IO::FileType::directory)
+            {
+                std::vector<Core::IO::Path> entries{};
+                result = a_fileSystem.list_directory(a_targetPath, &entries);
+                if (!result)
+                {
+                    return result;
+                }
+
+                for (const Core::IO::Path& entryPath : entries)
+                {
+                    result = remove_path_recursive(a_fileSystem, entryPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+            }
+
+            bool removed = false;
+            result = a_fileSystem.remove(a_targetPath, &removed);
+            if (!result && result.code != Code::NotFound)
+            {
+                return result;
+            }
+
+            return Result::ok();
+        }
+
         [[nodiscard]] Core::IO::Path resolve_game_release_output_directory(
             const Core::IO::Path& a_projectRoot,
             const ProjectSettings& a_settings) noexcept
@@ -450,6 +649,280 @@ namespace Cue::Editor
                 MaterialHandle materialHandle{};
                 result = a_engine.asset_manager().load_material(
                     a_fileSystem, materialPath, materialHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_project_models(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path modelRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Models"));
+            bool modelRootExists = false;
+            Result result = a_fileSystem.exists(modelRoot, &modelRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!modelRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> modelPaths{};
+            result = a_fileSystem.list_directory(modelRoot, &modelPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(modelPaths.begin(), modelPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            std::vector<Core::IO::Path> cookedModelPaths{};
+            std::vector<Core::IO::Path> sourceModelPaths{};
+            for (const Core::IO::Path& modelPath : modelPaths)
+            {
+                if (modelPath.extension() == ".cuemodel")
+                {
+                    cookedModelPaths.push_back(modelPath);
+                }
+                else if (modelPath.extension() == ".obj")
+                {
+                    sourceModelPaths.push_back(modelPath);
+                }
+            }
+
+            for (const Core::IO::Path& sourceModelPath : sourceModelPaths)
+            {
+                const Core::IO::Path cookedModelPath = Core::IO::Path::join(
+                    modelRoot,
+                    Core::IO::Path(sourceModelPath.stem() + ".cuemodel"));
+                result = ModelCooker::ensure_cuemodel_is_up_to_date(
+                    a_fileSystem,
+                    sourceModelPath,
+                    cookedModelPath);
+                if (!result)
+                {
+                    return result;
+                }
+
+                bool hasCookedModel = false;
+                result = a_fileSystem.exists(cookedModelPath, &hasCookedModel);
+                if (!result)
+                {
+                    return result;
+                }
+                if (hasCookedModel)
+                {
+                    cookedModelPaths.push_back(cookedModelPath);
+                }
+            }
+
+            std::sort(cookedModelPaths.begin(), cookedModelPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            cookedModelPaths.erase(
+                std::unique(
+                    cookedModelPaths.begin(),
+                    cookedModelPaths.end(),
+                    [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                    {
+                        return a_left.normalize().utf8() == a_right.normalize().utf8();
+                    }),
+                cookedModelPaths.end());
+
+            for (const Core::IO::Path& cookedModelPath : cookedModelPaths)
+            {
+                const std::string modelName = cookedModelPath.stem();
+                ModelHandle modelHandle{};
+                result = a_engine.asset_manager().register_model_from_cuemodel(
+                    a_fileSystem,
+                    modelName,
+                    cookedModelPath,
+                    modelHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_project_textures(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Textures"));
+            bool textureRootExists = false;
+            Result result = a_fileSystem.exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!textureRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> texturePaths{};
+            result = a_fileSystem.list_directory(textureRoot, &texturePaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::vector<Core::IO::Path> cookedTexturePaths{};
+            std::vector<Core::IO::Path> sourceTexturePaths{};
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() == ".cuetexture")
+                {
+                    cookedTexturePaths.push_back(texturePath);
+                }
+                else if (texturePath.extension() == ".png")
+                {
+                    sourceTexturePaths.push_back(texturePath);
+                }
+            }
+
+            std::sort(sourceTexturePaths.begin(), sourceTexturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& sourceTexturePath : sourceTexturePaths)
+            {
+                const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
+                    textureRoot,
+                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
+                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    a_fileSystem,
+                    sourceTexturePath,
+                    cookedTexturePath);
+                if (!result)
+                {
+                    return result;
+                }
+                cookedTexturePaths.push_back(cookedTexturePath);
+            }
+
+            std::sort(cookedTexturePaths.begin(), cookedTexturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            cookedTexturePaths.erase(
+                std::unique(cookedTexturePaths.begin(), cookedTexturePaths.end(),
+                    [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                    {
+                        return a_left.normalize().utf8() == a_right.normalize().utf8();
+                    }),
+                cookedTexturePaths.end());
+
+            for (const Core::IO::Path& cookedTexturePath : cookedTexturePaths)
+            {
+                const std::string textureName = Core::IO::Path::join(
+                    Core::IO::Path("Textures"),
+                    Core::IO::Path(cookedTexturePath.filename())).utf8();
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                    a_fileSystem,
+                    textureName,
+                    cookedTexturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result cook_project_sounds(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path soundRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Sounds"));
+            bool soundRootExists = false;
+            Result result = a_fileSystem.exists(soundRoot, &soundRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!soundRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> soundPaths{};
+            result = a_fileSystem.list_directory(soundRoot, &soundPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(soundPaths.begin(), soundPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& sourceSoundPath : soundPaths)
+            {
+                if (sourceSoundPath.extension() != ".wav")
+                {
+                    continue;
+                }
+
+                const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
+                    soundRoot,
+                    Core::IO::Path(sourceSoundPath.stem() + ".cuesound"));
+                result = SoundCooker::ensure_cuesound_is_up_to_date(
+                    a_fileSystem,
+                    sourceSoundPath,
+                    cookedSoundPath);
                 if (!result)
                 {
                     return result;
@@ -786,11 +1259,23 @@ namespace Cue::Editor
         }
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
-        m_debugView = std::make_unique<DebugView>(m_backend, m_bridge);
+        m_statistics->set_update_metrics_source(&m_lastUpdateMetrics);
+        m_gameView = std::make_unique<GameView>(m_backend);
+        m_debugView = std::make_unique<DebugView>(m_backend, &m_debugCamera);
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
-            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine);
+            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine,
+            m_fileSystem);
+    }
+
+    void EditorManager::set_loop_metrics_source(
+        const EditorLoopMetrics* a_loopMetrics) noexcept
+    {
+        if (m_statistics != nullptr)
+        {
+            m_statistics->set_loop_metrics_source(a_loopMetrics);
+        }
     }
 
     Result EditorManager::open_project(const std::string& a_projectPath)
@@ -851,6 +1336,11 @@ namespace Cue::Editor
         {
             m_assetBrowser->set_asset_root_path(assetRootPath);
         }
+        if (m_inspector != nullptr)
+        {
+            m_inspector->set_asset_root_path(assetRootPath);
+        }
+        m_engine->set_asset_root_path(assetRootPath);
 
         const Result scriptLoadResult = m_engine->load_script_module(
             scriptRootPath,
@@ -913,6 +1403,8 @@ namespace Cue::Editor
             ? m_loadedSceneAsset.name()
             : Core::IO::Path(m_currentScenePath).stem();
         GameCore::SceneAsset sceneAsset(sceneName);
+        sceneAsset.set_navigation_mesh_path(
+            m_loadedSceneAsset.navigation_mesh_path());
         Result captureResult = Result::ok();
         result = m_engine->game_world()->for_each_object_in_scene(
             m_currentSceneId,
@@ -1151,9 +1643,8 @@ namespace Cue::Editor
 
         const Core::IO::Path stagingDirectory =
             resolve_game_release_output_directory(projectRoot, projectSettings);
-        bool removed = false;
-        result = m_fileSystem->remove(stagingDirectory, &removed);
-        if (!result && result.code != Code::NotFound)
+        result = remove_path_recursive(*m_fileSystem, stagingDirectory);
+        if (!result)
         {
             return result;
         }
@@ -1244,7 +1735,13 @@ namespace Cue::Editor
             return result;
         }
 
-        result = copy_directory_recursive(
+        result = cook_project_sounds(*m_fileSystem, projectRoot, projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = copy_release_assets_recursive(
             *m_fileSystem,
             assetRoot,
             Core::IO::Path::join(stagingDirectory, Core::IO::Path("Assets")));
@@ -1898,8 +2395,37 @@ namespace Cue::Editor
             return result;
         }
 
+        result = load_project_textures(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = load_project_models(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
         result = load_project_materials(
             *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = cook_project_sounds(
             *m_fileSystem,
             Core::IO::Path(m_projectPath),
             projectSettings);
@@ -2039,6 +2565,126 @@ namespace Cue::Editor
         }
 
         return m_engine->stop_play_mode();
+    }
+
+    Result EditorManager::bake_current_scene_navigation()
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr ||
+            m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+        if (m_projectPath.empty() ||
+            m_currentSceneId == GameCore::k_invalidSceneId ||
+            m_currentScenePath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "There is no loaded scene to bake navigation.");
+        }
+        if (m_engine->is_playing())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Navigation bake is not available during Play.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        ProjectSettings projectSettings{};
+        result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path assetRoot = resolve_asset_root(
+            Core::IO::Path(m_projectPath), projectSettings);
+        const Core::IO::Path navMeshDirectory = Core::IO::Path::join(
+            assetRoot, Core::IO::Path("Navigation"));
+        result = m_fileSystem->create_directories(navMeshDirectory);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::string sceneStem = Core::IO::Path(m_currentScenePath).stem();
+        const std::string navMeshFileName = sceneStem + ".cuenavmesh";
+        const Core::IO::Path navMeshRelativePath = Core::IO::Path::join(
+            Core::IO::Path("Navigation"), Core::IO::Path(navMeshFileName));
+        const Core::IO::Path navMeshPath = Core::IO::Path::join(
+            assetRoot, navMeshRelativePath);
+
+        std::vector<ECS::Entity> sourceEntities{};
+        result = m_engine->game_world()->for_each_object_in_scene(
+            m_currentSceneId,
+            [&sourceEntities](GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+            {
+                ECS::NavMeshBakeSourceComponent* source = nullptr;
+                if (a_object.get_component(source) && source != nullptr &&
+                    source->isIncluded)
+                {
+                    sourceEntities.push_back(a_entityId);
+                }
+            });
+        if (!result)
+        {
+            return result;
+        }
+        if (sourceEntities.empty())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene has no NavMeshBakeSourceComponent.");
+        }
+
+        ECS::ECSManager* ecs = nullptr;
+        result = m_engine->game_world()->ecs(ecs);
+        if (!result || ecs == nullptr)
+        {
+            return result ? Result::fail(Code::InvalidState, Severity::Error,
+                "ECS is not initialized.") : result;
+        }
+
+        GameCore::NavMeshAssetData navMeshAsset{};
+        GameCore::NavMeshHandle navMeshHandle{};
+        result = GameCore::NavigationBakePipeline::bake_entities_to_file_and_world(
+            *ecs,
+            m_engine->asset_manager(),
+            *m_fileSystem,
+            m_engine->game_world()->navigation_world(),
+            std::span<const ECS::Entity>(sourceEntities),
+            make_default_nav_mesh_settings(),
+            navMeshPath,
+            navMeshAsset,
+            navMeshHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->set_active_navigation_mesh(
+            navMeshHandle, navMeshAsset);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_loadedSceneAsset.set_navigation_mesh_path(
+            navMeshRelativePath.utf8());
+        result = save_current_scene();
+        if (!result)
+        {
+            return result;
+        }
+
+        set_status_message("NavMesh を Bake しました。", false);
+        return Result::ok();
     }
 
     void EditorManager::draw_script_build_output()
@@ -2292,6 +2938,125 @@ namespace Cue::Editor
         ImGui::End();
     }
 
+    void EditorManager::draw_navigation_debug_window()
+    {
+        if (!m_showNavigationDebugWindow)
+        {
+            return;
+        }
+
+        if (!ImGui::Begin("Navigation Debug", &m_showNavigationDebugWindow))
+        {
+            ImGui::End();
+            return;
+        }
+
+        GameCore::GameWorld* world =
+            m_engine != nullptr ? m_engine->active_world() : nullptr;
+        if (world == nullptr)
+        {
+            ImGui::TextUnformatted("GameWorld が初期化されていません。");
+            ImGui::End();
+            return;
+        }
+
+        const GameCore::NavMeshHandle activeNavMesh =
+            world->active_navigation_mesh();
+        ImGui::Text("Active NavMesh: %s",
+            activeNavMesh.valid() ? "true" : "false");
+        ImGui::Text("Scene NavMesh: %s",
+            m_loadedSceneAsset.navigation_mesh_path().empty()
+            ? "(none)"
+            : m_loadedSceneAsset.navigation_mesh_path().c_str());
+
+        GameCore::NavMeshDebugGeometry geometry{};
+        const Result geometryResult =
+            world->build_navigation_debug_geometry(geometry);
+        if (geometryResult)
+        {
+            ImGui::Text("Polygons: %zu", geometry.triangles.size());
+            ImGui::Text("Edges: %zu", geometry.polygonEdges.size());
+            ImGui::Text("Path lines: %zu", geometry.pathLines.size());
+        }
+        else
+        {
+            ImGui::Text("Debug Geometry: %s",
+                geometryResult.message.data());
+        }
+
+        size_t sourceCount = 0;
+        size_t agentCount = 0;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            (void)world->for_each_object_in_scene(
+                m_currentSceneId,
+                [&sourceCount, &agentCount](GameCore::EntityId,
+                    GameCore::SceneId,
+                    GameCore::GameObject& a_object)
+                {
+                    ECS::NavMeshBakeSourceComponent* source = nullptr;
+                    if (a_object.get_component(source) && source != nullptr &&
+                        source->isIncluded)
+                    {
+                        ++sourceCount;
+                    }
+
+                    ECS::NavAgentComponent* agent = nullptr;
+                    if (a_object.get_component(agent) && agent != nullptr)
+                    {
+                        ++agentCount;
+                    }
+                });
+        }
+        ImGui::Separator();
+        ImGui::Text("Bake Sources: %zu", sourceCount);
+        ImGui::Text("Agents: %zu", agentCount);
+
+        if (m_selectedEntityId != GameCore::k_invalidEntityId)
+        {
+            ECS::NavAgentComponent* agent = nullptr;
+            if (world->get_component(m_selectedEntityId, agent) && agent != nullptr)
+            {
+                ImGui::Separator();
+                ImGui::Text("Selected NavAgent: %u", m_selectedEntityId);
+                ImGui::Text("hasDestination: %s",
+                    agent->hasDestination ? "true" : "false");
+                ImGui::Text("hasPath: %s", agent->hasPath ? "true" : "false");
+                ImGui::Text("hasArrived: %s",
+                    agent->hasArrived ? "true" : "false");
+                ImGui::Text("hasPathFailed: %s",
+                    agent->hasPathFailed ? "true" : "false");
+                ImGui::Text("isOnNavMesh: %s",
+                    agent->isOnNavMesh ? "true" : "false");
+
+                float destination[3] = {
+                    agent->destination.x,
+                    agent->destination.y,
+                    agent->destination.z
+                };
+                if (ImGui::InputFloat3("Destination", destination))
+                {
+                    agent->destination = Math::float3(
+                        destination[0], destination[1], destination[2]);
+                }
+                if (ImGui::Button("Set Destination"))
+                {
+                    const Result result = world->set_nav_agent_destination(
+                        m_selectedEntityId,
+                        Math::float3(
+                            destination[0], destination[1], destination[2]));
+                    if (!result)
+                    {
+                        log_result("Failed to set nav agent destination", result);
+                        set_status_message("Agent 目標設定に失敗しました。", true);
+                    }
+                }
+            }
+        }
+
+        ImGui::End();
+    }
+
     void EditorManager::draw_script_build_notification_popup()
     {
         if (m_openScriptBuildNotificationPopup)
@@ -2487,11 +3252,244 @@ namespace Cue::Editor
         }
     }
 
+    void EditorManager::draw_main_camera_menu()
+    {
+        const bool canSelectMainCamera = m_bridge != nullptr &&
+            m_engine != nullptr && m_engine->game_world() != nullptr &&
+            m_currentSceneId != GameCore::k_invalidSceneId &&
+            !m_isScriptActionActive;
+        if (!ImGui::BeginMenu("メインカメラ", canSelectMainCamera))
+        {
+            return;
+        }
+
+        std::vector<SceneCameraMenuEntry> cameras{};
+        const Result collectResult = m_engine->game_world()->for_each_object_in_scene(
+            m_currentSceneId,
+            [&cameras](
+                GameCore::EntityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+            {
+                ECS::CameraComponent* camera = nullptr;
+                if (!a_object.get_component(camera) || camera == nullptr)
+                {
+                    return;
+                }
+
+                SceneCameraMenuEntry entry{};
+                entry.entityId = a_object.entity_id();
+                entry.isMain = camera->isMain;
+                Result nameResult = a_object.name(entry.name);
+                if (!nameResult || entry.name.empty())
+                {
+                    entry.name = "Camera";
+                }
+
+                cameras.push_back(std::move(entry));
+            });
+        if (!collectResult)
+        {
+            ImGui::TextDisabled("Scene のカメラを取得できません。");
+            ImGui::EndMenu();
+            return;
+        }
+
+        if (cameras.empty())
+        {
+            ImGui::TextDisabled("Scene 内にカメラがありません。");
+            ImGui::EndMenu();
+            return;
+        }
+
+        for (size_t cameraIndex = 0; cameraIndex < cameras.size(); ++cameraIndex)
+        {
+            const SceneCameraMenuEntry& camera = cameras[cameraIndex];
+            const std::string label =
+                camera.name + "##MainCamera" + std::to_string(cameraIndex);
+            if (ImGui::MenuItem(label.c_str(), nullptr, camera.isMain, true))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<SetMainCameraCommand>(camera.entityId));
+                if (!result)
+                {
+                    log_result("Failed to set main camera", result);
+                    set_status_message(
+                        "メインカメラの変更に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("メインカメラを変更しました。", false);
+                }
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
+    void EditorManager::process_debug_pick_request()
+    {
+        if (m_debugView == nullptr || m_engine == nullptr)
+        {
+            return;
+        }
+
+        GameCore::EntityId pickedEntityId = GameCore::k_invalidEntityId;
+        if (m_engine->consume_debug_pick_result(pickedEntityId))
+        {
+            m_selectedEntityId = pickedEntityId;
+        }
+
+        DebugView::PickRequest pickRequest{};
+        if (!m_debugView->consume_pick_request(pickRequest))
+        {
+            return;
+        }
+
+        m_engine->request_debug_pick(
+            pickRequest.normalizedX,
+            pickRequest.normalizedY);
+    }
+
+    void EditorManager::sync_debug_selection()
+    {
+        if (m_engine == nullptr || m_engine->active_world() == nullptr)
+        {
+            return;
+        }
+
+        GameCore::GameWorld* debugWorld = m_engine->active_world();
+        GpuData::DebugSelectionGpu selection{};
+        uint32_t selectedObjectId = 0;
+        constexpr float k_cameraFrustumNear = 0.03f;
+        constexpr float k_cameraFrustumFar = 1.0f;
+        auto appendDebugItem =
+            [&selection](const GpuData::DebugSelectionItemGpu& a_item) noexcept
+        {
+            if (selection.itemCount >= GpuData::k_maxDebugSelectionItemCount)
+            {
+                return;
+            }
+
+            selection.items[selection.itemCount] = a_item;
+            ++selection.itemCount;
+        };
+        auto makeCameraItem =
+            [&](const ECS::TransformComponent& a_transform,
+                const ECS::CameraComponent& a_camera,
+                bool a_isSelected) noexcept
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_isSelected
+                ? Math::float4(1.0f, 0.84f, 0.18f, 1.0f)
+                : Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
+            item.camera = Math::float4(
+                std::clamp(a_camera.fovY, 1.0f, 179.0f),
+                a_camera.aspectRatio > 0.0f ? a_camera.aspectRatio : 1.0f,
+                k_cameraFrustumNear,
+                k_cameraFrustumFar);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::CameraFrustum);
+            item.isEnabled = 1;
+            return item;
+        };
+        if (m_selectedEntityId != GameCore::k_invalidEntityId)
+        {
+            const ECS::RenderableInfoComponent* renderableInfo = nullptr;
+            const bool hasRenderableOutline =
+                debugWorld->get_component<ECS::RenderableInfoComponent>(
+                    m_selectedEntityId, renderableInfo) &&
+                renderableInfo != nullptr &&
+                renderableInfo->objectId != ECS::k_invalidRenderableId;
+
+            const ECS::TransformComponent* transform = nullptr;
+            const Result transformResult =
+                debugWorld->get_component<ECS::TransformComponent>(
+                    m_selectedEntityId, transform);
+            const ECS::CameraComponent* camera = nullptr;
+            if (transformResult)
+            {
+                (void)debugWorld->get_component<ECS::CameraComponent>(
+                    m_selectedEntityId,
+                    camera);
+                if (camera == nullptr && !hasRenderableOutline)
+                {
+                    GpuData::DebugSelectionItemGpu item{};
+                    item.world = Math::make_affine_matrix(
+                        transform->scale * 1.08f,
+                        transform->rotation,
+                        transform->position);
+                    item.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
+                    item.shape = static_cast<uint32_t>(
+                        GpuData::DebugSelectionShape::Box);
+                    item.isEnabled = 1;
+                    appendDebugItem(item);
+                }
+            }
+
+            if (hasRenderableOutline)
+            {
+                selectedObjectId = renderableInfo->objectId + 1u;
+            }
+        }
+
+        auto appendCameraObject =
+            [this, &appendDebugItem, &makeCameraItem](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+        {
+            ECS::TransformComponent* transform = nullptr;
+            ECS::CameraComponent* camera = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr ||
+                !a_object.get_component(camera) || camera == nullptr)
+            {
+                return;
+            }
+
+            appendDebugItem(makeCameraItem(
+                *transform,
+                *camera,
+                a_entityId == m_selectedEntityId));
+        };
+        bool hasCollectedSceneCameras = false;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            const Result collectResult =
+                debugWorld->for_each_object_in_scene(
+                m_currentSceneId,
+                appendCameraObject);
+            hasCollectedSceneCameras = static_cast<bool>(collectResult);
+        }
+        if (!hasCollectedSceneCameras)
+        {
+            (void)debugWorld->for_each_object(appendCameraObject);
+        }
+
+        m_engine->set_debug_selection(selection);
+        m_engine->set_debug_selected_object_id(selectedObjectId);
+    }
+
     void EditorManager::update()
     {
+        m_currentUpdateMetrics = EditorUpdateMetrics{};
+        Core::Time::Timer updateTimer(m_platform->clock());
+        updateTimer.start();
+
+        Core::Time::Timer pendingTimer(m_platform->clock());
+        pendingTimer.start();
         process_pending_script_action();
+        pendingTimer.stop();
+        m_currentUpdateMetrics.pendingScriptActionMs =
+            pendingTimer.elapsed_ticks().ms_f64();
 
         // ビューポート全体をカバーするドックスペースを作成
+        Core::Time::Timer dockspaceTimer(m_platform->clock());
+        dockspaceTimer.start();
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
@@ -2511,6 +3509,9 @@ namespace Cue::Editor
 
         ImGui::Begin("DockSpace Window", nullptr, window_flags);
         ImGui::PopStyleVar(2);
+        dockspaceTimer.stop();
+        m_currentUpdateMetrics.dockspaceMs =
+            dockspaceTimer.elapsed_ticks().ms_f64();
 
         static bool showMetricsWindow = false;
         static bool showDemoWindow = false;
@@ -2518,6 +3519,8 @@ namespace Cue::Editor
 
         handle_shortcuts();
 
+        Core::Time::Timer menuBarTimer(m_platform->clock());
+        menuBarTimer.start();
         if (ImGui::BeginMenuBar())
         {
             if (ImGui::BeginMenu("ファイル"))
@@ -2556,23 +3559,70 @@ namespace Cue::Editor
                 const bool canAddObject =
                     m_bridge != nullptr && !m_isScriptActionActive;
 
-                if (ImGui::MenuItem(
-                        "オブジェクトを追加する", nullptr, false, canAddObject))
+                if (ImGui::BeginMenu("3D", canAddObject))
                 {
-                    const Result result = m_bridge->submit_command(
-                        std::make_unique<AddObjectCommand>());
-                    if (!result)
+                    if (ImGui::MenuItem("カメラを追加"))
                     {
-                        log_result("Failed to add object", result);
-                        set_status_message(
-                            "オブジェクトの追加に失敗しました。", true);
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::Camera));
+                        if (!result)
+                        {
+                            log_result("Failed to add camera object", result);
+                            set_status_message(
+                                "カメラの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message("カメラを追加しました。", false);
+                        }
                     }
-                    else
+
+                    if (ImGui::MenuItem("オブジェクトを追加"))
                     {
-                        set_status_message(
-                            "オブジェクトを追加しました。", false);
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::StaticMesh3D));
+                        if (!result)
+                        {
+                            log_result("Failed to add 3D object", result);
+                            set_status_message(
+                                "3D オブジェクトの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message(
+                                "3D オブジェクトを追加しました。", false);
+                        }
                     }
+
+                    ImGui::EndMenu();
                 }
+
+                if (ImGui::BeginMenu("2D", canAddObject))
+                {
+                    if (ImGui::MenuItem("オブジェクトを追加"))
+                    {
+                        const Result result = m_bridge->submit_command(
+                            std::make_unique<AddObjectCommand>(
+                                AddObjectType::Sprite2D));
+                        if (!result)
+                        {
+                            log_result("Failed to add 2D object", result);
+                            set_status_message(
+                                "2D オブジェクトの追加に失敗しました。", true);
+                        }
+                        else
+                        {
+                            set_status_message(
+                                "2D オブジェクトを追加しました。", false);
+                        }
+                    }
+
+                    ImGui::EndMenu();
+                }
+
+                draw_main_camera_menu();
 
                 ImGui::Separator();
 
@@ -2585,6 +3635,33 @@ namespace Cue::Editor
                 {
                     redo_last_command();
                 }
+
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("ナビゲーション"))
+            {
+                const bool canBakeNavigation =
+                    m_engine != nullptr && !m_projectPath.empty() &&
+                    m_currentSceneId != GameCore::k_invalidSceneId &&
+                    !m_isScriptActionActive && !m_engine->is_playing();
+
+                if (ImGui::MenuItem(
+                    "Scene NavMesh を Bake", nullptr, false, canBakeNavigation))
+                {
+                    const Result result = bake_current_scene_navigation();
+                    if (!result)
+                    {
+                        log_result("Failed to bake navigation", result);
+                        set_status_message("NavMesh Bake に失敗しました。", true);
+                    }
+                }
+
+                ImGui::MenuItem(
+                    "Debug Window",
+                    nullptr,
+                    &m_showNavigationDebugWindow,
+                    m_engine != nullptr);
 
                 ImGui::EndMenu();
             }
@@ -3045,11 +4122,16 @@ namespace Cue::Editor
 
             ImGui::EndMenuBar();
         }
+        menuBarTimer.stop();
+        m_currentUpdateMetrics.menuBarMs =
+            menuBarTimer.elapsed_ticks().ms_f64();
 
         ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
         ImGui::End();
 
+        Core::Time::Timer optionalWindowsTimer(m_platform->clock());
+        optionalWindowsTimer.start();
         if (showMetricsWindow)
         {
             ImGui::ShowMetricsWindow(&showMetricsWindow);
@@ -3062,17 +4144,85 @@ namespace Cue::Editor
         {
             ImGui::ShowStyleEditor();
         }
+        draw_navigation_debug_window();
+        optionalWindowsTimer.stop();
+        m_currentUpdateMetrics.optionalWindowsMs =
+            optionalWindowsTimer.elapsed_ticks().ms_f64();
 
+        Core::Time::Timer statisticsTimer(m_platform->clock());
+        statisticsTimer.start();
         m_statistics->update();
+        statisticsTimer.stop();
+        m_currentUpdateMetrics.statisticsMs =
+            statisticsTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer gameViewTimer(m_platform->clock());
+        gameViewTimer.start();
+        m_gameView->update();
+        gameViewTimer.stop();
+        m_currentUpdateMetrics.gameViewMs =
+            gameViewTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer debugViewTimer(m_platform->clock());
+        debugViewTimer.start();
         m_debugView->update();
+        debugViewTimer.stop();
+        m_currentUpdateMetrics.debugViewMs =
+            debugViewTimer.elapsed_ticks().ms_f64();
+        process_debug_pick_request();
+        sync_debug_selection();
+        if (m_engine != nullptr)
+        {
+            m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+        }
         if (m_assetBrowser != nullptr)
         {
+            Core::Time::Timer assetBrowserTimer(m_platform->clock());
+            assetBrowserTimer.start();
             m_assetBrowser->update();
+            assetBrowserTimer.stop();
+            m_currentUpdateMetrics.assetBrowserMs =
+                assetBrowserTimer.elapsed_ticks().ms_f64();
         }
+
+        Core::Time::Timer createScriptPopupTimer(m_platform->clock());
+        createScriptPopupTimer.start();
         draw_create_script_popup();
+        createScriptPopupTimer.stop();
+        m_currentUpdateMetrics.createScriptPopupMs =
+            createScriptPopupTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer scriptBuildNotificationTimer(m_platform->clock());
+        scriptBuildNotificationTimer.start();
         draw_script_build_notification_popup();
+        scriptBuildNotificationTimer.stop();
+        m_currentUpdateMetrics.scriptBuildNotificationMs =
+            scriptBuildNotificationTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer scriptBuildOutputTimer(m_platform->clock());
+        scriptBuildOutputTimer.start();
         draw_script_build_output();
+        scriptBuildOutputTimer.stop();
+        m_currentUpdateMetrics.scriptBuildOutputMs =
+            scriptBuildOutputTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer hierarchyTimer(m_platform->clock());
+        hierarchyTimer.start();
         m_hierarchy->update();
+        hierarchyTimer.stop();
+        m_currentUpdateMetrics.hierarchyMs =
+            hierarchyTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer inspectorTimer(m_platform->clock());
+        inspectorTimer.start();
         m_inspector->update();
+        inspectorTimer.stop();
+        m_currentUpdateMetrics.inspectorMs =
+            inspectorTimer.elapsed_ticks().ms_f64();
+
+        updateTimer.stop();
+        m_currentUpdateMetrics.totalMs =
+            updateTimer.elapsed_ticks().ms_f64();
+        m_lastUpdateMetrics = m_currentUpdateMetrics;
     }
 }

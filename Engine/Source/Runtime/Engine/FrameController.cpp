@@ -1,6 +1,7 @@
 #include "FrameController.h"
 #include <CueAssert.h>
 #include <Time/Timer.h>
+#include <limits>
 
 namespace Cue
 {
@@ -12,7 +13,7 @@ namespace Cue
         m_clock = &a_clock;
         m_exit = false;
         m_lastElapsedMs = 0.0;
-        m_finishedFrame = 0;
+        m_finishedFrame = std::numeric_limits<uint64_t>::max();
         m_isExecuting = false;
         m_queue.clear();
 
@@ -150,8 +151,12 @@ namespace Cue
         // 初回のみ初期化して状態を確定させる
         // モードに応じて 1 ステップ進める
         // 終了条件を満たしたらジョブを止める
+        Core::Time::Timer stepTimer(m_clock);
+        stepTimer.start();
         if (m_finished)
         {
+            stepTimer.stop();
+            m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
             return;
         }
 
@@ -160,9 +165,13 @@ namespace Cue
             if (!start_pipeline())
             {
                 m_finished = true;
+                stepTimer.stop();
+                m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
                 return;
             }
         }
+
+        ++m_stepsSincePresent;
 
         bool isRunning = true;
         if (m_desc.bufferCount == 1)
@@ -190,6 +199,9 @@ namespace Cue
             stop_jobs();
             m_finished = true;
         }
+
+        stepTimer.stop();
+        m_stepElapsedMs = stepTimer.elapsed_ticks().ms_f64();
     }
     void FrameController::poll_resize_request()
     {
@@ -232,6 +244,11 @@ namespace Cue
         m_singleState = SingleBufferState{};
         m_updateElapsedMs = 0.0;
         m_renderElapsedMs = 0.0;
+        m_stepElapsedMs = 0.0;
+        m_presentElapsedMs = 0.0;
+        m_counterTickElapsedMs = 0.0;
+        m_stepsSincePresent = 0;
+        m_stepsPerPresent = 0;
 
         if (m_desc.bufferCount > 1)
         {
@@ -291,11 +308,24 @@ namespace Cue
 
         return m_renderJob.get_last_elapsed_ms();
     }
+    double FrameController::step_elapsed_ms() const noexcept
+    {
+        return m_stepElapsedMs;
+    }
+    double FrameController::present_elapsed_ms() const noexcept
+    {
+        return m_presentElapsedMs;
+    }
+    double FrameController::counter_tick_elapsed_ms() const noexcept
+    {
+        return m_counterTickElapsedMs;
+    }
+    uint32_t FrameController::steps_per_present() const noexcept
+    {
+        return m_stepsPerPresent;
+    }
     void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex, uint32_t& presentIndex)
     {
-        // 単一バッファは固定で 0 を返す
-        // presentIndex を算出する
-        // update/render のインデックスをオフセットで算出する
         if (bufferCount == 1)
         {
             updateIndex = 0;
@@ -305,9 +335,10 @@ namespace Cue
         }
 
         const uint64_t baseFrame = frameNo + m_backBufferBase;
-        presentIndex = static_cast<uint32_t>(baseFrame % bufferCount);
-        renderIndex = (presentIndex + bufferCount - 2) % bufferCount;
-        updateIndex = (presentIndex + bufferCount - 1) % bufferCount;
+        const uint32_t frameIndex = static_cast<uint32_t>(baseFrame % bufferCount);
+        updateIndex = frameIndex;
+        renderIndex = frameIndex;
+        presentIndex = frameIndex;
         m_updateIndex = updateIndex;
         m_renderIndex = renderIndex;
         m_presentIndex = presentIndex;
@@ -323,8 +354,20 @@ namespace Cue
         (void)updateIndex;
         (void)renderIndex;
 
+        Core::Time::Timer presentTimer(m_clock);
+        presentTimer.start();
         m_presentFunc(frameNo, presentIndex);
+        presentTimer.stop();
+        m_presentElapsedMs = presentTimer.elapsed_ticks().ms_f64();
+
+        Core::Time::Timer counterTimer(m_clock);
+        counterTimer.start();
         m_frameCounter.tick();
+        counterTimer.stop();
+        m_counterTickElapsedMs = counterTimer.elapsed_ticks().ms_f64();
+
+        m_stepsPerPresent = m_stepsSincePresent;
+        m_stepsSincePresent = 0;
     }
     void FrameController::apply_resize_for_next_frame(uint64_t nextFrameNo)
     {
@@ -395,7 +438,8 @@ namespace Cue
         // 先行上限内なら Update/Render をキックする
         // 完了済みなら Present して進める
         if (m_resizePending.load(std::memory_order_relaxed) &&
-            m_fixedState.produceFrame == m_fixedState.totalFrame)
+            m_fixedState.produceFrame == m_fixedState.totalFrame &&
+            m_fixedState.renderFrame == m_fixedState.totalFrame)
         {
             apply_pending_resize(m_fixedState.totalFrame, true);
         }
@@ -410,19 +454,37 @@ namespace Cue
             (void)presentIndex;
 
             m_updateJob.kick(m_fixedState.produceFrame, updateIndex);
-            m_renderJob.kick(m_fixedState.produceFrame, renderIndex);
             ++m_fixedState.produceFrame;
         }
 
-        const bool canPresent = m_updateJob.get_finished_frame() >= m_fixedState.totalFrame &&
-            m_renderJob.get_finished_frame() >= m_fixedState.totalFrame;
+        const uint64_t updateFinished = m_updateJob.get_finished_frame();
+        if (m_fixedState.renderFrame == m_fixedState.totalFrame &&
+            m_fixedState.renderFrame < m_fixedState.produceFrame &&
+            is_frame_finished(updateFinished, m_fixedState.renderFrame))
+        {
+            uint32_t updateIndex = 0;
+            uint32_t renderIndex = 0;
+            uint32_t presentIndex = 0;
+            compute_indices(m_fixedState.renderFrame, m_desc.bufferCount,
+                updateIndex, renderIndex, presentIndex);
+            (void)updateIndex;
+            (void)presentIndex;
+
+            m_renderJob.kick(m_fixedState.renderFrame, renderIndex);
+            ++m_fixedState.renderFrame;
+        }
+
+        const bool canPresent =
+            is_frame_finished(m_renderJob.get_finished_frame(),
+                m_fixedState.totalFrame);
         if (canPresent)
         {
             present_frame(m_fixedState.totalFrame);
             ++m_fixedState.totalFrame;
 
             if (m_resizePending.load(std::memory_order_relaxed) &&
-                m_fixedState.produceFrame == m_fixedState.totalFrame)
+                m_fixedState.produceFrame == m_fixedState.totalFrame &&
+                m_fixedState.renderFrame == m_fixedState.totalFrame)
             {
                 apply_pending_resize(m_fixedState.totalFrame, true);
             }
@@ -462,6 +524,12 @@ namespace Cue
 
         const uint64_t updateFinished = m_updateJob.get_finished_frame();
         const uint64_t renderFinished = m_renderJob.get_finished_frame();
+        if (updateFinished == std::numeric_limits<uint64_t>::max() ||
+            renderFinished == std::numeric_limits<uint64_t>::max())
+        {
+            m_waiter.relax();
+            return true;
+        }
         const uint64_t readyFrame = (updateFinished < renderFinished) ? updateFinished : renderFinished;
 
         bool didPresent = false;
@@ -516,8 +584,11 @@ namespace Cue
             m_backpressureState.inFlight = true;
         }
 
-        const bool canPresent = m_updateJob.get_finished_frame() >= m_backpressureState.currentFrame &&
-            m_renderJob.get_finished_frame() >= m_backpressureState.currentFrame;
+        const bool canPresent =
+            is_frame_finished(m_updateJob.get_finished_frame(),
+                m_backpressureState.currentFrame) &&
+            is_frame_finished(m_renderJob.get_finished_frame(),
+                m_backpressureState.currentFrame);
         if (canPresent)
         {
             present_frame(m_backpressureState.currentFrame);
@@ -530,5 +601,11 @@ namespace Cue
         }
 
         return true;
+    }
+    bool FrameController::is_frame_finished(uint64_t a_finishedFrame,
+        uint64_t a_frameNo) noexcept
+    {
+        return a_finishedFrame != std::numeric_limits<uint64_t>::max() &&
+            a_finishedFrame >= a_frameNo;
     }
 }

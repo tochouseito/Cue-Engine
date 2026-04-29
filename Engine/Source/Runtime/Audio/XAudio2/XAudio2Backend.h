@@ -41,6 +41,8 @@ namespace Cue::Audio
 
         Result play_source(AudioSourceHandle a_handle) override;
         Result stop_source(AudioSourceHandle a_handle) override;
+        Result set_source_volume(
+            AudioSourceHandle a_handle, float a_volume) override;
 
     private:
         struct AudioDeviceRecord final
@@ -60,6 +62,7 @@ namespace Cue::Audio
             uint32_t loopBegin = 0;
             uint32_t loopLength = 0;
             uint32_t loopCount = 0;
+            float volume = 1.0f;
             bool isEndOfStream = true;
         };
 

@@ -8,6 +8,13 @@ struct VsOut
     nointerpolation uint materialId : TEXCOORD1;
 };
 
+struct VsIn
+{
+    float4 position : POSITION;
+    float2 texcoord : TEXCOORD0;
+    float3 normal : NORMAL0;
+};
+
 static const float k_pi = 3.14159265359f;
 
 cbuffer ViewProjection : register(b0)
@@ -25,22 +32,15 @@ ConstantBuffer<DrawObjectIndexConstants> g_drawObjectIndex : register(b1);
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
-StructuredBuffer<float4> g_positions : register(t2);
-StructuredBuffer<float2> g_uvs : register(t3);
-StructuredBuffer<float3> g_normals : register(t4);
-StructuredBuffer<uint> g_indices : register(t5);
-StructuredBuffer<MeshRange> g_meshRanges : register(t6);
-ByteAddressBuffer g_renderObjectCount : register(t7);
-StructuredBuffer<Material> g_materials : register(t8);
+ByteAddressBuffer g_renderObjectCount : register(t2);
+StructuredBuffer<Material> g_materials : register(t3);
 Texture2D<float4> g_textures[] : register(t0, space1);
 
-VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
+VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
-    const bool useIndexedDrawPath =
-        g_drawObjectIndex.drawObjectIndex != 0xffffffffu;
     const uint renderObjectIndex =
-        useIndexedDrawPath ? g_drawObjectIndex.drawObjectIndex : instanceId;
+        g_drawObjectIndex.drawObjectIndex + instanceId;
     if (renderObjectIndex >= renderObjectCount)
     {
         VsOut emptyOutput;
@@ -53,13 +53,13 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
-    const uint meshVertexIndex = vertexId;
-    const float4 localPosition = g_positions[meshVertexIndex];
-    const float2 localUv = g_uvs[meshVertexIndex];
-    const float3 localNormal = g_normals[meshVertexIndex];
+    const float4 localPosition = input.position;
+    const float2 localUv = input.texcoord;
+    const float3 localNormal = input.normal;
 
     const float4 worldPosition = mul(localPosition, transform.worldMatrix);
-    const float3 worldNormal = normalize(mul(float4(localNormal, 0.0f), transform.worldMatrix).xyz);
+    const float3 worldNormal =
+        normalize(mul(float4(localNormal, 0.0f), transform.normalMatrix).xyz);
 
     VsOut output;
     output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
@@ -74,15 +74,16 @@ float4 ps_main(VsOut input) : SV_Target0
     const float3 lightDirection = normalize(float3(-0.4f, -0.7f, -0.6f));
     const float ndotl = saturate(dot(normalize(input.worldNormal), -lightDirection));
     const Material material = g_materials[input.materialId];
+    const uint textureIndex = NonUniformResourceIndex(material.textureId);
     uint textureWidth = 1;
     uint textureHeight = 1;
-    g_textures[material.textureId].GetDimensions(textureWidth, textureHeight);
+    g_textures[textureIndex].GetDimensions(textureWidth, textureHeight);
     const float2 wrappedUv = frac(input.texcoord);
     const uint2 texelCoord = uint2(
         min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
         min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
     const float3 textureColor =
-        g_textures[material.textureId].Load(int3(texelCoord, 0)).rgb;
+        g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
     const float3 baseColor = material.color.rgb * textureColor;
     const float3 color = baseColor * (0.2f + ndotl * 0.8f);
     return float4(color, 1.0f);

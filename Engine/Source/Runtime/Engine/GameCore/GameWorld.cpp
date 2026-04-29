@@ -17,6 +17,7 @@ namespace Cue::GameCore
             objectDefinition.prototype.add_component(transform);
 
             ECS::MeshFilterComponent meshFilter{};
+            meshFilter.modelName = "Cube";
             meshFilter.meshId = a_meshId;
             objectDefinition.prototype.add_component(meshFilter);
 
@@ -27,12 +28,53 @@ namespace Cue::GameCore
 
             return objectDefinition;
         }
+
+        [[nodiscard]] ObjectDefinition make_default_camera_object_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("Camera");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::CameraComponent camera{};
+            objectDefinition.prototype.add_component(camera);
+
+            return objectDefinition;
+        }
+
+        [[nodiscard]] ObjectDefinition make_default_sprite_object_definition(
+            const Math::float3& a_position,
+            MaterialHandle a_defaultMaterialHandle)
+        {
+            ObjectDefinition objectDefinition("SpriteObject");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::SpriteRendererComponent renderer{};
+            renderer.materialHandle = a_defaultMaterialHandle;
+            renderer.isVisible = true;
+            objectDefinition.prototype.add_component(renderer);
+
+            return objectDefinition;
+        }
     }
 
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager,
         RHI::IStaticMeshPool* a_staticMeshPool,
         AssetManager* a_assetManager,
+        Core::IO::IFileSystem* a_fileSystem,
+        Audio::IBackend* a_audioBackend,
+        Audio::AudioDeviceHandle a_audioDevice,
+        Physics::IPhysicsSystem* a_physicsSystem,
         uint32_t a_bufferCount,
         uint32_t a_renderWidth,
         uint32_t a_renderHeight,
@@ -40,19 +82,28 @@ namespace Cue::GameCore
         MaterialHandle a_defaultMaterialHandle)
     {
         if (a_bufferManager == nullptr || a_viewManager == nullptr ||
-            a_staticMeshPool == nullptr || a_assetManager == nullptr)
+            a_staticMeshPool == nullptr || a_assetManager == nullptr ||
+            a_fileSystem == nullptr || a_audioBackend == nullptr)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "GameWorld requires valid buffer, view, mesh, and asset managers.");
+                "GameWorld requires valid buffer, view, mesh, asset, file, and audio managers.");
         }
         if (a_defaultStaticMeshId == ECS::k_invalidMeshId)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
                 "GameWorld default static mesh id is invalid.");
         }
+        if (a_bufferCount == 0)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "GameWorld buffer count must be greater than 0.");
+        }
 
         m_defaultStaticMeshId = a_defaultStaticMeshId;
         m_assetManager = a_assetManager;
+        m_fileSystem = a_fileSystem;
+        m_audioBackend = a_audioBackend;
+        m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_renderSceneState.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
@@ -61,7 +112,8 @@ namespace Cue::GameCore
         }
 
         m_worldResources =
-            std::make_unique<WorldResources>(a_bufferManager, a_viewManager);
+            std::make_unique<WorldResources>(
+                a_bufferManager, a_viewManager, a_bufferCount);
 
         Result result = m_worldResources->create_renderable_info_buffer(
             k_maxRenderObjectCount);
@@ -101,6 +153,12 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_worldResources->create_sprite_instance_buffer(k_maxSpriteCount);
+        if (!result)
+        {
+            return result;
+        }
+
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_worldResources->renderable_info_uploaders(),
             m_worldResources->transform_uploaders(),
@@ -111,13 +169,38 @@ namespace Cue::GameCore
             a_staticMeshPool,
             m_defaultMaterialHandle,
             m_renderSceneState);
+        auto& spriteSystem = m_ecs.add_system<ECS::SpriteSystem>(
+            m_worldResources->sprite_instance_uploaders(),
+            m_assetManager,
+            m_defaultMaterialHandle,
+            m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
+        auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
+            m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
+        auto& physicsBodySystem = m_ecs.add_system<ECS::PhysicsBodySystem>(
+            a_physicsSystem);
+        result = m_navigationWorld.set_backend(
+            std::make_unique<RecastNavigationBackend>());
+        if (!result)
+        {
+            return result;
+        }
+        auto& navigationSystem = m_ecs.add_system<ECS::NavigationSystem>(
+            &m_navigationWorld);
+        m_navigationSystem = &navigationSystem;
 
         m_editorPipeline.add_system(&renderableObjectSystem);
+        m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
+        m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&navigationSystem);
+        m_simulationPipeline.add_system(&physicsBodySystem);
+        m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);
         m_editorPipeline.initialize(m_ecs);
+        m_simulationPipeline.awake(m_ecs);
+        m_simulationPipeline.initialize(m_ecs);
 
         return Result::ok();
     }
@@ -351,6 +434,17 @@ namespace Cue::GameCore
             base->parent = parentIt->second;
         }
 
+        if (a_source.m_hasActiveNavMeshAsset)
+        {
+            NavMeshHandle navMeshHandle{};
+            result = load_navigation_mesh(
+                a_source.m_activeNavMeshAsset, navMeshHandle);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
         return Result::ok();
     }
 
@@ -410,6 +504,84 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    [[nodiscard]] Result GameWorld::add_camera_object(
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("Camera", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for camera object.") : result;
+        }
+
+        ECS::CameraComponent* camera = nullptr;
+        result =
+            add_component<ECS::CameraComponent>(a_outObject.entity_id(), camera);
+        if (!result || camera == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add camera component for camera object.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        *camera = ECS::CameraComponent{};
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::add_sprite_object(
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("SpriteObject", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for sprite object.") : result;
+        }
+
+        ECS::SpriteRendererComponent* renderer = nullptr;
+        result = add_component<ECS::SpriteRendererComponent>(
+            a_outObject.entity_id(), renderer);
+        if (!result || renderer == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add sprite renderer component for object.")
+                : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        renderer->materialHandle = m_defaultMaterialHandle;
+        renderer->isVisible = true;
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_object_to_scene(SceneId a_sceneId,
         const Math::float3& a_position, GameObject& a_outObject)
     {
@@ -428,6 +600,37 @@ namespace Cue::GameCore
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
                 a_position, m_defaultStaticMeshId, m_defaultMaterialHandle);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_camera_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_camera_object_definition(a_position);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_sprite_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_sprite_object_definition(
+                a_position, m_defaultMaterialHandle);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 

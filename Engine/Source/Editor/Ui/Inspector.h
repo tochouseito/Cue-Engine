@@ -1,11 +1,16 @@
 #pragma once
 
 // === Engine includes ===
+#include <Audio.h>
 #include <Commands.h>
 #include <Engine.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameWorld.h>
 #include <Script/MarionnetteObject.h>
+#include <SoundCooker.h>
+
+// === Core includes ===
+#include <IO/IFileSystem.h>
 
 // === Editor includes ===
 #include "Icon.h"
@@ -15,6 +20,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -34,6 +41,10 @@ namespace Cue::Editor
             Camera,
             MeshFilter,
             StaticMeshRenderer,
+            SpriteRenderer,
+            AudioSource,
+            RigidBody,
+            Collider,
             Script
         };
 
@@ -129,20 +140,30 @@ namespace Cue::Editor
         };
 
         Inspector(Core::CQRS::Bridge* bridge, GameCore::GameWorld* a_gameWorld,
-            GameCore::EntityId* a_selectedEntityId, Engine* a_engine)
+            GameCore::EntityId* a_selectedEntityId, Engine* a_engine,
+            Core::IO::IFileSystem* a_fileSystem)
             : editorBridge(bridge)
             , m_gameWorld(a_gameWorld)
             , m_selectedEntityId(a_selectedEntityId)
             , m_engine(a_engine)
+            , m_fileSystem(a_fileSystem)
         {
         }
         ~Inspector() = default;
+
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath)
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+            m_soundFileNames.clear();
+            m_shouldRefreshSoundFiles = true;
+        }
 
         void update()
         {
             ImGui::Begin("インスペクター");
 
-            if (m_gameWorld == nullptr || m_selectedEntityId == nullptr)
+            GameCore::GameWorld* gameWorld = current_game_world();
+            if (gameWorld == nullptr || m_selectedEntityId == nullptr)
             {
                 ImGui::TextUnformatted("Inspector の依存が初期化されていません。");
                 ImGui::End();
@@ -158,7 +179,7 @@ namespace Cue::Editor
             }
 
             GameCore::GameObject object{};
-            Result visitResult = m_gameWorld->visit_object(
+            Result visitResult = gameWorld->visit_object(
                 *m_selectedEntityId,
                 [&object](GameCore::EntityId, GameCore::SceneId,
                     GameCore::GameObject& a_object)
@@ -207,6 +228,16 @@ namespace Cue::Editor
         }
 
     private:
+        [[nodiscard]] GameCore::GameWorld* current_game_world() const noexcept
+        {
+            if (m_engine != nullptr && m_engine->active_world() != nullptr)
+            {
+                return m_engine->active_world();
+            }
+
+            return m_gameWorld;
+        }
+
         [[nodiscard]] std::vector<ComponentTabEntry> collect_component_tabs(
             const GameCore::GameObject& a_object) const
         {
@@ -245,6 +276,26 @@ namespace Cue::Editor
                     { ComponentTab::StaticMeshRenderer, "S" });
             }
 
+            if (has_component<ECS::SpriteRendererComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::SpriteRenderer, "Sp" });
+            }
+
+            if (has_component<ECS::AudioSourceComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::AudioSource, "A" });
+            }
+
+            if (has_component<ECS::RigidBodyComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::RigidBody, "P" });
+            }
+
+            if (has_component<ECS::ColliderComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Collider, "Co" });
+            }
+
             if (has_component<ECS::ScriptComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::Script, "Sc" });
@@ -257,7 +308,7 @@ namespace Cue::Editor
             const GameCore::GameObject& a_object) const
         {
             std::vector<AddableComponentEntry> components{};
-            components.reserve(4);
+            components.reserve(5);
 
             if (!has_component<ECS::CameraComponent>(a_object))
             {
@@ -276,6 +327,34 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::StaticMeshRenderer,
                         "StaticMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::SpriteRendererComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::SpriteRenderer,
+                        "SpriteRendererComponent" });
+            }
+
+            if (!has_component<ECS::AudioSourceComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::AudioSource,
+                        "AudioSourceComponent" });
+            }
+
+            if (!has_component<ECS::RigidBodyComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::RigidBody,
+                        "RigidBodyComponent" });
+            }
+
+            if (!has_component<ECS::ColliderComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::Collider,
+                        "ColliderComponent" });
             }
 
             if (!has_component<ECS::ScriptComponent>(a_object))
@@ -396,6 +475,22 @@ namespace Cue::Editor
                 draw_static_mesh_renderer_component(a_object);
                 break;
 
+            case ComponentTab::SpriteRenderer:
+                draw_sprite_renderer_component(a_object);
+                break;
+
+            case ComponentTab::AudioSource:
+                draw_audio_source_component(a_object);
+                break;
+
+            case ComponentTab::RigidBody:
+                draw_rigid_body_component(a_object);
+                break;
+
+            case ComponentTab::Collider:
+                draw_collider_component(a_object);
+                break;
+
             case ComponentTab::Script:
                 draw_script_component(a_object);
                 break;
@@ -489,7 +584,6 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("CameraComponent");
             ImGui::Separator();
-            ImGui::Text("isMain: %s", component->isMain ? "true" : "false");
             ImGui::Text("fovY: %.3f", component->fovY);
             ImGui::Text("aspectRatio: %.3f", component->aspectRatio);
             ImGui::Text("nearZ: %.3f", component->nearZ);
@@ -508,6 +602,50 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("MeshFilterComponent");
             ImGui::Separator();
+            std::vector<std::string> modelNames{};
+            if (m_engine != nullptr)
+            {
+                m_engine->asset_manager().collect_model_names(modelNames);
+            }
+
+            if (component->modelName.empty() &&
+                m_engine != nullptr &&
+                component->meshId != ECS::k_invalidMeshId)
+            {
+                std::string resolvedModelName{};
+                if (m_engine->asset_manager().get_model_name_from_mesh_id(
+                    component->meshId,
+                    resolvedModelName))
+                {
+                    component->modelName = std::move(resolvedModelName);
+                }
+            }
+
+            const char* previewValue = component->modelName.empty()
+                ? "<empty>"
+                : component->modelName.c_str();
+            if (ImGui::BeginCombo("model", previewValue))
+            {
+                for (const std::string& modelName : modelNames)
+                {
+                    const bool isSelected = modelName == component->modelName;
+                    if (ImGui::Selectable(modelName.c_str(), isSelected))
+                    {
+                        component->modelName = modelName;
+                        uint32_t meshId = ECS::k_invalidMeshId;
+                        if (m_engine != nullptr &&
+                            m_engine->asset_manager().resolve_model_mesh_id(
+                                component->modelName,
+                                meshId))
+                        {
+                            component->meshId = meshId;
+                        }
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
             if (component->meshId == ECS::k_invalidMeshId)
             {
                 ImGui::TextUnformatted("meshId: invalid");
@@ -534,6 +672,284 @@ namespace Cue::Editor
             ImGui::Text("materialHandle.generation: %u",
                 component->materialHandle.generation);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
+        }
+
+        void draw_sprite_renderer_component(GameCore::GameObject& a_object)
+        {
+            ECS::SpriteRendererComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "SpriteRendererComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("SpriteRendererComponent");
+            ImGui::Separator();
+            ImGui::Text("materialHandle.index: %u", component->materialHandle.index);
+            ImGui::Text("materialHandle.generation: %u",
+                component->materialHandle.generation);
+
+            float color[4] = {
+                component->color.r,
+                component->color.g,
+                component->color.b,
+                component->color.a
+            };
+            if (ImGui::ColorEdit4("color", color))
+            {
+                component->color =
+                    Math::float4(color[0], color[1], color[2], color[3]);
+            }
+
+            float uvRect[4] = {
+                component->uvRect.x,
+                component->uvRect.y,
+                component->uvRect.z,
+                component->uvRect.w
+            };
+            if (ImGui::DragFloat4("uvRect", uvRect, 0.001f, 0.0f, 1.0f))
+            {
+                component->uvRect =
+                    Math::float4(uvRect[0], uvRect[1], uvRect[2], uvRect[3]);
+            }
+
+            float size[2] = { component->size.x, component->size.y };
+            if (ImGui::DragFloat2("size", size, 1.0f, 0.0f, 4096.0f))
+            {
+                component->size = Math::float2(size[0], size[1]);
+            }
+
+            float pivot[2] = { component->pivot.x, component->pivot.y };
+            if (ImGui::DragFloat2("pivot", pivot, 0.01f, 0.0f, 1.0f))
+            {
+                component->pivot = Math::float2(pivot[0], pivot[1]);
+            }
+
+            ImGui::DragInt("layer", &component->layer, 1.0f);
+            int order = static_cast<int>(component->order);
+            if (ImGui::DragInt("order", &order, 1.0f, 0, 100000))
+            {
+                component->order = static_cast<uint32_t>((std::max)(order, 0));
+            }
+
+            ImGui::Checkbox("isVisible", &component->isVisible);
+        }
+
+        void draw_audio_source_component(GameCore::GameObject& a_object)
+        {
+            ECS::AudioSourceComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "AudioSourceComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("AudioSourceComponent");
+            ImGui::Separator();
+
+            if (m_shouldRefreshSoundFiles)
+            {
+                const Result refreshResult = refresh_sound_file_names();
+                if (!refreshResult)
+                {
+                    m_audioStatusMessage =
+                        std::string("Sound refresh failed: ") +
+                        std::string(refreshResult.message);
+                    m_audioStatusIsError = true;
+                }
+            }
+
+            const char* previewValue = component->fileName.empty()
+                ? "<empty>"
+                : component->fileName.c_str();
+            if (ImGui::BeginCombo("fileName", previewValue))
+            {
+                if (ImGui::Selectable("<empty>", component->fileName.empty()))
+                {
+                    (void)stop_audio_source(*component);
+                    component->fileName.clear();
+                }
+
+                for (const std::string& fileName : m_soundFileNames)
+                {
+                    const bool isSelected = fileName == component->fileName;
+                    if (ImGui::Selectable(fileName.c_str(), isSelected))
+                    {
+                        (void)stop_audio_source(*component);
+                        component->fileName = fileName;
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh##AudioSourceFiles"))
+            {
+                m_shouldRefreshSoundFiles = true;
+            }
+            if (m_soundFileNames.empty())
+            {
+                ImGui::TextUnformatted(
+                    "Assets/Sounds に cuesound ファイルが見つかりません。");
+            }
+
+            ImGui::Checkbox("Loop", &component->loop);
+            ImGui::Checkbox("playOnStart", &component->playOnStart);
+            ImGui::SliderFloat("SpatialBlend", &component->spatialBlend, 0.0f, 0.0f);
+            ImGui::SliderFloat("volume", &component->volume, 0.0f, 1.0f);
+            ImGui::Text("isPlaying: %s", component->isPlaying ? "true" : "false");
+
+            if (ImGui::Button("Play"))
+            {
+                component->playRequested = true;
+                component->stopRequested = false;
+                m_audioStatusMessage = "Play requested";
+                m_audioStatusIsError = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Stop"))
+            {
+                component->stopRequested = true;
+                component->playRequested = false;
+                m_audioStatusMessage = "Stop requested";
+                m_audioStatusIsError = false;
+            }
+
+            if (!m_audioStatusMessage.empty())
+            {
+                ImGui::TextColored(
+                    m_audioStatusIsError
+                        ? ImVec4(1.0f, 0.45f, 0.25f, 1.0f)
+                        : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
+                    "%s",
+                    m_audioStatusMessage.c_str());
+            }
+        }
+
+        void draw_rigid_body_component(GameCore::GameObject& a_object)
+        {
+            ECS::RigidBodyComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "RigidBodyComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("RigidBodyComponent");
+            ImGui::Separator();
+
+            const char* motionPreview = rigid_body_motion_label(component->motion);
+            if (ImGui::BeginCombo("motion", motionPreview))
+            {
+                draw_rigid_body_motion_item(
+                    "Static", Physics::MotionType::Static, component->motion);
+                draw_rigid_body_motion_item(
+                    "Kinematic", Physics::MotionType::Kinematic,
+                    component->motion);
+                draw_rigid_body_motion_item(
+                    "Dynamic", Physics::MotionType::Dynamic, component->motion);
+                ImGui::EndCombo();
+            }
+
+            float linearVelocity[3] = {
+                component->linearVelocity.x,
+                component->linearVelocity.y,
+                component->linearVelocity.z
+            };
+            if (ImGui::DragFloat3("linearVelocity", linearVelocity, 0.01f))
+            {
+                component->linearVelocity = Math::float3(
+                    linearVelocity[0], linearVelocity[1], linearVelocity[2]);
+            }
+
+            float angularVelocity[3] = {
+                component->angularVelocity.x,
+                component->angularVelocity.y,
+                component->angularVelocity.z
+            };
+            if (ImGui::DragFloat3("angularVelocity", angularVelocity, 0.01f))
+            {
+                component->angularVelocity = Math::float3(
+                    angularVelocity[0], angularVelocity[1], angularVelocity[2]);
+            }
+
+            ImGui::DragFloat("mass", &component->mass, 0.01f, 0.0f, 100000.0f);
+            ImGui::DragFloat(
+                "linearDamping", &component->linearDamping, 0.001f, 0.0f, 100.0f);
+            ImGui::DragFloat(
+                "angularDamping", &component->angularDamping, 0.001f, 0.0f, 100.0f);
+            ImGui::Checkbox("useGravity", &component->useGravity);
+            ImGui::Text("body: %s", component->body.valid() ? "valid" : "invalid");
+            ImGui::Text("isCreated: %s", component->isCreated ? "true" : "false");
+        }
+
+        void draw_collider_component(GameCore::GameObject& a_object)
+        {
+            ECS::ColliderComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("ColliderComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("ColliderComponent");
+            ImGui::Separator();
+
+            const char* typePreview = collider_shape_label(component->type);
+            if (ImGui::BeginCombo("type", typePreview))
+            {
+                draw_collider_shape_item(
+                    "Box", Physics::ShapeType::Box, component->type);
+                draw_collider_shape_item(
+                    "Sphere", Physics::ShapeType::Sphere, component->type);
+                draw_collider_shape_item(
+                    "Capsule", Physics::ShapeType::Capsule, component->type);
+                ImGui::EndCombo();
+            }
+
+            float offset[3] = {
+                component->offset.x,
+                component->offset.y,
+                component->offset.z
+            };
+            if (ImGui::DragFloat3("offset", offset, 0.01f))
+            {
+                component->offset = Math::float3(offset[0], offset[1], offset[2]);
+            }
+
+            float halfExtent[3] = {
+                component->halfExtent.x,
+                component->halfExtent.y,
+                component->halfExtent.z
+            };
+            if (ImGui::DragFloat3("halfExtent", halfExtent, 0.01f, 0.001f))
+            {
+                component->halfExtent = Math::float3(
+                    halfExtent[0], halfExtent[1], halfExtent[2]);
+            }
+
+            ImGui::DragFloat("radius", &component->radius, 0.01f, 0.001f);
+            ImGui::DragFloat("halfHeight", &component->halfHeight, 0.01f, 0.001f);
+            ImGui::DragFloat("friction", &component->friction, 0.01f, 0.0f, 10.0f);
+            ImGui::DragFloat(
+                "restitution", &component->restitution, 0.01f, 0.0f, 10.0f);
+
+            int layer = static_cast<int>(component->layer);
+            if (ImGui::DragInt("layer", &layer, 1.0f, 0, 65535))
+            {
+                component->layer = static_cast<uint16_t>((std::max)(layer, 0));
+            }
+
+            int mask = static_cast<int>(component->mask);
+            if (ImGui::DragInt("mask", &mask, 1.0f, 0, 65535))
+            {
+                component->mask = static_cast<uint16_t>((std::max)(mask, 0));
+            }
+
+            ImGui::Checkbox("isTrigger", &component->isTrigger);
         }
 
         void draw_script_component(GameCore::GameObject& a_object)
@@ -2536,6 +2952,70 @@ namespace Cue::Editor
             return result && hasComponent;
         }
 
+        [[nodiscard]] static const char* rigid_body_motion_label(
+            Physics::MotionType a_motion) noexcept
+        {
+            switch (a_motion)
+            {
+            case Physics::MotionType::Static:
+                return "Static";
+            case Physics::MotionType::Kinematic:
+                return "Kinematic";
+            case Physics::MotionType::Dynamic:
+                return "Dynamic";
+            }
+
+            return "Static";
+        }
+
+        static void draw_rigid_body_motion_item(
+            const char* a_label,
+            Physics::MotionType a_value,
+            Physics::MotionType& a_motion)
+        {
+            const bool isSelected = a_motion == a_value;
+            if (ImGui::Selectable(a_label, isSelected))
+            {
+                a_motion = a_value;
+            }
+            if (isSelected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+
+        [[nodiscard]] static const char* collider_shape_label(
+            Physics::ShapeType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case Physics::ShapeType::Box:
+                return "Box";
+            case Physics::ShapeType::Sphere:
+                return "Sphere";
+            case Physics::ShapeType::Capsule:
+                return "Capsule";
+            }
+
+            return "Box";
+        }
+
+        static void draw_collider_shape_item(
+            const char* a_label,
+            Physics::ShapeType a_value,
+            Physics::ShapeType& a_type)
+        {
+            const bool isSelected = a_type == a_value;
+            if (ImGui::Selectable(a_label, isSelected))
+            {
+                a_type = a_value;
+            }
+            if (isSelected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+
         void submit_add_component_command(AddableComponentType a_type)
         {
             if (editorBridge == nullptr || m_selectedEntityId == nullptr ||
@@ -2625,6 +3105,125 @@ namespace Cue::Editor
             }
         }
 
+        [[nodiscard]] Result refresh_sound_file_names()
+        {
+            m_soundFileNames.clear();
+            m_shouldRefreshSoundFiles = false;
+
+            if (m_fileSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "FileSystem is not initialized for AudioSource.");
+            }
+            if (m_assetRootPath.is_empty())
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path soundRoot = Core::IO::Path::join(
+                m_assetRootPath,
+                Core::IO::Path("Sounds"));
+            bool soundRootExists = false;
+            Result result = m_fileSystem->exists(soundRoot, &soundRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!soundRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> entries{};
+            result = m_fileSystem->list_directory(soundRoot, &entries);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(entries.begin(), entries.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& entryPath : entries)
+            {
+                Core::IO::FileStat stat{};
+                result = m_fileSystem->stat(entryPath, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+                if (stat.type != Core::IO::FileType::regular)
+                {
+                    continue;
+                }
+
+                if (entryPath.extension() == ".wav")
+                {
+                    const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
+                        soundRoot,
+                        Core::IO::Path(entryPath.stem() + ".cuesound"));
+                    result = SoundCooker::ensure_cuesound_is_up_to_date(
+                        *m_fileSystem,
+                        entryPath,
+                        cookedSoundPath);
+                    if (!result)
+                    {
+                        return result;
+                    }
+
+                    m_soundFileNames.push_back(cookedSoundPath.filename());
+                    continue;
+                }
+
+                if (entryPath.extension() == ".cuesound")
+                {
+                    m_soundFileNames.push_back(entryPath.filename());
+                }
+            }
+
+            std::sort(m_soundFileNames.begin(), m_soundFileNames.end());
+            m_soundFileNames.erase(
+                std::unique(m_soundFileNames.begin(), m_soundFileNames.end()),
+                m_soundFileNames.end());
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result stop_audio_source(
+            ECS::AudioSourceComponent& a_component) const
+        {
+            if (m_engine == nullptr || m_engine->audio_backend() == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Audio backend is not initialized.");
+            }
+
+            if (!a_component.sourceHandle.valid())
+            {
+                return Result::ok();
+            }
+
+            Audio::IBackend* audioBackend = m_engine->audio_backend();
+            Result result = audioBackend->stop_source(a_component.sourceHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = audioBackend->destroy_source(a_component.sourceHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            a_component.sourceHandle = {};
+            a_component.isPlaying = false;
+            return Result::ok();
+        }
+
         [[nodiscard]] static const std::vector<std::string>&
             get_empty_script_class_list()
         {
@@ -2655,6 +3254,12 @@ namespace Cue::Editor
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
         Engine* m_engine = nullptr;
+        Core::IO::IFileSystem* m_fileSystem = nullptr;
+        Core::IO::Path m_assetRootPath{};
+        std::vector<std::string> m_soundFileNames{};
+        std::string m_audioStatusMessage{};
+        bool m_audioStatusIsError = false;
+        bool m_shouldRefreshSoundFiles = true;
         GameCore::EntityId m_lastInspectedEntityId =
             GameCore::k_invalidEntityId;
         GameCore::EntityId m_transformEditEntityId =

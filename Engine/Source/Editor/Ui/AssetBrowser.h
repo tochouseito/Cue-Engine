@@ -6,6 +6,7 @@
 // === C++ includes ===
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // === ImGui includes ===
@@ -26,12 +27,14 @@ namespace Cue::Editor
         {
             m_assetRootPath = a_assetRootPath.normalize();
             m_selectedFolderPath = m_assetRootPath;
+            clear_cache();
         }
 
         void clear_asset_root_path()
         {
             m_assetRootPath = {};
             m_selectedFolderPath = {};
+            clear_cache();
         }
 
         void update()
@@ -67,6 +70,11 @@ namespace Cue::Editor
                 m_selectedFolderPath = m_assetRootPath;
             }
 
+            if (ImGui::Button("Refresh"))
+            {
+                clear_cache();
+            }
+
             ImGui::BeginChild("AssetFolderTree", ImVec2(260.0f, 0.0f), true);
             draw_folder_node(m_assetRootPath);
             ImGui::EndChild();
@@ -81,13 +89,19 @@ namespace Cue::Editor
         }
 
     private:
+        void clear_cache()
+        {
+            m_folderCache.clear();
+            m_fileCache.clear();
+        }
+
         void draw_folder_node(const Core::IO::Path& a_folderPath)
         {
             const std::string normalizedPath = a_folderPath.normalize().utf8();
             const bool isRoot = normalizedPath == m_assetRootPath.utf8();
             const bool isSelected =
                 normalizedPath == m_selectedFolderPath.normalize().utf8();
-            const std::vector<Core::IO::Path> childFolders =
+            const std::vector<Core::IO::Path>& childFolders =
                 collect_child_folders(a_folderPath);
 
             ImGuiTreeNodeFlags flags =
@@ -136,7 +150,7 @@ namespace Cue::Editor
                 m_selectedFolderPath).c_str());
             ImGui::Separator();
 
-            const std::vector<Core::IO::Path> files =
+            const std::vector<Core::IO::Path>& files =
                 collect_child_files(m_selectedFolderPath);
             if (files.empty())
             {
@@ -150,16 +164,24 @@ namespace Cue::Editor
             }
         }
 
-        [[nodiscard]] std::vector<Core::IO::Path> collect_child_folders(
-            const Core::IO::Path& a_folderPath) const
+        [[nodiscard]] const std::vector<Core::IO::Path>& collect_child_folders(
+            const Core::IO::Path& a_folderPath)
         {
+            const std::string cacheKey = a_folderPath.normalize().utf8();
+            if (const auto cacheIt = m_folderCache.find(cacheKey);
+                cacheIt != m_folderCache.end())
+            {
+                return cacheIt->second;
+            }
+
             std::vector<Core::IO::Path> folders{};
             std::vector<Core::IO::Path> entries{};
             const Result result = m_fileSystem->list_directory(
                 a_folderPath, &entries);
             if (!result)
             {
-                return folders;
+                auto [it, _] = m_folderCache.emplace(cacheKey, std::move(folders));
+                return it->second;
             }
 
             for (const Core::IO::Path& entryPath : entries)
@@ -179,19 +201,28 @@ namespace Cue::Editor
                 {
                     return a_left.filename() < a_right.filename();
                 });
-            return folders;
+            auto [it, _] = m_folderCache.emplace(cacheKey, std::move(folders));
+            return it->second;
         }
 
-        [[nodiscard]] std::vector<Core::IO::Path> collect_child_files(
-            const Core::IO::Path& a_folderPath) const
+        [[nodiscard]] const std::vector<Core::IO::Path>& collect_child_files(
+            const Core::IO::Path& a_folderPath)
         {
+            const std::string cacheKey = a_folderPath.normalize().utf8();
+            if (const auto cacheIt = m_fileCache.find(cacheKey);
+                cacheIt != m_fileCache.end())
+            {
+                return cacheIt->second;
+            }
+
             std::vector<Core::IO::Path> files{};
             std::vector<Core::IO::Path> entries{};
             const Result result = m_fileSystem->list_directory(
                 a_folderPath, &entries);
             if (!result)
             {
-                return files;
+                auto [it, _] = m_fileCache.emplace(cacheKey, std::move(files));
+                return it->second;
             }
 
             for (const Core::IO::Path& entryPath : entries)
@@ -211,7 +242,8 @@ namespace Cue::Editor
                 {
                     return a_left.filename() < a_right.filename();
                 });
-            return files;
+            auto [it, _] = m_fileCache.emplace(cacheKey, std::move(files));
+            return it->second;
         }
 
         [[nodiscard]] std::string display_folder_name(
@@ -236,5 +268,7 @@ namespace Cue::Editor
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_selectedFolderPath{};
+        std::unordered_map<std::string, std::vector<Core::IO::Path>> m_folderCache{};
+        std::unordered_map<std::string, std::vector<Core::IO::Path>> m_fileCache{};
     };
 }

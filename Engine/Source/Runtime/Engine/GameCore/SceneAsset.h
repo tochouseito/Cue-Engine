@@ -59,6 +59,16 @@ namespace Cue::GameCore
 
         [[nodiscard]] const std::string& name() const noexcept { return m_name; }
 
+        [[nodiscard]] const std::string& navigation_mesh_path() const noexcept
+        {
+            return m_navigationMeshPath;
+        }
+
+        void set_navigation_mesh_path(std::string a_path)
+        {
+            m_navigationMeshPath = std::move(a_path);
+        }
+
         ObjectDefinition& add_object(std::string a_name,
             std::string a_tag = "Default")
         {
@@ -138,6 +148,7 @@ namespace Cue::GameCore
         }
 
         std::string m_name{};
+        std::string m_navigationMeshPath{};
         // SceneAsset に定義された Object 一覧。
         std::vector<ObjectDefinition> m_objects{};
         // localObjectId から配列インデックスへ引くための索引。

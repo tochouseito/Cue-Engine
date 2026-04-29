@@ -108,14 +108,14 @@ namespace Cue::Editor
                     "Failed to get back buffer RTV view handle for present pass.");
             }
 
-            // finalColor を取得
-            result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
+            // GameView が参照する SRV の存在を確認する。
+            result = builder.get_view("GameColorSRV", m_gameColorSrvHandle);
             if (!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get final color SRV view handle for present pass.");
+                    "Failed to get game color SRV view handle for present pass.");
             }
 
             return Result::ok();
@@ -151,6 +151,6 @@ namespace Cue::Editor
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
-        RHI::ViewHandle m_finalColorSrvHandle{};
+        RHI::ViewHandle m_gameColorSrvHandle{};
     };
 }

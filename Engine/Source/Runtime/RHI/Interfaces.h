@@ -27,6 +27,7 @@ namespace Cue::RHI
     class IQueueContext;
 
     enum class IndexFormat : uint8_t;
+    enum class ColorFormat : uint8_t;
 
     struct BufferTag {};
     struct TextureTag {};
@@ -69,6 +70,8 @@ namespace Cue::RHI
         switch (state)
         {
         case ResourceState::Common: return "Common";
+        case ResourceState::CopySource: return "CopySource";
+        case ResourceState::CopyDest: return "CopyDest";
         case ResourceState::RenderTarget: return "RenderTarget";
         case ResourceState::UnorderedAccess: return "UnorderedAccess";
         case ResourceState::ShaderResource: return "ShaderResource";
@@ -134,6 +137,19 @@ namespace Cue::RHI
         uint64_t byteSize = 0;
     };
 
+    struct TextureToBufferCopyRegion final
+    {
+        TextureHandle srcTextureHandle = {};
+        uint32_t srcX = 0;
+        uint32_t srcY = 0;
+        uint32_t width = 1;
+        uint32_t height = 1;
+        ColorFormat format;
+        BufferHandle dstBufferHandle = {};
+        uint32_t dstReadbackResourceIndex = 0;
+        uint64_t dstByteOffset = 0;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェースです。
     class ICommandContext
     {
@@ -157,6 +173,7 @@ namespace Cue::RHI
         virtual Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) = 0;
         virtual Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const = 0;
         virtual void set_pending_fence(IQueueContext* a_queue, uint64_t a_fenceValue) = 0;
+        virtual bool is_pending_fence_complete() const = 0;
         virtual Result wait_for_pending_fence() = 0;
 
         // --- GPU プロファイリング用のイベントマーカー ---
@@ -167,11 +184,13 @@ namespace Cue::RHI
         virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
+        virtual Result copy_texture_region_to_buffer(const TextureToBufferCopyRegion& region) = 0;
         virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
         virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;
         virtual Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) = 0;
         virtual Result set_viewport_scissor(uint32_t width, uint32_t height) = 0;
         virtual Result set_primitive_topology(PrimitiveTopologyType topology) = 0;
+        virtual Result set_vertex_buffer(uint32_t slot, BufferHandle handle) = 0;
         virtual Result set_index_buffer(BufferHandle handle, IndexFormat format) = 0;
         virtual Result set_graphics_pipeline(PipelineStateHandle handle) = 0;
         virtual Result set_compute_pipeline(PipelineStateHandle handle) = 0;
@@ -206,6 +225,7 @@ namespace Cue::RHI
         virtual Result signal(uint64_t* outFenceValue = nullptr) = 0;
         virtual Result wait() = 0;
         virtual Result wait_for_fence(uint64_t fenceValue) = 0;
+        virtual bool is_fence_complete(uint64_t fenceValue) const = 0;
         virtual Result wait_for_queue(IQueueContext& queue) = 0;
         virtual Result get_timestamp_frequency(uint64_t& outFrequency) const = 0;
     };

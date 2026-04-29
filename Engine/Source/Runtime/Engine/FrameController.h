@@ -81,7 +81,7 @@ namespace Cue
         jobFunc m_func;
         const Core::Time::IClock* m_clock = nullptr;
         double m_lastElapsedMs = 0.0;
-        uint64_t m_finishedFrame = 0;
+        uint64_t m_finishedFrame = UINT64_MAX;
         bool m_isExecuting = false;
         bool m_exit = false;
     };
@@ -151,11 +151,20 @@ namespace Cue
         double update_elapsed_ms() const noexcept;
         /// @brief render 実行時間取得
         double render_elapsed_ms() const noexcept;
+        /// @brief step 全体の実行時間取得
+        double step_elapsed_ms() const noexcept;
+        /// @brief present 実行時間取得
+        double present_elapsed_ms() const noexcept;
+        /// @brief frame counter tick 実行時間取得
+        double counter_tick_elapsed_ms() const noexcept;
+        /// @brief 直近 present までに step した回数取得
+        uint32_t steps_per_present() const noexcept;
 
     private:
         struct FixedState final
         {
             uint64_t produceFrame = 0;
+            uint64_t renderFrame = 0;
             uint64_t totalFrame = 0;
         };
 
@@ -211,6 +220,10 @@ namespace Cue
         /// @brief backpressure 進行
         bool step_backpressure();
 
+        /// @brief 指定フレームのジョブが完了済みかを返す
+        static bool is_frame_finished(uint64_t a_finishedFrame,
+            uint64_t a_frameNo) noexcept;
+
         FrameControllerDesc m_desc;
         Core::Threading::IThreadFactory& m_threadFactory;
         const Core::Time::IClock& m_clock;
@@ -233,6 +246,11 @@ namespace Cue
         bool m_finished = false;
         double m_updateElapsedMs = 0.0;
         double m_renderElapsedMs = 0.0;
+        double m_stepElapsedMs = 0.0;
+        double m_presentElapsedMs = 0.0;
+        double m_counterTickElapsedMs = 0.0;
+        uint32_t m_stepsSincePresent = 0;
+        uint32_t m_stepsPerPresent = 0;
         uint32_t m_updateIndex = 0;
         uint32_t m_renderIndex = 0;
         uint32_t m_presentIndex = 0;

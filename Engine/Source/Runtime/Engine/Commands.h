@@ -23,7 +23,18 @@ namespace Cue
         Camera,
         MeshFilter,
         StaticMeshRenderer,
+        SpriteRenderer,
+        AudioSource,
+        RigidBody,
+        Collider,
         Script
+    };
+
+    enum class AddObjectType : uint8_t
+    {
+        Camera,
+        StaticMesh3D,
+        Sprite2D
     };
 
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext
@@ -31,11 +42,12 @@ namespace Cue
     public:
         ~IGameCommandContext() override = default;
 
-        virtual Result create_object(GameCore::EntityId& a_outObjectId) = 0;
+        virtual Result create_object(AddObjectType a_objectType,
+            GameCore::EntityId& a_outObjectId) = 0;
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) = 0;
-        virtual Result set_main_camera(uint32_t a_cameraIndex) = 0;
+        virtual Result set_main_camera(GameCore::EntityId a_cameraEntityId) = 0;
         virtual Result get_object_name(
             GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(
@@ -65,6 +77,12 @@ namespace Cue
     class AddObjectCommand final : public Core::CQRS::IUndoableCommand
     {
     public:
+        explicit AddObjectCommand(
+            AddObjectType a_objectType = AddObjectType::StaticMesh3D) noexcept
+            : m_objectType(a_objectType)
+        {
+        }
+
         Result execute(Core::CQRS::ICommandContext& a_commandContext) override
         {
             IGameCommandContext* gameCommandContext =
@@ -79,7 +97,8 @@ namespace Cue
 
             if (!m_hasSnapshot)
             {
-                Result createResult = gameCommandContext->create_object(m_objectId);
+                Result createResult =
+                    gameCommandContext->create_object(m_objectType, m_objectId);
                 if (!createResult)
                 {
                     return createResult;
@@ -126,6 +145,7 @@ namespace Cue
     private:
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         GameCore::DeletedObjectSnapshot m_snapshot{};
+        AddObjectType m_objectType = AddObjectType::StaticMesh3D;
         bool m_hasSnapshot = false;
     };
 
@@ -206,8 +226,8 @@ namespace Cue
     class SetMainCameraCommand final : public Core::CQRS::ICommand
     {
     public:
-        explicit SetMainCameraCommand(uint32_t a_cameraIndex) noexcept
-            : m_cameraIndex(a_cameraIndex)
+        explicit SetMainCameraCommand(GameCore::EntityId a_cameraEntityId) noexcept
+            : m_cameraEntityId(a_cameraEntityId)
         {
         }
 
@@ -223,11 +243,11 @@ namespace Cue
                     "Command context does not support main camera switching.");
             }
 
-            return gameCommandContext->set_main_camera(m_cameraIndex);
+            return gameCommandContext->set_main_camera(m_cameraEntityId);
         }
 
     private:
-        uint32_t m_cameraIndex = 0;
+        GameCore::EntityId m_cameraEntityId = GameCore::k_invalidEntityId;
     };
 
     class RenameObjectCommand final : public Core::CQRS::IUndoableCommand

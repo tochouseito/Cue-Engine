@@ -10,13 +10,30 @@ namespace Cue
     {
     }
 
-    Result EngineCommandContext::create_object(
+    Result EngineCommandContext::create_object(AddObjectType a_objectType,
         GameCore::EntityId& a_outObjectId)
     {
         GameCore::GameObject object{};
-        Result result = m_currentSceneId != GameCore::k_invalidSceneId
-            ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
-            : m_gameWorld.add_object(object);
+        Result result = Result::ok();
+        switch (a_objectType)
+        {
+        case AddObjectType::Camera:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_camera_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_camera_object(object);
+            break;
+        case AddObjectType::StaticMesh3D:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_object(object);
+            break;
+        case AddObjectType::Sprite2D:
+            result = m_currentSceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_sprite_object_to_scene(m_currentSceneId, object)
+                : m_gameWorld.add_sprite_object(object);
+            break;
+        }
+
         a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
         return result;
     }
@@ -33,9 +50,10 @@ namespace Cue
         return m_gameWorld.get_render_object_entity(a_objectId, a_outEntityId);
     }
 
-    Result EngineCommandContext::set_main_camera(uint32_t a_cameraIndex)
+    Result EngineCommandContext::set_main_camera(
+        GameCore::EntityId a_cameraEntityId)
     {
-        return m_gameWorld.set_main_camera(a_cameraIndex);
+        return m_gameWorld.set_main_camera(a_cameraEntityId);
     }
 
     Result EngineCommandContext::get_object_name(
@@ -84,6 +102,22 @@ namespace Cue
             return add_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent already exists.");
 
+        case AddableComponentType::SpriteRenderer:
+            return add_component_internal<ECS::SpriteRendererComponent>(
+                a_objectId, "SpriteRendererComponent already exists.");
+
+        case AddableComponentType::AudioSource:
+            return add_component_internal<ECS::AudioSourceComponent>(
+                a_objectId, "AudioSourceComponent already exists.");
+
+        case AddableComponentType::RigidBody:
+            return add_component_internal<ECS::RigidBodyComponent>(
+                a_objectId, "RigidBodyComponent already exists.");
+
+        case AddableComponentType::Collider:
+            return add_component_internal<ECS::ColliderComponent>(
+                a_objectId, "ColliderComponent already exists.");
+
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
                 a_objectId, "ScriptComponent already exists.");
@@ -110,6 +144,22 @@ namespace Cue
         case AddableComponentType::StaticMeshRenderer:
             return remove_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent was not found.");
+
+        case AddableComponentType::SpriteRenderer:
+            return remove_component_internal<ECS::SpriteRendererComponent>(
+                a_objectId, "SpriteRendererComponent was not found.");
+
+        case AddableComponentType::AudioSource:
+            return remove_component_internal<ECS::AudioSourceComponent>(
+                a_objectId, "AudioSourceComponent was not found.");
+
+        case AddableComponentType::RigidBody:
+            return remove_component_internal<ECS::RigidBodyComponent>(
+                a_objectId, "RigidBodyComponent was not found.");
+
+        case AddableComponentType::Collider:
+            return remove_component_internal<ECS::ColliderComponent>(
+                a_objectId, "ColliderComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

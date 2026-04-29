@@ -217,6 +217,7 @@ namespace Cue::Audio
         record.loopBegin = a_desc.loopBegin;
         record.loopLength = a_desc.loopLength;
         record.loopCount = a_desc.loopCount;
+        record.volume = a_desc.volume;
         record.isEndOfStream = a_desc.isEndOfStream;
 
         Result result = build_wave_format_bytes(a_desc.format, record.formatBytes);
@@ -231,6 +232,16 @@ namespace Cue::Audio
             hr, "XAudio2 source voice could not be created.");
         if (!result)
         {
+            return result;
+        }
+
+        hr = record.sourceVoice->SetVolume(record.volume);
+        result = convert_xaudio2_result(
+            hr, "XAudio2 source voice volume could not be set.");
+        if (!result)
+        {
+            record.sourceVoice->DestroyVoice();
+            record.sourceVoice = nullptr;
             return result;
         }
 
@@ -347,6 +358,32 @@ namespace Cue::Audio
         hr = sourceRecord->sourceVoice->FlushSourceBuffers();
         return convert_xaudio2_result(
             hr, "XAudio2 source buffers could not be flushed.");
+    }
+
+    Result XAudio2Backend::set_source_volume(
+        AudioSourceHandle a_handle, float a_volume)
+    {
+        AudioSourceRecord* sourceRecord = m_sourceRegistry.ref_get(a_handle);
+        if (sourceRecord == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "Audio source was not found.");
+        }
+        if (sourceRecord->sourceVoice == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Audio source voice is not valid.");
+        }
+        if (a_volume < 0.0f)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Audio source volume must be non-negative.");
+        }
+
+        sourceRecord->volume = a_volume;
+        const HRESULT hr = sourceRecord->sourceVoice->SetVolume(a_volume);
+        return convert_xaudio2_result(
+            hr, "XAudio2 source voice volume could not be set.");
     }
 
     Result XAudio2Backend::build_wave_format_bytes(

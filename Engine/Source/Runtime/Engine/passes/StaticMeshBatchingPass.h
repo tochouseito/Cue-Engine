@@ -43,7 +43,18 @@ namespace Cue
         {
             constexpr uint32_t k_maxObjectCount = 1000;
 
-            Result result = builder.read_buffer(m_renderObjectBufferHandle);
+            RHI::BufferHandle sourceRenderObjectBufferHandle =
+                m_renderObjectBufferHandle;
+            Result sortedBufferResult = builder.get_buffer(
+                "SortedRenderObjectBuffer",
+                sourceRenderObjectBufferHandle);
+            if (!sortedBufferResult && sortedBufferResult.code != Code::NotFound)
+            {
+                return sortedBufferResult;
+            }
+            m_sourceRenderObjectBufferHandle = sourceRenderObjectBufferHandle;
+
+            Result result = builder.read_buffer(m_sourceRenderObjectBufferHandle);
             if (!result)
             {
                 return result;
@@ -175,7 +186,7 @@ namespace Cue
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             Result result = builder.use_buffer(
-                m_renderObjectBufferHandle,
+                m_sourceRenderObjectBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::ShaderResource);
@@ -218,7 +229,7 @@ namespace Cue
                 m_indirectCommandBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::Common);
+                RHI::ResourceState::IndirectArgument);
             if (!result)
             {
                 return result;
@@ -228,7 +239,7 @@ namespace Cue
                 m_indirectCommandCountBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::Common);
+                RHI::ResourceState::IndirectArgument);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -256,7 +267,7 @@ namespace Cue
             }
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
-            commandContext->set_srv(0, m_renderObjectBufferHandle);
+            commandContext->set_srv(0, m_sourceRenderObjectBufferHandle);
             commandContext->set_srv(1, m_transformBufferHandle);
             commandContext->set_srv(2, m_meshRangeBufferHandle);
             commandContext->set_srv(3, m_visibleObjectCountBufferHandle);
@@ -270,6 +281,7 @@ namespace Cue
     private:
         const RenderSceneState& m_renderSceneState;
         RHI::BufferHandle m_renderObjectBufferHandle{};
+        RHI::BufferHandle m_sourceRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_meshRangeBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};

@@ -19,5 +19,6 @@ Cue Engine のリファレンスサイトです。
 
 - インストール
 - プロジェクト作成
-- Editor 概要
+- [Editor の使い方](./Manual/Editor.md)
+- [Script の使い方](./Manual/Script.md)
 - GameWorld / Scene / GameObject

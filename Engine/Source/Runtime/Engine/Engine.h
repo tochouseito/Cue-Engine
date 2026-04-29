@@ -15,11 +15,17 @@
 #include <FrameGraph.h>
 #include <RHI.h>
 
+// === Physics includes ===
+#include <Physics.h>
+
 // === Engine includes ===
 #include "Asset/AssetManager.h"
 #include "EngineCommandContext.h"
 #include "FrameController.h"
 #include "GameCore/GameWorld.h"
+#include "GpuData/DebugSelection.h"
+#include "GpuData/DebugPick.h"
+#include "GpuData/ViewProjection.h"
 #include "Script/ScriptModuleHost.h"
 
 // === C++ includes ===
@@ -38,7 +44,9 @@ namespace Cue
         PAL::IPlatform* platform = nullptr;
         RHI::IBackend* backend = nullptr;
         Audio::IBackend* audioBackend = nullptr;
+        Physics::IPhysicsSystem* physicsSystem = nullptr;
         uint32_t maxFps = 60;
+        Core::IO::Path errorTexturePath{};
 
         std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
         Core::CQRS::Bridge* editorBridge = nullptr;
@@ -128,6 +136,19 @@ namespace Cue
             m_editorSceneId = a_sceneId;
         }
 
+        void set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
+        {
+            m_assetRootPath = a_assetRootPath.normalize();
+            if (m_editorWorld != nullptr)
+            {
+                m_editorWorld->set_asset_root_path(m_assetRootPath);
+            }
+            if (m_playWorld != nullptr)
+            {
+                m_playWorld->set_asset_root_path(m_assetRootPath);
+            }
+        }
+
         [[nodiscard]] GameCore::SceneId editor_scene_id() const noexcept
         {
             return m_editorSceneId;
@@ -186,12 +207,60 @@ namespace Cue
         [[nodiscard]] Result stop_play_mode() noexcept;
         [[nodiscard]] bool is_playing() const noexcept;
 
-        [[nodiscard]] const RHI::FrameGraphExecutionStats&
+        void set_debug_view_camera(
+            const GpuData::ViewProjectionGpu& a_viewProjection) noexcept
+        {
+            m_debugViewProjection = a_viewProjection;
+        }
+
+        void set_debug_selection(
+            const GpuData::DebugSelectionGpu& a_selection) noexcept
+        {
+            m_debugSelection = a_selection;
+        }
+
+        void set_debug_selected_object_id(uint32_t a_objectId) noexcept
+        {
+            m_debugSelectedObjectId = a_objectId;
+        }
+
+        void request_debug_pick(float a_normalizedX, float a_normalizedY) noexcept;
+        [[nodiscard]] bool consume_debug_pick_result(
+            GameCore::EntityId& a_outEntityId) noexcept;
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
             render_frame_graph_stats() const noexcept
         {
             static const RHI::FrameGraphExecutionStats k_emptyStats{};
             return m_frameGraph != nullptr
-                ? m_frameGraph->execution_stats()
+                ? m_frameGraph->execution_stats_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            render_frame_graph_summary_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_frameGraph != nullptr
+                ? m_frameGraph->execution_stats_summary_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            present_frame_graph_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_presentFrameGraph != nullptr
+                ? m_presentFrameGraph->execution_stats_copy()
+                : k_emptyStats;
+        }
+
+        [[nodiscard]] RHI::FrameGraphExecutionStats
+            present_frame_graph_summary_stats() const noexcept
+        {
+            static const RHI::FrameGraphExecutionStats k_emptyStats{};
+            return m_presentFrameGraph != nullptr
+                ? m_presentFrameGraph->execution_stats_summary_copy()
                 : k_emptyStats;
         }
 
@@ -211,8 +280,32 @@ namespace Cue
         }
 
     private:
-        Result create_final_color_resources();
-        Result destroy_final_color_resources();
+        struct RenderTargetResources final
+        {
+            RHI::TextureHandle colorHandle{};
+            RHI::ViewHandle colorRtvHandle{};
+            RHI::ViewHandle colorSrvHandle{};
+        };
+
+        Result create_render_target_resources(
+            std::string_view a_name,
+            RHI::ColorFormat a_format,
+            RenderTargetResources& a_outResources);
+        Result destroy_render_target_resources(
+            RenderTargetResources& a_resources);
+        Result create_debug_pick_readback_buffer();
+        Result destroy_debug_pick_readback_buffer();
+        Result create_view_projection_buffer(
+            std::string_view a_name,
+            RHI::BufferHandle& a_outBufferHandle,
+            std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
+                a_outUploaders);
+        Result create_debug_selection_buffer();
+        Result destroy_debug_view_projection_buffer();
+        Result destroy_debug_selection_buffer();
+        Result upload_debug_view_projection(uint32_t a_bufferIndex);
+        Result upload_debug_selection(uint32_t a_bufferIndex);
+        void resolve_debug_pick_readback() noexcept;
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
         Result recreate_render_frame_graph();
         Result sync_active_world_buffers();
@@ -229,6 +322,7 @@ namespace Cue
         PAL::IPlatform* m_platform = nullptr;
         RHI::IBackend* m_backend = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
+        Physics::IPhysicsSystem* m_physicsSystem = nullptr;
         AssetManager m_assetManager{};
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
@@ -240,10 +334,25 @@ namespace Cue
         Core::CQRS::Bridge* m_editorBridge = nullptr;
         Core::CQRS::Bridge* m_platformBridge = nullptr;
         PAL::PlatformRuntimeState m_platformRuntimeState{};
-        RHI::TextureHandle m_finalColorHandle{};
-        RHI::ViewHandle m_finalColorRtvHandle{};
-        RHI::ViewHandle m_finalColorSrvHandle{};
+        RenderTargetResources m_gameRenderTarget{};
+        RenderTargetResources m_debugRenderTarget{};
+        RenderTargetResources m_debugObjectIdTarget{};
+        RHI::BufferHandle m_debugViewProjectionBufferHandle{};
+        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
+            m_debugViewProjectionUploaders{};
+        GpuData::ViewProjectionGpu m_debugViewProjection{};
+        RHI::BufferHandle m_debugSelectionBufferHandle{};
+        std::vector<RHI::SlotUploader<GpuData::DebugSelectionGpu>>
+            m_debugSelectionUploaders{};
+        GpuData::DebugSelectionGpu m_debugSelection{};
+        RHI::BufferHandle m_debugPickReadbackBufferHandle{};
+        RHI::ReadbackBufferView m_debugPickReadbackView{};
+        GpuData::DebugPickState m_debugPickState{};
+        GameCore::EntityId m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        bool m_hasDebugPickResult = false;
+        uint32_t m_debugSelectedObjectId = 0;
         Audio::AudioDeviceHandle m_audioDevice{};
+        Core::IO::Path m_assetRootPath{};
         MaterialHandle m_defaultMaterialHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;

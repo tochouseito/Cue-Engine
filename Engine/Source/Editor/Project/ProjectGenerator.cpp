@@ -54,6 +54,7 @@ namespace Cue::Editor
             cube.prototype.add_component(transform);
 
             ECS::MeshFilterComponent meshFilter{};
+            meshFilter.modelName = "Cube";
             meshFilter.meshId = 0;
             cube.prototype.add_component(meshFilter);
 
@@ -469,6 +470,8 @@ namespace Cue::Editor
             "target_include_directories(CueApp PRIVATE\n"
             "    \"${CUE_ENGINE_ROOT}\"\n"
             "    \"${CUE_ENGINE_ROOT}/Engine/Source/App/App\"\n"
+            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Audio\"\n"
+            "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Audio/XAudio2\"\n"
             "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Base\"\n"
             "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core\"\n"
             "    \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Math\"\n"
@@ -505,11 +508,13 @@ namespace Cue::Editor
             "    \"${CUE_ENGINE_OUTPUT_DIR}/Engine.lib\"\n"
             "    \"${CUE_ENGINE_OUTPUT_DIR}/win_platform.lib\"\n"
             "    \"${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib\"\n"
+            "    \"${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib\"\n"
             "    winmm.lib\n"
             "    ole32.lib\n"
             "    shell32.lib\n"
             "    uuid.lib\n"
             "    d3d12.lib\n"
+            "    dinput8.lib\n"
             "    dxgi.lib\n"
             "    dxcompiler.lib\n"
             "    dxguid.lib\n"

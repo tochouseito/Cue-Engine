@@ -39,8 +39,6 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            context;
-
             if (!m_materialBufferHandle.valid())
             {
                 return;
@@ -54,7 +52,7 @@ namespace Cue
 
             RHI::BufferCopyRegion region{};
             region.srcBufferHandle = m_materialBufferHandle;
-            region.srcUploadResourceIndex = 0;
+            region.srcUploadResourceIndex = context.frame_index();
             region.srcByteOffset = 0;
             region.dstBufferHandle = m_materialBufferHandle;
             region.dstDefaultResourceIndex = 0;

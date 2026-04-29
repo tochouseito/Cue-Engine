@@ -13,9 +13,11 @@
 #include <Engine.h>
 
 // === Editor includes ===
+#include "DebugCamera.h"
 #include "BuildSystem.h"
 #include "AssetBrowser.h"
 #include "Statistics.h"
+#include "GameView.h"
 #include "DebugView.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
@@ -60,10 +62,13 @@ namespace Cue::Editor
         void initialize();
         void update();
         Result open_project(const std::string& a_projectPath);
+        void set_loop_metrics_source(
+            const EditorLoopMetrics* a_loopMetrics) noexcept;
     private:
         Result save_current_scene();
         Result reload_current_scene();
         Result unload_current_scene();
+        Result bake_current_scene_navigation();
         Result build_script_module();
         Result build_game_release();
         Result reload_script_module();
@@ -88,6 +93,7 @@ namespace Cue::Editor
         Result refresh_script_project_intellisense(BuildResult& a_outResult);
         void draw_create_script_popup();
         void draw_script_build_output();
+        void draw_navigation_debug_window();
         void draw_script_build_notification_popup();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
@@ -101,6 +107,9 @@ namespace Cue::Editor
         void undo_last_command();
         void redo_last_command();
         void handle_shortcuts();
+        void draw_main_camera_menu();
+        void process_debug_pick_request();
+        void sync_debug_selection();
 
         Core::CQRS::Bridge* m_bridge = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
@@ -111,6 +120,7 @@ namespace Cue::Editor
         std::unique_ptr<VisualStudioBridge> m_visualStudioBridge = nullptr;
         std::unique_ptr<AssetBrowser> m_assetBrowser = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
+        std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
@@ -136,6 +146,7 @@ namespace Cue::Editor
         std::string m_scriptBuildNotificationTitle{};
         std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
+        bool m_showNavigationDebugWindow = false;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
         bool m_hasScriptBuildNotification = false;
@@ -144,5 +155,8 @@ namespace Cue::Editor
         bool m_openCreateScriptPopup = false;
         bool m_focusCreateScriptNameInput = false;
         std::array<char, 128> m_createScriptNameBuffer{};
+        DebugCamera m_debugCamera{};
+        EditorUpdateMetrics m_currentUpdateMetrics{};
+        EditorUpdateMetrics m_lastUpdateMetrics{};
     };
 }

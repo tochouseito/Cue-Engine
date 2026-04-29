@@ -1,5 +1,6 @@
 {
     "name": "Main",
+    "navigationMesh": "Navigation/NavMeshTest.cuenavmesh",
     "objects": [
         {
             "components": {
@@ -36,8 +37,53 @@
         },
         {
             "components": {
+                "audioSource": {
+                    "fileName": "fanfare.cuesound",
+                    "loop": false,
+                    "playOnStart": false,
+                    "spatialBlend": 0.0,
+                    "volume": 0.3880000114440918
+                },
+                "collider": {
+                    "friction": 0.20000000298023224,
+                    "halfExtent": {
+                        "x": 0.5,
+                        "y": 0.5,
+                        "z": 0.5
+                    },
+                    "halfHeight": 0.5,
+                    "isTrigger": false,
+                    "layer": 0,
+                    "mask": 65535,
+                    "offset": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "radius": 0.5,
+                    "restitution": 0.0,
+                    "type": "Box"
+                },
                 "meshFilter": {
-                    "meshId": 0
+                    "meshId": 2,
+                    "modelName": "axis"
+                },
+                "rigidBody": {
+                    "angularDamping": 0.05000000074505806,
+                    "angularVelocity": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "linearDamping": 0.05000000074505806,
+                    "linearVelocity": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "mass": 1.0,
+                    "motion": "Dynamic",
+                    "useGravity": true
                 },
                 "script": {
                     "className": "RotateCube",
@@ -71,6 +117,95 @@
             "localObjectId": 2,
             "name": "Cube",
             "tag": "Default"
+        },
+        {
+            "components": {
+                "meshFilter": {
+                    "meshId": 1,
+                    "modelName": "NavMeshTest"
+                },
+                "navMeshBakeSource": {
+                    "area": 0,
+                    "isIncluded": true
+                },
+                "staticMeshRenderer": {
+                    "materialName": "TestRed",
+                    "visible": true
+                },
+                "transform": {
+                    "position": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "z": 1.0
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 3,
+            "name": "NavMeshTestSurface",
+            "tag": "Navigation"
+        },
+        {
+            "components": {
+                "meshFilter": {
+                    "meshId": 2,
+                    "modelName": "axis"
+                },
+                "navAgent": {
+                    "acceleration": 8.0,
+                    "destination": {
+                        "x": -27.0,
+                        "y": 0.0,
+                        "z": -2.0
+                    },
+                    "excludeFlags": 0,
+                    "hasDestination": true,
+                    "height": 1.7999999523162842,
+                    "includeFlags": 65535,
+                    "maxSpeed": 3.0,
+                    "navMeshSnapDistance": 1.0,
+                    "radius": 0.30000001192092896,
+                    "shouldSnapToNavMesh": true,
+                    "stoppingDistance": 0.20000000298023224
+                },
+                "staticMeshRenderer": {
+                    "materialName": "TestRed",
+                    "visible": true
+                },
+                "transform": {
+                    "position": {
+                        "x": 0.6800000071525574,
+                        "y": 0.18000000715255737,
+                        "z": -32.0
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 0.3499999940395355,
+                        "y": 0.3499999940395355,
+                        "z": 0.3499999940395355
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 4,
+            "name": "NavAgent",
+            "tag": "Navigation"
         }
     ],
     "version": 2

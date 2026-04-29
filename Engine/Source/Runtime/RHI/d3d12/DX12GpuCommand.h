@@ -4,7 +4,9 @@
 #include <RHICommon.h>
 
 // === C++ includes ===
+#include <functional>
 #include <mutex>
+#include <vector>
 
 // === DirectX 12 includes ===
 #include "stdafx.h"
@@ -45,6 +47,7 @@ namespace Cue::RHI::DX12
         Result resolve_timestamps(uint32_t firstQueryIndex, uint32_t queryCount) override;
         Result read_timestamp(uint32_t queryIndex, uint64_t& outValue) const override;
         void set_pending_fence(IQueueContext* a_queue, uint64_t a_fenceValue) override;
+        bool is_pending_fence_complete() const override;
         Result wait_for_pending_fence() override;
 
         // --- 取得 ---
@@ -59,11 +62,13 @@ namespace Cue::RHI::DX12
         Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) override;
         Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) override;
         Result copy_buffer_region(const BufferCopyRegion& region) override;
+        Result copy_texture_region_to_buffer(const TextureToBufferCopyRegion& region) override;
         Result clear_render_target(ViewHandle handle, const float clearColor[4]) override;
         Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) override;
         Result clear_unordered_access_uint(ViewHandle handle, const uint32_t clearValues[4]) override;
         Result set_viewport_scissor(uint32_t width, uint32_t height) override;
         Result set_primitive_topology(PrimitiveTopologyType topology) override;
+        Result set_vertex_buffer(uint32_t slot, BufferHandle handle) override;
         Result set_index_buffer(BufferHandle handle, IndexFormat format) override;
         Result set_graphics_pipeline(PipelineStateHandle handle) override;
         Result set_compute_pipeline(PipelineStateHandle handle) override;
@@ -81,12 +86,15 @@ namespace Cue::RHI::DX12
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
-        Result create_draw_indexed_command_signature(ID3D12Device& device);
+        Result create_draw_indexed_command_signature(
+            ID3D12Device& device,
+            ID3D12RootSignature* rootSignature);
         Result create_timestamp_resources(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result resolve_slice_index(size_t sliceCount, uint32_t& outIndex) const;
         Result resolve_root_descriptor_buffer(BufferHandle handle, DX12GpuResource** outResource) const;
         Result resolve_upload_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
         Result resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
+        Result resolve_readback_buffer(BufferHandle handle, uint32_t resourceIndex, DX12GpuResource** outResource) const;
     private:
         DescriptorAllocator& m_descriptorAllocator; // デスクリプタアロケータへの参照
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照
@@ -96,6 +104,8 @@ namespace Cue::RHI::DX12
         comPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         comPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
         comPtr<ID3D12CommandSignature> m_drawIndexedCommandSignature = nullptr;
+        ID3D12Device* m_device = nullptr;
+        ID3D12RootSignature* m_drawIndexedSignatureRootSignature = nullptr;
         comPtr<ID3D12QueryHeap> m_timestampQueryHeap = nullptr;
         comPtr<ID3D12Resource> m_timestampReadbackBuffer = nullptr;
         std::byte* m_timestampReadbackMappedData = nullptr;
@@ -103,7 +113,7 @@ namespace Cue::RHI::DX12
         uint32_t m_frameIndex = 0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
         uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
         static constexpr uint32_t k_maxTimestampQueryCount = 64;
-        IQueueContext* m_pendingQueue = nullptr;
+        comPtr<ID3D12Fence> m_pendingFence = nullptr;
         uint64_t m_pendingFenceValue = 0;
     };
 
@@ -158,6 +168,14 @@ namespace Cue::RHI::DX12
         Result get_command_context(CommandListType type, commandContextLease& outContext) override;
         Result return_command_context(commandContextLease& context) override;
     private:
+        void recycle_completed_graphics_contexts_locked() noexcept;
+        void recycle_completed_compute_contexts_locked() noexcept;
+        void recycle_completed_copy_contexts_locked() noexcept;
+        [[nodiscard]] static bool try_recycle_completed_contexts(
+            std::vector<commandContextLease>& pendingContexts,
+            Core::Pool<DX12GpuCommandContext,
+                std::function<void(DX12GpuCommandContext&)>>& pool) noexcept;
+
         DX12RenderDevice& m_renderDevice;
         DescriptorAllocator& m_descriptorAllocator;
         DX12BufferManager& m_bufferManager; // バッファマネージャへの参照
@@ -165,10 +183,13 @@ namespace Cue::RHI::DX12
         DX12ViewManager& m_viewManager; // ビューマネージャへの参照
         DX12PipelineManager& m_pipelineManager; // パイプラインマネージャへの参照
         Core::Pool<DX12GpuCommandContext, std::function<void(DX12GpuCommandContext&)>> m_graphicsContextPool;
+        std::vector<commandContextLease> m_pendingGraphicsContexts{};
         std::mutex m_graphicsPoolMutex;
         Core::Pool<DX12GpuCommandContext, std::function<void(DX12GpuCommandContext&)>> m_computeContextPool;
+        std::vector<commandContextLease> m_pendingComputeContexts{};
         std::mutex m_computePoolMutex;
         Core::Pool<DX12GpuCommandContext, std::function<void(DX12GpuCommandContext&)>> m_copyContextPool;
+        std::vector<commandContextLease> m_pendingCopyContexts{};
         std::mutex m_copyPoolMutex;
     };
 
@@ -189,11 +210,13 @@ namespace Cue::RHI::DX12
         Result signal(uint64_t* outFenceValue = nullptr) override;
         Result wait() override;
         Result wait_for_fence(uint64_t fenceValue) override;
+        bool is_fence_complete(uint64_t fenceValue) const override;
         Result wait_for_queue(IQueueContext& queue) override;
         Result get_timestamp_frequency(uint64_t& outFrequency) const override;
 
         // --- 取得 ---
         ID3D12CommandQueue* command_queue() const { return m_commandQueue.Get(); }
+        ID3D12Fence* d3d12_fence() const { return m_fence.Get(); }
     private:
         Result create_fence(ID3D12Device& device);
         Result create_fence_event();

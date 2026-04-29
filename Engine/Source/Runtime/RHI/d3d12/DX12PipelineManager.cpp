@@ -501,6 +501,8 @@ namespace Cue::RHI::DX12
                 "Failed to create root signature from serialized blob");
         }
 
+        rootSigRecord.desc = desc;
+
         // 作成したルートシグネチャをRegistryに登録する。
         RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSigRecord);
 

@@ -1829,6 +1829,21 @@ namespace Marionette
             return engineApi->pushKey(static_cast<CueKey>(a_key)) != 0;
         }
 
+        [[nodiscard]] CueResult request_audio_source_play() const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, requestAudioSourcePlay) +
+                        sizeof(CueRequestAudioSourcePlayFn) ||
+                engineApi->requestAudioSourcePlay == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->requestAudioSourcePlay(m_entityHandle);
+        }
+
         void log_info(std::string_view a_message) const noexcept
         {
             log(CueLogSeverity_Info, a_message);

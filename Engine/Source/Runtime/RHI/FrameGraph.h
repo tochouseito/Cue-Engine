@@ -9,6 +9,7 @@
 #include "StaticMeshPool.h"
 
 // === C++ includes ===
+#include <mutex>
 #include <string_view>
 #include <unordered_map>
 
@@ -236,6 +237,7 @@ namespace Cue::RHI
         double queueWaitMs = 0.0;
         double interQueueWaitMs = 0.0;
         double finalQueueWaitMs = 0.0;
+        double contextRecycleWaitMs = 0.0;
         double finalGraphicsWaitMs = 0.0;
         double finalComputeWaitMs = 0.0;
         double finalCopyWaitMs = 0.0;
@@ -301,10 +303,8 @@ namespace Cue::RHI
             return m_passBuildInfos;
         }
 
-        const FrameGraphExecutionStats& execution_stats() const noexcept
-        {
-            return m_executionStats;
-        }
+        FrameGraphExecutionStats execution_stats_copy() const noexcept;
+        FrameGraphExecutionStats execution_stats_summary_copy() const noexcept;
     private:
         Result cleanup_build_resources();
         Result build_dependencies();
@@ -333,6 +333,7 @@ namespace Cue::RHI
         std::vector<CompiledPass> m_passes;
         std::vector<PassBuildInfo> m_passBuildInfos;
         std::vector<QueueBatchInfo> m_executionPlan;
+        mutable std::mutex m_executionStatsMutex{};
         FrameGraphExecutionStats m_executionStats{};
         std::vector<BufferHandle> m_createdBuffers;
         std::vector<TextureHandle> m_createdTextures;

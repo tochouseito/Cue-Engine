@@ -282,6 +282,9 @@ namespace Cue::ECS
                 a_transform.scale,
                 a_transform.rotation,
                 a_transform.position);
+            gpuTransform.normalMatrix =
+                Math::float4x4::transpose(
+                    Math::float4x4::inverse(gpuTransform.worldMatrix));
             if (!m_currentTransformUploader->push(
                 a_renderableInfo.transformId, gpuTransform))
             {
@@ -310,7 +313,7 @@ namespace Cue::ECS
                 }
             }
 
-            if (m_isCpuBatchingEnabled && m_currentRenderObjectUploader != nullptr)
+            if (m_currentRenderObjectUploader != nullptr)
             {
                 GpuData::RenderObject renderObject{};
                 renderObject.objectId = a_renderableInfo.objectId;
@@ -326,7 +329,9 @@ namespace Cue::ECS
                     return;
                 }
 
-                if (m_currentFrameState != nullptr && m_staticMeshPool != nullptr)
+                if (m_isCpuBatchingEnabled &&
+                    m_currentFrameState != nullptr &&
+                    m_staticMeshPool != nullptr)
                 {
                     RHI::StaticMeshRange meshRange{};
                     if (m_staticMeshPool->get_mesh_range(
