@@ -74,6 +74,7 @@ target_include_directories(GameSources PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/EngineModule"
     "${CMAKE_CURRENT_SOURCE_DIR}/Assets"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Math"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine"
     "${CUE_SCRIPT_GENERATED_DIR}"
 )
@@ -96,6 +97,7 @@ target_include_directories(GameScript PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/EngineModule"
     "${CMAKE_CURRENT_SOURCE_DIR}/Assets"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Math"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine"
     "${CUE_SCRIPT_GENERATED_DIR}"
 )
@@ -126,6 +128,7 @@ target_include_directories(Game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/EngineModule"
     "${CMAKE_CURRENT_SOURCE_DIR}/Assets"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Math"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine"
     "${CUE_SCRIPT_GENERATED_DIR}"
 )
@@ -158,6 +161,8 @@ target_include_directories(CueApp PRIVATE
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/ECS"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/PAL"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/PAL/Win"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Physics"
+    "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Physics/Jolt"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/RHI"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/RHI/D3D12"
     "${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Engine"
@@ -184,9 +189,12 @@ target_link_libraries(CueApp PRIVATE
     "${CUE_ENGINE_OUTPUT_DIR}/CueMath.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/ECS.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/PAL.lib"
+    "${CUE_ENGINE_OUTPUT_DIR}/Physics.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/RHI.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/Engine.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/win_platform.lib"
+    "${CUE_ENGINE_OUTPUT_DIR}/jolt_physics_backend.lib"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Jolt.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Jolt.lib>"
     "${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib"
     winmm.lib

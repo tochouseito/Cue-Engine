@@ -157,6 +157,6 @@ namespace Cue::Editor
         float m_nearZ = 0.1f;
         float m_farZ = 1000.0f;
         float m_mouseSensitivity = 0.1f;
-        float m_moveSpeed = 0.1f;
+        float m_moveSpeed = 1.1f;
     };
 }

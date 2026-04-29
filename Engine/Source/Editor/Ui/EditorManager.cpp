@@ -3086,11 +3086,12 @@ namespace Cue::Editor
 
     void EditorManager::sync_debug_selection()
     {
-        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        if (m_engine == nullptr || m_engine->active_world() == nullptr)
         {
             return;
         }
 
+        GameCore::GameWorld* debugWorld = m_engine->active_world();
         GpuData::DebugSelectionGpu selection{};
         uint32_t selectedObjectId = 0;
         constexpr float k_cameraFrustumNear = 0.03f;
@@ -3131,17 +3132,24 @@ namespace Cue::Editor
         };
         if (m_selectedEntityId != GameCore::k_invalidEntityId)
         {
+            const ECS::RenderableInfoComponent* renderableInfo = nullptr;
+            const bool hasRenderableOutline =
+                debugWorld->get_component<ECS::RenderableInfoComponent>(
+                    m_selectedEntityId, renderableInfo) &&
+                renderableInfo != nullptr &&
+                renderableInfo->objectId != ECS::k_invalidRenderableId;
+
             const ECS::TransformComponent* transform = nullptr;
             const Result transformResult =
-                m_engine->game_world()->get_component<ECS::TransformComponent>(
+                debugWorld->get_component<ECS::TransformComponent>(
                     m_selectedEntityId, transform);
             const ECS::CameraComponent* camera = nullptr;
             if (transformResult)
             {
-                (void)m_engine->game_world()->get_component<ECS::CameraComponent>(
+                (void)debugWorld->get_component<ECS::CameraComponent>(
                     m_selectedEntityId,
                     camera);
-                if (camera == nullptr)
+                if (camera == nullptr && !hasRenderableOutline)
                 {
                     GpuData::DebugSelectionItemGpu item{};
                     item.world = Math::make_affine_matrix(
@@ -3156,10 +3164,7 @@ namespace Cue::Editor
                 }
             }
 
-            const ECS::RenderableInfoComponent* renderableInfo = nullptr;
-            if (m_engine->game_world()->get_component<ECS::RenderableInfoComponent>(
-                    m_selectedEntityId, renderableInfo) &&
-                renderableInfo->objectId != ECS::k_invalidRenderableId)
+            if (hasRenderableOutline)
             {
                 selectedObjectId = renderableInfo->objectId + 1u;
             }
@@ -3188,14 +3193,14 @@ namespace Cue::Editor
         if (m_currentSceneId != GameCore::k_invalidSceneId)
         {
             const Result collectResult =
-                m_engine->game_world()->for_each_object_in_scene(
+                debugWorld->for_each_object_in_scene(
                 m_currentSceneId,
                 appendCameraObject);
             hasCollectedSceneCameras = static_cast<bool>(collectResult);
         }
         if (!hasCollectedSceneCameras)
         {
-            (void)m_engine->game_world()->for_each_object(appendCameraObject);
+            (void)debugWorld->for_each_object(appendCameraObject);
         }
 
         m_engine->set_debug_selection(selection);

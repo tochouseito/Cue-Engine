@@ -7,6 +7,7 @@ cbuffer ViewProjection : register(b0)
 static const uint kMaxDebugSelectionItemCount = 64;
 static const uint kShapeBox = 0;
 static const uint kShapeCameraFrustum = 1;
+static const uint kShapeLine = 2;
 
 struct DebugSelectionItem
 {
@@ -73,11 +74,15 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     const DebugSelectionItem item = g_items[itemIndex];
     const bool isEnabled = instanceId < g_itemCount && item.isEnabled != 0;
     const uint cornerIndex = kLineVertexToCorner[vertexId];
-    const float3 localCorner = item.shape == kShapeCameraFrustum
-        ? make_camera_frustum_corner(cornerIndex, item.camera)
-        : kCorners[cornerIndex];
+    const bool isLine = item.shape == kShapeLine;
+    const bool isVisibleLineVertex = !isLine || vertexId < 2;
+    const float3 localCorner = isLine
+        ? (vertexId == 0 ? float3(0.0f, 0.0f, 0.0f) : item.camera.xyz)
+        : (item.shape == kShapeCameraFrustum
+            ? make_camera_frustum_corner(cornerIndex, item.camera)
+            : kCorners[cornerIndex]);
     float4 localPosition = float4(localCorner, 1.0f);
-    if (!isEnabled)
+    if (!isEnabled || !isVisibleLineVertex)
     {
         localPosition = float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
@@ -87,7 +92,9 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 
     VsOut output;
     output.position = mul(viewPosition, g_projectionMatrix);
-    output.color = !isEnabled ? float4(0.0f, 0.0f, 0.0f, 0.0f) : item.color;
+    output.color = (!isEnabled || !isVisibleLineVertex)
+        ? float4(0.0f, 0.0f, 0.0f, 0.0f)
+        : item.color;
     return output;
 }
 
