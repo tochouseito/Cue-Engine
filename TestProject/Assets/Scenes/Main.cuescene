@@ -165,16 +165,18 @@
                 "navAgent": {
                     "acceleration": 8.0,
                     "destination": {
-                        "x": 0.0,
+                        "x": -27.0,
                         "y": 0.0,
-                        "z": 32.0
+                        "z": -2.0
                     },
                     "excludeFlags": 0,
                     "hasDestination": true,
                     "height": 1.7999999523162842,
                     "includeFlags": 65535,
                     "maxSpeed": 3.0,
+                    "navMeshSnapDistance": 1.0,
                     "radius": 0.30000001192092896,
+                    "shouldSnapToNavMesh": true,
                     "stoppingDistance": 0.20000000298023224
                 },
                 "staticMeshRenderer": {
