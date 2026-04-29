@@ -3,6 +3,8 @@ param(
     [string]$EditorConfiguration = "RelWithDebInfo",
     [string]$SdkConfiguration = "Release",
     [string]$OutputRoot = "generated/packaged_editor",
+    [string]$TargetTriplet = "x64-windows-static-md",
+    [string]$HostTriplet = "x64-windows",
     [switch]$ForceConfigure
 )
 
@@ -58,6 +60,32 @@ function Copy-Path
     }
 
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
+}
+
+function Get-CMakeCacheValue
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CachePath,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (-not (Test-Path -LiteralPath $CachePath))
+    {
+        return $null
+    }
+
+    $escapedName = [regex]::Escape($Name)
+    $line = Get-Content -LiteralPath $CachePath |
+        Where-Object { $_ -match "^${escapedName}:[^=]*=" } |
+        Select-Object -First 1
+    if ($null -eq $line)
+    {
+        return $null
+    }
+
+    return ($line -replace "^${escapedName}:[^=]*=", "")
 }
 
 function Resolve-MSBuildExe
@@ -128,11 +156,30 @@ $packageSdkRoot = Join-Path $packageRoot "Sdk"
 $cmakeCachePath = Join-Path $repoRoot (Join-Path $BuildDirectory "CMakeCache.txt")
 $buildRoot = Join-Path $repoRoot $BuildDirectory
 $msbuildExe = Resolve-MSBuildExe
+$configuredTargetTriplet = Get-CMakeCacheValue `
+    -CachePath $cmakeCachePath `
+    -Name "VCPKG_TARGET_TRIPLET"
+$shouldConfigure = $ForceConfigure -or
+    -not (Test-Path -LiteralPath $cmakeCachePath) -or
+    $configuredTargetTriplet -ne $TargetTriplet
 
-if ($ForceConfigure -or -not (Test-Path -LiteralPath $cmakeCachePath))
+if ($shouldConfigure)
 {
     Invoke-Step -Message "CMake configure を更新します。" -Action {
-        cmake -S . -B $BuildDirectory
+        if ([string]::IsNullOrWhiteSpace($env:VCPKG_ROOT))
+        {
+            throw "VCPKG_ROOT が設定されていません。"
+        }
+
+        $toolchainPath = Join-Path $env:VCPKG_ROOT "scripts/buildsystems/vcpkg.cmake"
+        Assert-PathExists -Path $toolchainPath -Description "vcpkg toolchain"
+
+        cmake -S . -B $BuildDirectory `
+            "-DCMAKE_TOOLCHAIN_FILE=$toolchainPath" `
+            "-DVCPKG_OVERLAY_TRIPLETS=$repoRoot/config/vcpkg/triplets" `
+            "-DVCPKG_TARGET_TRIPLET=$TargetTriplet" `
+            "-DVCPKG_HOST_TRIPLET=$HostTriplet" `
+            "-DVCPKG_MANIFEST_INSTALL=ON"
         if ($LASTEXITCODE -ne 0)
         {
             throw "CMake configure に失敗しました。"
@@ -191,9 +238,14 @@ Invoke-Step -Message "Editor 実行物を staging します。" -Action {
     Copy-Path -Source (Join-Path $editorOutput "Editor.exe") `
         -Destination (Join-Path $packageEditorRoot "Editor.exe")
 
-    Get-ChildItem -LiteralPath $editorOutput -Filter "*.dll" -File | ForEach-Object {
-        Copy-Path -Source $_.FullName `
-            -Destination (Join-Path $packageEditorRoot $_.Name)
+    $editorDlls = @(
+        "dxcompiler.dll",
+        "dxil.dll"
+    )
+    foreach ($dllName in $editorDlls)
+    {
+        Copy-Path -Source (Join-Path $editorOutput $dllName) `
+            -Destination (Join-Path $packageEditorRoot $dllName)
     }
 
     Copy-Path -Source (Join-Path $editorOutput "EngineResources") `
@@ -209,6 +261,8 @@ Invoke-Step -Message "SDK を staging します。" -Action {
         -Destination (Join-Path $packageSdkRoot "Engine/Source/Runtime")
     Copy-Path -Source (Join-Path $repoRoot "Tools/CMake") `
         -Destination (Join-Path $packageSdkRoot "Tools/CMake")
+    Copy-Path -Source (Join-Path $repoRoot "config/vcpkg/triplets") `
+        -Destination (Join-Path $packageSdkRoot "config/vcpkg/triplets")
     Copy-Path -Source $sdkLibOutput `
         -Destination (Join-Path $packageSdkRoot "generated/outputs/Sdk/Lib/$SdkConfiguration")
     Copy-Path -Source (Join-Path $repoRoot "vcpkg.json") `

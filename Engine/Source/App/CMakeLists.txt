@@ -32,8 +32,8 @@ add_custom_command(
     TARGET CueApp
     POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxcompiler.dll"
-            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxil.dll"
+            "${CUE_VCPKG_HOST_BIN_DIR}/dxcompiler.dll"
+            "${CUE_VCPKG_HOST_BIN_DIR}/dxil.dll"
             "$<TARGET_FILE_DIR:CueApp>"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"

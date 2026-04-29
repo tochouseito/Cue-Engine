@@ -20,6 +20,13 @@ endif()
 # プロジェクトの名前とバージョンを定義
 project(CueEngine VERSION 0.0.1 LANGUAGES C CXX)
 
+if (NOT DEFINED VCPKG_HOST_TRIPLET OR VCPKG_HOST_TRIPLET STREQUAL "")
+  set(VCPKG_HOST_TRIPLET "x64-windows")
+endif()
+
+set(CUE_VCPKG_HOST_BIN_DIR
+  "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_HOST_TRIPLET}/bin")
+
 # C標準
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
