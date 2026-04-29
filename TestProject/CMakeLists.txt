@@ -47,6 +47,12 @@ file(GLOB_RECURSE GAME_SCRIPT_HEADERS CONFIGURE_DEPENDS
 set(CUE_SCRIPT_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Generated")
 set(CUE_SCRIPT_REGISTRY_CPP "${CUE_SCRIPT_GENERATED_DIR}/ScriptRegistry.gen.cpp")
 set(CUE_ENGINE_OUTPUT_DIR "${CUE_ENGINE_ROOT}/generated/outputs/Sdk/Lib/$<CONFIG>")
+set(CUE_ENGINE_VCPKG_TARGET_TRIPLET "x64-windows-static-md")
+set(CUE_ENGINE_VCPKG_HOST_TRIPLET "x64-windows")
+set(CUE_ENGINE_VCPKG_TARGET_ROOT
+    "${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_TARGET_TRIPLET}")
+set(CUE_ENGINE_VCPKG_HOST_ROOT
+    "${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_HOST_TRIPLET}")
 
 add_custom_command(
     OUTPUT "${CUE_SCRIPT_REGISTRY_CPP}"
@@ -192,11 +198,11 @@ target_link_libraries(CueApp PRIVATE
     "${CUE_ENGINE_OUTPUT_DIR}/Physics.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/RHI.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/Engine.lib"
-    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Detour-d.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Detour.lib>"
-    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Recast-d.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Recast.lib>"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_TARGET_ROOT}/debug/lib/Detour-d.lib,${CUE_ENGINE_VCPKG_TARGET_ROOT}/lib/Detour.lib>"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_TARGET_ROOT}/debug/lib/Recast-d.lib,${CUE_ENGINE_VCPKG_TARGET_ROOT}/lib/Recast.lib>"
     "${CUE_ENGINE_OUTPUT_DIR}/win_platform.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/jolt_physics_backend.lib"
-    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Jolt.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Jolt.lib>"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_TARGET_ROOT}/debug/lib/Jolt.lib,${CUE_ENGINE_VCPKG_TARGET_ROOT}/lib/Jolt.lib>"
     "${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib"
     winmm.lib
@@ -215,10 +221,10 @@ add_custom_command(TARGET CueApp POST_BUILD
         "${CUE_ENGINE_ROOT}/generated/outputs/App/$<CONFIG>/EngineResources"
         "$<TARGET_FILE_DIR:CueApp>/EngineResources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/bin/dxcompiler.dll,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/bin/dxcompiler.dll>"
+        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_HOST_ROOT}/debug/bin/dxcompiler.dll,${CUE_ENGINE_VCPKG_HOST_ROOT}/bin/dxcompiler.dll>"
         "$<TARGET_FILE_DIR:CueApp>/dxcompiler.dll"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/bin/dxil.dll,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/bin/dxil.dll>"
+        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_HOST_ROOT}/debug/bin/dxil.dll,${CUE_ENGINE_VCPKG_HOST_ROOT}/bin/dxil.dll>"
         "$<TARGET_FILE_DIR:CueApp>/dxil.dll"
     VERBATIM
 )

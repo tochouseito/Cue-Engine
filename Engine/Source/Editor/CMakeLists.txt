@@ -86,9 +86,19 @@ set_target_properties(Editor PROPERTIES
 add_custom_command(
     TARGET Editor
     POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E rm -f
+            "$<TARGET_FILE_DIR:Editor>/assimp-vc145-mt.dll"
+            "$<TARGET_FILE_DIR:Editor>/assimp-vc145-mtd.dll"
+            "$<TARGET_FILE_DIR:Editor>/DirectXTex.dll"
+            "$<TARGET_FILE_DIR:Editor>/kubazip.dll"
+            "$<TARGET_FILE_DIR:Editor>/minizip.dll"
+            "$<TARGET_FILE_DIR:Editor>/poly2tri.dll"
+            "$<TARGET_FILE_DIR:Editor>/pugixml.dll"
+            "$<TARGET_FILE_DIR:Editor>/zlib1.dll"
+            "$<TARGET_FILE_DIR:Editor>/zlibd1.dll"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxcompiler.dll"
-            "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/bin/dxil.dll"
+            "${CUE_VCPKG_HOST_BIN_DIR}/dxcompiler.dll"
+            "${CUE_VCPKG_HOST_BIN_DIR}/dxil.dll"
             "$<TARGET_FILE_DIR:Editor>"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"
