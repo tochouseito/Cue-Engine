@@ -318,6 +318,8 @@ namespace Cue::Editor
         const Core::IO::Path& a_projectPath)
     {
         const std::string cmakeProjectName = make_cmake_project_name(a_projectName);
+        const std::string engineRootPath =
+            Core::IO::Path(CUE_PROJECT_ROOT_PATH).normalize().utf8();
         const std::string rootCMakeText =
             "cmake_minimum_required(VERSION 4.2.0)\n"
             "\n"
@@ -346,6 +348,10 @@ namespace Cue::Editor
             "\n"
             "if(CUE_ENGINE_ROOT STREQUAL \"\" AND DEFINED ENV{CUE_ENGINE_ROOT})\n"
             "    set(CUE_ENGINE_ROOT \"$ENV{CUE_ENGINE_ROOT}\")\n"
+            "endif()\n"
+            "\n"
+            "if(CUE_ENGINE_ROOT STREQUAL \"\")\n"
+            "    set(CUE_ENGINE_ROOT \"" + engineRootPath + "\")\n"
             "endif()\n"
             "\n"
             "if(NOT EXISTS \"${CUE_ENGINE_ROOT}/Engine/Source/Runtime/Core/Native/ScriptAbi.h\")\n"
