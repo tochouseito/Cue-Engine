@@ -17,3 +17,13 @@
 #define CUE_ICON_SETTINGS "\uE8B8"
 #define CUE_ICON_STOP "\uE047"
 #define CUE_ICON_VIEW_COLUMN "\uE8EC"
+
+#define CUE_ICON_OBJECT "\uE9FE" // View In Ar
+#define CUE_ICON_CUBE "\uF720" // Deployed Code
+#define CUE_ICON_MATERIAL "\uE40A" // Palette
+#define CUE_ICON_COLOR "\uE997" // Colors
+#define CUE_ICON_SHADER "\uE3E9" // Gradient
+#define CUE_ICON_IMAGE "\uE3F4" // Image
+#define CUE_ICON_TEXTURE "\uE421" // Texture
+#define CUE_ICON_AUDIO "\uE98E" // Brand Awareness
+
