@@ -1,6 +1,5 @@
 # Editor モジュールの CMake 設定
 
-find_package(directx-dxc CONFIG REQUIRED)
 find_package(directxtex CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
