@@ -2,7 +2,8 @@ param(
     [string]$BuildDirectory = "out/build/win-x64",
     [string]$EditorConfiguration = "RelWithDebInfo",
     [string]$SdkConfiguration = "Release",
-    [string]$OutputRoot = "generated/packaged_editor"
+    [string]$OutputRoot = "generated/packaged_editor",
+    [switch]$ForceConfigure
 )
 
 Set-StrictMode -Version Latest
@@ -59,34 +60,121 @@ function Copy-Path
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+function Resolve-MSBuildExe
+{
+    $candidates = @(
+        "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\17\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\17\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\17\Community\MSBuild\Current\Bin\MSBuild.exe"
+    )
+
+    foreach ($candidate in $candidates)
+    {
+        if (Test-Path -LiteralPath $candidate)
+        {
+            return $candidate
+        }
+    }
+
+    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path -LiteralPath $vswhere)
+    {
+        $installPath = & $vswhere -latest -products * -property installationPath
+        if (-not [string]::IsNullOrWhiteSpace($installPath))
+        {
+            $candidate = Join-Path $installPath "MSBuild\Current\Bin\MSBuild.exe"
+            if (Test-Path -LiteralPath $candidate)
+            {
+                return $candidate
+            }
+        }
+    }
+
+    throw "MSBuild.exe が見つかりません。Visual Studio / Build Tools を確認してください。"
+}
+
+function Invoke-MSBuildProject
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Configuration
+    )
+
+    Assert-PathExists -Path $ProjectPath -Description "MSBuild project"
+
+    & $script:msbuildExe $ProjectPath `
+        "/p:Configuration=$Configuration" `
+        "/p:Platform=x64" `
+        "/p:BuildProjectReferences=false" `
+        "/nologo" `
+        "/v:m" `
+        "/clp:Summary"
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "MSBuild に失敗しました: $ProjectPath"
+    }
+}
+
 $editorOutput = Join-Path $repoRoot "generated/outputs/Editor/$EditorConfiguration"
 $appOutput = Join-Path $repoRoot "generated/outputs/App/$SdkConfiguration"
 $sdkLibOutput = Join-Path $repoRoot "generated/outputs/Sdk/Lib/$SdkConfiguration"
 $packageRoot = Join-Path $repoRoot $OutputRoot
 $packageEditorRoot = Join-Path $packageRoot "Editor"
 $packageSdkRoot = Join-Path $packageRoot "Sdk"
+$cmakeCachePath = Join-Path $repoRoot (Join-Path $BuildDirectory "CMakeCache.txt")
+$buildRoot = Join-Path $repoRoot $BuildDirectory
+$msbuildExe = Resolve-MSBuildExe
 
-Invoke-Step -Message "CMake configure を更新します。" -Action {
-    cmake -S . -B $BuildDirectory
-    if ($LASTEXITCODE -ne 0)
-    {
-        throw "CMake configure に失敗しました。"
+if ($ForceConfigure -or -not (Test-Path -LiteralPath $cmakeCachePath))
+{
+    Invoke-Step -Message "CMake configure を更新します。" -Action {
+        cmake -S . -B $BuildDirectory
+        if ($LASTEXITCODE -ne 0)
+        {
+            throw "CMake configure に失敗しました。"
+        }
+    }
+}
+else
+{
+    Invoke-Step -Message "既存の CMake build tree を使用します。" -Action {
+        Write-Host "[CueEditorPackage] $cmakeCachePath"
     }
 }
 
 Invoke-Step -Message "Editor を $EditorConfiguration でビルドします。" -Action {
-    cmake --build $BuildDirectory --config $EditorConfiguration --target Editor
-    if ($LASTEXITCODE -ne 0)
-    {
-        throw "Editor のビルドに失敗しました。"
-    }
+    Invoke-MSBuildProject `
+        -ProjectPath (Join-Path $buildRoot "Engine/Source/Editor/Editor.vcxproj") `
+        -Configuration $EditorConfiguration
 }
 
 Invoke-Step -Message "SDK 用ライブラリを $SdkConfiguration でビルドします。" -Action {
-    cmake --build $BuildDirectory --config $SdkConfiguration --target CueApp
-    if ($LASTEXITCODE -ne 0)
+    $sdkProjects = @(
+        "Engine/Source/Runtime/Base/Base.vcxproj",
+        "Engine/Source/Runtime/Math/CueMath.vcxproj",
+        "Engine/Source/Runtime/Core/Core.vcxproj",
+        "Engine/Source/Runtime/Audio/Audio.vcxproj",
+        "Engine/Source/Runtime/PAL/PAL.vcxproj",
+        "Engine/Source/Runtime/PAL/Win/win_platform.vcxproj",
+        "Engine/Source/Runtime/Audio/XAudio2/xaudio2_backend.vcxproj",
+        "Engine/Source/Runtime/ECS/ECS.vcxproj",
+        "Engine/Source/Runtime/Physics/Physics.vcxproj",
+        "Engine/Source/Runtime/RHI/RHI.vcxproj",
+        "Engine/Source/Runtime/Engine/Engine.vcxproj",
+        "Engine/Source/Runtime/Physics/Jolt/jolt_physics_backend.vcxproj",
+        "Engine/Source/Runtime/RHI/D3D12/d3d12_backend.vcxproj",
+        "Engine/Source/App/CueApp.vcxproj"
+    )
+
+    foreach ($project in $sdkProjects)
     {
-        throw "SDK 用ライブラリのビルドに失敗しました。"
+        Invoke-MSBuildProject `
+            -ProjectPath (Join-Path $buildRoot $project) `
+            -Configuration $SdkConfiguration
     }
 }
 
