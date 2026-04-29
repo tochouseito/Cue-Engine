@@ -192,6 +192,8 @@ target_link_libraries(CueApp PRIVATE
     "${CUE_ENGINE_OUTPUT_DIR}/Physics.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/RHI.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/Engine.lib"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Detour-d.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Detour.lib>"
+    "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Recast-d.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Recast.lib>"
     "${CUE_ENGINE_OUTPUT_DIR}/win_platform.lib"
     "${CUE_ENGINE_OUTPUT_DIR}/jolt_physics_backend.lib"
     "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/lib/Jolt.lib,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/lib/Jolt.lib>"
@@ -206,4 +208,17 @@ target_link_libraries(CueApp PRIVATE
     dxgi.lib
     dxcompiler.lib
     dxguid.lib
+)
+
+add_custom_command(TARGET CueApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CUE_ENGINE_ROOT}/generated/outputs/App/$<CONFIG>/EngineResources"
+        "$<TARGET_FILE_DIR:CueApp>/EngineResources"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/bin/dxcompiler.dll,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/bin/dxcompiler.dll>"
+        "$<TARGET_FILE_DIR:CueApp>/dxcompiler.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/debug/bin/dxil.dll,${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/x64-windows/bin/dxil.dll>"
+        "$<TARGET_FILE_DIR:CueApp>/dxil.dll"
+    VERBATIM
 )

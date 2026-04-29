@@ -180,11 +180,21 @@ namespace Cue::GameCore
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
         auto& physicsBodySystem = m_ecs.add_system<ECS::PhysicsBodySystem>(
             a_physicsSystem);
+        result = m_navigationWorld.set_backend(
+            std::make_unique<RecastNavigationBackend>());
+        if (!result)
+        {
+            return result;
+        }
+        auto& navigationSystem = m_ecs.add_system<ECS::NavigationSystem>(
+            &m_navigationWorld);
+        m_navigationSystem = &navigationSystem;
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&navigationSystem);
         m_simulationPipeline.add_system(&physicsBodySystem);
         m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);
@@ -422,6 +432,17 @@ namespace Cue::GameCore
             }
 
             base->parent = parentIt->second;
+        }
+
+        if (a_source.m_hasActiveNavMeshAsset)
+        {
+            NavMeshHandle navMeshHandle{};
+            result = load_navigation_mesh(
+                a_source.m_activeNavMeshAsset, navMeshHandle);
+            if (!result)
+            {
+                return result;
+            }
         }
 
         return Result::ok();

@@ -68,6 +68,7 @@ namespace Cue::Editor
         Result save_current_scene();
         Result reload_current_scene();
         Result unload_current_scene();
+        Result bake_current_scene_navigation();
         Result build_script_module();
         Result build_game_release();
         Result reload_script_module();
@@ -92,6 +93,7 @@ namespace Cue::Editor
         Result refresh_script_project_intellisense(BuildResult& a_outResult);
         void draw_create_script_popup();
         void draw_script_build_output();
+        void draw_navigation_debug_window();
         void draw_script_build_notification_popup();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
@@ -144,6 +146,7 @@ namespace Cue::Editor
         std::string m_scriptBuildNotificationTitle{};
         std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
+        bool m_showNavigationDebugWindow = false;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
         bool m_hasScriptBuildNotification = false;

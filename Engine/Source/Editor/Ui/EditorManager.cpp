@@ -14,6 +14,7 @@
 #include <ModelCooker.h>
 #include <SoundCooker.h>
 #include <TextureCooker.h>
+#include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
 
@@ -22,6 +23,7 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <span>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -53,6 +55,30 @@ namespace Cue::Editor
             std::string name{};
             bool isMain = false;
         };
+
+        [[nodiscard]] Core::IO::Path resolve_asset_root(
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+            return assetRoot.normalize();
+        }
+
+        [[nodiscard]] GameCore::NavMeshBakeSettings
+            make_default_nav_mesh_settings() noexcept
+        {
+            GameCore::NavMeshBakeSettings settings{};
+            settings.agentRadius = 0.35f;
+            settings.agentHeight = 1.8f;
+            settings.agentMaxClimb = 0.4f;
+            settings.regionMinSize = 2.0f;
+            settings.regionMergeSize = 8.0f;
+            return settings;
+        }
 
         void log_result(std::string_view a_prefix, const Result& a_result)
         {
@@ -1377,6 +1403,8 @@ namespace Cue::Editor
             ? m_loadedSceneAsset.name()
             : Core::IO::Path(m_currentScenePath).stem();
         GameCore::SceneAsset sceneAsset(sceneName);
+        sceneAsset.set_navigation_mesh_path(
+            m_loadedSceneAsset.navigation_mesh_path());
         Result captureResult = Result::ok();
         result = m_engine->game_world()->for_each_object_in_scene(
             m_currentSceneId,
@@ -2539,6 +2567,126 @@ namespace Cue::Editor
         return m_engine->stop_play_mode();
     }
 
+    Result EditorManager::bake_current_scene_navigation()
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr ||
+            m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+        if (m_projectPath.empty() ||
+            m_currentSceneId == GameCore::k_invalidSceneId ||
+            m_currentScenePath.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "There is no loaded scene to bake navigation.");
+        }
+        if (m_engine->is_playing())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Navigation bake is not available during Play.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        ProjectSettings projectSettings{};
+        result = load_project_settings(
+            *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path assetRoot = resolve_asset_root(
+            Core::IO::Path(m_projectPath), projectSettings);
+        const Core::IO::Path navMeshDirectory = Core::IO::Path::join(
+            assetRoot, Core::IO::Path("Navigation"));
+        result = m_fileSystem->create_directories(navMeshDirectory);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::string sceneStem = Core::IO::Path(m_currentScenePath).stem();
+        const std::string navMeshFileName = sceneStem + ".cuenavmesh";
+        const Core::IO::Path navMeshRelativePath = Core::IO::Path::join(
+            Core::IO::Path("Navigation"), Core::IO::Path(navMeshFileName));
+        const Core::IO::Path navMeshPath = Core::IO::Path::join(
+            assetRoot, navMeshRelativePath);
+
+        std::vector<ECS::Entity> sourceEntities{};
+        result = m_engine->game_world()->for_each_object_in_scene(
+            m_currentSceneId,
+            [&sourceEntities](GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+            {
+                ECS::NavMeshBakeSourceComponent* source = nullptr;
+                if (a_object.get_component(source) && source != nullptr &&
+                    source->isIncluded)
+                {
+                    sourceEntities.push_back(a_entityId);
+                }
+            });
+        if (!result)
+        {
+            return result;
+        }
+        if (sourceEntities.empty())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene has no NavMeshBakeSourceComponent.");
+        }
+
+        ECS::ECSManager* ecs = nullptr;
+        result = m_engine->game_world()->ecs(ecs);
+        if (!result || ecs == nullptr)
+        {
+            return result ? Result::fail(Code::InvalidState, Severity::Error,
+                "ECS is not initialized.") : result;
+        }
+
+        GameCore::NavMeshAssetData navMeshAsset{};
+        GameCore::NavMeshHandle navMeshHandle{};
+        result = GameCore::NavigationBakePipeline::bake_entities_to_file_and_world(
+            *ecs,
+            m_engine->asset_manager(),
+            *m_fileSystem,
+            m_engine->game_world()->navigation_world(),
+            std::span<const ECS::Entity>(sourceEntities),
+            make_default_nav_mesh_settings(),
+            navMeshPath,
+            navMeshAsset,
+            navMeshHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->set_active_navigation_mesh(
+            navMeshHandle, navMeshAsset);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_loadedSceneAsset.set_navigation_mesh_path(
+            navMeshRelativePath.utf8());
+        result = save_current_scene();
+        if (!result)
+        {
+            return result;
+        }
+
+        set_status_message("NavMesh を Bake しました。", false);
+        return Result::ok();
+    }
+
     void EditorManager::draw_script_build_output()
     {
         if (!m_showScriptBuildOutput)
@@ -2784,6 +2932,125 @@ namespace Cue::Editor
             {
                 ImGui::Text("%s", artifact.name.c_str());
                 draw_path_row("Path", artifact.path);
+            }
+        }
+
+        ImGui::End();
+    }
+
+    void EditorManager::draw_navigation_debug_window()
+    {
+        if (!m_showNavigationDebugWindow)
+        {
+            return;
+        }
+
+        if (!ImGui::Begin("Navigation Debug", &m_showNavigationDebugWindow))
+        {
+            ImGui::End();
+            return;
+        }
+
+        GameCore::GameWorld* world =
+            m_engine != nullptr ? m_engine->active_world() : nullptr;
+        if (world == nullptr)
+        {
+            ImGui::TextUnformatted("GameWorld が初期化されていません。");
+            ImGui::End();
+            return;
+        }
+
+        const GameCore::NavMeshHandle activeNavMesh =
+            world->active_navigation_mesh();
+        ImGui::Text("Active NavMesh: %s",
+            activeNavMesh.valid() ? "true" : "false");
+        ImGui::Text("Scene NavMesh: %s",
+            m_loadedSceneAsset.navigation_mesh_path().empty()
+            ? "(none)"
+            : m_loadedSceneAsset.navigation_mesh_path().c_str());
+
+        GameCore::NavMeshDebugGeometry geometry{};
+        const Result geometryResult =
+            world->build_navigation_debug_geometry(geometry);
+        if (geometryResult)
+        {
+            ImGui::Text("Polygons: %zu", geometry.triangles.size());
+            ImGui::Text("Edges: %zu", geometry.polygonEdges.size());
+            ImGui::Text("Path lines: %zu", geometry.pathLines.size());
+        }
+        else
+        {
+            ImGui::Text("Debug Geometry: %s",
+                geometryResult.message.data());
+        }
+
+        size_t sourceCount = 0;
+        size_t agentCount = 0;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            (void)world->for_each_object_in_scene(
+                m_currentSceneId,
+                [&sourceCount, &agentCount](GameCore::EntityId,
+                    GameCore::SceneId,
+                    GameCore::GameObject& a_object)
+                {
+                    ECS::NavMeshBakeSourceComponent* source = nullptr;
+                    if (a_object.get_component(source) && source != nullptr &&
+                        source->isIncluded)
+                    {
+                        ++sourceCount;
+                    }
+
+                    ECS::NavAgentComponent* agent = nullptr;
+                    if (a_object.get_component(agent) && agent != nullptr)
+                    {
+                        ++agentCount;
+                    }
+                });
+        }
+        ImGui::Separator();
+        ImGui::Text("Bake Sources: %zu", sourceCount);
+        ImGui::Text("Agents: %zu", agentCount);
+
+        if (m_selectedEntityId != GameCore::k_invalidEntityId)
+        {
+            ECS::NavAgentComponent* agent = nullptr;
+            if (world->get_component(m_selectedEntityId, agent) && agent != nullptr)
+            {
+                ImGui::Separator();
+                ImGui::Text("Selected NavAgent: %u", m_selectedEntityId);
+                ImGui::Text("hasDestination: %s",
+                    agent->hasDestination ? "true" : "false");
+                ImGui::Text("hasPath: %s", agent->hasPath ? "true" : "false");
+                ImGui::Text("hasArrived: %s",
+                    agent->hasArrived ? "true" : "false");
+                ImGui::Text("hasPathFailed: %s",
+                    agent->hasPathFailed ? "true" : "false");
+                ImGui::Text("isOnNavMesh: %s",
+                    agent->isOnNavMesh ? "true" : "false");
+
+                float destination[3] = {
+                    agent->destination.x,
+                    agent->destination.y,
+                    agent->destination.z
+                };
+                if (ImGui::InputFloat3("Destination", destination))
+                {
+                    agent->destination = Math::float3(
+                        destination[0], destination[1], destination[2]);
+                }
+                if (ImGui::Button("Set Destination"))
+                {
+                    const Result result = world->set_nav_agent_destination(
+                        m_selectedEntityId,
+                        Math::float3(
+                            destination[0], destination[1], destination[2]));
+                    if (!result)
+                    {
+                        log_result("Failed to set nav agent destination", result);
+                        set_status_message("Agent 目標設定に失敗しました。", true);
+                    }
+                }
             }
         }
 
@@ -3372,6 +3639,33 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("ナビゲーション"))
+            {
+                const bool canBakeNavigation =
+                    m_engine != nullptr && !m_projectPath.empty() &&
+                    m_currentSceneId != GameCore::k_invalidSceneId &&
+                    !m_isScriptActionActive && !m_engine->is_playing();
+
+                if (ImGui::MenuItem(
+                    "Scene NavMesh を Bake", nullptr, false, canBakeNavigation))
+                {
+                    const Result result = bake_current_scene_navigation();
+                    if (!result)
+                    {
+                        log_result("Failed to bake navigation", result);
+                        set_status_message("NavMesh Bake に失敗しました。", true);
+                    }
+                }
+
+                ImGui::MenuItem(
+                    "Debug Window",
+                    nullptr,
+                    &m_showNavigationDebugWindow,
+                    m_engine != nullptr);
+
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("実行"))
             {
                 const bool isPlaying =
@@ -3850,6 +4144,7 @@ namespace Cue::Editor
         {
             ImGui::ShowStyleEditor();
         }
+        draw_navigation_debug_window();
         optionalWindowsTimer.stop();
         m_currentUpdateMetrics.optionalWindowsMs =
             optionalWindowsTimer.elapsed_ticks().ms_f64();

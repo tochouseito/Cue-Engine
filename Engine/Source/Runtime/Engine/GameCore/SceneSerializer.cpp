@@ -2,6 +2,7 @@
 
 // === Engine includes ===
 #include "Components.h"
+#include "Navigation/NavComponents.h"
 
 // === C++ includes ===
 #include <algorithm>
@@ -113,6 +114,83 @@ namespace Cue::GameCore
             deserialize_float3(a_json.at("position"), a_outComponent.position);
             deserialize_float3(a_json.at("rotation"), a_outComponent.rotation);
             deserialize_float3(a_json.at("scale"), a_outComponent.scale);
+        }
+
+        [[nodiscard]] Json serialize_nav_agent(
+            const ECS::NavAgentComponent& a_component)
+        {
+            return Json{
+                { "radius", a_component.radius },
+                { "height", a_component.height },
+                { "maxSpeed", a_component.maxSpeed },
+                { "acceleration", a_component.acceleration },
+                { "stoppingDistance", a_component.stoppingDistance },
+                { "navMeshSnapDistance", a_component.navMeshSnapDistance },
+                { "includeFlags", a_component.includeFlags },
+                { "excludeFlags", a_component.excludeFlags },
+                { "destination", serialize_float3(a_component.destination) },
+                { "shouldSnapToNavMesh", a_component.shouldSnapToNavMesh },
+                { "hasDestination", a_component.hasDestination },
+            };
+        }
+
+        void deserialize_nav_agent(
+            const Json& a_json, ECS::NavAgentComponent& a_outComponent)
+        {
+            a_outComponent.radius = a_json.value("radius", a_outComponent.radius);
+            a_outComponent.height = a_json.value("height", a_outComponent.height);
+            a_outComponent.maxSpeed =
+                a_json.value("maxSpeed", a_outComponent.maxSpeed);
+            a_outComponent.acceleration =
+                a_json.value("acceleration", a_outComponent.acceleration);
+            a_outComponent.stoppingDistance =
+                a_json.value("stoppingDistance",
+                    a_outComponent.stoppingDistance);
+            a_outComponent.navMeshSnapDistance =
+                a_json.value("navMeshSnapDistance",
+                    a_outComponent.navMeshSnapDistance);
+            a_outComponent.includeFlags =
+                a_json.value("includeFlags", a_outComponent.includeFlags);
+            a_outComponent.excludeFlags =
+                a_json.value("excludeFlags", a_outComponent.excludeFlags);
+            if (const Json::const_iterator destinationIt =
+                a_json.find("destination");
+                destinationIt != a_json.end())
+            {
+                deserialize_float3(*destinationIt, a_outComponent.destination);
+            }
+            a_outComponent.shouldSnapToNavMesh =
+                a_json.value("shouldSnapToNavMesh",
+                    a_outComponent.shouldSnapToNavMesh);
+            a_outComponent.hasDestination =
+                a_json.value("hasDestination", a_outComponent.hasDestination);
+            a_outComponent.lastRequestedDestination = Math::float3::zero();
+            a_outComponent.desiredVelocity = Math::float3::zero();
+            a_outComponent.pathPoints.clear();
+            a_outComponent.pathIndex = 0;
+            a_outComponent.hasPath = false;
+            a_outComponent.hasArrived = false;
+            a_outComponent.hasPathFailed = false;
+            a_outComponent.isOnNavMesh = false;
+        }
+
+        [[nodiscard]] Json serialize_nav_mesh_bake_source(
+            const ECS::NavMeshBakeSourceComponent& a_component)
+        {
+            return Json{
+                { "area", static_cast<uint32_t>(a_component.area) },
+                { "isIncluded", a_component.isIncluded },
+            };
+        }
+
+        void deserialize_nav_mesh_bake_source(
+            const Json& a_json,
+            ECS::NavMeshBakeSourceComponent& a_outComponent)
+        {
+            a_outComponent.area = static_cast<uint8_t>(
+                a_json.value("area", static_cast<uint32_t>(a_outComponent.area)));
+            a_outComponent.isIncluded =
+                a_json.value("isIncluded", a_outComponent.isIncluded);
         }
 
         [[nodiscard]] Json serialize_camera(const ECS::CameraComponent& a_component)
@@ -575,6 +653,21 @@ namespace Cue::GameCore
                     serialize_mesh_filter(*meshFilter, a_options);
             }
 
+            if (const ECS::NavAgentComponent* navAgent =
+                a_definition.prototype.get_component_ptr<ECS::NavAgentComponent>();
+                navAgent != nullptr)
+            {
+                componentsJson["navAgent"] = serialize_nav_agent(*navAgent);
+            }
+
+            if (const ECS::NavMeshBakeSourceComponent* navMeshBakeSource =
+                a_definition.prototype.get_component_ptr<ECS::NavMeshBakeSourceComponent>();
+                navMeshBakeSource != nullptr)
+            {
+                componentsJson["navMeshBakeSource"] =
+                    serialize_nav_mesh_bake_source(*navMeshBakeSource);
+            }
+
             if (const ECS::StaticMeshRendererComponent* renderer =
                 a_definition.prototype.get_component_ptr<ECS::StaticMeshRendererComponent>();
                 renderer != nullptr)
@@ -675,6 +768,25 @@ namespace Cue::GameCore
                     objectDefinition.prototype.add_component(meshFilter);
                 }
 
+                if (const Json::const_iterator navAgentIt =
+                    componentsJson.find("navAgent");
+                    navAgentIt != componentsJson.end())
+                {
+                    ECS::NavAgentComponent navAgent{};
+                    deserialize_nav_agent(*navAgentIt, navAgent);
+                    objectDefinition.prototype.add_component(navAgent);
+                }
+
+                if (const Json::const_iterator navMeshBakeSourceIt =
+                    componentsJson.find("navMeshBakeSource");
+                    navMeshBakeSourceIt != componentsJson.end())
+                {
+                    ECS::NavMeshBakeSourceComponent navMeshBakeSource{};
+                    deserialize_nav_mesh_bake_source(
+                        *navMeshBakeSourceIt, navMeshBakeSource);
+                    objectDefinition.prototype.add_component(navMeshBakeSource);
+                }
+
                 if (const Json::const_iterator rendererIt =
                     componentsJson.find("staticMeshRenderer");
                     rendererIt != componentsJson.end())
@@ -743,6 +855,10 @@ namespace Cue::GameCore
                 { "name", a_sceneAsset.name() },
                 { "objects", Json::array() },
             };
+            if (!a_sceneAsset.navigation_mesh_path().empty())
+            {
+                root["navigationMesh"] = a_sceneAsset.navigation_mesh_path();
+            }
 
             for (const ObjectDefinition& object : a_sceneAsset.objects())
             {
@@ -792,6 +908,8 @@ namespace Cue::GameCore
             }
 
             SceneAsset sceneAsset(root.at("name").get<std::string>());
+            sceneAsset.set_navigation_mesh_path(
+                root.value("navigationMesh", std::string{}));
             const Json& objectsJson = root.at("objects");
             if (!objectsJson.is_array())
             {

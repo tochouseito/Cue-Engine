@@ -21,6 +21,7 @@
 
 // === Engine includes ===
 #include <Engine.h>
+#include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
 #include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
@@ -345,18 +346,37 @@ namespace
 
             for (const Core::IO::Path& modelPath : modelPaths)
             {
-                if (modelPath.extension() != ".cuemodel")
+                const std::string extension = modelPath.extension();
+                if (extension != ".cuemodel" && extension != ".obj")
                 {
                     continue;
                 }
 
                 const std::string modelName = modelPath.stem();
                 ModelHandle modelHandle{};
-                result = a_engine.asset_manager().register_model_from_cuemodel(
-                    a_fileSystem,
-                    modelName,
-                    modelPath,
-                    modelHandle);
+                if (extension == ".cuemodel")
+                {
+                    result = a_engine.asset_manager().register_model_from_cuemodel(
+                        a_fileSystem,
+                        modelName,
+                        modelPath,
+                        modelHandle);
+                }
+                else
+                {
+                    Result existingResult =
+                        a_engine.asset_manager().get_model(modelName, modelHandle);
+                    if (existingResult)
+                    {
+                        continue;
+                    }
+
+                    result = a_engine.asset_manager().load_model_from_obj(
+                        a_fileSystem,
+                        modelName,
+                        modelPath,
+                        modelHandle);
+                }
                 if (!result)
                 {
                     return result;
