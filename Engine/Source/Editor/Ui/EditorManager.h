@@ -20,6 +20,7 @@
 #include "GameView.h"
 #include "DebugView.h"
 #include "Hierarchy.h"
+#include "Icon.h"
 #include "Inspector.h"
 #include "ProjectGenerator.h"
 #include "VisualStudioBridge.h"

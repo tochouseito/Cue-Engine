@@ -3875,6 +3875,39 @@ namespace Cue::Editor
         menuBarTimer.start();
         if (ImGui::BeginMenuBar())
         {
+            const bool canUndo = m_bridge != nullptr && m_bridge->can_undo();
+            const bool canRedo = m_bridge != nullptr && m_bridge->can_redo();
+            const ImVec2 editButtonSize(
+                ImGui::GetFrameHeight(),
+                ImGui::GetFrameHeight());
+
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+            ImGui::BeginDisabled(!canUndo);
+            if (ImGui::Button(CUE_ICON_UNDO "##MenuUndo", editButtonSize))
+            {
+                undo_last_command();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Undo (Ctrl+Z)");
+            }
+
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!canRedo);
+            if (ImGui::Button(CUE_ICON_REDO "##MenuRedo", editButtonSize))
+            {
+                redo_last_command();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Redo (Ctrl+Y)");
+            }
+            ImGui::PopStyleVar(2);
+
+            ImGui::SameLine();
             if (ImGui::BeginMenu("ファイル"))
             {
                 const bool canOperateScene =
@@ -3906,8 +3939,6 @@ namespace Cue::Editor
 
             if (ImGui::BeginMenu("編集"))
             {
-                const bool canUndo = m_bridge != nullptr && m_bridge->can_undo();
-                const bool canRedo = m_bridge != nullptr && m_bridge->can_redo();
                 const bool canAddObject =
                     m_bridge != nullptr && !m_isScriptActionActive;
 
@@ -3975,18 +4006,6 @@ namespace Cue::Editor
                 }
 
                 draw_main_camera_menu();
-
-                ImGui::Separator();
-
-                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo))
-                {
-                    undo_last_command();
-                }
-
-                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
-                {
-                    redo_last_command();
-                }
 
                 ImGui::EndMenu();
             }

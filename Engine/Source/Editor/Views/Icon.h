@@ -26,4 +26,5 @@
 #define CUE_ICON_IMAGE "\uE3F4" // Image
 #define CUE_ICON_TEXTURE "\uE421" // Texture
 #define CUE_ICON_AUDIO "\uE98E" // Brand Awareness
-
+#define CUE_ICON_UNDO "\uE166" // Undo
+#define CUE_ICON_REDO "\uE15A" // Redo
