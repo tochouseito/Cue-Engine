@@ -225,6 +225,7 @@ namespace Cue
         }
 
         void request_debug_pick(float a_normalizedX, float a_normalizedY) noexcept;
+        void cancel_debug_pick() noexcept;
         [[nodiscard]] bool consume_debug_pick_result(
             GameCore::EntityId& a_outEntityId) noexcept;
 
@@ -337,6 +338,7 @@ namespace Cue
         RenderTargetResources m_gameRenderTarget{};
         RenderTargetResources m_debugRenderTarget{};
         RenderTargetResources m_debugObjectIdTarget{};
+        RenderTargetResources m_debugOutlineObjectIdTarget{};
         RHI::BufferHandle m_debugViewProjectionBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
             m_debugViewProjectionUploaders{};

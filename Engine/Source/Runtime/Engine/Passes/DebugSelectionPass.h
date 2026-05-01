@@ -166,7 +166,7 @@ namespace Cue
         }
 
     private:
-        static constexpr uint32_t k_vertexCount = 24;
+        static constexpr uint32_t k_vertexCount = 30;
 
         RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::BufferHandle m_selectionBufferHandle{};

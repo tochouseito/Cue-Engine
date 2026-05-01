@@ -23,6 +23,8 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -55,6 +57,139 @@ namespace Cue::Editor
             std::string name{};
             bool isMain = false;
         };
+
+        struct RayDistance final
+        {
+            float distanceSq = 0.0f;
+            float rayDistance = 0.0f;
+        };
+
+        constexpr float k_cameraFrustumNear = 0.03f;
+        constexpr float k_cameraFrustumFar = 1.0f;
+
+        [[nodiscard]] Math::float3 transform_point(
+            const Math::float4x4& a_matrix,
+            const Math::float3& a_point) noexcept
+        {
+            return Math::float3(
+                a_point.x * a_matrix.values[0][0] +
+                    a_point.y * a_matrix.values[1][0] +
+                    a_point.z * a_matrix.values[2][0] +
+                    a_matrix.values[3][0],
+                a_point.x * a_matrix.values[0][1] +
+                    a_point.y * a_matrix.values[1][1] +
+                    a_point.z * a_matrix.values[2][1] +
+                    a_matrix.values[3][1],
+                a_point.x * a_matrix.values[0][2] +
+                    a_point.y * a_matrix.values[1][2] +
+                    a_point.z * a_matrix.values[2][2] +
+                    a_matrix.values[3][2]);
+        }
+
+        [[nodiscard]] Math::float3 make_camera_frustum_corner(
+            uint32_t a_cornerIndex,
+            const ECS::CameraComponent& a_camera,
+            float a_distance) noexcept
+        {
+            const uint32_t planeCornerIndex = a_cornerIndex % 4u;
+            const float fovY = std::clamp(a_camera.fovY, 1.0f, 179.0f);
+            const float aspectRatio =
+                a_camera.aspectRatio > 0.0f ? a_camera.aspectRatio : 1.0f;
+            const float halfHeight =
+                a_distance * std::tan(fovY * Math::k_pi / 180.0f * 0.5f);
+            const float halfWidth = halfHeight * aspectRatio;
+            const float x =
+                (planeCornerIndex == 1u || planeCornerIndex == 2u)
+                ? halfWidth
+                : -halfWidth;
+            const float y = planeCornerIndex >= 2u ? halfHeight : -halfHeight;
+            return Math::float3(x, y, a_distance);
+        }
+
+        [[nodiscard]] bool distance_ray_segment(
+            const DebugCamera::Ray& a_ray,
+            const Math::float3& a_start,
+            const Math::float3& a_end,
+            RayDistance& a_outDistance) noexcept
+        {
+            constexpr float k_epsilon = 0.000001f;
+            const Math::float3 segment = a_end - a_start;
+            const float segmentLengthSq = segment.length_sq();
+            if (segmentLengthSq <= k_epsilon)
+            {
+                return false;
+            }
+
+            const Math::float3 rayToStart = a_ray.origin - a_start;
+            const float raySegmentDot = a_ray.direction.dot(segment);
+            const float rayStartDot = a_ray.direction.dot(rayToStart);
+            const float segmentStartDot = segment.dot(rayToStart);
+            const float denominator = segmentLengthSq -
+                raySegmentDot * raySegmentDot;
+
+            float rayDistance = 0.0f;
+            float segmentDistance = 0.0f;
+            if (std::abs(denominator) > k_epsilon)
+            {
+                rayDistance =
+                    (raySegmentDot * segmentStartDot -
+                        segmentLengthSq * rayStartDot) /
+                    denominator;
+                segmentDistance =
+                    (segmentStartDot - raySegmentDot * rayStartDot) /
+                    denominator;
+            }
+
+            if (rayDistance < 0.0f)
+            {
+                rayDistance = 0.0f;
+                segmentDistance =
+                    std::clamp(segmentStartDot / segmentLengthSq, 0.0f, 1.0f);
+            }
+            else if (segmentDistance < 0.0f)
+            {
+                segmentDistance = 0.0f;
+                rayDistance = (std::max)(-rayStartDot, 0.0f);
+            }
+            else if (segmentDistance > 1.0f)
+            {
+                segmentDistance = 1.0f;
+                rayDistance =
+                    (std::max)(raySegmentDot - rayStartDot, 0.0f);
+            }
+
+            const Math::float3 rayPoint =
+                a_ray.origin + a_ray.direction * rayDistance;
+            const Math::float3 segmentPoint =
+                a_start + segment * segmentDistance;
+            a_outDistance.distanceSq = (rayPoint - segmentPoint).length_sq();
+            a_outDistance.rayDistance = rayDistance;
+            return true;
+        }
+
+        [[nodiscard]] bool distance_ray_point(
+            const DebugCamera::Ray& a_ray,
+            const Math::float3& a_point,
+            RayDistance& a_outDistance) noexcept
+        {
+            const Math::float3 rayToPoint = a_point - a_ray.origin;
+            const float rayDistance = rayToPoint.dot(a_ray.direction);
+            if (rayDistance < 0.0f)
+            {
+                return false;
+            }
+
+            const Math::float3 rayPoint =
+                a_ray.origin + a_ray.direction * rayDistance;
+            a_outDistance.distanceSq = (a_point - rayPoint).length_sq();
+            a_outDistance.rayDistance = rayDistance;
+            return true;
+        }
+
+        [[nodiscard]] float debug_pick_radius(float a_rayDistance) noexcept
+        {
+            return (std::max)(0.08f, a_rayDistance * 0.01f);
+        }
 
         [[nodiscard]] Core::IO::Path resolve_asset_root(
             const Core::IO::Path& a_projectRoot,
@@ -3346,9 +3481,228 @@ namespace Cue::Editor
             return;
         }
 
+        GameCore::EntityId debugEntityId = GameCore::k_invalidEntityId;
+        if (pick_debug_non_rendered_object(pickRequest, debugEntityId))
+        {
+            m_engine->cancel_debug_pick();
+            m_selectedEntityId = debugEntityId;
+            return;
+        }
+
         m_engine->request_debug_pick(
             pickRequest.normalizedX,
             pickRequest.normalizedY);
+    }
+
+    bool EditorManager::pick_debug_non_rendered_object(
+        const DebugView::PickRequest& a_request,
+        GameCore::EntityId& a_outEntityId) const
+    {
+        a_outEntityId = GameCore::k_invalidEntityId;
+        if (m_engine == nullptr || m_engine->active_world() == nullptr)
+        {
+            return false;
+        }
+
+        const DebugCamera::Ray ray =
+            m_debugCamera.pick_ray(a_request.normalizedX, a_request.normalizedY);
+        GameCore::GameWorld* debugWorld = m_engine->active_world();
+        float bestRayDistance = (std::numeric_limits<float>::max)();
+        bool hasHit = false;
+
+        auto evaluateHit =
+            [&a_outEntityId, &bestRayDistance, &hasHit](
+                GameCore::EntityId a_entityId,
+                const RayDistance& a_distance,
+                float a_radius) noexcept
+        {
+            if (a_distance.rayDistance >= bestRayDistance)
+            {
+                return;
+            }
+
+            if (a_distance.distanceSq > a_radius * a_radius)
+            {
+                return;
+            }
+
+            bestRayDistance = a_distance.rayDistance;
+            a_outEntityId = a_entityId;
+            hasHit = true;
+        };
+
+        auto pickCamera =
+            [&ray, &evaluateHit](
+                GameCore::EntityId a_entityId,
+                const ECS::TransformComponent& a_transform,
+                const ECS::CameraComponent& a_camera) noexcept
+        {
+            constexpr std::array<uint32_t, 24> k_lineVertexToCorner = {
+                0, 1, 1, 2, 2, 3, 3, 0,
+                4, 5, 5, 6, 6, 7, 7, 4,
+                0, 4, 1, 5, 2, 6, 3, 7,
+            };
+            constexpr std::array<uint32_t, 6> k_markerLineIndices = {
+                0, 1, 1, 2, 2, 0,
+            };
+
+            const Math::float4x4 world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            std::array<Math::float3, 8> corners{};
+            for (uint32_t cornerIndex = 0; cornerIndex < 4u; ++cornerIndex)
+            {
+                corners[cornerIndex] = transform_point(
+                    world,
+                    make_camera_frustum_corner(
+                        cornerIndex,
+                        a_camera,
+                        k_cameraFrustumNear));
+                corners[cornerIndex + 4u] = transform_point(
+                    world,
+                    make_camera_frustum_corner(
+                        cornerIndex,
+                        a_camera,
+                        k_cameraFrustumFar));
+            }
+
+            const float farHalfHeight =
+                k_cameraFrustumFar *
+                std::tan(
+                    std::clamp(a_camera.fovY, 1.0f, 179.0f) *
+                    Math::k_pi / 180.0f * 0.5f);
+            const float farHalfWidth = farHalfHeight *
+                (a_camera.aspectRatio > 0.0f ? a_camera.aspectRatio : 1.0f);
+            const float markerHalfWidth =
+                (std::min)(farHalfWidth, farHalfHeight) * 0.38f;
+            const float markerHeight = farHalfHeight * 0.52f;
+            const std::array<Math::float3, 3> marker = {
+                transform_point(world,
+                    Math::float3(-markerHalfWidth,
+                        farHalfHeight,
+                        k_cameraFrustumFar)),
+                transform_point(world,
+                    Math::float3(0.0f,
+                        farHalfHeight + markerHeight,
+                        k_cameraFrustumFar)),
+                transform_point(world,
+                    Math::float3(markerHalfWidth,
+                        farHalfHeight,
+                        k_cameraFrustumFar)),
+            };
+
+            for (uint32_t lineIndex = 0;
+                lineIndex < k_lineVertexToCorner.size();
+                lineIndex += 2u)
+            {
+                RayDistance distance{};
+                if (!distance_ray_segment(
+                    ray,
+                    corners[k_lineVertexToCorner[lineIndex]],
+                    corners[k_lineVertexToCorner[lineIndex + 1u]],
+                    distance))
+                {
+                    continue;
+                }
+
+                evaluateHit(
+                    a_entityId,
+                    distance,
+                    debug_pick_radius(distance.rayDistance));
+            }
+
+            for (uint32_t lineIndex = 0;
+                lineIndex < k_markerLineIndices.size();
+                lineIndex += 2u)
+            {
+                RayDistance distance{};
+                if (!distance_ray_segment(
+                    ray,
+                    marker[k_markerLineIndices[lineIndex]],
+                    marker[k_markerLineIndices[lineIndex + 1u]],
+                    distance))
+                {
+                    continue;
+                }
+
+                evaluateHit(
+                    a_entityId,
+                    distance,
+                    debug_pick_radius(distance.rayDistance));
+            }
+        };
+
+        auto pickTransformPoint =
+            [&ray, &evaluateHit](
+                GameCore::EntityId a_entityId,
+                const ECS::TransformComponent& a_transform) noexcept
+        {
+            RayDistance distance{};
+            if (!distance_ray_point(ray, a_transform.position, distance))
+            {
+                return;
+            }
+
+            const float scaleRadius = (std::max)(
+                0.25f,
+                (std::max)(
+                    std::abs(a_transform.scale.x),
+                    (std::max)(
+                        std::abs(a_transform.scale.y),
+                        std::abs(a_transform.scale.z))) *
+                    0.35f);
+            evaluateHit(
+                a_entityId,
+                distance,
+                (std::max)(scaleRadius, debug_pick_radius(distance.rayDistance)));
+        };
+
+        auto pickObject =
+            [&pickCamera, &pickTransformPoint](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+        {
+            ECS::TransformComponent* transform = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr)
+            {
+                return;
+            }
+
+            ECS::CameraComponent* camera = nullptr;
+            if (a_object.get_component(camera) && camera != nullptr)
+            {
+                pickCamera(a_entityId, *transform, *camera);
+                return;
+            }
+
+            ECS::RenderableInfoComponent* renderableInfo = nullptr;
+            const bool hasRenderable =
+                a_object.get_component(renderableInfo) &&
+                renderableInfo != nullptr &&
+                renderableInfo->objectId != ECS::k_invalidRenderableId;
+            if (!hasRenderable)
+            {
+                pickTransformPoint(a_entityId, *transform);
+            }
+        };
+
+        bool hasCollectedSceneObjects = false;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            const Result collectResult =
+                debugWorld->for_each_object_in_scene(
+                    m_currentSceneId,
+                    pickObject);
+            hasCollectedSceneObjects = static_cast<bool>(collectResult);
+        }
+        if (!hasCollectedSceneObjects)
+        {
+            (void)debugWorld->for_each_object(pickObject);
+        }
+
+        return hasHit;
     }
 
     void EditorManager::sync_debug_selection()
@@ -3361,8 +3715,6 @@ namespace Cue::Editor
         GameCore::GameWorld* debugWorld = m_engine->active_world();
         GpuData::DebugSelectionGpu selection{};
         uint32_t selectedObjectId = 0;
-        constexpr float k_cameraFrustumNear = 0.03f;
-        constexpr float k_cameraFrustumFar = 1.0f;
         auto appendDebugItem =
             [&selection](const GpuData::DebugSelectionItemGpu& a_item) noexcept
         {

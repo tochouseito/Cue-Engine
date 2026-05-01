@@ -107,7 +107,7 @@ namespace Cue::Editor
             Math::float3 direction =
                 right_axis() * viewX +
                 up_axis() * viewY +
-                forward_axis();
+                -forward_axis();
             direction.normalize();
 
             return Ray{ m_position, direction };

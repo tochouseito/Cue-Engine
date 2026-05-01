@@ -17,13 +17,15 @@ namespace Cue
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
-            uint32_t a_indexCountPerInstance)
+            uint32_t a_indexCountPerInstance,
+            const uint32_t& a_selectedObjectId)
             : m_renderSceneState(a_renderSceneState)
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_transformBufferHandle(a_transformBufferHandle)
             , m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
             , m_indexCountPerInstance(a_indexCountPerInstance)
+            , m_selectedObjectId(a_selectedObjectId)
         {}
 
         const char* name() const noexcept override
@@ -58,6 +60,25 @@ namespace Cue
                 return result;
             }
             result = builder.get_view("DebugObjectIdRTV", m_objectIdRtvHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture(
+                "DebugOutlineObjectId",
+                m_outlineObjectIdHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.render(&m_outlineObjectIdHandle, 1);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view(
+                "DebugOutlineObjectIdRTV",
+                m_outlineObjectIdRtvHandle);
             if (!result)
             {
                 return result;
@@ -130,6 +151,10 @@ namespace Cue
                 RHI::ShaderVisibility::All,
                 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::All,
+                2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::CBV,
                 RHI::ShaderVisibility::All,
                 0 });
@@ -191,13 +216,36 @@ namespace Cue
             pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
             pipelineDesc.blendMode = { RHI::BlendMode::None };
             pipelineDesc.rtvFormats = { RHI::ColorFormat::R32_UINT };
-            return builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
+            result =
+                builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            pipelineDesc.name = "DebugOutlineObjectIdPipeline";
+            pipelineDesc.depthStencilState.depthEnable = false;
+            pipelineDesc.depthStencilState.depthWriteMask =
+                RHI::DepthWriteMask::Zero;
+            return builder.create_graphics_pipeline(
+                pipelineDesc,
+                m_outlinePipelineHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             Result result = builder.use_texture(
                 m_objectIdHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::RenderTarget,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_texture(
+                m_outlineObjectIdHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::RenderTarget,
                 RHI::ResourceState::ShaderResource);
@@ -318,7 +366,8 @@ namespace Cue
             commandContext->set_primitive_topology(
                 RHI::PrimitiveTopologyType::Triangle);
             commandContext->set_32bit_constant(0, 0xffffffffu);
-            commandContext->set_cbv(1, m_viewProjectionBufferHandle);
+            commandContext->set_32bit_constant(1, 0u);
+            commandContext->set_cbv(2, m_viewProjectionBufferHandle);
 
             const RenderFrameState& frameState =
                 m_renderSceneState.frame_state(context.frame_index());
@@ -326,9 +375,53 @@ namespace Cue
                 (!frameState.useCpuBatching && m_sortedRenderObjectBufferHandle.valid())
                 ? m_sortedRenderObjectBufferHandle
                 : m_renderObjectBufferHandle;
-            commandContext->set_srv(2, renderObjectBufferHandle);
-            commandContext->set_srv(3, m_transformBufferHandle);
-            commandContext->set_srv(4, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(3, renderObjectBufferHandle);
+            commandContext->set_srv(4, m_transformBufferHandle);
+            commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
+            commandContext->set_vertex_buffer(0, m_positionBufferHandle);
+            commandContext->set_index_buffer(m_indexBufferHandle, RHI::IndexFormat::UInt32);
+
+            if (frameState.useCpuBatching)
+            {
+                for (const CpuIndexedDraw& draw : frameState.cpuIndexedDraws)
+                {
+                    if (draw.indexCount == 0)
+                    {
+                        continue;
+                    }
+
+                    commandContext->set_32bit_constant(0, draw.renderObjectId);
+                    commandContext->draw_indexed_instanced(
+                        draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
+                }
+            }
+            else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+            {
+                commandContext->execute_indexed_indirect(
+                    m_indirectCommandBufferHandle,
+                    m_indirectCommandCountBufferHandle,
+                    frameState.objectCount);
+            }
+
+            if (m_selectedObjectId == 0)
+            {
+                return;
+            }
+
+            commandContext->clear_render_target(
+                m_outlineObjectIdRtvHandle,
+                k_clearColor);
+            commandContext->set_render_targets(
+                &m_outlineObjectIdRtvHandle,
+                1,
+                {});
+            commandContext->set_graphics_pipeline(m_outlinePipelineHandle);
+            commandContext->set_32bit_constant(0, 0xffffffffu);
+            commandContext->set_32bit_constant(1, m_selectedObjectId);
+            commandContext->set_cbv(2, m_viewProjectionBufferHandle);
+            commandContext->set_srv(3, renderObjectBufferHandle);
+            commandContext->set_srv(4, m_transformBufferHandle);
+            commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_index_buffer(m_indexBufferHandle, RHI::IndexFormat::UInt32);
 
@@ -358,9 +451,12 @@ namespace Cue
     private:
         const RenderSceneState& m_renderSceneState;
         uint32_t m_indexCountPerInstance = 0;
+        const uint32_t& m_selectedObjectId;
         RHI::TextureHandle m_objectIdHandle{};
+        RHI::TextureHandle m_outlineObjectIdHandle{};
         RHI::TextureHandle m_depthHandle{};
         RHI::ViewHandle m_objectIdRtvHandle{};
+        RHI::ViewHandle m_outlineObjectIdRtvHandle{};
         RHI::ViewHandle m_depthDsvHandle{};
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_sortedRenderObjectBufferHandle{};
@@ -375,5 +471,6 @@ namespace Cue
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
+        RHI::PipelineStateHandle m_outlinePipelineHandle{};
     };
 } // namespace Cue

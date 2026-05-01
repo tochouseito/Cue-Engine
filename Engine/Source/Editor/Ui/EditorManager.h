@@ -109,6 +109,9 @@ namespace Cue::Editor
         void handle_shortcuts();
         void draw_main_camera_menu();
         void process_debug_pick_request();
+        [[nodiscard]] bool pick_debug_non_rendered_object(
+            const DebugView::PickRequest& a_request,
+            GameCore::EntityId& a_outEntityId) const;
         void sync_debug_selection();
 
         Core::CQRS::Bridge* m_bridge = nullptr;

@@ -8,6 +8,9 @@ static const uint kMaxDebugSelectionItemCount = 64;
 static const uint kShapeBox = 0;
 static const uint kShapeCameraFrustum = 1;
 static const uint kShapeLine = 2;
+static const uint kBoxVertexCount = 24;
+static const uint kCameraFrustumVertexCount = 30;
+static const uint kLineVertexCount = 2;
 
 struct DebugSelectionItem
 {
@@ -62,6 +65,28 @@ float3 make_camera_frustum_corner(uint cornerIndex, float4 camera)
     return float3(x, y, distance);
 }
 
+float3 make_camera_up_marker_vertex(uint markerIndex, float4 camera)
+{
+    const float distance = camera.w;
+    const float halfHeight = distance * tan(radians(camera.x) * 0.5f);
+    const float halfWidth = halfHeight * camera.y;
+    const float markerHalfWidth = min(halfWidth, halfHeight) * 0.38f;
+    const float markerHeight = halfHeight * 0.52f;
+    const float3 baseLeft = float3(-markerHalfWidth, halfHeight, distance);
+    const float3 baseRight = float3(markerHalfWidth, halfHeight, distance);
+    const float3 apex = float3(0.0f, halfHeight + markerHeight, distance);
+
+    if (markerIndex == 0 || markerIndex == 5)
+    {
+        return baseLeft;
+    }
+    if (markerIndex == 1 || markerIndex == 2)
+    {
+        return apex;
+    }
+    return baseRight;
+}
+
 struct VsOut
 {
     float4 position : SV_POSITION;
@@ -73,16 +98,27 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     const uint itemIndex = min(instanceId, kMaxDebugSelectionItemCount - 1);
     const DebugSelectionItem item = g_items[itemIndex];
     const bool isEnabled = instanceId < g_itemCount && item.isEnabled != 0;
-    const uint cornerIndex = kLineVertexToCorner[vertexId];
     const bool isLine = item.shape == kShapeLine;
-    const bool isVisibleLineVertex = !isLine || vertexId < 2;
+    const bool isCameraFrustum = item.shape == kShapeCameraFrustum;
+    const bool isVisibleVertex = isLine
+        ? vertexId < kLineVertexCount
+        : (isCameraFrustum
+            ? vertexId < kCameraFrustumVertexCount
+            : vertexId < kBoxVertexCount);
+    const uint cornerIndex =
+        kLineVertexToCorner[min(vertexId, kBoxVertexCount - 1)];
+    const uint markerIndex =
+        vertexId < kBoxVertexCount ? 0 : vertexId - kBoxVertexCount;
+    const float3 lineCorner =
+        vertexId == 0 ? float3(0.0f, 0.0f, 0.0f) : item.camera.xyz;
+    const float3 frustumCorner = vertexId < kBoxVertexCount
+        ? make_camera_frustum_corner(cornerIndex, item.camera)
+        : make_camera_up_marker_vertex(markerIndex, item.camera);
     const float3 localCorner = isLine
-        ? (vertexId == 0 ? float3(0.0f, 0.0f, 0.0f) : item.camera.xyz)
-        : (item.shape == kShapeCameraFrustum
-            ? make_camera_frustum_corner(cornerIndex, item.camera)
-            : kCorners[cornerIndex]);
+        ? lineCorner
+        : (isCameraFrustum ? frustumCorner : kCorners[cornerIndex]);
     float4 localPosition = float4(localCorner, 1.0f);
-    if (!isEnabled || !isVisibleLineVertex)
+    if (!isEnabled || !isVisibleVertex)
     {
         localPosition = float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
@@ -92,7 +128,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 
     VsOut output;
     output.position = mul(viewPosition, g_projectionMatrix);
-    output.color = (!isEnabled || !isVisibleLineVertex)
+    output.color = (!isEnabled || !isVisibleVertex)
         ? float4(0.0f, 0.0f, 0.0f, 0.0f)
         : item.color;
     return output;
