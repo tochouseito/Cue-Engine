@@ -191,6 +191,15 @@ namespace Cue::Editor
             return (std::max)(0.08f, a_rayDistance * 0.01f);
         }
 
+        [[nodiscard]] bool should_close_menu_on_hover_leave(
+            bool a_isMenuLabelHovered) noexcept
+        {
+            constexpr ImGuiHoveredFlags k_hoveredFlags =
+                ImGuiHoveredFlags_ChildWindows |
+                ImGuiHoveredFlags_AllowWhenBlockedByPopup;
+            return !a_isMenuLabelHovered && !ImGui::IsWindowHovered(k_hoveredFlags);
+        }
+
         [[nodiscard]] Core::IO::Path resolve_asset_root(
             const Core::IO::Path& a_projectRoot,
             const ProjectSettings& a_settings) noexcept
@@ -3908,7 +3917,10 @@ namespace Cue::Editor
             ImGui::PopStyleVar(2);
 
             ImGui::SameLine();
-            if (ImGui::BeginMenu("ファイル"))
+            const bool isFileMenuOpen = ImGui::BeginMenu("ファイル");
+            const bool isFileMenuLabelHovered =
+                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+            if (isFileMenuOpen)
             {
                 const bool canOperateScene =
                     m_currentSceneId != GameCore::k_invalidSceneId &&
@@ -3934,10 +3946,17 @@ namespace Cue::Editor
                     }
                 }
 
+                if (should_close_menu_on_hover_leave(isFileMenuLabelHovered))
+                {
+                    ImGui::CloseCurrentPopup();
+                }
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("編集"))
+            const bool isEditMenuOpen = ImGui::BeginMenu("編集");
+            const bool isEditMenuLabelHovered =
+                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+            if (isEditMenuOpen)
             {
                 const bool canAddObject =
                     m_bridge != nullptr && !m_isScriptActionActive;
@@ -4007,6 +4026,10 @@ namespace Cue::Editor
 
                 draw_main_camera_menu();
 
+                if (should_close_menu_on_hover_leave(isEditMenuLabelHovered))
+                {
+                    ImGui::CloseCurrentPopup();
+                }
                 ImGui::EndMenu();
             }
 

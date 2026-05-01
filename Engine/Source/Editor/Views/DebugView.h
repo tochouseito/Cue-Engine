@@ -66,9 +66,20 @@ namespace Cue::Editor
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             const ImGuiWindowFlags windowFlags =
+                ImGuiWindowFlags_MenuBar |
                 ImGuiWindowFlags_NoScrollbar |
                 ImGuiWindowFlags_NoScrollWithMouse;
             ImGui::Begin("DebugView", nullptr, windowFlags);
+
+            if (ImGui::BeginMenuBar())
+            {
+                if (ImGui::BeginMenu("Test"))
+                {
+                    ImGui::MenuItem("DebugView Test", nullptr, false, false);
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenuBar();
+            }
 
             const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
             if (m_camera != nullptr && availableRegion.x > 0.0f &&
