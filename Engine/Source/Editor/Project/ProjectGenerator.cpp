@@ -658,8 +658,6 @@ script_classes() noexcept;
             { "assetRoot", "Assets" },
             { "scriptRoot", "." },
             { "scriptBuildConfiguration", "Debug" },
-            { "scriptLoadConfiguration", "Debug" },
-            { "scriptBuildBackend", "CMake" },
             { "gameReleaseBuildConfiguration", "Release" },
             { "gameReleaseBuildBackend", "CMake" },
             { "gameReleaseOutputRoot", "Builds/Windows" },

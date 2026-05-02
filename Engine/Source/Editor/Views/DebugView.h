@@ -17,6 +17,9 @@ namespace Cue::Editor
     class DebugView final
     {
     public:
+        using DrawAddMenuCallback = void (*)(void* a_context);
+        using DrawViewMenuCallback = void (*)(void* a_context);
+
         struct PickRequest final
         {
             float normalizedX = 0.0f;
@@ -31,6 +34,22 @@ namespace Cue::Editor
         {
         }
         ~DebugView() = default;
+
+        void set_add_menu_callback(
+            void* a_context,
+            DrawAddMenuCallback a_callback) noexcept
+        {
+            m_addMenuContext = a_context;
+            m_drawAddMenuCallback = a_callback;
+        }
+
+        void set_view_menu_callback(
+            void* a_context,
+            DrawViewMenuCallback a_callback) noexcept
+        {
+            m_viewMenuContext = a_context;
+            m_drawViewMenuCallback = a_callback;
+        }
 
         [[nodiscard]] bool consume_pick_request(
             PickRequest& a_outRequest) noexcept
@@ -73,6 +92,20 @@ namespace Cue::Editor
 
             if (ImGui::BeginMenuBar())
             {
+                if (m_drawAddMenuCallback != nullptr &&
+                    ImGui::BeginMenu("追加"))
+                {
+                    m_drawAddMenuCallback(m_addMenuContext);
+                    ImGui::EndMenu();
+                }
+
+                if (m_drawViewMenuCallback != nullptr &&
+                    ImGui::BeginMenu("ビュー"))
+                {
+                    m_drawViewMenuCallback(m_viewMenuContext);
+                    ImGui::EndMenu();
+                }
+
                 if (ImGui::BeginMenu("Test"))
                 {
                     ImGui::MenuItem("DebugView Test", nullptr, false, false);
@@ -129,6 +162,10 @@ namespace Cue::Editor
         DebugCamera* m_camera = nullptr;
         RHI::ViewHandle m_debugColorSrvHandle{};
         PickRequest m_pickRequest{};
+        void* m_addMenuContext = nullptr;
+        void* m_viewMenuContext = nullptr;
+        DrawAddMenuCallback m_drawAddMenuCallback = nullptr;
+        DrawViewMenuCallback m_drawViewMenuCallback = nullptr;
         bool m_hasPickRequest = false;
     };
 }

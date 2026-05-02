@@ -24,8 +24,11 @@
 // === C++ includes ===
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <filesystem>
 #include <limits>
 #include <span>
+#include <system_error>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -42,9 +45,6 @@ namespace Cue::Editor
             std::string scriptRoot{};
             BuildConfiguration scriptBuildConfiguration =
                 BuildConfiguration::Debug;
-            BuildConfiguration scriptLoadConfiguration =
-                BuildConfiguration::Debug;
-            BuildBackend scriptBuildBackend = BuildBackend::CMake;
             BuildConfiguration gameReleaseBuildConfiguration =
                 BuildConfiguration::Release;
             BuildBackend gameReleaseBuildBackend = BuildBackend::CMake;
@@ -66,6 +66,73 @@ namespace Cue::Editor
 
         constexpr float k_cameraFrustumNear = 0.03f;
         constexpr float k_cameraFrustumFar = 1.0f;
+        constexpr uint32_t k_autoScriptBuildScanIntervalFrames = 30;
+        constexpr uint32_t k_autoScriptBuildDebounceFrames = 45;
+
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text)
+        {
+            std::transform(
+                a_text.begin(),
+                a_text.end(),
+                a_text.begin(),
+                [](unsigned char a_char)
+                {
+                    return static_cast<char>(std::tolower(a_char));
+                });
+            return a_text;
+        }
+
+        [[nodiscard]] bool is_ignored_script_directory(
+            const std::filesystem::path& a_path)
+        {
+            const std::string name = to_lower_ascii(a_path.filename().string());
+            return name == ".git" || name == ".vs" || name == ".vscode" ||
+                name == "build" || name == "builds" || name == "generated" ||
+                name == "out" || name == "bin" || name == "obj" ||
+                name == "cmakefiles" || name == "x64";
+        }
+
+        [[nodiscard]] bool is_watched_script_file(
+            const std::filesystem::path& a_path)
+        {
+            const std::string filename = a_path.filename().string();
+            if (filename == "CMakeLists.txt" || filename == "CMakePresets.json")
+            {
+                return true;
+            }
+
+            const std::string extension =
+                to_lower_ascii(a_path.extension().string());
+            return extension == ".c" || extension == ".cc" ||
+                extension == ".cpp" || extension == ".cxx" ||
+                extension == ".h" || extension == ".hh" ||
+                extension == ".hpp" || extension == ".hxx" ||
+                extension == ".inl" || extension == ".ixx" ||
+                extension == ".cmake";
+        }
+
+        [[nodiscard]] bool is_supported_external_asset_file(
+            const Core::IO::Path& a_path)
+        {
+            const std::string extension =
+                to_lower_ascii(a_path.extension());
+            return extension == ".png" || extension == ".wav" ||
+                extension == ".obj";
+        }
+
+        void hash_bytes(
+            uint64_t& a_inOutHash,
+            const void* a_data,
+            size_t a_size) noexcept
+        {
+            constexpr uint64_t k_fnvPrime = 1099511628211ull;
+            const auto* bytes = static_cast<const unsigned char*>(a_data);
+            for (size_t byteIndex = 0; byteIndex < a_size; ++byteIndex)
+            {
+                a_inOutHash ^= static_cast<uint64_t>(bytes[byteIndex]);
+                a_inOutHash *= k_fnvPrime;
+            }
+        }
 
         [[nodiscard]] Math::float3 transform_point(
             const Math::float4x4& a_matrix,
@@ -1193,7 +1260,7 @@ namespace Cue::Editor
             }
 
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "scriptBuildBackend が不正です。");
+                "buildBackend が不正です。");
         }
 
         [[nodiscard]] const char* to_build_backend_name(
@@ -1252,11 +1319,8 @@ namespace Cue::Editor
                 root["scriptBuildConfiguration"] =
                     BuildSystem::to_configuration_name(
                         a_settings.scriptBuildConfiguration);
-                root["scriptLoadConfiguration"] =
-                    BuildSystem::to_configuration_name(
-                        a_settings.scriptLoadConfiguration);
-                root["scriptBuildBackend"] =
-                    to_build_backend_name(a_settings.scriptBuildBackend);
+                root.erase("scriptLoadConfiguration");
+                root.erase("scriptBuildBackend");
                 root["gameReleaseBuildConfiguration"] =
                     BuildSystem::to_configuration_name(
                         a_settings.gameReleaseBuildConfiguration);
@@ -1334,26 +1398,6 @@ namespace Cue::Editor
                     return result;
                 }
 
-                const std::string loadConfigurationText =
-                    root.value("scriptLoadConfiguration", buildConfigurationText);
-                result = parse_build_configuration(
-                    loadConfigurationText,
-                    a_outSettings.scriptLoadConfiguration);
-                if (!result)
-                {
-                    return result;
-                }
-
-                const std::string buildBackendText =
-                    root.value("scriptBuildBackend", std::string("CMake"));
-                result = parse_build_backend(
-                    buildBackendText,
-                    a_outSettings.scriptBuildBackend);
-                if (!result)
-                {
-                    return result;
-                }
-
                 const std::string gameReleaseConfigurationText =
                     root.value("gameReleaseBuildConfiguration",
                         std::string("Release"));
@@ -1400,17 +1444,30 @@ namespace Cue::Editor
             m_visualStudioBridge =
                 std::make_unique<VisualStudioBridge>(*m_fileSystem);
             m_assetBrowser = std::make_unique<AssetBrowser>(m_fileSystem);
+            m_assetBrowser->set_selected_asset_path(&m_selectedAssetPath);
         }
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
         m_statistics->set_update_metrics_source(&m_lastUpdateMetrics);
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend, &m_debugCamera);
+        m_debugView->set_add_menu_callback(
+            this,
+            [](void* a_context)
+            {
+                static_cast<EditorManager*>(a_context)->draw_add_menu_items();
+            });
+        m_debugView->set_view_menu_callback(
+            this,
+            [](void* a_context)
+            {
+                static_cast<EditorManager*>(a_context)->draw_view_menu_items();
+            });
         m_hierarchy = std::make_unique<Hierarchy>(
             m_bridge, m_engine->game_world(), &m_selectedEntityId);
         m_inspector = std::make_unique<Inspector>(
-            m_bridge, m_engine->game_world(), &m_selectedEntityId, m_engine,
-            m_fileSystem);
+            m_bridge, m_engine->game_world(), &m_selectedEntityId,
+            &m_selectedAssetPath, m_engine, m_fileSystem);
     }
 
     void EditorManager::set_loop_metrics_source(
@@ -1463,8 +1520,6 @@ namespace Cue::Editor
         m_projectPath = a_projectPath;
         m_currentScenePath = scenePath.utf8();
         m_scriptBuildConfiguration = projectSettings.scriptBuildConfiguration;
-        m_scriptLoadConfiguration = projectSettings.scriptLoadConfiguration;
-        m_scriptBuildBackend = projectSettings.scriptBuildBackend;
         m_gameReleaseBuildConfiguration =
             projectSettings.gameReleaseBuildConfiguration;
         m_gameReleaseBuildBackend =
@@ -1476,24 +1531,32 @@ namespace Cue::Editor
             assetRootPath = Core::IO::Path::join(
                 Core::IO::Path(a_projectPath), assetRootPath);
         }
+        m_assetRootPath = assetRootPath.normalize();
+        m_selectedAssetPath = {};
         if (m_assetBrowser != nullptr)
         {
-            m_assetBrowser->set_asset_root_path(assetRootPath);
+            m_assetBrowser->set_asset_root_path(m_assetRootPath);
         }
         if (m_inspector != nullptr)
         {
-            m_inspector->set_asset_root_path(assetRootPath);
+            m_inspector->set_asset_root_path(m_assetRootPath);
         }
-        m_engine->set_asset_root_path(assetRootPath);
+        m_engine->set_asset_root_path(m_assetRootPath);
 
         const Result scriptLoadResult = m_engine->load_script_module(
             scriptRootPath,
-            to_script_module_build_configuration(m_scriptLoadConfiguration));
+            to_script_module_build_configuration(m_scriptBuildConfiguration));
         if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
         {
             set_status_message("GameScript.dll の読み込みに失敗しました。", true);
             return scriptLoadResult;
         }
+
+        m_hasScriptSourceSnapshot = false;
+        m_hasPendingAutoScriptBuild = false;
+        m_autoScriptBuildScanDelayFrames = 0;
+        m_autoScriptBuildDebounceFrames = 0;
+        m_scriptSourceVersion = 0;
 
         result = reload_current_scene();
         if (!result)
@@ -1653,7 +1716,7 @@ namespace Cue::Editor
             "win-x64",
             m_scriptBuildConfiguration,
             "GameScript",
-            m_scriptBuildBackend
+            BuildBackend::CMake
         };
 
         ScriptBuildValidation validation{};
@@ -1978,6 +2041,296 @@ namespace Cue::Editor
                 projectSettings));
     }
 
+    Result EditorManager::create_material_asset()
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Material 作成に必要な依存が初期化されていません。");
+        }
+        if (m_assetRootPath.is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Assets フォルダが設定されていません。");
+        }
+
+        const Core::IO::Path materialRoot = Core::IO::Path::join(
+            m_assetRootPath, Core::IO::Path("Materials"));
+        Result result = m_fileSystem->create_directories(materialRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        for (uint32_t index = 0; index < 1000; ++index)
+        {
+            const std::string materialName =
+                index == 0 ? std::string("Material")
+                           : "Material" + std::to_string(index);
+            const Core::IO::Path materialPath = Core::IO::Path::join(
+                materialRoot, Core::IO::Path(materialName + ".cuematerial"));
+
+            bool exists = false;
+            result = m_fileSystem->exists(materialPath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+
+            MaterialHandle existingHandle{};
+            if (exists ||
+                m_engine->asset_manager().get_material(
+                    materialName, existingHandle))
+            {
+                continue;
+            }
+
+            MaterialDesc materialDesc{};
+            materialDesc.color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            MaterialHandle materialHandle{};
+            result = m_engine->asset_manager().create_material(
+                materialName, materialDesc, materialHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_engine->asset_manager().save_material(
+                materialHandle, *m_fileSystem, materialPath);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_selectedAssetPath = materialPath.normalize();
+            m_selectedEntityId = GameCore::k_invalidEntityId;
+            if (m_assetBrowser != nullptr)
+            {
+                m_assetBrowser->refresh();
+            }
+            return Result::ok();
+        }
+
+        return Result::fail(Code::CreateFailed, Severity::Error,
+            "作成可能な Material 名が見つかりません。");
+    }
+
+    Result EditorManager::handle_dropped_asset_files()
+    {
+        if (m_platform == nullptr || m_fileSystem == nullptr)
+        {
+            return Result::ok();
+        }
+
+        std::vector<std::string> droppedFiles{};
+        if (!m_platform->consume_dropped_files(droppedFiles) ||
+            droppedFiles.empty())
+        {
+            return Result::ok();
+        }
+
+        const Core::IO::Path destinationDirectory =
+            current_asset_drop_folder();
+        if (destinationDirectory.is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Assets フォルダが設定されていません。");
+        }
+
+        uint32_t importedCount = 0;
+        uint32_t skippedCount = 0;
+        for (const std::string& droppedFile : droppedFiles)
+        {
+            const Core::IO::Path sourcePath(droppedFile);
+            if (!is_supported_external_asset_file(sourcePath))
+            {
+                ++skippedCount;
+                continue;
+            }
+
+            Core::IO::FileStat stat{};
+            Result result = m_fileSystem->stat(sourcePath, &stat);
+            if (!result)
+            {
+                return result;
+            }
+            if (stat.type != Core::IO::FileType::regular)
+            {
+                ++skippedCount;
+                continue;
+            }
+
+            result = import_external_asset_file(
+                sourcePath, destinationDirectory);
+            if (!result)
+            {
+                return result;
+            }
+            ++importedCount;
+        }
+
+        if (importedCount > 0 && m_assetBrowser != nullptr)
+        {
+            m_assetBrowser->refresh();
+        }
+
+        if (importedCount == 0 && skippedCount > 0)
+        {
+            set_status_message(
+                "対応していないファイルはインポートされませんでした。", true);
+            return Result::ok();
+        }
+
+        if (importedCount > 0)
+        {
+            std::string message =
+                std::to_string(importedCount) +
+                " 件のアセットをインポートしました。";
+            if (skippedCount > 0)
+            {
+                message += " 対応外ファイルはスキップしました。";
+            }
+            set_status_message(std::move(message), false);
+        }
+
+        return Result::ok();
+    }
+
+    Result EditorManager::import_external_asset_file(
+        const Core::IO::Path& a_sourcePath,
+        const Core::IO::Path& a_destinationDirectory)
+    {
+        Core::IO::Path destinationPath{};
+        Result result = make_asset_import_destination(
+            a_sourcePath, a_destinationDirectory, destinationPath);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_fileSystem->copy_file(
+            a_sourcePath.normalize(), destinationPath, false);
+        if (!result)
+        {
+            return result;
+        }
+
+        return import_copied_asset_file(destinationPath);
+    }
+
+    Result EditorManager::import_copied_asset_file(
+        const Core::IO::Path& a_assetPath)
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Asset import dependencies are not initialized.");
+        }
+
+        const std::string extension =
+            to_lower_ascii(a_assetPath.extension());
+        if (extension == ".png")
+        {
+            const Core::IO::Path cookedPath = Core::IO::Path::join(
+                a_assetPath.parent(),
+                Core::IO::Path(a_assetPath.stem() + ".cuetexture"));
+            Result result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                *m_fileSystem, a_assetPath, cookedPath);
+            if (!result)
+            {
+                return result;
+            }
+
+            uint32_t textureId = AssetManager::k_errorTextureId;
+            return m_engine->asset_manager().register_texture_from_cuetexture(
+                *m_fileSystem,
+                make_asset_relative_name(cookedPath),
+                cookedPath,
+                textureId);
+        }
+
+        if (extension == ".obj")
+        {
+            const Core::IO::Path cookedPath = Core::IO::Path::join(
+                a_assetPath.parent(),
+                Core::IO::Path(a_assetPath.stem() + ".cuemodel"));
+            Result result = ModelCooker::ensure_cuemodel_is_up_to_date(
+                *m_fileSystem, a_assetPath, cookedPath);
+            if (!result)
+            {
+                return result;
+            }
+
+            ModelHandle modelHandle{};
+            std::string modelName = cookedPath.stem();
+            if (m_engine->asset_manager().get_model(modelName, modelHandle))
+            {
+                modelName = make_asset_relative_name(cookedPath);
+            }
+            return m_engine->asset_manager().register_model_from_cuemodel(
+                *m_fileSystem,
+                modelName,
+                cookedPath,
+                modelHandle);
+        }
+
+        if (extension == ".wav")
+        {
+            const Core::IO::Path cookedPath = Core::IO::Path::join(
+                a_assetPath.parent(),
+                Core::IO::Path(a_assetPath.stem() + ".cuesound"));
+            return SoundCooker::ensure_cuesound_is_up_to_date(
+                *m_fileSystem, a_assetPath, cookedPath);
+        }
+
+        return Result::ok();
+    }
+
+    Result EditorManager::make_asset_import_destination(
+        const Core::IO::Path& a_sourcePath,
+        const Core::IO::Path& a_destinationDirectory,
+        Core::IO::Path& a_outDestinationPath) const
+    {
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "FileSystem が初期化されていません。");
+        }
+
+        Result result = m_fileSystem->create_directories(a_destinationDirectory);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::string stem = a_sourcePath.stem();
+        const std::string extension = to_lower_ascii(a_sourcePath.extension());
+        for (uint32_t index = 0; index < 1000; ++index)
+        {
+            const std::string filename =
+                index == 0 ? (stem + extension)
+                           : (stem + std::to_string(index) + extension);
+            const Core::IO::Path candidatePath = Core::IO::Path::join(
+                a_destinationDirectory, Core::IO::Path(filename));
+
+            bool exists = false;
+            result = m_fileSystem->exists(candidatePath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!exists)
+            {
+                a_outDestinationPath = candidatePath;
+                return Result::ok();
+            }
+        }
+
+        return Result::fail(Code::CreateFailed, Severity::Error,
+            "コピー先のファイル名を決定できませんでした。");
+    }
+
     Result EditorManager::open_path_in_shell(
         const Core::IO::Path& a_path) const
     {
@@ -2093,7 +2446,7 @@ namespace Cue::Editor
             "win-x64",
             m_scriptBuildConfiguration,
             "GameScript",
-            m_scriptBuildBackend
+            BuildBackend::CMake
         };
         return m_buildSystem->execute_script_configure(
             request,
@@ -2144,7 +2497,7 @@ namespace Cue::Editor
 
         result = m_engine->load_script_module(
             scriptRoot,
-            to_script_module_build_configuration(m_scriptLoadConfiguration));
+            to_script_module_build_configuration(m_scriptBuildConfiguration));
         const bool reloadSucceeded = static_cast<bool>(result);
         const bool hasBuildStage =
             has_stage_result(a_inOutBuildResult, BuildStage::Build) ||
@@ -2237,74 +2590,6 @@ namespace Cue::Editor
         }
 
         m_scriptBuildConfiguration = a_configuration;
-        return Result::ok();
-    }
-
-    Result EditorManager::save_script_load_configuration(
-        BuildConfiguration a_configuration)
-    {
-        if (m_fileSystem == nullptr)
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "EditorManager file system is not initialized.");
-        }
-        if (m_projectPath.empty())
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "Project is not opened.");
-        }
-
-        ProjectSettings settings{};
-        Result result = load_project_settings(
-            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
-        if (!result)
-        {
-            return result;
-        }
-
-        settings.scriptLoadConfiguration = a_configuration;
-        result = save_project_settings(
-            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
-        if (!result)
-        {
-            return result;
-        }
-
-        m_scriptLoadConfiguration = a_configuration;
-        return Result::ok();
-    }
-
-    Result EditorManager::save_script_build_backend(
-        BuildBackend a_backend)
-    {
-        if (m_fileSystem == nullptr)
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "EditorManager file system is not initialized.");
-        }
-        if (m_projectPath.empty())
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "Project is not opened.");
-        }
-
-        ProjectSettings settings{};
-        Result result = load_project_settings(
-            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
-        if (!result)
-        {
-            return result;
-        }
-
-        settings.scriptBuildBackend = a_backend;
-        result = save_project_settings(
-            *m_fileSystem, Core::IO::Path(m_projectPath), settings);
-        if (!result)
-        {
-            return result;
-        }
-
-        m_scriptBuildBackend = a_backend;
         return Result::ok();
     }
 
@@ -2503,6 +2788,174 @@ namespace Cue::Editor
         }
 
         m_isScriptActionActive = false;
+    }
+
+    void EditorManager::update_auto_script_build()
+    {
+        if (m_projectPath.empty() || m_buildSystem == nullptr ||
+            m_engine == nullptr)
+        {
+            m_hasScriptSourceSnapshot = false;
+            m_hasPendingAutoScriptBuild = false;
+            return;
+        }
+
+        if (m_autoScriptBuildScanDelayFrames > 0)
+        {
+            --m_autoScriptBuildScanDelayFrames;
+        }
+        else if (m_pendingScriptAction == PendingScriptAction::None &&
+            !m_isScriptActionActive)
+        {
+            m_autoScriptBuildScanDelayFrames =
+                k_autoScriptBuildScanIntervalFrames;
+
+            uint64_t sourceVersion = 0;
+            if (try_get_script_source_version(sourceVersion))
+            {
+                if (!m_hasScriptSourceSnapshot)
+                {
+                    m_scriptSourceVersion = sourceVersion;
+                    m_hasScriptSourceSnapshot = true;
+                }
+                else if (sourceVersion != m_scriptSourceVersion)
+                {
+                    m_scriptSourceVersion = sourceVersion;
+                    m_hasPendingAutoScriptBuild = true;
+                    m_autoScriptBuildDebounceFrames =
+                        k_autoScriptBuildDebounceFrames;
+                }
+            }
+        }
+
+        if (!m_hasPendingAutoScriptBuild)
+        {
+            return;
+        }
+
+        if (m_autoScriptBuildDebounceFrames > 0)
+        {
+            --m_autoScriptBuildDebounceFrames;
+            return;
+        }
+
+        if (m_pendingScriptAction != PendingScriptAction::None ||
+            m_isScriptActionActive || m_platform == nullptr ||
+            !m_platform->is_window_focused())
+        {
+            return;
+        }
+
+        m_hasPendingAutoScriptBuild = false;
+        queue_script_action(PendingScriptAction::Build);
+        set_status_message(
+            "GameScript の変更を検出したためビルドしています...", false);
+    }
+
+    bool EditorManager::try_get_script_source_version(
+        uint64_t& a_outVersion) const
+    {
+        a_outVersion = 0;
+
+        Core::IO::Path scriptRoot{};
+        Result result = resolve_script_root(scriptRoot);
+        if (!result || scriptRoot.is_empty())
+        {
+            return false;
+        }
+
+        const std::filesystem::path rootPath(scriptRoot.utf8());
+        std::error_code error{};
+        if (!std::filesystem::exists(rootPath, error) || error)
+        {
+            return false;
+        }
+
+        std::vector<std::pair<std::string, uint64_t>> sourceFiles{};
+        constexpr auto options =
+            std::filesystem::directory_options::skip_permission_denied;
+        std::filesystem::recursive_directory_iterator iterator(
+            rootPath,
+            options,
+            error);
+        if (error)
+        {
+            return false;
+        }
+
+        const std::filesystem::recursive_directory_iterator end{};
+        for (; iterator != end; iterator.increment(error))
+        {
+            if (error)
+            {
+                error.clear();
+                continue;
+            }
+
+            const std::filesystem::directory_entry& entry = *iterator;
+            if (entry.is_directory(error))
+            {
+                if (!error && is_ignored_script_directory(entry.path()))
+                {
+                    iterator.disable_recursion_pending();
+                }
+                error.clear();
+                continue;
+            }
+            error.clear();
+
+            if (!entry.is_regular_file(error))
+            {
+                error.clear();
+                continue;
+            }
+            error.clear();
+
+            if (!is_watched_script_file(entry.path()))
+            {
+                continue;
+            }
+
+            const std::filesystem::file_time_type writeTime =
+                entry.last_write_time(error);
+            if (error)
+            {
+                error.clear();
+                continue;
+            }
+
+            std::filesystem::path relativePath =
+                std::filesystem::relative(entry.path(), rootPath, error);
+            if (error)
+            {
+                error.clear();
+                relativePath = entry.path().filename();
+            }
+
+            sourceFiles.emplace_back(
+                relativePath.generic_string(),
+                static_cast<uint64_t>(writeTime.time_since_epoch().count()));
+        }
+
+        std::sort(
+            sourceFiles.begin(),
+            sourceFiles.end(),
+            [](const auto& a_left, const auto& a_right)
+            {
+                return a_left.first < a_right.first;
+            });
+
+        uint64_t hash = 1469598103934665603ull;
+        for (const auto& [relativePath, writeTime] : sourceFiles)
+        {
+            hash_bytes(hash, relativePath.data(), relativePath.size());
+            hash_bytes(hash, &writeTime, sizeof(writeTime));
+        }
+
+        const uint64_t fileCount = static_cast<uint64_t>(sourceFiles.size());
+        hash_bytes(hash, &fileCount, sizeof(fileCount));
+        a_outVersion = hash;
+        return true;
     }
 
     Result EditorManager::reload_current_scene()
@@ -3201,6 +3654,217 @@ namespace Cue::Editor
         ImGui::End();
     }
 
+    void EditorManager::draw_status_bar()
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 2.0f));
+        ImGui::BeginChild(
+            "EditorStatusBar",
+            ImVec2(0.0f, ImGui::GetFrameHeightWithSpacing()),
+            false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+        if (!m_statusMessage.empty())
+        {
+            if (m_hasStatusError)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    IM_COL32(255, 96, 96, 255));
+            }
+            ImGui::TextUnformatted(m_statusMessage.c_str());
+            if (m_hasStatusError)
+            {
+                ImGui::PopStyleColor();
+            }
+        }
+
+        if (m_hasScriptBuildNotification &&
+            !m_scriptBuildNotificationTitle.empty())
+        {
+            if (!m_statusMessage.empty())
+            {
+                ImGui::SameLine();
+                ImGui::TextUnformatted("|");
+                ImGui::SameLine();
+            }
+
+            if (m_hasScriptBuildNotificationError)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
+            }
+            else
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text, IM_COL32(96, 220, 120, 255));
+            }
+
+            ImGui::TextUnformatted(m_scriptBuildNotificationTitle.c_str());
+            ImGui::PopStyleColor();
+
+            if (!m_scriptBuildNotificationMessage.empty())
+            {
+                ImGui::SameLine();
+                ImGui::TextUnformatted(
+                    m_scriptBuildNotificationMessage.c_str());
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Build Output"))
+            {
+                m_showScriptBuildOutput = true;
+            }
+        }
+
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    }
+
+    void EditorManager::draw_play_controls()
+    {
+        const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
+        const bool canStartPlay =
+            m_engine != nullptr && !m_projectPath.empty() &&
+            !m_isScriptActionActive && !isPlaying;
+        const bool canStopPlay =
+            m_engine != nullptr && !m_isScriptActionActive && isPlaying;
+
+        const float buttonSide = ImGui::GetFrameHeight();
+        const ImVec2 buttonSize(buttonSide, buttonSide);
+        const float spacingX = ImGui::GetStyle().ItemSpacing.x;
+        const float groupWidth = buttonSide * 3.0f + spacingX * 2.0f;
+        const float contentMinX = ImGui::GetWindowContentRegionMin().x;
+        const float contentMaxX = ImGui::GetWindowContentRegionMax().x;
+        const float centerX =
+            contentMinX + ((contentMaxX - contentMinX) - groupWidth) * 0.5f;
+        const float cursorX = ImGui::GetCursorPosX();
+        if (cursorX < centerX)
+        {
+            ImGui::SetCursorPosX(centerX);
+        }
+
+        ImGui::BeginDisabled(!canStartPlay);
+        if (ImGui::Button(CUE_ICON_PLAY "##MenuPlay", buttonSize))
+        {
+            const Result result = start_play_mode();
+            if (!result)
+            {
+                log_result("Failed to start play mode", result);
+                set_status_message("Play 開始に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("Play を開始しました。", false);
+            }
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Play");
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!canStopPlay);
+        if (ImGui::Button(CUE_ICON_PAUSE "##MenuPause", buttonSize))
+        {
+            const Result result = stop_play_mode();
+            if (!result)
+            {
+                log_result("Failed to stop play mode", result);
+                set_status_message("Play 停止に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("Play を停止しました。", false);
+            }
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Pause (Stop)");
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!canStopPlay);
+        if (ImGui::Button(CUE_ICON_STOP "##MenuStop", buttonSize))
+        {
+            const Result result = exit_play_mode();
+            if (!result)
+            {
+                log_result("Failed to exit play mode", result);
+                set_status_message("Play 終了に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("Play を終了して editor に戻りました。", false);
+            }
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Stop (Exit)");
+        }
+    }
+
+    void EditorManager::draw_script_build_configuration_combo()
+    {
+        const bool canEditBuildSettings =
+            !m_projectPath.empty() && !m_isScriptActionActive;
+        const char* currentLabel =
+            BuildSystem::to_configuration_name(m_scriptBuildConfiguration);
+
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::BeginDisabled(!canEditBuildSettings);
+        if (ImGui::BeginCombo("##ScriptBuildConfiguration", currentLabel))
+        {
+            const auto drawConfigurationItem =
+                [this](
+                    const char* a_label,
+                    BuildConfiguration a_configuration)
+            {
+                const bool isSelected =
+                    m_scriptBuildConfiguration == a_configuration;
+                if (ImGui::Selectable(a_label, isSelected) && !isSelected)
+                {
+                    const Result result =
+                        save_script_build_configuration(a_configuration);
+                    if (!result)
+                    {
+                        log_result(
+                            "Failed to save GameScript build configuration",
+                            result);
+                        set_status_message(
+                            "GameScript のビルド構成保存に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message(
+                            std::string("GameScript のビルド構成を ") +
+                                a_label + " に変更しました。",
+                            false);
+                    }
+                }
+
+                if (isSelected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            };
+
+            drawConfigurationItem("Debug", BuildConfiguration::Debug);
+            drawConfigurationItem(
+                "RelWithDebInfo",
+                BuildConfiguration::RelWithDebInfo);
+            drawConfigurationItem("Release", BuildConfiguration::Release);
+
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("GameScript ビルド構成");
+        }
+    }
+
     void EditorManager::draw_script_build_notification_popup()
     {
         if (m_openScriptBuildNotificationPopup)
@@ -3394,6 +4058,189 @@ namespace Cue::Editor
                 set_status_message("シーン保存に失敗しました。", true);
             }
         }
+    }
+
+    void EditorManager::draw_add_menu_items()
+    {
+        const bool canAddObject =
+            m_bridge != nullptr && !m_isScriptActionActive;
+
+        if (ImGui::BeginMenu("3D", canAddObject))
+        {
+            if (ImGui::MenuItem("カメラを追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Camera));
+                if (!result)
+                {
+                    log_result("Failed to add camera object", result);
+                    set_status_message("カメラの追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("カメラを追加しました。", false);
+                }
+            }
+
+            if (ImGui::MenuItem("オブジェクトを追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::StaticMesh3D));
+                if (!result)
+                {
+                    log_result("Failed to add 3D object", result);
+                    set_status_message(
+                        "3D オブジェクトの追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("3D オブジェクトを追加しました。", false);
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("2D", canAddObject))
+        {
+            if (ImGui::MenuItem("オブジェクトを追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Sprite2D));
+                if (!result)
+                {
+                    log_result("Failed to add 2D object", result);
+                    set_status_message(
+                        "2D オブジェクトの追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("2D オブジェクトを追加しました。", false);
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+
+        ImGui::Separator();
+        if (ImGui::MenuItem(
+                "マテリアルを追加", nullptr, false,
+                !m_assetRootPath.is_empty() && !m_isScriptActionActive))
+        {
+            const Result result = create_material_asset();
+            if (!result)
+            {
+                log_result("Failed to create material asset", result);
+                set_status_message("マテリアルの追加に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("マテリアルを追加しました。", false);
+            }
+        }
+
+        if (ImGui::MenuItem(
+                "GameScript を追加", nullptr, false,
+                !m_projectPath.empty() && !m_isScriptActionActive))
+        {
+            m_createScriptNameBuffer.fill('\0');
+            m_openCreateScriptPopup = true;
+        }
+
+        draw_main_camera_menu();
+    }
+
+    void EditorManager::draw_view_menu_items()
+    {
+        bool isGridVisible =
+            m_engine != nullptr && m_engine->is_debug_grid_visible();
+        ImGui::BeginDisabled(m_engine == nullptr);
+        if (ImGui::Checkbox("グリッドを表示", &isGridVisible) &&
+            m_engine != nullptr)
+        {
+            m_engine->set_debug_grid_visible(isGridVisible);
+        }
+        ImGui::EndDisabled();
+    }
+
+    void EditorManager::draw_display_menu_items()
+    {
+        const auto drawWindowItem =
+            [this](
+                const char* a_label,
+                const char* a_windowName,
+                bool* a_showWindow = nullptr,
+                bool a_isEnabled = true)
+        {
+            if (ImGui::MenuItem(a_label, nullptr, false, a_isEnabled))
+            {
+                show_and_focus_window(a_windowName, a_showWindow);
+            }
+        };
+
+        drawWindowItem("GameView", "GameView", nullptr, m_gameView != nullptr);
+        drawWindowItem("DebugView", "DebugView", nullptr, m_debugView != nullptr);
+        drawWindowItem(
+            "Asset Browser",
+            "Asset Browser",
+            nullptr,
+            m_assetBrowser != nullptr);
+        drawWindowItem(
+            "ヒエラルキー",
+            "ヒエラルキー",
+            nullptr,
+            m_hierarchy != nullptr);
+        drawWindowItem(
+            "インスペクター",
+            "インスペクター",
+            nullptr,
+            m_inspector != nullptr);
+        drawWindowItem(
+            "Frame Statistics",
+            "Frame Statistics",
+            nullptr,
+            m_statistics != nullptr);
+
+        ImGui::Separator();
+        drawWindowItem(
+            "Script Build Output",
+            "Script Build Output",
+            &m_showScriptBuildOutput);
+        drawWindowItem(
+            "Navigation Debug",
+            "Navigation Debug",
+            &m_showNavigationDebugWindow,
+            m_engine != nullptr);
+    }
+
+    void EditorManager::show_and_focus_window(
+        const char* a_windowName,
+        bool* a_showWindow)
+    {
+        if (a_windowName == nullptr)
+        {
+            return;
+        }
+
+        if (a_showWindow != nullptr)
+        {
+            *a_showWindow = true;
+        }
+        m_pendingFocusWindowName = a_windowName;
+    }
+
+    void EditorManager::focus_pending_window()
+    {
+        if (m_pendingFocusWindowName.empty())
+        {
+            return;
+        }
+
+        ImGui::SetWindowFocus(m_pendingFocusWindowName.c_str());
+        m_pendingFocusWindowName.clear();
     }
 
     void EditorManager::draw_main_camera_menu()
@@ -3714,6 +4561,48 @@ namespace Cue::Editor
         return hasHit;
     }
 
+    Core::IO::Path EditorManager::current_asset_drop_folder() const noexcept
+    {
+        if (m_assetRootPath.is_empty())
+        {
+            return {};
+        }
+
+        if (m_assetBrowser == nullptr)
+        {
+            return m_assetRootPath;
+        }
+
+        Core::IO::Path folderPath =
+            m_assetBrowser->current_asset_folder_path().normalize();
+        if (folderPath.is_empty())
+        {
+            return m_assetRootPath;
+        }
+
+        const std::string assetRoot = m_assetRootPath.normalize().utf8();
+        const std::string folder = folderPath.utf8();
+        if (folder == assetRoot || folder.rfind(assetRoot + "/", 0) == 0)
+        {
+            return folderPath;
+        }
+
+        return m_assetRootPath;
+    }
+
+    std::string EditorManager::make_asset_relative_name(
+        const Core::IO::Path& a_assetPath) const
+    {
+        const std::string assetRoot = m_assetRootPath.normalize().utf8();
+        const std::string assetPath = a_assetPath.normalize().utf8();
+        if (!assetRoot.empty() && assetPath.rfind(assetRoot + "/", 0) == 0)
+        {
+            return assetPath.substr(assetRoot.size() + 1);
+        }
+
+        return a_assetPath.filename();
+    }
+
     void EditorManager::sync_debug_selection()
     {
         if (m_engine == nullptr || m_engine->active_world() == nullptr)
@@ -3844,6 +4733,16 @@ namespace Cue::Editor
         Core::Time::Timer pendingTimer(m_platform->clock());
         pendingTimer.start();
         process_pending_script_action();
+        update_auto_script_build();
+        const Result dropResult = handle_dropped_asset_files();
+        if (!dropResult)
+        {
+            log_result("Failed to import dropped asset files", dropResult);
+            set_status_message(
+                std::string("ドロップファイルのインポートに失敗しました: ") +
+                    std::string(dropResult.message),
+                true);
+        }
         pendingTimer.stop();
         m_currentUpdateMetrics.pendingScriptActionMs =
             pendingTimer.elapsed_ticks().ms_f64();
@@ -3953,83 +4852,9 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            const bool isEditMenuOpen = ImGui::BeginMenu("編集");
-            const bool isEditMenuLabelHovered =
-                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-            if (isEditMenuOpen)
+            if (ImGui::BeginMenu("表示"))
             {
-                const bool canAddObject =
-                    m_bridge != nullptr && !m_isScriptActionActive;
-
-                if (ImGui::BeginMenu("3D", canAddObject))
-                {
-                    if (ImGui::MenuItem("カメラを追加"))
-                    {
-                        const Result result = m_bridge->submit_command(
-                            std::make_unique<AddObjectCommand>(
-                                AddObjectType::Camera));
-                        if (!result)
-                        {
-                            log_result("Failed to add camera object", result);
-                            set_status_message(
-                                "カメラの追加に失敗しました。", true);
-                        }
-                        else
-                        {
-                            set_status_message("カメラを追加しました。", false);
-                        }
-                    }
-
-                    if (ImGui::MenuItem("オブジェクトを追加"))
-                    {
-                        const Result result = m_bridge->submit_command(
-                            std::make_unique<AddObjectCommand>(
-                                AddObjectType::StaticMesh3D));
-                        if (!result)
-                        {
-                            log_result("Failed to add 3D object", result);
-                            set_status_message(
-                                "3D オブジェクトの追加に失敗しました。", true);
-                        }
-                        else
-                        {
-                            set_status_message(
-                                "3D オブジェクトを追加しました。", false);
-                        }
-                    }
-
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("2D", canAddObject))
-                {
-                    if (ImGui::MenuItem("オブジェクトを追加"))
-                    {
-                        const Result result = m_bridge->submit_command(
-                            std::make_unique<AddObjectCommand>(
-                                AddObjectType::Sprite2D));
-                        if (!result)
-                        {
-                            log_result("Failed to add 2D object", result);
-                            set_status_message(
-                                "2D オブジェクトの追加に失敗しました。", true);
-                        }
-                        else
-                        {
-                            set_status_message(
-                                "2D オブジェクトを追加しました。", false);
-                        }
-                    }
-
-                    ImGui::EndMenu();
-                }
-
-                draw_main_camera_menu();
-
-                if (should_close_menu_on_hover_leave(isEditMenuLabelHovered))
-                {
-                    ImGui::CloseCurrentPopup();
-                }
+                draw_display_menu_items();
                 ImGui::EndMenu();
             }
 
@@ -4060,189 +4885,12 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("実行"))
-            {
-                const bool isPlaying =
-                    m_engine != nullptr && m_engine->is_playing();
-                const bool canStartPlay =
-                    m_engine != nullptr && !m_projectPath.empty() &&
-                    !m_isScriptActionActive && !isPlaying;
-                const bool canStopPlay =
-                    m_engine != nullptr && !m_isScriptActionActive && isPlaying;
-
-                if (ImGui::MenuItem("Play", nullptr, false, canStartPlay))
-                {
-                    const Result result = start_play_mode();
-                    if (!result)
-                    {
-                        log_result("Failed to start play mode", result);
-                        set_status_message("Play 開始に失敗しました。", true);
-                    }
-                    else
-                    {
-                        set_status_message("Play を開始しました。", false);
-                    }
-                }
-
-                if (ImGui::MenuItem("Stop", nullptr, false, canStopPlay))
-                {
-                    const Result result = stop_play_mode();
-                    if (!result)
-                    {
-                        log_result("Failed to stop play mode", result);
-                        set_status_message("Play 停止に失敗しました。", true);
-                    }
-                    else
-                    {
-                        set_status_message("Play を停止しました。", false);
-                    }
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::MenuItem("Exit", nullptr, false, canStopPlay))
-                {
-                    const Result result = exit_play_mode();
-                    if (!result)
-                    {
-                        log_result("Failed to exit play mode", result);
-                        set_status_message("Play 終了に失敗しました。", true);
-                    }
-                    else
-                    {
-                        set_status_message("Play を終了して editor に戻りました。", false);
-                    }
-                }
-
-                ImGui::EndMenu();
-            }
-
             if (ImGui::BeginMenu("ビルド"))
             {
                 const bool canEditBuildSettings = !m_isScriptActionActive;
-                const bool canBuildScript =
-                    m_buildSystem != nullptr && !m_projectPath.empty() &&
-                    !m_isScriptActionActive;
                 const bool canBuildGameRelease =
                     m_buildSystem != nullptr && !m_projectPath.empty() &&
                     !m_isScriptActionActive;
-                const bool canReloadScript =
-                    m_engine != nullptr && !m_projectPath.empty() &&
-                    !m_isScriptActionActive;
-
-                if (ImGui::BeginMenu("GameScript ビルド構成", canEditBuildSettings))
-                {
-                    const auto draw_configuration_item =
-                        [this](const char* a_label, BuildConfiguration a_configuration)
-                    {
-                        const bool isSelected =
-                            m_scriptBuildConfiguration == a_configuration;
-                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
-                            !isSelected)
-                        {
-                            const Result result =
-                                save_script_build_configuration(a_configuration);
-                            if (!result)
-                            {
-                                log_result(
-                                    "Failed to save GameScript build configuration",
-                                    result);
-                                set_status_message(
-                                    "GameScript のビルド構成保存に失敗しました。", true);
-                            }
-                            else
-                            {
-                                set_status_message(
-                                    std::string("GameScript のビルド構成を ") + a_label +
-                                        " に変更しました。",
-                                    false);
-                            }
-                        }
-                    };
-
-                    draw_configuration_item("Debug", BuildConfiguration::Debug);
-                    draw_configuration_item("RelWithDebInfo",
-                        BuildConfiguration::RelWithDebInfo);
-                    draw_configuration_item("Release",
-                        BuildConfiguration::Release);
-
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("GameScript 読み込み構成", canEditBuildSettings))
-                {
-                    const auto draw_configuration_item =
-                        [this](const char* a_label, BuildConfiguration a_configuration)
-                    {
-                        const bool isSelected =
-                            m_scriptLoadConfiguration == a_configuration;
-                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
-                            !isSelected)
-                        {
-                            const Result result =
-                                save_script_load_configuration(a_configuration);
-                            if (!result)
-                            {
-                                log_result(
-                                    "Failed to save GameScript load configuration",
-                                    result);
-                                set_status_message(
-                                    "GameScript の読み込み構成保存に失敗しました。", true);
-                            }
-                            else
-                            {
-                                set_status_message(
-                                    std::string("GameScript の読み込み構成を ") + a_label +
-                                        " に変更しました。",
-                                    false);
-                            }
-                        }
-                    };
-
-                    draw_configuration_item("Debug", BuildConfiguration::Debug);
-                    draw_configuration_item("RelWithDebInfo",
-                        BuildConfiguration::RelWithDebInfo);
-                    draw_configuration_item("Release",
-                        BuildConfiguration::Release);
-
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("GameScript backend", canEditBuildSettings))
-                {
-                    const auto draw_backend_item =
-                        [this](const char* a_label, BuildBackend a_backend)
-                    {
-                        const bool isSelected =
-                            m_scriptBuildBackend == a_backend;
-                        if (ImGui::MenuItem(a_label, nullptr, isSelected, true) &&
-                            !isSelected)
-                        {
-                            const Result result =
-                                save_script_build_backend(a_backend);
-                            if (!result)
-                            {
-                                log_result(
-                                    "Failed to save GameScript build backend",
-                                    result);
-                                set_status_message(
-                                    "GameScript の build backend 保存に失敗しました。", true);
-                            }
-                            else
-                            {
-                                set_status_message(
-                                    std::string("GameScript backend を ") + a_label +
-                                        " に変更しました。",
-                                    false);
-                            }
-                        }
-                    };
-
-                    draw_backend_item("CMake", BuildBackend::CMake);
-                    draw_backend_item("VisualStudio", BuildBackend::VisualStudio);
-
-                    ImGui::EndMenu();
-                }
 
                 if (ImGui::BeginMenu("ゲーム配布ビルド構成", canEditBuildSettings))
                 {
@@ -4320,18 +4968,6 @@ namespace Cue::Editor
                 }
 
                 if (ImGui::MenuItem(
-                        "GameScript を再読み込み", nullptr, false, canReloadScript))
-                {
-                    queue_script_action(PendingScriptAction::Reload);
-                }
-
-                if (ImGui::MenuItem(
-                        "GameScript をビルド", nullptr, false, canBuildScript))
-                {
-                    queue_script_action(PendingScriptAction::Build);
-                }
-
-                if (ImGui::MenuItem(
                         "ゲーム Release ビルド", nullptr, false, canBuildGameRelease))
                 {
                     set_status_message("ゲーム Release ビルドを開始しています...", false);
@@ -4389,14 +5025,6 @@ namespace Cue::Editor
                     }
                 }
 
-                if (ImGui::MenuItem(
-                        "GameScript を追加", nullptr, false,
-                        !m_projectPath.empty() && !m_isScriptActionActive))
-                {
-                    m_createScriptNameBuffer.fill('\0');
-                    m_openCreateScriptPopup = true;
-                }
-
                 ImGui::Separator();
                 if (ImGui::MenuItem(
                         "GameScript solution を開く", nullptr, false,
@@ -4447,6 +5075,11 @@ namespace Cue::Editor
 
                 ImGui::EndMenu();
             }
+            ImGui::SameLine();
+            draw_play_controls();
+            ImGui::SameLine();
+            draw_script_build_configuration_combo();
+            ImGui::SameLine();
 
             if (ImGui::BeginMenu("Test"))
             {
@@ -4468,52 +5101,6 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            if (!m_statusMessage.empty())
-            {
-                ImGui::Separator();
-                if (m_hasStatusError)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
-                }
-                ImGui::TextUnformatted(m_statusMessage.c_str());
-                if (m_hasStatusError)
-                {
-                    ImGui::PopStyleColor();
-                }
-            }
-
-            if (m_hasScriptBuildNotification &&
-                !m_scriptBuildNotificationTitle.empty())
-            {
-                ImGui::Separator();
-                if (m_hasScriptBuildNotificationError)
-                {
-                    ImGui::PushStyleColor(
-                        ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
-                }
-                else
-                {
-                    ImGui::PushStyleColor(
-                        ImGuiCol_Text, IM_COL32(96, 220, 120, 255));
-                }
-
-                ImGui::TextUnformatted(
-                    m_scriptBuildNotificationTitle.c_str());
-                ImGui::PopStyleColor();
-
-                if (!m_scriptBuildNotificationMessage.empty())
-                {
-                    ImGui::SameLine();
-                    ImGui::TextUnformatted(
-                        m_scriptBuildNotificationMessage.c_str());
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Build Output"))
-                {
-                    m_showScriptBuildOutput = true;
-                }
-            }
-
             ImGui::EndMenuBar();
         }
         menuBarTimer.stop();
@@ -4521,7 +5108,13 @@ namespace Cue::Editor
             menuBarTimer.elapsed_ticks().ms_f64();
 
         ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
-        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+        constexpr float k_statusBarHeight = 24.0f;
+        const ImVec2 dockspaceSize(
+            0.0f,
+            (std::max)(0.0f,
+                ImGui::GetContentRegionAvail().y - k_statusBarHeight));
+        ImGui::DockSpace(dockspace_id, dockspaceSize, ImGuiDockNodeFlags_None);
+        draw_status_bar();
         ImGui::End();
 
         Core::Time::Timer optionalWindowsTimer(m_platform->clock());
@@ -4573,7 +5166,14 @@ namespace Cue::Editor
         {
             Core::Time::Timer assetBrowserTimer(m_platform->clock());
             assetBrowserTimer.start();
+            const std::string selectedAssetBefore =
+                m_selectedAssetPath.normalize().utf8();
             m_assetBrowser->update();
+            if (m_selectedAssetPath.normalize().utf8() != selectedAssetBefore &&
+                m_selectedAssetPath.extension() == ".cuematerial")
+            {
+                m_selectedEntityId = GameCore::k_invalidEntityId;
+            }
             assetBrowserTimer.stop();
             m_currentUpdateMetrics.assetBrowserMs =
                 assetBrowserTimer.elapsed_ticks().ms_f64();
@@ -4602,7 +5202,14 @@ namespace Cue::Editor
 
         Core::Time::Timer hierarchyTimer(m_platform->clock());
         hierarchyTimer.start();
+        const GameCore::EntityId selectedEntityBeforeHierarchy =
+            m_selectedEntityId;
         m_hierarchy->update();
+        if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
+            m_selectedEntityId != GameCore::k_invalidEntityId)
+        {
+            m_selectedAssetPath = {};
+        }
         hierarchyTimer.stop();
         m_currentUpdateMetrics.hierarchyMs =
             hierarchyTimer.elapsed_ticks().ms_f64();
@@ -4613,6 +5220,8 @@ namespace Cue::Editor
         inspectorTimer.stop();
         m_currentUpdateMetrics.inspectorMs =
             inspectorTimer.elapsed_ticks().ms_f64();
+
+        focus_pending_window();
 
         updateTimer.stop();
         m_currentUpdateMetrics.totalMs =

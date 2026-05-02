@@ -25,6 +25,7 @@ add_executable(Editor WIN32
     "Views/DebugView.h"
     "Ui/EditorManager.h"
     "Ui/EditorManager.cpp"
+    "Ui/AssetDragDrop.h"
     "Ui/Hierarchy.h"
     "Ui/Inspector.h"
     "Ui/ProjectHub.h"
@@ -73,6 +74,10 @@ target_include_directories(Editor PRIVATE
 
 target_compile_definitions(Editor PRIVATE
     CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
+)
+
+target_compile_options(Editor PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
 )
 
 set_target_properties(Editor PROPERTIES

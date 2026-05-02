@@ -6,6 +6,7 @@
 // === C++ includes ===
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 // === Windows API includes ===
@@ -71,6 +72,19 @@ namespace Cue::PAL::Win
             return m_hwnd;
         }
 
+        /// @brief 管理中のウィンドウが foreground window か返します。
+        [[nodiscard]] bool is_window_focused() const noexcept;
+        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替えます。
+        Result set_drag_drop_enabled(bool a_isEnabled);
+        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返します。
+        [[nodiscard]] bool is_drag_drop_enabled() const noexcept
+        {
+            return m_isDragDropEnabled;
+        }
+        /// @brief ドロップされたファイルパスを取り出します。
+        [[nodiscard]] bool consume_dropped_files(
+            std::vector<std::string>& a_outPaths) noexcept;
+
         /// @brief Platform 用 command bridge を設定します。
         void set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept
         {
@@ -90,8 +104,10 @@ namespace Cue::PAL::Win
     private:
         HWND m_hwnd = nullptr; // ウィンドウハンドル
         bool m_shouldClose = false; // 終了フラグ
+        bool m_isDragDropEnabled = false; // ファイルドロップ許可フラグ
         uint64_t m_nextMessageHandlerId = 1; // 次のメッセージハンドラ ID
         Core::CQRS::Bridge* m_platformBridge = nullptr; // Platform 用 command bridge
         std::vector<MessageHandlerEntry> m_messageHandlers; // メッセージハンドラエントリのリスト
+        std::vector<std::string> m_droppedFiles{}; // ドロップされたファイルパス
     };
 }

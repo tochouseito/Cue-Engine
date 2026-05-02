@@ -3,8 +3,13 @@
 // === Core includes ===
 #include <IO/IFileSystem.h>
 
+// === Editor includes ===
+#include "AssetDragDrop.h"
+#include "Icon.h"
+
 // === C++ includes ===
 #include <algorithm>
+#include <cfloat>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,6 +40,42 @@ namespace Cue::Editor
             m_assetRootPath = {};
             m_selectedFolderPath = {};
             clear_cache();
+        }
+
+        void set_selected_asset_path(Core::IO::Path* a_selectedAssetPath) noexcept
+        {
+            m_selectedAssetPath = a_selectedAssetPath;
+        }
+
+        void refresh()
+        {
+            clear_cache();
+        }
+
+        [[nodiscard]] Core::IO::Path current_asset_folder_path() const noexcept
+        {
+            const Core::IO::Path assetRootPath = m_assetRootPath.normalize();
+            if (assetRootPath.is_empty())
+            {
+                return {};
+            }
+
+            const Core::IO::Path selectedFolderPath =
+                m_selectedFolderPath.normalize();
+            if (selectedFolderPath.is_empty())
+            {
+                return assetRootPath;
+            }
+
+            const std::string assetRoot = assetRootPath.utf8();
+            const std::string selectedFolder = selectedFolderPath.utf8();
+            if (selectedFolder == assetRoot ||
+                selectedFolder.rfind(assetRoot + "/", 0) == 0)
+            {
+                return selectedFolderPath;
+            }
+
+            return assetRootPath;
         }
 
         void update()
@@ -158,9 +199,103 @@ namespace Cue::Editor
                 return;
             }
 
+            m_fileDrawIndex = 0;
             for (const Core::IO::Path& filePath : files)
             {
-                ImGui::BulletText("%s", filePath.filename().c_str());
+                draw_file_button(filePath);
+            }
+        }
+
+        void draw_file_button(const Core::IO::Path& a_filePath)
+        {
+            constexpr float k_tileWidth = 96.0f;
+            constexpr float k_buttonSize = 64.0f;
+            constexpr float k_tileSpacing = 12.0f;
+
+            const float availableWidth = ImGui::GetContentRegionAvail().x;
+            const int columnCount = (std::max)(
+                1,
+                static_cast<int>(availableWidth / (k_tileWidth + k_tileSpacing)));
+            const int columnIndex = m_fileDrawIndex % columnCount;
+
+            ImGui::PushID(a_filePath.utf8().c_str());
+            ImGui::BeginGroup();
+
+            const float tileStartX = ImGui::GetCursorPosX();
+            ImGui::SetCursorPosX(
+                tileStartX + (k_tileWidth - k_buttonSize) * 0.5f);
+            const bool isPressed = ImGui::InvisibleButton(
+                "##FileButton",
+                ImVec2(k_buttonSize, k_buttonSize));
+
+            const ImVec2 buttonMin = ImGui::GetItemRectMin();
+            const ImVec2 buttonMax = ImGui::GetItemRectMax();
+            const bool isMaterial = is_material_file(a_filePath);
+            if (isPressed && isMaterial && m_selectedAssetPath != nullptr)
+            {
+                *m_selectedAssetPath = a_filePath.normalize();
+            }
+            const bool isHovered = ImGui::IsItemHovered();
+            const bool isActive = ImGui::IsItemActive();
+            const ImU32 buttonColor = ImGui::GetColorU32(
+                isActive ? ImGuiCol_ButtonActive
+                         : (isHovered ? ImGuiCol_ButtonHovered
+                                      : ImGuiCol_Button));
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                buttonMin,
+                buttonMax,
+                buttonColor,
+                ImGui::GetStyle().FrameRounding);
+            drawList->AddRect(
+                buttonMin,
+                buttonMax,
+                ImGui::GetColorU32(ImGuiCol_Border),
+                ImGui::GetStyle().FrameRounding);
+
+            constexpr float k_iconFontSize = k_buttonSize;
+            const char* icon = isMaterial ? CUE_ICON_MATERIAL : CUE_ICON_Unknown;
+            ImFont* font = ImGui::GetFont();
+            const ImVec2 iconSize = font->CalcTextSizeA(
+                k_iconFontSize,
+                FLT_MAX,
+                0.0f,
+                icon);
+            const ImVec2 iconPos(
+                buttonMin.x + (k_buttonSize - iconSize.x) * 0.5f,
+                buttonMin.y + (k_buttonSize - iconSize.y) * 0.5f);
+            drawList->AddText(
+                font,
+                k_iconFontSize,
+                iconPos,
+                ImGui::GetColorU32(ImGuiCol_Text),
+                icon);
+
+            if (isMaterial && ImGui::BeginDragDropSource())
+            {
+                const std::string payloadPath = a_filePath.normalize().utf8();
+                ImGui::SetDragDropPayload(
+                    k_materialAssetPayloadType,
+                    payloadPath.c_str(),
+                    payloadPath.size() + 1);
+                ImGui::Text("%s %s", CUE_ICON_MATERIAL,
+                    a_filePath.filename().c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            const std::string filename = a_filePath.filename();
+            ImGui::PushTextWrapPos(tileStartX + k_tileWidth);
+            ImGui::SetCursorPosX(tileStartX);
+            ImGui::TextUnformatted(filename.c_str());
+            ImGui::PopTextWrapPos();
+
+            ImGui::EndGroup();
+            ImGui::PopID();
+
+            ++m_fileDrawIndex;
+            if (columnIndex + 1 < columnCount)
+            {
+                ImGui::SameLine(0.0f, k_tileSpacing);
             }
         }
 
@@ -265,10 +400,18 @@ namespace Cue::Editor
             return a_folderPath.filename();
         }
 
+        [[nodiscard]] static bool is_material_file(
+            const Core::IO::Path& a_filePath) noexcept
+        {
+            return a_filePath.extension() == ".cuematerial";
+        }
+
         Core::IO::IFileSystem* m_fileSystem = nullptr;
+        Core::IO::Path* m_selectedAssetPath = nullptr;
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_selectedFolderPath{};
         std::unordered_map<std::string, std::vector<Core::IO::Path>> m_folderCache{};
         std::unordered_map<std::string, std::vector<Core::IO::Path>> m_fileCache{};
+        int m_fileDrawIndex = 0;
     };
 }

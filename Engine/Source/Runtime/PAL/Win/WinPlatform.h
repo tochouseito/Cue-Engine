@@ -43,6 +43,15 @@ namespace Cue::PAL::Win
         Result end_frame() override;
         /// @brief Windows メッセージを 1 件取得します。
         PlatformMessage poll_message() override;
+        /// @brief Editor/App のメインウィンドウがフォーカスされているか返します。
+        [[nodiscard]] bool is_window_focused() const noexcept override;
+        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替えます。
+        Result set_drag_drop_enabled(bool a_isEnabled) override;
+        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返します。
+        [[nodiscard]] bool is_drag_drop_enabled() const noexcept override;
+        /// @brief ドロップされたファイルパスを取り出します。
+        [[nodiscard]] bool consume_dropped_files(
+            std::vector<std::string>& a_outPaths) noexcept override;
 
         /// @brief 作成済みウィンドウハンドルを返します。
         HWND get_window_handle() const noexcept

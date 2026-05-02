@@ -28,3 +28,7 @@
 #define CUE_ICON_AUDIO "\uE98E" // Brand Awareness
 #define CUE_ICON_UNDO "\uE166" // Undo
 #define CUE_ICON_REDO "\uE15A" // Redo
+#define CUE_ICON_PLAY "\uE037" // Play
+#define CUE_ICON_PAUSE "\uE034" // Pause
+#define CUE_ICON_STOP "\uE047" // Stop
+#define CUE_ICON_Unknown "\uF804" // Unknown

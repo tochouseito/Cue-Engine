@@ -1,11 +1,11 @@
 {
-    "version": 2,
-    "name": "TestRed",
     "color": {
+        "w": 1.0,
         "x": 1.0,
-        "y": 0.2,
-        "z": 0.2,
-        "w": 1.0
+        "y": 0.20000000298023224,
+        "z": 0.20000000298023224
     },
-    "texture": "Textures/uvChecker.cuetexture"
+    "name": "TestRed",
+    "texture": "Textures/uvChecker.cuetexture",
+    "version": 2
 }

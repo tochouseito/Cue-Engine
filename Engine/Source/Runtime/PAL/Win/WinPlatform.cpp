@@ -130,6 +130,36 @@ namespace Cue::PAL::Win
     {
         return m_app->pump_message();
     }
+
+    bool WinPlatform::is_window_focused() const noexcept
+    {
+        return m_app != nullptr && m_app->is_window_focused();
+    }
+
+    Result WinPlatform::set_drag_drop_enabled(bool a_isEnabled)
+    {
+        if (m_app == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "WinApp is not initialized.");
+        }
+
+        return m_app->set_drag_drop_enabled(a_isEnabled);
+    }
+
+    bool WinPlatform::is_drag_drop_enabled() const noexcept
+    {
+        return m_app != nullptr && m_app->is_drag_drop_enabled();
+    }
+
+    bool WinPlatform::consume_dropped_files(
+        std::vector<std::string>& a_outPaths) noexcept
+    {
+        return m_app != nullptr && m_app->consume_dropped_files(a_outPaths);
+    }
+
     uint64_t WinPlatform::register_message_handler(WinApp::messageHandler a_handler)
     {
         // WinApp と同じ契約で受け取るため、そのまま移譲

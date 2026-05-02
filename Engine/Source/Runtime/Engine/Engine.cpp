@@ -1052,7 +1052,8 @@ namespace Cue
             m_cubeIndexCount,
             m_debugSelectedObjectId));
         m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
-            m_debugViewProjectionBufferHandle));
+            m_debugViewProjectionBufferHandle,
+            m_isDebugGridVisible));
         m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
             m_debugViewProjectionBufferHandle,
             m_debugSelectionBufferHandle));
