@@ -2,6 +2,12 @@
 #include <CueAssert.h>
 #include <PlatformCommands.h>
 
+// === PAL includes ===
+#include "../ConvertUTF.h"
+
+// === Windows API includes ===
+#include <shellapi.h>
+
 namespace
 {
     constexpr uint32_t k_minimumWindowWidth = 100;
@@ -76,6 +82,8 @@ namespace Cue::PAL::Win
         // ウィンドウが存在する場合は破棄する
         if (m_hwnd)
         {
+            ::DragAcceptFiles(m_hwnd, FALSE);
+            m_isDragDropEnabled = false;
             ::DestroyWindow(m_hwnd);
             m_hwnd = nullptr;
         }
@@ -200,6 +208,47 @@ namespace Cue::PAL::Win
         return false;
     }
 
+    bool WinApp::is_window_focused() const noexcept
+    {
+        if (m_hwnd == nullptr)
+        {
+            return false;
+        }
+
+        return ::GetForegroundWindow() == m_hwnd;
+    }
+
+    Result WinApp::set_drag_drop_enabled(bool a_isEnabled)
+    {
+        if (m_hwnd == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Window handle is null.");
+        }
+
+        ::DragAcceptFiles(m_hwnd, a_isEnabled ? TRUE : FALSE);
+        m_isDragDropEnabled = a_isEnabled;
+        return Result::ok();
+    }
+
+    bool WinApp::consume_dropped_files(
+        std::vector<std::string>& a_outPaths) noexcept
+    {
+        if (m_droppedFiles.empty())
+        {
+            return false;
+        }
+
+        for (std::string& path : m_droppedFiles)
+        {
+            a_outPaths.push_back(std::move(path));
+        }
+        m_droppedFiles.clear();
+        return true;
+    }
+
     // メッセージハンドラ
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
@@ -265,6 +314,52 @@ namespace Cue::PAL::Win
                     result.function);
             }
 
+            return 0;
+        }
+
+        case WM_DROPFILES:
+        {
+            HDROP dropHandle = reinterpret_cast<HDROP>(a_wParam);
+            if (!m_isDragDropEnabled)
+            {
+                ::DragFinish(dropHandle);
+                return 0;
+            }
+
+            const UINT droppedFileCount =
+                ::DragQueryFileW(dropHandle, 0xFFFFFFFF, nullptr, 0);
+            for (UINT fileIndex = 0; fileIndex < droppedFileCount; ++fileIndex)
+            {
+                const UINT pathLength =
+                    ::DragQueryFileW(dropHandle, fileIndex, nullptr, 0);
+                if (pathLength == 0)
+                {
+                    continue;
+                }
+
+                std::wstring widePath(
+                    static_cast<size_t>(pathLength) + 1u,
+                    L'\0');
+                const UINT written = ::DragQueryFileW(
+                    dropHandle,
+                    fileIndex,
+                    widePath.data(),
+                    pathLength + 1);
+                if (written == 0)
+                {
+                    continue;
+                }
+                widePath.resize(written);
+
+                std::string path{};
+                const Result convertResult = wide_to_utf8(widePath, &path);
+                if (convertResult)
+                {
+                    m_droppedFiles.push_back(std::move(path));
+                }
+            }
+
+            ::DragFinish(dropHandle);
             return 0;
         }
 
