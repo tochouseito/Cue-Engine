@@ -8,8 +8,11 @@ namespace Cue
     class DebugGridPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit DebugGridPass(RHI::BufferHandle a_viewProjectionBufferHandle)
+        DebugGridPass(
+            RHI::BufferHandle a_viewProjectionBufferHandle,
+            const bool& a_isVisible) noexcept
             : m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
+            , m_isVisible(a_isVisible)
         {}
 
         const char* name() const noexcept override
@@ -149,6 +152,11 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
+            if (!m_isVisible)
+            {
+                return;
+            }
+
             RHI::ICommandContext* commandContext = context.commandContext();
             if (commandContext == nullptr)
             {
@@ -182,5 +190,6 @@ namespace Cue
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
+        const bool& m_isVisible;
     };
 } // namespace Cue

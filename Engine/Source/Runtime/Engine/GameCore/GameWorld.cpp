@@ -227,6 +227,12 @@ namespace Cue::GameCore
     {
         execute_deferred_deletions_internal();
 
+        Result sceneLoadResult = execute_deferred_scene_loads();
+        if (!sceneLoadResult)
+        {
+            return sceneLoadResult;
+        }
+
         sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 
         ECS::UpdateContext updateContext{};

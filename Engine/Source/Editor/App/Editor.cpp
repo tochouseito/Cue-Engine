@@ -92,6 +92,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    r = platform->set_drag_drop_enabled(true);
+    if (!r)
+    {
+#ifdef CUE_DEBUG
+        CUE_ASSERTF(false,
+            "Failed to enable drag and drop: %s (code: %s, severity: %s) at "
+            "%s:%u in function %s",
+            r.message.data(), Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#else
+        Core::IO::log(Core::IO::LogSink::debugConsole,
+            "Failed to enable drag and drop: {} (code: {}, severity: {}) at "
+            "{}:{} in function {}",
+            r.message, Cue::to_string(r.code),
+            Cue::to_string(r.severity), r.file, r.line, r.function);
+#endif
+        return -1;
+    }
+
     // レンダリングバックエンドの生成
     backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());

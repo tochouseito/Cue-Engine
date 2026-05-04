@@ -265,11 +265,13 @@ namespace Cue::Editor
             const ImWchar* defaultGlyphRanges = fontAtlas.GetGlyphRangesDefault();
             const ImWchar* japaneseGlyphRanges = fontAtlas.GetGlyphRangesJapanese();
 
+            ImFontConfig uiFontConfig{};
+            uiFontConfig.GlyphExcludeRanges = k_iconGlyphRanges;
             outUiFont = load_font(
                 fontPaths.uiFont,
                 fontAtlas,
                 k_uiFontSize,
-                nullptr,
+                &uiFontConfig,
                 defaultGlyphRanges);
             if (outUiFont == nullptr)
             {
@@ -284,6 +286,7 @@ namespace Cue::Editor
             fallbackFontConfig.OversampleH = 2;
             fallbackFontConfig.OversampleV = 2;
             fallbackFontConfig.RasterizerMultiply = k_japaneseRasterizerMultiply;
+            fallbackFontConfig.GlyphExcludeRanges = k_iconGlyphRanges;
             if (load_font(
                 fontPaths.fallbackFont,
                 fontAtlas,

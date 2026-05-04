@@ -205,6 +205,15 @@ namespace Cue
             return result;
         }
 
+        result = create_render_target_resources(
+            "DebugOutlineObjectId",
+            RHI::ColorFormat::R32_UINT,
+            m_debugOutlineObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
         result = create_debug_pick_readback_buffer();
         if (!result)
         {
@@ -823,6 +832,13 @@ namespace Cue
         m_debugPickResultEntityId = GameCore::k_invalidEntityId;
     }
 
+    void Engine::cancel_debug_pick() noexcept
+    {
+        m_debugPickState = {};
+        m_hasDebugPickResult = false;
+        m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+    }
+
     bool Engine::consume_debug_pick_result(
         GameCore::EntityId& a_outEntityId) noexcept
     {
@@ -1033,9 +1049,11 @@ namespace Cue
             worldResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
             worldResources->visible_object_count_buffer_handle(),
-            m_cubeIndexCount));
+            m_cubeIndexCount,
+            m_debugSelectedObjectId));
         m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
-            m_debugViewProjectionBufferHandle));
+            m_debugViewProjectionBufferHandle,
+            m_isDebugGridVisible));
         m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
             m_debugViewProjectionBufferHandle,
             m_debugSelectionBufferHandle));
@@ -1091,6 +1109,13 @@ namespace Cue
             return result;
         }
 
+        result =
+            destroy_render_target_resources(m_debugOutlineObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
         result = destroy_debug_pick_readback_buffer();
         if (!result)
         {
@@ -1125,6 +1150,13 @@ namespace Cue
         }
 
         result = destroy_render_target_resources(m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            destroy_render_target_resources(m_debugOutlineObjectIdTarget);
         if (!result)
         {
             return result;
@@ -1170,6 +1202,15 @@ namespace Cue
             "DebugObjectId",
             RHI::ColorFormat::R32_UINT,
             m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "DebugOutlineObjectId",
+            RHI::ColorFormat::R32_UINT,
+            m_debugOutlineObjectIdTarget);
         if (!result)
         {
             return result;

@@ -13,6 +13,7 @@
 #include <IO/IFileSystem.h>
 
 // === Editor includes ===
+#include "AssetDragDrop.h"
 #include "Icon.h"
 
 // === C++ includes ===
@@ -140,11 +141,13 @@ namespace Cue::Editor
         };
 
         Inspector(Core::CQRS::Bridge* bridge, GameCore::GameWorld* a_gameWorld,
-            GameCore::EntityId* a_selectedEntityId, Engine* a_engine,
+            GameCore::EntityId* a_selectedEntityId,
+            Core::IO::Path* a_selectedAssetPath, Engine* a_engine,
             Core::IO::IFileSystem* a_fileSystem)
             : editorBridge(bridge)
             , m_gameWorld(a_gameWorld)
             , m_selectedEntityId(a_selectedEntityId)
+            , m_selectedAssetPath(a_selectedAssetPath)
             , m_engine(a_engine)
             , m_fileSystem(a_fileSystem)
         {
@@ -166,6 +169,15 @@ namespace Cue::Editor
             if (gameWorld == nullptr || m_selectedEntityId == nullptr)
             {
                 ImGui::TextUnformatted("Inspector の依存が初期化されていません。");
+                ImGui::End();
+                return;
+            }
+
+            if (*m_selectedEntityId == GameCore::k_invalidEntityId &&
+                m_selectedAssetPath != nullptr &&
+                m_selectedAssetPath->extension() == ".cuematerial")
+            {
+                draw_material_asset(*m_selectedAssetPath);
                 ImGui::End();
                 return;
             }
@@ -668,9 +680,7 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("StaticMeshRendererComponent");
             ImGui::Separator();
-            ImGui::Text("materialHandle.index: %u", component->materialHandle.index);
-            ImGui::Text("materialHandle.generation: %u",
-                component->materialHandle.generation);
+            draw_material_reference_editor("material", component->materialHandle);
             ImGui::Text("visible: %s", component->visible ? "true" : "false");
         }
 
@@ -686,9 +696,7 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("SpriteRendererComponent");
             ImGui::Separator();
-            ImGui::Text("materialHandle.index: %u", component->materialHandle.index);
-            ImGui::Text("materialHandle.generation: %u",
-                component->materialHandle.generation);
+            draw_material_reference_editor("material", component->materialHandle);
 
             float color[4] = {
                 component->color.r,
@@ -2943,6 +2951,185 @@ namespace Cue::Editor
             ImGui::Text("%s: %u", a_label, a_value);
         }
 
+        void draw_material_asset(const Core::IO::Path& a_materialPath)
+        {
+            ImGui::BeginChild("MaterialInspectorContent", ImVec2(0.0f, 0.0f),
+                true);
+            ImGui::TextUnformatted("Material");
+            ImGui::Separator();
+            ImGui::Text("file: %s", a_materialPath.filename().c_str());
+
+            if (m_engine == nullptr || m_fileSystem == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "Material の依存が初期化されていません。");
+                ImGui::EndChild();
+                return;
+            }
+
+            MaterialHandle materialHandle{};
+            Result result = m_engine->asset_manager().load_material(
+                *m_fileSystem, a_materialPath, materialHandle);
+            if (!result)
+            {
+                ImGui::TextWrapped(
+                    "Material の読み込みに失敗しました: %s",
+                    result.message.data());
+                ImGui::EndChild();
+                return;
+            }
+
+            std::string materialName{};
+            (void)m_engine->asset_manager().get_material_name(
+                materialHandle, materialName);
+            if (!materialName.empty())
+            {
+                ImGui::Text("name: %s", materialName.c_str());
+            }
+            ImGui::Text("handle: %u / %u", materialHandle.index,
+                materialHandle.generation);
+
+            MaterialDesc materialDesc{};
+            result = m_engine->asset_manager().get_material(
+                materialHandle, materialDesc);
+            if (!result)
+            {
+                ImGui::TextWrapped(
+                    "Material の取得に失敗しました: %s",
+                    result.message.data());
+                ImGui::EndChild();
+                return;
+            }
+
+            float color[4] = {
+                materialDesc.color.r,
+                materialDesc.color.g,
+                materialDesc.color.b,
+                materialDesc.color.a
+            };
+            if (ImGui::ColorEdit4("color", color))
+            {
+                materialDesc.color =
+                    Math::float4(color[0], color[1], color[2], color[3]);
+                result = m_engine->asset_manager().update_material(
+                    materialHandle, materialDesc);
+                if (result)
+                {
+                    result = m_engine->asset_manager().save_material(
+                        materialHandle, *m_fileSystem, a_materialPath);
+                }
+
+                if (!result)
+                {
+                    m_materialStatusMessage =
+                        std::string("Material の保存に失敗しました: ") +
+                        std::string(result.message);
+                    m_materialStatusIsError = true;
+                }
+                else
+                {
+                    m_materialStatusMessage =
+                        "Material を保存しました。";
+                    m_materialStatusIsError = false;
+                }
+            }
+
+            if (!materialDesc.textureName.empty())
+            {
+                ImGui::Text("texture: %s", materialDesc.textureName.c_str());
+            }
+            if (!m_materialStatusMessage.empty())
+            {
+                const ImVec4 colorText = m_materialStatusIsError
+                    ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+                    : ImVec4(0.35f, 1.0f, 0.45f, 1.0f);
+                ImGui::TextColored(
+                    colorText, "%s", m_materialStatusMessage.c_str());
+            }
+
+            ImGui::EndChild();
+        }
+
+        void draw_material_reference_editor(
+            const char* a_label,
+            MaterialHandle& a_materialHandle)
+        {
+            std::string materialName = "<empty>";
+            if (a_materialHandle.valid() && m_engine != nullptr)
+            {
+                std::string resolvedName{};
+                if (m_engine->asset_manager().get_material_name(
+                        a_materialHandle, resolvedName))
+                {
+                    materialName = resolvedName;
+                }
+                else
+                {
+                    materialName = "<missing>";
+                }
+            }
+
+            ImGui::Text("%s: %s", a_label, materialName.c_str());
+            ImGui::Text("handle: %u / %u", a_materialHandle.index,
+                a_materialHandle.generation);
+            ImGui::Button("Material をここへドロップ",
+                ImVec2(-1.0f, ImGui::GetFrameHeight()));
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload =
+                        ImGui::AcceptDragDropPayload(
+                            k_materialAssetPayloadType);
+                    payload != nullptr)
+                {
+                    const char* pathText =
+                        static_cast<const char*>(payload->Data);
+                    if (pathText != nullptr && payload->DataSize > 0)
+                    {
+                        MaterialHandle droppedHandle{};
+                        const Result result =
+                            m_engine != nullptr && m_fileSystem != nullptr
+                            ? m_engine->asset_manager().load_material(
+                                  *m_fileSystem,
+                                  Core::IO::Path(pathText),
+                                  droppedHandle)
+                            : Result::fail(
+                                  Code::InvalidState,
+                                  Severity::Error,
+                                  "Material drop dependencies are not initialized.");
+                        if (result)
+                        {
+                            a_materialHandle = droppedHandle;
+                            m_materialStatusMessage =
+                                "Renderer に Material を設定しました。";
+                            m_materialStatusIsError = false;
+                        }
+                        else
+                        {
+                            m_materialStatusMessage =
+                                std::string("Material の設定に失敗しました: ") +
+                                std::string(result.message);
+                            m_materialStatusIsError = true;
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (ImGui::Button("クリア"))
+            {
+                a_materialHandle = {};
+            }
+            if (!m_materialStatusMessage.empty())
+            {
+                const ImVec4 colorText = m_materialStatusIsError
+                    ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+                    : ImVec4(0.35f, 1.0f, 0.45f, 1.0f);
+                ImGui::TextColored(
+                    colorText, "%s", m_materialStatusMessage.c_str());
+            }
+        }
+
         template <typename T>
         [[nodiscard]] bool has_component(
             const GameCore::GameObject& a_object) const
@@ -3253,12 +3440,15 @@ namespace Cue::Editor
         Core::CQRS::Bridge* editorBridge = nullptr;
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
+        Core::IO::Path* m_selectedAssetPath = nullptr;
         Engine* m_engine = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Core::IO::Path m_assetRootPath{};
         std::vector<std::string> m_soundFileNames{};
         std::string m_audioStatusMessage{};
+        std::string m_materialStatusMessage{};
         bool m_audioStatusIsError = false;
+        bool m_materialStatusIsError = false;
         bool m_shouldRefreshSoundFiles = true;
         GameCore::EntityId m_lastInspectedEntityId =
             GameCore::k_invalidEntityId;

@@ -1,6 +1,5 @@
 # Editor モジュールの CMake 設定
 
-find_package(directx-dxc CONFIG REQUIRED)
 find_package(directxtex CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
@@ -9,6 +8,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # ターゲットの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
+    "App/EditorResources.rc"
     "Asset/TextureCooker.h"
     "Asset/TextureCooker.cpp"
     "Asset/ModelCooker.h"
@@ -26,6 +26,7 @@ add_executable(Editor WIN32
     "Views/DebugView.h"
     "Ui/EditorManager.h"
     "Ui/EditorManager.cpp"
+    "Ui/AssetDragDrop.h"
     "Ui/Hierarchy.h"
     "Ui/Inspector.h"
     "Ui/ProjectHub.h"
@@ -74,6 +75,10 @@ target_include_directories(Editor PRIVATE
 
 target_compile_definitions(Editor PRIVATE
     CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
+)
+
+target_compile_options(Editor PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
 )
 
 set_target_properties(Editor PROPERTIES

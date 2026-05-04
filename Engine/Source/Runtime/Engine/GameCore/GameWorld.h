@@ -11,6 +11,7 @@
 #include "RenderSceneState.h"
 #include "SceneAsset.h"
 #include "SceneInstance.h"
+#include "SceneSerializer.h"
 #include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
 #include "Systems/PhysicsBodySystem.h"
@@ -58,6 +59,12 @@ namespace Cue::GameCore
             bool isPendingDestroy = false;
             SceneId sourceSceneId = k_invalidSceneId;
             LocalObjectId sourceLocalObjectId = k_invalidLocalObjectId;
+        };
+
+        struct PendingSceneLoad final
+        {
+            SceneId sceneId = k_invalidSceneId;
+            Core::IO::Path path{};
         };
 
         GameWorld() = default;
@@ -485,6 +492,64 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
+        [[nodiscard]] Result load_scene(SceneId a_sceneId,
+            const SceneAsset& a_asset, LoadSceneResult& a_outResult)
+        {
+            a_outResult = {};
+            if (a_sceneId == k_invalidSceneId)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld scene id is invalid.");
+            }
+
+            Result result = capture_result(
+                [this, &a_outResult, a_sceneId, &a_asset]()
+                {
+                    a_outResult = load_scene(a_sceneId, a_asset);
+                });
+            if (!result)
+            {
+                return result;
+            }
+
+            if (!a_asset.navigation_mesh_path().empty())
+            {
+                NavMeshHandle navMeshHandle{};
+                result = load_navigation_mesh_from_path(
+                    Core::IO::Path(a_asset.navigation_mesh_path()), navMeshHandle);
+                if (!result)
+                {
+                    (void)unload_scene(a_outResult.sceneId);
+                    (void)execute_deferred_deletions();
+                    a_outResult = {};
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result request_load_scene(
+            std::string_view a_sceneName, SceneId& a_outSceneId)
+        {
+            a_outSceneId = k_invalidSceneId;
+
+            Core::IO::Path scenePath{};
+            Result result = resolve_scene_path(a_sceneName, scenePath);
+            if (!result)
+            {
+                return result;
+            }
+
+            return capture_result(
+                [this, &a_outSceneId, &scenePath]()
+                {
+                    a_outSceneId = generate_scene_id();
+                    m_pendingLoadedScenes.push_back(
+                        PendingSceneLoad{ a_outSceneId, scenePath });
+                });
+        }
+
         [[nodiscard]] Result append_to_scene(SceneId a_sceneId,
             std::span<const ObjectDefinition> a_objects, LoadSceneResult& a_outResult)
         {
@@ -530,6 +595,30 @@ namespace Cue::GameCore
                 ? Result::ok()
                 : Result::fail(
                     Code::NotFound, Severity::Warning, "GameWorld scene was not found.");
+        }
+
+        [[nodiscard]] Result request_unload_scene(SceneId a_sceneId) noexcept
+        {
+            if (a_sceneId == k_invalidSceneId)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld scene id is invalid.");
+            }
+
+            const auto pendingIt = std::find_if(
+                m_pendingLoadedScenes.begin(),
+                m_pendingLoadedScenes.end(),
+                [a_sceneId](const PendingSceneLoad& a_pending)
+                {
+                    return a_pending.sceneId == a_sceneId;
+                });
+            if (pendingIt != m_pendingLoadedScenes.end())
+            {
+                m_pendingLoadedScenes.erase(pendingIt);
+                return Result::ok();
+            }
+
+            return unload_scene(a_sceneId);
         }
 
         [[nodiscard]] Result execute_deferred_deletions() noexcept
@@ -794,6 +883,8 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result clear() noexcept
         {
+            m_pendingLoadedScenes.clear();
+
             if (m_activeNavMesh.valid())
             {
                 const Result navResult =
@@ -843,7 +934,14 @@ namespace Cue::GameCore
             }
 
             // clear() 完了時点ではワールドが空になっていることを保証する。
-            return execute_deferred_deletions();
+            Result clearResult = execute_deferred_deletions();
+            if (!clearResult)
+            {
+                return clearResult;
+            }
+
+            m_ownedSceneAssets.clear();
+            return Result::ok();
         }
 
         template <typename T>
@@ -1264,6 +1362,11 @@ namespace Cue::GameCore
             {
                 return Result::fail(Code::InvalidArgument, Severity::Warning, a_message);
             }
+            if (a_message == "GameWorld scene id is invalid." ||
+                a_message == "GameWorld scene id is duplicated.")
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Warning, a_message);
+            }
 
             return Result::fail(Code::UnknownError, Severity::Error, a_message);
         }
@@ -1293,22 +1396,44 @@ namespace Cue::GameCore
         [[nodiscard]] LoadSceneResult load_scene(const SceneAsset& a_asset)
         {
             const SceneId sceneId = generate_scene_id();
+            return load_scene(sceneId, a_asset);
+        }
+
+        [[nodiscard]] LoadSceneResult load_scene(
+            SceneId a_sceneId, const SceneAsset& a_asset)
+        {
+            if (a_sceneId == k_invalidSceneId)
+            {
+                throw std::runtime_error("GameWorld scene id is invalid.");
+            }
+            if (m_scenes.contains(a_sceneId))
+            {
+                throw std::runtime_error("GameWorld scene id is duplicated.");
+            }
+            if (a_sceneId >= m_nextSceneId)
+            {
+                m_nextSceneId = a_sceneId + 1;
+                if (m_nextSceneId == 0)
+                {
+                    throw std::overflow_error("GameWorld scene id overflow.");
+                }
+            }
 
             SceneInstance scene{};
-            scene.sceneId = sceneId;
+            scene.sceneId = a_sceneId;
             scene.asset = &a_asset;
             scene.isLoaded = true;
             scene.isActive = true;
 
-            m_scenes.emplace(sceneId, std::move(scene));
+            m_scenes.emplace(a_sceneId, std::move(scene));
 
             try
             {
-                return instantiate_into_scene(sceneId, a_asset.objects(), &a_asset);
+                return instantiate_into_scene(a_sceneId, a_asset.objects(), &a_asset);
             }
             catch (...)
             {
-                auto it = m_scenes.find(sceneId);
+                auto it = m_scenes.find(a_sceneId);
                 if (it != m_scenes.end())
                 {
                     const std::vector<EntityId> created = it->second.entities;
@@ -1385,6 +1510,102 @@ namespace Cue::GameCore
             {
                 destroy_object_immediately(entity);
             }
+        }
+
+        [[nodiscard]] Result execute_deferred_scene_loads()
+        {
+            std::vector<PendingSceneLoad> pendingScenes{};
+            pendingScenes.swap(m_pendingLoadedScenes);
+
+            for (const PendingSceneLoad& pendingScene : pendingScenes)
+            {
+                auto sceneAsset = std::make_unique<SceneAsset>();
+                SceneSerializer::LoadOptions loadOptions{};
+                loadOptions.assetManager = m_assetManager;
+                Result result = SceneSerializer::load_scene_asset(
+                    *m_fileSystem,
+                    pendingScene.path,
+                    *sceneAsset,
+                    loadOptions);
+                if (!result)
+                {
+                    return result;
+                }
+
+                LoadSceneResult loadResult{};
+                result = load_scene(
+                    pendingScene.sceneId,
+                    *sceneAsset,
+                    loadResult);
+                if (!result)
+                {
+                    return result;
+                }
+
+                m_ownedSceneAssets[pendingScene.sceneId] = std::move(sceneAsset);
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result resolve_scene_path(
+            std::string_view a_sceneName,
+            Core::IO::Path& a_outPath) const noexcept
+        {
+            a_outPath = {};
+            if (a_sceneName.empty())
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Scene name is empty.");
+            }
+            if (m_fileSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld file system is not initialized.");
+            }
+            if (m_assetRootPath.is_empty())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld asset root path is not configured.");
+            }
+
+            std::string sceneText(a_sceneName);
+            const bool hasDirectory =
+                sceneText.find('/') != std::string::npos ||
+                sceneText.find('\\') != std::string::npos;
+            Core::IO::Path scenePath(sceneText);
+            if (scenePath.extension().empty())
+            {
+                sceneText += ".cuescene";
+                scenePath = Core::IO::Path(sceneText);
+            }
+
+            if (!scenePath.is_absolute())
+            {
+                scenePath = hasDirectory
+                    ? Core::IO::Path::join(m_assetRootPath, scenePath)
+                    : Core::IO::Path::join(
+                        Core::IO::Path::join(
+                            m_assetRootPath,
+                            Core::IO::Path("Scenes")),
+                        scenePath);
+            }
+
+            scenePath = scenePath.normalize();
+            bool exists = false;
+            Result result = m_fileSystem->exists(scenePath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!exists)
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "Scene file was not found.");
+            }
+
+            a_outPath = scenePath;
+            return Result::ok();
         }
 
         [[nodiscard]] GameObject find_object(EntityId a_entityId) noexcept
@@ -2029,6 +2250,7 @@ namespace Cue::GameCore
             }
 
             m_scenes.erase(sceneIt);
+            m_ownedSceneAssets.erase(a_sceneId);
             return true;
         }
 
@@ -2256,11 +2478,13 @@ namespace Cue::GameCore
         RenderSceneState m_renderSceneState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
+        std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};
         std::unordered_map<std::string, std::unordered_set<EntityId>> m_tagIndex{};
         std::vector<EntityRecord> m_entityRecords{};
         // 公開 API の遅延削除要求を一時的に保持するキュー。
         std::vector<EntityId> m_pendingDestroyedEntities{};
+        std::vector<PendingSceneLoad> m_pendingLoadedScenes{};
         std::vector<SceneId> m_pendingUnloadedScenes{};
         SceneId m_nextSceneId = 1;
         size_t m_liveObjectCount = 0;

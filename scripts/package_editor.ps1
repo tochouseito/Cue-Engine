@@ -5,6 +5,7 @@ param(
     [string]$OutputRoot = "generated/packaged_editor",
     [string]$TargetTriplet = "x64-windows-static-md",
     [string]$HostTriplet = "x64-windows",
+    [switch]$InstallVcpkgDependencies,
     [switch]$ForceConfigure
 )
 
@@ -155,13 +156,15 @@ $packageEditorRoot = Join-Path $packageRoot "Editor"
 $packageSdkRoot = Join-Path $packageRoot "Sdk"
 $cmakeCachePath = Join-Path $repoRoot (Join-Path $BuildDirectory "CMakeCache.txt")
 $buildRoot = Join-Path $repoRoot $BuildDirectory
+$editorProjectPath = Join-Path $buildRoot "Engine/Source/Editor/Editor.vcxproj"
 $msbuildExe = Resolve-MSBuildExe
 $configuredTargetTriplet = Get-CMakeCacheValue `
     -CachePath $cmakeCachePath `
     -Name "VCPKG_TARGET_TRIPLET"
 $shouldConfigure = $ForceConfigure -or
     -not (Test-Path -LiteralPath $cmakeCachePath) -or
-    $configuredTargetTriplet -ne $TargetTriplet
+    $configuredTargetTriplet -ne $TargetTriplet -or
+    -not (Test-Path -LiteralPath $editorProjectPath)
 
 if ($shouldConfigure)
 {
@@ -174,12 +177,14 @@ if ($shouldConfigure)
         $toolchainPath = Join-Path $env:VCPKG_ROOT "scripts/buildsystems/vcpkg.cmake"
         Assert-PathExists -Path $toolchainPath -Description "vcpkg toolchain"
 
+        $manifestInstallValue = if ($InstallVcpkgDependencies) { "ON" } else { "OFF" }
+
         cmake -S . -B $BuildDirectory `
             "-DCMAKE_TOOLCHAIN_FILE=$toolchainPath" `
             "-DVCPKG_OVERLAY_TRIPLETS=$repoRoot/config/vcpkg/triplets" `
             "-DVCPKG_TARGET_TRIPLET=$TargetTriplet" `
             "-DVCPKG_HOST_TRIPLET=$HostTriplet" `
-            "-DVCPKG_MANIFEST_INSTALL=ON"
+            "-DVCPKG_MANIFEST_INSTALL=$manifestInstallValue"
         if ($LASTEXITCODE -ne 0)
         {
             throw "CMake configure に失敗しました。"
@@ -195,7 +200,7 @@ else
 
 Invoke-Step -Message "Editor を $EditorConfiguration でビルドします。" -Action {
     Invoke-MSBuildProject `
-        -ProjectPath (Join-Path $buildRoot "Engine/Source/Editor/Editor.vcxproj") `
+        -ProjectPath $editorProjectPath `
         -Configuration $EditorConfiguration
 }
 

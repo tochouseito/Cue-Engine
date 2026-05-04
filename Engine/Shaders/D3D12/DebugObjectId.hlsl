@@ -22,7 +22,13 @@ struct DrawObjectIndexConstants
     uint drawObjectIndex;
 };
 
+struct SelectedObjectConstants
+{
+    uint objectId;
+};
+
 ConstantBuffer<DrawObjectIndexConstants> g_drawObjectIndex : register(b1);
+ConstantBuffer<SelectedObjectConstants> g_selectedObject : register(b2);
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
@@ -53,5 +59,11 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
 uint ps_main(VsOut input) : SV_Target0
 {
+    if (g_selectedObject.objectId != 0 &&
+        input.objectId != g_selectedObject.objectId)
+    {
+        discard;
+    }
+
     return input.objectId;
 }

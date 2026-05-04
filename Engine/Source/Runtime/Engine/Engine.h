@@ -224,7 +224,18 @@ namespace Cue
             m_debugSelectedObjectId = a_objectId;
         }
 
+        void set_debug_grid_visible(bool a_isVisible) noexcept
+        {
+            m_isDebugGridVisible = a_isVisible;
+        }
+
+        [[nodiscard]] bool is_debug_grid_visible() const noexcept
+        {
+            return m_isDebugGridVisible;
+        }
+
         void request_debug_pick(float a_normalizedX, float a_normalizedY) noexcept;
+        void cancel_debug_pick() noexcept;
         [[nodiscard]] bool consume_debug_pick_result(
             GameCore::EntityId& a_outEntityId) noexcept;
 
@@ -337,6 +348,7 @@ namespace Cue
         RenderTargetResources m_gameRenderTarget{};
         RenderTargetResources m_debugRenderTarget{};
         RenderTargetResources m_debugObjectIdTarget{};
+        RenderTargetResources m_debugOutlineObjectIdTarget{};
         RHI::BufferHandle m_debugViewProjectionBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
             m_debugViewProjectionUploaders{};
@@ -350,6 +362,7 @@ namespace Cue
         GpuData::DebugPickState m_debugPickState{};
         GameCore::EntityId m_debugPickResultEntityId = GameCore::k_invalidEntityId;
         bool m_hasDebugPickResult = false;
+        bool m_isDebugGridVisible = true;
         uint32_t m_debugSelectedObjectId = 0;
         Audio::AudioDeviceHandle m_audioDevice{};
         Core::IO::Path m_assetRootPath{};

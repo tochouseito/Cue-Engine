@@ -44,6 +44,10 @@ namespace Cue
 
         virtual Result create_object(AddObjectType a_objectType,
             GameCore::EntityId& a_outObjectId) = 0;
+        virtual Result create_object(
+            AddObjectType a_objectType,
+            GameCore::SceneId a_sceneId,
+            GameCore::EntityId& a_outObjectId) = 0;
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result resolve_render_object_entity(
             uint32_t a_objectId, GameCore::EntityId& a_outEntityId) = 0;
@@ -78,8 +82,10 @@ namespace Cue
     {
     public:
         explicit AddObjectCommand(
-            AddObjectType a_objectType = AddObjectType::StaticMesh3D) noexcept
+            AddObjectType a_objectType = AddObjectType::StaticMesh3D,
+            GameCore::SceneId a_sceneId = GameCore::k_invalidSceneId) noexcept
             : m_objectType(a_objectType)
+            , m_sceneId(a_sceneId)
         {
         }
 
@@ -98,7 +104,8 @@ namespace Cue
             if (!m_hasSnapshot)
             {
                 Result createResult =
-                    gameCommandContext->create_object(m_objectType, m_objectId);
+                    gameCommandContext->create_object(
+                        m_objectType, m_sceneId, m_objectId);
                 if (!createResult)
                 {
                     return createResult;
@@ -146,6 +153,7 @@ namespace Cue
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         GameCore::DeletedObjectSnapshot m_snapshot{};
         AddObjectType m_objectType = AddObjectType::StaticMesh3D;
+        GameCore::SceneId m_sceneId = GameCore::k_invalidSceneId;
         bool m_hasSnapshot = false;
     };
 

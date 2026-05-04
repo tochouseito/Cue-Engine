@@ -39,12 +39,16 @@ namespace Cue
             {
                 return result;
             }
-            result = builder.get_texture("DebugObjectId", m_objectIdHandle);
+            result = builder.get_texture(
+                "DebugOutlineObjectId",
+                m_objectIdHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("DebugObjectIdSRV", m_objectIdSrvHandle);
+            result = builder.get_view(
+                "DebugOutlineObjectIdSRV",
+                m_objectIdSrvHandle);
             if (!result)
             {
                 return result;

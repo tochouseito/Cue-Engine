@@ -96,6 +96,20 @@ namespace Cue
             ModelHandle& outHandle);
         Result create_material(std::string_view name, const MaterialDesc& desc,
             MaterialHandle& outHandle);
+        Result update_material(MaterialHandle handle, const MaterialDesc& desc)
+        {
+            MaterialAssetRecord* record = m_materialRegistry.ref_get(handle);
+            if (record == nullptr)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Material not found for the given handle.");
+            }
+
+            record->desc = desc;
+            return Result::ok();
+        }
         Result create_color_material(std::string_view name,
             const Math::float4& color, MaterialHandle& outHandle);
         Result save_material(MaterialHandle handle,

@@ -2,6 +2,8 @@
 
 // === C++ includes ===
 #include <cstdint>
+#include <string>
+#include <vector>
 
 // === Base includes ===
 #include <Result.h>
@@ -49,6 +51,15 @@ namespace Cue::PAL
         virtual Result end_frame() = 0;
         /// @brief プラットフォームメッセージを 1 件取得します。
         virtual PlatformMessage poll_message() = 0;
+        /// @brief 管理中のアプリケーションウィンドウがフォーカスされているか返します。
+        [[nodiscard]] virtual bool is_window_focused() const noexcept = 0;
+        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替えます。
+        virtual Result set_drag_drop_enabled(bool a_isEnabled) = 0;
+        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返します。
+        [[nodiscard]] virtual bool is_drag_drop_enabled() const noexcept = 0;
+        /// @brief ドロップされたファイルパスを取り出します。
+        [[nodiscard]] virtual bool consume_dropped_files(
+            std::vector<std::string>& a_outPaths) noexcept = 0;
     public:
         // --- 取得 ---
         virtual Core::Threading::IThreadFactory& thread_factory() = 0;
