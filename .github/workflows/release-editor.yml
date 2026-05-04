@@ -1,0 +1,111 @@
+name: release-editor
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve release tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch")
+          {
+              $tag = "${{ inputs.tag }}"
+          }
+          if ([string]::IsNullOrWhiteSpace($tag) -or -not $tag.StartsWith("v"))
+          {
+              throw "Release tag は v0.1.0 のような v 始まりで指定してください。"
+          }
+          "CUE_RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CUE_RELEASE_VERSION=$($tag.TrimStart("v"))" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          & (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat")
+          if ($LASTEXITCODE -ne 0)
+          {
+              throw "vcpkg bootstrap に失敗しました。"
+          }
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build package
+        shell: pwsh
+        run: |
+          $env:CMAKE_GENERATOR = "Visual Studio 18 2026"
+          $env:CMAKE_GENERATOR_PLATFORM = "x64"
+          pwsh -NoProfile -File scripts/create_editor_release_package.ps1 `
+              -Version "$env:CUE_RELEASE_VERSION" `
+              -TagName "$env:CUE_RELEASE_TAG" `
+              -Repository "${{ github.repository }}" `
+              -InstallVcpkgDependencies `
+              -ForceConfigure
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CueEngineEditor-${{ env.CUE_RELEASE_VERSION }}-win-x64
+          path: |
+            generated/release/*.zip
+            generated/release/*.json
+            generated/release/*.exe
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:CUE_RELEASE_TAG
+          $title = $tag
+          $notes = "Cue Engine Editor $($env:CUE_RELEASE_VERSION)"
+          $assets = Get-ChildItem -LiteralPath "generated/release" -File |
+              ForEach-Object { $_.FullName }
+          if ($assets.Count -eq 0)
+          {
+              throw "Release asset が生成されていません。"
+          }
+
+          $previousErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          gh release view $tag *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          $ErrorActionPreference = $previousErrorActionPreference
+
+          if ($releaseExists)
+          {
+              gh release upload $tag @assets --clobber
+              if ($LASTEXITCODE -ne 0)
+              {
+                  throw "Release asset のアップロードに失敗しました。"
+              }
+              exit 0
+          }
+
+          gh release create $tag @assets --title $title --notes $notes --verify-tag
+          if ($LASTEXITCODE -ne 0)
+          {
+              throw "Release の作成に失敗しました。"
+          }
