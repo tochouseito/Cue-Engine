@@ -98,25 +98,15 @@ $versionManifestPath = Join-Path $packagePath "version.json"
 
 if (-not $SkipPackageBuild)
 {
-    $packageArgs = @(
-        "-BuildDirectory", $BuildDirectory,
-        "-EditorConfiguration", $EditorConfiguration,
-        "-SdkConfiguration", $SdkConfiguration,
-        "-OutputRoot", $PackageRoot,
-        "-TargetTriplet", $TargetTriplet,
-        "-HostTriplet", $HostTriplet
-    )
-
-    if ($InstallVcpkgDependencies)
-    {
-        $packageArgs += "-InstallVcpkgDependencies"
-    }
-    if ($ForceConfigure)
-    {
-        $packageArgs += "-ForceConfigure"
-    }
-
-    & (Join-Path $PSScriptRoot "package_editor.ps1") @packageArgs
+    & (Join-Path $PSScriptRoot "package_editor.ps1") `
+        -BuildDirectory $BuildDirectory `
+        -EditorConfiguration $EditorConfiguration `
+        -SdkConfiguration $SdkConfiguration `
+        -OutputRoot $PackageRoot `
+        -TargetTriplet $TargetTriplet `
+        -HostTriplet $HostTriplet `
+        -InstallVcpkgDependencies:$InstallVcpkgDependencies `
+        -ForceConfigure:$ForceConfigure
     if ($LASTEXITCODE -ne 0)
     {
         throw "package_editor.ps1 に失敗しました。"

@@ -18,7 +18,7 @@
 #include <vector>
 
 #ifndef CUE_UPDATER_DEFAULT_REPOSITORY
-#define CUE_UPDATER_DEFAULT_REPOSITORY "sinse/CueEngine"
+#define CUE_UPDATER_DEFAULT_REPOSITORY "tochouseito/CueEngine"
 #endif
 #define CUE_UPDATER_WIDE_TEXT_INNER(a_value) L##a_value
 #define CUE_UPDATER_WIDE_TEXT(a_value) CUE_UPDATER_WIDE_TEXT_INNER(a_value)
@@ -241,8 +241,17 @@ namespace
             return std::nullopt;
         }
 
-        size_t valueStart = a_json.find('"', colonPosition + 1);
-        if (valueStart == std::string_view::npos)
+        size_t valueStart = colonPosition + 1;
+        while (valueStart < a_json.size() &&
+            (a_json[valueStart] == ' ' ||
+                a_json[valueStart] == '\t' ||
+                a_json[valueStart] == '\r' ||
+                a_json[valueStart] == '\n'))
+        {
+            ++valueStart;
+        }
+
+        if (valueStart >= a_json.size() || a_json[valueStart] != '"')
         {
             return std::nullopt;
         }
@@ -299,6 +308,71 @@ namespace
         return urls;
     }
 
+    [[nodiscard]] std::string file_name_from_url(std::string_view a_url)
+    {
+        const size_t slash = a_url.find_last_of('/');
+        if (slash == std::string_view::npos || slash + 1 >= a_url.size())
+        {
+            return std::string(a_url);
+        }
+
+        return std::string(a_url.substr(slash + 1));
+    }
+
+    [[nodiscard]] std::string make_asset_list_message(
+        const std::vector<std::string>& a_urls)
+    {
+        if (a_urls.empty())
+        {
+            return "なし";
+        }
+
+        std::string message{};
+        for (const std::string& url : a_urls)
+        {
+            message += "\n- ";
+            message += file_name_from_url(url);
+        }
+
+        return message;
+    }
+
+    [[nodiscard]] std::optional<std::string> find_asset_digest(
+        std::string_view a_releaseJson,
+        std::string_view a_assetUrl)
+    {
+        const size_t urlPosition = a_releaseJson.find(a_assetUrl);
+        if (urlPosition == std::string_view::npos)
+        {
+            return std::nullopt;
+        }
+
+        const size_t objectStart = a_releaseJson.rfind('{', urlPosition);
+        const size_t objectEnd = a_releaseJson.find('}', urlPosition);
+        if (objectStart == std::string_view::npos ||
+            objectEnd == std::string_view::npos ||
+            objectEnd <= objectStart)
+        {
+            return std::nullopt;
+        }
+
+        const std::string_view objectJson =
+            a_releaseJson.substr(objectStart, objectEnd - objectStart + 1);
+        std::optional<std::string> digest = find_json_string(objectJson, "digest");
+        if (!digest.has_value() || digest->empty())
+        {
+            return std::nullopt;
+        }
+
+        static constexpr std::string_view k_sha256Prefix = "sha256:";
+        if (digest->rfind(k_sha256Prefix, 0) == 0)
+        {
+            digest->erase(0, k_sha256Prefix.size());
+        }
+
+        return digest;
+    }
+
     [[nodiscard]] bool ends_with(std::string_view a_value, std::string_view a_suffix)
     {
         return a_value.size() >= a_suffix.size() &&
@@ -308,6 +382,12 @@ namespace
     [[nodiscard]] bool contains(std::string_view a_value, std::string_view a_needle)
     {
         return a_value.find(a_needle) != std::string_view::npos;
+    }
+
+    [[nodiscard]] bool is_http_url(std::string_view a_value)
+    {
+        return a_value.rfind("https://", 0) == 0 ||
+            a_value.rfind("http://", 0) == 0;
     }
 
     [[nodiscard]] std::vector<int> parse_version_numbers(std::string_view a_version)
@@ -393,7 +473,9 @@ namespace
         if (!WinHttpCrackUrl(
                 url.c_str(), static_cast<DWORD>(url.size()), 0, &a_components))
         {
-            return Result::failure(last_error_message(L"URL の解析に失敗しました。"));
+            return Result::failure(
+                last_error_message(L"URL の解析に失敗しました。") +
+                L"\nURL: " + url);
         }
 
         a_host.assign(
@@ -507,9 +589,17 @@ namespace
             WinHttpCloseHandle(request);
             WinHttpCloseHandle(connection);
             WinHttpCloseHandle(session);
-            return Result::failure(
+            std::wstring message =
                 L"GitHub からエラーが返りました。status=" +
-                std::to_wstring(statusCode));
+                std::to_wstring(statusCode) + L"\nURL: " +
+                std::wstring(a_url);
+            if (statusCode == 404)
+            {
+                message +=
+                    L"\nRepository が違う、Release が未作成、または private repository で認証されていない可能性があります。";
+            }
+
+            return Result::failure(std::move(message));
         }
 
         for (;;)
@@ -713,7 +803,40 @@ namespace
 
         if (a_outRelease.manifestUrl.empty())
         {
-            return Result::failure(L"Release manifest が見つかりません。");
+            if (a_outRelease.packageUrl.empty())
+            {
+                return Result::failure(
+                    L"Release manifest が見つかりません。\n"
+                    L"必要な asset: CueEngineEditor_<version>_win-x64.json\n"
+                    L"添付されている asset:" +
+                    utf8_to_wide(make_asset_list_message(urls)));
+            }
+
+            std::optional<std::string> digest =
+                find_asset_digest(releaseJson, a_outRelease.packageUrl);
+            if (!digest.has_value() || digest->empty())
+            {
+                return Result::failure(
+                    L"Release manifest が見つかりません。\n"
+                    L"zip asset は見つかりましたが SHA256 digest が無いため、安全に更新できません。\n"
+                    L"create_editor_release_package.ps1 で生成される "
+                    L"CueEngineEditor_<version>_win-x64.json を Release に添付してください。\n"
+                    L"添付されている asset:" +
+                    utf8_to_wide(make_asset_list_message(urls)));
+            }
+
+            a_outRelease.packageSha256 = *digest;
+            a_outRelease.packageName = file_name_from_url(a_outRelease.packageUrl);
+            a_outRelease.version = a_outRelease.tag;
+            if (!a_outRelease.version.empty() &&
+                a_outRelease.version.front() == 'v')
+            {
+                a_outRelease.version.erase(a_outRelease.version.begin());
+            }
+
+            return a_outRelease.version.empty()
+                ? Result::failure(L"Release tag から version を解決できません。")
+                : Result::success();
         }
 
         std::string manifestJson{};
@@ -732,7 +855,7 @@ namespace
 
         if (std::optional<std::string> packageUrl =
                 find_json_string(manifestJson, "downloadUrl");
-            packageUrl.has_value() && !packageUrl->empty())
+            packageUrl.has_value() && is_http_url(*packageUrl))
         {
             a_outRelease.packageUrl = *packageUrl;
         }

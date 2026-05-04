@@ -130,15 +130,18 @@ function Invoke-MSBuildProject
         [Parameter(Mandatory = $true)]
         [string]$ProjectPath,
         [Parameter(Mandatory = $true)]
-        [string]$Configuration
+        [string]$Configuration,
+        [bool]$BuildProjectReferences = $false
     )
 
     Assert-PathExists -Path $ProjectPath -Description "MSBuild project"
 
+    $buildProjectReferencesValue = if ($BuildProjectReferences) { "true" } else { "false" }
+
     & $script:msbuildExe $ProjectPath `
         "/p:Configuration=$Configuration" `
         "/p:Platform=x64" `
-        "/p:BuildProjectReferences=false" `
+        "/p:BuildProjectReferences=$buildProjectReferencesValue" `
         "/nologo" `
         "/v:m" `
         "/clp:Summary"
@@ -201,7 +204,8 @@ else
 Invoke-Step -Message "Editor を $EditorConfiguration でビルドします。" -Action {
     Invoke-MSBuildProject `
         -ProjectPath $editorProjectPath `
-        -Configuration $EditorConfiguration
+        -Configuration $EditorConfiguration `
+        -BuildProjectReferences $true
 }
 
 Invoke-Step -Message "SDK 用ライブラリを $SdkConfiguration でビルドします。" -Action {

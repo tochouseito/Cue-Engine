@@ -15,7 +15,7 @@ target_compile_definitions(CueUpdater PRIVATE
     _UNICODE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
-    CUE_UPDATER_DEFAULT_REPOSITORY="sinse/CueEngine"
+    CUE_UPDATER_DEFAULT_REPOSITORY="tochouseito/CueEngine"
 )
 
 target_link_libraries(CueUpdater PRIVATE
