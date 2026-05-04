@@ -192,6 +192,10 @@ namespace Cue
             CueStringView a_functionName);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL request_audio_source_play_bridge(
             CueEntityHandle a_entityHandle);
+        [[nodiscard]] static CueSceneId CUE_SCRIPT_CALL request_scene_load_bridge(
+            CueStringView a_sceneName);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL request_scene_unload_bridge(
+            CueSceneId a_sceneId);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -241,6 +245,10 @@ namespace Cue
             CueScriptInstanceHandle a_instanceHandle) const noexcept;
         [[nodiscard]] CueResult request_audio_source_play_internal(
             CueEntityHandle a_entityHandle) noexcept;
+        [[nodiscard]] CueSceneId request_scene_load_internal(
+            CueStringView a_sceneName) noexcept;
+        [[nodiscard]] CueResult request_scene_unload_internal(
+            CueSceneId a_sceneId) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

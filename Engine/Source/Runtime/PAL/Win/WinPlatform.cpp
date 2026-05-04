@@ -1,5 +1,41 @@
 #include "WinPlatform.h"
 
+namespace
+{
+    using setProcessDpiAwarenessContextFunc =
+        BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+
+    void enable_process_dpi_awareness() noexcept
+    {
+        HMODULE user32Module = ::GetModuleHandleW(L"user32.dll");
+        if (user32Module == nullptr)
+        {
+            return;
+        }
+
+        auto setProcessDpiAwarenessContext =
+            reinterpret_cast<setProcessDpiAwarenessContextFunc>(
+                ::GetProcAddress(
+                    user32Module,
+                    "SetProcessDpiAwarenessContext"));
+        if (setProcessDpiAwarenessContext != nullptr)
+        {
+            if (setProcessDpiAwarenessContext(
+                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+            {
+                return;
+            }
+            if (setProcessDpiAwarenessContext(
+                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE))
+            {
+                return;
+            }
+        }
+
+        (void)::SetProcessDPIAware();
+    }
+}
+
 namespace Cue::PAL
 {
     std::unique_ptr<IPlatform> create_platform()
@@ -22,6 +58,8 @@ namespace Cue::PAL::Win
 
     Result WinPlatform::initialize(const PlatformSetupInfo& a_info)
     {
+        enable_process_dpi_awareness();
+
         // COM を初期化する
         const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (success(convert_hresult_code(result)))

@@ -37,6 +37,10 @@ using namespace Cue;
 
 namespace
 {
+#ifndef CUE_APP_WINDOW_TITLE
+#define CUE_APP_WINDOW_TITLE "Cue App"
+#endif
+
     [[nodiscard]] Result resolve_executable_directory(
         Core::IO::Path& a_outExecutableDirectory) noexcept
     {
@@ -490,7 +494,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     platformInfo.width = k_width;
     platformInfo.height = k_height;
     platformInfo.className = "CueAppWindowClass";
-    platformInfo.title = "Cue App";
+    platformInfo.title = CUE_APP_WINDOW_TITLE;
 
     result = platform->initialize(platformInfo);
     if (!result)

@@ -424,6 +424,8 @@ namespace Cue
             &ScriptRuntime::invoke_script_function_bridge;
         m_engineApi.requestAudioSourcePlay =
             &ScriptRuntime::request_audio_source_play_bridge;
+        m_engineApi.requestSceneLoad = &ScriptRuntime::request_scene_load_bridge;
+        m_engineApi.requestSceneUnload = &ScriptRuntime::request_scene_unload_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1319,6 +1321,22 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueSceneId CUE_SCRIPT_CALL ScriptRuntime::request_scene_load_bridge(
+        CueStringView a_sceneName)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->request_scene_load_internal(a_sceneName)
+            : k_cueInvalidSceneId;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::request_scene_unload_bridge(
+        CueSceneId a_sceneId)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->request_scene_unload_internal(a_sceneId)
+            : CueResult_InvalidState;
+    }
+
     CueResult ScriptRuntime::log_internal(
         CueLogSeverity a_severity,
         CueStringView a_message) noexcept
@@ -1775,6 +1793,49 @@ namespace Cue
         audioSource->playRequested = true;
         audioSource->stopRequested = false;
         return CueResult_Ok;
+    }
+
+    CueSceneId ScriptRuntime::request_scene_load_internal(
+        CueStringView a_sceneName) noexcept
+    {
+        if (a_sceneName.data == nullptr || a_sceneName.size == 0)
+        {
+            return k_cueInvalidSceneId;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return k_cueInvalidSceneId;
+        }
+
+        const std::string_view sceneName(a_sceneName.data, a_sceneName.size);
+        GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
+        const Result result = m_gameWorld->request_load_scene(sceneName, sceneId);
+        if (!result)
+        {
+            Core::IO::log(Core::IO::LogSink::debugConsole,
+                "[Script][Warning] Scene load request failed: {}", result.message);
+            return k_cueInvalidSceneId;
+        }
+
+        return static_cast<CueSceneId>(sceneId);
+    }
+
+    CueResult ScriptRuntime::request_scene_unload_internal(
+        CueSceneId a_sceneId) noexcept
+    {
+        if (a_sceneId == k_cueInvalidSceneId)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result =
+            m_gameWorld->request_unload_scene(
+                static_cast<GameCore::SceneId>(a_sceneId));
+        return convert_result_code(result);
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(

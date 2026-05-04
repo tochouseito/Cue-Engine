@@ -54,6 +54,114 @@ set(CUE_ENGINE_VCPKG_TARGET_ROOT
 set(CUE_ENGINE_VCPKG_HOST_ROOT
     "${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_HOST_TRIPLET}")
 
+set(CUE_GAME_RELEASE_EXECUTABLE_NAME "Game")
+set(CUE_GAME_RELEASE_WINDOW_TITLE "Cue App")
+set(CUE_GAME_RELEASE_ICON_PATH "")
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cueproject.json")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/cueproject.json" CUE_PROJECT_JSON)
+
+    string(JSON CUE_PROJECT_NAME ERROR_VARIABLE CUE_PROJECT_JSON_ERROR
+        GET "${CUE_PROJECT_JSON}" name)
+    if(CUE_PROJECT_JSON_ERROR STREQUAL "NOTFOUND" AND NOT CUE_PROJECT_NAME STREQUAL "")
+        set(CUE_GAME_RELEASE_WINDOW_TITLE "${CUE_PROJECT_NAME}")
+    endif()
+
+    string(JSON CUE_PROJECT_EXE_NAME ERROR_VARIABLE CUE_PROJECT_JSON_ERROR
+        GET "${CUE_PROJECT_JSON}" gameReleaseExecutableName)
+    if(CUE_PROJECT_JSON_ERROR STREQUAL "NOTFOUND" AND NOT CUE_PROJECT_EXE_NAME STREQUAL "")
+        set(CUE_GAME_RELEASE_EXECUTABLE_NAME "${CUE_PROJECT_EXE_NAME}")
+    endif()
+
+    string(JSON CUE_PROJECT_WINDOW_TITLE ERROR_VARIABLE CUE_PROJECT_JSON_ERROR
+        GET "${CUE_PROJECT_JSON}" gameReleaseWindowTitle)
+    if(CUE_PROJECT_JSON_ERROR STREQUAL "NOTFOUND" AND NOT CUE_PROJECT_WINDOW_TITLE STREQUAL "")
+        set(CUE_GAME_RELEASE_WINDOW_TITLE "${CUE_PROJECT_WINDOW_TITLE}")
+    endif()
+
+    string(JSON CUE_PROJECT_ICON_PATH ERROR_VARIABLE CUE_PROJECT_JSON_ERROR
+        GET "${CUE_PROJECT_JSON}" gameReleaseIconPath)
+    if(CUE_PROJECT_JSON_ERROR STREQUAL "NOTFOUND" AND NOT CUE_PROJECT_ICON_PATH STREQUAL "")
+        set(CUE_GAME_RELEASE_ICON_PATH "${CUE_PROJECT_ICON_PATH}")
+    endif()
+endif()
+
+if(CUE_GAME_RELEASE_EXECUTABLE_NAME MATCHES "\\.[eE][xX][eE]$")
+    get_filename_component(CUE_GAME_RELEASE_EXECUTABLE_NAME
+        "${CUE_GAME_RELEASE_EXECUTABLE_NAME}" NAME_WE)
+endif()
+
+if(CUE_GAME_RELEASE_WINDOW_TITLE STREQUAL "")
+    set(CUE_GAME_RELEASE_WINDOW_TITLE "Cue App")
+endif()
+
+set(CUE_GAME_RELEASE_RESOURCE_SOURCES "")
+if(NOT CUE_GAME_RELEASE_ICON_PATH STREQUAL "")
+    if(NOT IS_ABSOLUTE "${CUE_GAME_RELEASE_ICON_PATH}")
+        set(CUE_GAME_RELEASE_ICON_PATH
+            "${CMAKE_CURRENT_SOURCE_DIR}/${CUE_GAME_RELEASE_ICON_PATH}")
+    endif()
+
+    if(EXISTS "${CUE_GAME_RELEASE_ICON_PATH}")
+        get_filename_component(
+            CUE_GAME_RELEASE_ICON_EXTENSION
+            "${CUE_GAME_RELEASE_ICON_PATH}"
+            EXT)
+        string(TOLOWER
+            "${CUE_GAME_RELEASE_ICON_EXTENSION}"
+            CUE_GAME_RELEASE_ICON_EXTENSION)
+
+        if(CUE_GAME_RELEASE_ICON_EXTENSION STREQUAL ".ico")
+            set(CUE_GAME_RELEASE_ICON_RESOURCE_PATH
+                "${CUE_GAME_RELEASE_ICON_PATH}")
+        elseif(
+            CUE_GAME_RELEASE_ICON_EXTENSION STREQUAL ".png" OR
+            CUE_GAME_RELEASE_ICON_EXTENSION STREQUAL ".jpg" OR
+            CUE_GAME_RELEASE_ICON_EXTENSION STREQUAL ".jpeg" OR
+            CUE_GAME_RELEASE_ICON_EXTENSION STREQUAL ".bmp")
+            find_program(CUE_PWSH_EXECUTABLE NAMES pwsh powershell)
+            if(CUE_PWSH_EXECUTABLE STREQUAL "CUE_PWSH_EXECUTABLE-NOTFOUND")
+                message(FATAL_ERROR
+                    "PowerShell was not found. It is required to generate an icon from an image.")
+            endif()
+
+            set(CUE_GAME_RELEASE_ICON_RESOURCE_PATH
+                "${CMAKE_CURRENT_BINARY_DIR}/CueAppIcon.ico")
+            execute_process(
+                COMMAND
+                    "${CUE_PWSH_EXECUTABLE}"
+                    -NoProfile
+                    -ExecutionPolicy
+                    Bypass
+                    -File
+                    "${CUE_ENGINE_ROOT}/Tools/PowerShell/GenerateIco.ps1"
+                    -InputPath
+                    "${CUE_GAME_RELEASE_ICON_PATH}"
+                    -OutputPath
+                    "${CUE_GAME_RELEASE_ICON_RESOURCE_PATH}"
+                RESULT_VARIABLE CUE_GAME_RELEASE_ICON_RESULT
+            )
+            if(NOT CUE_GAME_RELEASE_ICON_RESULT EQUAL 0)
+                message(FATAL_ERROR
+                    "Failed to generate an icon from ${CUE_GAME_RELEASE_ICON_PATH}.")
+            endif()
+        else()
+            message(FATAL_ERROR
+                "gameReleaseIconPath supports .ico, .png, .jpg, .jpeg and .bmp.")
+        endif()
+
+        file(TO_CMAKE_PATH
+            "${CUE_GAME_RELEASE_ICON_RESOURCE_PATH}"
+            CUE_GAME_RELEASE_ICON_RESOURCE_PATH)
+        set(CUE_GAME_RELEASE_RC_PATH
+            "${CMAKE_CURRENT_BINARY_DIR}/CueAppResources.rc")
+        file(WRITE "${CUE_GAME_RELEASE_RC_PATH}"
+            "#define IDI_CUE_APP 101\n\nIDI_CUE_APP ICON \"${CUE_GAME_RELEASE_ICON_RESOURCE_PATH}\"\n")
+        list(APPEND CUE_GAME_RELEASE_RESOURCE_SOURCES
+            "${CUE_GAME_RELEASE_RC_PATH}")
+    endif()
+endif()
+
 add_custom_command(
     OUTPUT "${CUE_SCRIPT_REGISTRY_CPP}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CUE_SCRIPT_GENERATED_DIR}"
@@ -154,6 +262,7 @@ set_target_properties(Game PROPERTIES
 
 add_executable(CueApp WIN32
     "${CUE_ENGINE_ROOT}/Engine/Source/App/App/App.cpp"
+    ${CUE_GAME_RELEASE_RESOURCE_SOURCES}
 )
 
 target_include_directories(CueApp PRIVATE
@@ -177,6 +286,11 @@ target_include_directories(CueApp PRIVATE
 target_compile_definitions(CueApp PRIVATE
     CUE_PROJECT_ROOT_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
     CUE_STATIC_GAME_LINK=1
+    CUE_APP_WINDOW_TITLE="${CUE_GAME_RELEASE_WINDOW_TITLE}"
+)
+
+set_target_properties(CueApp PROPERTIES
+    OUTPUT_NAME "${CUE_GAME_RELEASE_EXECUTABLE_NAME}"
 )
 
 if(MSVC)

@@ -2,6 +2,7 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
+#include <Threading/JobSystem.h>
 
 // === Win includes ===
 #include <WinPlatform.h>
@@ -27,7 +28,12 @@
 
 // === C++ includes ===
 #include <array>
+#include <atomic>
+#include <future>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace Cue::Core::IO
 {
@@ -39,6 +45,25 @@ namespace Cue::Editor
     class EditorManager final
     {
     public:
+        struct SceneReloadOperation final
+        {
+            std::shared_future<void> future{};
+            std::atomic<uint32_t> completed{ 0 };
+            std::atomic<uint32_t> total{ 1 };
+            std::atomic<bool> isFinished{ false };
+            std::mutex mutex{};
+            std::string title = "シーンを再読み込み中";
+            std::string detail = "準備中...";
+            std::string errorMessage{};
+            std::vector<Core::IO::Path> texturePaths{};
+            std::vector<Core::IO::Path> modelPaths{};
+            std::vector<Core::IO::Path> materialPaths{};
+            Code resultCode = Code::OK;
+            Severity resultSeverity = Severity::Info;
+            bool succeeded = false;
+            bool hasApplied = false;
+        };
+
         enum class PendingScriptAction : uint8_t
         {
             None,
@@ -58,7 +83,7 @@ namespace Cue::Editor
             , m_engine(engine)
         {
         }
-        ~EditorManager() = default;
+        ~EditorManager();
 
         void initialize();
         void update();
@@ -66,9 +91,25 @@ namespace Cue::Editor
         void set_loop_metrics_source(
             const EditorLoopMetrics* a_loopMetrics) noexcept;
     private:
+        struct LoadedSceneEntry final
+        {
+            std::unique_ptr<GameCore::SceneAsset> asset = nullptr;
+            std::string name{};
+            std::string path{};
+            GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
+        };
+
         Result save_current_scene();
         Result reload_current_scene();
+        Result start_background_scene_reload();
+        void update_background_scene_reload();
+        Result apply_background_scene_reload(SceneReloadOperation& a_operation);
         Result unload_current_scene();
+        Result load_scene_to_world(
+            const Core::IO::Path& a_scenePath,
+            bool a_isPrimaryScene);
+        Result collect_project_scene_paths(
+            std::vector<Core::IO::Path>& a_outScenePaths) const;
         Result bake_current_scene_navigation();
         Result build_script_module();
         Result build_game_release();
@@ -79,6 +120,11 @@ namespace Cue::Editor
         Result save_game_release_build_configuration(
             BuildConfiguration a_configuration);
         Result save_game_release_build_backend(BuildBackend a_backend);
+        Result save_game_release_app_settings(
+            const std::string& a_executableName,
+            const std::string& a_windowTitle,
+            const std::string& a_iconPath);
+        Result load_game_release_app_settings_to_buffers();
         Result resolve_script_root(Core::IO::Path& a_outScriptRoot) const;
         Result open_script_solution_in_visual_studio();
         Result attach_editor_debugger_in_visual_studio();
@@ -106,6 +152,8 @@ namespace Cue::Editor
         void draw_play_controls();
         void draw_script_build_configuration_combo();
         void draw_script_build_notification_popup();
+        void draw_game_release_app_settings_popup();
+        void draw_background_progress_window();
         void queue_script_action(PendingScriptAction a_action);
         void process_pending_script_action();
         void update_auto_script_build();
@@ -122,6 +170,7 @@ namespace Cue::Editor
         void redo_last_command();
         void handle_shortcuts();
         void draw_add_menu_items();
+        void draw_scene_menu_items();
         void draw_view_menu_items();
         void draw_display_menu_items();
         void draw_main_camera_menu();
@@ -129,6 +178,11 @@ namespace Cue::Editor
             const char* a_windowName,
             bool* a_showWindow = nullptr);
         void focus_pending_window();
+        [[nodiscard]] GameCore::SceneId selected_add_scene_id() const noexcept;
+        [[nodiscard]] std::vector<Hierarchy::SceneEntry>
+            collect_hierarchy_scenes() const;
+        [[nodiscard]] bool is_scene_path_loaded(
+            const Core::IO::Path& a_scenePath) const noexcept;
         void process_debug_pick_request();
         [[nodiscard]] bool pick_debug_non_rendered_object(
             const DebugView::PickRequest& a_request,
@@ -144,6 +198,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         Engine* m_engine = nullptr;
         std::unique_ptr<BuildSystem> m_buildSystem = nullptr;
+        std::unique_ptr<Core::Threading::JobSystem> m_jobSystem = nullptr;
         std::unique_ptr<VisualStudioBridge> m_visualStudioBridge = nullptr;
         std::unique_ptr<AssetBrowser> m_assetBrowser = nullptr;
         std::unique_ptr<Statistics> m_statistics = nullptr;
@@ -152,8 +207,10 @@ namespace Cue::Editor
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
+        GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;
         GameCore::SceneId m_currentSceneId = GameCore::k_invalidSceneId;
         GameCore::SceneAsset m_loadedSceneAsset{};
+        std::vector<LoadedSceneEntry> m_loadedEditorScenes{};
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_selectedAssetPath{};
         std::string m_projectPath{};
@@ -161,6 +218,7 @@ namespace Cue::Editor
         std::string m_statusMessage{};
         BuildResult m_lastScriptBuildResult{};
         GameReleaseBuildResult m_lastGameReleaseBuildResult{};
+        std::shared_ptr<SceneReloadOperation> m_sceneReloadOperation = nullptr;
         BuildConfiguration m_scriptBuildConfiguration =
             BuildConfiguration::Debug;
         BuildConfiguration m_gameReleaseBuildConfiguration =
@@ -181,10 +239,14 @@ namespace Cue::Editor
         bool m_hasScriptBuildNotificationError = false;
         bool m_openScriptBuildNotificationPopup = false;
         bool m_openCreateScriptPopup = false;
+        bool m_openGameReleaseAppSettingsPopup = false;
         bool m_focusCreateScriptNameInput = false;
         bool m_hasScriptSourceSnapshot = false;
         bool m_hasPendingAutoScriptBuild = false;
         std::array<char, 128> m_createScriptNameBuffer{};
+        std::array<char, 128> m_gameReleaseExecutableNameBuffer{};
+        std::array<char, 128> m_gameReleaseWindowTitleBuffer{};
+        std::array<char, 260> m_gameReleaseIconPathBuffer{};
         std::string m_pendingFocusWindowName{};
         uint64_t m_scriptSourceVersion = 0;
         DebugCamera m_debugCamera{};

@@ -8,6 +8,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # ターゲットの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
+    "App/EditorResources.rc"
     "Asset/TextureCooker.h"
     "Asset/TextureCooker.cpp"
     "Asset/ModelCooker.h"

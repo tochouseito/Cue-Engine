@@ -13,23 +13,31 @@ namespace Cue
     Result EngineCommandContext::create_object(AddObjectType a_objectType,
         GameCore::EntityId& a_outObjectId)
     {
+        return create_object(a_objectType, m_currentSceneId, a_outObjectId);
+    }
+
+    Result EngineCommandContext::create_object(
+        AddObjectType a_objectType,
+        GameCore::SceneId a_sceneId,
+        GameCore::EntityId& a_outObjectId)
+    {
         GameCore::GameObject object{};
         Result result = Result::ok();
         switch (a_objectType)
         {
         case AddObjectType::Camera:
-            result = m_currentSceneId != GameCore::k_invalidSceneId
-                ? m_gameWorld.add_camera_object_to_scene(m_currentSceneId, object)
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_camera_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_camera_object(object);
             break;
         case AddObjectType::StaticMesh3D:
-            result = m_currentSceneId != GameCore::k_invalidSceneId
-                ? m_gameWorld.add_object_to_scene(m_currentSceneId, object)
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_object(object);
             break;
         case AddObjectType::Sprite2D:
-            result = m_currentSceneId != GameCore::k_invalidSceneId
-                ? m_gameWorld.add_sprite_object_to_scene(m_currentSceneId, object)
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_sprite_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_sprite_object(object);
             break;
         }

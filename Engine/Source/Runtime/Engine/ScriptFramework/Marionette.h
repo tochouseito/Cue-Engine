@@ -26,7 +26,9 @@ namespace Marionette
     using PropertyFlags = CueScriptFieldFlags;
 
     using EntityHandle = CueEntityHandle;
+    using SceneId = CueSceneId;
     using Transform = CueTransformData;
+    inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
 
     enum class Key : uint32_t
     {
@@ -561,6 +563,43 @@ namespace Marionette
         uint8_t reserved6 = 0;
         typename Detail::saved_state_t<T> savedState{};
     };
+
+    class SceneManagerRef final
+    {
+    public:
+        [[nodiscard]] SceneId load_scene(std::string_view a_sceneName) const noexcept
+        {
+            const CueEngineApi* engineApi = Detail::current_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, requestSceneLoad) +
+                        sizeof(CueRequestSceneLoadFn) ||
+                engineApi->requestSceneLoad == nullptr)
+            {
+                return k_invalidSceneId;
+            }
+
+            return engineApi->requestSceneLoad(
+                Detail::to_cue_string_view(a_sceneName));
+        }
+
+        [[nodiscard]] CueResult unload_scene(SceneId a_sceneId) const noexcept
+        {
+            const CueEngineApi* engineApi = Detail::current_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, requestSceneUnload) +
+                        sizeof(CueRequestSceneUnloadFn) ||
+                engineApi->requestSceneUnload == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->requestSceneUnload(a_sceneId);
+        }
+    };
+
+    inline SceneManagerRef SceneManager{};
 
     class AnyScriptRef final
     {

@@ -37,10 +37,12 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 8u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 9u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
+    inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
     using CueScriptAbiVersion = uint32_t;
+    using CueSceneId = uint64_t;
 
     enum CueResult : uint32_t
     {
@@ -337,6 +339,16 @@ extern "C"
         CueEntityHandle a_entityHandle
     );
 
+    /// @brief Scene 名から遅延ロードを予約し、予約された SceneId を返します。
+    using CueRequestSceneLoadFn = CueSceneId (CUE_SCRIPT_CALL*)(
+        CueStringView a_sceneName
+    );
+
+    /// @brief SceneId の遅延アンロードを予約します。
+    using CueRequestSceneUnloadFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueSceneId a_sceneId
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -376,6 +388,10 @@ extern "C"
         CueInvokeScriptFunctionFn invokeScriptFunction;
         /// v8 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRequestAudioSourcePlayFn requestAudioSourcePlay;
+        /// v9 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRequestSceneLoadFn requestSceneLoad;
+        /// v9 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRequestSceneUnloadFn requestSceneUnload;
     };
 
     /// @brief Script インスタンス生成時の入力です。

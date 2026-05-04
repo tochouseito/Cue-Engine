@@ -18,6 +18,7 @@ namespace Cue::Editor
     {
     public:
         using DrawAddMenuCallback = void (*)(void* a_context);
+        using DrawSceneMenuCallback = void (*)(void* a_context);
         using DrawViewMenuCallback = void (*)(void* a_context);
 
         struct PickRequest final
@@ -49,6 +50,14 @@ namespace Cue::Editor
         {
             m_viewMenuContext = a_context;
             m_drawViewMenuCallback = a_callback;
+        }
+
+        void set_scene_menu_callback(
+            void* a_context,
+            DrawSceneMenuCallback a_callback) noexcept
+        {
+            m_sceneMenuContext = a_context;
+            m_drawSceneMenuCallback = a_callback;
         }
 
         [[nodiscard]] bool consume_pick_request(
@@ -103,6 +112,13 @@ namespace Cue::Editor
                     ImGui::BeginMenu("ビュー"))
                 {
                     m_drawViewMenuCallback(m_viewMenuContext);
+                    ImGui::EndMenu();
+                }
+
+                if (m_drawSceneMenuCallback != nullptr &&
+                    ImGui::BeginMenu("シーン"))
+                {
+                    m_drawSceneMenuCallback(m_sceneMenuContext);
                     ImGui::EndMenu();
                 }
 
@@ -163,8 +179,10 @@ namespace Cue::Editor
         RHI::ViewHandle m_debugColorSrvHandle{};
         PickRequest m_pickRequest{};
         void* m_addMenuContext = nullptr;
+        void* m_sceneMenuContext = nullptr;
         void* m_viewMenuContext = nullptr;
         DrawAddMenuCallback m_drawAddMenuCallback = nullptr;
+        DrawSceneMenuCallback m_drawSceneMenuCallback = nullptr;
         DrawViewMenuCallback m_drawViewMenuCallback = nullptr;
         bool m_hasPickRequest = false;
     };
