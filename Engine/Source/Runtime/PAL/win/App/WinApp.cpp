@@ -12,6 +12,80 @@ namespace
 {
     constexpr uint32_t k_minimumWindowWidth = 100;
     constexpr uint32_t k_minimumWindowHeight = 100;
+    constexpr int k_defaultAppIconResourceId = 101;
+    constexpr DWORD k_windowStyle = WS_OVERLAPPEDWINDOW;
+    constexpr DWORD k_windowExStyle = 0;
+
+    using adjustWindowRectExForDpiFunc =
+        BOOL(WINAPI*)(LPRECT, DWORD, BOOL, DWORD, UINT);
+    using getDpiForSystemFunc = UINT(WINAPI*)();
+
+    HICON load_app_icon(HINSTANCE a_instance, int a_width, int a_height) noexcept
+    {
+        HICON icon = reinterpret_cast<HICON>(::LoadImageW(
+            a_instance,
+            MAKEINTRESOURCEW(k_defaultAppIconResourceId),
+            IMAGE_ICON,
+            a_width,
+            a_height,
+            LR_DEFAULTCOLOR | LR_SHARED));
+        if (icon != nullptr)
+        {
+            return icon;
+        }
+
+        return ::LoadIconW(nullptr, IDI_APPLICATION);
+    }
+
+    UINT system_dpi() noexcept
+    {
+        HMODULE user32Module = ::GetModuleHandleW(L"user32.dll");
+        if (user32Module == nullptr)
+        {
+            return USER_DEFAULT_SCREEN_DPI;
+        }
+
+        auto getDpiForSystem =
+            reinterpret_cast<getDpiForSystemFunc>(
+                ::GetProcAddress(user32Module, "GetDpiForSystem"));
+        if (getDpiForSystem == nullptr)
+        {
+            return USER_DEFAULT_SCREEN_DPI;
+        }
+
+        return getDpiForSystem();
+    }
+
+    void adjust_window_rect_for_client_size(RECT& a_rect) noexcept
+    {
+        HMODULE user32Module = ::GetModuleHandleW(L"user32.dll");
+        if (user32Module != nullptr)
+        {
+            auto adjustWindowRectExForDpi =
+                reinterpret_cast<adjustWindowRectExForDpiFunc>(
+                    ::GetProcAddress(
+                        user32Module,
+                        "AdjustWindowRectExForDpi"));
+            if (adjustWindowRectExForDpi != nullptr)
+            {
+                if (adjustWindowRectExForDpi(
+                        &a_rect,
+                        k_windowStyle,
+                        FALSE,
+                        k_windowExStyle,
+                        system_dpi()))
+                {
+                    return;
+                }
+            }
+        }
+
+        (void)::AdjustWindowRectEx(
+            &a_rect,
+            k_windowStyle,
+            FALSE,
+            k_windowExStyle);
+    }
 }
 
 namespace Cue::PAL::Win
@@ -50,6 +124,8 @@ namespace Cue::PAL::Win
         wc.lpszClassName = a_className;
         wc.hInstance = hInstance;
         wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
+        wc.hIcon = load_app_icon(hInstance, ::GetSystemMetrics(SM_CXICON), ::GetSystemMetrics(SM_CYICON));
+        wc.hIconSm = load_app_icon(hInstance, ::GetSystemMetrics(SM_CXSMICON), ::GetSystemMetrics(SM_CYSMICON));
 
         if (!::RegisterClassExW(&wc))
         {
@@ -60,10 +136,10 @@ namespace Cue::PAL::Win
 
         // クライアントサイズ維持でウィンドウの作成
         RECT rc = { 0, 0, static_cast<LONG>(a_width), static_cast<LONG>(a_height) };
-        ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+        adjust_window_rect_for_client_size(rc);
         m_hwnd = ::CreateWindowExW(
-            0, a_className, a_titleName,
-            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+            k_windowExStyle, a_className, a_titleName,
+            k_windowStyle, CW_USEDEFAULT, CW_USEDEFAULT,
             rc.right - rc.left, rc.bottom - rc.top,
             nullptr, nullptr, hInstance, this);
 
@@ -308,6 +384,48 @@ namespace Cue::PAL::Win
             {
                 CUE_ASSERTF(false,
                     "Failed to submit resize command: %s (code: %s, severity: %s) at "
+                    "%s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file, result.line,
+                    result.function);
+            }
+
+            return 0;
+        }
+
+        case WM_DPICHANGED:
+        {
+            RECT* suggestedRect = reinterpret_cast<RECT*>(a_lParam);
+            if (suggestedRect != nullptr)
+            {
+                ::SetWindowPos(
+                    a_hwnd,
+                    nullptr,
+                    suggestedRect->left,
+                    suggestedRect->top,
+                    suggestedRect->right - suggestedRect->left,
+                    suggestedRect->bottom - suggestedRect->top,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+
+            if (m_platformBridge == nullptr)
+            {
+                return 0;
+            }
+
+            const WindowSize clientSize = get_client_size();
+            if (clientSize.width == 0 || clientSize.height == 0)
+            {
+                return 0;
+            }
+
+            Result result = m_platformBridge->submit_command(
+                std::make_unique<PAL::ResizeWindowCommand>(
+                    clientSize.width, clientSize.height));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit dpi resize command: %s (code: %s, severity: %s) at "
                     "%s:%u in function %s",
                     result.message.data(), Cue::to_string(result.code),
                     Cue::to_string(result.severity), result.file, result.line,
