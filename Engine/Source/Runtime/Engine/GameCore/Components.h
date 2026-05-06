@@ -173,6 +173,7 @@ namespace Cue::ECS
         ColliderComponent(ColliderComponent&&) = default;
         ColliderComponent& operator=(ColliderComponent&&) = default;
         Physics::ShapeType type = Physics::ShapeType::Box;
+        std::string meshModelName{};
         Math::float3 offset = Math::float3::zero();
         Math::float3 halfExtent = Math::float3(0.5f, 0.5f, 0.5f);
         float radius = 0.5f;
@@ -182,6 +183,26 @@ namespace Cue::ECS
         uint16_t layer = 0;
         uint16_t mask = 0xFFFFu;
         bool isTrigger = false;
+    };
+
+    struct CharacterControllerComponent : public IComponentTag
+    {
+        CharacterControllerComponent() = default;
+        CharacterControllerComponent(const CharacterControllerComponent&) = default;
+        CharacterControllerComponent& operator=(
+            const CharacterControllerComponent&) = default;
+        CharacterControllerComponent(CharacterControllerComponent&&) = default;
+        CharacterControllerComponent& operator=(
+            CharacterControllerComponent&&) = default;
+        Math::float3 moveVelocity = Math::float3::zero();
+        float verticalVelocity = 0.0f;
+        float maxSpeed = 6.0f;
+        float gravity = 9.80665f;
+        float jumpSpeed = 5.0f;
+        float groundCheckDistance = 0.12f;
+        float skinWidth = 0.03f;
+        bool isGrounded = false;
+        bool jumpRequested = false;
     };
 
     enum class ScriptFieldType : uint8_t

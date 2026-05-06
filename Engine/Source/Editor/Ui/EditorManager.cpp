@@ -1988,6 +1988,9 @@ namespace Cue::Editor
                 std::make_unique<VisualStudioBridge>(*m_fileSystem);
             m_assetBrowser = std::make_unique<AssetBrowser>(m_fileSystem);
             m_assetBrowser->set_selected_asset_path(&m_selectedAssetPath);
+            m_assetBrowser->set_texture_preview_dependencies(
+                &m_engine->asset_manager(),
+                m_backend);
         }
         m_statistics =
             std::make_unique<Statistics>(m_engine->frame_controller(), *m_engine);
@@ -2107,7 +2110,10 @@ namespace Cue::Editor
         const Result scriptLoadResult = m_engine->load_script_module(
             scriptRootPath,
             to_script_module_build_configuration(m_scriptBuildConfiguration));
-        if (!scriptLoadResult && scriptLoadResult.code != Code::NotFound)
+        const bool canContinueWithoutScript =
+            scriptLoadResult.code == Code::NotFound ||
+            scriptLoadResult.code == Code::Unsupported;
+        if (!scriptLoadResult && !canContinueWithoutScript)
         {
             set_status_message("GameScript.dll の読み込みに失敗しました。", true);
             return scriptLoadResult;
@@ -2131,6 +2137,12 @@ namespace Cue::Editor
         {
             set_status_message(
                 "プロジェクトを開きました。GameScript.dll はまだ見つかっていません。",
+                true);
+        }
+        else if (!scriptLoadResult && scriptLoadResult.code == Code::Unsupported)
+        {
+            set_status_message(
+                "プロジェクトを開きました。GameScript.dll の ABI が古いため再ビルドが必要です。",
                 true);
         }
         else
@@ -5671,16 +5683,37 @@ namespace Cue::Editor
             return;
         }
 
+        auto selectEntity =
+            [this](GameCore::EntityId a_entityId)
+        {
+            m_selectedEntityId = a_entityId;
+            m_selectedSceneId = GameCore::k_invalidSceneId;
+            if (a_entityId != GameCore::k_invalidEntityId &&
+                m_engine->game_world() != nullptr)
+            {
+                (void)m_engine->game_world()->source_scene_id(
+                    a_entityId,
+                    m_selectedSceneId);
+            }
+        };
+
         GameCore::EntityId pickedEntityId = GameCore::k_invalidEntityId;
         if (m_engine->consume_debug_pick_result(pickedEntityId))
         {
-            m_selectedEntityId = pickedEntityId;
-            m_selectedSceneId = GameCore::k_invalidSceneId;
-            if (pickedEntityId != GameCore::k_invalidEntityId)
+            if (pickedEntityId == GameCore::k_invalidEntityId &&
+                m_hasPendingDebugPickFallback)
             {
-                (void)m_engine->game_world()->source_scene_id(
-                    pickedEntityId, m_selectedSceneId);
+                GameCore::EntityId debugEntityId = GameCore::k_invalidEntityId;
+                if (pick_debug_non_rendered_object(
+                    m_pendingDebugPickFallback,
+                    debugEntityId))
+                {
+                    pickedEntityId = debugEntityId;
+                }
             }
+
+            selectEntity(pickedEntityId);
+            m_hasPendingDebugPickFallback = false;
         }
 
         DebugView::PickRequest pickRequest{};
@@ -5693,19 +5726,18 @@ namespace Cue::Editor
         if (pick_debug_non_rendered_object(pickRequest, debugEntityId))
         {
             m_engine->cancel_debug_pick();
-            m_selectedEntityId = debugEntityId;
-            m_selectedSceneId = GameCore::k_invalidSceneId;
-            if (debugEntityId != GameCore::k_invalidEntityId)
-            {
-                (void)m_engine->game_world()->source_scene_id(
-                    debugEntityId, m_selectedSceneId);
-            }
+            selectEntity(debugEntityId);
+            m_hasPendingDebugPickFallback = false;
             return;
         }
 
-        m_engine->request_debug_pick(
-            pickRequest.normalizedX,
-            pickRequest.normalizedY);
+        if (m_engine->request_debug_pick_pixel(
+            pickRequest.pixelX,
+            pickRequest.pixelY))
+        {
+            m_pendingDebugPickFallback = pickRequest;
+            m_hasPendingDebugPickFallback = true;
+        }
     }
 
     bool EditorManager::pick_debug_non_rendered_object(

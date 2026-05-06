@@ -69,6 +69,17 @@ namespace Cue::Core::Time
             return m_deltaTime;
         }
 
+        /// @brief 計測基準を未初期化状態へ戻します。
+        void reset() noexcept
+        {
+            m_initialized = false;
+            m_lastTick = Math::TimeSpan::zero();
+            m_deltaTime = 0.0;
+            m_fps = 0.0;
+            m_totalFrames = 0;
+            m_produceFrame = 0;
+        }
+
         /// @brief 現在の fps を返します。
         double fps() const noexcept
         {

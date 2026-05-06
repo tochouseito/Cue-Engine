@@ -900,6 +900,7 @@ namespace Cue
                 { "name", record.name },
                 { "color", serialize_float4(record.desc.color) },
                 { "texture", record.desc.textureName },
+                { "useTexture", record.desc.isTextureUsed },
             };
 
             std::string text = root.dump(4);
@@ -947,7 +948,8 @@ namespace Cue
             const Json root = Json::parse(text);
 
             const uint32_t version = root.at("version").get<uint32_t>();
-            if (version != 1 && version != k_materialAssetVersion)
+            if (version != 1 && version != 2 &&
+                version != k_materialAssetVersion)
             {
                 return Result::fail(
                     Code::Unsupported,
@@ -966,10 +968,14 @@ namespace Cue
                 {
                     desc.textureId = k_errorTextureId;
                 }
+                desc.isTextureUsed = version >= 3
+                    ? root.value("useTexture", !desc.textureName.empty())
+                    : !desc.textureName.empty();
             }
             else
             {
                 desc.textureId = root.value("textureId", k_errorTextureId);
+                desc.isTextureUsed = desc.textureId != k_errorTextureId;
             }
 
             const std::string materialName =

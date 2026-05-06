@@ -310,6 +310,7 @@ namespace Cue
         if (m_module != nullptr)
         {
             m_module->unload();
+            m_module = nullptr;
         }
 
         m_scriptRoot = {};

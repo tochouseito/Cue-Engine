@@ -46,6 +46,7 @@ namespace Cue::Editor
             AudioSource,
             RigidBody,
             Collider,
+            CharacterController,
             Script
         };
 
@@ -308,6 +309,11 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::Collider, "Co" });
             }
 
+            if (has_component<ECS::CharacterControllerComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::CharacterController, "Ch" });
+            }
+
             if (has_component<ECS::ScriptComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::Script, "Sc" });
@@ -367,6 +373,13 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::Collider,
                         "ColliderComponent" });
+            }
+
+            if (!has_component<ECS::CharacterControllerComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::CharacterController,
+                        "CharacterControllerComponent" });
             }
 
             if (!has_component<ECS::ScriptComponent>(a_object))
@@ -501,6 +514,10 @@ namespace Cue::Editor
 
             case ComponentTab::Collider:
                 draw_collider_component(a_object);
+                break;
+
+            case ComponentTab::CharacterController:
+                draw_character_controller_component(a_object);
                 break;
 
             case ComponentTab::Script:
@@ -915,7 +932,54 @@ namespace Cue::Editor
                     "Sphere", Physics::ShapeType::Sphere, component->type);
                 draw_collider_shape_item(
                     "Capsule", Physics::ShapeType::Capsule, component->type);
+                draw_collider_shape_item(
+                    "Mesh", Physics::ShapeType::Mesh, component->type);
                 ImGui::EndCombo();
+            }
+
+            if (component->type == Physics::ShapeType::Mesh)
+            {
+                std::vector<std::string> modelNames{};
+                if (m_engine != nullptr)
+                {
+                    m_engine->asset_manager().collect_model_names(modelNames);
+                }
+
+                if (component->meshModelName.empty())
+                {
+                    ECS::MeshFilterComponent* meshFilter = nullptr;
+                    if (a_object.get_component(meshFilter) &&
+                        meshFilter != nullptr)
+                    {
+                        component->meshModelName = meshFilter->modelName;
+                    }
+                }
+
+                const char* meshPreview = component->meshModelName.empty()
+                    ? "<empty>"
+                    : component->meshModelName.c_str();
+                if (ImGui::BeginCombo("meshModelName", meshPreview))
+                {
+                    if (ImGui::Selectable(
+                            "<empty>", component->meshModelName.empty()))
+                    {
+                        component->meshModelName.clear();
+                    }
+                    for (const std::string& modelName : modelNames)
+                    {
+                        const bool isSelected =
+                            modelName == component->meshModelName;
+                        if (ImGui::Selectable(modelName.c_str(), isSelected))
+                        {
+                            component->meshModelName = modelName;
+                        }
+                        if (isSelected)
+                        {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
             }
 
             float offset[3] = {
@@ -958,6 +1022,45 @@ namespace Cue::Editor
             }
 
             ImGui::Checkbox("isTrigger", &component->isTrigger);
+        }
+
+        void draw_character_controller_component(GameCore::GameObject& a_object)
+        {
+            ECS::CharacterControllerComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "CharacterControllerComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("CharacterControllerComponent");
+            ImGui::Separator();
+
+            float moveVelocity[3] = {
+                component->moveVelocity.x,
+                component->moveVelocity.y,
+                component->moveVelocity.z
+            };
+            if (ImGui::DragFloat3("moveVelocity", moveVelocity, 0.01f))
+            {
+                component->moveVelocity = Math::float3(
+                    moveVelocity[0], moveVelocity[1], moveVelocity[2]);
+            }
+
+            ImGui::DragFloat(
+                "maxSpeed", &component->maxSpeed, 0.01f, 0.0f, 1000.0f);
+            ImGui::DragFloat(
+                "gravity", &component->gravity, 0.01f, 0.0f, 1000.0f);
+            ImGui::DragFloat(
+                "jumpSpeed", &component->jumpSpeed, 0.01f, 0.0f, 1000.0f);
+            ImGui::DragFloat("groundCheckDistance",
+                &component->groundCheckDistance, 0.001f, 0.0f, 10.0f);
+            ImGui::DragFloat(
+                "skinWidth", &component->skinWidth, 0.001f, 0.0f, 1.0f);
+            ImGui::Text("verticalVelocity: %.3f", component->verticalVelocity);
+            ImGui::Text(
+                "isGrounded: %s", component->isGrounded ? "true" : "false");
         }
 
         void draw_script_component(GameCore::GameObject& a_object)
@@ -3034,6 +3137,69 @@ namespace Cue::Editor
                 }
             }
 
+            bool isTextureUsed = materialDesc.isTextureUsed;
+            if (ImGui::Checkbox("Use Texture", &isTextureUsed))
+            {
+                materialDesc.isTextureUsed = isTextureUsed;
+                result = m_engine->asset_manager().update_material(
+                    materialHandle, materialDesc);
+                if (result)
+                {
+                    result = m_engine->asset_manager().save_material(
+                        materialHandle, *m_fileSystem, a_materialPath);
+                }
+
+                if (!result)
+                {
+                    m_materialStatusMessage =
+                        std::string("Material の保存に失敗しました: ") +
+                        std::string(result.message);
+                    m_materialStatusIsError = true;
+                }
+                else
+                {
+                    m_materialStatusMessage =
+                        "Material を保存しました。";
+                    m_materialStatusIsError = false;
+                }
+            }
+
+            ImGui::Button("Texture をここへドロップ",
+                ImVec2(-1.0f, ImGui::GetFrameHeight()));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload =
+                        ImGui::AcceptDragDropPayload(
+                            k_textureAssetPayloadType);
+                    payload != nullptr)
+                {
+                    const char* pathText =
+                        static_cast<const char*>(payload->Data);
+                    if (pathText != nullptr && payload->DataSize > 0)
+                    {
+                        result = apply_material_texture(
+                            Core::IO::Path(pathText),
+                            materialHandle,
+                            materialDesc,
+                            a_materialPath);
+                        if (!result)
+                        {
+                            m_materialStatusMessage =
+                                std::string("Texture の設定に失敗しました: ") +
+                                std::string(result.message);
+                            m_materialStatusIsError = true;
+                        }
+                        else
+                        {
+                            m_materialStatusMessage =
+                                "Material に Texture を設定しました。";
+                            m_materialStatusIsError = false;
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
             if (!materialDesc.textureName.empty())
             {
                 ImGui::Text("texture: %s", materialDesc.textureName.c_str());
@@ -3048,6 +3214,70 @@ namespace Cue::Editor
             }
 
             ImGui::EndChild();
+        }
+
+        [[nodiscard]] Result apply_material_texture(
+            const Core::IO::Path& a_texturePath,
+            MaterialHandle a_materialHandle,
+            MaterialDesc& a_materialDesc,
+            const Core::IO::Path& a_materialPath)
+        {
+            if (m_engine == nullptr || m_fileSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Material texture dependencies are not initialized.");
+            }
+
+            const Core::IO::Path texturePath = a_texturePath.normalize();
+            if (texturePath.extension() != ".cuetexture")
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Only .cuetexture can be assigned to Material.");
+            }
+
+            const std::string textureName =
+                make_asset_relative_name(texturePath);
+            uint32_t textureId = AssetManager::k_errorTextureId;
+            Result result =
+                m_engine->asset_manager().register_texture_from_cuetexture(
+                    *m_fileSystem,
+                    textureName,
+                    texturePath,
+                    textureId);
+            if (!result)
+            {
+                return result;
+            }
+
+            a_materialDesc.textureName = textureName;
+            a_materialDesc.textureId = textureId;
+            a_materialDesc.isTextureUsed = true;
+
+            result = m_engine->asset_manager().update_material(
+                a_materialHandle,
+                a_materialDesc);
+            if (!result)
+            {
+                return result;
+            }
+
+            return m_engine->asset_manager().save_material(
+                a_materialHandle,
+                *m_fileSystem,
+                a_materialPath);
+        }
+
+        [[nodiscard]] std::string make_asset_relative_name(
+            const Core::IO::Path& a_assetPath) const
+        {
+            const std::string assetRoot = m_assetRootPath.normalize().utf8();
+            const std::string assetPath = a_assetPath.normalize().utf8();
+            if (!assetRoot.empty() && assetPath.rfind(assetRoot + "/", 0) == 0)
+            {
+                return assetPath.substr(assetRoot.size() + 1);
+            }
+
+            return a_assetPath.filename();
         }
 
         void draw_material_reference_editor(
@@ -3182,6 +3412,8 @@ namespace Cue::Editor
                 return "Sphere";
             case Physics::ShapeType::Capsule:
                 return "Capsule";
+            case Physics::ShapeType::Mesh:
+                return "Mesh";
             }
 
             return "Box";

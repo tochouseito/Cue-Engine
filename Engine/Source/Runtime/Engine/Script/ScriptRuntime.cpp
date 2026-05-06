@@ -426,6 +426,22 @@ namespace Cue
             &ScriptRuntime::request_audio_source_play_bridge;
         m_engineApi.requestSceneLoad = &ScriptRuntime::request_scene_load_bridge;
         m_engineApi.requestSceneUnload = &ScriptRuntime::request_scene_unload_bridge;
+        m_engineApi.setRigidBodyLinearVelocity =
+            &ScriptRuntime::set_rigid_body_linear_velocity_bridge;
+        m_engineApi.getRigidBodyLinearVelocity =
+            &ScriptRuntime::get_rigid_body_linear_velocity_bridge;
+        m_engineApi.addRigidBodyForce =
+            &ScriptRuntime::add_rigid_body_force_bridge;
+        m_engineApi.addRigidBodyImpulse =
+            &ScriptRuntime::add_rigid_body_impulse_bridge;
+        m_engineApi.setCharacterMoveVelocity =
+            &ScriptRuntime::set_character_move_velocity_bridge;
+        m_engineApi.requestCharacterJump =
+            &ScriptRuntime::request_character_jump_bridge;
+        m_engineApi.setNavAgentDestination =
+            &ScriptRuntime::set_nav_agent_destination_bridge;
+        m_engineApi.setNavAgentTarget =
+            &ScriptRuntime::set_nav_agent_target_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -615,7 +631,7 @@ namespace Cue
     {
         a_outSnapshots.clear();
 
-        if (m_module == nullptr || !m_module->is_loaded())
+        if (!ScriptModule::is_loaded(m_module))
         {
             return Result::ok();
         }
@@ -695,7 +711,7 @@ namespace Cue
         {
             return Result::ok();
         }
-        if (m_module == nullptr || !m_module->is_loaded())
+        if (!ScriptModule::is_loaded(m_module))
         {
             return Result::ok();
         }
@@ -857,7 +873,7 @@ namespace Cue
             return result;
         }
 
-        if (m_module == nullptr || !m_module->is_loaded())
+        if (!ScriptModule::is_loaded(m_module))
         {
             return Result::ok();
         }
@@ -1003,7 +1019,7 @@ namespace Cue
         GameCore::EntityId a_entityId,
         const ECS::ScriptComponent& a_scriptComponent) noexcept
     {
-        if (m_module == nullptr || !m_module->is_loaded())
+        if (!ScriptModule::is_loaded(m_module))
         {
             return Result::ok();
         }
@@ -1109,7 +1125,7 @@ namespace Cue
             return Result::ok();
         }
 
-        if (m_module != nullptr && m_module->is_loaded())
+        if (ScriptModule::is_loaded(m_module))
         {
             const CueScriptExports* exports = m_module->exports();
             if (exports == nullptr || exports->destroyScriptInstance == nullptr)
@@ -1334,6 +1350,87 @@ namespace Cue
     {
         return s_activeInstance != nullptr
             ? s_activeInstance->request_scene_unload_internal(a_sceneId)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL
+        ScriptRuntime::set_rigid_body_linear_velocity_bridge(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_velocity)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_rigid_body_linear_velocity_internal(
+                a_entityHandle, a_velocity)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL
+        ScriptRuntime::get_rigid_body_linear_velocity_bridge(
+            CueEntityHandle a_entityHandle,
+            CueFloat3* a_outVelocity)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_rigid_body_linear_velocity_internal(
+                a_entityHandle, a_outVelocity)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::add_rigid_body_force_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_force)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->add_rigid_body_force_internal(
+                a_entityHandle, a_force)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::add_rigid_body_impulse_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_impulse)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->add_rigid_body_impulse_internal(
+                a_entityHandle, a_impulse)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL
+        ScriptRuntime::set_character_move_velocity_bridge(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_velocity)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_character_move_velocity_internal(
+                a_entityHandle, a_velocity)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::request_character_jump_bridge(
+        CueEntityHandle a_entityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->request_character_jump_internal(a_entityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_nav_agent_destination_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_destination)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_nav_agent_destination_internal(
+                a_entityHandle, a_destination)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_nav_agent_target_bridge(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_targetEntityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_nav_agent_target_internal(
+                a_entityHandle, a_targetEntityHandle)
             : CueResult_InvalidState;
     }
 
@@ -1838,6 +1935,169 @@ namespace Cue
         return convert_result_code(result);
     }
 
+    CueResult ScriptRuntime::set_rigid_body_linear_velocity_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_velocity) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_velocity == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_rigid_body_linear_velocity(
+            to_entity_id(a_entityHandle),
+            Math::float3(a_velocity->x, a_velocity->y, a_velocity->z));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::get_rigid_body_linear_velocity_internal(
+        CueEntityHandle a_entityHandle,
+        CueFloat3* a_outVelocity) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outVelocity == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        Math::float3 velocity = Math::float3::zero();
+        const Result result = m_gameWorld->get_rigid_body_linear_velocity(
+            to_entity_id(a_entityHandle), velocity);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outVelocity = CueFloat3{ velocity.x, velocity.y, velocity.z };
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::add_rigid_body_force_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_force) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_force == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->add_rigid_body_force(
+            to_entity_id(a_entityHandle),
+            Math::float3(a_force->x, a_force->y, a_force->z));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::add_rigid_body_impulse_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_impulse) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_impulse == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->add_rigid_body_impulse(
+            to_entity_id(a_entityHandle),
+            Math::float3(a_impulse->x, a_impulse->y, a_impulse->z));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::set_character_move_velocity_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_velocity) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_velocity == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_character_move_velocity(
+            to_entity_id(a_entityHandle),
+            Math::float3(a_velocity->x, a_velocity->y, a_velocity->z));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::request_character_jump_internal(
+        CueEntityHandle a_entityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result =
+            m_gameWorld->request_character_jump(to_entity_id(a_entityHandle));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::set_nav_agent_destination_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_destination) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_destination == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_nav_agent_destination(
+            to_entity_id(a_entityHandle),
+            Math::float3(a_destination->x, a_destination->y, a_destination->z));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::set_nav_agent_target_internal(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_targetEntityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_targetEntityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_nav_agent_target(
+            to_entity_id(a_entityHandle),
+            to_entity_id(a_targetEntityHandle));
+        return convert_result_code(result);
+    }
+
     CueResult ScriptRuntime::find_script_instance_internal(
         CueEntityHandle a_entityHandle,
         CueStringView a_scriptClassName,
@@ -2035,7 +2295,7 @@ namespace Cue
         {
             return CueResult_InvalidArgument;
         }
-        if (m_module == nullptr || !m_module->is_loaded())
+        if (!ScriptModule::is_loaded(m_module))
         {
             return CueResult_InvalidState;
         }

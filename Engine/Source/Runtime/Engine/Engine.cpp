@@ -804,17 +804,17 @@ namespace Cue
         return Result::ok();
     }
 
-    void Engine::request_debug_pick(
+    bool Engine::request_debug_pick(
         float a_normalizedX,
         float a_normalizedY) noexcept
     {
         if (m_backend == nullptr || !m_debugPickReadbackBufferHandle.valid())
         {
-            return;
+            return false;
         }
         if (m_debugPickState.isRequested || m_debugPickState.isInFlight)
         {
-            return;
+            return false;
         }
 
         const float x =
@@ -830,6 +830,28 @@ namespace Cue
         m_debugPickState.isRequested = true;
         m_hasDebugPickResult = false;
         m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        return true;
+    }
+
+    bool Engine::request_debug_pick_pixel(uint32_t a_x, uint32_t a_y) noexcept
+    {
+        if (m_backend == nullptr || !m_debugPickReadbackBufferHandle.valid())
+        {
+            return false;
+        }
+        if (m_debugPickState.isRequested || m_debugPickState.isInFlight)
+        {
+            return false;
+        }
+
+        const uint32_t width = (std::max)(m_backend->width(), 1u);
+        const uint32_t height = (std::max)(m_backend->height(), 1u);
+        m_debugPickState.x = (std::min)(a_x, width - 1u);
+        m_debugPickState.y = (std::min)(a_y, height - 1u);
+        m_debugPickState.isRequested = true;
+        m_hasDebugPickResult = false;
+        m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        return true;
     }
 
     void Engine::cancel_debug_pick() noexcept
@@ -909,6 +931,7 @@ namespace Cue
         RHI::FrameGraphDesc presentFrameGraphDesc{};
         presentFrameGraphDesc.usePresentQueue = true;
         presentFrameGraphDesc.enableProfiling = true;
+        presentFrameGraphDesc.waitForCompletion = true;
         result =
             m_backend->create_frame_graph(presentFrameGraphDesc, m_presentFrameGraph);
         if (!result)
@@ -954,6 +977,7 @@ namespace Cue
         RHI::FrameGraphDesc frameGraphDesc{};
         frameGraphDesc.usePresentQueue = false;
         frameGraphDesc.enableProfiling = true;
+        frameGraphDesc.waitForCompletion = true;
         Result result = m_backend->create_frame_graph(frameGraphDesc, m_frameGraph);
         if (!result)
         {
@@ -1099,6 +1123,30 @@ namespace Cue
 
         return Result::ok();
     }
+
+    float Engine::simulation_delta_time(float a_rawDeltaTime) noexcept
+    {
+        constexpr float k_maxSimulationDeltaTime = 1.0f / 30.0f;
+
+        if (!is_playing())
+        {
+            return 0.0f;
+        }
+
+        if (m_simulationWarmupFrames > 0)
+        {
+            --m_simulationWarmupFrames;
+            return 0.0f;
+        }
+
+        if (a_rawDeltaTime <= 0.0f)
+        {
+            return 0.0f;
+        }
+
+        return (std::min)(a_rawDeltaTime, k_maxSimulationDeltaTime);
+    }
+
     Result Engine::destroy_size_dependent_resources()
     {
         m_presentFrameGraph.reset();
@@ -1232,11 +1280,12 @@ namespace Cue
 
             resolve_debug_pick_readback();
 
-            const float deltaTime =
+            const float rawDeltaTime =
                 (m_frameController != nullptr)
                 ? static_cast<float>(
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
+            const float deltaTime = simulation_delta_time(rawDeltaTime);
 
             if (is_playing() &&
                 m_scriptModuleHost != nullptr &&
@@ -1423,6 +1472,8 @@ namespace Cue
             return result;
         }
 
+        m_frameController->frame_counter().reset();
+        m_simulationWarmupFrames = 2;
         return Result::ok();
     }
 
@@ -1448,6 +1499,7 @@ namespace Cue
         }
 
         m_activeWorld = m_editorWorld.get();
+        m_simulationWarmupFrames = 0;
 
         if (m_scriptModuleHost != nullptr)
         {

@@ -2,6 +2,7 @@
 
 // === Engine includes ===
 #include "NavComponents.h"
+#include "NavAgentMotorSystem.h"
 #include "NavMeshAssetFormat.h"
 #include "NavMeshAssetSerializer.h"
 #include "NavTypes.h"

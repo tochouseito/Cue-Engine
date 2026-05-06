@@ -249,8 +249,10 @@ namespace Cue::Editor
         std::array<char, 260> m_gameReleaseIconPathBuffer{};
         std::string m_pendingFocusWindowName{};
         uint64_t m_scriptSourceVersion = 0;
+        DebugView::PickRequest m_pendingDebugPickFallback{};
         DebugCamera m_debugCamera{};
         EditorUpdateMetrics m_currentUpdateMetrics{};
         EditorUpdateMetrics m_lastUpdateMetrics{};
+        bool m_hasPendingDebugPickFallback = false;
     };
 }

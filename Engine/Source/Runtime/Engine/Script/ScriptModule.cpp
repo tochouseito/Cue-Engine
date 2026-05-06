@@ -257,6 +257,11 @@ namespace Cue
         return m_nativeHandle != nullptr || m_isStaticModule;
     }
 
+    bool ScriptModule::is_loaded(const ScriptModule* a_module) noexcept
+    {
+        return a_module != nullptr && a_module->is_loaded();
+    }
+
     const CueScriptExports* ScriptModule::exports() const noexcept
     {
         return is_loaded() ? &m_exports : nullptr;

@@ -25,7 +25,8 @@ namespace Cue::ECS
               ColliderComponent>
     {
     public:
-        explicit PhysicsBodySystem(Physics::IPhysicsSystem* a_physicsSystem)
+        explicit PhysicsBodySystem(Physics::IPhysicsSystem* a_physicsSystem,
+            AssetManager* a_assetManager)
             : ECSManager::System<TransformComponent,
                   RigidBodyComponent,
                   ColliderComponent>(
@@ -60,6 +61,7 @@ namespace Cue::ECS
                           a_context);
                   }),
             m_physicsSystem(a_physicsSystem)
+            , m_assetManager(a_assetManager)
         {}
 
         void update(const UpdateContext& a_context) override
@@ -153,8 +155,14 @@ namespace Cue::ECS
             }
 
             Physics::RigidBodyDesc desc{};
-            desc.shape.type = a_collider.type;
-            desc.shape.halfExtent = sanitize_half_extent(a_collider.halfExtent);
+            Result shapeResult =
+                build_shape_desc(a_transform, a_collider, desc.shape);
+            if (!shapeResult)
+            {
+                CUE_ASSERTF(false, "Physics shape creation failed: %s",
+                    shapeResult.message.data());
+                return;
+            }
             desc.shape.radius = (std::max)(a_collider.radius, 0.001f);
             desc.shape.halfHeight = (std::max)(a_collider.halfHeight, 0.001f);
             desc.position = a_transform.position + a_collider.offset;
@@ -182,6 +190,81 @@ namespace Cue::ECS
 
             a_rigidBody.body = body;
             a_rigidBody.isCreated = true;
+        }
+
+        [[nodiscard]] Result build_shape_desc(
+            const TransformComponent& a_transform,
+            const ColliderComponent& a_collider,
+            Physics::ShapeDesc& a_outDesc) const
+        {
+            a_outDesc = {};
+            a_outDesc.type = a_collider.type;
+            a_outDesc.halfExtent = sanitize_half_extent(a_collider.halfExtent);
+            a_outDesc.radius = (std::max)(a_collider.radius, 0.001f);
+            a_outDesc.halfHeight = (std::max)(a_collider.halfHeight, 0.001f);
+
+            if (a_collider.type != Physics::ShapeType::Mesh)
+            {
+                return Result::ok();
+            }
+            if (m_assetManager == nullptr || a_collider.meshModelName.empty())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Mesh collider requires a model name and AssetManager.");
+            }
+
+            ModelHandle modelHandle{};
+            Result result = m_assetManager->get_model(
+                a_collider.meshModelName, modelHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            Core::Native::ModelData modelData{};
+            result = m_assetManager->get_model(modelHandle, modelData);
+            if (!result)
+            {
+                return result;
+            }
+
+            for (const Core::Native::MeshData& mesh : modelData.meshes)
+            {
+                const uint32_t vertexBase =
+                    static_cast<uint32_t>(a_outDesc.vertices.size());
+                a_outDesc.vertices.reserve(
+                    a_outDesc.vertices.size() + mesh.positions.size());
+                for (const Math::float4& position : mesh.positions)
+                {
+                    a_outDesc.vertices.push_back(
+                        Math::float3(
+                            position.x * a_transform.scale.x,
+                            position.y * a_transform.scale.y,
+                            position.z * a_transform.scale.z));
+                }
+
+                a_outDesc.indices.reserve(
+                    a_outDesc.indices.size() + mesh.indices.size());
+                for (uint32_t index : mesh.indices)
+                {
+                    if (index >= mesh.positions.size())
+                    {
+                        return Result::fail(
+                            Code::InvalidArgument,
+                            Severity::Error,
+                            "Mesh collider index is out of range.");
+                    }
+                    a_outDesc.indices.push_back(vertexBase + index);
+                }
+            }
+
+            if (a_outDesc.vertices.empty() || a_outDesc.indices.empty())
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Mesh collider model has no geometry.");
+            }
+
+            return Result::ok();
         }
 
         void push_kinematic_transform(TransformComponent& a_transform,
@@ -307,6 +390,7 @@ namespace Cue::ECS
 
     private:
         Physics::IPhysicsSystem* m_physicsSystem = nullptr;
+        AssetManager* m_assetManager = nullptr;
         Phase m_phase = Phase::BeforeStep;
     };
 }

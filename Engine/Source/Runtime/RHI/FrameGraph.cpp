@@ -832,6 +832,21 @@ namespace Cue::RHI
                         ms_since(postBarrierStartTime, Clock::now());
                 }
 
+                if (supportsTimestamps)
+                {
+                    result = commandContext->resolve_timestamps(0, 2);
+                    if (!result)
+                    {
+                        m_desc.commandPool->return_command_context(commandContext);
+                        return_all_command_contexts();
+                        return_all_queue_contexts();
+                        return Result::fail(
+                            result.code,
+                            Severity::Error,
+                            "Failed to resolve timestamps for frame graph pass.");
+                    }
+                }
+
                 const Clock::time_point closeStartTime = Clock::now();
                 result = commandContext->close();
                 if (!result)
@@ -847,20 +862,6 @@ namespace Cue::RHI
                 if (passStats != nullptr)
                 {
                     passStats->closeMs = ms_since(closeStartTime, Clock::now());
-                }
-                if (supportsTimestamps)
-                {
-                    result = commandContext->resolve_timestamps(0, 2);
-                    if (!result)
-                    {
-                        m_desc.commandPool->return_command_context(commandContext);
-                        return_all_command_contexts();
-                        return_all_queue_contexts();
-                        return Result::fail(
-                            result.code,
-                            Severity::Error,
-                            "Failed to resolve timestamps for frame graph pass.");
-                    }
                 }
 
                 commandContextPointers.push_back(commandContext.get());

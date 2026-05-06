@@ -112,13 +112,18 @@ namespace Cue::ECS
                 (std::max)(a_agent.navMeshSnapDistance, 0.0f);
             a_agent.isOnNavMesh = nearestDistance <=
                 (std::max)(snapDistance, 0.001f);
+            Math::float3 pathStart = a_transform.position;
             if (a_agent.shouldSnapToNavMesh && nearestDistance <= snapDistance)
             {
-                a_transform.position = nearestPoint;
+                pathStart = nearestPoint;
+                if (a_agent.movementMode == NavAgentMovementMode::DirectTransform)
+                {
+                    a_transform.position = nearestPoint;
+                }
             }
 
             result = m_navigationWorld->find_path(m_navMesh,
-                a_transform.position, a_agent.destination, filter, path);
+                pathStart, a_agent.destination, filter, path);
             if (!result || path.points.empty())
             {
                 a_agent.hasPathFailed = true;
@@ -131,7 +136,7 @@ namespace Cue::ECS
             a_agent.hasPathFailed = false;
             a_agent.lastRequestedDestination = a_agent.destination;
 
-            if (reached(a_transform.position, a_agent.pathPoints.front(),
+            if (reached(pathStart, a_agent.pathPoints.front(),
                 (std::max)(a_agent.stoppingDistance, 0.01f)))
             {
                 a_agent.pathIndex = 1;
@@ -156,6 +161,19 @@ namespace Cue::ECS
             const UpdateContext& a_context) noexcept
         {
             a_agent.desiredVelocity = Math::float3::zero();
+            if (a_agent.hasTarget && m_pEcs != nullptr)
+            {
+                const TransformComponent* targetTransform =
+                    m_pEcs->get_component<TransformComponent>(
+                        a_agent.targetEntity);
+                if (targetTransform != nullptr)
+                {
+                    a_agent.destination = targetTransform->position;
+                    a_agent.destination.y = a_transform.position.y;
+                    a_agent.hasDestination = true;
+                }
+            }
+
             if (!a_agent.hasDestination || a_context.deltaTime <= 0.0f)
             {
                 return;
@@ -181,7 +199,14 @@ namespace Cue::ECS
             const float stoppingDistance =
                 (std::max)(a_agent.stoppingDistance, 0.001f);
             Math::float3 target = a_agent.pathPoints[a_agent.pathIndex];
-            while (reached(a_transform.position, target, stoppingDistance))
+            Math::float3 agentPosition = a_transform.position;
+            if (a_agent.movementMode ==
+                NavAgentMovementMode::DesiredVelocityOnly)
+            {
+                agentPosition.y = target.y;
+            }
+
+            while (reached(agentPosition, target, stoppingDistance))
             {
                 ++a_agent.pathIndex;
                 if (a_agent.pathIndex >= a_agent.pathPoints.size())
@@ -190,9 +215,14 @@ namespace Cue::ECS
                     return;
                 }
                 target = a_agent.pathPoints[a_agent.pathIndex];
+                if (a_agent.movementMode ==
+                    NavAgentMovementMode::DesiredVelocityOnly)
+                {
+                    agentPosition.y = target.y;
+                }
             }
 
-            Math::float3 delta = target - a_transform.position;
+            Math::float3 delta = target - agentPosition;
             const float distance = delta.length();
             if (distance <= 0.0001f)
             {
@@ -203,6 +233,12 @@ namespace Cue::ECS
             const float speed = (std::max)(a_agent.maxSpeed, 0.0f);
             const float step = speed * a_context.deltaTime;
             a_agent.desiredVelocity = delta * speed;
+            if (a_agent.movementMode ==
+                NavAgentMovementMode::DesiredVelocityOnly)
+            {
+                return;
+            }
+
             if (step >= distance)
             {
                 a_transform.position = target;

@@ -27,6 +27,7 @@ namespace Cue
         AudioSource,
         RigidBody,
         Collider,
+        CharacterController,
         Script
     };
 

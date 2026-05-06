@@ -103,6 +103,7 @@ namespace Cue::GameCore
         m_assetManager = a_assetManager;
         m_fileSystem = a_fileSystem;
         m_audioBackend = a_audioBackend;
+        m_physicsSystem = a_physicsSystem;
         m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_renderSceneState.resize(a_bufferCount);
@@ -178,8 +179,10 @@ namespace Cue::GameCore
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
         auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
+        auto& characterControllerSystem =
+            m_ecs.add_system<ECS::CharacterControllerSystem>(a_physicsSystem);
         auto& physicsBodySystem = m_ecs.add_system<ECS::PhysicsBodySystem>(
-            a_physicsSystem);
+            a_physicsSystem, m_assetManager);
         result = m_navigationWorld.set_backend(
             std::make_unique<RecastNavigationBackend>());
         if (!result)
@@ -189,12 +192,15 @@ namespace Cue::GameCore
         auto& navigationSystem = m_ecs.add_system<ECS::NavigationSystem>(
             &m_navigationWorld);
         m_navigationSystem = &navigationSystem;
+        auto& navAgentMotorSystem = m_ecs.add_system<ECS::NavAgentMotorSystem>();
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
         m_simulationPipeline.add_system(&navigationSystem);
+        m_simulationPipeline.add_system(&navAgentMotorSystem);
+        m_simulationPipeline.add_system(&characterControllerSystem);
         m_simulationPipeline.add_system(&physicsBodySystem);
         m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);

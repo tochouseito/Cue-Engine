@@ -11,6 +11,7 @@
 
 // === C++ includes ===
 #include <cstdint>
+#include <vector>
 
 namespace Cue::Physics
 {
@@ -31,7 +32,8 @@ namespace Cue::Physics
     {
         Box,
         Sphere,
-        Capsule
+        Capsule,
+        Mesh
     };
 
     enum class BodyActivation : uint8_t
@@ -59,6 +61,8 @@ namespace Cue::Physics
 
     struct ShapeDesc final
     {
+        std::vector<Math::float3> vertices{};
+        std::vector<uint32_t> indices{};
         ShapeType type = ShapeType::Box;
         Math::float3 halfExtent = Math::float3(0.5f, 0.5f, 0.5f);
         float radius = 0.5f;
@@ -94,6 +98,7 @@ namespace Cue::Physics
     {
         Math::float3 origin = Math::float3::zero();
         Math::float3 direction = Math::float3(0.0f, -1.0f, 0.0f);
+        RigidBodyHandle ignoredBody{};
         float distance = 1000.0f;
     };
 
@@ -143,6 +148,29 @@ namespace Cue::Physics
         virtual Result get_body_transform(
             RigidBodyHandle a_body,
             BodyTransform& a_outTransform) const = 0;
+
+        /// @brief 剛体の線形速度を設定します。
+        virtual Result set_linear_velocity(
+            RigidBodyHandle a_body,
+            Math::float3 a_velocity,
+            BodyActivation a_activation) = 0;
+
+        /// @brief 剛体の線形速度を取得します。
+        virtual Result get_linear_velocity(
+            RigidBodyHandle a_body,
+            Math::float3& a_outVelocity) const = 0;
+
+        /// @brief 剛体へ力を加えます。
+        virtual Result add_force(
+            RigidBodyHandle a_body,
+            Math::float3 a_force,
+            BodyActivation a_activation) = 0;
+
+        /// @brief 剛体へインパルスを加えます。
+        virtual Result add_impulse(
+            RigidBodyHandle a_body,
+            Math::float3 a_impulse,
+            BodyActivation a_activation) = 0;
 
         /// @brief 最近傍の raycast 結果を取得します。
         virtual Result raycast(

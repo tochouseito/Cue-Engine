@@ -4,8 +4,11 @@ struct SpriteInstance
     float4 uvRect;
     float4 color;
     uint textureId;
+    uint useTexture;
     float rotation;
+    uint padding0;
     float2 pivot;
+    float2 padding1;
 };
 
 struct VsOut
@@ -14,6 +17,7 @@ struct VsOut
     float2 texcoord : TEXCOORD0;
     float4 color : COLOR0;
     nointerpolation uint textureId : TEXCOORD1;
+    nointerpolation uint useTexture : TEXCOORD2;
 };
 
 StructuredBuffer<SpriteInstance> g_sprites : register(t0);
@@ -50,11 +54,17 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     output.texcoord = sprite.uvRect.xy + corner * sprite.uvRect.zw;
     output.color = sprite.color;
     output.textureId = sprite.textureId;
+    output.useTexture = sprite.useTexture;
     return output;
 }
 
 float4 ps_main(VsOut input) : SV_Target0
 {
+    if (input.useTexture == 0)
+    {
+        return input.color;
+    }
+
     const uint textureIndex = NonUniformResourceIndex(input.textureId);
     uint textureWidth = 1;
     uint textureHeight = 1;
