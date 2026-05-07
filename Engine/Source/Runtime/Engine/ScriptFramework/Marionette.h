@@ -1831,14 +1831,22 @@ namespace Marionette
         [[nodiscard]] CueResult get_transform(
             Transform& a_outTransform) const noexcept
         {
+            return get_transform(m_entityHandle, a_outTransform);
+        }
+
+        [[nodiscard]] CueResult get_transform(
+            CueEntityHandle a_entityHandle,
+            Transform& a_outTransform) const noexcept
+        {
             const CueEngineApi* engineApi = runtime_engine_api();
             if (engineApi == nullptr ||
-                engineApi->getTransform == nullptr)
+                engineApi->getTransform == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
             {
                 return CueResult_InvalidState;
             }
 
-            return engineApi->getTransform(m_entityHandle, &a_outTransform);
+            return engineApi->getTransform(a_entityHandle, &a_outTransform);
         }
 
         [[nodiscard]] CueResult set_transform(
@@ -1852,6 +1860,138 @@ namespace Marionette
             }
 
             return engineApi->setTransform(m_entityHandle, &a_transform);
+        }
+
+        [[nodiscard]] CueResult set_rigid_body_linear_velocity(
+            const CueFloat3& a_velocity) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setRigidBodyLinearVelocity) +
+                        sizeof(CueSetRigidBodyLinearVelocityFn) ||
+                engineApi->setRigidBodyLinearVelocity == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setRigidBodyLinearVelocity(
+                m_entityHandle, &a_velocity);
+        }
+
+        [[nodiscard]] CueResult get_rigid_body_linear_velocity(
+            CueFloat3& a_outVelocity) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getRigidBodyLinearVelocity) +
+                        sizeof(CueGetRigidBodyLinearVelocityFn) ||
+                engineApi->getRigidBodyLinearVelocity == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getRigidBodyLinearVelocity(
+                m_entityHandle, &a_outVelocity);
+        }
+
+        [[nodiscard]] CueResult add_rigid_body_force(
+            const CueFloat3& a_force) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, addRigidBodyForce) +
+                        sizeof(CueAddRigidBodyForceFn) ||
+                engineApi->addRigidBodyForce == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->addRigidBodyForce(m_entityHandle, &a_force);
+        }
+
+        [[nodiscard]] CueResult add_rigid_body_impulse(
+            const CueFloat3& a_impulse) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, addRigidBodyImpulse) +
+                        sizeof(CueAddRigidBodyImpulseFn) ||
+                engineApi->addRigidBodyImpulse == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->addRigidBodyImpulse(m_entityHandle, &a_impulse);
+        }
+
+        [[nodiscard]] CueResult set_character_move_velocity(
+            const CueFloat3& a_velocity) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setCharacterMoveVelocity) +
+                        sizeof(CueSetCharacterMoveVelocityFn) ||
+                engineApi->setCharacterMoveVelocity == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setCharacterMoveVelocity(
+                m_entityHandle, &a_velocity);
+        }
+
+        [[nodiscard]] CueResult request_character_jump() const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, requestCharacterJump) +
+                        sizeof(CueRequestCharacterJumpFn) ||
+                engineApi->requestCharacterJump == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->requestCharacterJump(m_entityHandle);
+        }
+
+        [[nodiscard]] CueResult set_nav_agent_destination(
+            const CueFloat3& a_destination) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setNavAgentDestination) +
+                        sizeof(CueSetNavAgentDestinationFn) ||
+                engineApi->setNavAgentDestination == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setNavAgentDestination(
+                m_entityHandle, &a_destination);
+        }
+
+        [[nodiscard]] CueResult set_nav_agent_target(
+            CueEntityHandle a_targetEntityHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setNavAgentTarget) +
+                        sizeof(CueSetNavAgentTargetFn) ||
+                engineApi->setNavAgentTarget == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setNavAgentTarget(
+                m_entityHandle, a_targetEntityHandle);
         }
 
         [[nodiscard]] bool push_key(Key a_key) const noexcept

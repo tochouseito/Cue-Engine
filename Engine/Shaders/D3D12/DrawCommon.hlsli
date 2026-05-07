@@ -19,7 +19,7 @@ struct Material
 {
     float4 color;
     uint textureId;
-    uint padding0;
+    uint useTexture;
     uint padding1;
     uint padding2;
 };

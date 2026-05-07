@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 9u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 12u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -349,6 +349,53 @@ extern "C"
         CueSceneId a_sceneId
     );
 
+    /// @brief Entity の RigidBodyComponent に線形速度を設定します。
+    using CueSetRigidBodyLinearVelocityFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_velocity
+    );
+
+    /// @brief Entity の RigidBodyComponent から線形速度を取得します。
+    using CueGetRigidBodyLinearVelocityFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueFloat3* a_outVelocity
+    );
+
+    /// @brief Entity の RigidBodyComponent へ力を加えます。
+    using CueAddRigidBodyForceFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_force
+    );
+
+    /// @brief Entity の RigidBodyComponent へインパルスを加えます。
+    using CueAddRigidBodyImpulseFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_impulse
+    );
+
+    /// @brief Entity の CharacterControllerComponent に水平移動速度を設定します。
+    using CueSetCharacterMoveVelocityFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_velocity
+    );
+
+    /// @brief Entity の CharacterControllerComponent にジャンプを要求します。
+    using CueRequestCharacterJumpFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
+    /// @brief Entity の NavAgentComponent に目的地を設定します。
+    using CueSetNavAgentDestinationFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat3* a_destination
+    );
+
+    /// @brief Entity の NavAgentComponent に追跡対象 Entity を設定します。
+    using CueSetNavAgentTargetFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_targetEntityHandle
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -392,6 +439,22 @@ extern "C"
         CueRequestSceneLoadFn requestSceneLoad;
         /// v9 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueRequestSceneUnloadFn requestSceneUnload;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetRigidBodyLinearVelocityFn setRigidBodyLinearVelocity;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetRigidBodyLinearVelocityFn getRigidBodyLinearVelocity;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueAddRigidBodyForceFn addRigidBodyForce;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueAddRigidBodyImpulseFn addRigidBodyImpulse;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetCharacterMoveVelocityFn setCharacterMoveVelocity;
+        /// v10 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRequestCharacterJumpFn requestCharacterJump;
+        /// v11 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetNavAgentDestinationFn setNavAgentDestination;
+        /// v12 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetNavAgentTargetFn setNavAgentTarget;
     };
 
     /// @brief Script インスタンス生成時の入力です。

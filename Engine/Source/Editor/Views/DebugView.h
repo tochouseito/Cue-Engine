@@ -7,6 +7,7 @@
 #include "DebugCamera.h"
 
 // === C++ includes ===
+#include <algorithm>
 #include <cstdint>
 
 // === ImGui includes ===
@@ -25,6 +26,8 @@ namespace Cue::Editor
         {
             float normalizedX = 0.0f;
             float normalizedY = 0.0f;
+            uint32_t pixelX = 0;
+            uint32_t pixelY = 0;
         };
 
         DebugView(
@@ -131,13 +134,6 @@ namespace Cue::Editor
             }
 
             const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
-            if (m_camera != nullptr && availableRegion.x > 0.0f &&
-                availableRegion.y > 0.0f)
-            {
-                m_camera->set_aspect(availableRegion.x / availableRegion.y);
-                m_camera->update(ImGui::IsWindowHovered());
-            }
-
             D3D12_GPU_DESCRIPTOR_HANDLE debugColorSrvGpuDescHandle =
                 m_backend->get_gpu_descriptor_handle(
                     m_debugColorSrvHandle,
@@ -149,9 +145,39 @@ namespace Cue::Editor
                 debugColorWidth > 0 && debugColorHeight > 0 &&
                 availableRegion.x > 0.0f && availableRegion.y > 0.0f)
             {
+                float displayWidth = availableRegion.x;
+                float displayHeight =
+                    displayWidth * static_cast<float>(debugColorHeight) /
+                    static_cast<float>(debugColorWidth);
+
+                if (displayHeight > availableRegion.y)
+                {
+                    const float scale = availableRegion.y / displayHeight;
+                    displayWidth *= scale;
+                    displayHeight *= scale;
+                }
+
+                if (displayWidth <= 0.0f || displayHeight <= 0.0f)
+                {
+                    ImGui::End();
+                    ImGui::PopStyleVar();
+                    return;
+                }
+
+                if (m_camera != nullptr)
+                {
+                    m_camera->set_aspect(displayWidth / displayHeight);
+                    m_camera->update(ImGui::IsWindowHovered());
+                }
+
+                const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos(ImVec2(
+                    cursorPos.x + (availableRegion.x - displayWidth) * 0.5f,
+                    cursorPos.y + (availableRegion.y - displayHeight) * 0.5f));
+
                 ImGui::Image(
                     static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
-                    availableRegion);
+                    ImVec2(displayWidth, displayHeight));
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
                 {
                     const ImVec2 mousePos = ImGui::GetMousePos();
@@ -161,10 +187,24 @@ namespace Cue::Editor
                     const float itemHeight = itemMax.y - itemMin.y;
                     if (itemWidth > 0.0f && itemHeight > 0.0f)
                     {
-                        m_pickRequest.normalizedX =
-                            (mousePos.x - itemMin.x) / itemWidth;
-                        m_pickRequest.normalizedY =
-                            (mousePos.y - itemMin.y) / itemHeight;
+                        m_pickRequest.normalizedX = std::clamp(
+                            (mousePos.x - itemMin.x) / itemWidth,
+                            0.0f,
+                            1.0f);
+                        m_pickRequest.normalizedY = std::clamp(
+                            (mousePos.y - itemMin.y) / itemHeight,
+                            0.0f,
+                            1.0f);
+                        m_pickRequest.pixelX = (std::min)(
+                            static_cast<uint32_t>(
+                                m_pickRequest.normalizedX *
+                                static_cast<float>(debugColorWidth)),
+                            debugColorWidth - 1u);
+                        m_pickRequest.pixelY = (std::min)(
+                            static_cast<uint32_t>(
+                                m_pickRequest.normalizedY *
+                                static_cast<float>(debugColorHeight)),
+                            debugColorHeight - 1u);
                         m_hasPickRequest = true;
                     }
                 }

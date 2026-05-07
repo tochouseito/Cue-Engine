@@ -6,7 +6,7 @@ title: Editor の使い方
 # Editor の使い方
 
 Cue Engine の Editor は Windows 専用のホストアプリケーションです。
-プロジェクトを開き、スタートアップシーンを読み込み、Scene 編集、Script ビルド、Play 実行、配布用ビルドを行います。
+プロジェクト作成、Scene 編集、Asset 管理、GameScript ビルド、Play 実行、配布用ビルドを扱います。
 
 ## 起動前の準備
 
@@ -16,7 +16,7 @@ Editor を使う前に、Engine 本体を `Debug|x64` でビルドします。
 pwsh -NoProfile -File scripts/codex_build.ps1
 ```
 
-Editor の出力先は現在の CMake 設定では次の場所です。
+Editor の出力先は次の場所です。
 
 ```text
 generated/outputs/Editor/Debug/Editor.exe
@@ -29,7 +29,7 @@ Editor 起動直後は `Project Hub` が表示されます。
 - `新規プロジェクト作成`: プロジェクト名と作成先ディレクトリを指定して新規プロジェクトを作成します。
 - `プロジェクトを開く`: 既存プロジェクトのフォルダを選択して開きます。
 
-既存プロジェクトとして認識されるには、プロジェクト直下に `cueproject.json` が必要です。
+プロジェクト直下に `cueproject.json` があるフォルダが Cue Engine プロジェクトとして扱われます。
 新規作成時は、少なくとも次の構成が生成されます。
 
 ```text
@@ -44,85 +44,159 @@ CMakePresets.json
 cueproject.json
 ```
 
-`cueproject.json` には `assetRoot`、`scriptRoot`、`startupScene`、Script のビルド設定、配布ビルド設定が保存されます。
+`cueproject.json` には `assetRoot`、`scriptRoot`、`startupScene`、`scriptBuildConfiguration`、配布ビルド設定が保存されます。
+現在の Editor は `scriptLoadConfiguration` と `scriptBuildBackend` を使いません。
+GameScript は常に `scriptBuildConfiguration` の構成から読み込み、ビルド backend は常に CMake です。
 
 ## 基本画面
 
 プロジェクトを開くと、Editor は `cueproject.json` の `startupScene` を読み込みます。
-また、`assetRoot` を `Asset Browser` と `Inspector` に設定し、`scriptRoot` から `GameScript.dll` の読み込みを試みます。
+`assetRoot` は Asset Browser と Inspector に設定され、`scriptRoot` から `GameScript.dll` の読み込みが試行されます。
 
 主なビューは次の通りです。
 
-- `Asset Browser`: `Assets` 配下のフォルダとファイルを表示します。`Refresh` で再読み込みします。
-- `ヒエラルキー`: 現在の Scene にある GameObject を一覧表示します。
-- `Inspector`: 選択中 GameObject の Component を編集します。`ScriptComponent` もここで設定します。
-- `GameView`: ゲーム画面を表示します。
-- `DebugView`: デバッグカメラ用の表示です。
-- `Statistics`: フレームや Editor 更新処理の計測情報を表示します。
-- `Script Build Output`: GameScript の configure、build、reload、artifact、log を確認します。
+- `GameView`: Play 実行中のゲーム画面を表示します。
+- `DebugView`: Editor 用のデバッグ表示です。追加、ビュー、シーン操作のメニューを持ちます。
+- `Asset Browser`: `Assets` 配下のフォルダとファイルを表示します。
+- `ヒエラルキー`: 読み込み済み Scene と GameObject をツリー表示します。
+- `インスペクター`: 選択中 GameObject または Material asset の詳細を編集します。
+- `Frame Statistics`: Editor / View の計測情報を表示します。
+- `Script Build Output`: GameScript と配布ビルドのログを表示します。
+- `Navigation Debug`: NavMesh と Navigation のデバッグ情報を表示します。
 
-## メニュー操作
+## メニューバー
+
+メニューバー左端には Undo / Redo のアイコンボタンがあります。
+`編集` メニューは廃止され、編集系の追加操作は `DebugView > 追加` に移動しています。
+
+### Undo / Redo
+
+- `Undo`: 直前の編集コマンドを戻します。ショートカットは `Ctrl+Z` です。
+- `Redo`: 戻した編集コマンドをやり直します。ショートカットは `Ctrl+Y` または `Ctrl+Shift+Z` です。
 
 ### ファイル
 
 - `シーンを保存`: 現在の Scene を保存します。ショートカットは `Ctrl+S` です。
-- `シーンを再読み込み`: 現在の Scene をディスクから再読み込みします。
+- `シーンを再読み込み`: 現在の Scene をバックグラウンドで再読み込みします。
 
-### 編集
+### 表示
 
-- `3D > カメラを追加`: Camera GameObject を追加します。
-- `3D > オブジェクトを追加`: 3D StaticMesh GameObject を追加します。
-- `2D > オブジェクトを追加`: 2D Sprite GameObject を追加します。
-- `メインカメラ`: Scene 内の Camera からメインカメラを選択します。
-- `Undo`: 直前の編集コマンドを戻します。ショートカットは `Ctrl+Z` です。
-- `Redo`: 戻した編集コマンドをやり直します。ショートカットは `Ctrl+Y` または `Ctrl+Shift+Z` です。
+各 Window を表示してフォーカスします。
+すでに表示されている Window を選んだ場合は、表示状態を維持したままフォーカスだけを移します。
+
+- `GameView`
+- `DebugView`
+- `Asset Browser`
+- `ヒエラルキー`
+- `インスペクター`
+- `Frame Statistics`
+- `Script Build Output`
+- `Navigation Debug`
 
 ### ナビゲーション
 
-- `Scene NavMesh を Bake`: 現在の Scene の NavMesh を Bake します。Play 中は実行できません。
-- `Debug Window`: Navigation のデバッグウィンドウを表示します。
-
-### 実行
-
-- `Play`: 現在の Scene で Play を開始します。
-- `Stop`: Play を停止します。
-- `Exit`: Play を終了して Editor 状態へ戻ります。
-
-Script のビルドや再読み込み中は Play 操作が無効になります。
+- `Scene NavMesh を Bake`: 現在の Scene から NavMesh を Bake します。Play 中は実行できません。
+- `Debug Window`: `Navigation Debug` Window の表示を切り替えます。
 
 ### ビルド
 
-- `GameScript ビルド構成`: `Debug`、`RelWithDebInfo`、`Release` から GameScript のビルド構成を選択します。
-- `GameScript 読み込み構成`: Editor が読み込む GameScript の構成を選択します。
-- `GameScript backend`: `CMake` または `VisualStudio` を選択します。
-- `ゲーム配布ビルド構成`: 配布用ビルドの構成を選択します。
+- `ゲーム配布ビルド構成`: 配布用ビルドの構成を `Debug`、`RelWithDebInfo`、`Release` から選択します。
 - `ゲーム配布 backend`: 配布用ビルドの backend を選択します。
-- `GameScript を再読み込み`: 現在の `scriptRoot` から GameScript を再読み込みします。
-- `GameScript をビルド`: GameScript をビルドし、成功後に再読み込みします。
+- `ゲーム配布アプリ設定`: 配布される `exe` 名、タイトルバー、アプリアイコンを設定します。
 - `ゲーム Release ビルド`: Engine 側の `CueApp` とプロジェクト側の `Game` / `CueApp` をビルドし、配布フォルダを作成します。
 - `ゲーム Release ビルドフォルダを開く`: `gameReleaseOutputRoot` の出力先を Shell で開きます。
-- `GameScript を追加`: `Assets/Scripts` に Script の `.h` と `.cpp` テンプレートを作成します。
-- `GameScript solution を開く`: `scriptRoot` の CMake preset から Visual Studio solution を開きます。
+- `GameScript solution を開く`: プロジェクトの CMake preset から Visual Studio solution を開きます。
 - `Editor にデバッガをアタッチ`: Visual Studio から現在の Editor プロセスへアタッチします。
-- `Script Build Output`: Script Build Output ウィンドウの表示を切り替えます。
+- `Script Build Output`: Script Build Output Window の表示を切り替えます。
 
-## GameScript Build Output
+GameScript の手動ビルドと手動再読み込み項目はビルドメニューから削除されています。
+Script source の更新を検出し、Editor Window がフォーカスされている場合、Editor は GameScript を自動でビルドして再読み込みします。
 
-`Script Build Output` では、最後に実行した GameScript 操作の結果を確認できます。
+### Play 操作
 
-- 成否と summary
-- Exit Code
-- configure を実行したかどうか
-- `Open Solution`
-- `Attach Editor`
-- `Clear Output`
-- Configure Log
-- Build Log
-- stage ごとの command と output
-- build message
-- artifact path
+Play 操作はメニューバー中央のアイコンボタンで行います。
 
-ビルドに失敗した場合は、このウィンドウの message と log path を先に確認します。
+- `Play`: 現在の World で Play を開始します。
+- `Pause (Stop)`: Play を停止します。
+- `Stop (Exit)`: Play を終了して Editor 状態へ戻ります。
+
+GameScript のビルドや再読み込み中は Play 操作が無効になります。
+メニューバー中央には `GameScript ビルド構成` の combo も表示されます。
+この combo で選んだ構成が、ビルドと読み込みの両方に使われます。
+
+## DebugView メニュー
+
+`DebugView` Window には専用のメニューバーがあります。
+
+### 追加
+
+- `3D > カメラを追加`
+- `3D > オブジェクトを追加`
+- `2D > オブジェクトを追加`
+- `マテリアルを追加`
+- `GameScript を追加`
+- `メインカメラ`
+
+追加先 Scene は、ヒエラルキーで選択中の Scene、または選択中 GameObject の所属 Scene です。
+どちらも選択されていない場合は現在の primary Scene に追加されます。
+GameObject 名は World 全体で一意です。別 Scene であっても同名は許可されません。
+
+### ビュー
+
+- `グリッドを表示`: DebugView の grid 表示を切り替えます。
+
+### シーン
+
+`読み込み済みシーン` には、現在 Editor World に読み込まれている Scene 名だけが表示されます。
+`読込` ボタンから `Assets/Scenes` 配下の `.cuescene` を追加読み込みできます。
+すでに読み込まれている Scene は一覧上で選べない状態になります。
+
+## Asset Browser
+
+Asset Browser は `Assets` 配下をフォルダ単位で表示します。
+ファイルはアイコン付きボタンとして表示されます。
+
+- `.cuematerial`: Material アイコンを表示します。
+- `.png` / `.cuetexture`: Image アイコン、または読み込み済み texture のプレビューを表示します。
+- その他のファイル: Unknown アイコンを表示します。
+
+Material asset を選択すると Inspector に Material の詳細が表示されます。
+Texture asset は drag and drop payload として Material Inspector へ渡せます。
+
+Editor Window へ外部ファイルをドロップすると、現在開いている Asset Browser のフォルダへコピーして import します。
+Asset Browser が `Assets` 以下のフォルダを開いていない場合は `Assets/` にコピーします。
+対応している外部ファイルは次の通りです。
+
+- `.png`: `.cuetexture` に cook して登録します。
+- `.wav`: `.cuesound` に cook します。
+- `.obj`: `.cuemodel` に cook して登録します。
+
+## Inspector
+
+GameObject を選択すると Component ごとのタブで詳細を編集できます。
+Material asset を選択すると Material Inspector が表示されます。
+
+Material Inspector では現在次の項目を編集できます。
+
+- `color`: Material color を編集して保存します。
+- `Use Texture`: texture を使うかを切り替えます。
+- `Texture をここへドロップ`: `.cuetexture` を drag and drop して Material に設定します。
+
+RendererComponent の Material 欄には Asset Browser から `.cuematerial` を drag and drop できます。
+
+## ヒエラルキー
+
+ヒエラルキーは Scene 単位の tree で表示されます。
+各 Scene の下に、その Scene に所属する GameObject が表示されます。
+
+- Scene をクリックすると Scene が選択されます。
+- GameObject をクリックすると GameObject と所属 Scene が選択されます。
+- GameObject のダブルクリック、または右クリックメニューから名前変更できます。
+- GameObject の右クリックメニューから削除できます。
+
+Scene を複数読み込んでも、World は GameObject を一元管理します。
+保存時は、それぞれの Scene の所属情報に従って Scene asset へ書き戻されます。
+同じ Scene asset を複数同時に読み込むことは避けてください。
 
 ## 配布ビルド
 
@@ -135,6 +209,8 @@ Script のビルドや再読み込み中は Play 操作が無効になります�
 }
 ```
 
-現在の処理では、`CueApp.exe`、`EngineResources`、`config`、`dxcompiler.dll`、`dxil.dll`、`Assets`、`cueproject.json` を配布フォルダへ集めます。
-Sound asset は配布コピー前に cook されます。
+配布フォルダには `CueApp.exe`、`EngineResources`、`config`、`dxcompiler.dll`、`dxil.dll`、`Assets`、`cueproject.json` が集められます。
+配布時の実行ファイル名、タイトルバー、アプリアイコンは `ゲーム配布アプリ設定` で変更できます。
+アイコンはプロジェクト内の `.ico`、`.png`、`.jpg`、`.jpeg`、`.bmp` を指定できます。
 
+Release asset としてコピーされるのは、cook 済みの `.cuetexture`、`.cuematerial`、`.cuescene`、`.cuemodel`、`.cuesound` です。

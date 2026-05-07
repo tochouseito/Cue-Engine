@@ -234,7 +234,12 @@ namespace Cue
             return m_isDebugGridVisible;
         }
 
-        void request_debug_pick(float a_normalizedX, float a_normalizedY) noexcept;
+        [[nodiscard]] bool request_debug_pick(
+            float a_normalizedX,
+            float a_normalizedY) noexcept;
+        [[nodiscard]] bool request_debug_pick_pixel(
+            uint32_t a_x,
+            uint32_t a_y) noexcept;
         void cancel_debug_pick() noexcept;
         [[nodiscard]] bool consume_debug_pick_result(
             GameCore::EntityId& a_outEntityId) noexcept;
@@ -322,6 +327,7 @@ namespace Cue
         Result sync_active_world_buffers();
         Result destroy_size_dependent_resources();
         Result apply_pending_resize();
+        [[nodiscard]] float simulation_delta_time(float a_rawDeltaTime) noexcept;
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update();
         /// @brief 描画
@@ -371,5 +377,6 @@ namespace Cue
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
         GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;
         Core::IO::Path m_scriptRoot{};
+        uint32_t m_simulationWarmupFrames = 0;
     };
 } // namespace Cue

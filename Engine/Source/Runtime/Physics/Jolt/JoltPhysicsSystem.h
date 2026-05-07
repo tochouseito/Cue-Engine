@@ -43,6 +43,21 @@ namespace Cue::Physics::Jolt
         Result get_body_transform(
             RigidBodyHandle a_body,
             BodyTransform& a_outTransform) const override;
+        Result set_linear_velocity(
+            RigidBodyHandle a_body,
+            Math::float3 a_velocity,
+            BodyActivation a_activation) override;
+        Result get_linear_velocity(
+            RigidBodyHandle a_body,
+            Math::float3& a_outVelocity) const override;
+        Result add_force(
+            RigidBodyHandle a_body,
+            Math::float3 a_force,
+            BodyActivation a_activation) override;
+        Result add_impulse(
+            RigidBodyHandle a_body,
+            Math::float3 a_impulse,
+            BodyActivation a_activation) override;
         Result raycast(
             const RaycastDesc& a_desc,
             RaycastHit& a_outHit) const override;

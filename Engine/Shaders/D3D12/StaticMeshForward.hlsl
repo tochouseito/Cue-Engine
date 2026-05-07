@@ -74,16 +74,21 @@ float4 ps_main(VsOut input) : SV_Target0
     const float3 lightDirection = normalize(float3(-0.4f, -0.7f, -0.6f));
     const float ndotl = saturate(dot(normalize(input.worldNormal), -lightDirection));
     const Material material = g_materials[input.materialId];
-    const uint textureIndex = NonUniformResourceIndex(material.textureId);
-    uint textureWidth = 1;
-    uint textureHeight = 1;
-    g_textures[textureIndex].GetDimensions(textureWidth, textureHeight);
-    const float2 wrappedUv = frac(input.texcoord);
-    const uint2 texelCoord = uint2(
-        min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
-        min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
-    const float3 textureColor =
-        g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
+    float3 textureColor = float3(1.0f, 1.0f, 1.0f);
+    if (material.useTexture != 0)
+    {
+        const uint textureIndex = NonUniformResourceIndex(material.textureId);
+        uint textureWidth = 1;
+        uint textureHeight = 1;
+        g_textures[textureIndex].GetDimensions(textureWidth, textureHeight);
+        const float2 wrappedUv = frac(input.texcoord);
+        const uint2 texelCoord = uint2(
+            min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
+            min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
+        textureColor =
+            g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
+    }
+
     const float3 baseColor = material.color.rgb * textureColor;
     const float3 color = baseColor * (0.2f + ndotl * 0.8f);
     return float4(color, 1.0f);

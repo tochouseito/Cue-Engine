@@ -8,6 +8,12 @@
 
 namespace Cue::ECS
 {
+    enum class NavAgentMovementMode : uint8_t
+    {
+        DirectTransform,
+        DesiredVelocityOnly,
+    };
+
     struct NavAgentComponent final : public IComponentTag
     {
         float radius = 0.3f;
@@ -22,9 +28,12 @@ namespace Cue::ECS
         Math::float3 lastRequestedDestination = Math::float3::zero();
         Math::float3 desiredVelocity = Math::float3::zero();
         std::vector<Math::float3> pathPoints{};
+        Entity targetEntity = 0;
         uint32_t pathIndex = 0;
+        NavAgentMovementMode movementMode = NavAgentMovementMode::DirectTransform;
         bool shouldSnapToNavMesh = true;
         bool hasDestination = false;
+        bool hasTarget = false;
         bool hasPath = false;
         bool hasArrived = false;
         bool hasPathFailed = false;

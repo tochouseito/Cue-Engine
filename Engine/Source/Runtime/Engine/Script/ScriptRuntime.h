@@ -196,6 +196,36 @@ namespace Cue
             CueStringView a_sceneName);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL request_scene_unload_bridge(
             CueSceneId a_sceneId);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_rigid_body_linear_velocity_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat3* a_velocity);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_rigid_body_linear_velocity_bridge(
+                CueEntityHandle a_entityHandle,
+                CueFloat3* a_outVelocity);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            add_rigid_body_force_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat3* a_force);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            add_rigid_body_impulse_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat3* a_impulse);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_character_move_velocity_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat3* a_velocity);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            request_character_jump_bridge(CueEntityHandle a_entityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_nav_agent_destination_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat3* a_destination);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_nav_agent_target_bridge(
+                CueEntityHandle a_entityHandle,
+                CueEntityHandle a_targetEntityHandle);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -249,6 +279,29 @@ namespace Cue
             CueStringView a_sceneName) noexcept;
         [[nodiscard]] CueResult request_scene_unload_internal(
             CueSceneId a_sceneId) noexcept;
+        [[nodiscard]] CueResult set_rigid_body_linear_velocity_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_velocity) noexcept;
+        [[nodiscard]] CueResult get_rigid_body_linear_velocity_internal(
+            CueEntityHandle a_entityHandle,
+            CueFloat3* a_outVelocity) const noexcept;
+        [[nodiscard]] CueResult add_rigid_body_force_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_force) noexcept;
+        [[nodiscard]] CueResult add_rigid_body_impulse_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_impulse) noexcept;
+        [[nodiscard]] CueResult set_character_move_velocity_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_velocity) noexcept;
+        [[nodiscard]] CueResult request_character_jump_internal(
+            CueEntityHandle a_entityHandle) noexcept;
+        [[nodiscard]] CueResult set_nav_agent_destination_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat3* a_destination) noexcept;
+        [[nodiscard]] CueResult set_nav_agent_target_internal(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle a_targetEntityHandle) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

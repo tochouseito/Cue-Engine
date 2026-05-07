@@ -9,6 +9,7 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
@@ -19,6 +20,7 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -294,6 +296,46 @@ namespace
                     "Capsule radius and half height must be greater than zero.");
             }
             JPH::CapsuleShapeSettings settings(a_desc.halfHeight, a_desc.radius);
+            result = settings.Create();
+            break;
+        }
+        case Cue::Physics::ShapeType::Mesh:
+        {
+            if (a_desc.vertices.empty() || a_desc.indices.empty() ||
+                (a_desc.indices.size() % 3u) != 0u)
+            {
+                return Cue::Result::fail(Cue::Code::InvalidArgument,
+                    Cue::Severity::Error,
+                    "Mesh collider requires vertices and triangle indices.");
+            }
+
+            JPH::VertexList vertices{};
+            vertices.reserve(a_desc.vertices.size());
+            for (const Cue::Math::float3& vertex : a_desc.vertices)
+            {
+                vertices.push_back(JPH::Float3(vertex.x, vertex.y, vertex.z));
+            }
+
+            JPH::IndexedTriangleList triangles{};
+            triangles.reserve(a_desc.indices.size() / 3u);
+            for (size_t index = 0; index < a_desc.indices.size(); index += 3u)
+            {
+                const uint32_t i0 = a_desc.indices[index];
+                const uint32_t i1 = a_desc.indices[index + 1u];
+                const uint32_t i2 = a_desc.indices[index + 2u];
+                if (i0 >= a_desc.vertices.size() ||
+                    i1 >= a_desc.vertices.size() ||
+                    i2 >= a_desc.vertices.size())
+                {
+                    return Cue::Result::fail(Cue::Code::InvalidArgument,
+                        Cue::Severity::Error,
+                        "Mesh collider index is out of range.");
+                }
+
+                triangles.emplace_back(i0, i1, i2);
+            }
+
+            JPH::MeshShapeSettings settings(vertices, triangles);
             result = settings.Create();
             break;
         }
@@ -585,6 +627,103 @@ namespace Cue::Physics::Jolt
         return Result::ok();
     }
 
+    Result JoltPhysicsSystem::set_linear_velocity(
+        RigidBodyHandle a_body,
+        Math::float3 a_velocity,
+        BodyActivation a_activation)
+    {
+        if (!m_isInitialized || m_physicsSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Jolt physics system is not initialized.");
+        }
+        if (!is_alive(a_body))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Physics body handle is invalid.");
+        }
+
+        JPH::BodyInterface& bodyInterface = m_physicsSystem->GetBodyInterface();
+        bodyInterface.SetLinearVelocity(body_id(a_body), to_vec3(a_velocity));
+        if (a_activation == BodyActivation::Activate)
+        {
+            bodyInterface.ActivateBody(body_id(a_body));
+        }
+        return Result::ok();
+    }
+
+    Result JoltPhysicsSystem::get_linear_velocity(
+        RigidBodyHandle a_body,
+        Math::float3& a_outVelocity) const
+    {
+        a_outVelocity = Math::float3::zero();
+        if (!m_isInitialized || m_physicsSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Jolt physics system is not initialized.");
+        }
+        if (!is_alive(a_body))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Physics body handle is invalid.");
+        }
+
+        a_outVelocity = to_float3(
+            m_physicsSystem->GetBodyInterface().GetLinearVelocity(
+                body_id(a_body)));
+        return Result::ok();
+    }
+
+    Result JoltPhysicsSystem::add_force(
+        RigidBodyHandle a_body,
+        Math::float3 a_force,
+        BodyActivation a_activation)
+    {
+        if (!m_isInitialized || m_physicsSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Jolt physics system is not initialized.");
+        }
+        if (!is_alive(a_body))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Physics body handle is invalid.");
+        }
+
+        JPH::BodyInterface& bodyInterface = m_physicsSystem->GetBodyInterface();
+        bodyInterface.AddForce(body_id(a_body), to_vec3(a_force));
+        if (a_activation == BodyActivation::Activate)
+        {
+            bodyInterface.ActivateBody(body_id(a_body));
+        }
+        return Result::ok();
+    }
+
+    Result JoltPhysicsSystem::add_impulse(
+        RigidBodyHandle a_body,
+        Math::float3 a_impulse,
+        BodyActivation a_activation)
+    {
+        if (!m_isInitialized || m_physicsSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Jolt physics system is not initialized.");
+        }
+        if (!is_alive(a_body))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Physics body handle is invalid.");
+        }
+
+        JPH::BodyInterface& bodyInterface = m_physicsSystem->GetBodyInterface();
+        bodyInterface.AddImpulse(body_id(a_body), to_vec3(a_impulse));
+        if (a_activation == BodyActivation::Activate)
+        {
+            bodyInterface.ActivateBody(body_id(a_body));
+        }
+        return Result::ok();
+    }
+
     Result JoltPhysicsSystem::raycast(
         const RaycastDesc& a_desc,
         RaycastHit& a_outHit) const
@@ -608,8 +747,25 @@ namespace Cue::Physics::Jolt
             to_vec3(direction) * a_desc.distance);
 
         JPH::RayCastResult hit{};
-        const bool hasHit =
-            m_physicsSystem->GetNarrowPhaseQuery().CastRay(ray, hit);
+        bool hasHit = false;
+        if (a_desc.ignoredBody.valid())
+        {
+            if (!is_alive(a_desc.ignoredBody))
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "Ignored physics body handle is invalid.");
+            }
+
+            const JPH::IgnoreSingleBodyFilter bodyFilter(
+                body_id(a_desc.ignoredBody));
+            hasHit = m_physicsSystem->GetNarrowPhaseQuery().CastRay(
+                ray, hit, {}, {}, bodyFilter);
+        }
+        else
+        {
+            hasHit =
+                m_physicsSystem->GetNarrowPhaseQuery().CastRay(ray, hit);
+        }
         if (!hasHit)
         {
             return Result::fail(Code::NotFound, Severity::Info,

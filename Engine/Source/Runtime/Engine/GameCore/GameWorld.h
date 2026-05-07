@@ -14,6 +14,7 @@
 #include "SceneSerializer.h"
 #include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
+#include "Systems/CharacterControllerSystem.h"
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "Systems/SpriteSystem.h"
@@ -397,11 +398,42 @@ namespace Cue::GameCore
             }
 
             agent->destination = a_destination;
+            agent->targetEntity = 0;
+            agent->hasTarget = false;
             agent->hasDestination = true;
             agent->hasArrived = false;
             agent->hasPath = false;
             agent->hasPathFailed = false;
             agent->isOnNavMesh = false;
+            agent->pathPoints.clear();
+            agent->pathIndex = 0;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result set_nav_agent_target(
+            EntityId a_entityId,
+            EntityId a_targetEntityId) noexcept
+        {
+            ECS::NavAgentComponent* agent = get_component<ECS::NavAgentComponent>(
+                a_entityId);
+            if (agent == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "NavAgentComponent was not found.");
+            }
+            if (a_targetEntityId == k_invalidEntityId ||
+                !contains_object(a_targetEntityId))
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Warning,
+                    "NavAgent target entity is invalid.");
+            }
+
+            agent->targetEntity = a_targetEntityId;
+            agent->hasTarget = true;
+            agent->hasDestination = true;
+            agent->hasArrived = false;
+            agent->hasPath = false;
+            agent->hasPathFailed = false;
             agent->pathPoints.clear();
             agent->pathIndex = 0;
             return Result::ok();
@@ -875,6 +907,123 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
+        [[nodiscard]] Result set_rigid_body_linear_velocity(
+            EntityId a_entityId,
+            Math::float3 a_velocity) noexcept
+        {
+            ECS::RigidBodyComponent* rigidBody = nullptr;
+            Result result = get_component<ECS::RigidBodyComponent>(
+                a_entityId, rigidBody);
+            if (!result || rigidBody == nullptr)
+            {
+                return result;
+            }
+
+            rigidBody->linearVelocity = a_velocity;
+            if (m_physicsSystem == nullptr || !rigidBody->body.valid())
+            {
+                return Result::ok();
+            }
+
+            return m_physicsSystem->set_linear_velocity(
+                rigidBody->body, a_velocity, Physics::BodyActivation::Activate);
+        }
+
+        [[nodiscard]] Result get_rigid_body_linear_velocity(
+            EntityId a_entityId,
+            Math::float3& a_outVelocity) const noexcept
+        {
+            a_outVelocity = Math::float3::zero();
+            const ECS::RigidBodyComponent* rigidBody =
+                get_component<ECS::RigidBodyComponent>(a_entityId);
+            if (rigidBody == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "RigidBodyComponent was not found.");
+            }
+
+            if (m_physicsSystem == nullptr || !rigidBody->body.valid())
+            {
+                a_outVelocity = rigidBody->linearVelocity;
+                return Result::ok();
+            }
+
+            return m_physicsSystem->get_linear_velocity(
+                rigidBody->body, a_outVelocity);
+        }
+
+        [[nodiscard]] Result add_rigid_body_force(
+            EntityId a_entityId,
+            Math::float3 a_force) noexcept
+        {
+            ECS::RigidBodyComponent* rigidBody = nullptr;
+            Result result = get_component<ECS::RigidBodyComponent>(
+                a_entityId, rigidBody);
+            if (!result || rigidBody == nullptr)
+            {
+                return result;
+            }
+            if (m_physicsSystem == nullptr || !rigidBody->body.valid())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "RigidBody physics body is not created.");
+            }
+
+            return m_physicsSystem->add_force(
+                rigidBody->body, a_force, Physics::BodyActivation::Activate);
+        }
+
+        [[nodiscard]] Result add_rigid_body_impulse(
+            EntityId a_entityId,
+            Math::float3 a_impulse) noexcept
+        {
+            ECS::RigidBodyComponent* rigidBody = nullptr;
+            Result result = get_component<ECS::RigidBodyComponent>(
+                a_entityId, rigidBody);
+            if (!result || rigidBody == nullptr)
+            {
+                return result;
+            }
+            if (m_physicsSystem == nullptr || !rigidBody->body.valid())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "RigidBody physics body is not created.");
+            }
+
+            return m_physicsSystem->add_impulse(
+                rigidBody->body, a_impulse, Physics::BodyActivation::Activate);
+        }
+
+        [[nodiscard]] Result set_character_move_velocity(
+            EntityId a_entityId,
+            Math::float3 a_velocity) noexcept
+        {
+            ECS::CharacterControllerComponent* controller = nullptr;
+            Result result = get_component<ECS::CharacterControllerComponent>(
+                a_entityId, controller);
+            if (!result || controller == nullptr)
+            {
+                return result;
+            }
+
+            controller->moveVelocity = a_velocity;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result request_character_jump(EntityId a_entityId) noexcept
+        {
+            ECS::CharacterControllerComponent* controller = nullptr;
+            Result result = get_component<ECS::CharacterControllerComponent>(
+                a_entityId, controller);
+            if (!result || controller == nullptr)
+            {
+                return result;
+            }
+
+            controller->jumpRequested = true;
+            return Result::ok();
+        }
+
         [[nodiscard]] Result scene_count(size_t& a_outCount) const noexcept
         {
             a_outCount = m_scenes.size();
@@ -1286,14 +1435,27 @@ namespace Cue::GameCore
             EntityId& a_outEntityId) const noexcept
         {
             a_outEntityId = k_invalidEntityId;
-            const std::vector<EntityId> entities = collect_active_static_mesh_entities();
-            if (a_objectId >= entities.size())
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
             {
-                return false;
+                if (!contains_object(entity) || !m_ecs.is_entity_active(entity))
+                {
+                    continue;
+                }
+
+                const ECS::RenderableInfoComponent* renderableInfo =
+                    get_component<ECS::RenderableInfoComponent>(entity);
+                if (renderableInfo == nullptr ||
+                    renderableInfo->objectId != a_objectId)
+                {
+                    continue;
+                }
+
+                a_outEntityId = entity;
+                return true;
             }
 
-            a_outEntityId = entities[a_objectId];
-            return true;
+            return false;
         }
 
         template <typename F>
@@ -1629,6 +1791,94 @@ namespace Cue::GameCore
             return m_scenes.find(a_sceneId) != m_scenes.end();
         }
 
+        void localize_script_entity_references(
+            ECS::ScriptComponent& a_script,
+            EntityId a_sourceEntityId) const noexcept
+        {
+            const SceneId sourceSceneId = source_scene_id(a_sourceEntityId);
+            const auto localizeField =
+                [this, sourceSceneId](ECS::ScriptFieldValue& a_field) noexcept
+            {
+                if (a_field.type != ECS::ScriptFieldType::EntityRef ||
+                    a_field.entityValue == k_invalidEntityId)
+                {
+                    return;
+                }
+
+                const EntityRecord* record =
+                    try_get_entity_record(a_field.entityValue);
+                if (record == nullptr || !record->isAlive ||
+                    record->sourceSceneId != sourceSceneId ||
+                    record->sourceLocalObjectId == k_invalidLocalObjectId)
+                {
+                    return;
+                }
+
+                a_field.entityValue =
+                    static_cast<EntityId>(record->sourceLocalObjectId);
+            };
+
+            for (ECS::ScriptFieldValue& field : a_script.serializedFieldValues)
+            {
+                localizeField(field);
+            }
+            for (ECS::ScriptFieldValue& field : a_script.transientFieldValues)
+            {
+                localizeField(field);
+            }
+        }
+
+        void resolve_script_entity_references(
+            EntityId a_entityId,
+            const SceneInstance& a_scene,
+            const std::unordered_map<LocalObjectId, EntityId>& a_newLocalObjectToEntity)
+            noexcept
+        {
+            ECS::ScriptComponent* script = get_component<ECS::ScriptComponent>(
+                a_entityId);
+            if (script == nullptr)
+            {
+                return;
+            }
+
+            const auto resolveField =
+                [&a_scene, &a_newLocalObjectToEntity](
+                    ECS::ScriptFieldValue& a_field) noexcept
+            {
+                if (a_field.type != ECS::ScriptFieldType::EntityRef ||
+                    a_field.entityValue == k_invalidEntityId)
+                {
+                    return;
+                }
+
+                const LocalObjectId localObjectId =
+                    static_cast<LocalObjectId>(a_field.entityValue);
+                if (const auto newIt =
+                    a_newLocalObjectToEntity.find(localObjectId);
+                    newIt != a_newLocalObjectToEntity.end())
+                {
+                    a_field.entityValue = newIt->second;
+                    return;
+                }
+
+                if (const auto sceneIt =
+                    a_scene.localObjectToEntity.find(localObjectId);
+                    sceneIt != a_scene.localObjectToEntity.end())
+                {
+                    a_field.entityValue = sceneIt->second;
+                }
+            };
+
+            for (ECS::ScriptFieldValue& field : script->serializedFieldValues)
+            {
+                resolveField(field);
+            }
+            for (ECS::ScriptFieldValue& field : script->transientFieldValues)
+            {
+                resolveField(field);
+            }
+        }
+
         [[nodiscard]] std::string get_object_tag(EntityId a_entityId) const
         {
             const BaseComponent* base = get_component<BaseComponent>(a_entityId);
@@ -1740,11 +1990,24 @@ namespace Cue::GameCore
                 prototype.add_component(*collider);
             }
 
+            if (const ECS::CharacterControllerComponent* characterController =
+                get_component<ECS::CharacterControllerComponent>(a_entityId);
+                characterController != nullptr)
+            {
+                ECS::CharacterControllerComponent copiedCharacterController =
+                    *characterController;
+                copiedCharacterController.isGrounded = false;
+                copiedCharacterController.jumpRequested = false;
+                prototype.add_component(copiedCharacterController);
+            }
+
             if (const ECS::ScriptComponent* script =
                 get_component<ECS::ScriptComponent>(a_entityId);
                 script != nullptr)
             {
-                prototype.add_component(*script);
+                ECS::ScriptComponent copiedScript = *script;
+                localize_script_entity_references(copiedScript, a_entityId);
+                prototype.add_component(copiedScript);
             }
 
             return prototype;
@@ -2127,6 +2390,9 @@ namespace Cue::GameCore
 
                 for (const PendingObjectInstantiation& entry : pending)
                 {
+                    resolve_script_entity_references(
+                        entry.entityId, scene, newLocalObjectToEntity);
+
                     if (!entry.definition->parentLocalObjectId.has_value())
                     {
                         continue;
@@ -2471,6 +2737,7 @@ namespace Cue::GameCore
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
+        Physics::IPhysicsSystem* m_physicsSystem = nullptr;
         Audio::AudioDeviceHandle m_audioDevice{};
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;

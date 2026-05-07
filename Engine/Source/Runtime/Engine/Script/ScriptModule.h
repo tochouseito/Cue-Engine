@@ -35,6 +35,8 @@ namespace Cue
         void unload() noexcept;
 
         [[nodiscard]] bool is_loaded() const noexcept;
+        [[nodiscard]] static bool is_loaded(
+            const ScriptModule* a_module) noexcept;
         [[nodiscard]] const CueScriptExports* exports() const noexcept;
         [[nodiscard]] const Core::IO::Path& module_path() const noexcept;
         [[nodiscard]] MarionnetteObject* get_script_instance_object(

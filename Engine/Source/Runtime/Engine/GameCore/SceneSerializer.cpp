@@ -77,6 +77,8 @@ namespace Cue::GameCore
                 return "Sphere";
             case Physics::ShapeType::Capsule:
                 return "Capsule";
+            case Physics::ShapeType::Mesh:
+                return "Mesh";
             }
 
             return "Box";
@@ -93,6 +95,10 @@ namespace Cue::GameCore
             if (typeName == "Capsule")
             {
                 return Physics::ShapeType::Capsule;
+            }
+            if (typeName == "Mesh")
+            {
+                return Physics::ShapeType::Mesh;
             }
 
             return Physics::ShapeType::Box;
@@ -116,6 +122,31 @@ namespace Cue::GameCore
             deserialize_float3(a_json.at("scale"), a_outComponent.scale);
         }
 
+        [[nodiscard]] const char* to_string(
+            ECS::NavAgentMovementMode a_mode) noexcept
+        {
+            switch (a_mode)
+            {
+            case ECS::NavAgentMovementMode::DesiredVelocityOnly:
+                return "DesiredVelocityOnly";
+            case ECS::NavAgentMovementMode::DirectTransform:
+            default:
+                return "DirectTransform";
+            }
+        }
+
+        [[nodiscard]] ECS::NavAgentMovementMode parse_nav_agent_movement_mode(
+            const Json& a_json) noexcept
+        {
+            const std::string modeName = a_json.get<std::string>();
+            if (modeName == "DesiredVelocityOnly")
+            {
+                return ECS::NavAgentMovementMode::DesiredVelocityOnly;
+            }
+
+            return ECS::NavAgentMovementMode::DirectTransform;
+        }
+
         [[nodiscard]] Json serialize_nav_agent(
             const ECS::NavAgentComponent& a_component)
         {
@@ -129,6 +160,7 @@ namespace Cue::GameCore
                 { "includeFlags", a_component.includeFlags },
                 { "excludeFlags", a_component.excludeFlags },
                 { "destination", serialize_float3(a_component.destination) },
+                { "movementMode", to_string(a_component.movementMode) },
                 { "shouldSnapToNavMesh", a_component.shouldSnapToNavMesh },
                 { "hasDestination", a_component.hasDestination },
             };
@@ -153,6 +185,13 @@ namespace Cue::GameCore
                 a_json.value("includeFlags", a_outComponent.includeFlags);
             a_outComponent.excludeFlags =
                 a_json.value("excludeFlags", a_outComponent.excludeFlags);
+            if (const Json::const_iterator movementModeIt =
+                a_json.find("movementMode");
+                movementModeIt != a_json.end())
+            {
+                a_outComponent.movementMode =
+                    parse_nav_agent_movement_mode(*movementModeIt);
+            }
             if (const Json::const_iterator destinationIt =
                 a_json.find("destination");
                 destinationIt != a_json.end())
@@ -415,6 +454,7 @@ namespace Cue::GameCore
         {
             return Json{
                 { "type", to_string(a_component.type) },
+                { "meshModelName", a_component.meshModelName },
                 { "offset", serialize_float3(a_component.offset) },
                 { "halfExtent", serialize_float3(a_component.halfExtent) },
                 { "radius", a_component.radius },
@@ -432,6 +472,8 @@ namespace Cue::GameCore
         {
             a_outComponent.type = parse_shape_type(
                 a_json.value("type", std::string("Box")));
+            a_outComponent.meshModelName =
+                a_json.value("meshModelName", std::string{});
             if (const Json::const_iterator offsetIt = a_json.find("offset");
                 offsetIt != a_json.end())
             {
@@ -450,6 +492,43 @@ namespace Cue::GameCore
             a_outComponent.layer = a_json.value("layer", uint16_t{ 0 });
             a_outComponent.mask = a_json.value("mask", uint16_t{ 0xFFFFu });
             a_outComponent.isTrigger = a_json.value("isTrigger", false);
+        }
+
+        [[nodiscard]] Json serialize_character_controller(
+            const ECS::CharacterControllerComponent& a_component)
+        {
+            return Json{
+                { "moveVelocity", serialize_float3(a_component.moveVelocity) },
+                { "verticalVelocity", a_component.verticalVelocity },
+                { "maxSpeed", a_component.maxSpeed },
+                { "gravity", a_component.gravity },
+                { "jumpSpeed", a_component.jumpSpeed },
+                { "groundCheckDistance", a_component.groundCheckDistance },
+                { "skinWidth", a_component.skinWidth },
+            };
+        }
+
+        void deserialize_character_controller(
+            const Json& a_json,
+            ECS::CharacterControllerComponent& a_outComponent)
+        {
+            if (const Json::const_iterator moveVelocityIt =
+                a_json.find("moveVelocity");
+                moveVelocityIt != a_json.end())
+            {
+                deserialize_float3(
+                    *moveVelocityIt, a_outComponent.moveVelocity);
+            }
+            a_outComponent.verticalVelocity =
+                a_json.value("verticalVelocity", 0.0f);
+            a_outComponent.maxSpeed = a_json.value("maxSpeed", 6.0f);
+            a_outComponent.gravity = a_json.value("gravity", 9.80665f);
+            a_outComponent.jumpSpeed = a_json.value("jumpSpeed", 5.0f);
+            a_outComponent.groundCheckDistance =
+                a_json.value("groundCheckDistance", 0.12f);
+            a_outComponent.skinWidth = a_json.value("skinWidth", 0.03f);
+            a_outComponent.isGrounded = false;
+            a_outComponent.jumpRequested = false;
         }
 
         [[nodiscard]] const char* to_string(ECS::ScriptFieldType a_type) noexcept
@@ -699,6 +778,15 @@ namespace Cue::GameCore
                 componentsJson["collider"] = serialize_collider(*collider);
             }
 
+            if (const ECS::CharacterControllerComponent* characterController =
+                a_definition.prototype.get_component_ptr<
+                    ECS::CharacterControllerComponent>();
+                characterController != nullptr)
+            {
+                componentsJson["characterController"] =
+                    serialize_character_controller(*characterController);
+            }
+
             if (const ECS::ScriptComponent* script =
                 a_definition.prototype.get_component_ptr<ECS::ScriptComponent>();
                 script != nullptr)
@@ -821,6 +909,16 @@ namespace Cue::GameCore
                     ECS::ColliderComponent collider{};
                     deserialize_collider(*colliderIt, collider);
                     objectDefinition.prototype.add_component(collider);
+                }
+
+                if (const Json::const_iterator characterControllerIt =
+                    componentsJson.find("characterController");
+                    characterControllerIt != componentsJson.end())
+                {
+                    ECS::CharacterControllerComponent characterController{};
+                    deserialize_character_controller(
+                        *characterControllerIt, characterController);
+                    objectDefinition.prototype.add_component(characterController);
                 }
 
                 if (const Json::const_iterator scriptIt =

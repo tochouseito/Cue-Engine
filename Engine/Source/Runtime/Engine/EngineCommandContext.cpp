@@ -126,6 +126,10 @@ namespace Cue
             return add_component_internal<ECS::ColliderComponent>(
                 a_objectId, "ColliderComponent already exists.");
 
+        case AddableComponentType::CharacterController:
+            return add_component_internal<ECS::CharacterControllerComponent>(
+                a_objectId, "CharacterControllerComponent already exists.");
+
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
                 a_objectId, "ScriptComponent already exists.");
@@ -168,6 +172,10 @@ namespace Cue
         case AddableComponentType::Collider:
             return remove_component_internal<ECS::ColliderComponent>(
                 a_objectId, "ColliderComponent was not found.");
+
+        case AddableComponentType::CharacterController:
+            return remove_component_internal<ECS::CharacterControllerComponent>(
+                a_objectId, "CharacterControllerComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

@@ -120,6 +120,7 @@ namespace Cue::ECS
 
             Math::float4 materialColor(1.0f, 1.0f, 1.0f, 1.0f);
             uint32_t textureId = 0;
+            uint32_t useTexture = 0;
             if (materialHandle.valid() && m_assetManager != nullptr)
             {
                 MaterialDesc materialDesc{};
@@ -127,6 +128,7 @@ namespace Cue::ECS
                 {
                     materialColor = materialDesc.color;
                     textureId = materialDesc.textureId;
+                    useTexture = materialDesc.isTextureUsed ? 1u : 0u;
                 }
             }
 
@@ -149,6 +151,7 @@ namespace Cue::ECS
                 a_renderer.color.b * materialColor.b,
                 a_renderer.color.a * materialColor.a);
             instance.textureId = textureId;
+            instance.useTexture = useTexture;
             instance.rotation = a_transform.rotation.z;
             instance.pivot = a_renderer.pivot;
 
