@@ -145,19 +145,7 @@ namespace Cue::Editor
                 debugColorWidth > 0 && debugColorHeight > 0 &&
                 availableRegion.x > 0.0f && availableRegion.y > 0.0f)
             {
-                float displayWidth = availableRegion.x;
-                float displayHeight =
-                    displayWidth * static_cast<float>(debugColorHeight) /
-                    static_cast<float>(debugColorWidth);
-
-                if (displayHeight > availableRegion.y)
-                {
-                    const float scale = availableRegion.y / displayHeight;
-                    displayWidth *= scale;
-                    displayHeight *= scale;
-                }
-
-                if (displayWidth <= 0.0f || displayHeight <= 0.0f)
+                if (availableRegion.x <= 0.0f || availableRegion.y <= 0.0f)
                 {
                     ImGui::End();
                     ImGui::PopStyleVar();
@@ -166,18 +154,13 @@ namespace Cue::Editor
 
                 if (m_camera != nullptr)
                 {
-                    m_camera->set_aspect(displayWidth / displayHeight);
+                    m_camera->set_aspect(availableRegion.x / availableRegion.y);
                     m_camera->update(ImGui::IsWindowHovered());
                 }
 
-                const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-                ImGui::SetCursorScreenPos(ImVec2(
-                    cursorPos.x + (availableRegion.x - displayWidth) * 0.5f,
-                    cursorPos.y + (availableRegion.y - displayHeight) * 0.5f));
-
                 ImGui::Image(
                     static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
-                    ImVec2(displayWidth, displayHeight));
+                    availableRegion);
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
                 {
                     const ImVec2 mousePos = ImGui::GetMousePos();
