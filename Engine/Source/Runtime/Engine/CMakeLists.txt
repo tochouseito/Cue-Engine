@@ -31,6 +31,7 @@ add_library(Engine STATIC
     "GpuData/DebugPick.h"
     "GpuData/DebugSelection.h"
     "GameCore/DebugDraw.h"
+    "Passes/DebugDrawPass.h"
     "Passes/DebugGridPass.h"
     "Passes/DebugObjectIdPass.h"
     "Passes/DebugOutlinePass.h"

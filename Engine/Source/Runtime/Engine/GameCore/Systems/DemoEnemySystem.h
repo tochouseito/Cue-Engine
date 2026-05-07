@@ -5,6 +5,7 @@
 
 // === Engine includes ===
 #include <GameCore/Components.h>
+#include <GameCore/DebugDraw.h>
 #include <GameCore/Navigation/NavComponents.h>
 
 namespace Cue::ECS
@@ -15,7 +16,8 @@ namespace Cue::ECS
               NavAgentComponent>
     {
     public:
-        DemoEnemySystem()
+        explicit DemoEnemySystem(
+            GameCore::DebugDrawBuffer* a_debugDraw = nullptr) noexcept
             : ECSManager::System<TransformComponent,
                   DemoEnemyComponent,
                   NavAgentComponent>(
@@ -28,6 +30,7 @@ namespace Cue::ECS
                       update_component(
                           a_entity, a_transform, a_enemy, a_agent);
                   })
+            , m_debugDraw(a_debugDraw)
         {}
 
     private:
@@ -88,6 +91,7 @@ namespace Cue::ECS
             if (!a_enemy.isEnabled)
             {
                 a_enemy.state = DemoEnemyState::Idle;
+                draw_state(a_transform, a_enemy, a_agent);
                 return;
             }
 
@@ -111,6 +115,7 @@ namespace Cue::ECS
                 {
                     a_enemy.state = DemoEnemyState::ChasePlayer;
                     set_target(a_agent, a_enemy.targetEntity);
+                    draw_state(a_transform, a_enemy, a_agent);
                     return;
                 }
             }
@@ -126,6 +131,7 @@ namespace Cue::ECS
                     a_enemy.hasRequestedDestination = false;
                     a_enemy.state = DemoEnemyState::Idle;
                 }
+                draw_state(a_transform, a_enemy, a_agent);
                 return;
             }
 
@@ -148,12 +154,58 @@ namespace Cue::ECS
                         (a_enemy.patrolIndex + 1u) %
                         static_cast<uint32_t>(a_enemy.patrolPoints.size());
                 }
+                draw_state(a_transform, a_enemy, a_agent);
                 return;
             }
 
             a_enemy.state = DemoEnemyState::Idle;
             a_agent.hasDestination = false;
             a_agent.hasTarget = false;
+            draw_state(a_transform, a_enemy, a_agent);
         }
+
+        [[nodiscard]] static Math::float4 state_color(
+            DemoEnemyState a_state) noexcept
+        {
+            switch (a_state)
+            {
+            case DemoEnemyState::Patrol:
+                return Math::float4(0.1f, 1.0f, 0.25f, 1.0f);
+            case DemoEnemyState::MoveToTarget:
+                return Math::float4(1.0f, 0.9f, 0.15f, 1.0f);
+            case DemoEnemyState::ChasePlayer:
+                return Math::float4(1.0f, 0.15f, 0.1f, 1.0f);
+            case DemoEnemyState::Idle:
+            default:
+                return Math::float4(0.65f, 0.65f, 0.65f, 1.0f);
+            }
+        }
+
+        void draw_state(const TransformComponent& a_transform,
+            const DemoEnemyComponent& a_enemy,
+            const NavAgentComponent& a_agent)
+        {
+            if (m_debugDraw == nullptr)
+            {
+                return;
+            }
+
+            constexpr float k_durationSeconds = 0.05f;
+            const Math::float4 color = state_color(a_enemy.state);
+            m_debugDraw->add_sphere(
+                a_transform.position, 0.45f, color, k_durationSeconds);
+
+            if (a_agent.hasDestination && !a_agent.hasTarget)
+            {
+                m_debugDraw->add_line(a_transform.position,
+                    a_agent.destination,
+                    color,
+                    k_durationSeconds);
+                m_debugDraw->add_sphere(
+                    a_agent.destination, 0.35f, color, k_durationSeconds);
+            }
+        }
+
+        GameCore::DebugDrawBuffer* m_debugDraw = nullptr;
     };
 }

@@ -69,10 +69,15 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     return output;
 }
 
-float4 ps_main(VsOut input) : SV_Target0
+float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
     const float3 lightDirection = normalize(float3(-0.4f, -0.7f, -0.6f));
-    const float ndotl = saturate(dot(normalize(input.worldNormal), -lightDirection));
+    float3 worldNormal = normalize(input.worldNormal);
+    if (!isFrontFace)
+    {
+        worldNormal = -worldNormal;
+    }
+    const float ndotl = saturate(dot(worldNormal, -lightDirection));
     const Material material = g_materials[input.materialId];
     float3 textureColor = float3(1.0f, 1.0f, 1.0f);
     if (material.useTexture != 0)

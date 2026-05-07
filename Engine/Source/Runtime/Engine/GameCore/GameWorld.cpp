@@ -182,6 +182,8 @@ namespace Cue::GameCore
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
+        auto& playerControlSystem =
+            m_ecs.add_system<ECS::PlayerControlSystem>(m_inputManager);
         auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
         auto& characterControllerSystem =
@@ -199,13 +201,15 @@ namespace Cue::GameCore
         m_navigationSystem = &navigationSystem;
         auto& navAgentMotorSystem = m_ecs.add_system<ECS::NavAgentMotorSystem>();
         auto& triggerVolumeSystem = m_ecs.add_system<ECS::TriggerVolumeSystem>();
-        auto& demoEnemySystem = m_ecs.add_system<ECS::DemoEnemySystem>();
+        auto& demoEnemySystem =
+            m_ecs.add_system<ECS::DemoEnemySystem>(&m_debugDraw);
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
-        m_editorPipeline.add_system(&firstPersonCameraControllerSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&firstPersonCameraControllerSystem);
+        m_simulationPipeline.add_system(&playerControlSystem);
         m_simulationPipeline.add_system(&demoEnemySystem);
         m_simulationPipeline.add_system(&navigationSystem);
         m_simulationPipeline.add_system(&navAgentMotorSystem);

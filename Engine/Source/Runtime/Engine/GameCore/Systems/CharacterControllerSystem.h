@@ -53,6 +53,13 @@ namespace Cue::ECS
         {}
 
     private:
+        struct HorizontalCastHit final
+        {
+            Math::float3 normal = Math::float3::zero();
+            float allowedStep = 0.0f;
+            bool hasHit = false;
+        };
+
         void initialize_component(Entity a_entity,
             TransformComponent& a_transform,
             RigidBodyComponent& a_rigidBody,
@@ -124,24 +131,84 @@ namespace Cue::ECS
             const Math::float3& a_velocity,
             float a_deltaTime) const
         {
-            Math::float3 horizontalStep = a_velocity * a_deltaTime;
-            horizontalStep.y = 0.0f;
-            const float stepLength = horizontalStep.length();
-            if (stepLength <= 0.0001f)
+            Math::float3 remainingStep = a_velocity * a_deltaTime;
+            remainingStep.y = 0.0f;
+            if (remainingStep.length_sq() <= 0.00000001f)
             {
                 return;
             }
 
-            Math::float3 direction = horizontalStep / stepLength;
             if (m_physicsSystem == nullptr || !a_rigidBody.body.valid())
             {
-                a_transform.position += horizontalStep;
+                a_transform.position += remainingStep;
                 return;
             }
 
+            constexpr uint32_t k_maxSlideCount = 2u;
+            for (uint32_t slideIndex = 0; slideIndex < k_maxSlideCount;
+                 ++slideIndex)
+            {
+                const float stepLength = remainingStep.length();
+                if (stepLength <= 0.0001f)
+                {
+                    return;
+                }
+
+                const Math::float3 direction = remainingStep / stepLength;
+                const HorizontalCastHit hit = cast_horizontal(
+                    a_transform, a_rigidBody, a_collider, direction, stepLength);
+                if (!hit.hasHit)
+                {
+                    a_transform.position += remainingStep;
+                    return;
+                }
+
+                if (hit.allowedStep > 0.0f)
+                {
+                    a_transform.position += direction * hit.allowedStep;
+                }
+
+                const float remainingLength = stepLength - hit.allowedStep;
+                if (remainingLength <= 0.0001f)
+                {
+                    return;
+                }
+
+                Math::float3 slideNormal = hit.normal;
+                slideNormal.y = 0.0f;
+                const float normalLengthSquared = slideNormal.length_sq();
+                if (normalLengthSquared <= 0.000001f)
+                {
+                    return;
+                }
+                slideNormal.normalize();
+
+                const Math::float3 desiredStep =
+                    direction * remainingLength;
+                const float blockedAmount = desiredStep.dot(slideNormal);
+                if (blockedAmount >= 0.0f)
+                {
+                    remainingStep = desiredStep;
+                }
+                else
+                {
+                    remainingStep =
+                        desiredStep - slideNormal * blockedAmount;
+                }
+                remainingStep.y = 0.0f;
+            }
+        }
+
+        [[nodiscard]] HorizontalCastHit cast_horizontal(
+            const TransformComponent& a_transform,
+            const RigidBodyComponent& a_rigidBody,
+            const ColliderComponent& a_collider,
+            const Math::float3& a_direction,
+            float a_stepLength) const
+        {
             const float radius = horizontal_radius(a_collider);
             const float skinWidth = collider_skin_width(a_collider);
-            const float castDistance = stepLength + radius +
+            const float castDistance = a_stepLength + radius +
                 (std::max)(skinWidth, 0.001f);
             const Math::float3 baseOrigin =
                 a_transform.position + a_collider.offset;
@@ -154,12 +221,13 @@ namespace Cue::ECS
                 baseOrigin - Math::float3(0.0f, upperOffset * 0.5f, 0.0f),
             };
 
-            float allowedStep = stepLength;
+            HorizontalCastHit castHit{};
+            castHit.allowedStep = a_stepLength;
             for (const Math::float3& origin : origins)
             {
                 Physics::RaycastDesc raycast{};
                 raycast.origin = origin;
-                raycast.direction = direction;
+                raycast.direction = a_direction;
                 raycast.ignoredBody = a_rigidBody.body;
                 raycast.distance = castDistance;
 
@@ -171,10 +239,16 @@ namespace Cue::ECS
                 }
 
                 const float hitStep = hit.distance - radius - skinWidth;
-                allowedStep = (std::min)(allowedStep, (std::max)(hitStep, 0.0f));
+                const float allowedStep = (std::max)(hitStep, 0.0f);
+                if (!castHit.hasHit || allowedStep < castHit.allowedStep)
+                {
+                    castHit.normal = hit.normal;
+                    castHit.allowedStep = allowedStep;
+                    castHit.hasHit = true;
+                }
             }
 
-            a_transform.position += direction * allowedStep;
+            return castHit;
         }
 
         void update_ground_state(

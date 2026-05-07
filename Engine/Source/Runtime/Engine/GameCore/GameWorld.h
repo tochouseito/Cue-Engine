@@ -19,6 +19,7 @@
 #include "Systems/DemoEnemySystem.h"
 #include "Systems/FirstPersonCameraControllerSystem.h"
 #include "Systems/PhysicsBodySystem.h"
+#include "Systems/PlayerControlSystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "Systems/SpriteSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
@@ -1926,6 +1927,27 @@ namespace Cue::GameCore
             }
         }
 
+        [[nodiscard]] EntityId localize_entity_reference(
+            EntityId a_entityValue,
+            EntityId a_sourceEntityId) const noexcept
+        {
+            if (a_entityValue == k_invalidEntityId)
+            {
+                return a_entityValue;
+            }
+
+            const SceneId sourceSceneId = source_scene_id(a_sourceEntityId);
+            const EntityRecord* record = try_get_entity_record(a_entityValue);
+            if (record == nullptr || !record->isAlive ||
+                record->sourceSceneId != sourceSceneId ||
+                record->sourceLocalObjectId == k_invalidLocalObjectId)
+            {
+                return a_entityValue;
+            }
+
+            return static_cast<EntityId>(record->sourceLocalObjectId);
+        }
+
         void resolve_script_entity_references(
             EntityId a_entityId,
             const SceneInstance& a_scene,
@@ -1977,6 +1999,66 @@ namespace Cue::GameCore
             }
         }
 
+        void resolve_component_entity_references(
+            EntityId a_entityId,
+            const SceneInstance& a_scene,
+            const std::unordered_map<LocalObjectId, EntityId>& a_newLocalObjectToEntity)
+            noexcept
+        {
+            const auto resolveEntity =
+                [&a_scene, &a_newLocalObjectToEntity](
+                    EntityId a_entityValue) noexcept -> EntityId
+            {
+                if (a_entityValue == k_invalidEntityId)
+                {
+                    return a_entityValue;
+                }
+
+                const LocalObjectId localObjectId =
+                    static_cast<LocalObjectId>(a_entityValue);
+                if (const auto newIt =
+                    a_newLocalObjectToEntity.find(localObjectId);
+                    newIt != a_newLocalObjectToEntity.end())
+                {
+                    return newIt->second;
+                }
+
+                if (const auto sceneIt =
+                    a_scene.localObjectToEntity.find(localObjectId);
+                    sceneIt != a_scene.localObjectToEntity.end())
+                {
+                    return sceneIt->second;
+                }
+
+                return a_entityValue;
+            };
+
+            if (ECS::FirstPersonCameraControllerComponent* controller =
+                get_component<ECS::FirstPersonCameraControllerComponent>(
+                    a_entityId);
+                controller != nullptr)
+            {
+                controller->targetEntity =
+                    resolveEntity(controller->targetEntity);
+            }
+
+            if (ECS::DemoEnemyComponent* demoEnemy =
+                get_component<ECS::DemoEnemyComponent>(a_entityId);
+                demoEnemy != nullptr)
+            {
+                demoEnemy->targetEntity =
+                    resolveEntity(demoEnemy->targetEntity);
+            }
+
+            if (ECS::NavAgentComponent* navAgent =
+                get_component<ECS::NavAgentComponent>(a_entityId);
+                navAgent != nullptr && navAgent->hasTarget)
+            {
+                navAgent->targetEntity =
+                    resolveEntity(navAgent->targetEntity);
+            }
+        }
+
         [[nodiscard]] std::string get_object_tag(EntityId a_entityId) const
         {
             const BaseComponent* base = get_component<BaseComponent>(a_entityId);
@@ -2023,7 +2105,11 @@ namespace Cue::GameCore
                     a_entityId);
                 controller != nullptr)
             {
-                prototype.add_component(*controller);
+                ECS::FirstPersonCameraControllerComponent copiedController =
+                    *controller;
+                copiedController.targetEntity = localize_entity_reference(
+                    copiedController.targetEntity, a_entityId);
+                prototype.add_component(copiedController);
             }
 
             if (const ECS::MeshFilterComponent* meshFilter =
@@ -2038,6 +2124,11 @@ namespace Cue::GameCore
                 navAgent != nullptr)
             {
                 ECS::NavAgentComponent copiedNavAgent = *navAgent;
+                if (copiedNavAgent.hasTarget)
+                {
+                    copiedNavAgent.targetEntity = localize_entity_reference(
+                        copiedNavAgent.targetEntity, a_entityId);
+                }
                 copiedNavAgent.pathPoints.clear();
                 copiedNavAgent.pathIndex = 0;
                 copiedNavAgent.desiredVelocity = Math::float3::zero();
@@ -2049,7 +2140,10 @@ namespace Cue::GameCore
                 get_component<ECS::DemoEnemyComponent>(a_entityId);
                 demoEnemy != nullptr)
             {
-                prototype.add_component(*demoEnemy);
+                ECS::DemoEnemyComponent copiedDemoEnemy = *demoEnemy;
+                copiedDemoEnemy.targetEntity = localize_entity_reference(
+                    copiedDemoEnemy.targetEntity, a_entityId);
+                prototype.add_component(copiedDemoEnemy);
             }
 
             if (const ECS::NavMeshBakeSourceComponent* navMeshBakeSource =
@@ -2522,6 +2616,8 @@ namespace Cue::GameCore
                 for (const PendingObjectInstantiation& entry : pending)
                 {
                     resolve_script_entity_references(
+                        entry.entityId, scene, newLocalObjectToEntity);
+                    resolve_component_entity_references(
                         entry.entityId, scene, newLocalObjectToEntity);
 
                     if (!entry.definition->parentLocalObjectId.has_value())
