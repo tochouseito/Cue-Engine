@@ -34,6 +34,7 @@
 #include <span>
 #include <string_view>
 #include <system_error>
+#include <unordered_set>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -1087,6 +1088,133 @@ namespace Cue::Editor
                 {
                     return result;
                 }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result ensure_project_model_loaded(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_assetRoot,
+            std::string_view a_modelName) noexcept
+        {
+            if (a_modelName.empty())
+            {
+                return Result::ok();
+            }
+
+            ModelHandle existingHandle{};
+            if (a_engine.asset_manager().get_model(
+                    a_modelName, existingHandle))
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path modelRoot = Core::IO::Path::join(
+                a_assetRoot, Core::IO::Path("Models"));
+            const std::string modelFileName =
+                std::string(a_modelName) + ".obj";
+            const std::string cookedFileName =
+                std::string(a_modelName) + ".cuemodel";
+            const Core::IO::Path sourceModelPath = Core::IO::Path::join(
+                modelRoot, Core::IO::Path(modelFileName));
+            const Core::IO::Path cookedModelPath = Core::IO::Path::join(
+                modelRoot, Core::IO::Path(cookedFileName));
+
+            bool hasSourceModel = false;
+            Result result =
+                a_fileSystem.exists(sourceModelPath, &hasSourceModel);
+            if (!result)
+            {
+                return result;
+            }
+            if (hasSourceModel)
+            {
+                result = ModelCooker::ensure_cuemodel_is_up_to_date(
+                    a_fileSystem, sourceModelPath, cookedModelPath);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            bool hasCookedModel = false;
+            result = a_fileSystem.exists(cookedModelPath, &hasCookedModel);
+            if (!result)
+            {
+                return result;
+            }
+            if (!hasCookedModel)
+            {
+                return Result::fail(Code::NotFound, Severity::Error,
+                    "Navigation bake model asset was not found.");
+            }
+
+            ModelHandle loadedHandle{};
+            return a_engine.asset_manager().register_model_from_cuemodel(
+                a_fileSystem,
+                a_modelName,
+                cookedModelPath,
+                loadedHandle);
+        }
+
+        [[nodiscard]] Result ensure_scene_asset_models_loaded(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_assetRoot,
+            GameCore::SceneAsset& a_sceneAsset) noexcept
+        {
+            std::unordered_set<std::string> requiredModelNames{};
+            for (const GameCore::ObjectDefinition& object :
+                 a_sceneAsset.objects())
+            {
+                if (const ECS::MeshFilterComponent* meshFilter =
+                    object.prototype
+                        .get_component_ptr<ECS::MeshFilterComponent>();
+                    meshFilter != nullptr && !meshFilter->modelName.empty())
+                {
+                    requiredModelNames.insert(meshFilter->modelName);
+                }
+
+                if (const ECS::ColliderComponent* collider =
+                    object.prototype
+                        .get_component_ptr<ECS::ColliderComponent>();
+                    collider != nullptr && !collider->meshModelName.empty())
+                {
+                    requiredModelNames.insert(collider->meshModelName);
+                }
+            }
+
+            for (const std::string& modelName : requiredModelNames)
+            {
+                Result result = ensure_project_model_loaded(
+                    a_engine, a_fileSystem, a_assetRoot, modelName);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            for (GameCore::ObjectDefinition& object : a_sceneAsset.objects())
+            {
+                ECS::MeshFilterComponent* meshFilter =
+                    object.prototype
+                        .get_component_ptr<ECS::MeshFilterComponent>();
+                if (meshFilter == nullptr || meshFilter->modelName.empty())
+                {
+                    continue;
+                }
+
+                uint32_t meshId = ECS::k_invalidMeshId;
+                Result result = a_engine.asset_manager().resolve_model_mesh_id(
+                    meshFilter->modelName, meshId);
+                if (!result)
+                {
+                    return result;
+                }
+
+                meshFilter->meshId = meshId;
             }
 
             return Result::ok();
@@ -4046,6 +4174,27 @@ namespace Cue::Editor
             return result;
         }
 
+        Core::IO::Path assetRootPath(m_assetRootPath);
+        if (assetRootPath.is_empty())
+        {
+            ProjectSettings projectSettings{};
+            result = load_project_settings(
+                *m_fileSystem, Core::IO::Path(m_projectPath), projectSettings);
+            if (!result)
+            {
+                return result;
+            }
+            assetRootPath = resolve_asset_root(
+                Core::IO::Path(m_projectPath), projectSettings);
+        }
+
+        result = ensure_scene_asset_models_loaded(
+            *m_engine, *m_fileSystem, assetRootPath, sceneAsset);
+        if (!result)
+        {
+            return result;
+        }
+
         auto storedSceneAsset =
             std::make_unique<GameCore::SceneAsset>(std::move(sceneAsset));
         GameCore::GameWorld::LoadSceneResult loadResult{};
@@ -4286,6 +4435,42 @@ namespace Cue::Editor
         {
             return Result::fail(Code::NotFound, Severity::Warning,
                 "Scene has no NavMeshBakeSourceComponent.");
+        }
+
+        std::unordered_set<std::string> requiredModelNames{};
+        result = m_engine->game_world()->for_each_object_in_scene(
+            m_currentSceneId,
+            [&requiredModelNames](GameCore::EntityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+            {
+                ECS::NavMeshBakeSourceComponent* source = nullptr;
+                if (!a_object.get_component(source) || source == nullptr ||
+                    !source->isIncluded)
+                {
+                    return;
+                }
+
+                ECS::MeshFilterComponent* meshFilter = nullptr;
+                if (a_object.get_component(meshFilter) &&
+                    meshFilter != nullptr && !meshFilter->modelName.empty())
+                {
+                    requiredModelNames.insert(meshFilter->modelName);
+                }
+            });
+        if (!result)
+        {
+            return result;
+        }
+
+        for (const std::string& modelName : requiredModelNames)
+        {
+            result = ensure_project_model_loaded(
+                *m_engine, *m_fileSystem, assetRoot, modelName);
+            if (!result)
+            {
+                return result;
+            }
         }
 
         ECS::ECSManager* ecs = nullptr;

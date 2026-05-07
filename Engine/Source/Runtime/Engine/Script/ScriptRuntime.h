@@ -226,6 +226,32 @@ namespace Cue
             set_nav_agent_target_bridge(
                 CueEntityHandle a_entityHandle,
                 CueEntityHandle a_targetEntityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_mouse_delta_bridge(CueMouseDeltaData* a_outDelta);
+        [[nodiscard]] static uint8_t CUE_SCRIPT_CALL
+            push_mouse_button_bridge(CueMouseButton a_button);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            raycast_bridge(
+                const CueRaycastDesc* a_desc,
+                CueRaycastHit* a_outHit);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            debug_draw_line_bridge(
+                const CueFloat3* a_start,
+                const CueFloat3* a_end,
+                const CueFloat4* a_color,
+                float a_durationSeconds);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            debug_draw_sphere_bridge(
+                const CueFloat3* a_center,
+                float a_radius,
+                const CueFloat4* a_color,
+                float a_durationSeconds);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            debug_draw_box_bridge(
+                const CueFloat3* a_center,
+                const CueFloat3* a_halfExtent,
+                const CueFloat4* a_color,
+                float a_durationSeconds);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -302,6 +328,28 @@ namespace Cue
         [[nodiscard]] CueResult set_nav_agent_target_internal(
             CueEntityHandle a_entityHandle,
             CueEntityHandle a_targetEntityHandle) noexcept;
+        [[nodiscard]] CueResult get_mouse_delta_internal(
+            CueMouseDeltaData* a_outDelta) const noexcept;
+        [[nodiscard]] uint8_t push_mouse_button_internal(
+            CueMouseButton a_button) const noexcept;
+        [[nodiscard]] CueResult raycast_internal(
+            const CueRaycastDesc* a_desc,
+            CueRaycastHit* a_outHit) const noexcept;
+        [[nodiscard]] CueResult debug_draw_line_internal(
+            const CueFloat3* a_start,
+            const CueFloat3* a_end,
+            const CueFloat4* a_color,
+            float a_durationSeconds) noexcept;
+        [[nodiscard]] CueResult debug_draw_sphere_internal(
+            const CueFloat3* a_center,
+            float a_radius,
+            const CueFloat4* a_color,
+            float a_durationSeconds) noexcept;
+        [[nodiscard]] CueResult debug_draw_box_internal(
+            const CueFloat3* a_center,
+            const CueFloat3* a_halfExtent,
+            const CueFloat4* a_color,
+            float a_durationSeconds) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

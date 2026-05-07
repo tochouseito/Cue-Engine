@@ -28,6 +28,10 @@ namespace Marionette
     using EntityHandle = CueEntityHandle;
     using SceneId = CueSceneId;
     using Transform = CueTransformData;
+    using MouseDelta = CueMouseDeltaData;
+    using RaycastDesc = CueRaycastDesc;
+    using RaycastHit = CueRaycastHit;
+    using Color = CueFloat4;
     inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
 
     enum class Key : uint32_t
@@ -103,6 +107,15 @@ namespace Marionette
         F10 = CueKey_F10,
         F11 = CueKey_F11,
         F12 = CueKey_F12,
+    };
+
+    enum class MouseButton : uint32_t
+    {
+        Left = CueMouseButton_Left,
+        Right = CueMouseButton_Right,
+        Middle = CueMouseButton_Middle,
+        X1 = CueMouseButton_X1,
+        X2 = CueMouseButton_X2,
     };
 
     inline constexpr PropertyFlags None = CueScriptFieldFlag_None;
@@ -2006,6 +2019,115 @@ namespace Marionette
             }
 
             return engineApi->pushKey(static_cast<CueKey>(a_key)) != 0;
+        }
+
+        [[nodiscard]] MouseDelta mouse_delta() const noexcept
+        {
+            MouseDelta delta{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getMouseDelta) +
+                        sizeof(CueGetMouseDeltaFn) ||
+                engineApi->getMouseDelta == nullptr)
+            {
+                return delta;
+            }
+
+            (void)engineApi->getMouseDelta(&delta);
+            return delta;
+        }
+
+        [[nodiscard]] bool push_mouse_button(MouseButton a_button) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, pushMouseButton) +
+                        sizeof(CuePushMouseButtonFn) ||
+                engineApi->pushMouseButton == nullptr)
+            {
+                return false;
+            }
+
+            return engineApi->pushMouseButton(
+                       static_cast<CueMouseButton>(a_button)) != 0;
+        }
+
+        [[nodiscard]] CueResult raycast(
+            const RaycastDesc& a_desc,
+            RaycastHit& a_outHit) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, raycast) + sizeof(CueRaycastFn) ||
+                engineApi->raycast == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->raycast(&a_desc, &a_outHit);
+        }
+
+        [[nodiscard]] CueResult debug_draw_line(
+            const CueFloat3& a_start,
+            const CueFloat3& a_end,
+            const Color& a_color,
+            float a_durationSeconds = 0.0f) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, debugDrawLine) +
+                        sizeof(CueDebugDrawLineFn) ||
+                engineApi->debugDrawLine == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->debugDrawLine(
+                &a_start, &a_end, &a_color, a_durationSeconds);
+        }
+
+        [[nodiscard]] CueResult debug_draw_sphere(
+            const CueFloat3& a_center,
+            float a_radius,
+            const Color& a_color,
+            float a_durationSeconds = 0.0f) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, debugDrawSphere) +
+                        sizeof(CueDebugDrawSphereFn) ||
+                engineApi->debugDrawSphere == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->debugDrawSphere(
+                &a_center, a_radius, &a_color, a_durationSeconds);
+        }
+
+        [[nodiscard]] CueResult debug_draw_box(
+            const CueFloat3& a_center,
+            const CueFloat3& a_halfExtent,
+            const Color& a_color,
+            float a_durationSeconds = 0.0f) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, debugDrawBox) +
+                        sizeof(CueDebugDrawBoxFn) ||
+                engineApi->debugDrawBox == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->debugDrawBox(
+                &a_center, &a_halfExtent, &a_color, a_durationSeconds);
         }
 
         [[nodiscard]] CueResult request_audio_source_play() const noexcept

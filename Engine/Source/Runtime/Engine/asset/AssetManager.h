@@ -280,10 +280,8 @@ namespace Cue
             const Core::ResourceNameId nameId = Core::fnv1a64(name);
             if (m_modelNameMap.contains(nameId))
             {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "Model with the same name already exists.");
+                outHandle = m_modelNameMap.at(nameId);
+                return Result::ok();
             }
 
             if (m_staticMeshPool == nullptr)

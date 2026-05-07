@@ -13,6 +13,7 @@
 // === Windows API includes ===
 #include "App/WinApp.h"
 #include "Input/WinKeyboard.h"
+#include "Input/WinMouse.h"
 #include "IO/WinFileSystem.h"
 #include "Threading/WinThread.h"
 #include "Threading/WinThreadFactory.h"
@@ -90,6 +91,7 @@ namespace Cue::PAL::Win
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // Windows アプリ
         std::unique_ptr<WinKeyboard> m_keyboard = nullptr; // キーボード入力
+        std::unique_ptr<WinMouse> m_mouse = nullptr; // マウス入力
         InputManager m_inputManager{}; // 入力状態マネージャ
         std::unique_ptr<WinFileSystem> m_fileSystem = nullptr; // ファイルシステム
         std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ

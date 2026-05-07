@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
 #include "Passes/DebugGridPass.h"
+#include "Passes/DebugDrawPass.h"
 #include "Passes/DebugObjectIdPass.h"
 #include "Passes/DebugOutlinePass.h"
 #include "Passes/DebugPickReadbackPass.h"
@@ -160,8 +161,9 @@ namespace Cue
         result = m_editorWorld->initialize(
             bufferManager, viewManager, staticMeshPool, &m_assetManager,
             &m_platform->file_system(), m_audioBackend, m_audioDevice,
-            m_physicsSystem, m_backend->buffer_count(), m_backend->width(),
-            m_backend->height(), m_defaultCubeMeshId, m_defaultMaterialHandle);
+            m_physicsSystem, &m_platform->input_manager(),
+            m_backend->buffer_count(), m_backend->width(), m_backend->height(),
+            m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
         {
             return result;
@@ -971,6 +973,12 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine world resources are not initialized.");
         }
+        auto* bufferManager = m_backend->get_buffer_manager();
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                "Engine buffer manager is not initialized.");
+        }
 
         m_frameGraph.reset();
 
@@ -1054,6 +1062,15 @@ namespace Cue
             "GameColorRTV",
             m_activeWorld->render_scene_state(),
             worldResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+            "GameDebugDraw",
+            "GameColor",
+            "GameColorRTV",
+            "GameSceneDepth",
+            "GameSceneDepthDSV",
+            *m_activeWorld,
+            *bufferManager,
+            worldResources->view_projection_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
             "DebugStaticMeshForward",
             "DebugColor",
@@ -1078,6 +1095,15 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
             m_debugViewProjectionBufferHandle,
             m_isDebugGridVisible));
+        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+            "DebugViewDebugDraw",
+            "DebugColor",
+            "DebugColorRTV",
+            "DebugSceneDepth",
+            "DebugSceneDepthDSV",
+            *m_activeWorld,
+            *bufferManager,
+            m_debugViewProjectionBufferHandle));
         m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
             m_debugViewProjectionBufferHandle,
             m_debugSelectionBufferHandle));
@@ -1428,7 +1454,8 @@ namespace Cue
                 bufferManager, viewManager, m_backend->get_static_mesh_pool(),
                 &m_assetManager,
                 &m_platform->file_system(), m_audioBackend, m_audioDevice,
-                m_physicsSystem, m_backend->buffer_count(),
+                m_physicsSystem, &m_platform->input_manager(),
+                m_backend->buffer_count(),
                 m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
                 m_defaultMaterialHandle);
             if (!result)
