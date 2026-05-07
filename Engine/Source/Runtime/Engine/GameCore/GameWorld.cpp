@@ -75,6 +75,7 @@ namespace Cue::GameCore
         Audio::IBackend* a_audioBackend,
         Audio::AudioDeviceHandle a_audioDevice,
         Physics::IPhysicsSystem* a_physicsSystem,
+        PAL::InputManager* a_inputManager,
         uint32_t a_bufferCount,
         uint32_t a_renderWidth,
         uint32_t a_renderHeight,
@@ -104,6 +105,7 @@ namespace Cue::GameCore
         m_fileSystem = a_fileSystem;
         m_audioBackend = a_audioBackend;
         m_physicsSystem = a_physicsSystem;
+        m_inputManager = a_inputManager;
         m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_renderSceneState.resize(a_bufferCount);
@@ -177,6 +179,9 @@ namespace Cue::GameCore
             m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
+        auto& firstPersonCameraControllerSystem =
+            m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
+                m_inputManager);
         auto& audioSystem = m_ecs.add_system<ECS::AudioSystem>(
             m_fileSystem, m_audioBackend, m_audioDevice, m_assetRootPath);
         auto& characterControllerSystem =
@@ -193,15 +198,20 @@ namespace Cue::GameCore
             &m_navigationWorld);
         m_navigationSystem = &navigationSystem;
         auto& navAgentMotorSystem = m_ecs.add_system<ECS::NavAgentMotorSystem>();
+        auto& triggerVolumeSystem = m_ecs.add_system<ECS::TriggerVolumeSystem>();
+        auto& demoEnemySystem = m_ecs.add_system<ECS::DemoEnemySystem>();
 
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
+        m_editorPipeline.add_system(&firstPersonCameraControllerSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&audioSystem);
+        m_simulationPipeline.add_system(&demoEnemySystem);
         m_simulationPipeline.add_system(&navigationSystem);
         m_simulationPipeline.add_system(&navAgentMotorSystem);
         m_simulationPipeline.add_system(&characterControllerSystem);
         m_simulationPipeline.add_system(&physicsBodySystem);
+        m_simulationPipeline.add_system(&triggerVolumeSystem);
         m_simulationPipeline.add_system(&audioSystem);
         m_editorPipeline.awake(m_ecs);
         m_editorPipeline.initialize(m_ecs);
@@ -213,6 +223,7 @@ namespace Cue::GameCore
 
     [[nodiscard]] Result GameWorld::simulate(float a_deltaTime)
     {
+        m_debugDraw.update(a_deltaTime);
         ECS::UpdateContext updateContext{};
         updateContext.deltaTime = a_deltaTime;
         m_simulationPipeline.update(m_ecs, updateContext);

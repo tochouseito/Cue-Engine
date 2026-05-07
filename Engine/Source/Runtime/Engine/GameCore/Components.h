@@ -205,6 +205,58 @@ namespace Cue::ECS
         bool jumpRequested = false;
     };
 
+    struct FirstPersonCameraControllerComponent : public IComponentTag
+    {
+        GameCore::EntityId targetEntity = GameCore::k_invalidEntityId;
+        Math::float3 offset = Math::float3(0.0f, 1.65f, 0.0f);
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        float mouseSensitivity = 0.0025f;
+        float minPitch = -1.45f;
+        float maxPitch = 1.45f;
+        float fovY = 60.0f;
+        bool isEnabled = true;
+        bool rotatesTargetYaw = true;
+        bool followsTarget = true;
+    };
+
+    struct TriggerVolumeComponent : public IComponentTag
+    {
+        std::vector<GameCore::EntityId> overlappingEntities{};
+        std::vector<GameCore::EntityId> enteredEntities{};
+        std::vector<GameCore::EntityId> exitedEntities{};
+        bool includeTriggers = false;
+    };
+
+    struct InteractableComponent : public IComponentTag
+    {
+        std::string displayName{};
+        float maxDistance = 3.0f;
+        float holdDuration = 0.0f;
+        bool isEnabled = true;
+    };
+
+    enum class DemoEnemyState : uint8_t
+    {
+        Idle,
+        Patrol,
+        MoveToTarget,
+        ChasePlayer,
+    };
+
+    struct DemoEnemyComponent : public IComponentTag
+    {
+        GameCore::EntityId targetEntity = GameCore::k_invalidEntityId;
+        std::vector<Math::float3> patrolPoints{};
+        Math::float3 requestedDestination = Math::float3::zero();
+        DemoEnemyState state = DemoEnemyState::Idle;
+        uint32_t patrolIndex = 0;
+        float chaseDistance = 8.0f;
+        float stopDistance = 1.2f;
+        bool hasRequestedDestination = false;
+        bool isEnabled = true;
+    };
+
     enum class ScriptFieldType : uint8_t
     {
         Float,

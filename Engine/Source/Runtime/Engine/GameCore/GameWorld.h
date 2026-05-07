@@ -6,6 +6,7 @@
 
 // === Engine includes ===
 #include "Components.h"
+#include "DebugDraw.h"
 #include "GameObject.h"
 #include "Navigation/Navigation.h"
 #include "RenderSceneState.h"
@@ -15,11 +16,17 @@
 #include "Systems/AudioSystem.h"
 #include "Systems/CameraSystem.h"
 #include "Systems/CharacterControllerSystem.h"
+#include "Systems/DemoEnemySystem.h"
+#include "Systems/FirstPersonCameraControllerSystem.h"
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/RenderableObjectSystem.h"
 #include "Systems/SpriteSystem.h"
+#include "Systems/TriggerVolumeSystem.h"
 #include "WorldResources.h"
 #include <Asset/AssetManager.h>
+
+// === PAL includes ===
+#include <Input/InputManager.h>
 
 // === C++ includes ===
 #include <algorithm>
@@ -68,6 +75,22 @@ namespace Cue::GameCore
             Core::IO::Path path{};
         };
 
+        struct GameplayRaycastDesc final
+        {
+            Math::float3 origin = Math::float3::zero();
+            Math::float3 direction = Math::float3(0.0f, 0.0f, 1.0f);
+            EntityId ignoredEntity = k_invalidEntityId;
+            float distance = 1000.0f;
+        };
+
+        struct GameplayRaycastHit final
+        {
+            EntityId entity = k_invalidEntityId;
+            Math::float3 position = Math::float3::zero();
+            Math::float3 normal = Math::float3::zero();
+            float distance = 0.0f;
+        };
+
         GameWorld() = default;
 
         [[nodiscard]] Result ecs(ECS::ECSManager*& a_outEcs) noexcept
@@ -84,6 +107,7 @@ namespace Cue::GameCore
             Audio::IBackend* a_audioBackend,
             Audio::AudioDeviceHandle a_audioDevice,
             Physics::IPhysicsSystem* a_physicsSystem,
+            PAL::InputManager* a_inputManager,
             uint32_t a_bufferCount,
             uint32_t a_renderWidth,
             uint32_t a_renderHeight,
@@ -437,6 +461,80 @@ namespace Cue::GameCore
             agent->pathPoints.clear();
             agent->pathIndex = 0;
             return Result::ok();
+        }
+
+        [[nodiscard]] Result raycast(
+            const GameplayRaycastDesc& a_desc,
+            GameplayRaycastHit& a_outHit) const noexcept
+        {
+            a_outHit = {};
+            if (m_physicsSystem == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld physics system is not initialized.");
+            }
+
+            Physics::RaycastDesc raycast{};
+            raycast.origin = a_desc.origin;
+            raycast.direction = a_desc.direction;
+            raycast.distance = a_desc.distance;
+            if (a_desc.ignoredEntity != k_invalidEntityId)
+            {
+                const ECS::RigidBodyComponent* ignoredRigidBody =
+                    get_component<ECS::RigidBodyComponent>(
+                        a_desc.ignoredEntity);
+                if (ignoredRigidBody != nullptr)
+                {
+                    raycast.ignoredBody = ignoredRigidBody->body;
+                }
+            }
+
+            Physics::RaycastHit hit{};
+            Result result = m_physicsSystem->raycast(raycast, hit);
+            if (!result)
+            {
+                return result;
+            }
+
+            EntityId entity = k_invalidEntityId;
+            if (!find_entity_by_body(hit.body, entity))
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "Raycast hit body is not owned by GameWorld.");
+            }
+
+            a_outHit.entity = entity;
+            a_outHit.position = hit.position;
+            a_outHit.normal = hit.normal;
+            a_outHit.distance = hit.distance;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result trigger_overlaps(
+            EntityId a_entityId,
+            std::vector<EntityId>& a_outEntities) const noexcept
+        {
+            a_outEntities.clear();
+            const ECS::TriggerVolumeComponent* trigger =
+                get_component<ECS::TriggerVolumeComponent>(a_entityId);
+            if (trigger == nullptr)
+            {
+                return Result::fail(Code::NotFound, Severity::Warning,
+                    "TriggerVolumeComponent was not found.");
+            }
+
+            a_outEntities = trigger->overlappingEntities;
+            return Result::ok();
+        }
+
+        DebugDrawBuffer& debug_draw() noexcept
+        {
+            return m_debugDraw;
+        }
+
+        const DebugDrawBuffer& debug_draw() const noexcept
+        {
+            return m_debugDraw;
         }
 
         [[nodiscard]] Result build_navigation_debug_geometry(
@@ -1920,6 +2018,14 @@ namespace Cue::GameCore
                 prototype.add_component(*camera);
             }
 
+            if (const ECS::FirstPersonCameraControllerComponent* controller =
+                get_component<ECS::FirstPersonCameraControllerComponent>(
+                    a_entityId);
+                controller != nullptr)
+            {
+                prototype.add_component(*controller);
+            }
+
             if (const ECS::MeshFilterComponent* meshFilter =
                 get_component<ECS::MeshFilterComponent>(a_entityId);
                 meshFilter != nullptr)
@@ -1937,6 +2043,13 @@ namespace Cue::GameCore
                 copiedNavAgent.desiredVelocity = Math::float3::zero();
                 copiedNavAgent.hasPath = false;
                 prototype.add_component(copiedNavAgent);
+            }
+
+            if (const ECS::DemoEnemyComponent* demoEnemy =
+                get_component<ECS::DemoEnemyComponent>(a_entityId);
+                demoEnemy != nullptr)
+            {
+                prototype.add_component(*demoEnemy);
             }
 
             if (const ECS::NavMeshBakeSourceComponent* navMeshBakeSource =
@@ -1988,6 +2101,24 @@ namespace Cue::GameCore
                 collider != nullptr)
             {
                 prototype.add_component(*collider);
+            }
+
+            if (const ECS::TriggerVolumeComponent* trigger =
+                get_component<ECS::TriggerVolumeComponent>(a_entityId);
+                trigger != nullptr)
+            {
+                ECS::TriggerVolumeComponent copiedTrigger = *trigger;
+                copiedTrigger.overlappingEntities.clear();
+                copiedTrigger.enteredEntities.clear();
+                copiedTrigger.exitedEntities.clear();
+                prototype.add_component(copiedTrigger);
+            }
+
+            if (const ECS::InteractableComponent* interactable =
+                get_component<ECS::InteractableComponent>(a_entityId);
+                interactable != nullptr)
+            {
+                prototype.add_component(*interactable);
             }
 
             if (const ECS::CharacterControllerComponent* characterController =
@@ -2726,6 +2857,37 @@ namespace Cue::GameCore
             }
         }
 
+        [[nodiscard]] bool find_entity_by_body(
+            Physics::RigidBodyHandle a_body,
+            EntityId& a_outEntity) const noexcept
+        {
+            a_outEntity = k_invalidEntityId;
+            if (!a_body.valid())
+            {
+                return false;
+            }
+
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size());
+                 ++entity)
+            {
+                if (!contains_object(entity))
+                {
+                    continue;
+                }
+
+                const ECS::RigidBodyComponent* rigidBody =
+                    get_component<ECS::RigidBodyComponent>(entity);
+                if (rigidBody != nullptr && rigidBody->body == a_body)
+                {
+                    a_outEntity = entity;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         ECS::ECSManager m_ecs{};
         ECS::ECSManager::SystemPipeline m_editorPipeline{};
         ECS::ECSManager::SystemPipeline m_simulationPipeline{};
@@ -2738,7 +2900,9 @@ namespace Cue::GameCore
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
         Physics::IPhysicsSystem* m_physicsSystem = nullptr;
+        PAL::InputManager* m_inputManager = nullptr;
         Audio::AudioDeviceHandle m_audioDevice{};
+        DebugDrawBuffer m_debugDraw{};
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         bool m_hasActiveNavMeshAsset = false;

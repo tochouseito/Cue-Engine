@@ -253,6 +253,199 @@ namespace Cue::GameCore
             a_outComponent.farZ = a_json.at("farZ").get<float>();
         }
 
+        [[nodiscard]] Json serialize_first_person_camera_controller(
+            const ECS::FirstPersonCameraControllerComponent& a_component)
+        {
+            return Json{
+                { "targetEntity", a_component.targetEntity },
+                { "offset", serialize_float3(a_component.offset) },
+                { "yaw", a_component.yaw },
+                { "pitch", a_component.pitch },
+                { "mouseSensitivity", a_component.mouseSensitivity },
+                { "minPitch", a_component.minPitch },
+                { "maxPitch", a_component.maxPitch },
+                { "fovY", a_component.fovY },
+                { "isEnabled", a_component.isEnabled },
+                { "rotatesTargetYaw", a_component.rotatesTargetYaw },
+                { "followsTarget", a_component.followsTarget },
+            };
+        }
+
+        void deserialize_first_person_camera_controller(
+            const Json& a_json,
+            ECS::FirstPersonCameraControllerComponent& a_outComponent)
+        {
+            a_outComponent.targetEntity =
+                a_json.value("targetEntity", k_invalidEntityId);
+            if (const Json::const_iterator offsetIt = a_json.find("offset");
+                offsetIt != a_json.end())
+            {
+                deserialize_float3(*offsetIt, a_outComponent.offset);
+            }
+            a_outComponent.yaw = a_json.value("yaw", a_outComponent.yaw);
+            a_outComponent.pitch = a_json.value("pitch", a_outComponent.pitch);
+            a_outComponent.mouseSensitivity =
+                a_json.value("mouseSensitivity", a_outComponent.mouseSensitivity);
+            a_outComponent.minPitch =
+                a_json.value("minPitch", a_outComponent.minPitch);
+            a_outComponent.maxPitch =
+                a_json.value("maxPitch", a_outComponent.maxPitch);
+            a_outComponent.fovY = a_json.value("fovY", a_outComponent.fovY);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.rotatesTargetYaw =
+                a_json.value("rotatesTargetYaw", a_outComponent.rotatesTargetYaw);
+            a_outComponent.followsTarget =
+                a_json.value("followsTarget", a_outComponent.followsTarget);
+        }
+
+        [[nodiscard]] Json serialize_trigger_volume(
+            const ECS::TriggerVolumeComponent& a_component)
+        {
+            return Json{
+                { "includeTriggers", a_component.includeTriggers },
+            };
+        }
+
+        void deserialize_trigger_volume(
+            const Json& a_json,
+            ECS::TriggerVolumeComponent& a_outComponent)
+        {
+            a_outComponent.includeTriggers =
+                a_json.value("includeTriggers", a_outComponent.includeTriggers);
+            a_outComponent.overlappingEntities.clear();
+            a_outComponent.enteredEntities.clear();
+            a_outComponent.exitedEntities.clear();
+        }
+
+        [[nodiscard]] Json serialize_interactable(
+            const ECS::InteractableComponent& a_component)
+        {
+            return Json{
+                { "displayName", a_component.displayName },
+                { "maxDistance", a_component.maxDistance },
+                { "holdDuration", a_component.holdDuration },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_interactable(
+            const Json& a_json,
+            ECS::InteractableComponent& a_outComponent)
+        {
+            a_outComponent.displayName =
+                a_json.value("displayName", std::string{});
+            a_outComponent.maxDistance =
+                a_json.value("maxDistance", a_outComponent.maxDistance);
+            a_outComponent.holdDuration =
+                a_json.value("holdDuration", a_outComponent.holdDuration);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::DemoEnemyState a_state) noexcept
+        {
+            switch (a_state)
+            {
+            case ECS::DemoEnemyState::Patrol:
+                return "Patrol";
+            case ECS::DemoEnemyState::MoveToTarget:
+                return "MoveToTarget";
+            case ECS::DemoEnemyState::ChasePlayer:
+                return "ChasePlayer";
+            case ECS::DemoEnemyState::Idle:
+            default:
+                return "Idle";
+            }
+        }
+
+        [[nodiscard]] ECS::DemoEnemyState parse_demo_enemy_state(
+            const Json& a_json) noexcept
+        {
+            const std::string stateName = a_json.get<std::string>();
+            if (stateName == "Patrol")
+            {
+                return ECS::DemoEnemyState::Patrol;
+            }
+            if (stateName == "MoveToTarget")
+            {
+                return ECS::DemoEnemyState::MoveToTarget;
+            }
+            if (stateName == "ChasePlayer")
+            {
+                return ECS::DemoEnemyState::ChasePlayer;
+            }
+
+            return ECS::DemoEnemyState::Idle;
+        }
+
+        [[nodiscard]] Json serialize_demo_enemy(
+            const ECS::DemoEnemyComponent& a_component)
+        {
+            Json patrolPoints = Json::array();
+            for (const Math::float3& point : a_component.patrolPoints)
+            {
+                patrolPoints.push_back(serialize_float3(point));
+            }
+
+            return Json{
+                { "targetEntity", a_component.targetEntity },
+                { "patrolPoints", std::move(patrolPoints) },
+                { "requestedDestination",
+                    serialize_float3(a_component.requestedDestination) },
+                { "state", to_string(a_component.state) },
+                { "patrolIndex", a_component.patrolIndex },
+                { "chaseDistance", a_component.chaseDistance },
+                { "stopDistance", a_component.stopDistance },
+                { "hasRequestedDestination",
+                    a_component.hasRequestedDestination },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_demo_enemy(
+            const Json& a_json,
+            ECS::DemoEnemyComponent& a_outComponent)
+        {
+            a_outComponent.targetEntity =
+                a_json.value("targetEntity", k_invalidEntityId);
+            a_outComponent.patrolPoints.clear();
+            const Json patrolPoints = a_json.value("patrolPoints", Json::array());
+            if (patrolPoints.is_array())
+            {
+                for (const Json& pointJson : patrolPoints)
+                {
+                    Math::float3 point{};
+                    deserialize_float3(pointJson, point);
+                    a_outComponent.patrolPoints.push_back(point);
+                }
+            }
+            if (const Json::const_iterator destinationIt =
+                a_json.find("requestedDestination");
+                destinationIt != a_json.end())
+            {
+                deserialize_float3(
+                    *destinationIt, a_outComponent.requestedDestination);
+            }
+            if (const Json::const_iterator stateIt = a_json.find("state");
+                stateIt != a_json.end())
+            {
+                a_outComponent.state = parse_demo_enemy_state(*stateIt);
+            }
+            a_outComponent.patrolIndex =
+                a_json.value("patrolIndex", a_outComponent.patrolIndex);
+            a_outComponent.chaseDistance =
+                a_json.value("chaseDistance", a_outComponent.chaseDistance);
+            a_outComponent.stopDistance =
+                a_json.value("stopDistance", a_outComponent.stopDistance);
+            a_outComponent.hasRequestedDestination =
+                a_json.value("hasRequestedDestination",
+                    a_outComponent.hasRequestedDestination);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
         [[nodiscard]] Json serialize_mesh_filter(
             const ECS::MeshFilterComponent& a_component,
             const SceneSerializer::SaveOptions& a_options)
@@ -724,6 +917,15 @@ namespace Cue::GameCore
                 componentsJson["camera"] = serialize_camera(*camera);
             }
 
+            if (const ECS::FirstPersonCameraControllerComponent* controller =
+                a_definition.prototype.get_component_ptr<
+                    ECS::FirstPersonCameraControllerComponent>();
+                controller != nullptr)
+            {
+                componentsJson["firstPersonCameraController"] =
+                    serialize_first_person_camera_controller(*controller);
+            }
+
             if (const ECS::MeshFilterComponent* meshFilter =
                 a_definition.prototype.get_component_ptr<ECS::MeshFilterComponent>();
                 meshFilter != nullptr)
@@ -737,6 +939,13 @@ namespace Cue::GameCore
                 navAgent != nullptr)
             {
                 componentsJson["navAgent"] = serialize_nav_agent(*navAgent);
+            }
+
+            if (const ECS::DemoEnemyComponent* demoEnemy =
+                a_definition.prototype.get_component_ptr<ECS::DemoEnemyComponent>();
+                demoEnemy != nullptr)
+            {
+                componentsJson["demoEnemy"] = serialize_demo_enemy(*demoEnemy);
             }
 
             if (const ECS::NavMeshBakeSourceComponent* navMeshBakeSource =
@@ -776,6 +985,20 @@ namespace Cue::GameCore
                 collider != nullptr)
             {
                 componentsJson["collider"] = serialize_collider(*collider);
+            }
+
+            if (const ECS::TriggerVolumeComponent* trigger =
+                a_definition.prototype.get_component_ptr<ECS::TriggerVolumeComponent>();
+                trigger != nullptr)
+            {
+                componentsJson["triggerVolume"] = serialize_trigger_volume(*trigger);
+            }
+
+            if (const ECS::InteractableComponent* interactable =
+                a_definition.prototype.get_component_ptr<ECS::InteractableComponent>();
+                interactable != nullptr)
+            {
+                componentsJson["interactable"] = serialize_interactable(*interactable);
             }
 
             if (const ECS::CharacterControllerComponent* characterController =
@@ -847,6 +1070,16 @@ namespace Cue::GameCore
                     objectDefinition.prototype.add_component(camera);
                 }
 
+                if (const Json::const_iterator controllerIt =
+                    componentsJson.find("firstPersonCameraController");
+                    controllerIt != componentsJson.end())
+                {
+                    ECS::FirstPersonCameraControllerComponent controller{};
+                    deserialize_first_person_camera_controller(
+                        *controllerIt, controller);
+                    objectDefinition.prototype.add_component(controller);
+                }
+
                 if (const Json::const_iterator meshFilterIt =
                     componentsJson.find("meshFilter");
                     meshFilterIt != componentsJson.end())
@@ -863,6 +1096,15 @@ namespace Cue::GameCore
                     ECS::NavAgentComponent navAgent{};
                     deserialize_nav_agent(*navAgentIt, navAgent);
                     objectDefinition.prototype.add_component(navAgent);
+                }
+
+                if (const Json::const_iterator demoEnemyIt =
+                    componentsJson.find("demoEnemy");
+                    demoEnemyIt != componentsJson.end())
+                {
+                    ECS::DemoEnemyComponent demoEnemy{};
+                    deserialize_demo_enemy(*demoEnemyIt, demoEnemy);
+                    objectDefinition.prototype.add_component(demoEnemy);
                 }
 
                 if (const Json::const_iterator navMeshBakeSourceIt =
@@ -909,6 +1151,24 @@ namespace Cue::GameCore
                     ECS::ColliderComponent collider{};
                     deserialize_collider(*colliderIt, collider);
                     objectDefinition.prototype.add_component(collider);
+                }
+
+                if (const Json::const_iterator triggerIt =
+                    componentsJson.find("triggerVolume");
+                    triggerIt != componentsJson.end())
+                {
+                    ECS::TriggerVolumeComponent trigger{};
+                    deserialize_trigger_volume(*triggerIt, trigger);
+                    objectDefinition.prototype.add_component(trigger);
+                }
+
+                if (const Json::const_iterator interactableIt =
+                    componentsJson.find("interactable");
+                    interactableIt != componentsJson.end())
+                {
+                    ECS::InteractableComponent interactable{};
+                    deserialize_interactable(*interactableIt, interactable);
+                    objectDefinition.prototype.add_component(interactable);
                 }
 
                 if (const Json::const_iterator characterControllerIt =

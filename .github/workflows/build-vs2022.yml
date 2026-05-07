@@ -1,0 +1,12 @@
+name: build-vs2022
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    uses: ./.github/workflows/_build-common.yml
+    with:
+      config: Debug
+      runner: windows-2022
+      generator: Visual Studio 17 2022

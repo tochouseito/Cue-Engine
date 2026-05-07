@@ -160,8 +160,9 @@ namespace Cue
         result = m_editorWorld->initialize(
             bufferManager, viewManager, staticMeshPool, &m_assetManager,
             &m_platform->file_system(), m_audioBackend, m_audioDevice,
-            m_physicsSystem, m_backend->buffer_count(), m_backend->width(),
-            m_backend->height(), m_defaultCubeMeshId, m_defaultMaterialHandle);
+            m_physicsSystem, &m_platform->input_manager(),
+            m_backend->buffer_count(), m_backend->width(), m_backend->height(),
+            m_defaultCubeMeshId, m_defaultMaterialHandle);
         if (!result)
         {
             return result;
@@ -1428,7 +1429,8 @@ namespace Cue
                 bufferManager, viewManager, m_backend->get_static_mesh_pool(),
                 &m_assetManager,
                 &m_platform->file_system(), m_audioBackend, m_audioDevice,
-                m_physicsSystem, m_backend->buffer_count(),
+                m_physicsSystem, &m_platform->input_manager(),
+                m_backend->buffer_count(),
                 m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
                 m_defaultMaterialHandle);
             if (!result)

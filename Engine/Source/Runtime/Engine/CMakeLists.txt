@@ -30,6 +30,7 @@ add_library(Engine STATIC
     "GpuData/Sprite.h"
     "GpuData/DebugPick.h"
     "GpuData/DebugSelection.h"
+    "GameCore/DebugDraw.h"
     "Passes/DebugGridPass.h"
     "Passes/DebugObjectIdPass.h"
     "Passes/DebugOutlinePass.h"
@@ -54,8 +55,11 @@ add_library(Engine STATIC
     "Commands.h"
     "GameCore/Systems/RenderableObjectSystem.h"
     "GameCore/Systems/SpriteSystem.h"
+    "GameCore/Systems/DemoEnemySystem.h"
+    "GameCore/Systems/FirstPersonCameraControllerSystem.h"
     "GameCore/Systems/CharacterControllerSystem.h"
     "GameCore/Systems/PhysicsBodySystem.h"
+    "GameCore/Systems/TriggerVolumeSystem.h"
     "GameCore/WorldResources.h"
     "GameCore/WorldResources.cpp"
     "GpuData/ViewProjection.h"
@@ -110,5 +114,5 @@ target_compile_definitions(Engine PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(Engine PRIVATE /FS)
+    target_compile_options(Engine PRIVATE /FS /bigobj)
 endif()

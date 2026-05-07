@@ -50,6 +50,7 @@ namespace Cue::PAL::Win
     {
         m_app = std::make_unique<WinApp>();
         m_keyboard = std::make_unique<WinKeyboard>();
+        m_mouse = std::make_unique<WinMouse>();
     }
 
     WinPlatform::~WinPlatform()
@@ -110,7 +111,16 @@ namespace Cue::PAL::Win
                 "Failed to initialize keyboard input.");
         }
 
-        resultValue = m_inputManager.initialize(m_keyboard.get());
+        resultValue = m_mouse->initialize(::GetModuleHandleW(nullptr),
+            m_app->get_window_handle());
+        if (!resultValue)
+        {
+            return Result::fail(
+                resultValue.code, Severity::Fatal,
+                "Failed to initialize mouse input.");
+        }
+
+        resultValue = m_inputManager.initialize(m_keyboard.get(), m_mouse.get());
         if (!resultValue)
         {
             return Result::fail(
@@ -139,6 +149,10 @@ namespace Cue::PAL::Win
         if (m_keyboard != nullptr)
         {
             m_keyboard->shutdown();
+        }
+        if (m_mouse != nullptr)
+        {
+            m_mouse->shutdown();
         }
 
         // COM を終了する

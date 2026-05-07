@@ -5,6 +5,7 @@
 
 // === PAL includes ===
 #include "Keyboard.h"
+#include "Mouse.h"
 
 // === C++ includes ===
 #include <array>
@@ -18,12 +19,20 @@ namespace Cue::PAL
     public:
         InputManager() = default;
 
-        [[nodiscard]] Result initialize(IKeyboard* a_keyboard) noexcept;
+        [[nodiscard]] Result initialize(IKeyboard* a_keyboard,
+            IMouse* a_mouse = nullptr) noexcept;
         [[nodiscard]] Result begin_frame() noexcept;
         void shutdown() noexcept;
 
         /// @brief 指定キーが押されていれば `true` を返します。
         [[nodiscard]] bool push_key(Key a_key) const noexcept;
+        /// @brief 指定マウスボタンが押されていれば `true` を返します。
+        [[nodiscard]] bool push_mouse_button(MouseButton a_button) const noexcept;
+        /// @brief 前フレームからのマウス移動量を返します。
+        [[nodiscard]] MouseDelta mouse_delta() const noexcept
+        {
+            return m_mouseDelta;
+        }
 
     private:
         static constexpr size_t k_keyCount =
@@ -31,6 +40,9 @@ namespace Cue::PAL
 
     private:
         IKeyboard* m_keyboard = nullptr;
+        IMouse* m_mouse = nullptr;
         std::array<bool, k_keyCount> m_keyStates{};
+        std::array<bool, static_cast<size_t>(MouseButton::Count)> m_mouseButtonStates{};
+        MouseDelta m_mouseDelta{};
     };
 }

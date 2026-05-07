@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 12u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 15u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -95,6 +95,37 @@ extern "C"
         float x;
         float y;
         float z;
+    };
+
+    struct CueFloat4
+    {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
+
+    struct CueMouseDeltaData
+    {
+        int32_t x;
+        int32_t y;
+        int32_t wheel;
+    };
+
+    struct CueRaycastDesc
+    {
+        CueFloat3 origin;
+        CueFloat3 direction;
+        CueEntityHandle ignoredEntity;
+        float distance;
+    };
+
+    struct CueRaycastHit
+    {
+        CueEntityHandle entity;
+        CueFloat3 position;
+        CueFloat3 normal;
+        float distance;
     };
 
     /// @brief Script 側へ公開する Transform データです。
@@ -182,6 +213,16 @@ extern "C"
         CueKey_F11,
         CueKey_F12,
         CueKey_Count,
+    };
+
+    enum CueMouseButton : uint32_t
+    {
+        CueMouseButton_Left = 0,
+        CueMouseButton_Right,
+        CueMouseButton_Middle,
+        CueMouseButton_X1,
+        CueMouseButton_X2,
+        CueMouseButton_Count,
     };
 
     /// @brief Script public field の型です。
@@ -274,6 +315,13 @@ extern "C"
 
     /// @brief 指定キーが押されていれば 1、そうでなければ 0 を返します。
     using CuePushKeyFn = uint8_t (CUE_SCRIPT_CALL*)(CueKey a_key);
+
+    using CueGetMouseDeltaFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueMouseDeltaData* a_outDelta
+    );
+
+    using CuePushMouseButtonFn =
+        uint8_t (CUE_SCRIPT_CALL*)(CueMouseButton a_button);
 
     /// @brief Script DLL が利用可能な Script クラス名を Engine へ通知します。
     /// `a_scriptClassName` は UTF-8 の非所有文字列です。
@@ -396,6 +444,32 @@ extern "C"
         CueEntityHandle a_targetEntityHandle
     );
 
+    using CueRaycastFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueRaycastDesc* a_desc,
+        CueRaycastHit* a_outHit
+    );
+
+    using CueDebugDrawLineFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueFloat3* a_start,
+        const CueFloat3* a_end,
+        const CueFloat4* a_color,
+        float a_durationSeconds
+    );
+
+    using CueDebugDrawSphereFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueFloat3* a_center,
+        float a_radius,
+        const CueFloat4* a_color,
+        float a_durationSeconds
+    );
+
+    using CueDebugDrawBoxFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueFloat3* a_center,
+        const CueFloat3* a_halfExtent,
+        const CueFloat4* a_color,
+        float a_durationSeconds
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -455,6 +529,18 @@ extern "C"
         CueSetNavAgentDestinationFn setNavAgentDestination;
         /// v12 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueSetNavAgentTargetFn setNavAgentTarget;
+        /// v13 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetMouseDeltaFn getMouseDelta;
+        /// v13 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CuePushMouseButtonFn pushMouseButton;
+        /// v14 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueRaycastFn raycast;
+        /// v15 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDebugDrawLineFn debugDrawLine;
+        /// v15 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDebugDrawSphereFn debugDrawSphere;
+        /// v15 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDebugDrawBoxFn debugDrawBox;
     };
 
     /// @brief Script インスタンス生成時の入力です。

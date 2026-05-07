@@ -136,6 +136,22 @@ namespace Cue
             }
         }
 
+        [[nodiscard]] PAL::MouseButton to_pal_mouse_button(
+            CueMouseButton a_button) noexcept
+        {
+            switch (a_button)
+            {
+            case CueMouseButton_Left: return PAL::MouseButton::Left;
+            case CueMouseButton_Right: return PAL::MouseButton::Right;
+            case CueMouseButton_Middle: return PAL::MouseButton::Middle;
+            case CueMouseButton_X1: return PAL::MouseButton::X1;
+            case CueMouseButton_X2: return PAL::MouseButton::X2;
+            case CueMouseButton_Count:
+            default:
+                return PAL::MouseButton::Count;
+            }
+        }
+
         [[nodiscard]] ECS::ScriptFieldType to_script_field_type(
             CueScriptFieldType a_type) noexcept
         {
@@ -442,6 +458,12 @@ namespace Cue
             &ScriptRuntime::set_nav_agent_destination_bridge;
         m_engineApi.setNavAgentTarget =
             &ScriptRuntime::set_nav_agent_target_bridge;
+        m_engineApi.getMouseDelta = &ScriptRuntime::get_mouse_delta_bridge;
+        m_engineApi.pushMouseButton = &ScriptRuntime::push_mouse_button_bridge;
+        m_engineApi.raycast = &ScriptRuntime::raycast_bridge;
+        m_engineApi.debugDrawLine = &ScriptRuntime::debug_draw_line_bridge;
+        m_engineApi.debugDrawSphere = &ScriptRuntime::debug_draw_sphere_bridge;
+        m_engineApi.debugDrawBox = &ScriptRuntime::debug_draw_box_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1434,6 +1456,67 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_mouse_delta_bridge(
+        CueMouseDeltaData* a_outDelta)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_mouse_delta_internal(a_outDelta)
+            : CueResult_InvalidState;
+    }
+
+    uint8_t CUE_SCRIPT_CALL ScriptRuntime::push_mouse_button_bridge(
+        CueMouseButton a_button)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->push_mouse_button_internal(a_button)
+            : 0;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::raycast_bridge(
+        const CueRaycastDesc* a_desc,
+        CueRaycastHit* a_outHit)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->raycast_internal(a_desc, a_outHit)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::debug_draw_line_bridge(
+        const CueFloat3* a_start,
+        const CueFloat3* a_end,
+        const CueFloat4* a_color,
+        float a_durationSeconds)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->debug_draw_line_internal(
+                a_start, a_end, a_color, a_durationSeconds)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::debug_draw_sphere_bridge(
+        const CueFloat3* a_center,
+        float a_radius,
+        const CueFloat4* a_color,
+        float a_durationSeconds)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->debug_draw_sphere_internal(
+                a_center, a_radius, a_color, a_durationSeconds)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::debug_draw_box_bridge(
+        const CueFloat3* a_center,
+        const CueFloat3* a_halfExtent,
+        const CueFloat4* a_color,
+        float a_durationSeconds)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->debug_draw_box_internal(
+                a_center, a_halfExtent, a_color, a_durationSeconds)
+            : CueResult_InvalidState;
+    }
+
     CueResult ScriptRuntime::log_internal(
         CueLogSeverity a_severity,
         CueStringView a_message) noexcept
@@ -2096,6 +2179,149 @@ namespace Cue
             to_entity_id(a_entityHandle),
             to_entity_id(a_targetEntityHandle));
         return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::get_mouse_delta_internal(
+        CueMouseDeltaData* a_outDelta) const noexcept
+    {
+        if (a_outDelta == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outDelta = {};
+        if (m_platform == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const PAL::MouseDelta delta =
+            m_platform->input_manager().mouse_delta();
+        *a_outDelta = CueMouseDeltaData{ delta.x, delta.y, delta.wheel };
+        return CueResult_Ok;
+    }
+
+    uint8_t ScriptRuntime::push_mouse_button_internal(
+        CueMouseButton a_button) const noexcept
+    {
+        if (m_platform == nullptr)
+        {
+            return 0;
+        }
+
+        const PAL::MouseButton button = to_pal_mouse_button(a_button);
+        if (button == PAL::MouseButton::Count)
+        {
+            return 0;
+        }
+
+        return m_platform->input_manager().push_mouse_button(button) ? 1 : 0;
+    }
+
+    CueResult ScriptRuntime::raycast_internal(
+        const CueRaycastDesc* a_desc,
+        CueRaycastHit* a_outHit) const noexcept
+    {
+        if (a_desc == nullptr || a_outHit == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outHit = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        GameCore::GameWorld::GameplayRaycastDesc desc{};
+        desc.origin =
+            Math::float3(a_desc->origin.x, a_desc->origin.y, a_desc->origin.z);
+        desc.direction = Math::float3(
+            a_desc->direction.x, a_desc->direction.y, a_desc->direction.z);
+        desc.ignoredEntity = to_entity_id(a_desc->ignoredEntity);
+        desc.distance = a_desc->distance;
+
+        GameCore::GameWorld::GameplayRaycastHit hit{};
+        const Result result = m_gameWorld->raycast(desc, hit);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outHit->entity = to_entity_handle(hit.entity);
+        a_outHit->position =
+            CueFloat3{ hit.position.x, hit.position.y, hit.position.z };
+        a_outHit->normal =
+            CueFloat3{ hit.normal.x, hit.normal.y, hit.normal.z };
+        a_outHit->distance = hit.distance;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::debug_draw_line_internal(
+        const CueFloat3* a_start,
+        const CueFloat3* a_end,
+        const CueFloat4* a_color,
+        float a_durationSeconds) noexcept
+    {
+        if (a_start == nullptr || a_end == nullptr || a_color == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        m_gameWorld->debug_draw().add_line(
+            Math::float3(a_start->x, a_start->y, a_start->z),
+            Math::float3(a_end->x, a_end->y, a_end->z),
+            Math::float4(a_color->x, a_color->y, a_color->z, a_color->w),
+            a_durationSeconds);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::debug_draw_sphere_internal(
+        const CueFloat3* a_center,
+        float a_radius,
+        const CueFloat4* a_color,
+        float a_durationSeconds) noexcept
+    {
+        if (a_center == nullptr || a_color == nullptr || a_radius <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        m_gameWorld->debug_draw().add_sphere(
+            Math::float3(a_center->x, a_center->y, a_center->z),
+            a_radius,
+            Math::float4(a_color->x, a_color->y, a_color->z, a_color->w),
+            a_durationSeconds);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::debug_draw_box_internal(
+        const CueFloat3* a_center,
+        const CueFloat3* a_halfExtent,
+        const CueFloat4* a_color,
+        float a_durationSeconds) noexcept
+    {
+        if (a_center == nullptr || a_halfExtent == nullptr || a_color == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        m_gameWorld->debug_draw().add_box(
+            Math::float3(a_center->x, a_center->y, a_center->z),
+            Math::float3(a_halfExtent->x, a_halfExtent->y, a_halfExtent->z),
+            Math::float4(a_color->x, a_color->y, a_color->z, a_color->w),
+            a_durationSeconds);
+        return CueResult_Ok;
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(
