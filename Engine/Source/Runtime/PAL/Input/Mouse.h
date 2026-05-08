@@ -31,7 +31,10 @@ namespace Cue::PAL
         virtual ~IMouse() = default;
 
         [[nodiscard]] virtual Result update() noexcept = 0;
+        [[nodiscard]] virtual Result set_capture_enabled(
+            bool a_isEnabled) noexcept = 0;
         [[nodiscard]] virtual MouseDelta delta() const noexcept = 0;
         [[nodiscard]] virtual bool is_button_down(MouseButton a_button) const noexcept = 0;
+        [[nodiscard]] virtual bool is_capture_enabled() const noexcept = 0;
     };
 }

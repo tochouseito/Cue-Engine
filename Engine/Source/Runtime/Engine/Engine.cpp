@@ -13,12 +13,14 @@
 #include "Passes/RenderableInfoCopyPass.h"
 #include "Passes/SpriteForwardPass.h"
 #include "Passes/SpriteInstanceCopyPass.h"
+#include "Passes/ShadowMapPass.h"
 #include "Passes/StaticMeshBatchingPass.h"
 #include "Passes/StaticMeshForwardPass.h"
 #include "Passes/TransformBufferCopyPass.h"
 #include "Passes/VisibleObjectCountCopyPass.h"
 #include "Passes/ViewProjectionCopyPass.h"
 #include "Script/ScriptRuntime.h"
+#include <GpuData/Lighting.h>
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
 #include <PresentToSwapChain.h>
@@ -239,6 +241,8 @@ namespace Cue
             Math::float3(1.0f, 1.0f, 1.0f),
             Math::float3::zero(),
             Math::float3(0.0f, 2.0f, -6.0f));
+        m_debugViewProjection.cameraPosition =
+            Math::float4(0.0f, 2.0f, -6.0f, 1.0f);
         m_debugViewProjection.view = Math::float4x4::inverse(debugWorldMatrix);
         m_debugViewProjection.projection = Math::perspective_fov_matrix(
             60.0f * Math::k_pi / 180.0f,
@@ -1009,6 +1013,14 @@ namespace Cue
             m_debugSelectionBufferHandle,
             sizeof(GpuData::DebugSelectionGpu),
             "DebugSelectionCopy"));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+            worldResources->directional_light_buffer_handle(),
+            sizeof(GpuData::DirectionalLightGpu),
+            "DirectionalLightCopy"));
+        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+            worldResources->shadow_mapping_buffer_handle(),
+            sizeof(GpuData::ShadowMappingGpu),
+            "ShadowMappingCopy"));
         m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
             worldResources->material_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
@@ -1043,6 +1055,13 @@ namespace Cue
             worldResources->render_object_buffer_handle(),
             worldResources->transform_buffer_handle(),
             worldResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ShadowMapPass>(
+            m_activeWorld->render_scene_state(),
+            worldResources->render_object_buffer_handle(),
+            worldResources->transform_buffer_handle(),
+            worldResources->shadow_mapping_buffer_handle(),
+            worldResources->visible_object_count_buffer_handle(),
+            m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
             "GameStaticMeshForward",
             "GameColor",
@@ -1053,6 +1072,8 @@ namespace Cue
             worldResources->render_object_buffer_handle(),
             worldResources->transform_buffer_handle(),
             worldResources->view_projection_buffer_handle(),
+            worldResources->directional_light_buffer_handle(),
+            worldResources->shadow_mapping_buffer_handle(),
             worldResources->visible_object_count_buffer_handle(),
             worldResources->material_buffer_handle(),
             m_cubeIndexCount));
@@ -1081,6 +1102,8 @@ namespace Cue
             worldResources->render_object_buffer_handle(),
             worldResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
+            worldResources->directional_light_buffer_handle(),
+            worldResources->shadow_mapping_buffer_handle(),
             worldResources->visible_object_count_buffer_handle(),
             worldResources->material_buffer_handle(),
             m_cubeIndexCount));

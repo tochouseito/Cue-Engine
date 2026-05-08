@@ -11,6 +11,7 @@ namespace Cue::RHI
         R8G8B8A8_UNORM,
         R8G8B8A8_UNORM_SRGB,
         R32_UINT,
+        R32_FLOAT,
         D24_UNorm_S8_UInt
     };
 
@@ -21,6 +22,7 @@ namespace Cue::RHI
         case ColorFormat::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
         case ColorFormat::R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
         case ColorFormat::R32_UINT: return "R32_UINT";
+        case ColorFormat::R32_FLOAT: return "R32_FLOAT";
         case ColorFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
         default: return "Unknown";
         }
@@ -33,6 +35,7 @@ namespace Cue::RHI
         case ColorFormat::R8G8B8A8_UNORM:
         case ColorFormat::R8G8B8A8_UNORM_SRGB:
         case ColorFormat::R32_UINT:
+        case ColorFormat::R32_FLOAT:
             return 4;
         default:
             return 0;

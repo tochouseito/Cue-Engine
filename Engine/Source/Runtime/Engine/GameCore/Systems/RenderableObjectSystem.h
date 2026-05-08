@@ -305,6 +305,11 @@ namespace Cue::ECS
                     gpuMaterial.textureId = materialDesc.textureId;
                     gpuMaterial.useTexture =
                         materialDesc.isTextureUsed ? 1u : 0u;
+                    gpuMaterial.diffuseStrength =
+                        materialDesc.diffuseStrength;
+                    gpuMaterial.specularStrength =
+                        materialDesc.specularStrength;
+                    gpuMaterial.shininess = materialDesc.shininess;
                     if (!m_currentMaterialUploader->push(materialId, gpuMaterial))
                     {
                         CUE_ASSERTF(false,

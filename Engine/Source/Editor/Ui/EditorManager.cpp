@@ -647,6 +647,7 @@ namespace Cue::Editor
                 extension == ".cuematerial" ||
                 extension == ".cuescene" ||
                 extension == ".cuemodel" ||
+                extension == ".cuenavmesh" ||
                 extension == ".cuesound";
         }
 
@@ -2615,11 +2616,39 @@ namespace Cue::Editor
                 projectSettings.gameReleaseExecutableName);
         const std::string executableFileName = executableName + ".exe";
 
-        const Core::IO::Path projectCueAppPath = Core::IO::Path::join(
+        const Core::IO::Path expectedProjectExecutablePath = Core::IO::Path::join(
             projectOutputDirectory,
             Core::IO::Path(executableFileName));
+        const Core::IO::Path legacyProjectExecutablePath = Core::IO::Path::join(
+            projectOutputDirectory,
+            Core::IO::Path("CueApp.exe"));
+
+        Core::IO::Path projectExecutablePath = expectedProjectExecutablePath;
+        bool executableExists = false;
+        result = m_fileSystem->exists(projectExecutablePath, &executableExists);
+        if (!result)
+        {
+            return result;
+        }
+        if (!executableExists &&
+            legacyProjectExecutablePath.utf8() != expectedProjectExecutablePath.utf8())
+        {
+            bool legacyExecutableExists = false;
+            result = m_fileSystem->exists(
+                legacyProjectExecutablePath,
+                &legacyExecutableExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (legacyExecutableExists)
+            {
+                projectExecutablePath = legacyProjectExecutablePath;
+            }
+        }
+
         result = m_fileSystem->copy_file(
-            projectCueAppPath,
+            projectExecutablePath,
             Core::IO::Path::join(
                 stagingDirectory,
                 Core::IO::Path(executableFileName)),
@@ -5925,6 +5954,34 @@ namespace Cue::Editor
         }
     }
 
+    void EditorManager::update_game_mouse_capture()
+    {
+        if (m_platform == nullptr || m_engine == nullptr || m_gameView == nullptr)
+        {
+            return;
+        }
+
+        PAL::InputManager& inputManager = m_platform->input_manager();
+        const bool isCaptured = inputManager.is_mouse_capture_enabled();
+        const bool shouldRelease =
+            !m_engine->is_playing() ||
+            !m_platform->is_window_focused() ||
+            inputManager.push_key(PAL::Key::Escape);
+        if (shouldRelease)
+        {
+            if (isCaptured)
+            {
+                (void)inputManager.set_mouse_capture_enabled(false);
+            }
+            return;
+        }
+
+        if (!isCaptured && m_gameView->is_capture_requested())
+        {
+            (void)inputManager.set_mouse_capture_enabled(true);
+        }
+    }
+
     bool EditorManager::pick_debug_non_rendered_object(
         const DebugView::PickRequest& a_request,
         GameCore::EntityId& a_outEntityId) const
@@ -6745,6 +6802,7 @@ namespace Cue::Editor
         Core::Time::Timer gameViewTimer(m_platform->clock());
         gameViewTimer.start();
         m_gameView->update();
+        update_game_mouse_capture();
         gameViewTimer.stop();
         m_currentUpdateMetrics.gameViewMs =
             gameViewTimer.elapsed_ticks().ms_f64();

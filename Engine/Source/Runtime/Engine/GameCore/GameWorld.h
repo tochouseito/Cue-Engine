@@ -18,6 +18,7 @@
 #include "Systems/CharacterControllerSystem.h"
 #include "Systems/DemoEnemySystem.h"
 #include "Systems/FirstPersonCameraControllerSystem.h"
+#include "Systems/LightSystem.h"
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/PlayerControlSystem.h"
 #include "Systems/RenderableObjectSystem.h"
@@ -2110,6 +2111,13 @@ namespace Cue::GameCore
                 copiedController.targetEntity = localize_entity_reference(
                     copiedController.targetEntity, a_entityId);
                 prototype.add_component(copiedController);
+            }
+
+            if (const ECS::LightComponent* light =
+                get_component<ECS::LightComponent>(a_entityId);
+                light != nullptr)
+            {
+                prototype.add_component(*light);
             }
 
             if (const ECS::MeshFilterComponent* meshFilter =

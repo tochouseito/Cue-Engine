@@ -220,6 +220,21 @@ namespace Cue::ECS
         bool followsTarget = true;
     };
 
+    enum class LightType : uint8_t
+    {
+        Directional,
+    };
+
+    struct LightComponent : public IComponentTag
+    {
+        Math::float3 color = Math::float3(1.0f, 0.96f, 0.88f);
+        Math::float3 groundAmbient = Math::float3(0.08f, 0.09f, 0.11f);
+        LightType type = LightType::Directional;
+        float intensity = 1.0f;
+        float ambient = 0.18f;
+        bool isEnabled = true;
+    };
+
     struct TriggerVolumeComponent : public IComponentTag
     {
         std::vector<GameCore::EntityId> overlappingEntities{};

@@ -40,6 +40,7 @@ namespace Cue::Editor
             RenderableInfo,
             Transform,
             Camera,
+            Light,
             MeshFilter,
             StaticMeshRenderer,
             SpriteRenderer,
@@ -278,6 +279,11 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::Camera, "C" });
             }
 
+            if (has_component<ECS::LightComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Light, "L" });
+            }
+
             if (has_component<ECS::MeshFilterComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::MeshFilter, "M" });
@@ -492,6 +498,10 @@ namespace Cue::Editor
                 draw_camera_component(a_object);
                 break;
 
+            case ComponentTab::Light:
+                draw_light_component(a_object);
+                break;
+
             case ComponentTab::MeshFilter:
                 draw_mesh_filter_component(a_object);
                 break;
@@ -617,6 +627,47 @@ namespace Cue::Editor
             ImGui::Text("aspectRatio: %.3f", component->aspectRatio);
             ImGui::Text("nearZ: %.3f", component->nearZ);
             ImGui::Text("farZ: %.3f", component->farZ);
+        }
+
+        void draw_light_component(GameCore::GameObject& a_object)
+        {
+            ECS::LightComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("LightComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("LightComponent");
+            ImGui::Separator();
+            ImGui::TextUnformatted("type: Directional");
+            ImGui::Checkbox("enabled", &component->isEnabled);
+
+            float color[3] = {
+                component->color.x,
+                component->color.y,
+                component->color.z
+            };
+            if (ImGui::ColorEdit3("color", color))
+            {
+                component->color = Math::float3(color[0], color[1], color[2]);
+            }
+
+            float groundAmbient[3] = {
+                component->groundAmbient.x,
+                component->groundAmbient.y,
+                component->groundAmbient.z
+            };
+            if (ImGui::ColorEdit3("groundAmbient", groundAmbient))
+            {
+                component->groundAmbient = Math::float3(
+                    groundAmbient[0], groundAmbient[1], groundAmbient[2]);
+            }
+
+            ImGui::DragFloat(
+                "intensity", &component->intensity, 0.01f, 0.0f, 8.0f);
+            ImGui::DragFloat(
+                "ambient", &component->ambient, 0.01f, 0.0f, 2.0f);
         }
 
         void draw_mesh_filter_component(GameCore::GameObject& a_object)
@@ -3122,6 +3173,43 @@ namespace Cue::Editor
                         materialHandle, *m_fileSystem, a_materialPath);
                 }
 
+                if (!result)
+                {
+                    m_materialStatusMessage =
+                        std::string("Material の保存に失敗しました: ") +
+                        std::string(result.message);
+                    m_materialStatusIsError = true;
+                }
+                else
+                {
+                    m_materialStatusMessage =
+                        "Material を保存しました。";
+                    m_materialStatusIsError = false;
+                }
+            }
+
+            auto save_material_value = [&]() -> Result
+            {
+                Result saveResult = m_engine->asset_manager().update_material(
+                    materialHandle, materialDesc);
+                if (saveResult)
+                {
+                    saveResult = m_engine->asset_manager().save_material(
+                        materialHandle, *m_fileSystem, a_materialPath);
+                }
+                return saveResult;
+            };
+
+            bool didEditLighting = false;
+            didEditLighting |= ImGui::DragFloat(
+                "diffuseStrength", &materialDesc.diffuseStrength, 0.01f, 0.0f, 4.0f);
+            didEditLighting |= ImGui::DragFloat(
+                "specularStrength", &materialDesc.specularStrength, 0.01f, 0.0f, 4.0f);
+            didEditLighting |= ImGui::DragFloat(
+                "shininess", &materialDesc.shininess, 0.5f, 1.0f, 256.0f);
+            if (didEditLighting)
+            {
+                result = save_material_value();
                 if (!result)
                 {
                     m_materialStatusMessage =

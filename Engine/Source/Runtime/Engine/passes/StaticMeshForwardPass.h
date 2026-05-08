@@ -26,6 +26,8 @@ namespace Cue
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
+            RHI::BufferHandle a_directionalLightBufferHandle,
+            RHI::BufferHandle a_shadowMappingBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
             RHI::BufferHandle a_materialBufferHandle,
             uint32_t a_indexCountPerInstance)
@@ -38,6 +40,8 @@ namespace Cue
             m_renderObjectBufferHandle(a_renderObjectBufferHandle),
             m_transformBufferHandle(a_transformBufferHandle),
             m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
+            m_directionalLightBufferHandle(a_directionalLightBufferHandle),
+            m_shadowMappingBufferHandle(a_shadowMappingBufferHandle),
             m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle),
             m_materialBufferHandle(a_materialBufferHandle),
             m_indexCountPerInstance(a_indexCountPerInstance)
@@ -176,6 +180,21 @@ namespace Cue
             {
                 return result;
             }
+            result = builder.read_buffer(m_shadowMappingBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture("ShadowMap", m_shadowMapHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view("ShadowMapSRV", m_shadowMapSrvHandle);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
@@ -199,6 +218,16 @@ namespace Cue
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::Pixel, 2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::Pixel, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                0,
+                1,
+                2 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -317,6 +346,36 @@ namespace Cue
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_directionalLightBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
+                m_shadowMappingBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_texture(
+                m_shadowMapHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
             if (!result)
             {
                 return result;
@@ -485,6 +544,9 @@ namespace Cue
             commandContext->set_srv(4, m_transformBufferHandle);
             commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
             commandContext->set_srv(6, m_materialBufferHandle);
+            commandContext->set_cbv(7, m_directionalLightBufferHandle);
+            commandContext->set_cbv(8, m_shadowMappingBufferHandle);
+            commandContext->set_graphics_descriptor_table(9, m_shadowMapSrvHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
@@ -546,6 +608,8 @@ namespace Cue
         RHI::BufferHandle m_sortedRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_viewProjectionBufferHandle{};
+        RHI::BufferHandle m_directionalLightBufferHandle{};
+        RHI::BufferHandle m_shadowMappingBufferHandle{};
         RHI::BufferHandle m_positionBufferHandle{};
         RHI::BufferHandle m_uvBufferHandle{};
         RHI::BufferHandle m_normalBufferHandle{};
@@ -555,6 +619,8 @@ namespace Cue
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::TextureHandle m_shadowMapHandle{};
+        RHI::ViewHandle m_shadowMapSrvHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};

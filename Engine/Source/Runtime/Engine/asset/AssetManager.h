@@ -41,6 +41,9 @@ namespace Cue
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
         std::string textureName{};
         uint32_t textureId = 0;
+        float diffuseStrength = 1.0f;
+        float specularStrength = 0.35f;
+        float shininess = 32.0f;
         bool isTextureUsed = false;
     };
 
@@ -66,7 +69,7 @@ namespace Cue
     class AssetManager final
     {
     public:
-        static constexpr uint32_t k_materialAssetVersion = 3;
+        static constexpr uint32_t k_materialAssetVersion = 4;
         static constexpr uint32_t k_errorTextureId = 0;
 
         AssetManager() = default;

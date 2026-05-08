@@ -137,6 +137,18 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_worldResources->create_directional_light_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_worldResources->create_shadow_mapping_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
         result = m_worldResources->create_material_buffer(k_maxMaterialCount);
         if (!result)
         {
@@ -179,6 +191,9 @@ namespace Cue::GameCore
             m_renderSceneState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_worldResources->view_projection_uploaders(), m_renderSceneState);
+        auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(
+            m_worldResources->directional_light_uploaders(),
+            m_worldResources->shadow_mapping_uploaders());
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
@@ -204,6 +219,7 @@ namespace Cue::GameCore
         auto& demoEnemySystem =
             m_ecs.add_system<ECS::DemoEnemySystem>(&m_debugDraw);
 
+        m_editorPipeline.add_system(&lightSystem);
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);

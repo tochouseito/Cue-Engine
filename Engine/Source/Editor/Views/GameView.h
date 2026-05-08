@@ -23,6 +23,8 @@ namespace Cue::Editor
 
         void update()
         {
+            m_isImageHovered = false;
+            m_isCaptureRequested = false;
             if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
             {
                 return;
@@ -48,6 +50,16 @@ namespace Cue::Editor
             draw_view_texture(m_gameColorSrvHandle);
             ImGui::End();
             ImGui::PopStyleVar();
+        }
+
+        [[nodiscard]] bool is_image_hovered() const noexcept
+        {
+            return m_isImageHovered;
+        }
+
+        [[nodiscard]] bool is_capture_requested() const noexcept
+        {
+            return m_isCaptureRequested;
         }
 
     private:
@@ -91,10 +103,16 @@ namespace Cue::Editor
             ImGui::Image(
                 static_cast<ImTextureID>(srvGpuDescHandle.ptr),
                 ImVec2(displayWidth, displayHeight));
+            m_isImageHovered = ImGui::IsItemHovered();
+            m_isCaptureRequested =
+                ImGui::IsItemClicked(ImGuiMouseButton_Left) ||
+                ImGui::IsItemClicked(ImGuiMouseButton_Right);
         }
 
     private:
         RHI::DX12::D3D12Backend* m_backend = nullptr;
         RHI::ViewHandle m_gameColorSrvHandle{};
+        bool m_isImageHovered = false;
+        bool m_isCaptureRequested = false;
     };
 }

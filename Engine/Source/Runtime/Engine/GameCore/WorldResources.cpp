@@ -176,6 +176,92 @@ namespace Cue
         return Result::ok();
     }
 
+    Result WorldResources::create_directional_light_buffer()
+    {
+        constexpr uint32_t k_constantBufferAlignment = 256;
+
+        RHI::BufferDesc lightBufferDesc{};
+        lightBufferDesc.name = "DirectionalLightBuffer";
+        lightBufferDesc.type = RHI::BufferType::Constant;
+        lightBufferDesc.defaultHeapCount = 1;
+        lightBufferDesc.uploadHeapCount = m_bufferCount;
+        lightBufferDesc.initialState = RHI::ResourceState::Common;
+        lightBufferDesc.stride = sizeof(GpuData::DirectionalLightGpu);
+        lightBufferDesc.elementCount = 1;
+        lightBufferDesc.size =
+            lightBufferDesc.stride * lightBufferDesc.elementCount;
+        lightBufferDesc.alignment = k_constantBufferAlignment;
+
+        RHI::BufferHandle& lightBufferHandle =
+            m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::DirectionalLightBuffer)];
+        Result result =
+            m_bufferManager->create_buffer(lightBufferDesc, lightBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            lightBufferHandle, m_bufferCount, m_directionalLightUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_directionalLightUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "DirectionalLightBuffer uploader was not created.");
+        }
+
+        return Result::ok();
+    }
+
+    Result WorldResources::create_shadow_mapping_buffer()
+    {
+        constexpr uint32_t k_constantBufferAlignment = 256;
+
+        RHI::BufferDesc shadowBufferDesc{};
+        shadowBufferDesc.name = "ShadowMappingBuffer";
+        shadowBufferDesc.type = RHI::BufferType::Constant;
+        shadowBufferDesc.defaultHeapCount = 1;
+        shadowBufferDesc.uploadHeapCount = m_bufferCount;
+        shadowBufferDesc.initialState = RHI::ResourceState::Common;
+        shadowBufferDesc.stride = sizeof(GpuData::ShadowMappingGpu);
+        shadowBufferDesc.elementCount = 1;
+        shadowBufferDesc.size =
+            shadowBufferDesc.stride * shadowBufferDesc.elementCount;
+        shadowBufferDesc.alignment = k_constantBufferAlignment;
+
+        RHI::BufferHandle& shadowBufferHandle =
+            m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::ShadowMappingBuffer)];
+        Result result =
+            m_bufferManager->create_buffer(shadowBufferDesc, shadowBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            shadowBufferHandle, m_bufferCount, m_shadowMappingUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_shadowMappingUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "ShadowMappingBuffer uploader was not created.");
+        }
+
+        return Result::ok();
+    }
+
     Result WorldResources::create_material_buffer(const uint32_t a_maxMaterialCount)
     {
         RHI::BufferDesc materialBufferDesc{};

@@ -20,6 +20,8 @@ namespace Cue::PAL::Win
         Result initialize(HINSTANCE a_instanceHandle, HWND a_windowHandle);
         void shutdown() noexcept;
         [[nodiscard]] Result update() noexcept override;
+        [[nodiscard]] Result set_capture_enabled(
+            bool a_isEnabled) noexcept override;
 
         [[nodiscard]] MouseDelta delta() const noexcept override
         {
@@ -27,11 +29,21 @@ namespace Cue::PAL::Win
         }
 
         [[nodiscard]] bool is_button_down(MouseButton a_button) const noexcept override;
+        [[nodiscard]] bool is_capture_enabled() const noexcept override
+        {
+            return m_isCaptureEnabled;
+        }
 
     private:
+        void update_clip_rect() noexcept;
+        void center_cursor() noexcept;
+        void set_cursor_visible(bool a_isVisible) noexcept;
+
         std::array<std::uint8_t, static_cast<size_t>(MouseButton::Count)>
             m_buttonStates{};
         MouseDelta m_delta{};
+        HWND m_windowHandle = nullptr;
+        bool m_isCaptureEnabled = false;
         Microsoft::WRL::ComPtr<IDirectInput8W> m_directInput = nullptr;
         Microsoft::WRL::ComPtr<IDirectInputDevice8W> m_mouseDevice = nullptr;
     };

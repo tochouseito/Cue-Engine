@@ -665,6 +665,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    result = platform->input_manager().set_mouse_capture_enabled(true);
+    if (!result)
+    {
+        log_failure("Mouse capture enable", result);
+        engine->shutdown();
+        physicsSystem->shutdown();
+        physicsSystem.reset();
+        audioBackend->shutdown();
+        audioBackend.reset();
+        backend->shutdown();
+        backend.reset();
+        return -1;
+    }
+
     bool isRunning = true;
     while (isRunning)
     {

@@ -22,6 +22,8 @@ namespace Cue::PAL
         [[nodiscard]] Result initialize(IKeyboard* a_keyboard,
             IMouse* a_mouse = nullptr) noexcept;
         [[nodiscard]] Result begin_frame() noexcept;
+        [[nodiscard]] Result set_mouse_capture_enabled(
+            bool a_isEnabled) noexcept;
         void shutdown() noexcept;
 
         /// @brief 指定キーが押されていれば `true` を返します。
@@ -33,6 +35,8 @@ namespace Cue::PAL
         {
             return m_mouseDelta;
         }
+        /// @brief マウスがゲーム入力としてキャプチャされているか返します。
+        [[nodiscard]] bool is_mouse_capture_enabled() const noexcept;
 
     private:
         static constexpr size_t k_keyCount =

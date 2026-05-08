@@ -5,6 +5,7 @@
 
 // === Engine includes ===
 #include <GpuData/Batching.h>
+#include <GpuData/Lighting.h>
 #include <GpuData/Sprite.h>
 #include <GpuData/Transform.h>
 #include <GpuData/ViewProjection.h>
@@ -20,6 +21,8 @@ namespace Cue
         RenderableInfoBuffer = 0,
         TransformBuffer,
         ViewProjectionBuffer,
+        DirectionalLightBuffer,
+        ShadowMappingBuffer,
         MaterialBuffer,
         RenderObjectBuffer,
         VisibleObjectCountBuffer,
@@ -47,6 +50,8 @@ namespace Cue
         Result create_renderable_info_buffer(const uint32_t a_maxObjectCount);
         Result create_transform_buffer(const uint32_t a_maxObjectCount);
         Result create_view_projection_buffer();
+        Result create_directional_light_buffer();
+        Result create_shadow_mapping_buffer();
         Result create_material_buffer(const uint32_t a_maxMaterialCount);
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
@@ -81,6 +86,16 @@ namespace Cue
         {
             return m_viewProjectionUploaders;
         }
+        std::vector<RHI::SlotUploader<GpuData::DirectionalLightGpu>>&
+            directional_light_uploaders() noexcept
+        {
+            return m_directionalLightUploaders;
+        }
+        std::vector<RHI::SlotUploader<GpuData::ShadowMappingGpu>>&
+            shadow_mapping_uploaders() noexcept
+        {
+            return m_shadowMappingUploaders;
+        }
         std::vector<RHI::SlotUploader<GpuData::SpriteInstanceGpu>>&
             sprite_instance_uploaders() noexcept
         {
@@ -109,6 +124,20 @@ namespace Cue
         {
             return m_bufferHandles[static_cast<size_t>(
                 WorldResourceType::MaterialBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle directional_light_buffer_handle()
+            const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::DirectionalLightBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle shadow_mapping_buffer_handle()
+            const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                WorldResourceType::ShadowMappingBuffer)];
         }
 
         [[nodiscard]] RHI::BufferHandle render_object_buffer_handle() const noexcept
@@ -178,6 +207,10 @@ namespace Cue
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::DirectionalLightGpu>>
+            m_directionalLightUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::ShadowMappingGpu>>
+            m_shadowMappingUploaders{};
         std::vector<RHI::SlotUploader<GpuData::SpriteInstanceGpu>>
             m_spriteInstanceUploaders{};
     };

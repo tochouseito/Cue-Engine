@@ -2,6 +2,8 @@
 #include "ConvertUTF.h"
 #include "ConvertHresult.h"
 
+#include <string>
+
 namespace Cue::PAL::Win
 {
     [[nodiscard]] static void to_native_seps(std::wstring* a_text) noexcept
@@ -559,10 +561,13 @@ namespace Cue::PAL::Win
                 wto.c_str(),
                 a_overwrite ? FALSE : TRUE) == FALSE)
         {
+            const DWORD errorCode = ::GetLastError();
             return Result::fail(
-                convert_hresult_code(HRESULT_FROM_WIN32(::GetLastError())),
+                convert_hresult_code(HRESULT_FROM_WIN32(errorCode)),
                 Severity::Error,
-                "Failed to copy file.");
+                "Failed to copy file from \"" + a_from.utf8() +
+                    "\" to \"" + a_to.utf8() +
+                    "\". Win32Error=" + std::to_string(errorCode) + ".");
         }
 
         return Result::ok();

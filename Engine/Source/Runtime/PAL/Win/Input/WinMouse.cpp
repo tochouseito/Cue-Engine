@@ -43,11 +43,13 @@ namespace Cue::PAL::Win
                 "Failed to set DirectInput mouse cooperative level.");
         }
 
+        m_windowHandle = a_windowHandle;
         return Result::ok();
     }
 
     void WinMouse::shutdown() noexcept
     {
+        (void)set_capture_enabled(false);
         if (m_mouseDevice != nullptr)
         {
             m_mouseDevice->Unacquire();
@@ -55,6 +57,7 @@ namespace Cue::PAL::Win
         }
 
         m_directInput.Reset();
+        m_windowHandle = nullptr;
         m_buttonStates.fill(0);
         m_delta = {};
     }
@@ -65,6 +68,10 @@ namespace Cue::PAL::Win
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "DirectInput mouse device is not initialized.");
+        }
+        if (m_isCaptureEnabled && ::GetForegroundWindow() != m_windowHandle)
+        {
+            (void)set_capture_enabled(false);
         }
 
         DIMOUSESTATE2 state{};
@@ -93,14 +100,55 @@ namespace Cue::PAL::Win
             }
         }
 
-        m_delta.x = static_cast<int32_t>(state.lX);
-        m_delta.y = static_cast<int32_t>(state.lY);
+        m_delta.x = m_isCaptureEnabled ? static_cast<int32_t>(state.lX) : 0;
+        m_delta.y = m_isCaptureEnabled ? static_cast<int32_t>(state.lY) : 0;
         m_delta.wheel = static_cast<int32_t>(state.lZ);
         for (size_t buttonIndex = 0; buttonIndex < m_buttonStates.size();
              ++buttonIndex)
         {
             m_buttonStates[buttonIndex] = state.rgbButtons[buttonIndex];
         }
+        if (m_isCaptureEnabled)
+        {
+            update_clip_rect();
+            center_cursor();
+        }
+        return Result::ok();
+    }
+
+    Result WinMouse::set_capture_enabled(bool a_isEnabled) noexcept
+    {
+        if (m_isCaptureEnabled == a_isEnabled)
+        {
+            return Result::ok();
+        }
+        if (a_isEnabled && m_windowHandle == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Mouse capture requires a valid window handle.");
+        }
+
+        m_isCaptureEnabled = a_isEnabled;
+        m_delta = {};
+        if (m_isCaptureEnabled)
+        {
+            ::SetCapture(m_windowHandle);
+            update_clip_rect();
+            center_cursor();
+            set_cursor_visible(false);
+            if (m_mouseDevice != nullptr)
+            {
+                (void)m_mouseDevice->Acquire();
+            }
+            return Result::ok();
+        }
+
+        ::ClipCursor(nullptr);
+        if (::GetCapture() == m_windowHandle)
+        {
+            ::ReleaseCapture();
+        }
+        set_cursor_visible(true);
         return Result::ok();
     }
 
@@ -113,5 +161,76 @@ namespace Cue::PAL::Win
         }
 
         return (m_buttonStates[buttonIndex] & 0x80u) != 0;
+    }
+
+    void WinMouse::update_clip_rect() noexcept
+    {
+        if (m_windowHandle == nullptr)
+        {
+            return;
+        }
+
+        RECT clientRect{};
+        if (!::GetClientRect(m_windowHandle, &clientRect))
+        {
+            return;
+        }
+
+        POINT topLeft{ clientRect.left, clientRect.top };
+        POINT bottomRight{ clientRect.right, clientRect.bottom };
+        if (!::ClientToScreen(m_windowHandle, &topLeft) ||
+            !::ClientToScreen(m_windowHandle, &bottomRight))
+        {
+            return;
+        }
+
+        RECT screenRect{
+            topLeft.x,
+            topLeft.y,
+            bottomRight.x,
+            bottomRight.y
+        };
+        ::ClipCursor(&screenRect);
+    }
+
+    void WinMouse::center_cursor() noexcept
+    {
+        if (m_windowHandle == nullptr)
+        {
+            return;
+        }
+
+        RECT clientRect{};
+        if (!::GetClientRect(m_windowHandle, &clientRect))
+        {
+            return;
+        }
+
+        POINT center{
+            (clientRect.left + clientRect.right) / 2,
+            (clientRect.top + clientRect.bottom) / 2
+        };
+        if (::ClientToScreen(m_windowHandle, &center))
+        {
+            ::SetCursorPos(center.x, center.y);
+        }
+    }
+
+    void WinMouse::set_cursor_visible(bool a_isVisible) noexcept
+    {
+        int displayCount = ::ShowCursor(a_isVisible ? TRUE : FALSE);
+        if (a_isVisible)
+        {
+            while (displayCount < 0)
+            {
+                displayCount = ::ShowCursor(TRUE);
+            }
+            return;
+        }
+
+        while (displayCount >= 0)
+        {
+            displayCount = ::ShowCursor(FALSE);
+        }
     }
 }

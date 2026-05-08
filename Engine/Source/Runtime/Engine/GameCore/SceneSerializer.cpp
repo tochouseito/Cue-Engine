@@ -299,6 +299,66 @@ namespace Cue::GameCore
                 a_json.value("followsTarget", a_outComponent.followsTarget);
         }
 
+        [[nodiscard]] const char* to_string(ECS::LightType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case ECS::LightType::Directional:
+            default:
+                return "Directional";
+            }
+        }
+
+        [[nodiscard]] ECS::LightType parse_light_type(
+            const std::string& a_typeName) noexcept
+        {
+            if (a_typeName == "Directional")
+            {
+                return ECS::LightType::Directional;
+            }
+
+            return ECS::LightType::Directional;
+        }
+
+        [[nodiscard]] Json serialize_light(
+            const ECS::LightComponent& a_component)
+        {
+            return Json{
+                { "type", to_string(a_component.type) },
+                { "color", serialize_float3(a_component.color) },
+                { "groundAmbient", serialize_float3(a_component.groundAmbient) },
+                { "intensity", a_component.intensity },
+                { "ambient", a_component.ambient },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_light(
+            const Json& a_json,
+            ECS::LightComponent& a_outComponent)
+        {
+            a_outComponent.type = parse_light_type(
+                a_json.value("type", std::string("Directional")));
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            if (const Json::const_iterator groundAmbientIt =
+                    a_json.find("groundAmbient");
+                groundAmbientIt != a_json.end())
+            {
+                deserialize_float3(
+                    *groundAmbientIt, a_outComponent.groundAmbient);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.ambient =
+                a_json.value("ambient", a_outComponent.ambient);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
         [[nodiscard]] Json serialize_trigger_volume(
             const ECS::TriggerVolumeComponent& a_component)
         {
@@ -926,6 +986,13 @@ namespace Cue::GameCore
                     serialize_first_person_camera_controller(*controller);
             }
 
+            if (const ECS::LightComponent* light =
+                a_definition.prototype.get_component_ptr<ECS::LightComponent>();
+                light != nullptr)
+            {
+                componentsJson["light"] = serialize_light(*light);
+            }
+
             if (const ECS::MeshFilterComponent* meshFilter =
                 a_definition.prototype.get_component_ptr<ECS::MeshFilterComponent>();
                 meshFilter != nullptr)
@@ -1078,6 +1145,15 @@ namespace Cue::GameCore
                     deserialize_first_person_camera_controller(
                         *controllerIt, controller);
                     objectDefinition.prototype.add_component(controller);
+                }
+
+                if (const Json::const_iterator lightIt =
+                    componentsJson.find("light");
+                    lightIt != componentsJson.end())
+                {
+                    ECS::LightComponent light{};
+                    deserialize_light(*lightIt, light);
+                    objectDefinition.prototype.add_component(light);
                 }
 
                 if (const Json::const_iterator meshFilterIt =

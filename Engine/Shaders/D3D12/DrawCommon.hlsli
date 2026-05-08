@@ -20,8 +20,12 @@ struct Material
     float4 color;
     uint textureId;
     uint useTexture;
-    uint padding1;
-    uint padding2;
+    float diffuseStrength;
+    float specularStrength;
+    float shininess;
+    float padding1;
+    float padding2;
+    float padding3;
 };
 
 struct Transform

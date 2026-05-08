@@ -62,8 +62,28 @@ namespace Cue::PAL
         return Result::ok();
     }
 
+    Result InputManager::set_mouse_capture_enabled(bool a_isEnabled) noexcept
+    {
+        if (m_mouse == nullptr)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_mouse->set_capture_enabled(a_isEnabled);
+        if (!result)
+        {
+            return result;
+        }
+        if (!a_isEnabled)
+        {
+            m_mouseDelta = {};
+        }
+        return Result::ok();
+    }
+
     void InputManager::shutdown() noexcept
     {
+        (void)set_mouse_capture_enabled(false);
         m_keyboard = nullptr;
         m_mouse = nullptr;
         m_keyStates.fill(false);
@@ -80,6 +100,11 @@ namespace Cue::PAL
         }
 
         return m_keyStates[keyIndex];
+    }
+
+    bool InputManager::is_mouse_capture_enabled() const noexcept
+    {
+        return m_mouse != nullptr && m_mouse->is_capture_enabled();
     }
 
     bool InputManager::push_mouse_button(MouseButton a_button) const noexcept

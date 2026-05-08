@@ -99,6 +99,11 @@ namespace Cue::ECS
                 aspectRatio,
                 a_camera.nearZ,
                 a_camera.farZ);
+            gpuViewProjection.cameraPosition = Math::float4(
+                a_transform.position.x,
+                a_transform.position.y,
+                a_transform.position.z,
+                1.0f);
 
             if (!m_currentUploader->push(0, gpuViewProjection))
             {

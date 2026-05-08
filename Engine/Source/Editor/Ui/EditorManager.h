@@ -184,6 +184,7 @@ namespace Cue::Editor
         [[nodiscard]] bool is_scene_path_loaded(
             const Core::IO::Path& a_scenePath) const noexcept;
         void process_debug_pick_request();
+        void update_game_mouse_capture();
         [[nodiscard]] bool pick_debug_non_rendered_object(
             const DebugView::PickRequest& a_request,
             GameCore::EntityId& a_outEntityId) const;

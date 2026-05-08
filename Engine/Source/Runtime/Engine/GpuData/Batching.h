@@ -34,8 +34,12 @@ namespace Cue::GpuData
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
         uint32_t textureId = 0;
         uint32_t useTexture = 0;
-        uint32_t padding1 = 0;
-        uint32_t padding2 = 0;
+        float diffuseStrength = 1.0f;
+        float specularStrength = 0.35f;
+        float shininess = 32.0f;
+        float padding1 = 0.0f;
+        float padding2 = 0.0f;
+        float padding3 = 0.0f;
     };
 
     // インダイレクト描画コマンド
