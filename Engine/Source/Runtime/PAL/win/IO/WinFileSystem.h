@@ -20,6 +20,7 @@ namespace Cue::PAL::Win
         ~WinFileSystem() override = default;
 
         // --- 基本メタデータ ---
+        Result executable_directory(Core::IO::Path& a_outDirectory) noexcept override;
         Result exists(const Core::IO::Path& a_path, bool* a_outExists) noexcept override;
         Result stat(const Core::IO::Path& a_path, Core::IO::FileStat* a_outStat) noexcept override;
 
