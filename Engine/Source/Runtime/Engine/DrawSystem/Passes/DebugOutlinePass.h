@@ -3,7 +3,7 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class DebugOutlinePass final : public RHI::FrameGraphPass
     {
@@ -159,4 +159,4 @@ namespace Cue
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

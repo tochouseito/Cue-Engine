@@ -12,7 +12,7 @@
 // === Engine includes ===
 #include <Asset/AssetManager.h>
 #include <GameCore/Components.h>
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Sprite.h>
 
 // === C++ includes ===
@@ -30,7 +30,7 @@ namespace Cue::ECS
                 a_spriteInstanceUploaders,
             AssetManager* a_assetManager,
             MaterialHandle a_defaultMaterialHandle,
-            RenderSceneState& a_renderSceneState)
+            DrawSystem::DrawFrameState& a_drawFrameState)
             : ECSManager::System<TransformComponent, SpriteRendererComponent>(
                   [this](Entity a_entity,
                       TransformComponent& a_transform,
@@ -43,7 +43,7 @@ namespace Cue::ECS
             m_spriteInstanceUploaders(a_spriteInstanceUploaders),
             m_assetManager(a_assetManager),
             m_defaultMaterialHandle(a_defaultMaterialHandle),
-            m_renderSceneState(a_renderSceneState)
+            m_drawFrameState(a_drawFrameState)
         {}
 
         void update(const UpdateContext& a_context) override
@@ -70,10 +70,10 @@ namespace Cue::ECS
             m_currentFrameState = nullptr;
             m_sprites.clear();
 
-            if (a_context.bufferIndex < m_renderSceneState.frameStates.size())
+            if (a_context.bufferIndex < m_drawFrameState.frameStates.size())
             {
                 m_currentFrameState =
-                    &m_renderSceneState.frame_state(a_context.bufferIndex);
+                    &m_drawFrameState.frame_state(a_context.bufferIndex);
                 m_currentFrameState->spriteCount = 0;
             }
 
@@ -219,10 +219,10 @@ namespace Cue::ECS
             m_spriteInstanceUploaders;
         AssetManager* m_assetManager = nullptr;
         MaterialHandle m_defaultMaterialHandle{};
-        RenderSceneState& m_renderSceneState;
+        DrawSystem::DrawFrameState& m_drawFrameState;
         RHI::SlotUploader<GpuData::SpriteInstanceGpu>*
             m_currentSpriteInstanceUploader = nullptr;
-        RenderFrameState* m_currentFrameState = nullptr;
+        DrawSystem::DrawFrameData* m_currentFrameState = nullptr;
         std::vector<SpriteUploadRecord> m_sprites{};
     };
 } // namespace Cue::ECS

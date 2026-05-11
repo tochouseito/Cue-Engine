@@ -4,16 +4,16 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class TransformBufferCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        TransformBufferCopyPass(const RenderSceneState& a_renderSceneState,
+        TransformBufferCopyPass(const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_transformBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_transformBufferHandle(a_transformBufferHandle)
         {}
 
@@ -40,8 +40,8 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (!m_transformBufferHandle.valid() || frameState.objectCount == 0)
             {
                 return;
@@ -69,7 +69,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_transformBufferHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

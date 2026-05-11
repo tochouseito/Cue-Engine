@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class UploadBufferCopyPass final : public RHI::FrameGraphPass
     {

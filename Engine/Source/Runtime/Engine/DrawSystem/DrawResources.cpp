@@ -1,12 +1,12 @@
-#include "WorldResources.h"
+#include <DrawSystem/DrawResources.h>
 #include <GpuData/Batching.h>
 #include <GpuData/Sprite.h>
 #include <GpuData/Transform.h>
 #include <GpuData/ViewProjection.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
-    Result WorldResources::create_renderable_info_buffer(
+    Result DrawResources::create_renderable_info_buffer(
         const uint32_t a_maxObjectCount)
     {
         // RenderableInfoBuffer の設定
@@ -25,7 +25,7 @@ namespace Cue
 
         // RenderableInfoBuffer の作成
         RHI::BufferHandle& renderableInfoBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)];
         Result result = m_bufferManager->create_buffer(
             renderableInfoBufferDesc, renderableInfoBufferHandle);
         if (!result)
@@ -35,7 +35,7 @@ namespace Cue
 
         // RenderableInfoBuffer の uploader 作成
         result = m_bufferManager->create_slot_uploaders(
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)],
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)],
             m_bufferCount, m_renderableInfoUploaders);
         if (!result)
         {
@@ -63,7 +63,7 @@ namespace Cue
         
         // ビューの作成
         RHI::ViewHandle& renderableInfoBufferSrvHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::RenderableInfoBuffer)];
+            m_viewHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)];
         result = m_viewManager->create_view(renderableInfoBufferSrvDesc,
             renderableInfoBufferSrvHandle);
         if (!result)
@@ -74,7 +74,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_transform_buffer(const uint32_t a_maxObjectCount)
+    Result DrawResources::create_transform_buffer(const uint32_t a_maxObjectCount)
     {
         // TransformBuffer の設定
         RHI::BufferDesc transformBufferDesc{};
@@ -89,7 +89,7 @@ namespace Cue
             transformBufferDesc.stride * transformBufferDesc.elementCount;
         transformBufferDesc.alignment = alignof(GpuData::ObjectTransformGpu);
         RHI::BufferHandle& transformBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::TransformBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::TransformBuffer)];
 
         // TransformBuffer の作成
         Result result = m_bufferManager->create_buffer(transformBufferDesc, transformBufferHandle);
@@ -123,7 +123,7 @@ namespace Cue
 
         // ビューの作成
         RHI::ViewHandle& transformBufferSrvHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::TransformBuffer)];
+            m_viewHandles[static_cast<size_t>(DrawResourceType::TransformBuffer)];
         result = m_viewManager->create_view(transformBufferSrvDesc,
             transformBufferSrvHandle);
         if (!result)
@@ -134,7 +134,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_view_projection_buffer()
+    Result DrawResources::create_view_projection_buffer()
     {
         constexpr uint32_t k_constantBufferAlignment = 256;
 
@@ -151,7 +151,7 @@ namespace Cue
         viewProjectionBufferDesc.alignment = k_constantBufferAlignment;
 
         RHI::BufferHandle& viewProjectionBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::ViewProjectionBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::ViewProjectionBuffer)];
         Result result = m_bufferManager->create_buffer(
             viewProjectionBufferDesc, viewProjectionBufferHandle);
         if (!result)
@@ -176,7 +176,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_material_buffer(const uint32_t a_maxMaterialCount)
+    Result DrawResources::create_material_buffer(const uint32_t a_maxMaterialCount)
     {
         RHI::BufferDesc materialBufferDesc{};
         materialBufferDesc.name = "MaterialBuffer";
@@ -191,7 +191,7 @@ namespace Cue
         materialBufferDesc.alignment = alignof(GpuData::MaterialGpu);
 
         RHI::BufferHandle& materialBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::MaterialBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
         Result result = m_bufferManager->create_buffer(
             materialBufferDesc, materialBufferHandle);
         if (!result)
@@ -223,7 +223,7 @@ namespace Cue
         materialBufferSrvDesc.structureByteStride = materialBufferDesc.stride;
 
         RHI::ViewHandle& materialBufferSrvHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::MaterialBuffer)];
+            m_viewHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
         result = m_viewManager->create_view(
             materialBufferSrvDesc, materialBufferSrvHandle);
         if (!result)
@@ -234,7 +234,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_render_object_buffer(const uint32_t a_maxObjectCount)
+    Result DrawResources::create_render_object_buffer(const uint32_t a_maxObjectCount)
     {
         // RenderObjectBuffer の設定
         RHI::BufferDesc renderObjectBufferDesc{};
@@ -251,7 +251,7 @@ namespace Cue
 
         // RenderObjectBuffer の作成
         RHI::BufferHandle& renderObjectBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::RenderObjectBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderObjectBuffer)];
         Result result = m_bufferManager->create_buffer(renderObjectBufferDesc,
             renderObjectBufferHandle);
         if (!result)
@@ -285,7 +285,7 @@ namespace Cue
 
         // ビューの作成
         RHI::ViewHandle& renderObjectBufferUavHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::RenderObjectBuffer)];
+            m_viewHandles[static_cast<size_t>(DrawResourceType::RenderObjectBuffer)];
         result = m_viewManager->create_view(renderObjectBufferUavDesc,
             renderObjectBufferUavHandle);
         if (!result)
@@ -296,7 +296,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_object_count_buffer()
+    Result DrawResources::create_object_count_buffer()
     {
         // ObjectCountBuffer の設定
         RHI::BufferDesc renderObjectCountBufferDesc{};
@@ -313,7 +313,7 @@ namespace Cue
 
         // ObjectCountBuffer の作成
         RHI::BufferHandle& renderObjectCountBufferHandle =
-            m_bufferHandles[static_cast<size_t>(WorldResourceType::VisibleObjectCountBuffer)];
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
         Result result = m_bufferManager->create_buffer(renderObjectCountBufferDesc,
             renderObjectCountBufferHandle);
         if (!result)
@@ -347,7 +347,7 @@ namespace Cue
 
         // ビューの作成
         RHI::ViewHandle& renderObjectCountBufferUavHandle =
-            m_viewHandles[static_cast<size_t>(WorldResourceType::VisibleObjectCountBuffer)];
+            m_viewHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
         result = m_viewManager->create_view(renderObjectCountBufferUavDesc,
             renderObjectCountBufferUavHandle);
         if (!result)
@@ -358,7 +358,7 @@ namespace Cue
         return Result::ok();
     }
 
-    Result WorldResources::create_sprite_instance_buffer(
+    Result DrawResources::create_sprite_instance_buffer(
         const uint32_t a_maxSpriteCount)
     {
         RHI::BufferDesc spriteInstanceBufferDesc{};
@@ -376,7 +376,7 @@ namespace Cue
 
         RHI::BufferHandle& spriteInstanceBufferHandle =
             m_bufferHandles[static_cast<size_t>(
-                WorldResourceType::SpriteInstanceBuffer)];
+                DrawResourceType::SpriteInstanceBuffer)];
         Result result = m_bufferManager->create_buffer(
             spriteInstanceBufferDesc, spriteInstanceBufferHandle);
         if (!result)
@@ -411,7 +411,7 @@ namespace Cue
 
         RHI::ViewHandle& spriteInstanceBufferSrvHandle =
             m_viewHandles[static_cast<size_t>(
-                WorldResourceType::SpriteInstanceBuffer)];
+                DrawResourceType::SpriteInstanceBuffer)];
         result = m_viewManager->create_view(
             spriteInstanceBufferSrvDesc, spriteInstanceBufferSrvHandle);
         if (!result)

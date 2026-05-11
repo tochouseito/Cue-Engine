@@ -9,7 +9,7 @@
 #include "DebugDraw.h"
 #include "GameObject.h"
 #include "Navigation/Navigation.h"
-#include "RenderSceneState.h"
+#include <DrawSystem/DrawFrameState.h>
 #include "SceneAsset.h"
 #include "SceneInstance.h"
 #include "SceneSerializer.h"
@@ -23,7 +23,7 @@
 #include "Systems/RenderableObjectSystem.h"
 #include "Systems/SpriteSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
-#include "WorldResources.h"
+#include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
 
@@ -298,14 +298,14 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
-        RenderSceneState& render_scene_state() noexcept
+        DrawSystem::DrawFrameState& draw_frame_state() noexcept
         {
-            return m_renderSceneState;
+            return m_drawFrameState;
         }
 
-        const RenderSceneState& render_scene_state() const noexcept
+        const DrawSystem::DrawFrameState& draw_frame_state() const noexcept
         {
-            return m_renderSceneState;
+            return m_drawFrameState;
         }
 
         NavigationWorld& navigation_world() noexcept
@@ -563,9 +563,9 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
-        [[nodiscard]] const WorldResources* world_resources() const noexcept
+        [[nodiscard]] const DrawSystem::DrawResources* draw_resources() const noexcept
         {
-            return m_worldResources.get();
+            return m_drawResources.get();
         }
 
         void set_cpu_batching_enabled(bool a_enabled) noexcept
@@ -1411,10 +1411,10 @@ namespace Cue::GameCore
 
         [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept
         {
-            if (!m_renderSceneState.frameStates.empty())
+            if (!m_drawFrameState.frameStates.empty())
             {
-                const RenderFrameState& frameState =
-                    m_renderSceneState.frameStates.front();
+                const DrawSystem::DrawFrameData& frameState =
+                    m_drawFrameState.frameStates.front();
                 return Math::float3{
                     static_cast<float>(frameState.renderWidth) * 0.5f,
                     static_cast<float>(frameState.renderHeight) * 0.5f,
@@ -1425,15 +1425,15 @@ namespace Cue::GameCore
             return Math::float3(320.0f, 180.0f, 0.0f);
         }
 
-        void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
+        void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
             uint32_t a_renderHeight) noexcept
         {
-            if (a_bufferIndex >= m_renderSceneState.frameStates.size())
+            if (a_bufferIndex >= m_drawFrameState.frameStates.size())
             {
                 return;
             }
 
-            RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
+            DrawSystem::DrawFrameData& frameState = m_drawFrameState.frame_state(a_bufferIndex);
             frameState.objectCount = 0;
             frameState.spriteCount = 0;
             frameState.renderWidth = a_renderWidth;
@@ -2992,7 +2992,7 @@ namespace Cue::GameCore
         ECS::NavigationSystem* m_navigationSystem = nullptr;
         NavMeshHandle m_activeNavMesh{};
         NavMeshAssetData m_activeNavMeshAsset{};
-        std::unique_ptr<WorldResources> m_worldResources = nullptr;
+        std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
@@ -3003,7 +3003,7 @@ namespace Cue::GameCore
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         bool m_hasActiveNavMeshAsset = false;
-        RenderSceneState m_renderSceneState{};
+        DrawSystem::DrawFrameState m_drawFrameState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};

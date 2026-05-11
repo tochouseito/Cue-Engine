@@ -4,13 +4,13 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 
 // === C++ includes ===
 #include <string>
 #include <utility>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class SpriteForwardPass final : public RHI::FrameGraphPass
     {
@@ -18,12 +18,12 @@ namespace Cue
         SpriteForwardPass(std::string a_name,
             std::string a_colorName,
             std::string a_colorRtvName,
-            const RenderSceneState& a_renderSceneState,
+            const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_spriteInstanceBufferHandle)
             : m_name(std::move(a_name))
             , m_colorName(std::move(a_colorName))
             , m_colorRtvName(std::move(a_colorRtvName))
-            , m_renderSceneState(a_renderSceneState)
+            , m_drawFrameState(a_drawFrameState)
             , m_spriteInstanceBufferHandle(a_spriteInstanceBufferHandle)
         {}
 
@@ -36,12 +36,12 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            if (a_frameIndex >= m_drawFrameState.frameStates.size())
             {
                 return false;
             }
 
-            return m_renderSceneState.frame_state(a_frameIndex).spriteCount > 0;
+            return m_drawFrameState.frame_state(a_frameIndex).spriteCount > 0;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -158,8 +158,8 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (!m_spriteInstanceBufferHandle.valid() ||
                 frameState.spriteCount == 0)
             {
@@ -186,7 +186,7 @@ namespace Cue
         std::string m_name{};
         std::string m_colorName{};
         std::string m_colorRtvName{};
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_spriteInstanceBufferHandle{};
         RHI::TextureHandle m_colorHandle{};
         RHI::ViewHandle m_colorRtvHandle{};
@@ -195,4 +195,4 @@ namespace Cue
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

@@ -1,23 +1,23 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
-#include "Passes/DebugGridPass.h"
-#include "Passes/DebugDrawPass.h"
-#include "Passes/DebugObjectIdPass.h"
-#include "Passes/DebugOutlinePass.h"
-#include "Passes/DebugPickReadbackPass.h"
-#include "Passes/DebugSelectionPass.h"
-#include "Passes/GenerateVisibleList.h"
-#include "Passes/VisibleObjectBucketizePass.h"
-#include "Passes/MaterialBufferCopyPass.h"
-#include "Passes/RenderObjectCopyPass.h"
-#include "Passes/RenderableInfoCopyPass.h"
-#include "Passes/SpriteForwardPass.h"
-#include "Passes/SpriteInstanceCopyPass.h"
-#include "Passes/StaticMeshBatchingPass.h"
-#include "Passes/StaticMeshForwardPass.h"
-#include "Passes/TransformBufferCopyPass.h"
-#include "Passes/VisibleObjectCountCopyPass.h"
-#include "Passes/ViewProjectionCopyPass.h"
+#include "DrawSystem/Passes/DebugGridPass.h"
+#include "DrawSystem/Passes/DebugDrawPass.h"
+#include "DrawSystem/Passes/DebugObjectIdPass.h"
+#include "DrawSystem/Passes/DebugOutlinePass.h"
+#include "DrawSystem/Passes/DebugPickReadbackPass.h"
+#include "DrawSystem/Passes/DebugSelectionPass.h"
+#include "DrawSystem/Passes/GenerateVisibleList.h"
+#include "DrawSystem/Passes/VisibleObjectBucketizePass.h"
+#include "DrawSystem/Passes/MaterialBufferCopyPass.h"
+#include "DrawSystem/Passes/RenderObjectCopyPass.h"
+#include "DrawSystem/Passes/RenderableInfoCopyPass.h"
+#include "DrawSystem/Passes/SpriteForwardPass.h"
+#include "DrawSystem/Passes/SpriteInstanceCopyPass.h"
+#include "DrawSystem/Passes/StaticMeshBatchingPass.h"
+#include "DrawSystem/Passes/StaticMeshForwardPass.h"
+#include "DrawSystem/Passes/TransformBufferCopyPass.h"
+#include "DrawSystem/Passes/VisibleObjectCountCopyPass.h"
+#include "DrawSystem/Passes/ViewProjectionCopyPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
@@ -972,8 +972,8 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine active world is not initialized.");
         }
-        const WorldResources* worldResources = m_activeWorld->world_resources();
-        if (worldResources == nullptr)
+        const DrawSystem::DrawResources* drawResources = m_activeWorld->draw_resources();
+        if (drawResources == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine world resources are not initialized.");
@@ -998,76 +998,76 @@ namespace Cue
                 "Failed to create render frame graph.");
         }
 
-        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->renderable_info_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->transform_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
-            worldResources->view_projection_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderableInfoCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->renderable_info_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::TransformBufferCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->transform_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
+            drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
             m_debugViewProjectionBufferHandle,
             sizeof(GpuData::ViewProjectionGpu),
             "DebugViewProjectionCopy"));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
             m_debugSelectionBufferHandle,
             sizeof(GpuData::DebugSelectionGpu),
             "DebugSelectionCopy"));
-        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
-            worldResources->material_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->renderable_info_buffer_handle(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->renderable_info_buffer_srv_handle(),
-            worldResources->render_object_buffer_uav_handle(),
-            worldResources->visible_object_count_buffer_uav_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketCountPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketPrefixPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketScatterPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::MaterialBufferCopyPass>(
+            drawResources->material_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteInstanceCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderObjectCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectCountCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::GenerateVisibleListPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->renderable_info_buffer_handle(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->renderable_info_buffer_srv_handle(),
+            drawResources->render_object_buffer_uav_handle(),
+            drawResources->visible_object_count_buffer_uav_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketCountPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketPrefixPass>(
+            m_activeWorld->draw_frame_state()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketScatterPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshBatchingPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
             "GameStaticMeshForward",
             "GameColor",
             "GameColorRTV",
             "GameSceneDepth",
             "GameSceneDepthDSV",
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
-            worldResources->view_projection_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->material_buffer_handle(),
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->view_projection_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
             m_cubeIndexCount));
-        m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
             "GameColor",
             "GameColorRTV",
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugDrawPass>(
             "GameDebugDraw",
             "GameColor",
             "GameColorRTV",
@@ -1075,32 +1075,32 @@ namespace Cue
             "GameSceneDepthDSV",
             *m_activeWorld,
             *bufferManager,
-            worldResources->view_projection_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
+            drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
             "DebugStaticMeshForward",
             "DebugColor",
             "DebugColorRTV",
             "DebugSceneDepth",
             "DebugSceneDepthDSV",
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->material_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
             m_cubeIndexCount));
-        m_frameGraph->add_pass(std::make_unique<DebugObjectIdPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
-            worldResources->visible_object_count_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
             m_cubeIndexCount,
             m_debugSelectedObjectId));
-        m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugGridPass>(
             m_debugViewProjectionBufferHandle,
             m_isDebugGridVisible));
-        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugDrawPass>(
             "DebugViewDebugDraw",
             "DebugColor",
             "DebugColorRTV",
@@ -1109,18 +1109,18 @@ namespace Cue
             *m_activeWorld,
             *bufferManager,
             m_debugViewProjectionBufferHandle));
-        m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugSelectionPass>(
             m_debugViewProjectionBufferHandle,
             m_debugSelectionBufferHandle));
-        m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "DebugSpriteForward",
             "DebugColor",
             "DebugColorRTV",
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DebugOutlinePass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugOutlinePass>(
             m_debugSelectedObjectId));
-        m_frameGraph->add_pass(std::make_unique<DebugPickReadbackPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugPickReadbackPass>(
             m_debugPickState,
             m_debugPickReadbackBufferHandle,
             (std::max)(m_backend->buffer_count(), 1u)));

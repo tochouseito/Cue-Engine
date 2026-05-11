@@ -6,7 +6,7 @@
 // === Engine includes ===
 #include <GpuData/DebugPick.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class DebugPickReadbackPass final : public RHI::FrameGraphPass
     {
@@ -86,4 +86,4 @@ namespace Cue
         uint32_t m_readbackDelayFrames = 1;
         RHI::TextureHandle m_objectIdHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

@@ -4,19 +4,19 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Batching.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class StaticMeshBatchingPass final : public RHI::FrameGraphPass
     {
     public:
-        StaticMeshBatchingPass(const RenderSceneState& a_renderSceneState,
+        StaticMeshBatchingPass(const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_transformBufferHandle(a_transformBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
@@ -31,12 +31,12 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            if (a_frameIndex >= m_drawFrameState.frameStates.size())
             {
                 return false;
             }
 
-            return !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            return !m_drawFrameState.frame_state(a_frameIndex).useCpuBatching;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -250,8 +250,8 @@ namespace Cue
                 return;
             }
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (frameState.useCpuBatching)
             {
                 return;
@@ -279,7 +279,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_sourceRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
@@ -292,4 +292,4 @@ namespace Cue
         RHI::ShaderBlobHandle m_computeShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

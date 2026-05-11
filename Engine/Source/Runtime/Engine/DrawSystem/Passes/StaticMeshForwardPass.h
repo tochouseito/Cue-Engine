@@ -4,7 +4,7 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 
 // === C++ includes ===
 #include <array>
@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
@@ -22,7 +22,7 @@ namespace Cue
             std::string a_colorRtvName,
             std::string a_depthName,
             std::string a_depthDsvName,
-            const RenderSceneState& a_renderSceneState,
+            const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
@@ -34,7 +34,7 @@ namespace Cue
             m_colorRtvName(std::move(a_colorRtvName)),
             m_depthName(std::move(a_depthName)),
             m_depthDsvName(std::move(a_depthDsvName)),
-            m_renderSceneState(a_renderSceneState),
+            m_drawFrameState(a_drawFrameState),
             m_renderObjectBufferHandle(a_renderObjectBufferHandle),
             m_transformBufferHandle(a_transformBufferHandle),
             m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
@@ -450,8 +450,8 @@ namespace Cue
                                 ms_since(a_start, a_end) });
                 };
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
 
             const Clock::time_point clearStartTime = Clock::now();
             commandContext->clear_render_target(m_colorRtvHandle,
@@ -536,7 +536,7 @@ namespace Cue
         std::string m_colorRtvName{};
         std::string m_depthName{};
         std::string m_depthDsvName{};
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         uint32_t m_indexCountPerInstance = 0;
         RHI::TextureHandle m_colorHandle{};
         RHI::TextureHandle m_depthHandle{};
@@ -560,4 +560,4 @@ namespace Cue
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

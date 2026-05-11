@@ -4,22 +4,22 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class DebugObjectIdPass final : public RHI::FrameGraphPass
     {
     public:
         DebugObjectIdPass(
-            const RenderSceneState& a_renderSceneState,
+            const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
             uint32_t a_indexCountPerInstance,
             const uint32_t& a_selectedObjectId)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_transformBufferHandle(a_transformBufferHandle)
             , m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
@@ -369,8 +369,8 @@ namespace Cue
             commandContext->set_32bit_constant(1, 0u);
             commandContext->set_cbv(2, m_viewProjectionBufferHandle);
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             const RHI::BufferHandle renderObjectBufferHandle =
                 (!frameState.useCpuBatching && m_sortedRenderObjectBufferHandle.valid())
                 ? m_sortedRenderObjectBufferHandle
@@ -449,7 +449,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         uint32_t m_indexCountPerInstance = 0;
         const uint32_t& m_selectedObjectId;
         RHI::TextureHandle m_objectIdHandle{};
@@ -473,4 +473,4 @@ namespace Cue
         RHI::PipelineStateHandle m_pipelineHandle{};
         RHI::PipelineStateHandle m_outlinePipelineHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

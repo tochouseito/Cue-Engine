@@ -3,7 +3,7 @@
 // === C++ includes ===
 #include <vector>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     struct CpuIndexedDraw final
     {
@@ -13,7 +13,7 @@ namespace Cue
         int32_t baseVertex = 0;
     };
 
-    struct RenderFrameState final
+    struct DrawFrameData final
     {
         uint32_t objectCount = 0;
         uint32_t spriteCount = 0;
@@ -23,23 +23,23 @@ namespace Cue
         std::vector<CpuIndexedDraw> cpuIndexedDraws{};
     };
 
-    struct RenderSceneState final
+    struct DrawFrameState final
     {
         void resize(const uint32_t a_bufferCount)
         {
             frameStates.resize(a_bufferCount);
         }
 
-        RenderFrameState& frame_state(const uint32_t a_bufferIndex) noexcept
+        DrawFrameData& frame_state(const uint32_t a_bufferIndex) noexcept
         {
             return frameStates[a_bufferIndex];
         }
 
-        const RenderFrameState& frame_state(const uint32_t a_bufferIndex) const noexcept
+        const DrawFrameData& frame_state(const uint32_t a_bufferIndex) const noexcept
         {
             return frameStates[a_bufferIndex];
         }
 
-        std::vector<RenderFrameState> frameStates{};
+        std::vector<DrawFrameData> frameStates{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

@@ -4,10 +4,10 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Batching.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     namespace VisibleObjectBucketize
     {
@@ -19,10 +19,10 @@ namespace Cue
     {
     public:
         VisibleObjectBucketCountPass(
-            const RenderSceneState& a_renderSceneState,
+            const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {
@@ -40,8 +40,8 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            return a_frameIndex < m_renderSceneState.frameStates.size() &&
-                !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            return a_frameIndex < m_drawFrameState.frameStates.size() &&
+                !m_drawFrameState.frame_state(a_frameIndex).useCpuBatching;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -167,8 +167,8 @@ namespace Cue
                 return;
             }
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (frameState.useCpuBatching)
             {
                 return;
@@ -192,7 +192,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
         RHI::BufferHandle m_bucketCountBufferHandle{};
@@ -205,8 +205,8 @@ namespace Cue
     class VisibleObjectBucketPrefixPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit VisibleObjectBucketPrefixPass(const RenderSceneState& a_renderSceneState)
-            : m_renderSceneState(a_renderSceneState)
+        explicit VisibleObjectBucketPrefixPass(const DrawFrameState& a_drawFrameState)
+            : m_drawFrameState(a_drawFrameState)
         {
         }
 
@@ -222,8 +222,8 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            return a_frameIndex < m_renderSceneState.frameStates.size() &&
-                !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            return a_frameIndex < m_drawFrameState.frameStates.size() &&
+                !m_drawFrameState.frame_state(a_frameIndex).useCpuBatching;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -341,8 +341,8 @@ namespace Cue
                 return;
             }
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (frameState.useCpuBatching)
             {
                 return;
@@ -359,7 +359,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_bucketCountBufferHandle{};
         RHI::BufferHandle m_bucketOffsetBufferHandle{};
         RHI::BufferHandle m_bucketCursorBufferHandle{};
@@ -372,10 +372,10 @@ namespace Cue
     {
     public:
         VisibleObjectBucketScatterPass(
-            const RenderSceneState& a_renderSceneState,
+            const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {
@@ -393,8 +393,8 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            return a_frameIndex < m_renderSceneState.frameStates.size() &&
-                !m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            return a_frameIndex < m_drawFrameState.frameStates.size() &&
+                !m_drawFrameState.frame_state(a_frameIndex).useCpuBatching;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -551,8 +551,8 @@ namespace Cue
                 return;
             }
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (frameState.useCpuBatching || frameState.objectCount == 0)
             {
                 return;
@@ -568,7 +568,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_renderObjectBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
         RHI::BufferHandle m_bucketOffsetBufferHandle{};

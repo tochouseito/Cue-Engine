@@ -15,7 +15,7 @@
 // === Engine includes ===
 #include <Asset/AssetManager.h>
 #include <GameCore/Components.h>
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Batching.h>
 #include <GpuData/Transform.h>
 
@@ -42,7 +42,7 @@ namespace Cue::ECS
             AssetManager* a_assetManager,
             DrawSystem::IStaticMeshPool* a_staticMeshPool,
             MaterialHandle a_defaultMaterialHandle,
-            RenderSceneState& a_renderSceneState)
+            DrawSystem::DrawFrameState& a_drawFrameState)
             : ECSManager::System<RenderableInfoComponent,
                   TransformComponent,
                   MeshFilterComponent,
@@ -64,7 +64,7 @@ namespace Cue::ECS
             m_assetManager(a_assetManager),
             m_staticMeshPool(a_staticMeshPool),
             m_defaultMaterialHandle(a_defaultMaterialHandle),
-            m_renderSceneState(a_renderSceneState)
+            m_drawFrameState(a_drawFrameState)
         {
         }
 
@@ -78,10 +78,10 @@ namespace Cue::ECS
                 StaticMeshRendererComponent>::update(a_context);
             commit_uploaders();
 
-            if (a_context.bufferIndex < m_renderSceneState.frameStates.size())
+            if (a_context.bufferIndex < m_drawFrameState.frameStates.size())
             {
-                RenderFrameState& frameState =
-                    m_renderSceneState.frame_state(a_context.bufferIndex);
+                DrawSystem::DrawFrameData& frameState =
+                    m_drawFrameState.frame_state(a_context.bufferIndex);
                 frameState.objectCount = m_renderableObjectCount;
             }
         }
@@ -98,10 +98,10 @@ namespace Cue::ECS
             m_renderableObjectCount = 0;
             m_isCpuBatchingEnabled = false;
 
-            if (a_context.bufferIndex < m_renderSceneState.frameStates.size())
+            if (a_context.bufferIndex < m_drawFrameState.frameStates.size())
             {
                 m_currentFrameState =
-                    &m_renderSceneState.frame_state(a_context.bufferIndex);
+                    &m_drawFrameState.frame_state(a_context.bufferIndex);
                 m_isCpuBatchingEnabled = m_currentFrameState->useCpuBatching;
                 m_currentFrameState->cpuIndexedDraws.clear();
             }
@@ -343,7 +343,7 @@ namespace Cue::ECS
                         a_meshFilter.meshId, meshRange))
                     {
                         m_currentFrameState->cpuIndexedDraws.push_back(
-                            CpuIndexedDraw{
+                            DrawSystem::CpuIndexedDraw{
                                 a_renderableInfo.objectId,
                                 meshRange.indexCount,
                                 meshRange.startIndex,
@@ -369,7 +369,7 @@ namespace Cue::ECS
         AssetManager* m_assetManager = nullptr;
         DrawSystem::IStaticMeshPool* m_staticMeshPool = nullptr;
         MaterialHandle m_defaultMaterialHandle{};
-        RenderSceneState& m_renderSceneState;
+        DrawSystem::DrawFrameState& m_drawFrameState;
         RHI::SlotUploader<GpuData::RenderableInfo>*
             m_currentRenderableInfoUploader = nullptr;
         RHI::SlotUploader<GpuData::ObjectTransformGpu>*
@@ -379,7 +379,7 @@ namespace Cue::ECS
         RHI::SlotUploader<GpuData::RenderObject>*
             m_currentRenderObjectUploader = nullptr;
         RHI::SlotUploader<uint32_t>* m_currentVisibleObjectCountUploader = nullptr;
-        RenderFrameState* m_currentFrameState = nullptr;
+        DrawSystem::DrawFrameData* m_currentFrameState = nullptr;
         uint32_t m_renderableObjectCount = 0;
         bool m_isCpuBatchingEnabled = false;
     };

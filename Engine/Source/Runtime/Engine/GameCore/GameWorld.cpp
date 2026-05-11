@@ -108,77 +108,77 @@ namespace Cue::GameCore
         m_inputManager = a_inputManager;
         m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
-        m_renderSceneState.resize(a_bufferCount);
+        m_drawFrameState.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
-            sync_render_scene_state(bufferIndex, a_renderWidth, a_renderHeight);
+            sync_draw_frame_state(bufferIndex, a_renderWidth, a_renderHeight);
         }
 
-        m_worldResources =
-            std::make_unique<WorldResources>(
+        m_drawResources =
+            std::make_unique<DrawSystem::DrawResources>(
                 a_bufferManager, a_viewManager, a_bufferCount);
 
-        Result result = m_worldResources->create_renderable_info_buffer(
+        Result result = m_drawResources->create_renderable_info_buffer(
             k_maxRenderObjectCount);
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_transform_buffer(k_maxRenderObjectCount);
+        result = m_drawResources->create_transform_buffer(k_maxRenderObjectCount);
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_view_projection_buffer();
+        result = m_drawResources->create_view_projection_buffer();
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_material_buffer(k_maxMaterialCount);
+        result = m_drawResources->create_material_buffer(k_maxMaterialCount);
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_render_object_buffer(
+        result = m_drawResources->create_render_object_buffer(
             k_maxRenderObjectCount);
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_object_count_buffer();
+        result = m_drawResources->create_object_count_buffer();
         if (!result)
         {
             return result;
         }
 
-        result = m_worldResources->create_sprite_instance_buffer(k_maxSpriteCount);
+        result = m_drawResources->create_sprite_instance_buffer(k_maxSpriteCount);
         if (!result)
         {
             return result;
         }
 
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
-            m_worldResources->renderable_info_uploaders(),
-            m_worldResources->transform_uploaders(),
-            m_worldResources->material_uploaders(),
-            m_worldResources->render_object_uploaders(),
-            m_worldResources->visible_object_count_uploaders(),
+            m_drawResources->renderable_info_uploaders(),
+            m_drawResources->transform_uploaders(),
+            m_drawResources->material_uploaders(),
+            m_drawResources->render_object_uploaders(),
+            m_drawResources->visible_object_count_uploaders(),
             m_assetManager,
             a_staticMeshPool,
             m_defaultMaterialHandle,
-            m_renderSceneState);
+            m_drawFrameState);
         auto& spriteSystem = m_ecs.add_system<ECS::SpriteSystem>(
-            m_worldResources->sprite_instance_uploaders(),
+            m_drawResources->sprite_instance_uploaders(),
             m_assetManager,
             m_defaultMaterialHandle,
-            m_renderSceneState);
+            m_drawFrameState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
-            m_worldResources->view_projection_uploaders(), m_renderSceneState);
+            m_drawResources->view_projection_uploaders(), m_drawFrameState);
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
@@ -254,7 +254,7 @@ namespace Cue::GameCore
             return sceneLoadResult;
         }
 
-        sync_render_scene_state(a_bufferIndex, a_renderWidth, a_renderHeight);
+        sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
@@ -281,13 +281,13 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
-        if (m_worldResources == nullptr)
+        if (m_drawResources == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Clone target GameWorld is not initialized.");
         }
 
-        if (a_source.m_worldResources == nullptr)
+        if (a_source.m_drawResources == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Clone source GameWorld is not initialized.");

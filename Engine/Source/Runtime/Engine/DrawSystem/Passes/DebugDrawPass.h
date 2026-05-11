@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class DebugDrawPass final : public RHI::FrameGraphPass
     {
@@ -459,4 +459,4 @@ namespace Cue
         std::vector<RHI::SlotUploader<DebugDrawVertex>> m_uploaders{};
         std::vector<DebugDrawVertex> m_vertices{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

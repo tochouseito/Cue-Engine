@@ -4,27 +4,19 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GpuData/ViewProjection.h>
+#include <GameCore/GameWorld.h>
+#include <GpuData/Batching.h>
 
-// === C++ includes ===
-#include <string>
-#include <string_view>
-
-namespace Cue
+namespace Cue::DrawSystem
 {
-    class ViewProjectionCopyPass final : public RHI::FrameGraphPass
+    class MaterialBufferCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        explicit ViewProjectionCopyPass(
-            RHI::BufferHandle a_viewProjectionBufferHandle,
-            uint64_t a_byteSize = sizeof(GpuData::ViewProjectionGpu),
-            std::string_view a_name = "ViewProjectionCopy")
-            : m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
-            , m_byteSize(a_byteSize)
-            , m_name(a_name)
+        explicit MaterialBufferCopyPass(RHI::BufferHandle a_materialBufferHandle)
+            : m_materialBufferHandle(a_materialBufferHandle)
         {}
 
-        const char* name() const noexcept override { return m_name.c_str(); }
+        const char* name() const noexcept override { return "MaterialBufferCopy"; }
 
         RHI::CommandListType type() const noexcept override
         {
@@ -33,13 +25,13 @@ namespace Cue
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.read_buffer(m_viewProjectionBufferHandle);
+            return builder.read_buffer(m_materialBufferHandle);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
             return builder.use_buffer(
-                m_viewProjectionBufferHandle,
+                m_materialBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::CopyDest,
                 RHI::ResourceState::Common);
@@ -47,7 +39,7 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            if (!m_viewProjectionBufferHandle.valid())
+            if (!m_materialBufferHandle.valid())
             {
                 return;
             }
@@ -59,13 +51,15 @@ namespace Cue
             }
 
             RHI::BufferCopyRegion region{};
-            region.srcBufferHandle = m_viewProjectionBufferHandle;
+            region.srcBufferHandle = m_materialBufferHandle;
             region.srcUploadResourceIndex = context.frame_index();
             region.srcByteOffset = 0;
-            region.dstBufferHandle = m_viewProjectionBufferHandle;
+            region.dstBufferHandle = m_materialBufferHandle;
             region.dstDefaultResourceIndex = 0;
             region.dstByteOffset = 0;
-            region.byteSize = m_byteSize;
+            region.byteSize =
+                static_cast<uint64_t>(GameCore::GameWorld::k_maxMaterialCount) *
+                sizeof(GpuData::MaterialGpu);
 
             Result copyResult = commandContext->copy_buffer_region(region);
 
@@ -73,8 +67,6 @@ namespace Cue
         }
 
     private:
-        RHI::BufferHandle m_viewProjectionBufferHandle{};
-        uint64_t m_byteSize = sizeof(GpuData::ViewProjectionGpu);
-        std::string m_name{};
+        RHI::BufferHandle m_materialBufferHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

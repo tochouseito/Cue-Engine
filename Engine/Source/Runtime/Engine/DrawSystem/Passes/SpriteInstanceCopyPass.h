@@ -5,17 +5,17 @@
 
 // === Engine includes ===
 #include <GameCore/GameWorld.h>
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Sprite.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class SpriteInstanceCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        SpriteInstanceCopyPass(const RenderSceneState& a_renderSceneState,
+        SpriteInstanceCopyPass(const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_spriteInstanceBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_spriteInstanceBufferHandle(a_spriteInstanceBufferHandle)
         {}
 
@@ -28,12 +28,12 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            if (a_frameIndex >= m_drawFrameState.frameStates.size())
             {
                 return false;
             }
 
-            return m_renderSceneState.frame_state(a_frameIndex).spriteCount > 0;
+            return m_drawFrameState.frame_state(a_frameIndex).spriteCount > 0;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -52,8 +52,8 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (!m_spriteInstanceBufferHandle.valid() ||
                 frameState.spriteCount == 0)
             {
@@ -82,7 +82,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_spriteInstanceBufferHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

@@ -4,16 +4,16 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class VisibleObjectCountCopyPass final : public RHI::FrameGraphPass
     {
     public:
-        VisibleObjectCountCopyPass(const RenderSceneState& a_renderSceneState,
+        VisibleObjectCountCopyPass(const DrawFrameState& a_drawFrameState,
             RHI::BufferHandle a_visibleObjectCountBufferHandle)
-            : m_renderSceneState(a_renderSceneState)
+            : m_drawFrameState(a_drawFrameState)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
         {}
 
@@ -29,12 +29,12 @@ namespace Cue
 
         bool is_enabled(uint32_t a_frameIndex) const noexcept override
         {
-            if (a_frameIndex >= m_renderSceneState.frameStates.size())
+            if (a_frameIndex >= m_drawFrameState.frameStates.size())
             {
                 return false;
             }
 
-            return m_renderSceneState.frame_state(a_frameIndex).useCpuBatching;
+            return m_drawFrameState.frame_state(a_frameIndex).useCpuBatching;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -53,8 +53,8 @@ namespace Cue
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(context.frame_index());
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
             if (!frameState.useCpuBatching || !m_visibleObjectCountBufferHandle.valid())
             {
                 return;
@@ -79,7 +79,7 @@ namespace Cue
         }
 
     private:
-        const RenderSceneState& m_renderSceneState;
+        const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

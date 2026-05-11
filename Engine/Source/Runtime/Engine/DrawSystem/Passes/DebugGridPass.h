@@ -3,7 +3,7 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
-namespace Cue
+namespace Cue::DrawSystem
 {
     class DebugGridPass final : public RHI::FrameGraphPass
     {
@@ -192,4 +192,4 @@ namespace Cue
         RHI::PipelineStateHandle m_pipelineHandle{};
         const bool& m_isVisible;
     };
-} // namespace Cue
+} // namespace Cue::DrawSystem

@@ -11,7 +11,7 @@
 
 // === Engine includes ===
 #include <GameCore/Components.h>
-#include <GameCore/RenderSceneState.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/ViewProjection.h>
 
 namespace Cue::ECS
@@ -23,7 +23,7 @@ namespace Cue::ECS
         explicit CameraSystem(
             std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
                 a_viewProjectionUploaders,
-            const RenderSceneState& a_renderSceneState)
+            const DrawSystem::DrawFrameState& a_drawFrameState)
             : ECSManager::System<TransformComponent, CameraComponent>(
                 [this](Entity a_entity, TransformComponent& a_transform,
                     CameraComponent& a_camera, const UpdateContext& a_context) {
@@ -38,7 +38,7 @@ namespace Cue::ECS
                         finalize_component(a_entity, a_transform, a_camera, a_context);
                 }),
             m_viewProjectionUploaders(a_viewProjectionUploaders),
-            m_renderSceneState(a_renderSceneState)
+            m_drawFrameState(a_drawFrameState)
         {}
 
         void update(const UpdateContext& a_context) override
@@ -74,8 +74,8 @@ namespace Cue::ECS
                 return;
             }
 
-            const RenderFrameState& frameState =
-                m_renderSceneState.frame_state(a_context.bufferIndex);
+            const DrawSystem::DrawFrameData& frameState =
+                m_drawFrameState.frame_state(a_context.bufferIndex);
             if (frameState.renderWidth == 0 || frameState.renderHeight == 0)
             {
                 return;
@@ -133,7 +133,7 @@ namespace Cue::ECS
 
     private:
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>& m_viewProjectionUploaders;
-        const RenderSceneState& m_renderSceneState;
+        const DrawSystem::DrawFrameState& m_drawFrameState;
         RHI::SlotUploader<GpuData::ViewProjectionGpu>* m_currentUploader = nullptr;
         bool m_hasUploadedCamera = false;
         bool m_hasMainCamera = false;
