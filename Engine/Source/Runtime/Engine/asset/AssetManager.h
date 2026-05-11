@@ -13,8 +13,10 @@
 // === Math Includes ===
 #include <CueMath.h>
 
+// === DrawSystem Includes ===
+#include <DrawSystem/StaticMeshPoolTypes.h>
+
 // === RHI Includes ===
-#include <StaticMeshPool.h>
 #include <TextureManager.h>
 
 // === Engine Includes ===
@@ -71,7 +73,7 @@ namespace Cue
 
         AssetManager() = default;
         ~AssetManager() = default;
-        void initialize(RHI::IStaticMeshPool* a_staticMeshPool,
+        void initialize(DrawSystem::IStaticMeshPool* a_staticMeshPool,
             RHI::ITextureManager* a_textureManager) noexcept
         {
             m_staticMeshPool = a_staticMeshPool;
@@ -338,7 +340,7 @@ namespace Cue
             return Result::ok();
         }
     private:
-        RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
+        DrawSystem::IStaticMeshPool* m_staticMeshPool = nullptr;
         RHI::ITextureManager* m_textureManager = nullptr;
         Core::Registry<ModelTag, ModelAssetRecord> m_modelRegistry;
         std::vector<ModelHandle> m_modelHandles{};

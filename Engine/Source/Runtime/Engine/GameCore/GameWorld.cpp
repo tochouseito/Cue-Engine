@@ -69,7 +69,7 @@ namespace Cue::GameCore
 
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager,
-        RHI::IStaticMeshPool* a_staticMeshPool,
+        DrawSystem::IStaticMeshPool* a_staticMeshPool,
         AssetManager* a_assetManager,
         Core::IO::IFileSystem* a_fileSystem,
         Audio::IBackend* a_audioBackend,

@@ -20,6 +20,7 @@
 
 // === Engine includes ===
 #include "Asset/AssetManager.h"
+#include "DrawSystem/StaticMeshPool.h"
 #include "EngineCommandContext.h"
 #include "FrameController.h"
 #include "GameCore/GameWorld.h"
@@ -341,6 +342,7 @@ namespace Cue
         Audio::IBackend* m_audioBackend = nullptr;
         Physics::IPhysicsSystem* m_physicsSystem = nullptr;
         AssetManager m_assetManager{};
+        std::unique_ptr<DrawSystem::StaticMeshPool> m_staticMeshPool = nullptr;
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;

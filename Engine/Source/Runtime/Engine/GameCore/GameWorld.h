@@ -25,6 +25,7 @@
 #include "Systems/TriggerVolumeSystem.h"
 #include "WorldResources.h"
 #include <Asset/AssetManager.h>
+#include <DrawSystem/StaticMeshPoolTypes.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -102,7 +103,7 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result initialize(RHI::IBufferManager* a_bufferManager,
             RHI::IViewManager* a_viewManager,
-            RHI::IStaticMeshPool* a_staticMeshPool,
+            DrawSystem::IStaticMeshPool* a_staticMeshPool,
             AssetManager* a_assetManager,
             Core::IO::IFileSystem* a_fileSystem,
             Audio::IBackend* a_audioBackend,

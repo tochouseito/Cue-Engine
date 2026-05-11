@@ -59,11 +59,26 @@ namespace Cue
             return result;
         }
 
-        auto* staticMeshPool = m_backend->get_static_mesh_pool();
-        if (staticMeshPool == nullptr)
+        auto* bufferManager = m_backend->get_buffer_manager();
+        if (bufferManager == nullptr)
         {
             return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get static mesh pool from backend.");
+                "Failed to get buffer manager from backend.");
+        }
+
+        auto* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        auto* commandPool = m_backend->get_command_pool();
+        auto* queuePool = m_backend->get_queue_pool();
+        if (commandPool == nullptr || queuePool == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get command or queue pool from backend.");
         }
 
         auto* textureManager = m_backend->get_texture_manager();
@@ -73,7 +88,11 @@ namespace Cue
                 "Failed to get texture manager from backend.");
         }
 
-        m_assetManager.initialize(staticMeshPool, textureManager);
+        DrawSystem::StaticMeshPoolDesc meshPoolDesc{};
+        m_staticMeshPool = std::make_unique<DrawSystem::StaticMeshPool>(
+            meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
+        m_assetManager.initialize(m_staticMeshPool.get(), textureManager);
 
         Core::IO::Path errorTexturePath = a_info.errorTexturePath;
         if (errorTexturePath.is_empty())
@@ -136,30 +155,15 @@ namespace Cue
         }
 
         result =
-            staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
+            m_staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
         if (!result)
         {
             return result;
         }
 
-        // GenerateVisibleObjectList 用バッファを作成
-        auto* bufferManager = m_backend->get_buffer_manager();
-        if (bufferManager == nullptr)
-        {
-            return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get buffer manager from backend.");
-        }
-
-        auto* viewManager = m_backend->get_view_manager();
-        if (viewManager == nullptr)
-        {
-            return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get view manager from backend.");
-        }
-
         m_editorWorld = std::make_unique<GameCore::GameWorld>();
         result = m_editorWorld->initialize(
-            bufferManager, viewManager, staticMeshPool, &m_assetManager,
+            bufferManager, viewManager, m_staticMeshPool.get(), &m_assetManager,
             &m_platform->file_system(), m_audioBackend, m_audioDevice,
             m_physicsSystem, &m_platform->input_manager(),
             m_backend->buffer_count(), m_backend->width(), m_backend->height(),
@@ -350,6 +354,7 @@ namespace Cue
         m_activeWorld = nullptr;
         m_playWorld.reset();
         m_editorWorld.reset();
+        m_staticMeshPool.reset();
 
         if (m_audioBackend != nullptr && m_audioDevice.valid())
         {
@@ -1451,7 +1456,7 @@ namespace Cue
             }
 
             result = m_playWorld->initialize(
-                bufferManager, viewManager, m_backend->get_static_mesh_pool(),
+                bufferManager, viewManager, m_staticMeshPool.get(),
                 &m_assetManager,
                 &m_platform->file_system(), m_audioBackend, m_audioDevice,
                 m_physicsSystem, &m_platform->input_manager(),

@@ -6,7 +6,6 @@
 #include "TextureManager.h"
 #include "ViewManager.h"
 #include "PipelineManager.h"
-#include "StaticMeshPool.h"
 
 // === C++ includes ===
 #include <mutex>
@@ -255,7 +254,6 @@ namespace Cue::RHI
         ITextureManager* textureManager = nullptr;
         IViewManager* viewManager = nullptr;
         IPipelineManager* pipelineManager = nullptr;
-        IStaticMeshPool* staticMeshPool = nullptr;
         ICommandPool* commandPool = nullptr;
         IQueuePool* queuePool = nullptr;
         bool usePresentQueue = true;

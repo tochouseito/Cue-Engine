@@ -6,6 +6,9 @@
 // === RHI includes ===
 #include <RHI.h>
 
+// === DrawSystem includes ===
+#include <DrawSystem/StaticMeshPoolTypes.h>
+
 // === ECS includes ===
 #include <ECSManager.h>
 
@@ -37,7 +40,7 @@ namespace Cue::ECS
             std::vector<RHI::SlotUploader<uint32_t>>&
                 a_visibleObjectCountUploaders,
             AssetManager* a_assetManager,
-            RHI::IStaticMeshPool* a_staticMeshPool,
+            DrawSystem::IStaticMeshPool* a_staticMeshPool,
             MaterialHandle a_defaultMaterialHandle,
             RenderSceneState& a_renderSceneState)
             : ECSManager::System<RenderableInfoComponent,
@@ -335,7 +338,7 @@ namespace Cue::ECS
                     m_currentFrameState != nullptr &&
                     m_staticMeshPool != nullptr)
                 {
-                    RHI::StaticMeshRange meshRange{};
+                    DrawSystem::StaticMeshRange meshRange{};
                     if (m_staticMeshPool->get_mesh_range(
                         a_meshFilter.meshId, meshRange))
                     {
@@ -364,7 +367,7 @@ namespace Cue::ECS
         std::vector<RHI::SlotUploader<uint32_t>>&
             m_visibleObjectCountUploaders;
         AssetManager* m_assetManager = nullptr;
-        RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
+        DrawSystem::IStaticMeshPool* m_staticMeshPool = nullptr;
         MaterialHandle m_defaultMaterialHandle{};
         RenderSceneState& m_renderSceneState;
         RHI::SlotUploader<GpuData::RenderableInfo>*

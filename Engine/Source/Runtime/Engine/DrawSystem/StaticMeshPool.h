@@ -1,7 +1,15 @@
 #pragma once
 
-// === RHI Includes ===
-#include <StaticMeshPool.h>
+// === DrawSystem includes ===
+#include "StaticMeshPoolTypes.h"
+
+// === RHI includes ===
+#include <BufferManager.h>
+#include <Interfaces.h>
+#include <ViewManager.h>
+
+// === Core includes ===
+#include <Container/Registry.h>
 #include <Container/RingBuffer.h>
 
 // === C++ includes ===
@@ -9,14 +17,26 @@
 #include <unordered_map>
 #include <vector>
 
-// === DirectX 12 includes ===
-#include "stdafx.h"
-#include "DX12BufferManager.h"
-#include "DX12ViewManager.h"
-#include "DX12GpuCommand.h"
-
-namespace Cue::RHI::DX12
+namespace Cue::DrawSystem
 {
+    using RHI::BufferCopyRegion;
+    using RHI::BufferDesc;
+    using RHI::BufferHandle;
+    using RHI::BufferKind;
+    using RHI::BufferType;
+    using RHI::CommandListType;
+    using RHI::ICommandContext;
+    using RHI::ResourceBarrierDesc;
+    using RHI::ResourceState;
+    using RHI::StaticMeshHandle;
+    using RHI::StaticMeshTag;
+    using RHI::UploadBufferView;
+    using RHI::ViewDesc;
+    using RHI::ViewHandle;
+    using RHI::ViewType;
+    using RHI::commandContextLease;
+    using RHI::queueContextLease;
+
     struct StaticMeshRecord final
     {
         Core::ResourceNameId nameId = 0;
@@ -81,16 +101,16 @@ namespace Cue::RHI::DX12
         }
     };
 
-    class DX12StaticMeshPool final : public IStaticMeshPool
+    class StaticMeshPool final : public IStaticMeshPool
     {
     public:
-        DX12StaticMeshPool(
+        StaticMeshPool(
             const StaticMeshPoolDesc& desc,
-            DX12BufferManager& bufferManager,
-            DX12ViewManager& viewManager,
-            DX12CommandPool& commandPool,
-            DX12QueuePool& queuePool);
-        ~DX12StaticMeshPool() override;
+            RHI::IBufferManager& bufferManager,
+            RHI::IViewManager& viewManager,
+            RHI::ICommandPool& commandPool,
+            RHI::IQueuePool& queuePool);
+        ~StaticMeshPool() override;
 
         Result allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle) override;
         Result free_mesh(StaticMeshHandle handle) override;
@@ -151,10 +171,10 @@ namespace Cue::RHI::DX12
         void write_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange);
         Result upload_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange);
     private:
-        DX12BufferManager& m_bufferManager;
-        DX12ViewManager& m_viewManager;
-        DX12CommandPool& m_commandPool;
-        DX12QueuePool& m_queuePool;
+        RHI::IBufferManager& m_bufferManager;
+        RHI::IViewManager& m_viewManager;
+        RHI::ICommandPool& m_commandPool;
+        RHI::IQueuePool& m_queuePool;
         Core::Registry<StaticMeshTag, StaticMeshRecord> m_meshRegistry;
         std::unordered_map<Core::ResourceNameId, StaticMeshHandle> m_nameToHandlesMap;
         std::unordered_map<uint32_t, StaticMeshHandle> m_meshIdToHandlesMap;

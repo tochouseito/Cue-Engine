@@ -1,10 +1,14 @@
 #pragma once
 
-// === RHI Includes ===
-#include "RHICommon.h"
+// === RHI includes ===
+#include <RHICommon.h>
 
-namespace Cue::RHI
+namespace Cue::DrawSystem
 {
+    using RHI::BufferHandle;
+    using RHI::StaticMeshHandle;
+    using RHI::ViewHandle;
+
     struct StaticMeshPoolDesc final
     {
         uint32_t maxVertexCount = 256u * 1024u; // プール内の最大頂点数

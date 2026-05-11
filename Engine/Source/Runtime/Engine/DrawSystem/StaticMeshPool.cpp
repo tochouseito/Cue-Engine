@@ -1,10 +1,10 @@
-#include "DX12StaticMeshPool.h"
+#include "StaticMeshPool.h"
 
 // === C++ includes ===
 #include <algorithm>
 #include <cstring>
 
-namespace Cue::RHI::DX12
+namespace Cue::DrawSystem
 {
     namespace
     {
@@ -112,12 +112,12 @@ namespace Cue::RHI::DX12
         }
     }
 
-    DX12StaticMeshPool::DX12StaticMeshPool(
+    StaticMeshPool::StaticMeshPool(
         const StaticMeshPoolDesc& desc,
-        DX12BufferManager& bufferManager,
-        DX12ViewManager& viewManager,
-        DX12CommandPool& commandPool,
-        DX12QueuePool& queuePool)
+        RHI::IBufferManager& bufferManager,
+        RHI::IViewManager& viewManager,
+        RHI::ICommandPool& commandPool,
+        RHI::IQueuePool& queuePool)
         : m_bufferManager(bufferManager)
         , m_viewManager(viewManager)
         , m_commandPool(commandPool)
@@ -131,7 +131,7 @@ namespace Cue::RHI::DX12
         }
     }
 
-    DX12StaticMeshPool::~DX12StaticMeshPool()
+    StaticMeshPool::~StaticMeshPool()
     {
         // 1) 生成順の逆順で破棄し、staging/default の両方を BufferManager へ戻す。
         if (m_meshRangeState.srvHandle.valid())
@@ -161,7 +161,7 @@ namespace Cue::RHI::DX12
         destroy_stream_state(m_positionStream);
     }
 
-    Result DX12StaticMeshPool::initialize_streams(const StaticMeshPoolDesc& desc)
+    Result StaticMeshPool::initialize_streams(const StaticMeshPoolDesc& desc)
     {
         // 1) 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る。
         Result result = create_stream_state(
@@ -223,7 +223,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::initialize_mesh_range_state(const StaticMeshPoolDesc& desc)
+    Result StaticMeshPool::initialize_mesh_range_state(const StaticMeshPoolDesc& desc)
     {
         m_meshRangeState.debugName = std::string(desc.meshRangeName);
 
@@ -317,7 +317,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::create_stream_state(
+    Result StaticMeshPool::create_stream_state(
         std::string_view bufferName,
         BufferType bufferType,
         uint64_t totalBytes,
@@ -370,7 +370,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::create_upload_buffer(
+    Result StaticMeshPool::create_upload_buffer(
         std::string_view bufferName,
         BufferType bufferType,
         uint64_t byteSize,
@@ -430,7 +430,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::allocate_stream_range(
+    Result StaticMeshPool::allocate_stream_range(
         StreamState& streamState,
         uint64_t byteSize,
         uint32_t alignment,
@@ -448,7 +448,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    void DX12StaticMeshPool::release_stream_range(
+    void StaticMeshPool::release_stream_range(
         StreamState& streamState,
         uint64_t byteOffset,
         uint64_t byteSize)
@@ -457,7 +457,7 @@ namespace Cue::RHI::DX12
         release_to_free_ranges(streamState.freeRanges, byteOffset, byteSize);
     }
 
-    Result DX12StaticMeshPool::allocate_upload_range(
+    Result StaticMeshPool::allocate_upload_range(
         StreamState& streamState,
         uint64_t byteSize,
         uint32_t alignment,
@@ -496,7 +496,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::allocate_upload_range(
+    Result StaticMeshPool::allocate_upload_range(
         MeshRangeState& meshRangeState,
         uint64_t byteSize,
         uint32_t alignment,
@@ -535,7 +535,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    void DX12StaticMeshPool::release_upload_range(
+    void StaticMeshPool::release_upload_range(
         StreamState& streamState,
         UploadAllocation& allocation)
     {
@@ -558,7 +558,7 @@ namespace Cue::RHI::DX12
         allocation = {};
     }
 
-    void DX12StaticMeshPool::release_upload_range(
+    void StaticMeshPool::release_upload_range(
         MeshRangeState& meshRangeState,
         UploadAllocation& allocation)
     {
@@ -581,7 +581,7 @@ namespace Cue::RHI::DX12
         allocation = {};
     }
 
-    void DX12StaticMeshPool::write_upload_bytes(
+    void StaticMeshPool::write_upload_bytes(
         const UploadAllocation& allocation,
         const void* sourceData,
         uint64_t byteSize)
@@ -597,7 +597,7 @@ namespace Cue::RHI::DX12
         std::memcpy(dst, sourceData, static_cast<size_t>(byteSize));
     }
 
-    Result DX12StaticMeshPool::copy_upload_regions(const std::vector<BufferCopyRegion>& regions)
+    Result StaticMeshPool::copy_upload_regions(const std::vector<BufferCopyRegion>& regions)
     {
         if (regions.empty())
         {
@@ -679,7 +679,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    void DX12StaticMeshPool::destroy_stream_state(StreamState& streamState)
+    void StaticMeshPool::destroy_stream_state(StreamState& streamState)
     {
         // 1) staging/default の順に破棄し、BufferManager の所有実体を明示的に返す。
         if (streamState.stagingBufferHandle.valid())
@@ -702,7 +702,7 @@ namespace Cue::RHI::DX12
         streamState.stagingCapacityInBytes = 0;
     }
 
-    Result DX12StaticMeshPool::allocate_mesh_id(uint32_t& outMeshId)
+    Result StaticMeshPool::allocate_mesh_id(uint32_t& outMeshId)
     {
         if (m_meshRangeState.freeMeshIds.empty())
         {
@@ -717,7 +717,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    void DX12StaticMeshPool::release_mesh_id(uint32_t meshId)
+    void StaticMeshPool::release_mesh_id(uint32_t meshId)
     {
         if (meshId >= m_meshRangeState.capacity)
         {
@@ -727,13 +727,13 @@ namespace Cue::RHI::DX12
         m_meshRangeState.freeMeshIds.push_back(meshId);
     }
 
-    void DX12StaticMeshPool::write_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
+    void StaticMeshPool::write_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
     {
         Result result = upload_mesh_range(meshId, meshRange);
         CUE_ASSERT_MSG(result, "Failed to write mesh range.");
     }
 
-    Result DX12StaticMeshPool::upload_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
+    Result StaticMeshPool::upload_mesh_range(uint32_t meshId, const StaticMeshRange& meshRange)
     {
         if (meshId >= m_meshRangeState.capacity)
         {
@@ -771,7 +771,7 @@ namespace Cue::RHI::DX12
         return result;
     }
 
-    Result DX12StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
+    Result StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
     {
         // 1) 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ。
         outHandle = {};
@@ -1048,7 +1048,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::free_mesh(StaticMeshHandle handle)
+    Result StaticMeshPool::free_mesh(StaticMeshHandle handle)
     {
         // 1) レコードを解決して、常駐領域と名前引きをまとめて巻き戻す。
         StaticMeshRecord record{};
@@ -1094,7 +1094,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
+    Result StaticMeshPool::get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const
     {
         StaticMeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))
@@ -1109,7 +1109,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::get_bindings(StaticMeshPoolBindings& outBindings) const
+    Result StaticMeshPool::get_bindings(StaticMeshPoolBindings& outBindings) const
     {
         outBindings.positionBuffer = m_positionStream.defaultBufferHandle;
         outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
@@ -1120,7 +1120,7 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
-    Result DX12StaticMeshPool::get_mesh_range(
+    Result StaticMeshPool::get_mesh_range(
         uint32_t meshId, StaticMeshRange& outMeshRange) const
     {
         outMeshRange = {};
