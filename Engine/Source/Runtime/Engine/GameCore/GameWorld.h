@@ -9,20 +9,21 @@
 #include "DebugDraw.h"
 #include "GameObject.h"
 #include "Navigation/Navigation.h"
+#include <DrawSystem/DrawScene.h>
 #include <DrawSystem/DrawFrameState.h>
 #include "SceneAsset.h"
 #include "SceneInstance.h"
 #include "SceneSerializer.h"
 #include "Systems/AudioSystem.h"
-#include "Systems/CameraSystem.h"
 #include "Systems/CharacterControllerSystem.h"
 #include "Systems/DemoEnemySystem.h"
 #include "Systems/FirstPersonCameraControllerSystem.h"
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/PlayerControlSystem.h"
-#include "Systems/RenderableObjectSystem.h"
-#include "Systems/SpriteSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
+#include <DrawSystem/Systems/CameraSystem.h>
+#include <DrawSystem/Systems/RenderableObjectSystem.h>
+#include <DrawSystem/Systems/SpriteSystem.h>
 #include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
@@ -1440,6 +1441,8 @@ namespace Cue::GameCore
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
         }
+
+        [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
 
         void animate_static_mesh_objects(float a_deltaTime)
         {
@@ -3003,6 +3006,7 @@ namespace Cue::GameCore
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         bool m_hasActiveNavMeshAsset = false;
+        DrawSystem::DrawScene m_drawScene{};
         DrawSystem::DrawFrameState m_drawFrameState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};

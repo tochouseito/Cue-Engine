@@ -3,13 +3,12 @@
 // === Base includes ===
 #include <CueAssert.h>
 
-// === RHI includes ===
-#include <RHI.h>
-
 // === ECS includes ===
 #include <ECSManager.h>
 
 // === Engine includes ===
+#include <DrawSystem/DrawCollector.h>
+#include <DrawSystem/DrawScene.h>
 #include <GameCore/Components.h>
 #include <DrawSystem/DrawFrameState.h>
 #include <GpuData/ViewProjection.h>
@@ -21,9 +20,8 @@ namespace Cue::ECS
     {
     public:
         explicit CameraSystem(
-            std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
-                a_viewProjectionUploaders,
-            const DrawSystem::DrawFrameState& a_drawFrameState)
+            const DrawSystem::DrawFrameState& a_drawFrameState,
+            DrawSystem::DrawScene& a_drawScene)
             : ECSManager::System<TransformComponent, CameraComponent>(
                 [this](Entity a_entity, TransformComponent& a_transform,
                     CameraComponent& a_camera, const UpdateContext& a_context) {
@@ -37,31 +35,16 @@ namespace Cue::ECS
                     CameraComponent& a_camera, const FinalizeContext& a_context) {
                         finalize_component(a_entity, a_transform, a_camera, a_context);
                 }),
-            m_viewProjectionUploaders(a_viewProjectionUploaders),
-            m_drawFrameState(a_drawFrameState)
+            m_drawFrameState(a_drawFrameState),
+            m_drawScene(a_drawScene)
         {}
 
         void update(const UpdateContext& a_context) override
         {
-            m_currentUploader = nullptr;
-            m_hasUploadedCamera = false;
-            m_hasMainCamera = false;
-            if (!m_viewProjectionUploaders.empty())
-            {
-                const uint32_t uploaderIndex =
-                    (m_viewProjectionUploaders.size() == 1) ? 0u : a_context.bufferIndex;
-                if (uploaderIndex < m_viewProjectionUploaders.size())
-                {
-                    m_currentUploader = &m_viewProjectionUploaders[uploaderIndex];
-                    m_currentUploader->begin_frame();
-                }
-            }
-
+            DrawSystem::DrawCollector collector(m_drawScene, a_context.bufferIndex);
+            m_currentCollector = &collector;
             ECSManager::System<TransformComponent, CameraComponent>::update(a_context);
-            if (m_currentUploader != nullptr && !m_currentUploader->commit())
-            {
-                CUE_ASSERTF(false, "Failed to commit view projection uploads.");
-            }
+            m_currentCollector = nullptr;
         }
 
     private:
@@ -69,7 +52,7 @@ namespace Cue::ECS
             CameraComponent& a_camera, const UpdateContext& a_context)
         {
             a_entity;
-            if (m_currentUploader == nullptr || !a_camera.is_active())
+            if (m_currentCollector == nullptr || !a_camera.is_active())
             {
                 return;
             }
@@ -77,11 +60,6 @@ namespace Cue::ECS
             const DrawSystem::DrawFrameData& frameState =
                 m_drawFrameState.frame_state(a_context.bufferIndex);
             if (frameState.renderWidth == 0 || frameState.renderHeight == 0)
-            {
-                return;
-            }
-
-            if (!a_camera.isMain && (m_hasMainCamera || m_hasUploadedCamera))
             {
                 return;
             }
@@ -100,17 +78,10 @@ namespace Cue::ECS
                 a_camera.nearZ,
                 a_camera.farZ);
 
-            if (!m_currentUploader->push(0, gpuViewProjection))
-            {
-                CUE_ASSERTF(false, "Failed to queue view projection upload. entity=%u", a_entity);
-                return;
-            }
-
-            m_hasUploadedCamera = true;
-            if (a_camera.isMain)
-            {
-                m_hasMainCamera = true;
-            }
+            DrawSystem::CameraDrawItem drawItem{};
+            drawItem.viewProjection = gpuViewProjection;
+            drawItem.isMain = a_camera.isMain;
+            m_currentCollector->submit_camera(drawItem);
         }
 
         void initialize_component(Entity a_entity, TransformComponent& a_transform,
@@ -132,10 +103,8 @@ namespace Cue::ECS
         }
 
     private:
-        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>& m_viewProjectionUploaders;
         const DrawSystem::DrawFrameState& m_drawFrameState;
-        RHI::SlotUploader<GpuData::ViewProjectionGpu>* m_currentUploader = nullptr;
-        bool m_hasUploadedCamera = false;
-        bool m_hasMainCamera = false;
+        DrawSystem::DrawScene& m_drawScene;
+        DrawSystem::DrawCollector* m_currentCollector = nullptr;
     };
 } // namespace Cue::ECS

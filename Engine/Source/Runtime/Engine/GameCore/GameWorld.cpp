@@ -109,6 +109,7 @@ namespace Cue::GameCore
         m_audioDevice = a_audioDevice;
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_drawFrameState.resize(a_bufferCount);
+        m_drawScene.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
             sync_draw_frame_state(bufferIndex, a_renderWidth, a_renderHeight);
@@ -163,22 +164,18 @@ namespace Cue::GameCore
         }
 
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
-            m_drawResources->renderable_info_uploaders(),
-            m_drawResources->transform_uploaders(),
-            m_drawResources->material_uploaders(),
-            m_drawResources->render_object_uploaders(),
-            m_drawResources->visible_object_count_uploaders(),
             m_assetManager,
             a_staticMeshPool,
             m_defaultMaterialHandle,
-            m_drawFrameState);
+            m_drawFrameState,
+            m_drawScene);
         auto& spriteSystem = m_ecs.add_system<ECS::SpriteSystem>(
-            m_drawResources->sprite_instance_uploaders(),
             m_assetManager,
             m_defaultMaterialHandle,
-            m_drawFrameState);
+            m_drawFrameState,
+            m_drawScene);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
-            m_drawResources->view_projection_uploaders(), m_drawFrameState);
+            m_drawFrameState, m_drawScene);
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
@@ -255,11 +252,12 @@ namespace Cue::GameCore
         }
 
         sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
+        m_drawScene.begin_frame(a_bufferIndex);
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
         m_editorPipeline.update(m_ecs, updateContext);
-        return Result::ok();
+        return upload_draw_scene(a_bufferIndex);
     }
 
     [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
@@ -671,5 +669,302 @@ namespace Cue::GameCore
         }
 
         return destroy_object(entityId);
+    }
+
+    [[nodiscard]] Result GameWorld::upload_draw_scene(uint32_t a_bufferIndex)
+    {
+        if (m_drawResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Draw resources are not initialized.");
+        }
+
+        if (a_bufferIndex >= m_drawFrameState.frameStates.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Draw frame index is out of range.");
+        }
+
+        auto resolve_uploader_index = [a_bufferIndex](uint32_t a_count) -> uint32_t
+        {
+            if (a_count <= 1)
+            {
+                return 0;
+            }
+
+            return a_bufferIndex;
+        };
+
+        DrawSystem::DrawSceneFrame& sceneFrame = m_drawScene.frame(a_bufferIndex);
+        DrawSystem::DrawFrameData& frameState =
+            m_drawFrameState.frame_state(a_bufferIndex);
+        if (sceneFrame.staticMeshVisibilityItems.size() !=
+                sceneFrame.staticMeshSurfaceItems.size() ||
+            sceneFrame.staticMeshVisibilityItems.size() !=
+                sceneFrame.staticMeshBatchItems.size())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Static mesh draw scene item counts are inconsistent.");
+        }
+
+        frameState.objectCount =
+            static_cast<uint32_t>(sceneFrame.staticMeshVisibilityItems.size());
+        frameState.spriteCount = 0;
+        frameState.cpuIndexedDraws.clear();
+
+        if (frameState.useCpuBatching)
+        {
+            frameState.cpuIndexedDraws.reserve(
+                sceneFrame.staticMeshBatchItems.size());
+            for (const DrawSystem::StaticMeshBatchItem& item :
+                sceneFrame.staticMeshBatchItems)
+            {
+                if (item.hasCpuIndexedDraw)
+                {
+                    frameState.cpuIndexedDraws.push_back(item.cpuIndexedDraw);
+                }
+            }
+        }
+
+        auto& renderableInfoUploaders =
+            m_drawResources->renderable_info_uploaders();
+        if (!renderableInfoUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(renderableInfoUploaders.size()));
+            if (uploaderIndex < renderableInfoUploaders.size())
+            {
+                auto& uploader = renderableInfoUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < sceneFrame.staticMeshVisibilityItems.size();
+                    ++index)
+                {
+                    if (!uploader.push(
+                        index,
+                        sceneFrame.staticMeshVisibilityItems[index].renderableInfo))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue renderable info upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit renderable info upload.");
+                }
+            }
+        }
+
+        auto& transformUploaders = m_drawResources->transform_uploaders();
+        if (!transformUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(transformUploaders.size()));
+            if (uploaderIndex < transformUploaders.size())
+            {
+                auto& uploader = transformUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < sceneFrame.staticMeshSurfaceItems.size();
+                    ++index)
+                {
+                    if (!uploader.push(
+                        index,
+                        sceneFrame.staticMeshSurfaceItems[index].transform))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue transform upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit transform upload.");
+                }
+            }
+        }
+
+        auto& materialUploaders = m_drawResources->material_uploaders();
+        if (!materialUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(materialUploaders.size()));
+            if (uploaderIndex < materialUploaders.size())
+            {
+                auto& uploader = materialUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < sceneFrame.staticMeshSurfaceItems.size();
+                    ++index)
+                {
+                    if (!sceneFrame.staticMeshSurfaceItems[index].hasMaterial)
+                    {
+                        continue;
+                    }
+
+                    if (!uploader.push(
+                        index,
+                        sceneFrame.staticMeshSurfaceItems[index].material))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue material upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit material upload.");
+                }
+            }
+        }
+
+        auto& renderObjectUploaders = m_drawResources->render_object_uploaders();
+        if (!renderObjectUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(renderObjectUploaders.size()));
+            if (uploaderIndex < renderObjectUploaders.size())
+            {
+                auto& uploader = renderObjectUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < sceneFrame.staticMeshVisibilityItems.size();
+                    ++index)
+                {
+                    if (!uploader.push(
+                        index,
+                        sceneFrame.staticMeshVisibilityItems[index].renderObject))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue render object upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit render object upload.");
+                }
+            }
+        }
+
+        if (frameState.useCpuBatching)
+        {
+            auto& visibleObjectCountUploaders =
+                m_drawResources->visible_object_count_uploaders();
+            if (!visibleObjectCountUploaders.empty())
+            {
+                const uint32_t uploaderIndex =
+                    resolve_uploader_index(
+                        static_cast<uint32_t>(visibleObjectCountUploaders.size()));
+                if (uploaderIndex < visibleObjectCountUploaders.size())
+                {
+                    auto& uploader = visibleObjectCountUploaders[uploaderIndex];
+                    uploader.begin_frame();
+                    if (!uploader.push(0, frameState.objectCount))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue visible object count upload.");
+                    }
+                    if (!uploader.commit())
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to commit visible object count upload.");
+                    }
+                }
+            }
+        }
+
+        std::stable_sort(
+            sceneFrame.spriteItems.begin(),
+            sceneFrame.spriteItems.end(),
+            [](const DrawSystem::SpriteDrawItem& a_left,
+                const DrawSystem::SpriteDrawItem& a_right)
+            {
+                if (a_left.layer != a_right.layer)
+                {
+                    return a_left.layer < a_right.layer;
+                }
+                if (a_left.order != a_right.order)
+                {
+                    return a_left.order < a_right.order;
+                }
+                return a_left.entity < a_right.entity;
+            });
+
+        auto& spriteInstanceUploaders = m_drawResources->sprite_instance_uploaders();
+        if (!spriteInstanceUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(spriteInstanceUploaders.size()));
+            if (uploaderIndex < spriteInstanceUploaders.size())
+            {
+                auto& uploader = spriteInstanceUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0; index < sceneFrame.spriteItems.size();
+                    ++index)
+                {
+                    if (!uploader.push(index, sceneFrame.spriteItems[index].instance))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue sprite instance upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit sprite instance upload.");
+                }
+            }
+        }
+        frameState.spriteCount =
+            static_cast<uint32_t>(sceneFrame.spriteItems.size());
+
+        auto& viewProjectionUploaders =
+            m_drawResources->view_projection_uploaders();
+        if (!viewProjectionUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(viewProjectionUploaders.size()));
+            if (uploaderIndex < viewProjectionUploaders.size())
+            {
+                const DrawSystem::CameraDrawItem* selectedCamera = nullptr;
+                for (const DrawSystem::CameraDrawItem& item :
+                    sceneFrame.cameraItems)
+                {
+                    if (item.isMain)
+                    {
+                        selectedCamera = &item;
+                        break;
+                    }
+                    if (selectedCamera == nullptr)
+                    {
+                        selectedCamera = &item;
+                    }
+                }
+
+                auto& uploader = viewProjectionUploaders[uploaderIndex];
+                uploader.begin_frame();
+                if (selectedCamera != nullptr &&
+                    !uploader.push(0, selectedCamera->viewProjection))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to queue view projection upload.");
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit view projection upload.");
+                }
+            }
+        }
+
+        return Result::ok();
     }
 }
