@@ -18,6 +18,8 @@
 #include "DrawSystem/Passes/TransformBufferCopyPass.h"
 #include "DrawSystem/Passes/VisibleObjectCountCopyPass.h"
 #include "DrawSystem/Passes/ViewProjectionCopyPass.h"
+#include "LightingSystem/GpuData/LightData.h"
+#include "LightingSystem/Passes/LightBufferCopyPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
@@ -978,6 +980,15 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine world resources are not initialized.");
         }
+        const LightingSystem::LightResources* lightResources =
+            m_activeWorld->light_resources();
+        if (lightResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine light resources are not initialized.");
+        }
+        const LightingSystem::LightingBindings lightingBindings =
+            lightResources->bindings();
         auto* bufferManager = m_backend->get_buffer_manager();
         if (bufferManager == nullptr)
         {
@@ -1025,6 +1036,25 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectCountCopyPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "LightFrameBufferCopy",
+            lightingBindings.frameBuffer,
+            sizeof(GpuData::LightFrameGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "DirectionalLightBufferCopy",
+            lightingBindings.directionalLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxDirectionalLightCount) *
+                sizeof(GpuData::DirectionalLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "PointLightBufferCopy",
+            lightingBindings.pointLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxPointLightCount) *
+                sizeof(GpuData::PointLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "SpotLightBufferCopy",
+            lightingBindings.spotLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxSpotLightCount) *
+                sizeof(GpuData::SpotLightGpu)));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::GenerateVisibleListPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->renderable_info_buffer_handle(),
@@ -1060,6 +1090,7 @@ namespace Cue
             drawResources->view_projection_buffer_handle(),
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
+            lightingBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
@@ -1088,6 +1119,7 @@ namespace Cue
             m_debugViewProjectionBufferHandle,
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
+            lightingBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),

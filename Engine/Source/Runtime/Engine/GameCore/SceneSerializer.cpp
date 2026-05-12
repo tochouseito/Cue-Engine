@@ -253,6 +253,89 @@ namespace Cue::GameCore
             a_outComponent.farZ = a_json.at("farZ").get<float>();
         }
 
+        [[nodiscard]] Json serialize_directional_light(
+            const ECS::DirectionalLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_directional_light(
+            const Json& a_json,
+            ECS::DirectionalLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
+        [[nodiscard]] Json serialize_point_light(
+            const ECS::PointLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "range", a_component.range },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_point_light(
+            const Json& a_json,
+            ECS::PointLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.range = a_json.value("range", a_outComponent.range);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
+        [[nodiscard]] Json serialize_spot_light(
+            const ECS::SpotLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "range", a_component.range },
+                { "outerAngleDegrees", a_component.outerAngleDegrees },
+                { "isEnabled", a_component.isEnabled },
+            };
+        }
+
+        void deserialize_spot_light(
+            const Json& a_json,
+            ECS::SpotLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.range = a_json.value("range", a_outComponent.range);
+            a_outComponent.outerAngleDegrees =
+                a_json.value("outerAngleDegrees",
+                    a_outComponent.outerAngleDegrees);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+        }
+
         [[nodiscard]] Json serialize_first_person_camera_controller(
             const ECS::FirstPersonCameraControllerComponent& a_component)
         {
@@ -917,6 +1000,29 @@ namespace Cue::GameCore
                 componentsJson["camera"] = serialize_camera(*camera);
             }
 
+            if (const ECS::DirectionalLightComponent* directionalLight =
+                a_definition.prototype.get_component_ptr<
+                    ECS::DirectionalLightComponent>();
+                directionalLight != nullptr)
+            {
+                componentsJson["directionalLight"] =
+                    serialize_directional_light(*directionalLight);
+            }
+
+            if (const ECS::PointLightComponent* pointLight =
+                a_definition.prototype.get_component_ptr<ECS::PointLightComponent>();
+                pointLight != nullptr)
+            {
+                componentsJson["pointLight"] = serialize_point_light(*pointLight);
+            }
+
+            if (const ECS::SpotLightComponent* spotLight =
+                a_definition.prototype.get_component_ptr<ECS::SpotLightComponent>();
+                spotLight != nullptr)
+            {
+                componentsJson["spotLight"] = serialize_spot_light(*spotLight);
+            }
+
             if (const ECS::FirstPersonCameraControllerComponent* controller =
                 a_definition.prototype.get_component_ptr<
                     ECS::FirstPersonCameraControllerComponent>();
@@ -1068,6 +1174,35 @@ namespace Cue::GameCore
                     ECS::CameraComponent camera{};
                     deserialize_camera(*cameraIt, camera);
                     objectDefinition.prototype.add_component(camera);
+                }
+
+                if (const Json::const_iterator directionalLightIt =
+                    componentsJson.find("directionalLight");
+                    directionalLightIt != componentsJson.end())
+                {
+                    ECS::DirectionalLightComponent directionalLight{};
+                    deserialize_directional_light(
+                        *directionalLightIt,
+                        directionalLight);
+                    objectDefinition.prototype.add_component(directionalLight);
+                }
+
+                if (const Json::const_iterator pointLightIt =
+                    componentsJson.find("pointLight");
+                    pointLightIt != componentsJson.end())
+                {
+                    ECS::PointLightComponent pointLight{};
+                    deserialize_point_light(*pointLightIt, pointLight);
+                    objectDefinition.prototype.add_component(pointLight);
+                }
+
+                if (const Json::const_iterator spotLightIt =
+                    componentsJson.find("spotLight");
+                    spotLightIt != componentsJson.end())
+                {
+                    ECS::SpotLightComponent spotLight{};
+                    deserialize_spot_light(*spotLightIt, spotLight);
+                    objectDefinition.prototype.add_component(spotLight);
                 }
 
                 if (const Json::const_iterator controllerIt =

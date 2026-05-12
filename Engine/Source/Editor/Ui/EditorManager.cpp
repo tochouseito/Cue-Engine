@@ -265,6 +265,34 @@ namespace Cue::Editor
                     a_matrix.values[3][2]);
         }
 
+        [[nodiscard]] Math::float3 transform_direction(
+            const Math::float3& a_direction,
+            const Math::float3& a_rotation) noexcept
+        {
+            const Math::float4x4 rotationMatrix =
+                Math::xyz_rotate_matrix(a_rotation);
+            Math::float3 direction(
+                a_direction.x * rotationMatrix.values[0][0] +
+                    a_direction.y * rotationMatrix.values[1][0] +
+                    a_direction.z * rotationMatrix.values[2][0],
+                a_direction.x * rotationMatrix.values[0][1] +
+                    a_direction.y * rotationMatrix.values[1][1] +
+                    a_direction.z * rotationMatrix.values[2][1],
+                a_direction.x * rotationMatrix.values[0][2] +
+                    a_direction.y * rotationMatrix.values[1][2] +
+                    a_direction.z * rotationMatrix.values[2][2]);
+            direction.normalize();
+            return direction;
+        }
+
+        [[nodiscard]] Math::float3 light_forward_axis(
+            const ECS::TransformComponent& a_transform) noexcept
+        {
+            return transform_direction(
+                Math::float3(0.0f, 0.0f, -1.0f),
+                a_transform.rotation);
+        }
+
         [[nodiscard]] Math::float3 make_camera_frustum_corner(
             uint32_t a_cornerIndex,
             const ECS::CameraComponent& a_camera,
@@ -5490,6 +5518,58 @@ namespace Cue::Editor
                 }
             }
 
+            if (ImGui::BeginMenu("ライト"))
+            {
+                auto addLight =
+                    [this, targetSceneId](
+                        AddObjectType a_type,
+                        const char* a_logLabel,
+                        const char* a_successMessage,
+                        const char* a_failureMessage)
+                {
+                    const Result result = m_bridge->submit_command(
+                        std::make_unique<AddObjectCommand>(
+                            a_type,
+                            targetSceneId));
+                    if (!result)
+                    {
+                        log_result(a_logLabel, result);
+                        set_status_message(a_failureMessage, true);
+                    }
+                    else
+                    {
+                        set_status_message(a_successMessage, false);
+                    }
+                };
+
+                if (ImGui::MenuItem("Directional Light"))
+                {
+                    addLight(
+                        AddObjectType::DirectionalLight,
+                        "Failed to add directional light",
+                        "Directional Light を追加しました。",
+                        "Directional Light の追加に失敗しました。");
+                }
+                if (ImGui::MenuItem("Point Light"))
+                {
+                    addLight(
+                        AddObjectType::PointLight,
+                        "Failed to add point light",
+                        "Point Light を追加しました。",
+                        "Point Light の追加に失敗しました。");
+                }
+                if (ImGui::MenuItem("Spot Light"))
+                {
+                    addLight(
+                        AddObjectType::SpotLight,
+                        "Failed to add spot light",
+                        "Spot Light を追加しました。",
+                        "Spot Light の追加に失敗しました。");
+                }
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
@@ -6089,8 +6169,38 @@ namespace Cue::Editor
                 (std::max)(scaleRadius, debug_pick_radius(distance.rayDistance)));
         };
 
+        auto pickLight =
+            [&ray, &evaluateHit](
+                GameCore::EntityId a_entityId,
+                const ECS::TransformComponent& a_transform,
+                float a_length) noexcept
+        {
+            const Math::float3 start = a_transform.position;
+            const Math::float3 end =
+                start + light_forward_axis(a_transform) * a_length;
+
+            RayDistance segmentDistance{};
+            if (distance_ray_segment(ray, start, end, segmentDistance))
+            {
+                evaluateHit(
+                    a_entityId,
+                    segmentDistance,
+                    debug_pick_radius(segmentDistance.rayDistance));
+            }
+
+            RayDistance pointDistance{};
+            if (distance_ray_point(ray, start, pointDistance))
+            {
+                evaluateHit(
+                    a_entityId,
+                    pointDistance,
+                    (std::max)(0.25f,
+                        debug_pick_radius(pointDistance.rayDistance)));
+            }
+        };
+
         auto pickObject =
-            [&pickCamera, &pickTransformPoint](
+            [&pickCamera, &pickTransformPoint, &pickLight](
                 GameCore::EntityId a_entityId,
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
@@ -6105,6 +6215,28 @@ namespace Cue::Editor
             if (a_object.get_component(camera) && camera != nullptr)
             {
                 pickCamera(a_entityId, *transform, *camera);
+                return;
+            }
+
+            ECS::DirectionalLightComponent* directionalLight = nullptr;
+            if (a_object.get_component(directionalLight) &&
+                directionalLight != nullptr)
+            {
+                pickLight(a_entityId, *transform, 3.0f);
+                return;
+            }
+
+            ECS::PointLightComponent* pointLight = nullptr;
+            if (a_object.get_component(pointLight) && pointLight != nullptr)
+            {
+                pickTransformPoint(a_entityId, *transform);
+                return;
+            }
+
+            ECS::SpotLightComponent* spotLight = nullptr;
+            if (a_object.get_component(spotLight) && spotLight != nullptr)
+            {
+                pickLight(a_entityId, *transform, 2.5f);
                 return;
             }
 
@@ -6222,6 +6354,23 @@ namespace Cue::Editor
             item.isEnabled = 1;
             return item;
         };
+        auto makeLightLineItem =
+            [](const ECS::TransformComponent& a_transform,
+                float a_length,
+                const Math::float4& a_color) noexcept
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_color;
+            item.camera = Math::float4(0.0f, 0.0f, -a_length, 0.0f);
+            item.shape =
+                static_cast<uint32_t>(GpuData::DebugSelectionShape::Line);
+            item.isEnabled = 1;
+            return item;
+        };
         if (m_selectedEntityId != GameCore::k_invalidEntityId)
         {
             const ECS::RenderableInfoComponent* renderableInfo = nullptr;
@@ -6281,6 +6430,64 @@ namespace Cue::Editor
                 *camera,
                 a_entityId == m_selectedEntityId));
         };
+        auto appendLightObject =
+            [this, &appendDebugItem, &makeLightLineItem](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+        {
+            ECS::TransformComponent* transform = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr)
+            {
+                return;
+            }
+
+            const bool isSelected = a_entityId == m_selectedEntityId;
+            const Math::float4 selectedColor =
+                Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
+
+            ECS::DirectionalLightComponent* directionalLight = nullptr;
+            if (a_object.get_component(directionalLight) &&
+                directionalLight != nullptr)
+            {
+                appendDebugItem(makeLightLineItem(
+                    *transform,
+                    3.0f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(1.0f, 0.92f, 0.25f, 1.0f)));
+                return;
+            }
+
+            ECS::PointLightComponent* pointLight = nullptr;
+            if (a_object.get_component(pointLight) && pointLight != nullptr)
+            {
+                GpuData::DebugSelectionItemGpu item{};
+                item.world = Math::make_affine_matrix(
+                    Math::float3(0.35f, 0.35f, 0.35f),
+                    transform->rotation,
+                    transform->position);
+                item.color = isSelected
+                    ? selectedColor
+                    : Math::float4(1.0f, 0.72f, 0.32f, 1.0f);
+                item.shape =
+                    static_cast<uint32_t>(GpuData::DebugSelectionShape::Box);
+                item.isEnabled = 1;
+                appendDebugItem(item);
+                return;
+            }
+
+            ECS::SpotLightComponent* spotLight = nullptr;
+            if (a_object.get_component(spotLight) && spotLight != nullptr)
+            {
+                appendDebugItem(makeLightLineItem(
+                    *transform,
+                    2.5f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(0.52f, 0.82f, 1.0f, 1.0f)));
+            }
+        };
         bool hasCollectedSceneCameras = false;
         if (m_currentSceneId != GameCore::k_invalidSceneId)
         {
@@ -6293,6 +6500,20 @@ namespace Cue::Editor
         if (!hasCollectedSceneCameras)
         {
             (void)debugWorld->for_each_object(appendCameraObject);
+        }
+
+        bool hasCollectedSceneLights = false;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            const Result collectResult =
+                debugWorld->for_each_object_in_scene(
+                m_currentSceneId,
+                appendLightObject);
+            hasCollectedSceneLights = static_cast<bool>(collectResult);
+        }
+        if (!hasCollectedSceneLights)
+        {
+            (void)debugWorld->for_each_object(appendLightObject);
         }
 
         m_engine->set_debug_selection(selection);

@@ -27,6 +27,10 @@
 #include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
+#include <LightingSystem/LightFrameState.h>
+#include <LightingSystem/LightResources.h>
+#include <LightingSystem/LightScene.h>
+#include <LightingSystem/Systems/LightSystem.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -168,6 +172,69 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_camera_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_directional_light_object()
+        {
+            GameObject object{};
+            return add_directional_light_object(object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(GameObject& a_outObject)
+        {
+            return add_directional_light_object(
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_directional_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_point_light_object()
+        {
+            GameObject object{};
+            return add_point_light_object(object);
+        }
+
+        [[nodiscard]] Result add_point_light_object(GameObject& a_outObject)
+        {
+            return add_point_light_object(make_light_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_point_light_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_point_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_point_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_spot_light_object()
+        {
+            GameObject object{};
+            return add_spot_light_object(object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(GameObject& a_outObject)
+        {
+            return add_spot_light_object(make_light_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_spot_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object()
         {
             GameObject object{};
@@ -229,6 +296,92 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                a_position,
+                object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_point_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_point_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_point_light_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_spot_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_spot_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_spot_light_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId)
         {
@@ -567,6 +720,22 @@ namespace Cue::GameCore
         [[nodiscard]] const DrawSystem::DrawResources* draw_resources() const noexcept
         {
             return m_drawResources.get();
+        }
+
+        [[nodiscard]] const LightingSystem::LightResources* light_resources()
+            const noexcept
+        {
+            return m_lightResources.get();
+        }
+
+        LightingSystem::LightFrameState& light_frame_state() noexcept
+        {
+            return m_lightFrameState;
+        }
+
+        const LightingSystem::LightFrameState& light_frame_state() const noexcept
+        {
+            return m_lightFrameState;
         }
 
         void set_cpu_batching_enabled(bool a_enabled) noexcept
@@ -1426,6 +1595,11 @@ namespace Cue::GameCore
             return Math::float3(320.0f, 180.0f, 0.0f);
         }
 
+        [[nodiscard]] Math::float3 make_light_spawn_position() const noexcept
+        {
+            return Math::float3(0.0f, 3.0f, -4.0f);
+        }
+
         void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
             uint32_t a_renderHeight) noexcept
         {
@@ -1443,6 +1617,7 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
 
         void animate_static_mesh_objects(float a_deltaTime)
         {
@@ -2996,6 +3171,7 @@ namespace Cue::GameCore
         NavMeshHandle m_activeNavMesh{};
         NavMeshAssetData m_activeNavMeshAsset{};
         std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+        std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
@@ -3008,6 +3184,8 @@ namespace Cue::GameCore
         bool m_hasActiveNavMeshAsset = false;
         DrawSystem::DrawScene m_drawScene{};
         DrawSystem::DrawFrameState m_drawFrameState{};
+        LightingSystem::LightScene m_lightScene{};
+        LightingSystem::LightFrameState m_lightFrameState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};

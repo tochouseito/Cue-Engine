@@ -3,6 +3,7 @@
 struct VsOut
 {
     float4 position : SV_POSITION;
+    float3 worldPosition : POSITION0;
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
     nointerpolation uint materialId : TEXCOORD1;
@@ -34,6 +35,10 @@ StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<Material> g_materials : register(t3);
+ConstantBuffer<LightFrame> g_lightFrame : register(b2);
+StructuredBuffer<DirectionalLight> g_directionalLights : register(t4);
+StructuredBuffer<PointLight> g_pointLights : register(t5);
+StructuredBuffer<SpotLight> g_spotLights : register(t6);
 Texture2D<float4> g_textures[] : register(t0, space1);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
@@ -45,6 +50,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     {
         VsOut emptyOutput;
         emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        emptyOutput.worldPosition = float3(0.0f, 0.0f, 0.0f);
         emptyOutput.worldNormal = float3(0.0f, 0.0f, 1.0f);
         emptyOutput.texcoord = float2(0.0f, 0.0f);
         emptyOutput.materialId = 0;
@@ -63,21 +69,79 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
     VsOut output;
     output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
+    output.worldPosition = worldPosition.xyz;
     output.worldNormal = worldNormal;
     output.texcoord = localUv;
     output.materialId = renderObject.materialId;
     return output;
 }
 
+float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
+{
+    float3 lighting = g_lightFrame.ambientColorIntensity.rgb *
+        g_lightFrame.ambientColorIntensity.a;
+
+    const uint directionalCount = min(g_lightFrame.directionalLightCount, 4u);
+    for (uint lightIndex = 0; lightIndex < directionalCount; ++lightIndex)
+    {
+        const DirectionalLight light = g_directionalLights[lightIndex];
+        const float3 lightDirection = normalize(light.directionIntensity.xyz);
+        const float ndotl = saturate(dot(worldNormal, -lightDirection));
+        lighting += light.color.rgb * light.directionIntensity.w * ndotl;
+    }
+
+    const uint pointCount = min(g_lightFrame.pointLightCount, 64u);
+    for (uint lightIndex = 0; lightIndex < pointCount; ++lightIndex)
+    {
+        const PointLight light = g_pointLights[lightIndex];
+        const float3 toLight = light.positionRange.xyz - worldPosition;
+        const float distance = length(toLight);
+        const float range = max(light.positionRange.w, 0.001f);
+        const float attenuation = saturate(1.0f - distance / range);
+        const float3 lightDirection = distance > 0.0001f
+            ? toLight / distance
+            : float3(0.0f, 1.0f, 0.0f);
+        const float ndotl = saturate(dot(worldNormal, lightDirection));
+        lighting += light.colorIntensity.rgb *
+            light.colorIntensity.w *
+            ndotl *
+            attenuation *
+            attenuation;
+    }
+
+    const uint spotCount = min(g_lightFrame.spotLightCount, 32u);
+    for (uint lightIndex = 0; lightIndex < spotCount; ++lightIndex)
+    {
+        const SpotLight light = g_spotLights[lightIndex];
+        const float3 toLight = light.positionRange.xyz - worldPosition;
+        const float distance = length(toLight);
+        const float range = max(light.positionRange.w, 0.001f);
+        const float attenuation = saturate(1.0f - distance / range);
+        const float3 lightDirection = distance > 0.0001f
+            ? toLight / distance
+            : float3(0.0f, 1.0f, 0.0f);
+        const float3 spotDirection = normalize(light.directionOuterCos.xyz);
+        const float spotCos = dot(-lightDirection, spotDirection);
+        const float spotFactor = step(light.directionOuterCos.w, spotCos);
+        const float ndotl = saturate(dot(worldNormal, lightDirection));
+        lighting += light.colorIntensity.rgb *
+            light.colorIntensity.w *
+            ndotl *
+            attenuation *
+            attenuation *
+            spotFactor;
+    }
+
+    return lighting;
+}
+
 float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
-    const float3 lightDirection = normalize(float3(-0.4f, -0.7f, -0.6f));
     float3 worldNormal = normalize(input.worldNormal);
     if (!isFrontFace)
     {
         worldNormal = -worldNormal;
     }
-    const float ndotl = saturate(dot(worldNormal, -lightDirection));
     const Material material = g_materials[input.materialId];
     float3 textureColor = float3(1.0f, 1.0f, 1.0f);
     if (material.useTexture != 0)
@@ -95,6 +159,7 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     }
 
     const float3 baseColor = material.color.rgb * textureColor;
-    const float3 color = baseColor * (0.2f + ndotl * 0.8f);
+    const float3 color = baseColor *
+        max(evaluate_lighting(input.worldPosition, worldNormal), 0.0f);
     return float4(color, 1.0f);
 }

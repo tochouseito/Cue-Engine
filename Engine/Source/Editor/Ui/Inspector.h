@@ -43,6 +43,9 @@ namespace Cue::Editor
             MeshFilter,
             StaticMeshRenderer,
             SpriteRenderer,
+            DirectionalLight,
+            PointLight,
+            SpotLight,
             AudioSource,
             RigidBody,
             Collider,
@@ -294,6 +297,21 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::SpriteRenderer, "Sp" });
             }
 
+            if (has_component<ECS::DirectionalLightComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::DirectionalLight, "DL" });
+            }
+
+            if (has_component<ECS::PointLightComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::PointLight, "PL" });
+            }
+
+            if (has_component<ECS::SpotLightComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::SpotLight, "SL" });
+            }
+
             if (has_component<ECS::AudioSourceComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::AudioSource, "A" });
@@ -352,6 +370,27 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::SpriteRenderer,
                         "SpriteRendererComponent" });
+            }
+
+            if (!has_component<ECS::DirectionalLightComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::DirectionalLight,
+                        "DirectionalLightComponent" });
+            }
+
+            if (!has_component<ECS::PointLightComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::PointLight,
+                        "PointLightComponent" });
+            }
+
+            if (!has_component<ECS::SpotLightComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::SpotLight,
+                        "SpotLightComponent" });
             }
 
             if (!has_component<ECS::AudioSourceComponent>(a_object))
@@ -502,6 +541,18 @@ namespace Cue::Editor
 
             case ComponentTab::SpriteRenderer:
                 draw_sprite_renderer_component(a_object);
+                break;
+
+            case ComponentTab::DirectionalLight:
+                draw_directional_light_component(a_object);
+                break;
+
+            case ComponentTab::PointLight:
+                draw_point_light_component(a_object);
+                break;
+
+            case ComponentTab::SpotLight:
+                draw_spot_light_component(a_object);
                 break;
 
             case ComponentTab::AudioSource:
@@ -759,6 +810,94 @@ namespace Cue::Editor
             }
 
             ImGui::Checkbox("isVisible", &component->isVisible);
+        }
+
+        void draw_directional_light_component(GameCore::GameObject& a_object)
+        {
+            ECS::DirectionalLightComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "DirectionalLightComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("DirectionalLightComponent");
+            ImGui::Separator();
+
+            float color[3] = {
+                component->color.x,
+                component->color.y,
+                component->color.z
+            };
+            if (ImGui::ColorEdit3("color", color))
+            {
+                component->color = Math::float3(color[0], color[1], color[2]);
+            }
+
+            ImGui::DragFloat("intensity", &component->intensity, 0.05f, 0.0f,
+                100.0f);
+            ImGui::Checkbox("isEnabled", &component->isEnabled);
+        }
+
+        void draw_point_light_component(GameCore::GameObject& a_object)
+        {
+            ECS::PointLightComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "PointLightComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("PointLightComponent");
+            ImGui::Separator();
+
+            float color[3] = {
+                component->color.x,
+                component->color.y,
+                component->color.z
+            };
+            if (ImGui::ColorEdit3("color", color))
+            {
+                component->color = Math::float3(color[0], color[1], color[2]);
+            }
+
+            ImGui::DragFloat("intensity", &component->intensity, 0.05f, 0.0f,
+                100.0f);
+            ImGui::DragFloat("range", &component->range, 0.1f, 0.0f, 1000.0f);
+            ImGui::Checkbox("isEnabled", &component->isEnabled);
+        }
+
+        void draw_spot_light_component(GameCore::GameObject& a_object)
+        {
+            ECS::SpotLightComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "SpotLightComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("SpotLightComponent");
+            ImGui::Separator();
+
+            float color[3] = {
+                component->color.x,
+                component->color.y,
+                component->color.z
+            };
+            if (ImGui::ColorEdit3("color", color))
+            {
+                component->color = Math::float3(color[0], color[1], color[2]);
+            }
+
+            ImGui::DragFloat("intensity", &component->intensity, 0.05f, 0.0f,
+                100.0f);
+            ImGui::DragFloat("range", &component->range, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat("outerAngleDegrees", &component->outerAngleDegrees,
+                0.5f, 0.0f, 89.0f);
+            ImGui::Checkbox("isEnabled", &component->isEnabled);
         }
 
         void draw_audio_source_component(GameCore::GameObject& a_object)

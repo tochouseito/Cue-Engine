@@ -55,6 +55,7 @@
                     "isTrigger": false,
                     "layer": 0,
                     "mask": 65535,
+                    "meshModelName": "",
                     "offset": {
                         "x": 0.0,
                         "y": 0.0,
@@ -65,7 +66,7 @@
                     "type": "Box"
                 },
                 "meshFilter": {
-                    "meshId": 2,
+                    "meshId": 3,
                     "modelName": "axis"
                 },
                 "rigidBody": {
@@ -159,7 +160,7 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 2,
+                    "meshId": 3,
                     "modelName": "axis"
                 },
                 "navAgent": {
@@ -174,6 +175,7 @@
                     "height": 1.7999999523162842,
                     "includeFlags": 65535,
                     "maxSpeed": 3.0,
+                    "movementMode": "DirectTransform",
                     "navMeshSnapDistance": 1.0,
                     "radius": 0.30000001192092896,
                     "shouldSnapToNavMesh": true,
@@ -206,6 +208,32 @@
             "localObjectId": 4,
             "name": "NavAgent",
             "tag": "Navigation"
+        },
+        {
+            "components": {
+                "transform": {
+                    "position": {
+                        "x": 3.0,
+                        "y": 6.0,
+                        "z": 0.0
+                    },
+                    "rotation": {
+                        "x": -1.4299999475479126,
+                        "y": 0.05999999865889549,
+                        "z": -1.350000023841858
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "z": 1.0
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 5,
+            "name": "DirectionalLight",
+            "tag": "Default"
         }
     ],
     "version": 2

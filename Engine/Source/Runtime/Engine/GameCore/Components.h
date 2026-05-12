@@ -89,6 +89,47 @@ namespace Cue::ECS
         float farZ = 1000.0f; // ファークリップ距離
     };
 
+    struct DirectionalLightComponent : public IComponentTag
+    {
+        DirectionalLightComponent() = default;
+        DirectionalLightComponent(const DirectionalLightComponent&) = default;
+        DirectionalLightComponent& operator=(
+            const DirectionalLightComponent&) = default;
+        DirectionalLightComponent(DirectionalLightComponent&&) = default;
+        DirectionalLightComponent& operator=(
+            DirectionalLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 1.0f, 1.0f);
+        float intensity = 1.0f;
+        bool isEnabled = true;
+    };
+
+    struct PointLightComponent : public IComponentTag
+    {
+        PointLightComponent() = default;
+        PointLightComponent(const PointLightComponent&) = default;
+        PointLightComponent& operator=(const PointLightComponent&) = default;
+        PointLightComponent(PointLightComponent&&) = default;
+        PointLightComponent& operator=(PointLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 0.92f, 0.78f);
+        float intensity = 3.0f;
+        float range = 10.0f;
+        bool isEnabled = true;
+    };
+
+    struct SpotLightComponent : public IComponentTag
+    {
+        SpotLightComponent() = default;
+        SpotLightComponent(const SpotLightComponent&) = default;
+        SpotLightComponent& operator=(const SpotLightComponent&) = default;
+        SpotLightComponent(SpotLightComponent&&) = default;
+        SpotLightComponent& operator=(SpotLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 0.95f, 0.84f);
+        float intensity = 5.0f;
+        float range = 12.0f;
+        float outerAngleDegrees = 35.0f;
+        bool isEnabled = true;
+    };
+
     struct MeshFilterComponent : public IComponentTag
     {
         MeshFilterComponent() = default;

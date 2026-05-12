@@ -40,6 +40,22 @@ namespace Cue
                 ? m_gameWorld.add_sprite_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_sprite_object(object);
             break;
+        case AddObjectType::DirectionalLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_directional_light_object_to_scene(
+                    a_sceneId, object)
+                : m_gameWorld.add_directional_light_object(object);
+            break;
+        case AddObjectType::PointLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_point_light_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_point_light_object(object);
+            break;
+        case AddObjectType::SpotLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_spot_light_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_spot_light_object(object);
+            break;
         }
 
         a_outObjectId = result ? object.entity_id() : GameCore::k_invalidEntityId;
@@ -130,6 +146,18 @@ namespace Cue
             return add_component_internal<ECS::CharacterControllerComponent>(
                 a_objectId, "CharacterControllerComponent already exists.");
 
+        case AddableComponentType::DirectionalLight:
+            return add_component_internal<ECS::DirectionalLightComponent>(
+                a_objectId, "DirectionalLightComponent already exists.");
+
+        case AddableComponentType::PointLight:
+            return add_component_internal<ECS::PointLightComponent>(
+                a_objectId, "PointLightComponent already exists.");
+
+        case AddableComponentType::SpotLight:
+            return add_component_internal<ECS::SpotLightComponent>(
+                a_objectId, "SpotLightComponent already exists.");
+
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
                 a_objectId, "ScriptComponent already exists.");
@@ -176,6 +204,18 @@ namespace Cue
         case AddableComponentType::CharacterController:
             return remove_component_internal<ECS::CharacterControllerComponent>(
                 a_objectId, "CharacterControllerComponent was not found.");
+
+        case AddableComponentType::DirectionalLight:
+            return remove_component_internal<ECS::DirectionalLightComponent>(
+                a_objectId, "DirectionalLightComponent was not found.");
+
+        case AddableComponentType::PointLight:
+            return remove_component_internal<ECS::PointLightComponent>(
+                a_objectId, "PointLightComponent was not found.");
+
+        case AddableComponentType::SpotLight:
+            return remove_component_internal<ECS::SpotLightComponent>(
+                a_objectId, "SpotLightComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

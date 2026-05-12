@@ -28,6 +28,9 @@ namespace Cue
         RigidBody,
         Collider,
         CharacterController,
+        DirectionalLight,
+        PointLight,
+        SpotLight,
         Script
     };
 
@@ -35,7 +38,10 @@ namespace Cue
     {
         Camera,
         StaticMesh3D,
-        Sprite2D
+        Sprite2D,
+        DirectionalLight,
+        PointLight,
+        SpotLight
     };
 
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext

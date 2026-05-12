@@ -65,6 +65,57 @@ namespace Cue::GameCore
 
             return objectDefinition;
         }
+
+        [[nodiscard]] ObjectDefinition make_default_directional_light_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("DirectionalLight");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3(0.6f, -0.5f, 0.0f);
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::DirectionalLightComponent light{};
+            objectDefinition.prototype.add_component(light);
+
+            return objectDefinition;
+        }
+
+        [[nodiscard]] ObjectDefinition make_default_point_light_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("PointLight");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3::zero();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::PointLightComponent light{};
+            objectDefinition.prototype.add_component(light);
+
+            return objectDefinition;
+        }
+
+        [[nodiscard]] ObjectDefinition make_default_spot_light_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("SpotLight");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::float3(0.35f, 0.0f, 0.0f);
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            ECS::SpotLightComponent light{};
+            objectDefinition.prototype.add_component(light);
+
+            return objectDefinition;
+        }
     }
 
     [[nodiscard]] Result GameWorld::initialize(RHI::IBufferManager* a_bufferManager,
@@ -110,6 +161,8 @@ namespace Cue::GameCore
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_drawFrameState.resize(a_bufferCount);
         m_drawScene.resize(a_bufferCount);
+        m_lightFrameState.resize(a_bufferCount);
+        m_lightScene.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
             sync_draw_frame_state(bufferIndex, a_renderWidth, a_renderHeight);
@@ -163,6 +216,37 @@ namespace Cue::GameCore
             return result;
         }
 
+        m_lightResources =
+            std::make_unique<LightingSystem::LightResources>(
+                a_bufferManager, a_viewManager, a_bufferCount);
+
+        result = m_lightResources->create_frame_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_lightResources->create_directional_light_buffer(
+            GpuData::k_maxDirectionalLightCount);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_lightResources->create_point_light_buffer(
+            GpuData::k_maxPointLightCount);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_lightResources->create_spot_light_buffer(
+            GpuData::k_maxSpotLightCount);
+        if (!result)
+        {
+            return result;
+        }
+
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_assetManager,
             a_staticMeshPool,
@@ -176,6 +260,7 @@ namespace Cue::GameCore
             m_drawScene);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_drawFrameState, m_drawScene);
+        auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(m_lightScene);
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
@@ -204,6 +289,7 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
+        m_editorPipeline.add_system(&lightSystem);
         m_editorPipeline.add_system(&audioSystem);
         m_simulationPipeline.add_system(&firstPersonCameraControllerSystem);
         m_simulationPipeline.add_system(&playerControlSystem);
@@ -253,11 +339,18 @@ namespace Cue::GameCore
 
         sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
         m_drawScene.begin_frame(a_bufferIndex);
+        m_lightScene.begin_frame(a_bufferIndex);
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
         m_editorPipeline.update(m_ecs, updateContext);
-        return upload_draw_scene(a_bufferIndex);
+        Result result = upload_draw_scene(a_bufferIndex);
+        if (!result)
+        {
+            return result;
+        }
+
+        return upload_light_scene(a_bufferIndex);
     }
 
     [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
@@ -607,6 +700,124 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    [[nodiscard]] Result GameWorld::add_directional_light_object(
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("DirectionalLight", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for directional light.")
+                : result;
+        }
+
+        ECS::DirectionalLightComponent* light = nullptr;
+        result = add_component<ECS::DirectionalLightComponent>(
+            a_outObject.entity_id(), light);
+        if (!result || light == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add directional light component.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3(0.6f, -0.5f, 0.0f);
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        *light = ECS::DirectionalLightComponent{};
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::add_point_light_object(
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("PointLight", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for point light.") : result;
+        }
+
+        ECS::PointLightComponent* light = nullptr;
+        result = add_component<ECS::PointLightComponent>(
+            a_outObject.entity_id(), light);
+        if (!result || light == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add point light component.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3::zero();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        *light = ECS::PointLightComponent{};
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::add_spot_light_object(
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+
+        Result result = create_object("SpotLight", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for spot light.") : result;
+        }
+
+        ECS::SpotLightComponent* light = nullptr;
+        result = add_component<ECS::SpotLightComponent>(
+            a_outObject.entity_id(), light);
+        if (!result || light == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add spot light component.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::float3(0.35f, 0.0f, 0.0f);
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        *light = ECS::SpotLightComponent{};
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_object_to_scene(SceneId a_sceneId,
         const Math::float3& a_position, GameObject& a_outObject)
     {
@@ -656,6 +867,57 @@ namespace Cue::GameCore
         const ObjectDefinition objectDefinition =
             make_default_sprite_object_definition(
                 a_position, m_defaultMaterialHandle);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_directional_light_object_to_scene(
+        SceneId a_sceneId,
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_directional_light_definition(a_position);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_point_light_object_to_scene(
+        SceneId a_sceneId,
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_point_light_definition(a_position);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_spot_light_object_to_scene(
+        SceneId a_sceneId,
+        const Math::float3& a_position,
+        GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_spot_light_definition(a_position);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 
@@ -961,6 +1223,154 @@ namespace Cue::GameCore
                 {
                     return Result::fail(Code::InvalidState, Severity::Error,
                         "Failed to commit view projection upload.");
+                }
+            }
+        }
+
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::upload_light_scene(uint32_t a_bufferIndex)
+    {
+        if (m_lightResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Light resources are not initialized.");
+        }
+
+        if (a_bufferIndex >= m_lightFrameState.frameStates.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Light frame index is out of range.");
+        }
+
+        auto resolve_uploader_index = [a_bufferIndex](uint32_t a_count) -> uint32_t
+        {
+            if (a_count <= 1)
+            {
+                return 0;
+            }
+
+            return a_bufferIndex;
+        };
+
+        LightingSystem::LightSceneFrame& sceneFrame =
+            m_lightScene.frame(a_bufferIndex);
+        LightingSystem::LightFrameData& frameState =
+            m_lightFrameState.frame_state(a_bufferIndex);
+
+        frameState.frame.directionalLightCount =
+            (std::min)(static_cast<uint32_t>(sceneFrame.directionalLights.size()),
+                GpuData::k_maxDirectionalLightCount);
+        frameState.frame.pointLightCount =
+            (std::min)(static_cast<uint32_t>(sceneFrame.pointLights.size()),
+                GpuData::k_maxPointLightCount);
+        frameState.frame.spotLightCount =
+            (std::min)(static_cast<uint32_t>(sceneFrame.spotLights.size()),
+                GpuData::k_maxSpotLightCount);
+
+        auto& frameUploaders = m_lightResources->frame_uploaders();
+        if (!frameUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(frameUploaders.size()));
+            if (uploaderIndex < frameUploaders.size())
+            {
+                auto& uploader = frameUploaders[uploaderIndex];
+                uploader.begin_frame();
+                if (!uploader.push(0, frameState.frame))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to queue light frame upload.");
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit light frame upload.");
+                }
+            }
+        }
+
+        auto& directionalUploaders =
+            m_lightResources->directional_light_uploaders();
+        if (!directionalUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(directionalUploaders.size()));
+            if (uploaderIndex < directionalUploaders.size())
+            {
+                auto& uploader = directionalUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < frameState.frame.directionalLightCount;
+                    ++index)
+                {
+                    if (!uploader.push(
+                        index,
+                        sceneFrame.directionalLights[index].light))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue directional light upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit directional light upload.");
+                }
+            }
+        }
+
+        auto& pointUploaders = m_lightResources->point_light_uploaders();
+        if (!pointUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(pointUploaders.size()));
+            if (uploaderIndex < pointUploaders.size())
+            {
+                auto& uploader = pointUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < frameState.frame.pointLightCount;
+                    ++index)
+                {
+                    if (!uploader.push(index, sceneFrame.pointLights[index].light))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue point light upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit point light upload.");
+                }
+            }
+        }
+
+        auto& spotUploaders = m_lightResources->spot_light_uploaders();
+        if (!spotUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(spotUploaders.size()));
+            if (uploaderIndex < spotUploaders.size())
+            {
+                auto& uploader = spotUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0;
+                    index < frameState.frame.spotLightCount;
+                    ++index)
+                {
+                    if (!uploader.push(index, sceneFrame.spotLights[index].light))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue spot light upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit spot light upload.");
                 }
             }
         }

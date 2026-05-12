@@ -30,6 +30,34 @@ struct Transform
     row_major float4x4 normalMatrix;
 };
 
+struct LightFrame
+{
+    float4 ambientColorIntensity;
+    uint directionalLightCount;
+    uint pointLightCount;
+    uint spotLightCount;
+    uint padding;
+};
+
+struct DirectionalLight
+{
+    float4 directionIntensity;
+    float4 color;
+};
+
+struct PointLight
+{
+    float4 positionRange;
+    float4 colorIntensity;
+};
+
+struct SpotLight
+{
+    float4 positionRange;
+    float4 directionOuterCos;
+    float4 colorIntensity;
+};
+
 struct MeshRange
 {
     uint indexCount;
