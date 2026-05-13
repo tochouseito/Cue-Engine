@@ -38,6 +38,7 @@
 #include <vector>
 
 // === ThirdParty includes ===
+#include <ImGuizmo.h>
 #include <nlohmann/json.hpp>
 
 namespace Cue::Editor
@@ -84,6 +85,55 @@ namespace Cue::Editor
         constexpr float k_cameraFrustumFar = 1.0f;
         constexpr uint32_t k_autoScriptBuildScanIntervalFrames = 30;
         constexpr uint32_t k_autoScriptBuildDebounceFrames = 45;
+
+        [[nodiscard]] bool transform_nearly_equal(
+            const ECS::TransformComponent& a_left,
+            const ECS::TransformComponent& a_right) noexcept
+        {
+            auto isClose =
+                [](float a_leftValue, float a_rightValue) noexcept
+            {
+                constexpr float k_epsilon = 0.0001f;
+                return std::abs(a_leftValue - a_rightValue) <= k_epsilon;
+            };
+            auto isClose3 =
+                [&isClose](
+                    const Math::float3& a_leftValue,
+                    const Math::float3& a_rightValue) noexcept
+            {
+                return isClose(a_leftValue.x, a_rightValue.x) &&
+                    isClose(a_leftValue.y, a_rightValue.y) &&
+                    isClose(a_leftValue.z, a_rightValue.z);
+            };
+
+            return isClose3(a_left.position, a_right.position) &&
+                isClose3(a_left.rotation, a_right.rotation) &&
+                isClose3(a_left.scale, a_right.scale);
+        }
+
+        void draw_gizmo_mode_button(
+            const char* a_label,
+            uint32_t a_value,
+            uint32_t& a_inOutValue) noexcept
+        {
+            const bool isSelected = a_inOutValue == a_value;
+            if (isSelected)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            }
+
+            if (ImGui::Button(a_label, ImVec2(44.0f, 0.0f)))
+            {
+                a_inOutValue = a_value;
+            }
+
+            if (isSelected)
+            {
+                ImGui::PopStyleColor();
+            }
+        }
 
         template<size_t BufferSize>
         void set_text_buffer(
@@ -2125,6 +2175,9 @@ namespace Cue::Editor
 
     void EditorManager::initialize()
     {
+        m_debugGizmoOperation = static_cast<uint32_t>(ImGuizmo::TRANSLATE);
+        m_debugGizmoMode = static_cast<uint32_t>(ImGuizmo::WORLD);
+
         if (m_fileSystem != nullptr)
         {
             m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
@@ -2158,6 +2211,19 @@ namespace Cue::Editor
             [](void* a_context)
             {
                 static_cast<EditorManager*>(a_context)->draw_add_menu_items();
+            });
+        m_debugView->set_overlay_callback(
+            this,
+            [](void* a_context,
+                const ImVec2& a_viewportMin,
+                const ImVec2& a_viewportMax,
+                ImDrawList* a_drawList)
+            {
+                return static_cast<EditorManager*>(a_context)
+                    ->draw_debug_transform_gizmo(
+                        a_viewportMin,
+                        a_viewportMax,
+                        a_drawList);
             });
         m_debugView->set_view_menu_callback(
             this,
@@ -5948,6 +6014,17 @@ namespace Cue::Editor
             return;
         }
 
+        if (m_debugGizmoPickBlockFrames > 0)
+        {
+            GameCore::EntityId discardedEntityId = GameCore::k_invalidEntityId;
+            (void)m_engine->consume_debug_pick_result(discardedEntityId);
+            m_engine->cancel_debug_pick();
+            m_debugView->clear_pick_request();
+            m_hasPendingDebugPickFallback = false;
+            --m_debugGizmoPickBlockFrames;
+            return;
+        }
+
         auto selectEntity =
             [this](GameCore::EntityId a_entityId)
         {
@@ -6003,6 +6080,222 @@ namespace Cue::Editor
             m_pendingDebugPickFallback = pickRequest;
             m_hasPendingDebugPickFallback = true;
         }
+    }
+
+    bool EditorManager::draw_debug_transform_gizmo(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        ImGuizmo::BeginFrame();
+        if (m_debugView == nullptr || m_engine == nullptr ||
+            m_engine->game_world() == nullptr || m_bridge == nullptr ||
+            m_engine->is_playing() || m_isScriptActionActive)
+        {
+            m_isDebugGizmoEditing = false;
+            m_debugGizmoEntityId = GameCore::k_invalidEntityId;
+            return false;
+        }
+
+        const ImVec2 viewportSize(
+            a_viewportMax.x - a_viewportMin.x,
+            a_viewportMax.y - a_viewportMin.y);
+        if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f ||
+            m_selectedEntityId == GameCore::k_invalidEntityId)
+        {
+            return false;
+        }
+
+        GameCore::GameWorld* debugWorld = m_engine->game_world();
+        ECS::TransformComponent* transform = nullptr;
+        const Result transformResult =
+            debugWorld->get_component<ECS::TransformComponent>(
+                m_selectedEntityId,
+                transform);
+        if (!transformResult || transform == nullptr)
+        {
+            return false;
+        }
+
+        const ImGuiWindowFlags toolbarFlags =
+            ImGuiWindowFlags_NoDecoration |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoDocking;
+        ImGui::SetNextWindowPos(
+            ImVec2(a_viewportMin.x + 8.0f, a_viewportMin.y + 8.0f),
+            ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.72f);
+        if (ImGui::Begin("DebugTransformGizmoToolbar", nullptr, toolbarFlags))
+        {
+            draw_gizmo_mode_button(
+                "移動",
+                static_cast<uint32_t>(ImGuizmo::TRANSLATE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "回転",
+                static_cast<uint32_t>(ImGuizmo::ROTATE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "拡縮",
+                static_cast<uint32_t>(ImGuizmo::SCALE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            ImGui::TextUnformatted("|");
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "World",
+                static_cast<uint32_t>(ImGuizmo::WORLD),
+                m_debugGizmoMode);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "Local",
+                static_cast<uint32_t>(ImGuizmo::LOCAL),
+                m_debugGizmoMode);
+        }
+        ImGui::End();
+
+        ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantTextInput)
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::TRANSLATE);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::ROTATE);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::SCALE);
+            }
+        }
+
+        const GpuData::ViewProjectionGpu viewProjection =
+            m_debugCamera.view_projection();
+        Math::float4x4 objectMatrix = Math::make_affine_matrix(
+            transform->scale,
+            transform->rotation,
+            transform->position);
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetDrawlist(a_drawList);
+        ImGuizmo::SetRect(
+            a_viewportMin.x,
+            a_viewportMin.y,
+            viewportSize.x,
+            viewportSize.y);
+
+        const ImGuizmo::OPERATION operation =
+            static_cast<ImGuizmo::OPERATION>(m_debugGizmoOperation);
+        const ImGuizmo::MODE mode =
+            static_cast<ImGuizmo::MODE>(m_debugGizmoMode);
+        a_drawList->PushClipRect(a_viewportMin, a_viewportMax, true);
+        const bool manipulated = ImGuizmo::Manipulate(
+            &viewProjection.view.values[0][0],
+            &viewProjection.projection.values[0][0],
+            operation,
+            mode,
+            &objectMatrix.values[0][0]);
+        a_drawList->PopClipRect();
+        const bool isUsing = ImGuizmo::IsUsing();
+        if (ImGuizmo::IsOver() || isUsing)
+        {
+            m_debugView->clear_pick_request();
+            m_engine->cancel_debug_pick();
+            m_hasPendingDebugPickFallback = false;
+            m_debugGizmoPickBlockFrames = 2;
+        }
+        const bool isBlockingPick = ImGuizmo::IsOver() || isUsing;
+
+        if (isUsing &&
+            (!m_isDebugGizmoEditing ||
+                m_debugGizmoEntityId != m_selectedEntityId))
+        {
+            m_debugGizmoStartTransform = *transform;
+            m_debugGizmoEntityId = m_selectedEntityId;
+            m_isDebugGizmoEditing = true;
+        }
+
+        if (manipulated)
+        {
+            float translation[3] = {};
+            float rotationDegrees[3] = {};
+            float scale[3] = {};
+            ImGuizmo::DecomposeMatrixToComponents(
+                &objectMatrix.values[0][0],
+                translation,
+                rotationDegrees,
+                scale);
+            const bool hasFiniteValues =
+                std::isfinite(translation[0]) &&
+                std::isfinite(translation[1]) &&
+                std::isfinite(translation[2]) &&
+                std::isfinite(rotationDegrees[0]) &&
+                std::isfinite(rotationDegrees[1]) &&
+                std::isfinite(rotationDegrees[2]) &&
+                std::isfinite(scale[0]) &&
+                std::isfinite(scale[1]) &&
+                std::isfinite(scale[2]);
+            if (hasFiniteValues)
+            {
+                ECS::TransformComponent nextTransform = *transform;
+                nextTransform.position = Math::float3(
+                    translation[0],
+                    translation[1],
+                    translation[2]);
+                nextTransform.rotation = Math::degrees_to_radians(
+                    Math::float3(
+                        rotationDegrees[0],
+                        rotationDegrees[1],
+                        rotationDegrees[2]));
+                nextTransform.scale = Math::float3(
+                    scale[0],
+                    scale[1],
+                    scale[2]);
+                *transform = nextTransform;
+            }
+        }
+
+        if (!isUsing && m_isDebugGizmoEditing)
+        {
+            ECS::TransformComponent* currentTransform = nullptr;
+            const Result currentResult =
+                debugWorld->get_component<ECS::TransformComponent>(
+                    m_debugGizmoEntityId,
+                    currentTransform);
+            if (currentResult && currentTransform != nullptr &&
+                !transform_nearly_equal(
+                    m_debugGizmoStartTransform,
+                    *currentTransform))
+            {
+                const Result commandResult = m_bridge->submit_command(
+                    std::make_unique<SetTransformComponentCommand>(
+                        m_debugGizmoEntityId,
+                        m_debugGizmoStartTransform,
+                        *currentTransform));
+                if (!commandResult)
+                {
+                    log_result(
+                        "Failed to submit debug gizmo transform command",
+                        commandResult);
+                    set_status_message(
+                        "DebugView の Transform 操作を履歴に追加できませんでした。",
+                        true);
+                }
+            }
+
+            m_isDebugGizmoEditing = false;
+            m_debugGizmoEntityId = GameCore::k_invalidEntityId;
+        }
+
+        return isBlockingPick;
     }
 
     bool EditorManager::pick_debug_non_rendered_object(

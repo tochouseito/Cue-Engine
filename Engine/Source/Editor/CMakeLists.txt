@@ -3,6 +3,7 @@
 find_package(directxtex CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(imguizmo CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
@@ -57,6 +58,7 @@ target_link_libraries(Editor PRIVATE
     Microsoft::DirectXTex
     assimp::assimp
     imgui::imgui
+    imguizmo::imguizmo
     nlohmann_json::nlohmann_json
 )
 

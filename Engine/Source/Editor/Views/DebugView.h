@@ -19,6 +19,11 @@ namespace Cue::Editor
     {
     public:
         using DrawAddMenuCallback = void (*)(void* a_context);
+        using DrawOverlayCallback = bool (*)(
+            void* a_context,
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
         using DrawSceneMenuCallback = void (*)(void* a_context);
         using DrawViewMenuCallback = void (*)(void* a_context);
 
@@ -45,6 +50,14 @@ namespace Cue::Editor
         {
             m_addMenuContext = a_context;
             m_drawAddMenuCallback = a_callback;
+        }
+
+        void set_overlay_callback(
+            void* a_context,
+            DrawOverlayCallback a_callback) noexcept
+        {
+            m_overlayContext = a_context;
+            m_drawOverlayCallback = a_callback;
         }
 
         void set_view_menu_callback(
@@ -76,8 +89,28 @@ namespace Cue::Editor
             return true;
         }
 
+        void clear_pick_request() noexcept
+        {
+            m_hasPickRequest = false;
+        }
+
+        [[nodiscard]] bool viewport_rect(
+            ImVec2& a_outMin,
+            ImVec2& a_outMax) const noexcept
+        {
+            if (!m_hasViewportRect)
+            {
+                return false;
+            }
+
+            a_outMin = m_viewportMin;
+            a_outMax = m_viewportMax;
+            return true;
+        }
+
         void update()
         {
+            m_hasViewportRect = false;
             if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
             {
                 return;
@@ -161,11 +194,25 @@ namespace Cue::Editor
                 ImGui::Image(
                     static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
                     availableRegion);
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+                m_viewportMin = ImGui::GetItemRectMin();
+                m_viewportMax = ImGui::GetItemRectMax();
+                m_hasViewportRect = true;
+                const bool isImageClicked =
+                    ImGui::IsItemClicked(ImGuiMouseButton_Left);
+                bool isOverlayBlockingPick = false;
+                if (m_drawOverlayCallback != nullptr)
+                {
+                    isOverlayBlockingPick = m_drawOverlayCallback(
+                        m_overlayContext,
+                        m_viewportMin,
+                        m_viewportMax,
+                        ImGui::GetWindowDrawList());
+                }
+                if (!isOverlayBlockingPick && isImageClicked)
                 {
                     const ImVec2 mousePos = ImGui::GetMousePos();
-                    const ImVec2 itemMin = ImGui::GetItemRectMin();
-                    const ImVec2 itemMax = ImGui::GetItemRectMax();
+                    const ImVec2 itemMin = m_viewportMin;
+                    const ImVec2 itemMax = m_viewportMax;
                     const float itemWidth = itemMax.x - itemMin.x;
                     const float itemHeight = itemMax.y - itemMin.y;
                     if (itemWidth > 0.0f && itemHeight > 0.0f)
@@ -201,12 +248,17 @@ namespace Cue::Editor
         DebugCamera* m_camera = nullptr;
         RHI::ViewHandle m_debugColorSrvHandle{};
         PickRequest m_pickRequest{};
+        ImVec2 m_viewportMin = ImVec2(0.0f, 0.0f);
+        ImVec2 m_viewportMax = ImVec2(0.0f, 0.0f);
         void* m_addMenuContext = nullptr;
+        void* m_overlayContext = nullptr;
         void* m_sceneMenuContext = nullptr;
         void* m_viewMenuContext = nullptr;
         DrawAddMenuCallback m_drawAddMenuCallback = nullptr;
+        DrawOverlayCallback m_drawOverlayCallback = nullptr;
         DrawSceneMenuCallback m_drawSceneMenuCallback = nullptr;
         DrawViewMenuCallback m_drawViewMenuCallback = nullptr;
         bool m_hasPickRequest = false;
+        bool m_hasViewportRect = false;
     };
 }

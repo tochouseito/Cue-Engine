@@ -184,6 +184,10 @@ namespace Cue::Editor
         [[nodiscard]] bool is_scene_path_loaded(
             const Core::IO::Path& a_scenePath) const noexcept;
         void process_debug_pick_request();
+        [[nodiscard]] bool draw_debug_transform_gizmo(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
         [[nodiscard]] bool pick_debug_non_rendered_object(
             const DebugView::PickRequest& a_request,
             GameCore::EntityId& a_outEntityId) const;
@@ -251,8 +255,15 @@ namespace Cue::Editor
         uint64_t m_scriptSourceVersion = 0;
         DebugView::PickRequest m_pendingDebugPickFallback{};
         DebugCamera m_debugCamera{};
+        ECS::TransformComponent m_debugGizmoStartTransform{};
+        GameCore::EntityId m_debugGizmoEntityId =
+            GameCore::k_invalidEntityId;
         EditorUpdateMetrics m_currentUpdateMetrics{};
         EditorUpdateMetrics m_lastUpdateMetrics{};
+        uint32_t m_debugGizmoOperation = 0;
+        uint32_t m_debugGizmoMode = 0;
+        uint32_t m_debugGizmoPickBlockFrames = 0;
+        bool m_isDebugGizmoEditing = false;
         bool m_hasPendingDebugPickFallback = false;
     };
 }
