@@ -20,6 +20,38 @@
 namespace Cue::Math
 {
     static constexpr float k_pi = std::numbers::pi_v<float>; // 円周率
+    static constexpr float k_degreesToRadians = k_pi / 180.0f;
+    static constexpr float k_radiansToDegrees = 180.0f / k_pi;
+
+    /// @brief 度数法から弧度法へ変換します。
+    [[nodiscard]] constexpr float degrees_to_radians(float a_degrees) noexcept
+    {
+        return a_degrees * k_degreesToRadians;
+    }
+
+    /// @brief 弧度法から度数法へ変換します。
+    [[nodiscard]] constexpr float radians_to_degrees(float a_radians) noexcept
+    {
+        return a_radians * k_radiansToDegrees;
+    }
+
+    /// @brief 度数法から弧度法へ変換します。
+    [[nodiscard]] constexpr float3 degrees_to_radians(float3 a_degrees) noexcept
+    {
+        return float3(
+            degrees_to_radians(a_degrees.x),
+            degrees_to_radians(a_degrees.y),
+            degrees_to_radians(a_degrees.z));
+    }
+
+    /// @brief 弧度法から度数法へ変換します。
+    [[nodiscard]] constexpr float3 radians_to_degrees(float3 a_radians) noexcept
+    {
+        return float3(
+            radians_to_degrees(a_radians.x),
+            radians_to_degrees(a_radians.y),
+            radians_to_degrees(a_radians.z));
+    }
 
     /// @brief 値を指定された倍数に切り上げます。
     /// @param a_value 切り上げる値。
@@ -40,7 +72,8 @@ namespace Cue::Math
     [[nodiscard]] float4x4 z_axis_matrix(float a_radian) noexcept;
 
     /// @brief XYZ 順の回転行列を構築します。
-    [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotation) noexcept;
+    /// @param a_rotationRadians 弧度法の Euler 回転です。
+    [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotationRadians) noexcept;
 
     /// @brief 平行移動行列を構築します。
     [[nodiscard]] float4x4 translate_matrix(float3 a_translation) noexcept;
@@ -71,5 +104,9 @@ namespace Cue::Math
         float a_farClip) noexcept;
 
     /// @brief スケール、回転、平行移動を合成したアフィン行列を構築します。
-    [[nodiscard]] float4x4 make_affine_matrix(float3 a_scale, float3 a_rotate, float3 a_translate) noexcept;
+    /// @param a_rotateRadians 弧度法の Euler 回転です。
+    [[nodiscard]] float4x4 make_affine_matrix(
+        float3 a_scale,
+        float3 a_rotateRadians,
+        float3 a_translate) noexcept;
 }

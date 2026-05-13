@@ -117,17 +117,53 @@ namespace Cue::Editor
                     Severity::Error,
                     "Failed to get game color SRV view handle for present pass.");
             }
+            result = builder.get_texture("GameColor", m_gameColorHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get game color texture handle for present pass.");
+            }
+            result = builder.get_texture("DebugColor", m_debugColorHandle);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::GetFailed,
+                    Severity::Error,
+                    "Failed to get debug color texture handle for present pass.");
+            }
 
             return Result::ok();
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.use_texture(
+            Result result = builder.use_texture(
                 m_backBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::RenderTarget,
                 RHI::ResourceState::Present);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_texture(
+                m_gameColorHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_texture(
+                m_debugColorHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -150,6 +186,8 @@ namespace Cue::Editor
         static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
+        RHI::TextureHandle m_gameColorHandle{};
+        RHI::TextureHandle m_debugColorHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
         RHI::ViewHandle m_gameColorSrvHandle{};
     };

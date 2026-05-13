@@ -174,7 +174,8 @@ Script 内では次の操作を使えます。
 - `delta_time()`: 現在フレームの delta time を返します。
 - `self()` / `owner()` / `get_owner()`: owner Entity handle を返します。
 - `is_entity_valid()`: owner Entity が有効か確認します。
-- `has_transform()`、`get_transform()`、`set_transform()`: Transform を読み書きします。
+- `has_transform()`、`get_transform()`、`set_transform()`: Transform を読み書きします。`Transform::rotation` は弧度法の Euler 回転です。
+- `get_transform_degrees()`、`set_transform_degrees()`: `rotation` を度数法で読み書きする Transform API です。
 - `push_key(Marionette::Key::...)`: 入力状態を確認します。
 - `request_audio_source_play()`: owner の AudioSource 再生を要求します。
 - `log_info()`、`log_warning()`、`log_error()`: Engine log へ出力します。
@@ -204,6 +205,9 @@ void RotateCube::update()
     (void)set_transform(transform);
 }
 ```
+
+`rotationSpeed` は rad/s として扱います。
+度数法で扱いたい場合は `get_transform_degrees()` と `set_transform_degrees()` を使います。
 
 ## CharacterController を使った移動
 

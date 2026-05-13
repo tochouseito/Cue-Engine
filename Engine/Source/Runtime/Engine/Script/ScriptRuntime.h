@@ -164,6 +164,14 @@ namespace Cue
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL set_transform_bridge(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_transform_degrees_bridge(
+                CueEntityHandle a_entityHandle,
+                CueTransformData* a_outTransform);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_transform_degrees_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueTransformData* a_transform);
         [[nodiscard]] static uint8_t CUE_SCRIPT_CALL push_key_bridge(
             CueKey a_key);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL find_script_instance_bridge(
@@ -272,6 +280,12 @@ namespace Cue
             CueEntityHandle a_entityHandle,
             CueTransformData* a_outTransform) const noexcept;
         [[nodiscard]] CueResult set_transform_internal(
+            CueEntityHandle a_entityHandle,
+            const CueTransformData* a_transform) noexcept;
+        [[nodiscard]] CueResult get_transform_degrees_internal(
+            CueEntityHandle a_entityHandle,
+            CueTransformData* a_outTransform) const noexcept;
+        [[nodiscard]] CueResult set_transform_degrees_internal(
             CueEntityHandle a_entityHandle,
             const CueTransformData* a_transform) noexcept;
         [[nodiscard]] uint8_t push_key_internal(CueKey a_key) const noexcept;

@@ -71,6 +71,7 @@ namespace Cue::ECS
         TransformComponent(TransformComponent&&) = default;
         TransformComponent& operator=(TransformComponent&&) = default;
         Math::float3 position = Math::float3::zero();
+        // Transform の Euler 回転は弧度法で保持する。
         Math::float3 rotation = Math::float3::zero();
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };

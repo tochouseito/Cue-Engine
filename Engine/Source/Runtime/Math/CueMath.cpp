@@ -85,10 +85,12 @@ namespace Cue::Math
         return matrix;
     }
 
-    [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotation) noexcept
+    [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotationRadians) noexcept
     {
         // 1) 各軸回転を合成する
-        return x_axis_matrix(a_rotation.x) * y_axis_matrix(a_rotation.y) * z_axis_matrix(a_rotation.z);
+        return x_axis_matrix(a_rotationRadians.x) *
+            y_axis_matrix(a_rotationRadians.y) *
+            z_axis_matrix(a_rotationRadians.z);
     }
 
     [[nodiscard]] float4x4 translate_matrix(float3 a_translation) noexcept
@@ -156,9 +158,13 @@ namespace Cue::Math
         return matrix;
     }
 
-    [[nodiscard]] float4x4 make_affine_matrix(float3 a_scale, float3 a_rotate, float3 a_translate) noexcept
+    [[nodiscard]] float4x4 make_affine_matrix(
+        float3 a_scale,
+        float3 a_rotateRadians,
+        float3 a_translate) noexcept
     {
         // 1) スケール、回転、平行移動を合成してアフィン変換行列を構築する
-        return scale_matrix(a_scale) * xyz_rotate_matrix(a_rotate) * translate_matrix(a_translate);
+        return scale_matrix(a_scale) * xyz_rotate_matrix(a_rotateRadians) *
+            translate_matrix(a_translate);
     }
 }

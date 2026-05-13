@@ -464,6 +464,10 @@ namespace Cue
         m_engineApi.debugDrawLine = &ScriptRuntime::debug_draw_line_bridge;
         m_engineApi.debugDrawSphere = &ScriptRuntime::debug_draw_sphere_bridge;
         m_engineApi.debugDrawBox = &ScriptRuntime::debug_draw_box_bridge;
+        m_engineApi.getTransformDegrees =
+            &ScriptRuntime::get_transform_degrees_bridge;
+        m_engineApi.setTransformDegrees =
+            &ScriptRuntime::set_transform_degrees_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1359,6 +1363,26 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_transform_degrees_bridge(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_transform_degrees_internal(
+                a_entityHandle, a_outTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_transform_degrees_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_transform_degrees_internal(
+                a_entityHandle, a_transform)
+            : CueResult_InvalidState;
+    }
+
     CueSceneId CUE_SCRIPT_CALL ScriptRuntime::request_scene_load_bridge(
         CueStringView a_sceneName)
     {
@@ -1936,6 +1960,49 @@ namespace Cue
             Math::float3(a_transform->scale.x, a_transform->scale.y,
                 a_transform->scale.z);
         return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_transform_degrees_internal(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform) const noexcept
+    {
+        const CueResult result =
+            get_transform_internal(a_entityHandle, a_outTransform);
+        if (result != CueResult_Ok)
+        {
+            return result;
+        }
+
+        const Math::float3 rotationRadians(
+            a_outTransform->rotation.x,
+            a_outTransform->rotation.y,
+            a_outTransform->rotation.z);
+        const Math::float3 rotationDegrees =
+            Math::radians_to_degrees(rotationRadians);
+        a_outTransform->rotation =
+            { rotationDegrees.x, rotationDegrees.y, rotationDegrees.z };
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_transform_degrees_internal(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform) noexcept
+    {
+        if (a_transform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        CueTransformData transform = *a_transform;
+        const Math::float3 rotationDegrees(
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z);
+        const Math::float3 rotationRadians =
+            Math::degrees_to_radians(rotationDegrees);
+        transform.rotation =
+            { rotationRadians.x, rotationRadians.y, rotationRadians.z };
+        return set_transform_internal(a_entityHandle, &transform);
     }
 
     uint8_t ScriptRuntime::push_key_internal(CueKey a_key) const noexcept

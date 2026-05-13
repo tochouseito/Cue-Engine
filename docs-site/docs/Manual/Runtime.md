@@ -40,6 +40,8 @@ Scene asset は `.cuescene` です。
 
 `ScriptComponent` の Entity 参照は、Scene 保存時に localObjectId として保存されます。
 Scene 読み込み時に Runtime EntityId へ解決されます。
+`TransformComponent.rotation` は内部と Scene asset では弧度法の Euler 回転として保存されます。
+Editor の Inspector では度数法で表示、入力します。
 
 ## Asset Browser と import
 

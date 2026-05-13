@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 15u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 16u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -134,6 +134,7 @@ extern "C"
     struct CueTransformData
     {
         CueFloat3 position;
+        /// @brief Euler 回転です。通常 API では弧度法、Degrees API では度数法です。
         CueFloat3 rotation;
         CueFloat3 scale;
     };
@@ -309,6 +310,20 @@ extern "C"
     /// @brief Transform の値を設定します。
     /// `a_transform` が指すデータは呼び出し側所有で、呼び出し中だけ有効であれば十分です。
     using CueSetTransformFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform
+    );
+
+    /// @brief Transform の値を度数法の回転で取得します。
+    /// `position` と `scale` は通常の Transform と同じ単位です。
+    using CueGetTransformDegreesFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform
+    );
+
+    /// @brief Transform の値を度数法の回転で設定します。
+    /// `position` と `scale` は通常の Transform と同じ単位です。
+    using CueSetTransformDegreesFn = CueResult (CUE_SCRIPT_CALL*)(
         CueEntityHandle a_entityHandle,
         const CueTransformData* a_transform
     );
@@ -541,6 +556,10 @@ extern "C"
         CueDebugDrawSphereFn debugDrawSphere;
         /// v15 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueDebugDrawBoxFn debugDrawBox;
+        /// v16 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetTransformDegreesFn getTransformDegrees;
+        /// v16 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetTransformDegreesFn setTransformDegrees;
     };
 
     /// @brief Script インスタンス生成時の入力です。

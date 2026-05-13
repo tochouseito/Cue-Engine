@@ -281,6 +281,38 @@ namespace Marionette
             return g_currentEngineApi;
         }
 
+        [[nodiscard]] constexpr float degrees_to_radians(
+            float a_degrees) noexcept
+        {
+            return a_degrees * 0.017453292519943295769f;
+        }
+
+        [[nodiscard]] constexpr float radians_to_degrees(
+            float a_radians) noexcept
+        {
+            return a_radians * 57.295779513082320877f;
+        }
+
+        [[nodiscard]] constexpr CueFloat3 degrees_to_radians(
+            CueFloat3 a_degrees) noexcept
+        {
+            return CueFloat3{
+                degrees_to_radians(a_degrees.x),
+                degrees_to_radians(a_degrees.y),
+                degrees_to_radians(a_degrees.z)
+            };
+        }
+
+        [[nodiscard]] constexpr CueFloat3 radians_to_degrees(
+            CueFloat3 a_radians) noexcept
+        {
+            return CueFloat3{
+                radians_to_degrees(a_radians.x),
+                radians_to_degrees(a_radians.y),
+                radians_to_degrees(a_radians.z)
+            };
+        }
+
         template<typename T>
         struct EmptySavedState final
         {
@@ -1873,6 +1905,68 @@ namespace Marionette
             }
 
             return engineApi->setTransform(m_entityHandle, &a_transform);
+        }
+
+        [[nodiscard]] CueResult get_transform_degrees(
+            Transform& a_outTransform) const noexcept
+        {
+            return get_transform_degrees(m_entityHandle, a_outTransform);
+        }
+
+        [[nodiscard]] CueResult get_transform_degrees(
+            CueEntityHandle a_entityHandle,
+            Transform& a_outTransform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, getTransformDegrees) +
+                        sizeof(CueGetTransformDegreesFn) &&
+                engineApi->getTransformDegrees != nullptr)
+            {
+                return engineApi->getTransformDegrees(
+                    a_entityHandle, &a_outTransform);
+            }
+
+            const CueResult result =
+                get_transform(a_entityHandle, a_outTransform);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+
+            a_outTransform.rotation =
+                Detail::radians_to_degrees(a_outTransform.rotation);
+            return CueResult_Ok;
+        }
+
+        [[nodiscard]] CueResult set_transform_degrees(
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, setTransformDegrees) +
+                        sizeof(CueSetTransformDegreesFn) &&
+                engineApi->setTransformDegrees != nullptr)
+            {
+                return engineApi->setTransformDegrees(
+                    m_entityHandle, &a_transform);
+            }
+
+            Transform transform = a_transform;
+            transform.rotation =
+                Detail::degrees_to_radians(transform.rotation);
+            return set_transform(transform);
         }
 
         [[nodiscard]] CueResult set_rigid_body_linear_velocity(

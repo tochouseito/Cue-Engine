@@ -6356,7 +6356,7 @@ namespace Cue::Editor
         };
         auto makeLightLineItem =
             [](const ECS::TransformComponent& a_transform,
-                float a_length,
+                const Math::float3& a_end,
                 const Math::float4& a_color) noexcept
         {
             GpuData::DebugSelectionItemGpu item{};
@@ -6365,11 +6365,66 @@ namespace Cue::Editor
                 a_transform.rotation,
                 a_transform.position);
             item.color = a_color;
-            item.camera = Math::float4(0.0f, 0.0f, -a_length, 0.0f);
+            item.camera = Math::float4(a_end.x, a_end.y, a_end.z, 0.0f);
             item.shape =
                 static_cast<uint32_t>(GpuData::DebugSelectionShape::Line);
             item.isEnabled = 1;
             return item;
+        };
+        auto appendLightArrow =
+            [&appendDebugItem](
+                const ECS::TransformComponent& a_transform,
+                float a_length,
+                const Math::float4& a_color)
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_color;
+            item.camera = Math::float4(
+                a_length,
+                a_length * 0.26f,
+                a_length * 0.14f,
+                0.0f);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::LightArrow);
+            item.isEnabled = 1;
+            appendDebugItem(item);
+        };
+        auto appendPointLightMarker =
+            [&appendDebugItem, &makeLightLineItem](
+                const ECS::TransformComponent& a_transform,
+                float a_radius,
+                const Math::float4& a_color)
+        {
+            ECS::TransformComponent markerTransform = a_transform;
+            markerTransform.rotation = Math::float3::zero();
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(a_radius, 0.0f, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(-a_radius, 0.0f, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, a_radius, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, -a_radius, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, 0.0f, a_radius),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, 0.0f, -a_radius),
+                a_color));
         };
         if (m_selectedEntityId != GameCore::k_invalidEntityId)
         {
@@ -6390,7 +6445,20 @@ namespace Cue::Editor
                 (void)debugWorld->get_component<ECS::CameraComponent>(
                     m_selectedEntityId,
                     camera);
-                if (camera == nullptr && !hasRenderableOutline)
+                const ECS::DirectionalLightComponent* directionalLight = nullptr;
+                const ECS::PointLightComponent* pointLight = nullptr;
+                const ECS::SpotLightComponent* spotLight = nullptr;
+                const bool hasLight =
+                    debugWorld->get_component<ECS::DirectionalLightComponent>(
+                        m_selectedEntityId, directionalLight) &&
+                        directionalLight != nullptr ||
+                    debugWorld->get_component<ECS::PointLightComponent>(
+                        m_selectedEntityId, pointLight) &&
+                        pointLight != nullptr ||
+                    debugWorld->get_component<ECS::SpotLightComponent>(
+                        m_selectedEntityId, spotLight) &&
+                        spotLight != nullptr;
+                if (camera == nullptr && !hasRenderableOutline && !hasLight)
                 {
                     GpuData::DebugSelectionItemGpu item{};
                     item.world = Math::make_affine_matrix(
@@ -6431,7 +6499,7 @@ namespace Cue::Editor
                 a_entityId == m_selectedEntityId));
         };
         auto appendLightObject =
-            [this, &appendDebugItem, &makeLightLineItem](
+            [this, &appendLightArrow, &appendPointLightMarker](
                 GameCore::EntityId a_entityId,
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
@@ -6450,42 +6518,36 @@ namespace Cue::Editor
             if (a_object.get_component(directionalLight) &&
                 directionalLight != nullptr)
             {
-                appendDebugItem(makeLightLineItem(
+                appendLightArrow(
                     *transform,
                     3.0f,
                     isSelected
                         ? selectedColor
-                        : Math::float4(1.0f, 0.92f, 0.25f, 1.0f)));
+                        : Math::float4(1.0f, 0.92f, 0.25f, 1.0f));
                 return;
             }
 
             ECS::PointLightComponent* pointLight = nullptr;
             if (a_object.get_component(pointLight) && pointLight != nullptr)
             {
-                GpuData::DebugSelectionItemGpu item{};
-                item.world = Math::make_affine_matrix(
-                    Math::float3(0.35f, 0.35f, 0.35f),
-                    transform->rotation,
-                    transform->position);
-                item.color = isSelected
-                    ? selectedColor
-                    : Math::float4(1.0f, 0.72f, 0.32f, 1.0f);
-                item.shape =
-                    static_cast<uint32_t>(GpuData::DebugSelectionShape::Box);
-                item.isEnabled = 1;
-                appendDebugItem(item);
+                appendPointLightMarker(
+                    *transform,
+                    0.45f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(1.0f, 0.72f, 0.32f, 1.0f));
                 return;
             }
 
             ECS::SpotLightComponent* spotLight = nullptr;
             if (a_object.get_component(spotLight) && spotLight != nullptr)
             {
-                appendDebugItem(makeLightLineItem(
+                appendLightArrow(
                     *transform,
                     2.5f,
                     isSelected
                         ? selectedColor
-                        : Math::float4(0.52f, 0.82f, 1.0f, 1.0f)));
+                        : Math::float4(0.52f, 0.82f, 1.0f, 1.0f));
             }
         };
         bool hasCollectedSceneCameras = false;

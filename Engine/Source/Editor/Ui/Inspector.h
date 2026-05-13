@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <span>
 #include <string>
 #include <vector>
@@ -633,7 +634,7 @@ namespace Cue::Editor
             shouldSubmit = draw_transform_float3_editor("position",
                                m_transformEditComponent.position, isEdited) ||
                 shouldSubmit;
-            shouldSubmit = draw_transform_float3_editor("rotation",
+            shouldSubmit = draw_transform_rotation_editor("rotation(deg)",
                                m_transformEditComponent.rotation, isEdited) ||
                 shouldSubmit;
             shouldSubmit = draw_transform_float3_editor("scale",
@@ -824,6 +825,7 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("DirectionalLightComponent");
             ImGui::Separator();
+            draw_light_direction(a_object);
 
             float color[3] = {
                 component->color.x,
@@ -881,6 +883,7 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("SpotLightComponent");
             ImGui::Separator();
+            draw_light_direction(a_object);
 
             float color[3] = {
                 component->color.x,
@@ -3140,6 +3143,21 @@ namespace Cue::Editor
                 a_value.z);
         }
 
+        void draw_light_direction(GameCore::GameObject& a_object)
+        {
+            ECS::TransformComponent* transform = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr)
+            {
+                ImGui::TextUnformatted("direction: TransformComponent なし");
+                return;
+            }
+
+            const Math::float3 direction =
+                transform_direction(Math::float3(0.0f, 0.0f, -1.0f),
+                    transform->rotation);
+            draw_float3_text("direction", direction);
+        }
+
         void sync_transform_edit_state(GameCore::EntityId a_entityId,
             const ECS::TransformComponent& a_component)
         {
@@ -3156,10 +3174,13 @@ namespace Cue::Editor
         [[nodiscard]] bool draw_transform_float3_editor(
             const char* a_label,
             Math::float3& a_value,
-            bool& a_outIsEdited)
+            bool& a_outIsEdited,
+            float a_speed = 0.01f,
+            const char* a_format = "%.3f")
         {
             float values[3] = { a_value.x, a_value.y, a_value.z };
-            if (ImGui::DragFloat3(a_label, values, 0.01f))
+            if (ImGui::DragFloat3(a_label, values, a_speed, 0.0f, 0.0f,
+                a_format))
             {
                 a_value.x = values[0];
                 a_value.y = values[1];
@@ -3180,6 +3201,49 @@ namespace Cue::Editor
             }
 
             return false;
+        }
+
+        [[nodiscard]] bool draw_transform_rotation_editor(
+            const char* a_label,
+            Math::float3& a_rotationRadians,
+            bool& a_outIsEdited)
+        {
+            Math::float3 degrees =
+                Math::radians_to_degrees(a_rotationRadians);
+            bool isRotationEdited = false;
+            const bool shouldSubmit =
+                draw_transform_float3_editor(
+                    a_label, degrees, isRotationEdited, 1.0f, "%.0f");
+            if (isRotationEdited)
+            {
+                degrees.x = std::round(degrees.x);
+                degrees.y = std::round(degrees.y);
+                degrees.z = std::round(degrees.z);
+                a_rotationRadians = Math::degrees_to_radians(degrees);
+                a_outIsEdited = true;
+            }
+
+            return shouldSubmit;
+        }
+
+        [[nodiscard]] static Math::float3 transform_direction(
+            const Math::float3& a_direction,
+            const Math::float3& a_rotation) noexcept
+        {
+            const Math::float4x4 rotationMatrix =
+                Math::xyz_rotate_matrix(a_rotation);
+            Math::float3 direction(
+                a_direction.x * rotationMatrix.values[0][0] +
+                    a_direction.y * rotationMatrix.values[1][0] +
+                    a_direction.z * rotationMatrix.values[2][0],
+                a_direction.x * rotationMatrix.values[0][1] +
+                    a_direction.y * rotationMatrix.values[1][1] +
+                    a_direction.z * rotationMatrix.values[2][1],
+                a_direction.x * rotationMatrix.values[0][2] +
+                    a_direction.y * rotationMatrix.values[1][2] +
+                    a_direction.z * rotationMatrix.values[2][2]);
+            direction.normalize();
+            return direction;
         }
 
         void draw_renderable_id_text(const char* a_label, uint32_t a_value)
