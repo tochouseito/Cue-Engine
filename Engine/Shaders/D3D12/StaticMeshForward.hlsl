@@ -39,6 +39,8 @@ ConstantBuffer<LightFrame> g_lightFrame : register(b2);
 StructuredBuffer<DirectionalLight> g_directionalLights : register(t4);
 StructuredBuffer<PointLight> g_pointLights : register(t5);
 StructuredBuffer<SpotLight> g_spotLights : register(t6);
+ConstantBuffer<SpotShadowFrame> g_spotShadowFrame : register(b3);
+Texture2D<float> g_spotShadowMap : register(t7);
 Texture2D<float4> g_textures[] : register(t0, space1);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
@@ -74,6 +76,70 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     output.texcoord = localUv;
     output.materialId = renderObject.materialId;
     return output;
+}
+
+float evaluate_spot_shadow(
+    uint lightIndex,
+    float3 worldPosition,
+    float3 worldNormal,
+    float3 lightDirection)
+{
+    if (g_spotShadowFrame.params.x < 0.5f)
+    {
+        return 1.0f;
+    }
+
+    const uint shadowLightIndex =
+        (uint)(g_spotShadowFrame.params.w + 0.5f);
+    if (shadowLightIndex != lightIndex)
+    {
+        return 1.0f;
+    }
+
+    const float4 shadowPosition =
+        mul(mul(float4(worldPosition, 1.0f), g_spotShadowFrame.view),
+            g_spotShadowFrame.projection);
+    if (shadowPosition.w <= 0.0001f)
+    {
+        return 1.0f;
+    }
+
+    float3 ndc = shadowPosition.xyz / shadowPosition.w;
+    ndc.z = ndc.z * 0.5f + 0.5f;
+    const float2 uv = ndc.xy * float2(0.5f, -0.5f) + float2(0.5f, 0.5f);
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f ||
+        ndc.z < 0.0f || ndc.z > 1.0f)
+    {
+        return 1.0f;
+    }
+
+    uint width = 1;
+    uint height = 1;
+    g_spotShadowMap.GetDimensions(width, height);
+    const float2 texel = uv * float2(width, height);
+    const int2 baseCoord = int2(texel);
+    const float receiverBias = max(
+        g_spotShadowFrame.params.y *
+            (1.0f - saturate(dot(worldNormal, lightDirection))),
+        g_spotShadowFrame.params.y);
+
+    float visibility = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
+        {
+            const int2 coord = clamp(
+                baseCoord + int2(x, y),
+                int2(0, 0),
+                int2((int)width - 1, (int)height - 1));
+            const float closestDepth = g_spotShadowMap.Load(int3(coord, 0));
+            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.25f;
+        }
+    }
+
+    return visibility / 9.0f;
 }
 
 float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
@@ -124,12 +190,16 @@ float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
         const float spotCos = dot(-lightDirection, spotDirection);
         const float spotFactor = step(light.directionOuterCos.w, spotCos);
         const float ndotl = saturate(dot(worldNormal, lightDirection));
+        const float shadow =
+            evaluate_spot_shadow(lightIndex, worldPosition, worldNormal,
+                lightDirection);
         lighting += light.colorIntensity.rgb *
             light.colorIntensity.w *
             ndotl *
             attenuation *
             attenuation *
-            spotFactor;
+            spotFactor *
+            shadow;
     }
 
     return lighting;

@@ -163,6 +163,8 @@ namespace Cue::GameCore
         m_drawScene.resize(a_bufferCount);
         m_lightFrameState.resize(a_bufferCount);
         m_lightScene.resize(a_bufferCount);
+        m_shadowFrameState.resize(a_bufferCount);
+        m_shadowScene.resize(a_bufferCount);
         for (uint32_t bufferIndex = 0; bufferIndex < a_bufferCount; ++bufferIndex)
         {
             sync_draw_frame_state(bufferIndex, a_renderWidth, a_renderHeight);
@@ -247,6 +249,16 @@ namespace Cue::GameCore
             return result;
         }
 
+        m_shadowResources =
+            std::make_unique<ShadowSystem::ShadowResources>(
+                a_bufferManager, a_viewManager, a_bufferCount);
+
+        result = m_shadowResources->create_spot_shadow_frame_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_assetManager,
             a_staticMeshPool,
@@ -261,6 +273,7 @@ namespace Cue::GameCore
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_drawFrameState, m_drawScene);
         auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(m_lightScene);
+        auto& shadowSystem = m_ecs.add_system<ECS::ShadowSystem>(m_shadowScene);
         auto& firstPersonCameraControllerSystem =
             m_ecs.add_system<ECS::FirstPersonCameraControllerSystem>(
                 m_inputManager);
@@ -290,6 +303,7 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&lightSystem);
+        m_editorPipeline.add_system(&shadowSystem);
         m_editorPipeline.add_system(&audioSystem);
         m_simulationPipeline.add_system(&firstPersonCameraControllerSystem);
         m_simulationPipeline.add_system(&playerControlSystem);
@@ -340,6 +354,7 @@ namespace Cue::GameCore
         sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
         m_drawScene.begin_frame(a_bufferIndex);
         m_lightScene.begin_frame(a_bufferIndex);
+        m_shadowScene.begin_frame(a_bufferIndex);
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
@@ -350,7 +365,13 @@ namespace Cue::GameCore
             return result;
         }
 
-        return upload_light_scene(a_bufferIndex);
+        result = upload_light_scene(a_bufferIndex);
+        if (!result)
+        {
+            return result;
+        }
+
+        return upload_shadow_scene(a_bufferIndex);
     }
 
     [[nodiscard]] Result GameWorld::update(float a_deltaTime, uint32_t a_bufferIndex,
@@ -1373,6 +1394,67 @@ namespace Cue::GameCore
                         "Failed to commit spot light upload.");
                 }
             }
+        }
+
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::upload_shadow_scene(uint32_t a_bufferIndex)
+    {
+        if (m_shadowResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Shadow resources are not initialized.");
+        }
+
+        if (a_bufferIndex >= m_shadowFrameState.frameStates.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Shadow frame index is out of range.");
+        }
+
+        ShadowSystem::ShadowSceneFrame& sceneFrame =
+            m_shadowScene.frame(a_bufferIndex);
+        ShadowSystem::ShadowFrameData& frameState =
+            m_shadowFrameState.frame_state(a_bufferIndex);
+        frameState.spotShadow = sceneFrame.hasSpotShadow
+            ? sceneFrame.spotShadow.shadow
+            : GpuData::SpotShadowFrameGpu{};
+
+        auto resolve_uploader_index = [a_bufferIndex](uint32_t a_count) -> uint32_t
+        {
+            if (a_count <= 1)
+            {
+                return 0;
+            }
+
+            return a_bufferIndex;
+        };
+
+        auto& uploaders = m_shadowResources->spot_shadow_frame_uploaders();
+        if (uploaders.empty())
+        {
+            return Result::ok();
+        }
+
+        const uint32_t uploaderIndex = resolve_uploader_index(
+            static_cast<uint32_t>(uploaders.size()));
+        if (uploaderIndex >= uploaders.size())
+        {
+            return Result::ok();
+        }
+
+        auto& uploader = uploaders[uploaderIndex];
+        uploader.begin_frame();
+        if (!uploader.push(0, frameState.spotShadow))
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Failed to queue spot shadow frame upload.");
+        }
+        if (!uploader.commit())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Failed to commit spot shadow frame upload.");
         }
 
         return Result::ok();

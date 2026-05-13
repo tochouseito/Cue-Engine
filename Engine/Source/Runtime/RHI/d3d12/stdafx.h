@@ -134,6 +134,8 @@ namespace Cue::RHI::DX12
             return DXGI_FORMAT_R32_UINT;
         case ColorFormat::D24_UNorm_S8_UInt:
             return DXGI_FORMAT_D24_UNORM_S8_UINT;
+        case ColorFormat::R24_UNorm_X8_Typeless:
+            return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
         default:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
         }
@@ -151,6 +153,8 @@ namespace Cue::RHI::DX12
             return ColorFormat::R32_UINT;
         case DXGI_FORMAT_D24_UNORM_S8_UINT:
             return ColorFormat::D24_UNorm_S8_UInt;
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+            return ColorFormat::R24_UNorm_X8_Typeless;
         default:
             CUE_ASSERT_MSG(false, "Invalid DXGI format for color format conversion.");
             return ColorFormat::R8G8B8A8_UNORM;

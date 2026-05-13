@@ -20,6 +20,9 @@
 #include "DrawSystem/Passes/ViewProjectionCopyPass.h"
 #include "LightingSystem/GpuData/LightData.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
+#include "ShadowSystem/GpuData/ShadowData.h"
+#include "ShadowSystem/Passes/ShadowBufferCopyPass.h"
+#include "ShadowSystem/Passes/SpotShadowMapPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
@@ -989,6 +992,15 @@ namespace Cue
         }
         const LightingSystem::LightingBindings lightingBindings =
             lightResources->bindings();
+        const ShadowSystem::ShadowResources* shadowResources =
+            m_activeWorld->shadow_resources();
+        if (shadowResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine shadow resources are not initialized.");
+        }
+        const ShadowSystem::ShadowBindings shadowBindings =
+            shadowResources->bindings();
         auto* bufferManager = m_backend->get_buffer_manager();
         if (bufferManager == nullptr)
         {
@@ -1055,6 +1067,10 @@ namespace Cue
             lightingBindings.spotLightBuffer,
             static_cast<uint64_t>(GpuData::k_maxSpotLightCount) *
                 sizeof(GpuData::SpotLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "SpotShadowFrameBufferCopy",
+            shadowBindings.spotShadowFrameBuffer,
+            sizeof(GpuData::SpotShadowFrameGpu)));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::GenerateVisibleListPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->renderable_info_buffer_handle(),
@@ -1078,6 +1094,13 @@ namespace Cue
             drawResources->render_object_buffer_handle(),
             drawResources->transform_buffer_handle(),
             drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::SpotShadowMapPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            shadowBindings,
+            m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
             "GameStaticMeshForward",
             "GameColor",
@@ -1091,6 +1114,7 @@ namespace Cue
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
             lightingBindings,
+            shadowBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
@@ -1120,6 +1144,7 @@ namespace Cue
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
             lightingBindings,
+            shadowBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),

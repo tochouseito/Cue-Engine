@@ -98,12 +98,12 @@
                 "transform": {
                     "position": {
                         "x": -0.9300000071525574,
-                        "y": 0.0,
-                        "z": 0.0
+                        "y": 0.35489577054977417,
+                        "z": -9.416049003601074
                     },
                     "rotation": {
                         "x": 0.0,
-                        "y": 0.0,
+                        "y": -0.0,
                         "z": 0.0
                     },
                     "scale": {
@@ -208,6 +208,45 @@
             "localObjectId": 4,
             "name": "NavAgent",
             "tag": "Navigation"
+        },
+        {
+            "components": {
+                "spotLight": {
+                    "castsShadow": true,
+                    "color": {
+                        "x": 1.0,
+                        "y": 0.949999988079071,
+                        "z": 0.8399999737739563
+                    },
+                    "intensity": 5.0,
+                    "isEnabled": true,
+                    "outerAngleDegrees": 35.0,
+                    "range": 12.0,
+                    "shadowBias": 0.0020000000949949026
+                },
+                "transform": {
+                    "position": {
+                        "x": 0.0,
+                        "y": 3.0,
+                        "z": -4.0
+                    },
+                    "rotation": {
+                        "x": -0.5565404295921326,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 0.9999993443489075,
+                        "z": 0.9999993443489075
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 6,
+            "name": "SpotLight",
+            "tag": "Default"
         }
     ],
     "version": 2

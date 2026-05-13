@@ -31,6 +31,10 @@
 #include <LightingSystem/LightResources.h>
 #include <LightingSystem/LightScene.h>
 #include <LightingSystem/Systems/LightSystem.h>
+#include <ShadowSystem/ShadowFrameState.h>
+#include <ShadowSystem/ShadowResources.h>
+#include <ShadowSystem/ShadowScene.h>
+#include <ShadowSystem/Systems/ShadowSystem.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -728,6 +732,12 @@ namespace Cue::GameCore
             return m_lightResources.get();
         }
 
+        [[nodiscard]] const ShadowSystem::ShadowResources* shadow_resources()
+            const noexcept
+        {
+            return m_shadowResources.get();
+        }
+
         LightingSystem::LightFrameState& light_frame_state() noexcept
         {
             return m_lightFrameState;
@@ -736,6 +746,16 @@ namespace Cue::GameCore
         const LightingSystem::LightFrameState& light_frame_state() const noexcept
         {
             return m_lightFrameState;
+        }
+
+        ShadowSystem::ShadowFrameState& shadow_frame_state() noexcept
+        {
+            return m_shadowFrameState;
+        }
+
+        const ShadowSystem::ShadowFrameState& shadow_frame_state() const noexcept
+        {
+            return m_shadowFrameState;
         }
 
         void set_cpu_batching_enabled(bool a_enabled) noexcept
@@ -1618,6 +1638,7 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
         [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_shadow_scene(uint32_t a_bufferIndex);
 
         void animate_static_mesh_objects(float a_deltaTime)
         {
@@ -2277,6 +2298,27 @@ namespace Cue::GameCore
                 camera != nullptr)
             {
                 prototype.add_component(*camera);
+            }
+
+            if (const ECS::DirectionalLightComponent* directionalLight =
+                get_component<ECS::DirectionalLightComponent>(a_entityId);
+                directionalLight != nullptr)
+            {
+                prototype.add_component(*directionalLight);
+            }
+
+            if (const ECS::PointLightComponent* pointLight =
+                get_component<ECS::PointLightComponent>(a_entityId);
+                pointLight != nullptr)
+            {
+                prototype.add_component(*pointLight);
+            }
+
+            if (const ECS::SpotLightComponent* spotLight =
+                get_component<ECS::SpotLightComponent>(a_entityId);
+                spotLight != nullptr)
+            {
+                prototype.add_component(*spotLight);
             }
 
             if (const ECS::FirstPersonCameraControllerComponent* controller =
@@ -3172,6 +3214,7 @@ namespace Cue::GameCore
         NavMeshAssetData m_activeNavMeshAsset{};
         std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
         std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
+        std::unique_ptr<ShadowSystem::ShadowResources> m_shadowResources = nullptr;
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
@@ -3186,6 +3229,8 @@ namespace Cue::GameCore
         DrawSystem::DrawFrameState m_drawFrameState{};
         LightingSystem::LightScene m_lightScene{};
         LightingSystem::LightFrameState m_lightFrameState{};
+        ShadowSystem::ShadowScene m_shadowScene{};
+        ShadowSystem::ShadowFrameState m_shadowFrameState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};

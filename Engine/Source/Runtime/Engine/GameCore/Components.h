@@ -128,7 +128,9 @@ namespace Cue::ECS
         float intensity = 5.0f;
         float range = 12.0f;
         float outerAngleDegrees = 35.0f;
+        float shadowBias = 0.002f;
         bool isEnabled = true;
+        bool castsShadow = true;
     };
 
     struct MeshFilterComponent : public IComponentTag

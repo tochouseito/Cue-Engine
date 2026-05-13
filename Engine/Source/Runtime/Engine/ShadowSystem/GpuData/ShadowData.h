@@ -1,0 +1,24 @@
+#pragma once
+
+// === Base includes ===
+#include <CueMath.h>
+
+// === C++ includes ===
+#include <cstdint>
+
+namespace Cue::GpuData
+{
+    inline constexpr uint32_t k_spotShadowMapSize = 1024;
+    inline constexpr uint32_t k_invalidShadowLightIndex = 0xffffffffu;
+
+    struct SpotShadowFrameGpu final
+    {
+        Math::float4x4 view;
+        Math::float4x4 projection;
+        Math::float4 params = Math::float4(
+            0.0f,
+            0.002f,
+            static_cast<float>(k_spotShadowMapSize),
+            static_cast<float>(k_invalidShadowLightIndex));
+    };
+}

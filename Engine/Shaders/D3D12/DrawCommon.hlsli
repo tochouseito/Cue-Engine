@@ -58,6 +58,13 @@ struct SpotLight
     float4 colorIntensity;
 };
 
+struct SpotShadowFrame
+{
+    row_major float4x4 view;
+    row_major float4x4 projection;
+    float4 params;
+};
+
 struct MeshRange
 {
     uint indexCount;

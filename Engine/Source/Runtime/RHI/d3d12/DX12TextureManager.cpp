@@ -44,6 +44,11 @@ namespace Cue::RHI::DX12
         resourceDesc.DepthOrArraySize = desc.arraySize;
         resourceDesc.SampleDesc.Count = desc.sampleCount;
         resourceDesc.Format = convert_color_format(desc.format);
+        if (desc.kind == TextureKind::DepthStencil &&
+            desc.format == ColorFormat::D24_UNorm_S8_UInt)
+        {
+            resourceDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+        }
         resourceDesc.Dimension =
             desc.type == TextureType::Texture2D ? D3D12_RESOURCE_DIMENSION_TEXTURE2D :
             D3D12_RESOURCE_DIMENSION_TEXTURE3D;

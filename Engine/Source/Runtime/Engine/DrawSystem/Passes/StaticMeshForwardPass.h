@@ -6,6 +6,7 @@
 // === Engine includes ===
 #include <DrawSystem/DrawFrameState.h>
 #include <LightingSystem/LightingBindings.h>
+#include <ShadowSystem/ShadowBindings.h>
 
 // === C++ includes ===
 #include <array>
@@ -30,6 +31,7 @@ namespace Cue::DrawSystem
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
             RHI::BufferHandle a_materialBufferHandle,
             const LightingSystem::LightingBindings& a_lightingBindings,
+            const ShadowSystem::ShadowBindings& a_shadowBindings,
             uint32_t a_indexCountPerInstance)
             : m_name(std::move(a_name)),
             m_colorName(std::move(a_colorName)),
@@ -43,6 +45,7 @@ namespace Cue::DrawSystem
             m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle),
             m_materialBufferHandle(a_materialBufferHandle),
             m_lightingBindings(a_lightingBindings),
+            m_shadowBindings(a_shadowBindings),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -199,6 +202,21 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.read_buffer(m_shadowBindings.spotShadowFrameBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture("SpotShadowMap", m_spotShadowMapHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view("SpotShadowMapSRV", m_spotShadowMapSrvHandle);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
@@ -230,6 +248,14 @@ namespace Cue::DrawSystem
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                7,
+                1,
+                0 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -447,6 +473,24 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.use_buffer(
+                m_shadowBindings.spotShadowFrameBuffer,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_texture(
+                m_spotShadowMapHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
 
             result = builder.use_buffer(
                 m_indirectCommandBufferHandle,
@@ -556,6 +600,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(8, m_lightingBindings.directionalLightBuffer);
             commandContext->set_srv(9, m_lightingBindings.pointLightBuffer);
             commandContext->set_srv(10, m_lightingBindings.spotLightBuffer);
+            commandContext->set_cbv(11, m_shadowBindings.spotShadowFrameBuffer);
+            commandContext->set_graphics_descriptor_table(
+                12, m_spotShadowMapSrvHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
@@ -623,7 +670,10 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_meshRangeBufferHandle{};
         RHI::BufferHandle m_materialBufferHandle{};
         LightingSystem::LightingBindings m_lightingBindings{};
+        ShadowSystem::ShadowBindings m_shadowBindings{};
         uint32_t m_indexCountPerInstance = 0;
+        RHI::TextureHandle m_spotShadowMapHandle{};
+        RHI::ViewHandle m_spotShadowMapSrvHandle{};
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};

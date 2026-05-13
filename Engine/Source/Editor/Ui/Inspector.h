@@ -900,7 +900,10 @@ namespace Cue::Editor
             ImGui::DragFloat("range", &component->range, 0.1f, 0.0f, 1000.0f);
             ImGui::DragFloat("outerAngleDegrees", &component->outerAngleDegrees,
                 0.5f, 0.0f, 89.0f);
+            ImGui::DragFloat("shadowBias", &component->shadowBias, 0.0001f,
+                0.0f, 0.1f, "%.5f");
             ImGui::Checkbox("isEnabled", &component->isEnabled);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
         }
 
         void draw_audio_source_component(GameCore::GameObject& a_object)

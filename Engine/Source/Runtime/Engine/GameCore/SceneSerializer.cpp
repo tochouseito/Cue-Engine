@@ -313,7 +313,9 @@ namespace Cue::GameCore
                 { "intensity", a_component.intensity },
                 { "range", a_component.range },
                 { "outerAngleDegrees", a_component.outerAngleDegrees },
+                { "shadowBias", a_component.shadowBias },
                 { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
             };
         }
 
@@ -332,8 +334,12 @@ namespace Cue::GameCore
             a_outComponent.outerAngleDegrees =
                 a_json.value("outerAngleDegrees",
                     a_outComponent.outerAngleDegrees);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
             a_outComponent.isEnabled =
                 a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
         }
 
         [[nodiscard]] Json serialize_first_person_camera_controller(
