@@ -188,6 +188,14 @@ namespace Cue::Editor
             const ImVec2& a_viewportMin,
             const ImVec2& a_viewportMax,
             ImDrawList* a_drawList);
+        [[nodiscard]] bool draw_debug_overlay(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
+        [[nodiscard]] bool draw_spot_shadow_map_preview(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
         [[nodiscard]] bool pick_debug_non_rendered_object(
             const DebugView::PickRequest& a_request,
             GameCore::EntityId& a_outEntityId) const;
@@ -237,6 +245,7 @@ namespace Cue::Editor
         std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
         bool m_showNavigationDebugWindow = false;
+        bool m_showSpotShadowMapPreview = true;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
         bool m_hasScriptBuildNotification = false;

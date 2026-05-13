@@ -12,13 +12,10 @@ struct VsOut
     float4 position : SV_POSITION;
 };
 
-cbuffer SpotShadowFrame : register(b0)
+struct ShadowIndexConstants
 {
-    row_major float4x4 g_spotShadowView;
-    row_major float4x4 g_spotShadowProjection;
-    float4 g_spotShadowParams;
-    float4 g_spotShadowTuning;
-}
+    uint shadowIndex;
+};
 
 struct DrawObjectIndexConstants
 {
@@ -26,17 +23,22 @@ struct DrawObjectIndexConstants
 };
 
 ConstantBuffer<DrawObjectIndexConstants> g_drawObjectIndex : register(b1);
+ConstantBuffer<ShadowIndexConstants> g_shadowIndex : register(b2);
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
+StructuredBuffer<SpotShadowFrame> g_spotShadowFrames : register(t3);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
     const uint renderObjectIndex =
         g_drawObjectIndex.drawObjectIndex + instanceId;
-    if (renderObjectIndex >= renderObjectCount || g_spotShadowParams.x < 0.5f)
+    const SpotShadowFrame shadowFrame =
+        g_spotShadowFrames[g_shadowIndex.shadowIndex];
+    if (renderObjectIndex >= renderObjectCount ||
+        shadowFrame.params.x < 0.5f)
     {
         VsOut emptyOutput;
         emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
@@ -49,7 +51,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
     VsOut output;
     output.position =
-        mul(mul(worldPosition, g_spotShadowView), g_spotShadowProjection);
+        mul(mul(worldPosition, shadowFrame.view), shadowFrame.projection);
     output.position.z = output.position.z * 0.5f + output.position.w * 0.5f;
     return output;
 }

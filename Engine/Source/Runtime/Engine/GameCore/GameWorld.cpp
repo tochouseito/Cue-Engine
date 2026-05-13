@@ -1417,9 +1417,16 @@ namespace Cue::GameCore
             m_shadowScene.frame(a_bufferIndex);
         ShadowSystem::ShadowFrameData& frameState =
             m_shadowFrameState.frame_state(a_bufferIndex);
-        frameState.spotShadow = sceneFrame.hasSpotShadow
-            ? sceneFrame.spotShadow.shadow
-            : GpuData::SpotShadowFrameGpu{};
+        frameState.spotShadows = {};
+        const uint32_t spotShadowCount = (std::min)(
+            static_cast<uint32_t>(sceneFrame.spotShadows.size()),
+            GpuData::k_maxSpotShadowCount);
+        for (uint32_t shadowIndex = 0; shadowIndex < spotShadowCount;
+             ++shadowIndex)
+        {
+            frameState.spotShadows[shadowIndex] =
+                sceneFrame.spotShadows[shadowIndex].shadow;
+        }
 
         auto resolve_uploader_index = [a_bufferIndex](uint32_t a_count) -> uint32_t
         {
@@ -1446,10 +1453,14 @@ namespace Cue::GameCore
 
         auto& uploader = uploaders[uploaderIndex];
         uploader.begin_frame();
-        if (!uploader.push(0, frameState.spotShadow))
+        for (uint32_t shadowIndex = 0; shadowIndex < GpuData::k_maxSpotShadowCount;
+             ++shadowIndex)
         {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                "Failed to queue spot shadow frame upload.");
+            if (!uploader.push(shadowIndex, frameState.spotShadows[shadowIndex]))
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Failed to queue spot shadow frame upload.");
+            }
         }
         if (!uploader.commit())
         {

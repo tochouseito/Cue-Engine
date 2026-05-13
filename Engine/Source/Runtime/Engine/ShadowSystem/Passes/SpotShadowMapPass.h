@@ -160,13 +160,17 @@ namespace Cue::ShadowSystem
                 RHI::ShaderVisibility::All,
                 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0 });
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::All,
+                2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -350,7 +354,6 @@ namespace Cue::ShadowSystem
                 RHI::PrimitiveTopologyType::Triangle);
 
             commandContext->set_32bit_constant(0, 0xffffffffu);
-            commandContext->set_cbv(1, m_shadowBindings.spotShadowFrameBuffer);
             const RHI::BufferHandle renderObjectBufferHandle =
                 (!frameState.useCpuBatching && m_sortedRenderObjectBufferHandle.valid())
                 ? m_sortedRenderObjectBufferHandle
@@ -358,35 +361,60 @@ namespace Cue::ShadowSystem
             commandContext->set_srv(2, renderObjectBufferHandle);
             commandContext->set_srv(3, m_transformBufferHandle);
             commandContext->set_srv(4, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(5, m_shadowBindings.spotShadowFrameBuffer);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
 
-            if (frameState.useCpuBatching)
+            const auto drawShadowCasters = [&]()
             {
-                commandContext->set_index_buffer(
-                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
-                for (const DrawSystem::CpuIndexedDraw& draw :
-                    frameState.cpuIndexedDraws)
+                if (frameState.useCpuBatching)
                 {
-                    if (draw.indexCount == 0)
+                    commandContext->set_index_buffer(
+                        m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                    for (const DrawSystem::CpuIndexedDraw& draw :
+                        frameState.cpuIndexedDraws)
                     {
-                        continue;
-                    }
+                        if (draw.indexCount == 0)
+                        {
+                            continue;
+                        }
 
-                    commandContext->set_32bit_constant(0, draw.renderObjectId);
-                    commandContext->draw_indexed_instanced(
-                        draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
+                        commandContext->set_32bit_constant(0, draw.renderObjectId);
+                        commandContext->draw_indexed_instanced(
+                            draw.indexCount,
+                            1,
+                            draw.startIndex,
+                            draw.baseVertex,
+                            0);
+                    }
                 }
-            }
-            else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+                else if (m_indexCountPerInstance > 0 && frameState.objectCount > 0)
+                {
+                    commandContext->set_index_buffer(
+                        m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                    commandContext->execute_indexed_indirect(
+                        m_indirectCommandBufferHandle,
+                        m_indirectCommandCountBufferHandle,
+                        frameState.objectCount);
+                }
+            };
+
+            for (uint32_t shadowIndex = 0;
+                 shadowIndex < GpuData::k_maxSpotShadowCount;
+                 ++shadowIndex)
             {
-                commandContext->set_index_buffer(
-                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
-                commandContext->execute_indexed_indirect(
-                    m_indirectCommandBufferHandle,
-                    m_indirectCommandCountBufferHandle,
-                    frameState.objectCount);
+                const uint32_t tileX =
+                    shadowIndex % GpuData::k_spotShadowAtlasColumnCount;
+                const uint32_t tileY =
+                    shadowIndex / GpuData::k_spotShadowAtlasColumnCount;
+                commandContext->set_viewport_scissor(
+                    tileX * GpuData::k_spotShadowTileSize,
+                    tileY * GpuData::k_spotShadowTileSize,
+                    GpuData::k_spotShadowTileSize,
+                    GpuData::k_spotShadowTileSize);
+                commandContext->set_32bit_constant(1, shadowIndex);
+                drawShadowCasters();
             }
         }
 

@@ -17,6 +17,7 @@ struct VsIn
 };
 
 static const float k_pi = 3.14159265359f;
+static const uint k_maxSpotShadowCount = 4u;
 
 cbuffer ViewProjection : register(b0)
 {
@@ -39,8 +40,8 @@ ConstantBuffer<LightFrame> g_lightFrame : register(b2);
 StructuredBuffer<DirectionalLight> g_directionalLights : register(t4);
 StructuredBuffer<PointLight> g_pointLights : register(t5);
 StructuredBuffer<SpotLight> g_spotLights : register(t6);
-ConstantBuffer<SpotShadowFrame> g_spotShadowFrame : register(b3);
-Texture2D<float> g_spotShadowMap : register(t7);
+StructuredBuffer<SpotShadowFrame> g_spotShadowFrames : register(t7);
+Texture2D<float> g_spotShadowMap : register(t8);
 Texture2D<float4> g_textures[] : register(t0, space1);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
@@ -84,21 +85,30 @@ float evaluate_spot_shadow(
     float3 worldNormal,
     float3 lightDirection)
 {
-    if (g_spotShadowFrame.params.x < 0.5f)
+    SpotShadowFrame shadowFrame = g_spotShadowFrames[0];
+    bool hasShadow = false;
+    [unroll]
+    for (uint shadowIndex = 0; shadowIndex < k_maxSpotShadowCount;
+         ++shadowIndex)
     {
-        return 1.0f;
+        const SpotShadowFrame candidate = g_spotShadowFrames[shadowIndex];
+        const uint shadowLightIndex = (uint)(candidate.params.w + 0.5f);
+        if (candidate.params.x >= 0.5f && shadowLightIndex == lightIndex)
+        {
+            shadowFrame = candidate;
+            hasShadow = true;
+            break;
+        }
     }
 
-    const uint shadowLightIndex =
-        (uint)(g_spotShadowFrame.params.w + 0.5f);
-    if (shadowLightIndex != lightIndex)
+    if (!hasShadow)
     {
         return 1.0f;
     }
 
     const float4 shadowPosition =
-        mul(mul(float4(worldPosition, 1.0f), g_spotShadowFrame.view),
-            g_spotShadowFrame.projection);
+        mul(mul(float4(worldPosition, 1.0f), shadowFrame.view),
+            shadowFrame.projection);
     if (shadowPosition.w <= 0.0001f)
     {
         return 1.0f;
@@ -106,8 +116,11 @@ float evaluate_spot_shadow(
 
     float3 ndc = shadowPosition.xyz / shadowPosition.w;
     ndc.z = ndc.z * 0.5f + 0.5f;
-    const float2 uv = ndc.xy * float2(0.5f, -0.5f) + float2(0.5f, 0.5f);
-    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f ||
+    const float2 tileUv =
+        ndc.xy * float2(0.5f, -0.5f) + float2(0.5f, 0.5f);
+    const float2 uv = tileUv * shadowFrame.atlas.zw + shadowFrame.atlas.xy;
+    if (tileUv.x < 0.0f || tileUv.x > 1.0f ||
+        tileUv.y < 0.0f || tileUv.y > 1.0f ||
         ndc.z < 0.0f || ndc.z > 1.0f)
     {
         return 1.0f;
@@ -118,11 +131,16 @@ float evaluate_spot_shadow(
     g_spotShadowMap.GetDimensions(width, height);
     const float2 texel = uv * float2(width, height);
     const int2 baseCoord = int2(texel);
-    const float softness = max(g_spotShadowFrame.tuning.z, 0.0f);
-    const float receiverBias = max(
-        g_spotShadowFrame.params.y *
-            (1.0f - saturate(dot(worldNormal, lightDirection))),
-        g_spotShadowFrame.params.y);
+    const float softness = max(shadowFrame.tuning.z, 0.0f);
+    const float receiverBias =
+        shadowFrame.params.y +
+        shadowFrame.tuning.w *
+            (1.0f - saturate(dot(worldNormal, lightDirection)));
+    const int2 tileMinCoord =
+        int2(shadowFrame.atlas.xy * float2(width, height));
+    const int2 tileMaxCoord =
+        int2((shadowFrame.atlas.xy + shadowFrame.atlas.zw) *
+            float2(width, height)) - int2(1, 1);
 
     float visibility = 0.0f;
     [unroll]
@@ -135,15 +153,15 @@ float evaluate_spot_shadow(
                 int2(texel + float2((float)x, (float)y) * softness);
             const int2 coord = clamp(
                 softness > 0.0f ? sampleCoord : baseCoord,
-                int2(0, 0),
-                int2((int)width - 1, (int)height - 1));
+                tileMinCoord,
+                tileMaxCoord);
             const float closestDepth = g_spotShadowMap.Load(int3(coord, 0));
             visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.0f;
         }
     }
 
     const float rawVisibility = visibility / 9.0f;
-    return lerp(1.0f, rawVisibility, saturate(g_spotShadowFrame.tuning.y));
+    return lerp(1.0f, rawVisibility, saturate(shadowFrame.tuning.y));
 }
 
 float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)

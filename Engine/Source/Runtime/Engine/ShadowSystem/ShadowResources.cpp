@@ -2,11 +2,6 @@
 
 namespace Cue::ShadowSystem
 {
-    namespace
-    {
-        constexpr uint32_t k_constantBufferAlignment = 256;
-    }
-
     ShadowResources::ShadowResources(
         RHI::IBufferManager* a_bufferManager,
         RHI::IViewManager* a_viewManager,
@@ -26,13 +21,13 @@ namespace Cue::ShadowSystem
 
         RHI::BufferDesc bufferDesc{};
         bufferDesc.name = "SpotShadowFrameBuffer";
-        bufferDesc.type = RHI::BufferType::Constant;
+        bufferDesc.type = RHI::BufferType::Structured;
         bufferDesc.defaultHeapCount = 1;
         bufferDesc.uploadHeapCount = m_bufferCount;
-        bufferDesc.elementCount = 1;
+        bufferDesc.elementCount = GpuData::k_maxSpotShadowCount;
         bufferDesc.stride = sizeof(GpuData::SpotShadowFrameGpu);
         bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
-        bufferDesc.alignment = k_constantBufferAlignment;
+        bufferDesc.alignment = alignof(GpuData::SpotShadowFrameGpu);
         bufferDesc.initialState = RHI::ResourceState::Common;
 
         RHI::BufferHandle& handle =

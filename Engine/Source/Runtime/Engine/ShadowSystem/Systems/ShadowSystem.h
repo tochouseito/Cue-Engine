@@ -36,7 +36,7 @@ namespace Cue::ECS
                 m_shadowScene, a_context.bufferIndex);
             m_currentCollector = &collector;
             m_spotLightIndex = 0;
-            m_hasSpotShadow = false;
+            m_spotShadowCount = 0;
             ECSManager::System<TransformComponent>::update(a_context);
             m_currentCollector = nullptr;
         }
@@ -65,10 +65,12 @@ namespace Cue::ECS
             const uint32_t currentSpotLightIndex = m_spotLightIndex;
             ++m_spotLightIndex;
 
-            if (m_hasSpotShadow || !spotLight->castsShadow)
+            if (!spotLight->castsShadow ||
+                m_spotShadowCount >= GpuData::k_maxSpotShadowCount)
             {
                 return;
             }
+            const uint32_t shadowIndex = m_spotShadowCount;
 
             const float outerAngle = std::clamp(
                 spotLight->outerAngleDegrees,
@@ -89,24 +91,37 @@ namespace Cue::ECS
             item.shadow.view = Math::float4x4::inverse(worldMatrix);
             item.shadow.projection =
                 Math::perspective_fov_matrix(fovY, 1.0f, nearClip, range);
+            const uint32_t tileX =
+                shadowIndex % GpuData::k_spotShadowAtlasColumnCount;
+            const uint32_t tileY =
+                shadowIndex / GpuData::k_spotShadowAtlasColumnCount;
+            item.shadow.atlas = Math::float4(
+                static_cast<float>(tileX) /
+                    static_cast<float>(GpuData::k_spotShadowAtlasColumnCount),
+                static_cast<float>(tileY) /
+                    static_cast<float>(GpuData::k_spotShadowAtlasRowCount),
+                1.0f /
+                    static_cast<float>(GpuData::k_spotShadowAtlasColumnCount),
+                1.0f /
+                    static_cast<float>(GpuData::k_spotShadowAtlasRowCount));
             item.shadow.params = Math::float4(
                 1.0f,
                 (std::max)(spotLight->shadowBias, 0.0f) / range,
                 nearClip,
                 static_cast<float>(currentSpotLightIndex));
             item.shadow.tuning = Math::float4(
-                static_cast<float>(GpuData::k_spotShadowMapSize),
+                static_cast<float>(GpuData::k_spotShadowTileSize),
                 std::clamp(spotLight->shadowStrength, 0.0f, 1.0f),
                 (std::max)(spotLight->shadowSoftness, 0.0f),
-                0.0f);
+                (std::max)(spotLight->shadowSlopeBias, 0.0f) / range);
             m_currentCollector->submit_spot_shadow(item);
-            m_hasSpotShadow = true;
+            ++m_spotShadowCount;
         }
 
     private:
         Cue::ShadowSystem::ShadowScene& m_shadowScene;
         Cue::ShadowSystem::ShadowCollector* m_currentCollector = nullptr;
         uint32_t m_spotLightIndex = 0;
-        bool m_hasSpotShadow = false;
+        uint32_t m_spotShadowCount = 0;
     };
 }

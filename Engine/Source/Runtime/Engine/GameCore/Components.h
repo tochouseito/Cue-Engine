@@ -129,6 +129,7 @@ namespace Cue::ECS
         float range = 12.0f;
         float outerAngleDegrees = 35.0f;
         float shadowBias = 0.002f;
+        float shadowSlopeBias = 0.004f;
         float shadowNearClip = 0.05f;
         float shadowStrength = 0.75f;
         float shadowSoftness = 1.0f;

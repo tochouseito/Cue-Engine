@@ -314,6 +314,7 @@ namespace Cue::GameCore
                 { "range", a_component.range },
                 { "outerAngleDegrees", a_component.outerAngleDegrees },
                 { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
                 { "shadowNearClip", a_component.shadowNearClip },
                 { "shadowStrength", a_component.shadowStrength },
                 { "shadowSoftness", a_component.shadowSoftness },
@@ -339,6 +340,9 @@ namespace Cue::GameCore
                     a_outComponent.outerAngleDegrees);
             a_outComponent.shadowBias =
                 a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
             a_outComponent.shadowNearClip =
                 a_json.value("shadowNearClip", a_outComponent.shadowNearClip);
             a_outComponent.shadowStrength =

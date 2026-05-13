@@ -15,8 +15,7 @@ namespace Cue::ShadowSystem
 
     struct ShadowSceneFrame final
     {
-        SpotShadowItem spotShadow{};
-        bool hasSpotShadow = false;
+        std::vector<SpotShadowItem> spotShadows{};
     };
 
     class ShadowScene final
@@ -42,13 +41,13 @@ namespace Cue::ShadowSystem
             const SpotShadowItem& a_item)
         {
             if (a_bufferIndex >= m_frames.size() ||
-                m_frames[a_bufferIndex].hasSpotShadow)
+                m_frames[a_bufferIndex].spotShadows.size() >=
+                    GpuData::k_maxSpotShadowCount)
             {
                 return;
             }
 
-            m_frames[a_bufferIndex].spotShadow = a_item;
-            m_frames[a_bufferIndex].hasSpotShadow = true;
+            m_frames[a_bufferIndex].spotShadows.push_back(a_item);
         }
 
         ShadowSceneFrame& frame(const uint32_t a_bufferIndex) noexcept

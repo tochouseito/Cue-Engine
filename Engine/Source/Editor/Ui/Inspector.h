@@ -900,16 +900,26 @@ namespace Cue::Editor
             ImGui::DragFloat("range", &component->range, 0.1f, 0.0f, 1000.0f);
             ImGui::DragFloat("outerAngleDegrees", &component->outerAngleDegrees,
                 0.5f, 0.0f, 89.0f);
+            ImGui::Checkbox("isEnabled", &component->isEnabled);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
+
+            ImGui::SeparatorText("Shadow");
+            ImGui::BeginDisabled(!component->castsShadow);
+            const float maxNearClip =
+                (std::max)(component->range - 0.001f, 0.001f);
+            ImGui::DragFloat("shadowNearClip", &component->shadowNearClip,
+                0.01f, 0.001f, maxNearClip, "%.3f");
+            component->shadowNearClip =
+                std::clamp(component->shadowNearClip, 0.001f, maxNearClip);
             ImGui::DragFloat("shadowBias", &component->shadowBias, 0.0001f,
                 0.0f, 0.1f, "%.5f");
-            ImGui::DragFloat("shadowNearClip", &component->shadowNearClip,
-                0.01f, 0.001f, 100.0f, "%.3f");
+            ImGui::DragFloat("shadowSlopeBias", &component->shadowSlopeBias,
+                0.0001f, 0.0f, 0.1f, "%.5f");
             ImGui::DragFloat("shadowStrength", &component->shadowStrength,
                 0.01f, 0.0f, 1.0f, "%.2f");
             ImGui::DragFloat("shadowSoftness", &component->shadowSoftness,
                 0.1f, 0.0f, 8.0f, "%.2f");
-            ImGui::Checkbox("isEnabled", &component->isEnabled);
-            ImGui::Checkbox("castsShadow", &component->castsShadow);
+            ImGui::EndDisabled();
         }
 
         void draw_audio_source_component(GameCore::GameObject& a_object)

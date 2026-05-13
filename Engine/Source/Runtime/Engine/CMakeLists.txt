@@ -51,6 +51,7 @@ add_library(Engine STATIC
     "ShadowSystem/ShadowScene.h"
     "ShadowSystem/Passes/ShadowBufferCopyPass.h"
     "ShadowSystem/Passes/SpotShadowMapPass.h"
+    "ShadowSystem/Passes/SpotShadowMapPreviewPass.h"
     "ShadowSystem/Systems/ShadowSystem.h"
     "GpuData/Transform.h"
     "GpuData/Batching.h"

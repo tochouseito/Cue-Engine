@@ -249,11 +249,11 @@ namespace Cue::DrawSystem
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
-                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 3 });
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::DescriptorTableSRV,
                 RHI::ShaderVisibility::Pixel,
-                7,
+                8,
                 1,
                 0 });
             result =
@@ -600,7 +600,7 @@ namespace Cue::DrawSystem
             commandContext->set_srv(8, m_lightingBindings.directionalLightBuffer);
             commandContext->set_srv(9, m_lightingBindings.pointLightBuffer);
             commandContext->set_srv(10, m_lightingBindings.spotLightBuffer);
-            commandContext->set_cbv(11, m_shadowBindings.spotShadowFrameBuffer);
+            commandContext->set_srv(11, m_shadowBindings.spotShadowFrameBuffer);
             commandContext->set_graphics_descriptor_table(
                 12, m_spotShadowMapSrvHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);

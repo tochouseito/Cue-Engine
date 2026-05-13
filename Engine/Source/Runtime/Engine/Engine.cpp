@@ -23,6 +23,7 @@
 #include "ShadowSystem/GpuData/ShadowData.h"
 #include "ShadowSystem/Passes/ShadowBufferCopyPass.h"
 #include "ShadowSystem/Passes/SpotShadowMapPass.h"
+#include "ShadowSystem/Passes/SpotShadowMapPreviewPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
@@ -1070,7 +1071,8 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
             "SpotShadowFrameBufferCopy",
             shadowBindings.spotShadowFrameBuffer,
-            sizeof(GpuData::SpotShadowFrameGpu)));
+            static_cast<uint64_t>(GpuData::k_maxSpotShadowCount) *
+                sizeof(GpuData::SpotShadowFrameGpu)));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::GenerateVisibleListPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->renderable_info_buffer_handle(),
@@ -1101,6 +1103,9 @@ namespace Cue
             drawResources->visible_object_count_buffer_handle(),
             shadowBindings,
             m_cubeIndexCount));
+        m_frameGraph->add_pass(
+            std::make_unique<ShadowSystem::SpotShadowMapPreviewPass>(
+                shadowBindings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
             "GameStaticMeshForward",
             "GameColor",

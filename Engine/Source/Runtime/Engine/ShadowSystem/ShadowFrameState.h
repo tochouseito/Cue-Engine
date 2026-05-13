@@ -4,13 +4,15 @@
 #include <ShadowSystem/GpuData/ShadowData.h>
 
 // === C++ includes ===
+#include <array>
 #include <vector>
 
 namespace Cue::ShadowSystem
 {
     struct ShadowFrameData final
     {
-        GpuData::SpotShadowFrameGpu spotShadow{};
+        std::array<GpuData::SpotShadowFrameGpu,
+            GpuData::k_maxSpotShadowCount> spotShadows{};
     };
 
     struct ShadowFrameState final

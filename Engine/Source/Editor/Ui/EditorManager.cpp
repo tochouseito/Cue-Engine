@@ -2220,7 +2220,7 @@ namespace Cue::Editor
                 ImDrawList* a_drawList)
             {
                 return static_cast<EditorManager*>(a_context)
-                    ->draw_debug_transform_gizmo(
+                    ->draw_debug_overlay(
                         a_viewportMin,
                         a_viewportMax,
                         a_drawList);
@@ -5700,6 +5700,9 @@ namespace Cue::Editor
             m_engine->set_debug_grid_visible(isGridVisible);
         }
         ImGui::EndDisabled();
+
+        ImGui::Separator();
+        ImGui::Checkbox("SpotShadowMap Preview", &m_showSpotShadowMapPreview);
     }
 
     void EditorManager::draw_scene_menu_items()
@@ -6298,6 +6301,111 @@ namespace Cue::Editor
         return isBlockingPick;
     }
 
+    bool EditorManager::draw_debug_overlay(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        const bool isGizmoBlocking = draw_debug_transform_gizmo(
+            a_viewportMin,
+            a_viewportMax,
+            a_drawList);
+        const bool isPreviewBlocking = draw_spot_shadow_map_preview(
+            a_viewportMin,
+            a_viewportMax,
+            a_drawList);
+        return isGizmoBlocking || isPreviewBlocking;
+    }
+
+    bool EditorManager::draw_spot_shadow_map_preview(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        if (!m_showSpotShadowMapPreview || m_backend == nullptr ||
+            a_drawList == nullptr)
+        {
+            return false;
+        }
+
+        RHI::IViewManager* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return false;
+        }
+
+        RHI::ViewHandle viewHandle{};
+        const Result viewResult =
+            viewManager->get_view("SpotShadowMapPreviewSRV", viewHandle);
+        if (!viewResult || !viewHandle.valid())
+        {
+            return false;
+        }
+
+        const D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+            m_backend->get_gpu_descriptor_handle(
+                viewHandle,
+                m_backend->current_back_buffer_index(),
+                m_backend->buffer_count());
+        if (gpuHandle.ptr == 0)
+        {
+            return false;
+        }
+
+        const ImVec2 viewportSize(
+            a_viewportMax.x - a_viewportMin.x,
+            a_viewportMax.y - a_viewportMin.y);
+        if (viewportSize.x <= 80.0f || viewportSize.y <= 80.0f)
+        {
+            return false;
+        }
+
+        const float imageSize = std::clamp(
+            (std::min)(viewportSize.x, viewportSize.y) * 0.28f,
+            96.0f,
+            240.0f);
+        const float titleHeight = 22.0f;
+        const float padding = 8.0f;
+        const ImVec2 panelMin(
+            a_viewportMax.x - imageSize - padding * 2.0f - 10.0f,
+            a_viewportMin.y + 10.0f);
+        const ImVec2 panelMax(
+            panelMin.x + imageSize + padding * 2.0f,
+            panelMin.y + imageSize + titleHeight + padding * 2.0f);
+        const ImVec2 imageMin(
+            panelMin.x + padding,
+            panelMin.y + titleHeight + padding);
+        const ImVec2 imageMax(
+            imageMin.x + imageSize,
+            imageMin.y + imageSize);
+
+        a_drawList->AddRectFilled(
+            panelMin,
+            panelMax,
+            IM_COL32(16, 16, 16, 210),
+            4.0f);
+        a_drawList->AddText(
+            ImVec2(panelMin.x + padding, panelMin.y + 4.0f),
+            IM_COL32(230, 230, 230, 255),
+            "SpotShadowMap");
+        a_drawList->AddImage(
+            static_cast<ImTextureID>(gpuHandle.ptr),
+            imageMin,
+            imageMax,
+            ImVec2(0.0f, 0.0f),
+            ImVec2(1.0f, 1.0f),
+            IM_COL32(255, 255, 255, 255));
+        a_drawList->AddRect(
+            imageMin,
+            imageMax,
+            IM_COL32(255, 255, 255, 180),
+            0.0f,
+            0,
+            1.0f);
+
+        return ImGui::IsMouseHoveringRect(panelMin, panelMax);
+    }
+
     bool EditorManager::pick_debug_non_rendered_object(
         const DebugView::PickRequest& a_request,
         GameCore::EntityId& a_outEntityId) const
@@ -6647,6 +6755,39 @@ namespace Cue::Editor
             item.isEnabled = 1;
             return item;
         };
+        auto makeSpotShadowFrustumItem =
+            [](const ECS::TransformComponent& a_transform,
+                const ECS::SpotLightComponent& a_spotLight,
+                bool a_isSelected) noexcept
+        {
+            const float range = (std::max)(a_spotLight.range, 0.001f);
+            const float nearClip = std::clamp(
+                a_spotLight.shadowNearClip,
+                0.001f,
+                (std::max)(range - 0.001f, 0.001f));
+            const float outerAngle = std::clamp(
+                a_spotLight.outerAngleDegrees,
+                1.0f,
+                89.0f);
+
+            GpuData::DebugSelectionItemGpu item{};
+            item.world =
+                Math::y_axis_matrix(Math::k_pi) *
+                Math::xyz_rotate_matrix(a_transform.rotation) *
+                Math::translate_matrix(a_transform.position);
+            item.color = a_isSelected
+                ? Math::float4(1.0f, 0.84f, 0.18f, 1.0f)
+                : Math::float4(0.2f, 0.95f, 1.0f, 1.0f);
+            item.camera = Math::float4(
+                outerAngle * 2.0f,
+                1.0f,
+                nearClip,
+                range);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::CameraFrustum);
+            item.isEnabled = 1;
+            return item;
+        };
         auto makeLightLineItem =
             [](const ECS::TransformComponent& a_transform,
                 const Math::float3& a_end,
@@ -6792,7 +6933,11 @@ namespace Cue::Editor
                 a_entityId == m_selectedEntityId));
         };
         auto appendLightObject =
-            [this, &appendLightArrow, &appendPointLightMarker](
+            [this,
+                &appendDebugItem,
+                &appendLightArrow,
+                &appendPointLightMarker,
+                &makeSpotShadowFrustumItem](
                 GameCore::EntityId a_entityId,
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
@@ -6835,6 +6980,13 @@ namespace Cue::Editor
             ECS::SpotLightComponent* spotLight = nullptr;
             if (a_object.get_component(spotLight) && spotLight != nullptr)
             {
+                if (spotLight->castsShadow)
+                {
+                    appendDebugItem(makeSpotShadowFrustumItem(
+                        *transform,
+                        *spotLight,
+                        isSelected));
+                }
                 appendLightArrow(
                     *transform,
                     2.5f,
