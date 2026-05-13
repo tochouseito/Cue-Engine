@@ -76,6 +76,10 @@ namespace Cue::ECS
                 89.0f);
             const float fovY = Math::degrees_to_radians(outerAngle * 2.0f);
             const float range = (std::max)(spotLight->range, 0.001f);
+            const float nearClip = std::clamp(
+                spotLight->shadowNearClip,
+                0.001f,
+                (std::max)(range - 0.001f, 0.001f));
             const Math::float4x4 worldMatrix =
                 Math::y_axis_matrix(Math::k_pi) *
                 Math::xyz_rotate_matrix(a_transform.rotation) *
@@ -84,12 +88,17 @@ namespace Cue::ECS
             Cue::ShadowSystem::SpotShadowItem item{};
             item.shadow.view = Math::float4x4::inverse(worldMatrix);
             item.shadow.projection =
-                Math::perspective_fov_matrix(fovY, 1.0f, 0.05f, range);
+                Math::perspective_fov_matrix(fovY, 1.0f, nearClip, range);
             item.shadow.params = Math::float4(
                 1.0f,
                 (std::max)(spotLight->shadowBias, 0.0f) / range,
-                static_cast<float>(GpuData::k_spotShadowMapSize),
+                nearClip,
                 static_cast<float>(currentSpotLightIndex));
+            item.shadow.tuning = Math::float4(
+                static_cast<float>(GpuData::k_spotShadowMapSize),
+                std::clamp(spotLight->shadowStrength, 0.0f, 1.0f),
+                (std::max)(spotLight->shadowSoftness, 0.0f),
+                0.0f);
             m_currentCollector->submit_spot_shadow(item);
             m_hasSpotShadow = true;
         }

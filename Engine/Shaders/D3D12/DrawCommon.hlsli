@@ -63,6 +63,7 @@ struct SpotShadowFrame
     row_major float4x4 view;
     row_major float4x4 projection;
     float4 params;
+    float4 tuning;
 };
 
 struct MeshRange

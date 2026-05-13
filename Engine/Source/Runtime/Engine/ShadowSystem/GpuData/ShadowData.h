@@ -18,7 +18,12 @@ namespace Cue::GpuData
         Math::float4 params = Math::float4(
             0.0f,
             0.002f,
-            static_cast<float>(k_spotShadowMapSize),
+            0.05f,
             static_cast<float>(k_invalidShadowLightIndex));
+        Math::float4 tuning = Math::float4(
+            static_cast<float>(k_spotShadowMapSize),
+            0.75f,
+            1.0f,
+            0.0f);
     };
 }

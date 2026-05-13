@@ -118,6 +118,7 @@ float evaluate_spot_shadow(
     g_spotShadowMap.GetDimensions(width, height);
     const float2 texel = uv * float2(width, height);
     const int2 baseCoord = int2(texel);
+    const float softness = max(g_spotShadowFrame.tuning.z, 0.0f);
     const float receiverBias = max(
         g_spotShadowFrame.params.y *
             (1.0f - saturate(dot(worldNormal, lightDirection))),
@@ -130,16 +131,19 @@ float evaluate_spot_shadow(
         [unroll]
         for (int x = -1; x <= 1; ++x)
         {
+            const int2 sampleCoord =
+                int2(texel + float2((float)x, (float)y) * softness);
             const int2 coord = clamp(
-                baseCoord + int2(x, y),
+                softness > 0.0f ? sampleCoord : baseCoord,
                 int2(0, 0),
                 int2((int)width - 1, (int)height - 1));
             const float closestDepth = g_spotShadowMap.Load(int3(coord, 0));
-            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.25f;
+            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.0f;
         }
     }
 
-    return visibility / 9.0f;
+    const float rawVisibility = visibility / 9.0f;
+    return lerp(1.0f, rawVisibility, saturate(g_spotShadowFrame.tuning.y));
 }
 
 float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)

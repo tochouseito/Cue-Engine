@@ -17,6 +17,7 @@ cbuffer SpotShadowFrame : register(b0)
     row_major float4x4 g_spotShadowView;
     row_major float4x4 g_spotShadowProjection;
     float4 g_spotShadowParams;
+    float4 g_spotShadowTuning;
 }
 
 struct DrawObjectIndexConstants

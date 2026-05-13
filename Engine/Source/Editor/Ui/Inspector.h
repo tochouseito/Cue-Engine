@@ -902,6 +902,12 @@ namespace Cue::Editor
                 0.5f, 0.0f, 89.0f);
             ImGui::DragFloat("shadowBias", &component->shadowBias, 0.0001f,
                 0.0f, 0.1f, "%.5f");
+            ImGui::DragFloat("shadowNearClip", &component->shadowNearClip,
+                0.01f, 0.001f, 100.0f, "%.3f");
+            ImGui::DragFloat("shadowStrength", &component->shadowStrength,
+                0.01f, 0.0f, 1.0f, "%.2f");
+            ImGui::DragFloat("shadowSoftness", &component->shadowSoftness,
+                0.1f, 0.0f, 8.0f, "%.2f");
             ImGui::Checkbox("isEnabled", &component->isEnabled);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
         }
