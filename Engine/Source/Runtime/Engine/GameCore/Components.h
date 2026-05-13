@@ -101,7 +101,14 @@ namespace Cue::ECS
             DirectionalLightComponent&&) = default;
         Math::float3 color = Math::float3(1.0f, 1.0f, 1.0f);
         float intensity = 1.0f;
+        float shadowBias = 0.001f;
+        float shadowSlopeBias = 0.002f;
+        float shadowSize = 40.0f;
+        float shadowDistance = 80.0f;
+        float shadowStrength = 0.75f;
+        float shadowSoftness = 1.0f;
         bool isEnabled = true;
+        bool castsShadow = true;
     };
 
     struct PointLightComponent : public IComponentTag
@@ -114,7 +121,13 @@ namespace Cue::ECS
         Math::float3 color = Math::float3(1.0f, 0.92f, 0.78f);
         float intensity = 3.0f;
         float range = 10.0f;
+        float shadowBias = 0.002f;
+        float shadowSlopeBias = 0.004f;
+        float shadowNearClip = 0.05f;
+        float shadowStrength = 0.75f;
+        float shadowSoftness = 1.0f;
         bool isEnabled = true;
+        bool castsShadow = true;
     };
 
     struct SpotLightComponent : public IComponentTag

@@ -18,6 +18,7 @@
 #include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
+#include <ShadowSystem/GpuData/ShadowData.h>
 
 // === Win includes ===
 #include <shellapi.h>
@@ -28,6 +29,7 @@
 #include <cmath>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
 #include <mutex>
@@ -6342,10 +6344,11 @@ namespace Cue::Editor
             return false;
         }
 
+        const uint32_t bufferIndex = m_backend->current_back_buffer_index();
         const D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
             m_backend->get_gpu_descriptor_handle(
                 viewHandle,
-                m_backend->current_back_buffer_index(),
+                bufferIndex,
                 m_backend->buffer_count());
         if (gpuHandle.ptr == 0)
         {
@@ -6402,6 +6405,86 @@ namespace Cue::Editor
             0.0f,
             0,
             1.0f);
+
+        const GameCore::GameWorld* world =
+            m_engine != nullptr ? m_engine->active_world() : nullptr;
+        const Cue::ShadowSystem::ShadowFrameData* shadowFrame = nullptr;
+        if (world != nullptr &&
+            bufferIndex < world->shadow_frame_state().frameStates.size())
+        {
+            shadowFrame =
+                &world->shadow_frame_state().frame_state(bufferIndex);
+        }
+
+        const float tileWidth =
+            imageSize /
+            static_cast<float>(GpuData::k_spotShadowAtlasColumnCount);
+        const float tileHeight =
+            imageSize /
+            static_cast<float>(GpuData::k_spotShadowAtlasRowCount);
+        for (uint32_t row = 0; row < GpuData::k_spotShadowAtlasRowCount; ++row)
+        {
+            for (uint32_t column = 0;
+                 column < GpuData::k_spotShadowAtlasColumnCount;
+                 ++column)
+            {
+                const uint32_t shadowIndex =
+                    row * GpuData::k_spotShadowAtlasColumnCount + column;
+                const ImVec2 tileMin(
+                    imageMin.x + static_cast<float>(column) * tileWidth,
+                    imageMin.y + static_cast<float>(row) * tileHeight);
+                const ImVec2 tileMax(
+                    tileMin.x + tileWidth,
+                    tileMin.y + tileHeight);
+                const bool hasShadow =
+                    shadowFrame != nullptr &&
+                    shadowIndex < shadowFrame->spotShadows.size() &&
+                    shadowFrame->spotShadows[shadowIndex].params.x >= 0.5f;
+
+                a_drawList->AddRect(
+                    tileMin,
+                    tileMax,
+                    hasShadow
+                        ? IM_COL32(80, 230, 255, 230)
+                        : IM_COL32(120, 120, 120, 160),
+                    0.0f,
+                    0,
+                    hasShadow ? 1.5f : 1.0f);
+
+                char label[32]{};
+                if (hasShadow)
+                {
+                    const uint32_t lightIndex = static_cast<uint32_t>(
+                        shadowFrame->spotShadows[shadowIndex].params.w + 0.5f);
+                    std::snprintf(
+                        label,
+                        sizeof(label),
+                        "S%u L%u",
+                        shadowIndex,
+                        lightIndex);
+                }
+                else
+                {
+                    std::snprintf(
+                        label,
+                        sizeof(label),
+                        "S%u",
+                        shadowIndex);
+                }
+
+                a_drawList->AddRectFilled(
+                    tileMin,
+                    ImVec2(tileMin.x + 48.0f, tileMin.y + 18.0f),
+                    IM_COL32(0, 0, 0, 150),
+                    2.0f);
+                a_drawList->AddText(
+                    ImVec2(tileMin.x + 4.0f, tileMin.y + 2.0f),
+                    hasShadow
+                        ? IM_COL32(220, 250, 255, 255)
+                        : IM_COL32(180, 180, 180, 255),
+                    label);
+            }
+        }
 
         return ImGui::IsMouseHoveringRect(panelMin, panelMax);
     }

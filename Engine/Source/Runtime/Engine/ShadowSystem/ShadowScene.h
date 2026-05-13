@@ -4,6 +4,7 @@
 #include <ShadowSystem/GpuData/ShadowData.h>
 
 // === C++ includes ===
+#include <array>
 #include <vector>
 
 namespace Cue::ShadowSystem
@@ -13,9 +14,24 @@ namespace Cue::ShadowSystem
         GpuData::SpotShadowFrameGpu shadow{};
     };
 
+    struct DirectionalShadowItem final
+    {
+        GpuData::DirectionalShadowFrameGpu shadow{};
+    };
+
+    struct PointShadowItem final
+    {
+        std::array<GpuData::PointShadowFaceGpu,
+            GpuData::k_pointShadowFaceCount> faces{};
+    };
+
     struct ShadowSceneFrame final
     {
+        DirectionalShadowItem directionalShadow{};
+        PointShadowItem pointShadow{};
         std::vector<SpotShadowItem> spotShadows{};
+        bool hasDirectionalShadow = false;
+        bool hasPointShadow = false;
     };
 
     class ShadowScene final
@@ -48,6 +64,34 @@ namespace Cue::ShadowSystem
             }
 
             m_frames[a_bufferIndex].spotShadows.push_back(a_item);
+        }
+
+        void submit_directional_shadow(
+            const uint32_t a_bufferIndex,
+            const DirectionalShadowItem& a_item)
+        {
+            if (a_bufferIndex >= m_frames.size() ||
+                m_frames[a_bufferIndex].hasDirectionalShadow)
+            {
+                return;
+            }
+
+            m_frames[a_bufferIndex].directionalShadow = a_item;
+            m_frames[a_bufferIndex].hasDirectionalShadow = true;
+        }
+
+        void submit_point_shadow(
+            const uint32_t a_bufferIndex,
+            const PointShadowItem& a_item)
+        {
+            if (a_bufferIndex >= m_frames.size() ||
+                m_frames[a_bufferIndex].hasPointShadow)
+            {
+                return;
+            }
+
+            m_frames[a_bufferIndex].pointShadow = a_item;
+            m_frames[a_bufferIndex].hasPointShadow = true;
         }
 
         ShadowSceneFrame& frame(const uint32_t a_bufferIndex) noexcept

@@ -259,7 +259,14 @@ namespace Cue::GameCore
             return Json{
                 { "color", serialize_float3(a_component.color) },
                 { "intensity", a_component.intensity },
+                { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
+                { "shadowSize", a_component.shadowSize },
+                { "shadowDistance", a_component.shadowDistance },
+                { "shadowStrength", a_component.shadowStrength },
+                { "shadowSoftness", a_component.shadowSoftness },
                 { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
             };
         }
 
@@ -274,8 +281,23 @@ namespace Cue::GameCore
             }
             a_outComponent.intensity =
                 a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
+            a_outComponent.shadowSize =
+                a_json.value("shadowSize", a_outComponent.shadowSize);
+            a_outComponent.shadowDistance =
+                a_json.value("shadowDistance", a_outComponent.shadowDistance);
+            a_outComponent.shadowStrength =
+                a_json.value("shadowStrength", a_outComponent.shadowStrength);
+            a_outComponent.shadowSoftness =
+                a_json.value("shadowSoftness", a_outComponent.shadowSoftness);
             a_outComponent.isEnabled =
                 a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
         }
 
         [[nodiscard]] Json serialize_point_light(
@@ -285,7 +307,13 @@ namespace Cue::GameCore
                 { "color", serialize_float3(a_component.color) },
                 { "intensity", a_component.intensity },
                 { "range", a_component.range },
+                { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
+                { "shadowNearClip", a_component.shadowNearClip },
+                { "shadowStrength", a_component.shadowStrength },
+                { "shadowSoftness", a_component.shadowSoftness },
                 { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
             };
         }
 
@@ -301,8 +329,21 @@ namespace Cue::GameCore
             a_outComponent.intensity =
                 a_json.value("intensity", a_outComponent.intensity);
             a_outComponent.range = a_json.value("range", a_outComponent.range);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
+            a_outComponent.shadowNearClip =
+                a_json.value("shadowNearClip", a_outComponent.shadowNearClip);
+            a_outComponent.shadowStrength =
+                a_json.value("shadowStrength", a_outComponent.shadowStrength);
+            a_outComponent.shadowSoftness =
+                a_json.value("shadowSoftness", a_outComponent.shadowSoftness);
             a_outComponent.isEnabled =
                 a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
         }
 
         [[nodiscard]] Json serialize_spot_light(

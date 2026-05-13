@@ -840,6 +840,23 @@ namespace Cue::Editor
             ImGui::DragFloat("intensity", &component->intensity, 0.05f, 0.0f,
                 100.0f);
             ImGui::Checkbox("isEnabled", &component->isEnabled);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
+
+            ImGui::SeparatorText("Shadow");
+            ImGui::BeginDisabled(!component->castsShadow);
+            ImGui::DragFloat("shadowSize", &component->shadowSize, 0.5f,
+                1.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("shadowDistance", &component->shadowDistance,
+                0.5f, 1.0f, 5000.0f, "%.2f");
+            ImGui::DragFloat("shadowBias", &component->shadowBias, 0.0001f,
+                0.0f, 0.1f, "%.5f");
+            ImGui::DragFloat("shadowSlopeBias", &component->shadowSlopeBias,
+                0.0001f, 0.0f, 0.1f, "%.5f");
+            ImGui::DragFloat("shadowStrength", &component->shadowStrength,
+                0.01f, 0.0f, 1.0f, "%.2f");
+            ImGui::DragFloat("shadowSoftness", &component->shadowSoftness,
+                0.1f, 0.0f, 8.0f, "%.2f");
+            ImGui::EndDisabled();
         }
 
         void draw_point_light_component(GameCore::GameObject& a_object)
@@ -869,6 +886,25 @@ namespace Cue::Editor
                 100.0f);
             ImGui::DragFloat("range", &component->range, 0.1f, 0.0f, 1000.0f);
             ImGui::Checkbox("isEnabled", &component->isEnabled);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
+
+            ImGui::SeparatorText("Shadow");
+            ImGui::BeginDisabled(!component->castsShadow);
+            const float maxNearClip =
+                (std::max)(component->range - 0.001f, 0.001f);
+            ImGui::DragFloat("shadowNearClip", &component->shadowNearClip,
+                0.01f, 0.001f, maxNearClip, "%.3f");
+            component->shadowNearClip =
+                std::clamp(component->shadowNearClip, 0.001f, maxNearClip);
+            ImGui::DragFloat("shadowBias", &component->shadowBias, 0.0001f,
+                0.0f, 0.1f, "%.5f");
+            ImGui::DragFloat("shadowSlopeBias", &component->shadowSlopeBias,
+                0.0001f, 0.0f, 0.1f, "%.5f");
+            ImGui::DragFloat("shadowStrength", &component->shadowStrength,
+                0.01f, 0.0f, 1.0f, "%.2f");
+            ImGui::DragFloat("shadowSoftness", &component->shadowSoftness,
+                0.1f, 0.0f, 8.0f, "%.2f");
+            ImGui::EndDisabled();
         }
 
         void draw_spot_light_component(GameCore::GameObject& a_object)

@@ -1,5 +1,8 @@
 #pragma once
 
+// === Math includes ===
+#include <CueMath.h>
+
 // === C++ includes ===
 #include <vector>
 
@@ -13,6 +16,12 @@ namespace Cue::DrawSystem
         int32_t baseVertex = 0;
     };
 
+    struct CpuShadowCaster final
+    {
+        Math::float3 center = Math::float3::zero();
+        float radius = 0.0f;
+    };
+
     struct DrawFrameData final
     {
         uint32_t objectCount = 0;
@@ -21,6 +30,7 @@ namespace Cue::DrawSystem
         uint32_t renderHeight = 1;
         bool useCpuBatching = false;
         std::vector<CpuIndexedDraw> cpuIndexedDraws{};
+        std::vector<CpuShadowCaster> cpuShadowCasters{};
     };
 
     struct DrawFrameState final

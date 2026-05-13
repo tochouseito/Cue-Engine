@@ -30,6 +30,47 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<SpotShadowFrame> g_spotShadowFrames : register(t3);
 
+bool is_shadow_caster_visible(Transform transform, SpotShadowFrame shadowFrame)
+{
+    const float3 center = float3(
+        transform.worldMatrix._41,
+        transform.worldMatrix._42,
+        transform.worldMatrix._43);
+    const float radius = max(
+        length(float3(
+            transform.worldMatrix._11,
+            transform.worldMatrix._12,
+            transform.worldMatrix._13)),
+        max(
+            length(float3(
+                transform.worldMatrix._21,
+                transform.worldMatrix._22,
+                transform.worldMatrix._23)),
+            length(float3(
+                transform.worldMatrix._31,
+                transform.worldMatrix._32,
+                transform.worldMatrix._33)))) *
+        1.7320508f;
+    const float4 lightPosition =
+        mul(float4(center, 1.0f), shadowFrame.view);
+    const float4 clipPosition =
+        mul(lightPosition, shadowFrame.projection);
+    if (clipPosition.w <= 0.0001f)
+    {
+        return false;
+    }
+
+    const float3 ndc = clipPosition.xyz / clipPosition.w;
+    const float margin =
+        min(radius / max(abs(lightPosition.z), 0.001f), 1.0f);
+    return ndc.x >= -1.0f - margin &&
+        ndc.x <= 1.0f + margin &&
+        ndc.y >= -1.0f - margin &&
+        ndc.y <= 1.0f + margin &&
+        ndc.z >= -1.0f - margin &&
+        ndc.z <= 1.0f + margin;
+}
+
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
@@ -47,6 +88,13 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
+    if (!is_shadow_caster_visible(transform, shadowFrame))
+    {
+        VsOut emptyOutput;
+        emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        return emptyOutput;
+    }
+
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
 
     VsOut output;

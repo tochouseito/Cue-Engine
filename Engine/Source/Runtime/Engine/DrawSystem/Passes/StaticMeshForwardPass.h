@@ -207,6 +207,39 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result =
+                builder.read_buffer(m_shadowBindings.directionalShadowFrameBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_shadowBindings.pointShadowFaceBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture(
+                "DirectionalShadowMap", m_directionalShadowMapHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view(
+                "DirectionalShadowMapSRV", m_directionalShadowMapSrvHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture("PointShadowMap", m_pointShadowMapHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view("PointShadowMapSRV", m_pointShadowMapSrvHandle);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.get_texture("SpotShadowMap", m_spotShadowMapHandle);
             if (!result)
             {
@@ -254,6 +287,22 @@ namespace Cue::DrawSystem
                 RHI::RootParameterType::DescriptorTableSRV,
                 RHI::ShaderVisibility::Pixel,
                 8,
+                1,
+                0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                9,
+                1,
+                0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 10 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                11,
                 1,
                 0 });
             result =
@@ -482,6 +531,42 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.use_buffer(
+                m_shadowBindings.directionalShadowFrameBuffer,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_shadowBindings.pointShadowFaceBuffer,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_texture(
+                m_directionalShadowMapHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_texture(
+                m_pointShadowMapHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.use_texture(
                 m_spotShadowMapHandle,
                 RHI::ResourceAccessType::Read,
@@ -603,6 +688,13 @@ namespace Cue::DrawSystem
             commandContext->set_srv(11, m_shadowBindings.spotShadowFrameBuffer);
             commandContext->set_graphics_descriptor_table(
                 12, m_spotShadowMapSrvHandle);
+            commandContext->set_cbv(
+                13, m_shadowBindings.directionalShadowFrameBuffer);
+            commandContext->set_graphics_descriptor_table(
+                14, m_directionalShadowMapSrvHandle);
+            commandContext->set_srv(15, m_shadowBindings.pointShadowFaceBuffer);
+            commandContext->set_graphics_descriptor_table(
+                16, m_pointShadowMapSrvHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
@@ -673,7 +765,11 @@ namespace Cue::DrawSystem
         ShadowSystem::ShadowBindings m_shadowBindings{};
         uint32_t m_indexCountPerInstance = 0;
         RHI::TextureHandle m_spotShadowMapHandle{};
+        RHI::TextureHandle m_directionalShadowMapHandle{};
+        RHI::TextureHandle m_pointShadowMapHandle{};
         RHI::ViewHandle m_spotShadowMapSrvHandle{};
+        RHI::ViewHandle m_directionalShadowMapSrvHandle{};
+        RHI::ViewHandle m_pointShadowMapSrvHandle{};
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};

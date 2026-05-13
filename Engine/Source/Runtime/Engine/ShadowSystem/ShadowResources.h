@@ -17,6 +17,8 @@ namespace Cue::ShadowSystem
 {
     enum class ShadowResourceType : uint8_t
     {
+        DirectionalShadowFrameBuffer,
+        PointShadowFaceBuffer,
         SpotShadowFrameBuffer,
         Count
     };
@@ -30,10 +32,18 @@ namespace Cue::ShadowSystem
             uint32_t a_bufferCount);
 
         [[nodiscard]] Result create_spot_shadow_frame_buffer();
+        [[nodiscard]] Result create_directional_shadow_frame_buffer();
+        [[nodiscard]] Result create_point_shadow_face_buffer();
 
         [[nodiscard]] ShadowBindings bindings() const noexcept
         {
             ShadowBindings bindings{};
+            bindings.directionalShadowFrameBuffer =
+                m_buffers[static_cast<size_t>(
+                    ShadowResourceType::DirectionalShadowFrameBuffer)];
+            bindings.pointShadowFaceBuffer =
+                m_buffers[static_cast<size_t>(
+                    ShadowResourceType::PointShadowFaceBuffer)];
             bindings.spotShadowFrameBuffer =
                 m_buffers[static_cast<size_t>(
                     ShadowResourceType::SpotShadowFrameBuffer)];
@@ -44,6 +54,18 @@ namespace Cue::ShadowSystem
             spot_shadow_frame_uploaders() noexcept
         {
             return m_spotShadowFrameUploaders;
+        }
+
+        [[nodiscard]] std::vector<RHI::SlotUploader<GpuData::DirectionalShadowFrameGpu>>&
+            directional_shadow_frame_uploaders() noexcept
+        {
+            return m_directionalShadowFrameUploaders;
+        }
+
+        [[nodiscard]] std::vector<RHI::SlotUploader<GpuData::PointShadowFaceGpu>>&
+            point_shadow_face_uploaders() noexcept
+        {
+            return m_pointShadowFaceUploaders;
         }
 
         [[nodiscard]] RHI::BufferHandle spot_shadow_frame_buffer_handle()
@@ -59,6 +81,10 @@ namespace Cue::ShadowSystem
         uint32_t m_bufferCount = 0;
         std::array<RHI::BufferHandle,
             static_cast<size_t>(ShadowResourceType::Count)> m_buffers{};
+        std::vector<RHI::SlotUploader<GpuData::DirectionalShadowFrameGpu>>
+            m_directionalShadowFrameUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::PointShadowFaceGpu>>
+            m_pointShadowFaceUploaders{};
         std::vector<RHI::SlotUploader<GpuData::SpotShadowFrameGpu>>
             m_spotShadowFrameUploaders{};
     };

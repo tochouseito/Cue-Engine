@@ -21,6 +21,8 @@
 #include "LightingSystem/GpuData/LightData.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
 #include "ShadowSystem/GpuData/ShadowData.h"
+#include "ShadowSystem/Passes/DirectionalShadowMapPass.h"
+#include "ShadowSystem/Passes/PointShadowMapPass.h"
 #include "ShadowSystem/Passes/ShadowBufferCopyPass.h"
 #include "ShadowSystem/Passes/SpotShadowMapPass.h"
 #include "ShadowSystem/Passes/SpotShadowMapPreviewPass.h"
@@ -1069,6 +1071,15 @@ namespace Cue
             static_cast<uint64_t>(GpuData::k_maxSpotLightCount) *
                 sizeof(GpuData::SpotLightGpu)));
         m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "DirectionalShadowFrameBufferCopy",
+            shadowBindings.directionalShadowFrameBuffer,
+            sizeof(GpuData::DirectionalShadowFrameGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "PointShadowFaceBufferCopy",
+            shadowBindings.pointShadowFaceBuffer,
+            static_cast<uint64_t>(GpuData::k_pointShadowFaceCount) *
+                sizeof(GpuData::PointShadowFaceGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
             "SpotShadowFrameBufferCopy",
             shadowBindings.spotShadowFrameBuffer,
             static_cast<uint64_t>(GpuData::k_maxSpotShadowCount) *
@@ -1096,8 +1107,24 @@ namespace Cue
             drawResources->render_object_buffer_handle(),
             drawResources->transform_buffer_handle(),
             drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ShadowSystem::DirectionalShadowMapPass>(
+                m_activeWorld->draw_frame_state(),
+                drawResources->render_object_buffer_handle(),
+                drawResources->transform_buffer_handle(),
+                drawResources->visible_object_count_buffer_handle(),
+                shadowBindings,
+                m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::PointShadowMapPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            shadowBindings,
+            m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<ShadowSystem::SpotShadowMapPass>(
             m_activeWorld->draw_frame_state(),
+            m_activeWorld->shadow_frame_state(),
             drawResources->render_object_buffer_handle(),
             drawResources->transform_buffer_handle(),
             drawResources->visible_object_count_buffer_handle(),

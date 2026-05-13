@@ -78,6 +78,10 @@ namespace Cue::RHI::DX12
         D3D12_RASTERIZER_DESC convert_rasterizer_state(const RasterizerStateDesc& desc)
         {
             D3D12_RASTERIZER_DESC d3dDesc{};
+            d3dDesc.DepthBias = desc.depthBias;
+            d3dDesc.DepthBiasClamp = desc.depthBiasClamp;
+            d3dDesc.SlopeScaledDepthBias = desc.slopeScaledDepthBias;
+            d3dDesc.DepthClipEnable = TRUE;
             switch (desc.cullMode)
             {
             case CullMode::None:

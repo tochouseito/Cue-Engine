@@ -67,6 +67,24 @@ struct SpotShadowFrame
     float4 tuning;
 };
 
+struct DirectionalShadowFrame
+{
+    row_major float4x4 view;
+    row_major float4x4 projection;
+    float4 params;
+    float4 tuning;
+};
+
+struct PointShadowFace
+{
+    row_major float4x4 view;
+    row_major float4x4 projection;
+    float4 atlas;
+    float4 params;
+    float4 tuning;
+    float4 lightPositionRange;
+};
+
 struct MeshRange
 {
     uint indexCount;

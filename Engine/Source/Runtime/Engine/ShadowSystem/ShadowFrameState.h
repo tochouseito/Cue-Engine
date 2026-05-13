@@ -11,6 +11,9 @@ namespace Cue::ShadowSystem
 {
     struct ShadowFrameData final
     {
+        GpuData::DirectionalShadowFrameGpu directionalShadow{};
+        std::array<GpuData::PointShadowFaceGpu,
+            GpuData::k_pointShadowFaceCount> pointShadowFaces{};
         std::array<GpuData::SpotShadowFrameGpu,
             GpuData::k_maxSpotShadowCount> spotShadows{};
     };

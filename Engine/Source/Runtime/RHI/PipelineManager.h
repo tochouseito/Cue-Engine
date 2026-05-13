@@ -79,6 +79,9 @@ namespace Cue::RHI
     {
         CullMode cullMode = CullMode::Back;
         FillMode fillMode = FillMode::Solid;
+        float depthBiasClamp = 0.0f;
+        float slopeScaledDepthBias = 0.0f;
+        int32_t depthBias = 0;
     };
 
     enum class DepthWriteMask : uint8_t

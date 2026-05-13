@@ -4,6 +4,35 @@ namespace Cue::GameCore
 {
     namespace
     {
+        [[nodiscard]] DrawSystem::CpuShadowCaster make_cpu_shadow_caster(
+            const GpuData::ObjectTransformGpu& a_transform) noexcept
+        {
+            const Math::float4x4& world = a_transform.worldMatrix;
+            const Math::float3 basisX(
+                world.values[0][0],
+                world.values[0][1],
+                world.values[0][2]);
+            const Math::float3 basisY(
+                world.values[1][0],
+                world.values[1][1],
+                world.values[1][2]);
+            const Math::float3 basisZ(
+                world.values[2][0],
+                world.values[2][1],
+                world.values[2][2]);
+            const float maxExtent = (std::max)(
+                basisX.length(),
+                (std::max)(basisY.length(), basisZ.length()));
+
+            DrawSystem::CpuShadowCaster caster{};
+            caster.center = Math::float3(
+                world.values[3][0],
+                world.values[3][1],
+                world.values[3][2]);
+            caster.radius = maxExtent * 1.7320508f;
+            return caster;
+        }
+
         [[nodiscard]] ObjectDefinition make_default_static_mesh_object_definition(
             const Math::float3& a_position, uint32_t a_meshId,
             MaterialHandle a_defaultMaterialHandle)
@@ -252,6 +281,18 @@ namespace Cue::GameCore
         m_shadowResources =
             std::make_unique<ShadowSystem::ShadowResources>(
                 a_bufferManager, a_viewManager, a_bufferCount);
+
+        result = m_shadowResources->create_directional_shadow_frame_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_shadowResources->create_point_shadow_face_buffer();
+        if (!result)
+        {
+            return result;
+        }
 
         result = m_shadowResources->create_spot_shadow_frame_buffer();
         if (!result)
@@ -994,6 +1035,15 @@ namespace Cue::GameCore
             static_cast<uint32_t>(sceneFrame.staticMeshVisibilityItems.size());
         frameState.spriteCount = 0;
         frameState.cpuIndexedDraws.clear();
+        frameState.cpuShadowCasters.clear();
+        frameState.cpuShadowCasters.reserve(
+            sceneFrame.staticMeshSurfaceItems.size());
+        for (const DrawSystem::StaticMeshSurfaceItem& item :
+            sceneFrame.staticMeshSurfaceItems)
+        {
+            frameState.cpuShadowCasters.push_back(
+                make_cpu_shadow_caster(item.transform));
+        }
 
         if (frameState.useCpuBatching)
         {
@@ -1417,6 +1467,13 @@ namespace Cue::GameCore
             m_shadowScene.frame(a_bufferIndex);
         ShadowSystem::ShadowFrameData& frameState =
             m_shadowFrameState.frame_state(a_bufferIndex);
+        frameState.directionalShadow = sceneFrame.hasDirectionalShadow
+            ? sceneFrame.directionalShadow.shadow
+            : GpuData::DirectionalShadowFrameGpu{};
+        frameState.pointShadowFaces = sceneFrame.hasPointShadow
+            ? sceneFrame.pointShadow.faces
+            : std::array<GpuData::PointShadowFaceGpu,
+                GpuData::k_pointShadowFaceCount>{};
         frameState.spotShadows = {};
         const uint32_t spotShadowCount = (std::min)(
             static_cast<uint32_t>(sceneFrame.spotShadows.size()),
@@ -1466,6 +1523,64 @@ namespace Cue::GameCore
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Failed to commit spot shadow frame upload.");
+        }
+
+        auto& directionalUploaders =
+            m_shadowResources->directional_shadow_frame_uploaders();
+        if (directionalUploaders.empty())
+        {
+            return Result::ok();
+        }
+
+        const uint32_t directionalUploaderIndex = resolve_uploader_index(
+            static_cast<uint32_t>(directionalUploaders.size()));
+        if (directionalUploaderIndex >= directionalUploaders.size())
+        {
+            return Result::ok();
+        }
+
+        auto& directionalUploader =
+            directionalUploaders[directionalUploaderIndex];
+        directionalUploader.begin_frame();
+        if (!directionalUploader.push(0, frameState.directionalShadow))
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Failed to queue directional shadow frame upload.");
+        }
+        if (!directionalUploader.commit())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Failed to commit directional shadow frame upload.");
+        }
+
+        auto& pointUploaders = m_shadowResources->point_shadow_face_uploaders();
+        if (pointUploaders.empty())
+        {
+            return Result::ok();
+        }
+
+        const uint32_t pointUploaderIndex = resolve_uploader_index(
+            static_cast<uint32_t>(pointUploaders.size()));
+        if (pointUploaderIndex >= pointUploaders.size())
+        {
+            return Result::ok();
+        }
+
+        auto& pointUploader = pointUploaders[pointUploaderIndex];
+        pointUploader.begin_frame();
+        for (uint32_t faceIndex = 0; faceIndex < GpuData::k_pointShadowFaceCount;
+             ++faceIndex)
+        {
+            if (!pointUploader.push(faceIndex, frameState.pointShadowFaces[faceIndex]))
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "Failed to queue point shadow face upload.");
+            }
+        }
+        if (!pointUploader.commit())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Failed to commit point shadow face upload.");
         }
 
         return Result::ok();
