@@ -67,6 +67,11 @@ namespace Cue::Editor
             m_selectedAssetPath = a_selectedAssetPath;
         }
 
+        [[nodiscard]] bool was_asset_selected() const noexcept
+        {
+            return m_wasAssetSelected;
+        }
+
         void refresh()
         {
             clear_cache();
@@ -101,6 +106,8 @@ namespace Cue::Editor
 
         void update()
         {
+            m_wasAssetSelected = false;
+
             ImGui::Begin("Asset Browser");
 
             if (m_fileSystem == nullptr)
@@ -273,6 +280,7 @@ namespace Cue::Editor
             if (isPressed && isMaterial && m_selectedAssetPath != nullptr)
             {
                 *m_selectedAssetPath = a_filePath.normalize();
+                m_wasAssetSelected = true;
             }
             const bool isHovered = ImGui::IsItemHovered();
             const bool isActive = ImGui::IsItemActive();
@@ -483,7 +491,8 @@ namespace Cue::Editor
             const Core::IO::Path& a_filePath) noexcept
         {
             const std::string extension = to_lower_ascii(a_filePath.extension());
-            return extension == ".cuetexture" || extension == ".png";
+            return extension == ".cuetexture" || extension == ".png" ||
+                extension == ".dds";
         }
 
         [[nodiscard]] static std::string to_lower_ascii(
@@ -508,7 +517,8 @@ namespace Cue::Editor
                 return true;
             }
 
-            if (extension != ".png" || m_fileSystem == nullptr)
+            if ((extension != ".png" && extension != ".dds") ||
+                m_fileSystem == nullptr)
             {
                 return false;
             }
@@ -756,5 +766,6 @@ namespace Cue::Editor
         std::unordered_map<std::string, std::vector<Core::IO::Path>> m_fileCache{};
         std::unordered_map<std::string, TexturePreview> m_texturePreviewCache{};
         int m_fileDrawIndex = 0;
+        bool m_wasAssetSelected = false;
     };
 }

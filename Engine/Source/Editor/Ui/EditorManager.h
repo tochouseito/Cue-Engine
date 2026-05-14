@@ -174,6 +174,7 @@ namespace Cue::Editor
         void draw_view_menu_items();
         void draw_display_menu_items();
         void draw_main_camera_menu();
+        void draw_skybox_menu();
         void show_and_focus_window(
             const char* a_windowName,
             bool* a_showWindow = nullptr);

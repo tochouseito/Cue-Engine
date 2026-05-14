@@ -14,6 +14,10 @@ namespace Cue::RHI::DX12
             CUE_ASSERT_MSG(desc.bufferCount > 0, "Default texture must have at least one buffer.");
             CUE_ASSERT_MSG(desc.width > 0, "Texture width must be greater than 0.");
             CUE_ASSERT_MSG(desc.height > 0, "Texture height must be greater than 0.");
+            if (desc.type == TextureType::CubeMap)
+            {
+                CUE_ASSERT_MSG(desc.arraySize == 6, "CubeMap texture must have 6 array slices.");
+            }
             break;
         case TextureKind::RenderTarget:
             CUE_ASSERT_MSG(desc.bufferCount > 0, "Default texture must have at least one buffer.");
@@ -50,7 +54,9 @@ namespace Cue::RHI::DX12
             resourceDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
         }
         resourceDesc.Dimension =
-            desc.type == TextureType::Texture2D ? D3D12_RESOURCE_DIMENSION_TEXTURE2D :
+            (desc.type == TextureType::Texture2D ||
+                desc.type == TextureType::CubeMap)
+            ? D3D12_RESOURCE_DIMENSION_TEXTURE2D :
             D3D12_RESOURCE_DIMENSION_TEXTURE3D;
         resourceDesc.Flags =
             desc.kind == TextureKind::RenderTarget ? D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET :
@@ -452,12 +458,24 @@ namespace Cue::RHI::DX12
                 "Failed to allocate texture descriptor table slot.");
         }
 
-        result = m_descriptorAllocator.create_srv_texture_2d(
-            record.descriptorTableId,
-            &record.defaultResources[0],
-            convert_color_format(desc.format),
-            0,
-            desc.mipLevels);
+        if (desc.type == TextureType::CubeMap)
+        {
+            result = m_descriptorAllocator.create_srv_texture_cube(
+                record.descriptorTableId,
+                &record.defaultResources[0],
+                convert_color_format(desc.format),
+                0,
+                desc.mipLevels);
+        }
+        else
+        {
+            result = m_descriptorAllocator.create_srv_texture_2d(
+                record.descriptorTableId,
+                &record.defaultResources[0],
+                convert_color_format(desc.format),
+                0,
+                desc.mipLevels);
+        }
         if (!result)
         {
             m_descriptorAllocator.free_table(record.descriptorTableId);

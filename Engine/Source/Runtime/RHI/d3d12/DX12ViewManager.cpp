@@ -24,6 +24,7 @@ namespace Cue::RHI::DX12
             case ViewType::UnorderedAccessBuffer:
             case ViewType::UnorderedAccessRawBuffer:
             case ViewType::ShaderResourceTexture2D:
+            case ViewType::ShaderResourceTextureCube:
             case ViewType::UnorderedAccessTexture2D:
                 return TableKind::Buffers;
             case ViewType::RenderTarget:
@@ -274,6 +275,20 @@ namespace Cue::RHI::DX12
                     Code::CreateFailed,
                     Severity::Error,
                     "Failed to create SRV for the texture resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::ShaderResourceTextureCube:
+        {
+            TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_srv_texture_cube(tableId, &resource, convert_color_format(desc.colorFormat), desc.mipSlice, desc.mipLevels);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create CubeMap SRV for the texture resource.");
             }
             ids.emplace_back(tableId);
             break;

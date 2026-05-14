@@ -52,7 +52,9 @@ ConstantBuffer<DirectionalShadowFrame> g_directionalShadowFrame : register(b3);
 Texture2D<float> g_directionalShadowMap : register(t9);
 StructuredBuffer<PointShadowFace> g_pointShadowFaces : register(t10);
 Texture2D<float> g_pointShadowMap : register(t11);
+TextureCube<float4> g_reflectionSkybox : register(t12);
 Texture2D<float4> g_textures[] : register(t0, space1);
+SamplerState g_sampler : register(s0);
 
 struct DebugViewShadingConstants
 {
@@ -60,6 +62,13 @@ struct DebugViewShadingConstants
 };
 
 ConstantBuffer<DebugViewShadingConstants> g_debugViewShading : register(b4);
+
+struct ReflectionConstants
+{
+    uint hasSkybox;
+};
+
+ConstantBuffer<ReflectionConstants> g_reflection : register(b5);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
@@ -424,6 +433,37 @@ float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
     return lighting;
 }
 
+float3 camera_position()
+{
+    const float3 viewTranslation =
+        float3(g_viewMatrix[3][0], g_viewMatrix[3][1], g_viewMatrix[3][2]);
+    const float3x3 viewRotation = float3x3(
+        g_viewMatrix[0][0], g_viewMatrix[0][1], g_viewMatrix[0][2],
+        g_viewMatrix[1][0], g_viewMatrix[1][1], g_viewMatrix[1][2],
+        g_viewMatrix[2][0], g_viewMatrix[2][1], g_viewMatrix[2][2]);
+    return mul(-viewTranslation, transpose(viewRotation));
+}
+
+float3 evaluate_skybox_reflection(
+    Material material,
+    float3 worldPosition,
+    float3 worldNormal)
+{
+    if (g_reflection.hasSkybox == 0 || material.useReflectionSkybox == 0)
+    {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+
+    const float3 viewDirection = normalize(camera_position() - worldPosition);
+    const float3 reflectionDirection = reflect(-viewDirection, worldNormal);
+    const float reflectionSharpness = saturate(material.shininess / 256.0f);
+    const float mipLevel = lerp(8.0f, 0.0f, reflectionSharpness);
+    return g_reflectionSkybox.SampleLevel(
+        g_sampler,
+        reflectionDirection,
+        mipLevel).rgb * reflectionSharpness;
+}
+
 float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
     float3 worldNormal = normalize(input.worldNormal);
@@ -440,9 +480,15 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
         shadingMode == k_debugViewShadingMaterialLighting;
 
     float3 baseColor = k_solidColor;
+    Material material;
+    material.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    material.textureId = 0;
+    material.useTexture = 0;
+    material.useReflectionSkybox = 0;
+    material.shininess = 32.0f;
     if (usesMaterial)
     {
-        const Material material = g_materials[input.materialId];
+        material = g_materials[input.materialId];
         float3 textureColor = float3(1.0f, 1.0f, 1.0f);
         if (material.useTexture != 0)
         {
@@ -465,6 +511,13 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     if (usesLighting)
     {
         color *= max(evaluate_lighting(input.worldPosition, worldNormal), 0.0f);
+        if (usesMaterial)
+        {
+            color += evaluate_skybox_reflection(
+                material,
+                input.worldPosition,
+                worldNormal);
+        }
     }
     return float4(color, 1.0f);
 }

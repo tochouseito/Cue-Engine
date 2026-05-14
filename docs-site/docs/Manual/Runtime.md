@@ -53,10 +53,11 @@ Editor Window へ外部ファイルをドロップすると、Asset Browser の�
 | 外部ファイル | 生成される asset | 用途 |
 | --- | --- | --- |
 | `.png` | `.cuetexture` | Texture / Material |
+| `.dds` | `.cuetexture` | Texture / Skybox CubeMap |
 | `.wav` | `.cuesound` | AudioSource |
 | `.obj` | `.cuemodel` | MeshFilter / MeshCollider |
 
-Asset Browser では `.png` と `.cuetexture` のプレビュー表示を試みます。
+Asset Browser では `.png`、`.dds`、`.cuetexture` のプレビュー表示を試みます。
 プレビューできない場合は Image アイコンを表示します。
 
 ## Material
@@ -67,8 +68,10 @@ Material asset は `.cuematerial` です。
 - `color`: 描画色です。
 - `texture`: 登録済み texture 名です。
 - `useTexture`: texture を使うかどうかです。
+- `reflectionSkybox`: 選択中 Skybox を環境反射として使うかどうかです。
+- `shininess`: 環境反射の鋭さです。値が大きいほど低 mip の反射を使います。
 
-Inspector で Material asset を選択すると、`color` と `Use Texture` を編集できます。
+Inspector で Material asset を選択すると、`color`、`Use Texture`、`Reflection Skybox`、`shininess` を編集できます。
 Asset Browser から `.cuetexture` を Material Inspector へドロップすると、Material の texture に設定されます。
 Asset Browser から `.cuematerial` を RendererComponent の drop target へドロップすると、その Renderer に Material を設定できます。
 

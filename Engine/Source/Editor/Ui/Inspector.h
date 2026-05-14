@@ -3422,6 +3422,62 @@ namespace Cue::Editor
                 }
             }
 
+            bool usesReflectionSkybox = materialDesc.usesReflectionSkybox;
+            if (ImGui::Checkbox(
+                    "Reflection Skybox",
+                    &usesReflectionSkybox))
+            {
+                materialDesc.usesReflectionSkybox = usesReflectionSkybox;
+                result = m_engine->asset_manager().update_material(
+                    materialHandle, materialDesc);
+                if (result)
+                {
+                    result = m_engine->asset_manager().save_material(
+                        materialHandle, *m_fileSystem, a_materialPath);
+                }
+
+                if (!result)
+                {
+                    m_materialStatusMessage =
+                        std::string("Material の保存に失敗しました: ") +
+                        std::string(result.message);
+                    m_materialStatusIsError = true;
+                }
+                else
+                {
+                    m_materialStatusMessage =
+                        "Material を保存しました。";
+                    m_materialStatusIsError = false;
+                }
+            }
+
+            float shininess = materialDesc.shininess;
+            if (ImGui::SliderFloat("shininess", &shininess, 1.0f, 256.0f))
+            {
+                materialDesc.shininess = shininess;
+                result = m_engine->asset_manager().update_material(
+                    materialHandle, materialDesc);
+                if (result)
+                {
+                    result = m_engine->asset_manager().save_material(
+                        materialHandle, *m_fileSystem, a_materialPath);
+                }
+
+                if (!result)
+                {
+                    m_materialStatusMessage =
+                        std::string("Material の保存に失敗しました: ") +
+                        std::string(result.message);
+                    m_materialStatusIsError = true;
+                }
+                else
+                {
+                    m_materialStatusMessage =
+                        "Material を保存しました。";
+                    m_materialStatusIsError = false;
+                }
+            }
+
             ImGui::Button("Texture をここへドロップ",
                 ImVec2(-1.0f, ImGui::GetFrameHeight()));
             if (ImGui::BeginDragDropTarget())

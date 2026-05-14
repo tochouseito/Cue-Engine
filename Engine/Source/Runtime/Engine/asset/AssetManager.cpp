@@ -33,6 +33,7 @@ namespace Cue
             RHI::ColorFormat format = RHI::ColorFormat::R8G8B8A8_UNORM;
             uint32_t width = 0;
             uint32_t height = 0;
+            uint32_t mipLevels = 1;
             uint32_t arraySize = 1;
             uint32_t flags = 0;
         };
@@ -421,13 +422,42 @@ namespace Cue
         {
             if (a_loadedTextureData.width == 0 ||
                 a_loadedTextureData.height == 0 ||
-                a_loadedTextureData.arraySize != 1 ||
+                a_loadedTextureData.mipLevels == 0 ||
+                a_loadedTextureData.arraySize == 0 ||
                 a_loadedTextureData.mipData.empty())
             {
                 return Result::fail(
                     Code::InvalidArgument,
                     Severity::Error,
                     "Loaded texture data is invalid.");
+            }
+
+            const uint64_t expectedSubresourceCount =
+                static_cast<uint64_t>(a_loadedTextureData.mipLevels) *
+                static_cast<uint64_t>(a_loadedTextureData.arraySize);
+            if (a_loadedTextureData.mipData.size() != expectedSubresourceCount)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Loaded texture subresource count is invalid.");
+            }
+
+            const bool isCubeMap =
+                (a_loadedTextureData.flags & k_cueTextureFlagCubeMap) != 0;
+            if (isCubeMap && a_loadedTextureData.arraySize != 6)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "CubeMap texture must contain 6 array slices.");
+            }
+            if (!isCubeMap && a_loadedTextureData.arraySize != 1)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Only single 2D textures and CubeMap textures are supported.");
             }
 
             for (const LoadedTextureMipData& mipData : a_loadedTextureData.mipData)
@@ -462,10 +492,14 @@ namespace Cue
             outUpload = {};
             outUpload.desc.width = a_loadedTextureData.width;
             outUpload.desc.height = a_loadedTextureData.height;
-            outUpload.desc.mipLevels = static_cast<uint16_t>(
-                a_loadedTextureData.mipData.size());
+            outUpload.desc.mipLevels =
+                static_cast<uint16_t>(a_loadedTextureData.mipLevels);
             outUpload.desc.arraySize =
                 static_cast<uint16_t>(a_loadedTextureData.arraySize);
+            outUpload.desc.type =
+                (a_loadedTextureData.flags & k_cueTextureFlagCubeMap) != 0
+                ? RHI::TextureType::CubeMap
+                : RHI::TextureType::Texture2D;
             outUpload.desc.format = a_loadedTextureData.format;
             outUpload.subresources.reserve(a_loadedTextureData.mipData.size());
 
@@ -545,7 +579,7 @@ namespace Cue
             header.version = k_cueTextureVersion;
             header.width = a_loadedTextureData.width;
             header.height = a_loadedTextureData.height;
-            header.mipCount = static_cast<uint32_t>(a_loadedTextureData.mipData.size());
+            header.mipCount = a_loadedTextureData.mipLevels;
             header.arraySize = a_loadedTextureData.arraySize;
             header.format = static_cast<uint32_t>(a_loadedTextureData.format);
             header.flags = a_loadedTextureData.flags;
@@ -611,7 +645,7 @@ namespace Cue
             if (header.magic != k_cueTextureMagic ||
                 header.version != k_cueTextureVersion ||
                 header.mipCount == 0 ||
-                header.arraySize != 1)
+                header.arraySize == 0)
             {
                 return Result::fail(
                     Code::Unsupported,
@@ -619,8 +653,20 @@ namespace Cue
                     "Cooked texture format is not supported.");
             }
 
+            const uint64_t loadedSubresourceCount =
+                static_cast<uint64_t>(header.mipCount) *
+                static_cast<uint64_t>(header.arraySize);
+            if (loadedSubresourceCount > std::numeric_limits<uint32_t>::max())
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Cooked texture subresource count is too large.");
+            }
+
             const size_t mipInfoTableSize =
-                sizeof(CueTextureMipInfo) * static_cast<size_t>(header.mipCount);
+                sizeof(CueTextureMipInfo) *
+                static_cast<size_t>(loadedSubresourceCount);
             const size_t pixelDataBegin = sizeof(CueTextureHeader) + mipInfoTableSize;
             if (fileData.size() < pixelDataBegin + static_cast<size_t>(header.dataSize))
             {
@@ -633,18 +679,23 @@ namespace Cue
             outTextureData = {};
             outTextureData.width = header.width;
             outTextureData.height = header.height;
+            outTextureData.mipLevels = header.mipCount;
             outTextureData.arraySize = header.arraySize;
             outTextureData.format = static_cast<RHI::ColorFormat>(header.format);
             outTextureData.flags = header.flags;
-            outTextureData.mipData.reserve(header.mipCount);
+            outTextureData.mipData.reserve(
+                static_cast<size_t>(loadedSubresourceCount));
 
-            for (uint32_t mipIndex = 0; mipIndex < header.mipCount; ++mipIndex)
+            for (uint32_t subresourceIndex = 0;
+                 subresourceIndex < static_cast<uint32_t>(loadedSubresourceCount);
+                 ++subresourceIndex)
             {
                 CueTextureMipInfo mipInfo{};
                 std::memcpy(
                     &mipInfo,
                     fileData.data() + sizeof(CueTextureHeader) +
-                        sizeof(CueTextureMipInfo) * static_cast<size_t>(mipIndex),
+                        sizeof(CueTextureMipInfo) *
+                            static_cast<size_t>(subresourceIndex),
                     sizeof(CueTextureMipInfo));
 
                 const uint64_t pixelDataOffset = pixelDataBegin + mipInfo.offset;
@@ -901,6 +952,8 @@ namespace Cue
                 { "color", serialize_float4(record.desc.color) },
                 { "texture", record.desc.textureName },
                 { "useTexture", record.desc.isTextureUsed },
+                { "reflectionSkybox", record.desc.usesReflectionSkybox },
+                { "shininess", record.desc.shininess },
             };
 
             std::string text = root.dump(4);
@@ -948,7 +1001,7 @@ namespace Cue
             const Json root = Json::parse(text);
 
             const uint32_t version = root.at("version").get<uint32_t>();
-            if (version != 1 && version != 2 &&
+            if (version != 1 && version != 2 && version != 3 &&
                 version != k_materialAssetVersion)
             {
                 return Result::fail(
@@ -971,6 +1024,12 @@ namespace Cue
                 desc.isTextureUsed = version >= 3
                     ? root.value("useTexture", !desc.textureName.empty())
                     : !desc.textureName.empty();
+                if (version >= 4)
+                {
+                    desc.usesReflectionSkybox =
+                        root.value("reflectionSkybox", false);
+                    desc.shininess = root.value("shininess", 32.0f);
+                }
             }
             else
             {

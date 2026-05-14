@@ -34,4 +34,5 @@ namespace Cue
     inline constexpr uint32_t k_cueTextureMagic = 0x54455543u;
     inline constexpr uint32_t k_cueTextureVersion = 1u;
     inline constexpr uint32_t k_cueTextureFlagSrgb = 0x1u;
+    inline constexpr uint32_t k_cueTextureFlagCubeMap = 0x2u;
 }

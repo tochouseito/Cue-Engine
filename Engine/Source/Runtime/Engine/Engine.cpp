@@ -15,6 +15,7 @@
 #include "DrawSystem/Passes/SpriteInstanceCopyPass.h"
 #include "DrawSystem/Passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/Passes/StaticMeshForwardPass.h"
+#include "DrawSystem/Passes/SkyboxPass.h"
 #include "DrawSystem/Passes/TransformBufferCopyPass.h"
 #include "DrawSystem/Passes/VisibleObjectCountCopyPass.h"
 #include "DrawSystem/Passes/ViewProjectionCopyPass.h"
@@ -1147,7 +1148,16 @@ namespace Cue
             drawResources->material_buffer_handle(),
             lightingBindings,
             shadowBindings,
-            m_cubeIndexCount));
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SkyboxPass>(
+            "GameSkybox",
+            "GameColor",
+            "GameColorRTV",
+            "GameSceneDepth",
+            "GameSceneDepthDSV",
+            drawResources->view_projection_buffer_handle(),
+            m_skyboxTextureSrvHandle));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
             "GameColor",
@@ -1178,7 +1188,16 @@ namespace Cue
             lightingBindings,
             shadowBindings,
             m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
             &m_debugViewShadingMode));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SkyboxPass>(
+            "DebugSkybox",
+            "DebugColor",
+            "DebugColorRTV",
+            "DebugSceneDepth",
+            "DebugSceneDepthDSV",
+            m_debugViewProjectionBufferHandle,
+            m_skyboxTextureSrvHandle));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->render_object_buffer_handle(),

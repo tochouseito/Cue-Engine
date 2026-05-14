@@ -82,6 +82,7 @@ add_library(Engine STATIC
     "DrawSystem/Passes/SpriteForwardPass.h"
     "DrawSystem/Passes/StaticMeshBatchingPass.h"
     "DrawSystem/Passes/StaticMeshForwardPass.h"
+    "DrawSystem/Passes/SkyboxPass.h"
     "Asset/ModelAssetFormat.h"
     "Asset/SoundAssetFormat.h"
     "Asset/TextureAssetFormat.h"

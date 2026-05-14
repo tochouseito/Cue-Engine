@@ -195,8 +195,68 @@ namespace Cue::Editor
         {
             const std::string extension =
                 to_lower_ascii(a_path.extension());
-            return extension == ".png" || extension == ".wav" ||
+            return extension == ".png" || extension == ".dds" ||
+                extension == ".wav" ||
                 extension == ".obj";
+        }
+
+        [[nodiscard]] bool is_source_texture_file(
+            const Core::IO::Path& a_path)
+        {
+            const std::string extension =
+                to_lower_ascii(a_path.extension());
+            return extension == ".png" || extension == ".dds";
+        }
+
+        [[nodiscard]] Result read_cuetexture_header(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_path,
+            CueTextureHeader& outHeader)
+        {
+            if (to_lower_ascii(a_path.extension()) != ".cuetexture")
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Texture asset file extension must be .cuetexture.");
+            }
+
+            std::vector<std::byte> fileData{};
+            const Result result = a_fileSystem.read_all(a_path.normalize(), &fileData);
+            if (!result || fileData.size() < sizeof(CueTextureHeader))
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Cooked texture header is invalid.");
+            }
+
+            std::memcpy(&outHeader, fileData.data(), sizeof(CueTextureHeader));
+            if (outHeader.magic != k_cueTextureMagic ||
+                outHeader.version != k_cueTextureVersion ||
+                outHeader.width == 0 ||
+                outHeader.height == 0 ||
+                outHeader.mipCount == 0)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Cooked texture header is invalid.");
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] bool is_cube_cuetexture_file(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_path)
+        {
+            CueTextureHeader header{};
+            const Result result =
+                read_cuetexture_header(a_fileSystem, a_path, header);
+            return result &&
+                header.arraySize == 6 &&
+                (header.flags & k_cueTextureFlagCubeMap) != 0;
         }
 
         [[nodiscard]] std::string trim_ascii(std::string a_text)
@@ -1340,7 +1400,7 @@ namespace Cue::Editor
                 {
                     cookedTexturePaths.push_back(texturePath);
                 }
-                else if (texturePath.extension() == ".png")
+                else if (is_source_texture_file(texturePath))
                 {
                     sourceTexturePaths.push_back(texturePath);
                 }
@@ -1579,7 +1639,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> cookedTexturePaths{};
             for (const Core::IO::Path& texturePath : textureEntries)
             {
-                if (texturePath.extension() == ".png")
+                if (is_source_texture_file(texturePath))
                 {
                     sourceTexturePaths.push_back(texturePath);
                 }
@@ -3064,7 +3124,7 @@ namespace Cue::Editor
 
         const std::string extension =
             to_lower_ascii(a_assetPath.extension());
-        if (extension == ".png")
+        if (extension == ".png" || extension == ".dds")
         {
             const Core::IO::Path cookedPath = Core::IO::Path::join(
                 a_assetPath.parent(),
@@ -6050,6 +6110,173 @@ namespace Cue::Editor
         ImGui::EndMenu();
     }
 
+    void EditorManager::draw_skybox_menu()
+    {
+        if (!ImGui::BeginMenu("Skybox"))
+        {
+            return;
+        }
+
+        const bool canSelectSkybox =
+            m_engine != nullptr && m_fileSystem != nullptr &&
+            m_backend != nullptr &&
+            m_backend->get_view_manager() != nullptr &&
+            !m_assetRootPath.is_empty();
+        ImGui::BeginDisabled(!canSelectSkybox);
+
+        const bool isNoneSelected =
+            m_engine == nullptr || m_engine->skybox_texture_id() == 0xffffffffu;
+        if (ImGui::MenuItem("なし", nullptr, isNoneSelected, canSelectSkybox) &&
+            m_engine != nullptr)
+        {
+            m_engine->clear_skybox_texture();
+            set_status_message("Skybox を解除しました。", false);
+        }
+
+        ImGui::Separator();
+
+        uint32_t cubeTextureCount = 0;
+        if (canSelectSkybox)
+        {
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                m_assetRootPath,
+                Core::IO::Path("Textures"));
+            bool textureRootExists = false;
+            Result result = m_fileSystem->exists(textureRoot, &textureRootExists);
+            if (result && textureRootExists)
+            {
+                std::vector<Core::IO::Path> texturePaths{};
+                result = m_fileSystem->list_directory(textureRoot, &texturePaths);
+                if (result)
+                {
+                    std::sort(texturePaths.begin(), texturePaths.end(),
+                        [](const Core::IO::Path& a_left,
+                            const Core::IO::Path& a_right)
+                        {
+                            return a_left.utf8() < a_right.utf8();
+                        });
+
+                    for (const Core::IO::Path& texturePath : texturePaths)
+                    {
+                        if (!is_cube_cuetexture_file(*m_fileSystem, texturePath))
+                        {
+                            continue;
+                        }
+
+                        ++cubeTextureCount;
+                        const std::string textureName =
+                            make_asset_relative_name(texturePath);
+                        const bool isSelected =
+                            m_engine->skybox_texture_name() == textureName;
+                        if (ImGui::MenuItem(
+                                textureName.c_str(),
+                                nullptr,
+                                isSelected,
+                                true) &&
+                            !isSelected)
+                        {
+                            uint32_t textureId = AssetManager::k_errorTextureId;
+                            result = m_engine->asset_manager()
+                                .register_texture_from_cuetexture(
+                                    *m_fileSystem,
+                                    textureName,
+                                    texturePath,
+                                    textureId);
+                            if (!result)
+                            {
+                                log_result("Failed to set skybox texture", result);
+                                set_status_message(
+                                    "Skybox texture の設定に失敗しました。",
+                                    true);
+                            }
+                            else
+                            {
+                                RHI::TextureHandle textureHandle{};
+                                result = m_engine->asset_manager()
+                                    .get_texture_handle(textureId, textureHandle);
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to get skybox texture handle",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture の取得に失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                CueTextureHeader header{};
+                                result = read_cuetexture_header(
+                                    *m_fileSystem,
+                                    texturePath,
+                                    header);
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to read skybox texture header",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture 情報の読み込みに失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                RHI::ViewHandle textureSrvHandle{};
+                                const std::string viewName =
+                                    "Skybox/" + textureName;
+                                result = m_backend->get_view_manager()->get_view(
+                                    viewName,
+                                    textureSrvHandle);
+                                if (!result)
+                                {
+                                    RHI::ViewDesc viewDesc{};
+                                    viewDesc.name = viewName;
+                                    viewDesc.type =
+                                        RHI::ViewType::ShaderResourceTextureCube;
+                                    viewDesc.bufferKind = RHI::BufferKind::Texture;
+                                    viewDesc.textureHandle = textureHandle;
+                                    viewDesc.colorFormat =
+                                        static_cast<RHI::ColorFormat>(header.format);
+                                    viewDesc.mipSlice = 0;
+                                    viewDesc.mipLevels = header.mipCount;
+                                    result = m_backend->get_view_manager()
+                                        ->create_view(viewDesc, textureSrvHandle);
+                                }
+
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to create skybox texture view",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture view の作成に失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                m_engine->set_skybox_texture(
+                                    textureId,
+                                    textureSrvHandle,
+                                    textureName);
+                                set_status_message(
+                                    "Skybox texture を設定しました。",
+                                    false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cubeTextureCount == 0)
+        {
+            ImGui::TextDisabled("CubeMap の .cuetexture がありません。");
+        }
+
+        ImGui::EndDisabled();
+        ImGui::EndMenu();
+    }
+
     void EditorManager::process_debug_pick_request()
     {
         if (m_debugView == nullptr || m_engine == nullptr)
@@ -7312,6 +7539,8 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
+            draw_skybox_menu();
+
             if (ImGui::BeginMenu("ビルド"))
             {
                 const bool canEditBuildSettings = !m_isScriptActionActive;
@@ -7614,11 +7843,9 @@ namespace Cue::Editor
         {
             Core::Time::Timer assetBrowserTimer(m_platform->clock());
             assetBrowserTimer.start();
-            const std::string selectedAssetBefore =
-                m_selectedAssetPath.normalize().utf8();
             m_assetBrowser->update();
-            if (m_selectedAssetPath.normalize().utf8() != selectedAssetBefore &&
-                m_selectedAssetPath.extension() == ".cuematerial")
+            if (m_assetBrowser->was_asset_selected() &&
+                to_lower_ascii(m_selectedAssetPath.extension()) == ".cuematerial")
             {
                 m_selectedEntityId = GameCore::k_invalidEntityId;
                 m_selectedSceneId = GameCore::k_invalidSceneId;

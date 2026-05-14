@@ -6,7 +6,9 @@
         "z": 0.20000000298023224
     },
     "name": "TestRed",
+    "reflectionSkybox": true,
+    "shininess": 256.0,
     "texture": "Textures/uvChecker.cuetexture",
     "useTexture": false,
-    "version": 3
+    "version": 4
 }

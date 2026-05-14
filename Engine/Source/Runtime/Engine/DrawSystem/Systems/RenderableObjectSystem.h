@@ -159,6 +159,9 @@ namespace Cue::ECS
                     gpuMaterial.textureId = materialDesc.textureId;
                     gpuMaterial.useTexture =
                         materialDesc.isTextureUsed ? 1u : 0u;
+                    gpuMaterial.useReflectionSkybox =
+                        materialDesc.usesReflectionSkybox ? 1u : 0u;
+                    gpuMaterial.shininess = materialDesc.shininess;
                     hasMaterial = true;
                 }
             }

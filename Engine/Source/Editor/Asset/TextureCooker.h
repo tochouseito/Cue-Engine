@@ -14,7 +14,7 @@ namespace Cue::Editor
             const Core::IO::Path& a_destinationPath) noexcept;
 
     private:
-        [[nodiscard]] static Result cook_png_to_cuetexture(
+        [[nodiscard]] static Result cook_source_to_cuetexture(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_sourcePath,
             const Core::IO::Path& a_destinationPath) noexcept;

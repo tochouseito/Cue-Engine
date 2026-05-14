@@ -20,8 +20,8 @@ struct Material
     float4 color;
     uint textureId;
     uint useTexture;
-    uint padding1;
-    uint padding2;
+    uint useReflectionSkybox;
+    float shininess;
 };
 
 struct Transform

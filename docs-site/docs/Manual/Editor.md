@@ -98,6 +98,11 @@ GameScript は常に `scriptBuildConfiguration` の構成から読み込み、�
 - `Scene NavMesh を Bake`: 現在の Scene から NavMesh を Bake します。Play 中は実行できません。
 - `Debug Window`: `Navigation Debug` Window の表示を切り替えます。
 
+### Skybox
+
+- `なし`: Skybox texture の選択を解除します。
+- `Textures/*.cuetexture`: CubeMap として cook 済みの texture を Skybox に設定します。
+
 ### ビルド
 
 - `ゲーム配布ビルド構成`: 配布用ビルドの構成を `Debug`、`RelWithDebInfo`、`Release` から選択します。
@@ -161,7 +166,7 @@ Asset Browser は `Assets` 配下をフォルダ単位で表示します。
 ファイルはアイコン付きボタンとして表示されます。
 
 - `.cuematerial`: Material アイコンを表示します。
-- `.png` / `.cuetexture`: Image アイコン、または読み込み済み texture のプレビューを表示します。
+- `.png` / `.dds` / `.cuetexture`: Image アイコン、または読み込み済み texture のプレビューを表示します。
 - その他のファイル: Unknown アイコンを表示します。
 
 Material asset を選択すると Inspector に Material の詳細が表示されます。
@@ -171,7 +176,8 @@ Editor Window へ外部ファイルをドロップすると、現在開いてい
 Asset Browser が `Assets` 以下のフォルダを開いていない場合は `Assets/` にコピーします。
 対応している外部ファイルは次の通りです。
 
-- `.png`: `.cuetexture` に cook して登録します。
+- `.png`: 2D texture の `.cuetexture` に cook して登録します。
+- `.dds`: 2D texture または CubeMap の `.cuetexture` に cook して登録します。
 - `.wav`: `.cuesound` に cook します。
 - `.obj`: `.cuemodel` に cook して登録します。
 
@@ -184,6 +190,8 @@ Material Inspector では現在次の項目を編集できます。
 
 - `color`: Material color を編集して保存します。
 - `Use Texture`: texture を使うかを切り替えます。
+- `Reflection Skybox`: 選択中 Skybox を環境反射として使うかを切り替えます。
+- `shininess`: 環境反射の鋭さを調整します。
 - `Texture をここへドロップ`: `.cuetexture` を drag and drop して Material に設定します。
 
 RendererComponent の Material 欄には Asset Browser から `.cuematerial` を drag and drop できます。

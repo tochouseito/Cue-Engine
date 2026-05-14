@@ -34,6 +34,7 @@ namespace Cue::DrawSystem
             const LightingSystem::LightingBindings& a_lightingBindings,
             const ShadowSystem::ShadowBindings& a_shadowBindings,
             uint32_t a_indexCountPerInstance,
+            const RHI::ViewHandle& a_reflectionSkyboxSrvHandle,
             const DebugViewShadingMode* a_shadingMode = nullptr)
             : m_name(std::move(a_name)),
             m_colorName(std::move(a_colorName)),
@@ -48,6 +49,7 @@ namespace Cue::DrawSystem
             m_materialBufferHandle(a_materialBufferHandle),
             m_lightingBindings(a_lightingBindings),
             m_shadowBindings(a_shadowBindings),
+            m_reflectionSkyboxSrvHandle(a_reflectionSkyboxSrvHandle),
             m_shadingMode(a_shadingMode),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
@@ -312,6 +314,16 @@ namespace Cue::DrawSystem
                 RHI::RootParameterType::_32BitConstants,
                 RHI::ShaderVisibility::Pixel,
                 4 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::DescriptorTableSRV,
+                RHI::ShaderVisibility::Pixel,
+                12,
+                1,
+                0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::Pixel,
+                5 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -708,6 +720,14 @@ namespace Cue::DrawSystem
             commandContext->set_32bit_constant(
                 17,
                 to_shader_value(shadingMode));
+            if (m_reflectionSkyboxSrvHandle.valid())
+            {
+                commandContext->set_graphics_descriptor_table(
+                    18, m_reflectionSkyboxSrvHandle);
+            }
+            commandContext->set_32bit_constant(
+                19,
+                m_reflectionSkyboxSrvHandle.valid() ? 1u : 0u);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
@@ -786,6 +806,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        const RHI::ViewHandle& m_reflectionSkyboxSrvHandle;
         const DebugViewShadingMode* m_shadingMode = nullptr;
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};

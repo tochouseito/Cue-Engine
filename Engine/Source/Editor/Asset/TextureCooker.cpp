@@ -5,8 +5,10 @@
 #include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 // === C++ includes ===
+#include <cctype>
 #include <cstring>
 #include <span>
+#include <string>
 #include <vector>
 
 // === ThirdParty includes ===
@@ -35,12 +37,31 @@ namespace Cue::Editor
             case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
                 outFormat = RHI::ColorFormat::R8G8B8A8_UNORM_SRGB;
                 return Result::ok();
+            case DXGI_FORMAT_BC6H_UF16:
+                outFormat = RHI::ColorFormat::BC6H_UF16;
+                return Result::ok();
+            case DXGI_FORMAT_BC7_UNORM:
+                outFormat = RHI::ColorFormat::BC7_UNORM;
+                return Result::ok();
+            case DXGI_FORMAT_BC7_UNORM_SRGB:
+                outFormat = RHI::ColorFormat::BC7_UNORM_SRGB;
+                return Result::ok();
             default:
                 return Result::fail(
                     Code::Unsupported,
                     Severity::Error,
                     "Texture format is not supported for cuetexture.");
             }
+        }
+
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
+        {
+            for (char& character : a_text)
+            {
+                character = static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(character)));
+            }
+            return a_text;
         }
 
         [[nodiscard]] Result save_cuetexture_from_scratch_image(
@@ -58,15 +79,17 @@ namespace Cue::Editor
             }
 
             const DirectX::TexMetadata metadata = a_image.GetMetadata();
+            const bool isCubeMap = metadata.IsCubemap();
             if (metadata.dimension != DirectX::TEX_DIMENSION_TEXTURE2D ||
-                metadata.arraySize != 1 ||
+                (!isCubeMap && metadata.arraySize != 1) ||
+                (isCubeMap && metadata.arraySize != 6) ||
                 metadata.depth != 1 ||
                 metadata.mipLevels == 0)
             {
                 return Result::fail(
                     Code::Unsupported,
                     Severity::Error,
-                    "Only 2D textures are supported for cuetexture.");
+                    "Only 2D textures and single CubeMap textures are supported for cuetexture.");
             }
 
             RHI::ColorFormat colorFormat{};
@@ -78,27 +101,32 @@ namespace Cue::Editor
 
             uint64_t totalDataSize = 0;
             std::vector<CueTextureMipInfo> mipInfos{};
-            mipInfos.reserve(static_cast<size_t>(metadata.mipLevels));
-            for (size_t mipIndex = 0; mipIndex < metadata.mipLevels; ++mipIndex)
+            mipInfos.reserve(
+                static_cast<size_t>(metadata.mipLevels * metadata.arraySize));
+            for (size_t itemIndex = 0; itemIndex < metadata.arraySize; ++itemIndex)
             {
-                const DirectX::Image* image = a_image.GetImage(mipIndex, 0, 0);
-                if (image == nullptr || image->pixels == nullptr)
+                for (size_t mipIndex = 0; mipIndex < metadata.mipLevels; ++mipIndex)
                 {
-                    return Result::fail(
-                        Code::GetFailed,
-                        Severity::Error,
-                        "Texture mip image could not be resolved.");
-                }
+                    const DirectX::Image* image =
+                        a_image.GetImage(mipIndex, itemIndex, 0);
+                    if (image == nullptr || image->pixels == nullptr)
+                    {
+                        return Result::fail(
+                            Code::GetFailed,
+                            Severity::Error,
+                            "Texture mip image could not be resolved.");
+                    }
 
-                CueTextureMipInfo mipInfo{};
-                mipInfo.width = static_cast<uint32_t>(image->width);
-                mipInfo.height = static_cast<uint32_t>(image->height);
-                mipInfo.rowPitch = static_cast<uint32_t>(image->rowPitch);
-                mipInfo.slicePitch = static_cast<uint32_t>(image->slicePitch);
-                mipInfo.offset = totalDataSize;
-                mipInfo.size = image->slicePitch;
-                mipInfos.push_back(mipInfo);
-                totalDataSize += mipInfo.size;
+                    CueTextureMipInfo mipInfo{};
+                    mipInfo.width = static_cast<uint32_t>(image->width);
+                    mipInfo.height = static_cast<uint32_t>(image->height);
+                    mipInfo.rowPitch = static_cast<uint32_t>(image->rowPitch);
+                    mipInfo.slicePitch = static_cast<uint32_t>(image->slicePitch);
+                    mipInfo.offset = totalDataSize;
+                    mipInfo.size = image->slicePitch;
+                    mipInfos.push_back(mipInfo);
+                    totalDataSize += mipInfo.size;
+                }
             }
 
             CueTextureHeader header{};
@@ -109,7 +137,9 @@ namespace Cue::Editor
             header.mipCount = static_cast<uint32_t>(metadata.mipLevels);
             header.arraySize = static_cast<uint32_t>(metadata.arraySize);
             header.format = static_cast<uint32_t>(colorFormat);
-            header.flags = DirectX::IsSRGB(metadata.format) ? k_cueTextureFlagSrgb : 0;
+            header.flags =
+                (DirectX::IsSRGB(metadata.format) ? k_cueTextureFlagSrgb : 0) |
+                (isCubeMap ? k_cueTextureFlagCubeMap : 0);
             header.dataSize = totalDataSize;
 
             const size_t headerSize =
@@ -123,14 +153,18 @@ namespace Cue::Editor
                 sizeof(CueTextureMipInfo) * mipInfos.size());
 
             size_t writeOffset = headerSize;
-            for (size_t mipIndex = 0; mipIndex < metadata.mipLevels; ++mipIndex)
+            for (size_t itemIndex = 0; itemIndex < metadata.arraySize; ++itemIndex)
             {
-                const DirectX::Image* image = a_image.GetImage(mipIndex, 0, 0);
-                std::memcpy(
-                    fileData.data() + writeOffset,
-                    image->pixels,
-                    image->slicePitch);
-                writeOffset += image->slicePitch;
+                for (size_t mipIndex = 0; mipIndex < metadata.mipLevels; ++mipIndex)
+                {
+                    const DirectX::Image* image =
+                        a_image.GetImage(mipIndex, itemIndex, 0);
+                    std::memcpy(
+                        fileData.data() + writeOffset,
+                        image->pixels,
+                        image->slicePitch);
+                    writeOffset += image->slicePitch;
+                }
             }
 
             return a_fileSystem.write_all(
@@ -140,7 +174,7 @@ namespace Cue::Editor
         }
     }
 
-    Result TextureCooker::cook_png_to_cuetexture(
+    Result TextureCooker::cook_source_to_cuetexture(
         Core::IO::IFileSystem& a_fileSystem,
         const Core::IO::Path& a_sourcePath,
         const Core::IO::Path& a_destinationPath) noexcept
@@ -154,11 +188,24 @@ namespace Cue::Editor
 
         DirectX::TexMetadata metadata{};
         DirectX::ScratchImage sourceImage{};
-        HRESULT hr = DirectX::LoadFromWICFile(
-            wideSourcePath.c_str(),
-            DirectX::WIC_FLAGS_FORCE_RGB,
-            &metadata,
-            sourceImage);
+        HRESULT hr = S_OK;
+        const std::string extension = to_lower_ascii(a_sourcePath.extension());
+        if (extension == ".dds")
+        {
+            hr = DirectX::LoadFromDDSFile(
+                wideSourcePath.c_str(),
+                DirectX::DDS_FLAGS_NONE,
+                &metadata,
+                sourceImage);
+        }
+        else
+        {
+            hr = DirectX::LoadFromWICFile(
+                wideSourcePath.c_str(),
+                DirectX::WIC_FLAGS_FORCE_RGB,
+                &metadata,
+                sourceImage);
+        }
         if (FAILED(hr))
         {
             return Result::fail(
@@ -168,6 +215,14 @@ namespace Cue::Editor
         }
 
         const DirectX::TexMetadata sourceMetadata = sourceImage.GetMetadata();
+        if (sourceMetadata.IsCubemap())
+        {
+            return save_cuetexture_from_scratch_image(
+                a_fileSystem,
+                a_destinationPath,
+                sourceImage);
+        }
+
         DirectX::ScratchImage mipChain{};
         hr = DirectX::GenerateMipMaps(
             sourceImage.GetImages(),
@@ -227,7 +282,7 @@ namespace Cue::Editor
             return Result::ok();
         }
 
-        return cook_png_to_cuetexture(
+        return cook_source_to_cuetexture(
             a_fileSystem,
             a_sourcePath,
             a_destinationPath);
