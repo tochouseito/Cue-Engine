@@ -361,7 +361,28 @@ float evaluate_point_shadow(
     return lerp(1.0f, rawVisibility, saturate(shadowFace.tuning.y));
 }
 
-float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
+float evaluate_diffuse(float3 worldNormal, float3 lightDirection)
+{
+    const float ndotl = dot(worldNormal, lightDirection);
+    return pow(saturate(ndotl * 0.5f + 0.5f), 2.0f);
+}
+
+float evaluate_specular(
+    float3 worldNormal,
+    float3 lightDirection,
+    float3 viewDirection,
+    float shininess)
+{
+    const float3 halfVector = normalize(lightDirection + viewDirection);
+    const float ndoth = saturate(dot(worldNormal, halfVector));
+    return pow(ndoth, max(shininess, 1.0f));
+}
+
+float3 evaluate_lighting(
+    Material material,
+    float3 worldPosition,
+    float3 worldNormal,
+    float3 viewDirection)
 {
     float3 lighting = g_lightFrame.ambientColorIntensity.rgb *
         g_lightFrame.ambientColorIntensity.a;
@@ -371,13 +392,22 @@ float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
     {
         const DirectionalLight light = g_directionalLights[lightIndex];
         const float3 lightDirection = normalize(light.directionIntensity.xyz);
-        const float ndotl = saturate(dot(worldNormal, -lightDirection));
+        const float3 surfaceToLight = -lightDirection;
+        const float diffuse = evaluate_diffuse(worldNormal, surfaceToLight);
+        const float specular = evaluate_specular(
+            worldNormal,
+            surfaceToLight,
+            viewDirection,
+            material.shininess);
         const float shadow = evaluate_directional_shadow(
             lightIndex,
             worldPosition,
             worldNormal,
             lightDirection);
-        lighting += light.color.rgb * light.directionIntensity.w * ndotl * shadow;
+        lighting += light.color.rgb *
+            light.directionIntensity.w *
+            (diffuse + specular) *
+            shadow;
     }
 
     const uint pointCount = min(g_lightFrame.pointLightCount, 64u);
@@ -391,13 +421,18 @@ float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
         const float3 lightDirection = distance > 0.0001f
             ? toLight / distance
             : float3(0.0f, 1.0f, 0.0f);
-        const float ndotl = saturate(dot(worldNormal, lightDirection));
+        const float diffuse = evaluate_diffuse(worldNormal, lightDirection);
+        const float specular = evaluate_specular(
+            worldNormal,
+            lightDirection,
+            viewDirection,
+            material.shininess);
         const float shadow =
             evaluate_point_shadow(lightIndex, worldPosition, worldNormal,
                 lightDirection);
         lighting += light.colorIntensity.rgb *
             light.colorIntensity.w *
-            ndotl *
+            (diffuse + specular) *
             attenuation *
             attenuation *
             shadow;
@@ -417,13 +452,18 @@ float3 evaluate_lighting(float3 worldPosition, float3 worldNormal)
         const float3 spotDirection = normalize(light.directionOuterCos.xyz);
         const float spotCos = dot(-lightDirection, spotDirection);
         const float spotFactor = step(light.directionOuterCos.w, spotCos);
-        const float ndotl = saturate(dot(worldNormal, lightDirection));
+        const float diffuse = evaluate_diffuse(worldNormal, lightDirection);
+        const float specular = evaluate_specular(
+            worldNormal,
+            lightDirection,
+            viewDirection,
+            material.shininess);
         const float shadow =
             evaluate_spot_shadow(lightIndex, worldPosition, worldNormal,
                 lightDirection);
         lighting += light.colorIntensity.rgb *
             light.colorIntensity.w *
-            ndotl *
+            (diffuse + specular) *
             attenuation *
             attenuation *
             spotFactor *
@@ -510,7 +550,15 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     float3 color = baseColor;
     if (usesLighting)
     {
-        color *= max(evaluate_lighting(input.worldPosition, worldNormal), 0.0f);
+        const float3 viewDirection =
+            normalize(camera_position() - input.worldPosition);
+        color *= max(
+            evaluate_lighting(
+                material,
+                input.worldPosition,
+                worldNormal,
+                viewDirection),
+            0.0f);
         if (usesMaterial)
         {
             color += evaluate_skybox_reflection(

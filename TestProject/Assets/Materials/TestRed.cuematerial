@@ -7,7 +7,7 @@
     },
     "name": "TestRed",
     "reflectionSkybox": true,
-    "shininess": 25.285999298095703,
+    "shininess": 37.42900085449219,
     "texture": "Textures/uvChecker.dds",
     "useTexture": false,
     "version": 4
