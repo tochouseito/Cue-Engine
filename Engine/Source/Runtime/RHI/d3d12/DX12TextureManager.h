@@ -35,9 +35,14 @@ namespace Cue::RHI::DX12
         Result create_texture(const TextureDesc& desc,
             std::span<const TextureSubresourceData> initialData,
             TextureHandle& out) override;
+        Result create_texture_from_file(
+            std::string_view name,
+            std::string_view filePath,
+            TextureHandle& out) override;
         Result destroy_texture(TextureHandle handle) override;
         Result get_texture_descriptor_index(TextureHandle handle,
             uint32_t& outIndex) override;
+        Result get_texture_desc(TextureHandle handle, TextureDesc& outDesc) override;
         Result get_texture(std::string_view name, TextureHandle& out) override;
         bool try_get_record(TextureHandle handle, DX12TextureRecord** outRecord);
 
@@ -50,6 +55,8 @@ namespace Cue::RHI::DX12
             DX12GpuResource& outResource) const;
         Result upload_initial_data(DX12GpuResource& resource,
             std::span<const TextureSubresourceData> initialData) const;
+        Result upload_initial_data(DX12GpuResource& resource,
+            std::span<const D3D12_SUBRESOURCE_DATA> initialData) const;
     private:
         DX12RenderDevice& m_renderDevice; // レンダーデバイスへの参照
         DescriptorAllocator& m_descriptorAllocator;

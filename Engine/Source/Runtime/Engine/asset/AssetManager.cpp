@@ -3,6 +3,7 @@
 // === C++ includes ===
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <cstring>
 #include <limits>
 #include <string_view>
@@ -91,6 +92,16 @@ namespace Cue
             }
 
             return text;
+        }
+
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
+        {
+            for (char& character : a_text)
+            {
+                character = static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(character)));
+            }
+            return a_text;
         }
 
         [[nodiscard]] bool take_token(
@@ -1142,6 +1153,110 @@ namespace Cue
 
         uint32_t textureId = k_errorTextureId;
         Result result = register_texture_from_cuetexture(
+            fileSystem, "CueDummy", filePath, textureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (textureId != k_errorTextureId)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Error texture id must be zero.");
+        }
+
+        return Result::ok();
+    }
+
+    Result AssetManager::register_texture_from_file(
+        Core::IO::IFileSystem& fileSystem,
+        std::string_view name,
+        const Core::IO::Path& filePath,
+        uint32_t& outTextureId)
+    {
+        outTextureId = k_errorTextureId;
+
+        const std::string extension =
+            to_lower_ascii(filePath.normalize().extension());
+        if (extension == ".cuetexture")
+        {
+            return register_texture_from_cuetexture(
+                fileSystem,
+                name,
+                filePath,
+                outTextureId);
+        }
+
+        if (extension != ".dds")
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Texture asset file extension is not supported.");
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        if (m_textureNameMap.contains(nameId))
+        {
+            outTextureId = m_textureNameMap.at(nameId);
+            return Result::ok();
+        }
+
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Texture manager is not initialized in AssetManager.");
+        }
+
+        RHI::TextureHandle textureHandle{};
+        Result result = m_textureManager->create_texture_from_file(
+            name,
+            filePath.normalize().utf8(),
+            textureHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_textureManager->get_texture_descriptor_index(
+            textureHandle,
+            outTextureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (outTextureId >= m_textures.size())
+        {
+            m_textures.resize(static_cast<size_t>(outTextureId) + 1);
+        }
+
+        m_textures[outTextureId] = TextureAssetRecord{
+            std::string(name),
+            textureHandle
+        };
+        m_textureNameMap.emplace(nameId, outTextureId);
+        return Result::ok();
+    }
+
+    Result AssetManager::register_error_texture_from_file(
+        Core::IO::IFileSystem& fileSystem,
+        const Core::IO::Path& filePath)
+    {
+        if (!m_textures.empty())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Error texture must be registered before any other texture.");
+        }
+
+        uint32_t textureId = k_errorTextureId;
+        Result result = register_texture_from_file(
             fileSystem, "CueDummy", filePath, textureId);
         if (!result)
         {

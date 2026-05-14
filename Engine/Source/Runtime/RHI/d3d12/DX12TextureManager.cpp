@@ -2,10 +2,75 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <cctype>
 #include <cstring>
+#include <limits>
+#include <memory>
+
+// === DirectXTK12 includes ===
+#include <DDSTextureLoader.h>
 
 namespace Cue::RHI::DX12
 {
+    namespace
+    {
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
+        {
+            for (char& character : a_text)
+            {
+                character = static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(character)));
+            }
+            return a_text;
+        }
+
+        [[nodiscard]] Result to_color_format(
+            DXGI_FORMAT a_format,
+            ColorFormat& outFormat)
+        {
+            switch (a_format)
+            {
+            case DXGI_FORMAT_R8G8B8A8_UNORM:
+                outFormat = ColorFormat::R8G8B8A8_UNORM;
+                return Result::ok();
+            case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+                outFormat = ColorFormat::R8G8B8A8_UNORM_SRGB;
+                return Result::ok();
+            case DXGI_FORMAT_BC6H_UF16:
+                outFormat = ColorFormat::BC6H_UF16;
+                return Result::ok();
+            case DXGI_FORMAT_BC7_UNORM:
+                outFormat = ColorFormat::BC7_UNORM;
+                return Result::ok();
+            case DXGI_FORMAT_BC7_UNORM_SRGB:
+                outFormat = ColorFormat::BC7_UNORM_SRGB;
+                return Result::ok();
+            default:
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "DDS texture format is not supported.");
+            }
+        }
+
+        [[nodiscard]] uint16_t checked_u16(
+            uint32_t a_value,
+            const char* a_errorMessage,
+            Result& outResult) noexcept
+        {
+            if (a_value > std::numeric_limits<uint16_t>::max())
+            {
+                outResult = Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    a_errorMessage);
+                return 0;
+            }
+
+            return static_cast<uint16_t>(a_value);
+        }
+    }
+
     Result DX12TextureManager::validate_texture_desc(const TextureDesc& desc) const
     {
         switch (desc.kind)
@@ -100,6 +165,30 @@ namespace Cue::RHI::DX12
     Result DX12TextureManager::upload_initial_data(DX12GpuResource& resource,
         std::span<const TextureSubresourceData> initialData) const
     {
+        std::vector<D3D12_SUBRESOURCE_DATA> d3d12Subresources{};
+        d3d12Subresources.reserve(initialData.size());
+        for (const TextureSubresourceData& subresource : initialData)
+        {
+            D3D12_SUBRESOURCE_DATA d3d12Subresource{};
+            d3d12Subresource.pData = subresource.data;
+            d3d12Subresource.RowPitch =
+                static_cast<LONG_PTR>(subresource.rowPitch);
+            d3d12Subresource.SlicePitch =
+                static_cast<LONG_PTR>(subresource.slicePitch);
+            d3d12Subresources.push_back(d3d12Subresource);
+        }
+
+        return upload_initial_data(
+            resource,
+            std::span<const D3D12_SUBRESOURCE_DATA>(
+                d3d12Subresources.data(),
+                d3d12Subresources.size()));
+    }
+
+    Result DX12TextureManager::upload_initial_data(
+        DX12GpuResource& resource,
+        std::span<const D3D12_SUBRESOURCE_DATA> initialData) const
+    {
         ID3D12Device* device = m_renderDevice.get_d3d12_device();
         if (device == nullptr)
         {
@@ -170,8 +259,9 @@ namespace Cue::RHI::DX12
         std::byte* mappedData = uploadResource.mapped_data();
         for (uint32_t subresourceIndex = 0; subresourceIndex < subresourceCount; ++subresourceIndex)
         {
-            const TextureSubresourceData& subresource = initialData[subresourceIndex];
-            if (subresource.data == nullptr)
+            const D3D12_SUBRESOURCE_DATA& subresource =
+                initialData[subresourceIndex];
+            if (subresource.pData == nullptr)
             {
                 uploadResource.destroy();
                 return Result::fail(
@@ -185,12 +275,22 @@ namespace Cue::RHI::DX12
             const uint32_t rowCount = numRows[subresourceIndex];
             const uint32_t depthCount =
                 footprint.Depth == 0 ? 1u : footprint.Depth;
+            if (subresource.RowPitch <= 0 || subresource.SlicePitch <= 0)
+            {
+                uploadResource.destroy();
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Texture initial data pitch is invalid.");
+            }
+
+            const uint64_t sourceRowPitch =
+                static_cast<uint64_t>(subresource.RowPitch);
+            const uint64_t sourceSlicePitch =
+                static_cast<uint64_t>(subresource.SlicePitch);
             const uint64_t expectedSliceSize =
-                static_cast<uint64_t>(subresource.rowPitch) * rowCount;
-            if (subresource.rowPitch == 0 ||
-                subresource.slicePitch < expectedSliceSize ||
-                subresource.dataSize <
-                static_cast<uint64_t>(subresource.slicePitch) * depthCount)
+                sourceRowPitch * rowCount;
+            if (sourceSlicePitch < expectedSliceSize)
             {
                 uploadResource.destroy();
                 return Result::fail(
@@ -203,15 +303,15 @@ namespace Cue::RHI::DX12
             for (uint32_t depthIndex = 0; depthIndex < depthCount; ++depthIndex)
             {
                 const std::byte* sourceSlice =
-                    subresource.data +
-                    static_cast<uint64_t>(subresource.slicePitch) * depthIndex;
+                    static_cast<const std::byte*>(subresource.pData) +
+                    sourceSlicePitch * depthIndex;
                 std::byte* destinationSlice =
                     destinationBase +
                     static_cast<uint64_t>(footprint.RowPitch) * rowCount * depthIndex;
                 for (uint32_t rowIndex = 0; rowIndex < rowCount; ++rowIndex)
                 {
                     const uint64_t sourceOffset =
-                        static_cast<uint64_t>(subresource.rowPitch) * rowIndex;
+                        sourceRowPitch * rowIndex;
                     const uint64_t destinationOffset =
                         static_cast<uint64_t>(footprint.RowPitch) * rowIndex;
                     std::memcpy(
@@ -496,6 +596,205 @@ namespace Cue::RHI::DX12
         out = std::move(handle);
         return Result::ok();
     }
+
+    Result DX12TextureManager::create_texture_from_file(
+        std::string_view name,
+        std::string_view filePath,
+        TextureHandle& out)
+    {
+        out = {};
+
+        const std::string path(filePath);
+        if (to_lower_ascii(path.substr(path.find_last_of('.') == std::string::npos
+                ? path.size()
+                : path.find_last_of('.'))) != ".dds")
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "D3D12 texture file loading supports only DDS.");
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        if (!name.empty())
+        {
+            const auto it = m_nameToHandlesMap.find(nameId);
+            if (it != m_nameToHandlesMap.end())
+            {
+                out = it->second;
+                return Result::ok();
+            }
+        }
+
+        ID3D12Device* device = m_renderDevice.get_d3d12_device();
+        if (device == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "D3D12 device is not initialized.");
+        }
+
+        std::wstring widePath{};
+        Result result = PAL::Win::utf8_to_wide(path, &widePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        comPtr<ID3D12Resource> textureResource = nullptr;
+        std::unique_ptr<uint8_t[]> ddsData{};
+        std::vector<D3D12_SUBRESOURCE_DATA> subresources{};
+        bool isCubeMap = false;
+        const HRESULT hr = DirectX::LoadDDSTextureFromFile(
+            device,
+            widePath.c_str(),
+            textureResource.GetAddressOf(),
+            ddsData,
+            subresources,
+            0,
+            nullptr,
+            &isCubeMap);
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to load DDS texture.");
+        }
+
+        if (textureResource == nullptr || subresources.empty())
+        {
+            return Result::fail(
+                Code::GetFailed,
+                Severity::Error,
+                "DDS texture did not provide GPU resource data.");
+        }
+
+        const D3D12_RESOURCE_DESC resourceDesc = textureResource->GetDesc();
+        if (resourceDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Only 2D and CubeMap DDS textures are supported.");
+        }
+        if (!isCubeMap && resourceDesc.DepthOrArraySize != 1)
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Texture array DDS files are not supported yet.");
+        }
+        if (isCubeMap && resourceDesc.DepthOrArraySize != 6)
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Only single CubeMap DDS textures are supported.");
+        }
+
+        ColorFormat colorFormat{};
+        result = to_color_format(resourceDesc.Format, colorFormat);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource resource(
+            std::move(textureResource),
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        result = upload_initial_data(
+            resource,
+            std::span<const D3D12_SUBRESOURCE_DATA>(
+                subresources.data(),
+                subresources.size()));
+        if (!result)
+        {
+            resource.destroy();
+            return result;
+        }
+
+        DX12TextureRecord record{};
+        record.defaultResources.emplace_back(std::move(resource));
+        record.descriptorTableId =
+            m_descriptorAllocator.allocate(TableKind::Textures);
+        if (!record.descriptorTableId.valid())
+        {
+            for (DX12GpuResource& recordResource : record.defaultResources)
+            {
+                recordResource.destroy();
+            }
+            return Result::fail(
+                Code::OutOfMemory,
+                Severity::Error,
+                "Failed to allocate texture descriptor table slot.");
+        }
+
+        if (isCubeMap)
+        {
+            result = m_descriptorAllocator.create_srv_texture_cube(
+                record.descriptorTableId,
+                &record.defaultResources[0],
+                resourceDesc.Format,
+                0,
+                resourceDesc.MipLevels);
+        }
+        else
+        {
+            result = m_descriptorAllocator.create_srv_texture_2d(
+                record.descriptorTableId,
+                &record.defaultResources[0],
+                resourceDesc.Format,
+                0,
+                resourceDesc.MipLevels);
+        }
+        if (!result)
+        {
+            m_descriptorAllocator.free_table(record.descriptorTableId);
+            for (DX12GpuResource& recordResource : record.defaultResources)
+            {
+                recordResource.destroy();
+            }
+            return result;
+        }
+
+        Result rangeResult = Result::ok();
+        record.desc.name = std::string(name);
+        record.desc.width = static_cast<uint32_t>(resourceDesc.Width);
+        record.desc.height = resourceDesc.Height;
+        record.desc.mipLevels = checked_u16(
+            resourceDesc.MipLevels,
+            "DDS texture mip count is too large.",
+            rangeResult);
+        record.desc.arraySize = checked_u16(
+            resourceDesc.DepthOrArraySize,
+            "DDS texture array size is too large.",
+            rangeResult);
+        if (!rangeResult)
+        {
+            m_descriptorAllocator.free_table(record.descriptorTableId);
+            for (DX12GpuResource& recordResource : record.defaultResources)
+            {
+                recordResource.destroy();
+            }
+            return rangeResult;
+        }
+        record.desc.type = isCubeMap ? TextureType::CubeMap : TextureType::Texture2D;
+        record.desc.kind = TextureKind::Default;
+        record.desc.format = colorFormat;
+        record.desc.sampleCount = resourceDesc.SampleDesc.Count;
+
+        TextureHandle handle = m_textureRegistry.create(record);
+        if (!name.empty())
+        {
+            m_nameToHandlesMap[nameId] = handle;
+        }
+
+        out = std::move(handle);
+        return Result::ok();
+    }
+
     Result DX12TextureManager::destroy_texture(TextureHandle handle)
     {
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
@@ -595,6 +894,25 @@ namespace Cue::RHI::DX12
         }
 
         outIndex = record->descriptorTableId.index;
+        return Result::ok();
+    }
+
+    Result DX12TextureManager::get_texture_desc(
+        TextureHandle handle,
+        TextureDesc& outDesc)
+    {
+        outDesc = {};
+
+        DX12TextureRecord* record = nullptr;
+        if (!try_get_record(handle, &record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Texture not found for the given handle.");
+        }
+
+        outDesc = record->desc;
         return Result::ok();
     }
 

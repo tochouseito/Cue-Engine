@@ -205,58 +205,114 @@ namespace Cue::Editor
         {
             const std::string extension =
                 to_lower_ascii(a_path.extension());
-            return extension == ".png" || extension == ".dds";
+            return extension == ".png";
         }
 
-        [[nodiscard]] Result read_cuetexture_header(
-            Core::IO::IFileSystem& a_fileSystem,
-            const Core::IO::Path& a_path,
-            CueTextureHeader& outHeader)
+        struct DdsPixelFormat final
         {
-            if (to_lower_ascii(a_path.extension()) != ".cuetexture")
+            uint32_t size = 0;
+            uint32_t flags = 0;
+            uint32_t fourCc = 0;
+            uint32_t rgbBitCount = 0;
+            uint32_t rBitMask = 0;
+            uint32_t gBitMask = 0;
+            uint32_t bBitMask = 0;
+            uint32_t aBitMask = 0;
+        };
+
+        struct DdsHeader final
+        {
+            uint32_t size = 0;
+            uint32_t flags = 0;
+            uint32_t height = 0;
+            uint32_t width = 0;
+            uint32_t pitchOrLinearSize = 0;
+            uint32_t depth = 0;
+            uint32_t mipMapCount = 0;
+            uint32_t reserved1[11]{};
+            DdsPixelFormat pixelFormat{};
+            uint32_t caps = 0;
+            uint32_t caps2 = 0;
+            uint32_t caps3 = 0;
+            uint32_t caps4 = 0;
+            uint32_t reserved2 = 0;
+        };
+
+        struct DdsHeaderDx10 final
+        {
+            uint32_t dxgiFormat = 0;
+            uint32_t resourceDimension = 0;
+            uint32_t miscFlag = 0;
+            uint32_t arraySize = 0;
+            uint32_t miscFlags2 = 0;
+        };
+
+        inline constexpr uint32_t k_ddsMagic = 0x20534444u;
+        inline constexpr uint32_t k_ddsFourCc = 0x4u;
+        inline constexpr uint32_t k_ddsFourCcDx10 = 0x30315844u;
+        inline constexpr uint32_t k_ddsCaps2Cubemap = 0x200u;
+        inline constexpr uint32_t k_ddsCaps2CubemapAllFaces = 0xFC00u;
+        inline constexpr uint32_t k_ddsDx10TextureCube = 0x4u;
+
+        [[nodiscard]] bool is_cube_dds_file(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_path)
+        {
+            if (to_lower_ascii(a_path.extension()) != ".dds")
             {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "Texture asset file extension must be .cuetexture.");
+                return false;
             }
 
             std::vector<std::byte> fileData{};
             const Result result = a_fileSystem.read_all(a_path.normalize(), &fileData);
-            if (!result || fileData.size() < sizeof(CueTextureHeader))
+            if (!result ||
+                fileData.size() < sizeof(uint32_t) + sizeof(DdsHeader))
             {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "Cooked texture header is invalid.");
+                return false;
             }
 
-            std::memcpy(&outHeader, fileData.data(), sizeof(CueTextureHeader));
-            if (outHeader.magic != k_cueTextureMagic ||
-                outHeader.version != k_cueTextureVersion ||
-                outHeader.width == 0 ||
-                outHeader.height == 0 ||
-                outHeader.mipCount == 0)
+            uint32_t magic = 0;
+            std::memcpy(&magic, fileData.data(), sizeof(magic));
+            if (magic != k_ddsMagic)
             {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "Cooked texture header is invalid.");
+                return false;
             }
 
-            return Result::ok();
-        }
+            DdsHeader header{};
+            std::memcpy(
+                &header,
+                fileData.data() + sizeof(uint32_t),
+                sizeof(header));
+            if (header.size != sizeof(DdsHeader) ||
+                header.pixelFormat.size != sizeof(DdsPixelFormat))
+            {
+                return false;
+            }
+            if ((header.caps2 & k_ddsCaps2Cubemap) != 0)
+            {
+                return (header.caps2 & k_ddsCaps2CubemapAllFaces) ==
+                    k_ddsCaps2CubemapAllFaces;
+            }
 
-        [[nodiscard]] bool is_cube_cuetexture_file(
-            Core::IO::IFileSystem& a_fileSystem,
-            const Core::IO::Path& a_path)
-        {
-            CueTextureHeader header{};
-            const Result result =
-                read_cuetexture_header(a_fileSystem, a_path, header);
-            return result &&
-                header.arraySize == 6 &&
-                (header.flags & k_cueTextureFlagCubeMap) != 0;
+            if ((header.pixelFormat.flags & k_ddsFourCc) == 0 ||
+                header.pixelFormat.fourCc != k_ddsFourCcDx10)
+            {
+                return false;
+            }
+
+            if (fileData.size() <
+                sizeof(uint32_t) + sizeof(DdsHeader) + sizeof(DdsHeaderDx10))
+            {
+                return false;
+            }
+
+            DdsHeaderDx10 dx10Header{};
+            std::memcpy(
+                &dx10Header,
+                fileData.data() + sizeof(uint32_t) + sizeof(DdsHeader),
+                sizeof(dx10Header));
+            return (dx10Header.miscFlag & k_ddsDx10TextureCube) != 0 &&
+                dx10Header.arraySize == 1;
         }
 
         [[nodiscard]] std::string trim_ascii(std::string a_text)
@@ -783,7 +839,7 @@ namespace Cue::Editor
             const Core::IO::Path& a_filePath) noexcept
         {
             const std::string extension = a_filePath.extension();
-            return extension == ".cuetexture" ||
+            return extension == ".dds" ||
                 extension == ".cuematerial" ||
                 extension == ".cuescene" ||
                 extension == ".cuemodel" ||
@@ -1396,7 +1452,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> sourceTexturePaths{};
             for (const Core::IO::Path& texturePath : texturePaths)
             {
-                if (texturePath.extension() == ".cuetexture")
+                if (texturePath.extension() == ".dds")
                 {
                     cookedTexturePaths.push_back(texturePath);
                 }
@@ -1416,8 +1472,8 @@ namespace Cue::Editor
             {
                 const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
                     textureRoot,
-                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
-                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    Core::IO::Path(sourceTexturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
                     a_fileSystem,
                     sourceTexturePath,
                     cookedTexturePath);
@@ -1448,7 +1504,7 @@ namespace Cue::Editor
                     Core::IO::Path("Textures"),
                     Core::IO::Path(cookedTexturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     cookedTexturePath,
@@ -1643,7 +1699,7 @@ namespace Cue::Editor
                 {
                     sourceTexturePaths.push_back(texturePath);
                 }
-                else if (texturePath.extension() == ".cuetexture")
+                else if (texturePath.extension() == ".dds")
                 {
                     cookedTexturePaths.push_back(texturePath);
                 }
@@ -1697,8 +1753,8 @@ namespace Cue::Editor
             {
                 const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
                     textureRoot,
-                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
-                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    Core::IO::Path(sourceTexturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
                     a_fileSystem,
                     sourceTexturePath,
                     cookedTexturePath);
@@ -1796,7 +1852,7 @@ namespace Cue::Editor
                     Core::IO::Path("Textures"),
                     Core::IO::Path(texturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     texturePath,
@@ -3126,21 +3182,25 @@ namespace Cue::Editor
             to_lower_ascii(a_assetPath.extension());
         if (extension == ".png" || extension == ".dds")
         {
-            const Core::IO::Path cookedPath = Core::IO::Path::join(
-                a_assetPath.parent(),
-                Core::IO::Path(a_assetPath.stem() + ".cuetexture"));
-            Result result = TextureCooker::ensure_cuetexture_is_up_to_date(
-                *m_fileSystem, a_assetPath, cookedPath);
-            if (!result)
+            Core::IO::Path texturePath = a_assetPath.normalize();
+            if (extension == ".png")
             {
-                return result;
+                texturePath = Core::IO::Path::join(
+                    a_assetPath.parent(),
+                    Core::IO::Path(a_assetPath.stem() + ".dds"));
+                Result result = TextureCooker::ensure_dds_is_up_to_date(
+                    *m_fileSystem, a_assetPath, texturePath);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             uint32_t textureId = AssetManager::k_errorTextureId;
-            return m_engine->asset_manager().register_texture_from_cuetexture(
+            return m_engine->asset_manager().register_texture_from_file(
                 *m_fileSystem,
-                make_asset_relative_name(cookedPath),
-                cookedPath,
+                make_asset_relative_name(texturePath),
+                texturePath,
                 textureId);
         }
 
@@ -6121,6 +6181,7 @@ namespace Cue::Editor
             m_engine != nullptr && m_fileSystem != nullptr &&
             m_backend != nullptr &&
             m_backend->get_view_manager() != nullptr &&
+            m_backend->get_texture_manager() != nullptr &&
             !m_assetRootPath.is_empty();
         ImGui::BeginDisabled(!canSelectSkybox);
 
@@ -6158,7 +6219,7 @@ namespace Cue::Editor
 
                     for (const Core::IO::Path& texturePath : texturePaths)
                     {
-                        if (!is_cube_cuetexture_file(*m_fileSystem, texturePath))
+                        if (!is_cube_dds_file(*m_fileSystem, texturePath))
                         {
                             continue;
                         }
@@ -6177,7 +6238,7 @@ namespace Cue::Editor
                         {
                             uint32_t textureId = AssetManager::k_errorTextureId;
                             result = m_engine->asset_manager()
-                                .register_texture_from_cuetexture(
+                                .register_texture_from_file(
                                     *m_fileSystem,
                                     textureName,
                                     texturePath,
@@ -6205,15 +6266,15 @@ namespace Cue::Editor
                                     continue;
                                 }
 
-                                CueTextureHeader header{};
-                                result = read_cuetexture_header(
-                                    *m_fileSystem,
-                                    texturePath,
-                                    header);
+                                RHI::TextureDesc textureDesc{};
+                                result = m_backend->get_texture_manager()
+                                    ->get_texture_desc(
+                                        textureHandle,
+                                        textureDesc);
                                 if (!result)
                                 {
                                     log_result(
-                                        "Failed to read skybox texture header",
+                                        "Failed to get skybox texture desc",
                                         result);
                                     set_status_message(
                                         "Skybox texture 情報の読み込みに失敗しました。",
@@ -6235,10 +6296,9 @@ namespace Cue::Editor
                                         RHI::ViewType::ShaderResourceTextureCube;
                                     viewDesc.bufferKind = RHI::BufferKind::Texture;
                                     viewDesc.textureHandle = textureHandle;
-                                    viewDesc.colorFormat =
-                                        static_cast<RHI::ColorFormat>(header.format);
+                                    viewDesc.colorFormat = textureDesc.format;
                                     viewDesc.mipSlice = 0;
-                                    viewDesc.mipLevels = header.mipCount;
+                                    viewDesc.mipLevels = textureDesc.mipLevels;
                                     result = m_backend->get_view_manager()
                                         ->create_view(viewDesc, textureSrvHandle);
                                 }
@@ -6270,7 +6330,7 @@ namespace Cue::Editor
 
         if (cubeTextureCount == 0)
         {
-            ImGui::TextDisabled("CubeMap の .cuetexture がありません。");
+            ImGui::TextDisabled("CubeMap の .dds がありません。");
         }
 
         ImGui::EndDisabled();

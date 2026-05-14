@@ -53,6 +53,8 @@ set(CUE_ENGINE_VCPKG_TARGET_ROOT
     "${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_TARGET_TRIPLET}")
 set(CUE_ENGINE_VCPKG_HOST_ROOT
     "${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_HOST_TRIPLET}")
+list(APPEND CMAKE_PREFIX_PATH "${CUE_ENGINE_VCPKG_TARGET_ROOT}")
+find_package(directxtk12 CONFIG REQUIRED)
 
 set(CUE_GAME_RELEASE_EXECUTABLE_NAME "Game")
 set(CUE_GAME_RELEASE_WINDOW_TITLE "Cue App")
@@ -318,6 +320,7 @@ target_link_libraries(CueApp PRIVATE
     "${CUE_ENGINE_OUTPUT_DIR}/jolt_physics_backend.lib"
     "$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_TARGET_ROOT}/debug/lib/Jolt.lib,${CUE_ENGINE_VCPKG_TARGET_ROOT}/lib/Jolt.lib>"
     "${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib"
+    Microsoft::DirectXTK12
     "${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib"
     winmm.lib
     ole32.lib

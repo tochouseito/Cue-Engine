@@ -101,7 +101,7 @@ GameScript は常に `scriptBuildConfiguration` の構成から読み込み、�
 ### Skybox
 
 - `なし`: Skybox texture の選択を解除します。
-- `Textures/*.cuetexture`: CubeMap として cook 済みの texture を Skybox に設定します。
+- `Textures/*.dds`: CubeMap として cook 済みの texture を Skybox に設定します。
 
 ### ビルド
 
@@ -166,7 +166,7 @@ Asset Browser は `Assets` 配下をフォルダ単位で表示します。
 ファイルはアイコン付きボタンとして表示されます。
 
 - `.cuematerial`: Material アイコンを表示します。
-- `.png` / `.dds` / `.cuetexture`: Image アイコン、または読み込み済み texture のプレビューを表示します。
+- `.png` / `.dds`: Image アイコン、または読み込み済み texture のプレビューを表示します。
 - その他のファイル: Unknown アイコンを表示します。
 
 Material asset を選択すると Inspector に Material の詳細が表示されます。
@@ -176,10 +176,13 @@ Editor Window へ外部ファイルをドロップすると、現在開いてい
 Asset Browser が `Assets` 以下のフォルダを開いていない場合は `Assets/` にコピーします。
 対応している外部ファイルは次の通りです。
 
-- `.png`: 2D texture の `.cuetexture` に cook して登録します。
-- `.dds`: 2D texture または CubeMap の `.cuetexture` に cook して登録します。
+- `.png`: 2D texture の `.dds` に cook して登録します。
+- `.dds`: 2D texture または CubeMap としてそのまま登録します。
 - `.wav`: `.cuesound` に cook します。
 - `.obj`: `.cuemodel` に cook して登録します。
+
+Asset Browser のファイル一覧を右クリックして `Make Cube Texture` を選ぶと、現在開いているフォルダへ 6 枚画像から `.dds` CubeMap を作成できます。
+面の指定順は `+X / Right`、`-X / Left`、`+Y / Up`、`-Y / Down`、`+Z / Front`、`-Z / Back` です。
 
 ## Inspector
 
@@ -192,7 +195,7 @@ Material Inspector では現在次の項目を編集できます。
 - `Use Texture`: texture を使うかを切り替えます。
 - `Reflection Skybox`: 選択中 Skybox を環境反射として使うかを切り替えます。
 - `shininess`: 環境反射の鋭さを調整します。
-- `Texture をここへドロップ`: `.cuetexture` を drag and drop して Material に設定します。
+- `Texture をここへドロップ`: `.dds` を drag and drop して Material に設定します。
 
 RendererComponent の Material 欄には Asset Browser から `.cuematerial` を drag and drop できます。
 
@@ -225,4 +228,4 @@ Scene を複数読み込んでも、World は GameObject を一元管理しま�
 配布時の実行ファイル名、タイトルバー、アプリアイコンは `ゲーム配布アプリ設定` で変更できます。
 アイコンはプロジェクト内の `.ico`、`.png`、`.jpg`、`.jpeg`、`.bmp` を指定できます。
 
-Release asset としてコピーされるのは、cook 済みの `.cuetexture`、`.cuematerial`、`.cuescene`、`.cuemodel`、`.cuesound` です。
+Release asset としてコピーされるのは、cook 済みの `.dds`、`.cuematerial`、`.cuescene`、`.cuemodel`、`.cuesound` です。

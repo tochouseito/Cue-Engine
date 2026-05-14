@@ -1,5 +1,8 @@
 # Texture Asset Format v1
 
+> 旧形式メモ。DirectX backend の Runtime texture は現在 `.dds` を使用し、D3D12 では DirectXTK12 の `DDSTextureLoader` で読み込む。
+> `.cuetexture` は過去の cooked texture 形式として残っているが、新規 cook の出力対象ではない。
+
 ## 目的
 
 `cuetexture` は CueEngine の Texture 用 cooked asset 形式です。  

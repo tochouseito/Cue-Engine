@@ -224,6 +224,7 @@
                     "range": 12.0,
                     "shadowBias": 0.0010000000474974513,
                     "shadowNearClip": 0.05000000074505806,
+                    "shadowSlopeBias": 0.004000000189989805,
                     "shadowSoftness": 1.0,
                     "shadowStrength": 0.75
                 },

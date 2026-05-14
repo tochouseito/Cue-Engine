@@ -127,7 +127,15 @@ namespace Cue
             std::string_view name,
             const Core::IO::Path& filePath,
             uint32_t& outTextureId);
+        Result register_texture_from_file(
+            Core::IO::IFileSystem& fileSystem,
+            std::string_view name,
+            const Core::IO::Path& filePath,
+            uint32_t& outTextureId);
         Result register_error_texture_from_cuetexture(
+            Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath);
+        Result register_error_texture_from_file(
             Core::IO::IFileSystem& fileSystem,
             const Core::IO::Path& filePath);
         Result get_texture_id(std::string_view name, uint32_t& outTextureId) const

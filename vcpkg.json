@@ -10,7 +10,14 @@
       "host": true
     },
     {
-      "name": "directxtex"
+      "name": "directxtex",
+      "features": [
+        "tools"
+      ]
+    },
+    {
+      "name": "directxtk12",
+      "default-features": false
     },
     {
       "name": "imgui",

@@ -3543,17 +3543,17 @@ namespace Cue::Editor
             }
 
             const Core::IO::Path texturePath = a_texturePath.normalize();
-            if (texturePath.extension() != ".cuetexture")
+            if (texturePath.extension() != ".dds")
             {
                 return Result::fail(Code::InvalidArgument, Severity::Error,
-                    "Only .cuetexture can be assigned to Material.");
+                    "Only .dds can be assigned to Material.");
             }
 
             const std::string textureName =
                 make_asset_relative_name(texturePath);
             uint32_t textureId = AssetManager::k_errorTextureId;
             Result result =
-                m_engine->asset_manager().register_texture_from_cuetexture(
+                m_engine->asset_manager().register_texture_from_file(
                     *m_fileSystem,
                     textureName,
                     texturePath,

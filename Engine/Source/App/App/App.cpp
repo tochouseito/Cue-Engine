@@ -265,7 +265,7 @@ namespace
 
             for (const Core::IO::Path& texturePath : texturePaths)
             {
-                if (texturePath.extension() != ".cuetexture")
+                if (texturePath.extension() != ".dds")
                 {
                     continue;
                 }
@@ -274,7 +274,7 @@ namespace
                     Core::IO::Path("Textures"),
                     Core::IO::Path(texturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     texturePath,
@@ -550,7 +550,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // エラー用テクスチャのパスを設定
     engineInfo.errorTexturePath = Core::IO::Path::join(
         executableDirectory,
-        Core::IO::Path("EngineResources/Textures/CueDummy.cuetexture"));
+        Core::IO::Path("EngineResources/Textures/CueDummy.dds"));
 
     // エンジンの初期化
     result = engine->initialize(engineInfo);

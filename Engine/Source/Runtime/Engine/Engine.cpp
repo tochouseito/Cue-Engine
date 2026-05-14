@@ -109,14 +109,14 @@ namespace Cue
 #ifdef CUE_PROJECT_ROOT_PATH
             errorTexturePath = Core::IO::Path::join(
                 Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
-                Core::IO::Path("Engine/Textures/CueDummy.cuetexture"));
+                Core::IO::Path("Engine/Textures/CueDummy.dds"));
 #else
             return Result::fail(Code::InvalidState, Severity::Fatal,
                 "Error texture path is not configured for Engine.");
 #endif
         }
 
-        result = m_assetManager.register_error_texture_from_cuetexture(
+        result = m_assetManager.register_error_texture_from_file(
             m_platform->file_system(),
             errorTexturePath);
         if (!result)
