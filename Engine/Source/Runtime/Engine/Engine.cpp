@@ -1177,7 +1177,8 @@ namespace Cue
             drawResources->material_buffer_handle(),
             lightingBindings,
             shadowBindings,
-            m_cubeIndexCount));
+            m_cubeIndexCount,
+            &m_debugViewShadingMode));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->render_object_buffer_handle(),

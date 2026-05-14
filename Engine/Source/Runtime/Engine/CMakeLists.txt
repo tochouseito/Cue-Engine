@@ -30,6 +30,7 @@ add_library(Engine STATIC
     "DrawSystem/DrawFrameState.h"
     "DrawSystem/DrawResources.h"
     "DrawSystem/DrawResources.cpp"
+    "DrawSystem/DebugViewShadingMode.h"
     "DrawSystem/StaticMeshPool.h"
     "DrawSystem/StaticMeshPool.cpp"
     "DrawSystem/StaticMeshPoolTypes.h"

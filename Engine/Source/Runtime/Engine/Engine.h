@@ -20,6 +20,7 @@
 
 // === Engine includes ===
 #include "Asset/AssetManager.h"
+#include "DrawSystem/DebugViewShadingMode.h"
 #include "DrawSystem/StaticMeshPool.h"
 #include "EngineCommandContext.h"
 #include "FrameController.h"
@@ -235,6 +236,18 @@ namespace Cue
             return m_isDebugGridVisible;
         }
 
+        void set_debug_view_shading_mode(
+            DrawSystem::DebugViewShadingMode a_mode) noexcept
+        {
+            m_debugViewShadingMode = a_mode;
+        }
+
+        [[nodiscard]] DrawSystem::DebugViewShadingMode
+            debug_view_shading_mode() const noexcept
+        {
+            return m_debugViewShadingMode;
+        }
+
         [[nodiscard]] bool request_debug_pick(
             float a_normalizedX,
             float a_normalizedY) noexcept;
@@ -369,6 +382,8 @@ namespace Cue
         RHI::ReadbackBufferView m_debugPickReadbackView{};
         GpuData::DebugPickState m_debugPickState{};
         GameCore::EntityId m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        DrawSystem::DebugViewShadingMode m_debugViewShadingMode =
+            DrawSystem::DebugViewShadingMode::MaterialLighting;
         bool m_hasDebugPickResult = false;
         bool m_isDebugGridVisible = true;
         uint32_t m_debugSelectedObjectId = 0;

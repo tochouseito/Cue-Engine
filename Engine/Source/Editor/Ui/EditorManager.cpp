@@ -5701,6 +5701,44 @@ namespace Cue::Editor
         {
             m_engine->set_debug_grid_visible(isGridVisible);
         }
+
+        DrawSystem::DebugViewShadingMode shadingMode =
+            m_engine != nullptr
+            ? m_engine->debug_view_shading_mode()
+            : DrawSystem::DebugViewShadingMode::MaterialLighting;
+        if (ImGui::BeginMenu("描画モード"))
+        {
+            if (ImGui::MenuItem("ソリッド", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Solid) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Solid);
+            }
+            if (ImGui::MenuItem("マテリアル", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Material) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Material);
+            }
+            if (ImGui::MenuItem("ライティング", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Lighting) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Lighting);
+            }
+            if (ImGui::MenuItem("レンダー", nullptr,
+                    shadingMode ==
+                        DrawSystem::DebugViewShadingMode::MaterialLighting) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::MaterialLighting);
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndDisabled();
 
         ImGui::Separator();

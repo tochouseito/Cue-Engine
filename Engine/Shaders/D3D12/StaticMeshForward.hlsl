@@ -19,6 +19,11 @@ struct VsIn
 static const float k_pi = 3.14159265359f;
 static const uint k_maxSpotShadowCount = 4u;
 static const uint k_pointShadowFaceCount = 6u;
+static const uint k_debugViewShadingSolid = 0u;
+static const uint k_debugViewShadingMaterial = 1u;
+static const uint k_debugViewShadingLighting = 2u;
+static const uint k_debugViewShadingMaterialLighting = 3u;
+static const float3 k_solidColor = float3(0.8f, 0.8f, 0.8f);
 
 cbuffer ViewProjection : register(b0)
 {
@@ -48,6 +53,13 @@ Texture2D<float> g_directionalShadowMap : register(t9);
 StructuredBuffer<PointShadowFace> g_pointShadowFaces : register(t10);
 Texture2D<float> g_pointShadowMap : register(t11);
 Texture2D<float4> g_textures[] : register(t0, space1);
+
+struct DebugViewShadingConstants
+{
+    uint mode;
+};
+
+ConstantBuffer<DebugViewShadingConstants> g_debugViewShading : register(b4);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
@@ -419,24 +431,40 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     {
         worldNormal = -worldNormal;
     }
-    const Material material = g_materials[input.materialId];
-    float3 textureColor = float3(1.0f, 1.0f, 1.0f);
-    if (material.useTexture != 0)
+    const uint shadingMode = g_debugViewShading.mode;
+    const bool usesMaterial =
+        shadingMode == k_debugViewShadingMaterial ||
+        shadingMode == k_debugViewShadingMaterialLighting;
+    const bool usesLighting =
+        shadingMode == k_debugViewShadingLighting ||
+        shadingMode == k_debugViewShadingMaterialLighting;
+
+    float3 baseColor = k_solidColor;
+    if (usesMaterial)
     {
-        const uint textureIndex = NonUniformResourceIndex(material.textureId);
-        uint textureWidth = 1;
-        uint textureHeight = 1;
-        g_textures[textureIndex].GetDimensions(textureWidth, textureHeight);
-        const float2 wrappedUv = frac(input.texcoord);
-        const uint2 texelCoord = uint2(
-            min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
-            min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
-        textureColor =
-            g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
+        const Material material = g_materials[input.materialId];
+        float3 textureColor = float3(1.0f, 1.0f, 1.0f);
+        if (material.useTexture != 0)
+        {
+            const uint textureIndex = NonUniformResourceIndex(material.textureId);
+            uint textureWidth = 1;
+            uint textureHeight = 1;
+            g_textures[textureIndex].GetDimensions(textureWidth, textureHeight);
+            const float2 wrappedUv = frac(input.texcoord);
+            const uint2 texelCoord = uint2(
+                min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
+                min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
+            textureColor =
+                g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
+        }
+
+        baseColor = material.color.rgb * textureColor;
     }
 
-    const float3 baseColor = material.color.rgb * textureColor;
-    const float3 color = baseColor *
-        max(evaluate_lighting(input.worldPosition, worldNormal), 0.0f);
+    float3 color = baseColor;
+    if (usesLighting)
+    {
+        color *= max(evaluate_lighting(input.worldPosition, worldNormal), 0.0f);
+    }
     return float4(color, 1.0f);
 }

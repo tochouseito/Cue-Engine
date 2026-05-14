@@ -4,6 +4,7 @@
 #include <FrameGraph.h>
 
 // === Engine includes ===
+#include <DrawSystem/DebugViewShadingMode.h>
 #include <DrawSystem/DrawFrameState.h>
 #include <LightingSystem/LightingBindings.h>
 #include <ShadowSystem/ShadowBindings.h>
@@ -32,7 +33,8 @@ namespace Cue::DrawSystem
             RHI::BufferHandle a_materialBufferHandle,
             const LightingSystem::LightingBindings& a_lightingBindings,
             const ShadowSystem::ShadowBindings& a_shadowBindings,
-            uint32_t a_indexCountPerInstance)
+            uint32_t a_indexCountPerInstance,
+            const DebugViewShadingMode* a_shadingMode = nullptr)
             : m_name(std::move(a_name)),
             m_colorName(std::move(a_colorName)),
             m_colorRtvName(std::move(a_colorRtvName)),
@@ -46,6 +48,7 @@ namespace Cue::DrawSystem
             m_materialBufferHandle(a_materialBufferHandle),
             m_lightingBindings(a_lightingBindings),
             m_shadowBindings(a_shadowBindings),
+            m_shadingMode(a_shadingMode),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -305,6 +308,10 @@ namespace Cue::DrawSystem
                 11,
                 1,
                 0 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::_32BitConstants,
+                RHI::ShaderVisibility::Pixel,
+                4 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -695,6 +702,12 @@ namespace Cue::DrawSystem
             commandContext->set_srv(15, m_shadowBindings.pointShadowFaceBuffer);
             commandContext->set_graphics_descriptor_table(
                 16, m_pointShadowMapSrvHandle);
+            const DebugViewShadingMode shadingMode = m_shadingMode != nullptr
+                ? *m_shadingMode
+                : DebugViewShadingMode::MaterialLighting;
+            commandContext->set_32bit_constant(
+                17,
+                to_shader_value(shadingMode));
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
@@ -773,6 +786,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        const DebugViewShadingMode* m_shadingMode = nullptr;
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};
