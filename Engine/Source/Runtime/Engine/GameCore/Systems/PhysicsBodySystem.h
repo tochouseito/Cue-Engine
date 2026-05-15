@@ -228,26 +228,26 @@ namespace Cue::ECS
                 return result;
             }
 
-            for (const Core::Native::MeshData& mesh : modelData.meshes)
+            auto append_mesh =
+                [&a_outDesc](
+                    const Core::Native::MeshData& a_mesh,
+                    const Math::float4x4& a_matrix) -> Result
             {
                 const uint32_t vertexBase =
                     static_cast<uint32_t>(a_outDesc.vertices.size());
                 a_outDesc.vertices.reserve(
-                    a_outDesc.vertices.size() + mesh.positions.size());
-                for (const Math::float4& position : mesh.positions)
+                    a_outDesc.vertices.size() + a_mesh.positions.size());
+                for (const Math::float4& position : a_mesh.positions)
                 {
                     a_outDesc.vertices.push_back(
-                        Math::float3(
-                            position.x * a_transform.scale.x,
-                            position.y * a_transform.scale.y,
-                            position.z * a_transform.scale.z));
+                        transform_point(a_matrix, position));
                 }
 
                 a_outDesc.indices.reserve(
-                    a_outDesc.indices.size() + mesh.indices.size());
-                for (uint32_t index : mesh.indices)
+                    a_outDesc.indices.size() + a_mesh.indices.size());
+                for (uint32_t index : a_mesh.indices)
                 {
-                    if (index >= mesh.positions.size())
+                    if (index >= a_mesh.positions.size())
                     {
                         return Result::fail(
                             Code::InvalidArgument,
@@ -255,6 +255,44 @@ namespace Cue::ECS
                             "Mesh collider index is out of range.");
                     }
                     a_outDesc.indices.push_back(vertexBase + index);
+                }
+
+                return Result::ok();
+            };
+
+            const Math::float4x4 scaleMatrix =
+                Math::scale_matrix(a_transform.scale);
+            if (modelData.renderParts.empty())
+            {
+                for (const Core::Native::MeshData& mesh : modelData.meshes)
+                {
+                    result = append_mesh(mesh, scaleMatrix);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+            }
+            else
+            {
+                for (const Core::Native::ModelRenderPartData& renderPart :
+                    modelData.renderParts)
+                {
+                    if (renderPart.meshIndex >= modelData.meshes.size())
+                    {
+                        return Result::fail(
+                            Code::InvalidArgument,
+                            Severity::Error,
+                            "Mesh collider render part mesh index is out of range.");
+                    }
+
+                    result = append_mesh(
+                        modelData.meshes[renderPart.meshIndex],
+                        renderPart.localTransform * scaleMatrix);
+                    if (!result)
+                    {
+                        return result;
+                    }
                 }
             }
 
@@ -352,6 +390,25 @@ namespace Cue::ECS
                 rotation.y,
                 rotation.z,
                 rotation.w);
+        }
+
+        [[nodiscard]] static Math::float3 transform_point(
+            const Math::float4x4& a_matrix,
+            const Math::float4& a_point) noexcept
+        {
+            return Math::float3(
+                a_point.x * a_matrix.values[0][0] +
+                    a_point.y * a_matrix.values[1][0] +
+                    a_point.z * a_matrix.values[2][0] +
+                    a_point.w * a_matrix.values[3][0],
+                a_point.x * a_matrix.values[0][1] +
+                    a_point.y * a_matrix.values[1][1] +
+                    a_point.z * a_matrix.values[2][1] +
+                    a_point.w * a_matrix.values[3][1],
+                a_point.x * a_matrix.values[0][2] +
+                    a_point.y * a_matrix.values[1][2] +
+                    a_point.z * a_matrix.values[2][2] +
+                    a_point.w * a_matrix.values[3][2]);
         }
 
         [[nodiscard]] static Math::Quaternion to_quaternion(

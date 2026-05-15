@@ -2,6 +2,7 @@
 
 // === C++ includes ===
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,9 @@
 
 namespace Cue::Core::Native
 {
+    inline constexpr uint32_t k_invalidModelMaterialIndex =
+        (std::numeric_limits<uint32_t>::max)();
+
     /// @brief 1 メッシュ分の頂点データです。
     struct MeshData
     {
@@ -27,9 +31,32 @@ namespace Cue::Core::Native
         }
     };
 
+    /// @brief インポート元モデルに含まれるマテリアル情報です。
+    struct ImportedMaterialData
+    {
+        std::string name; // マテリアル名
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        std::string textureName;
+        std::string sourceTexturePath;
+        float shininess = 32.0f;
+        bool isTextureUsed = false;
+        bool usesReflectionSkybox = false;
+    };
+
+    /// @brief モデル内の描画単位です。
+    struct ModelRenderPartData
+    {
+        std::string name; // 描画単位名
+        uint32_t meshIndex = 0;
+        uint32_t materialIndex = k_invalidModelMaterialIndex;
+        Math::float4x4 localTransform = Math::float4x4::identity();
+    };
+
     /// @brief モデル全体のメッシュ集合です。
     struct ModelData
     {
         std::vector<MeshData> meshes; // メッシュデータ配列
+        std::vector<ImportedMaterialData> materials;
+        std::vector<ModelRenderPartData> renderParts;
     };
 }

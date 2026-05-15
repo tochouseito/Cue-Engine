@@ -712,6 +712,8 @@ namespace Cue::Editor
                     const bool isSelected = modelName == component->modelName;
                     if (ImGui::Selectable(modelName.c_str(), isSelected))
                     {
+                        const bool isModelChanged =
+                            modelName != component->modelName;
                         component->modelName = modelName;
                         uint32_t meshId = ECS::k_invalidMeshId;
                         if (m_engine != nullptr &&
@@ -720,6 +722,15 @@ namespace Cue::Editor
                                 meshId))
                         {
                             component->meshId = meshId;
+                        }
+                        if (isModelChanged)
+                        {
+                            ECS::StaticMeshRendererComponent* renderer = nullptr;
+                            if (a_object.get_component(renderer) &&
+                                renderer != nullptr)
+                            {
+                                renderer->materialHandle = {};
+                            }
                         }
                     }
                 }

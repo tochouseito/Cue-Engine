@@ -5,6 +5,7 @@
 
 // === ThirdParty includes ===
 #include <assimp/Importer.hpp>
+#include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
@@ -28,6 +29,75 @@ namespace Cue::Editor
             }
 
             return std::string(modelName) + "_" + std::to_string(meshIndex);
+        }
+
+        [[nodiscard]] std::string make_material_name(
+            const aiMaterial& material,
+            uint32_t materialIndex) noexcept
+        {
+            aiString name{};
+            if (material.Get(AI_MATKEY_NAME, name) == AI_SUCCESS &&
+                name.length > 0 &&
+                name.C_Str() != nullptr)
+            {
+                return std::string(name.C_Str(), name.length);
+            }
+
+            return "Material_" + std::to_string(materialIndex);
+        }
+
+        [[nodiscard]] std::string make_texture_asset_name(
+            const aiString& texturePath) noexcept
+        {
+            if (texturePath.length == 0 || texturePath.C_Str() == nullptr)
+            {
+                return {};
+            }
+
+            const Core::IO::Path sourcePath(
+                std::string(texturePath.C_Str(), texturePath.length));
+            return Core::IO::Path::join(
+                Core::IO::Path("Textures"),
+                Core::IO::Path(sourcePath.stem() + ".dds")).utf8();
+        }
+
+        [[nodiscard]] Core::Native::ImportedMaterialData import_material(
+            const aiMaterial& material,
+            uint32_t materialIndex) noexcept
+        {
+            Core::Native::ImportedMaterialData materialData{};
+            materialData.name = make_material_name(material, materialIndex);
+
+            aiColor4D diffuseColor{};
+            if (aiGetMaterialColor(
+                    &material,
+                    AI_MATKEY_COLOR_DIFFUSE,
+                    &diffuseColor) == AI_SUCCESS)
+            {
+                materialData.color = Math::float4(
+                    diffuseColor.r,
+                    diffuseColor.g,
+                    diffuseColor.b,
+                    diffuseColor.a);
+            }
+
+            float shininess = 32.0f;
+            if (material.Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS)
+            {
+                materialData.shininess = shininess;
+            }
+
+            aiString texturePath{};
+            if (material.GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) ==
+                AI_SUCCESS)
+            {
+                materialData.sourceTexturePath =
+                    std::string(texturePath.C_Str(), texturePath.length);
+                materialData.textureName = make_texture_asset_name(texturePath);
+                materialData.isTextureUsed = !materialData.textureName.empty();
+            }
+
+            return materialData;
         }
     }
 
@@ -64,6 +134,24 @@ namespace Cue::Editor
                 Code::InvalidArgument,
                 Severity::Error,
                 "Model scene does not contain any mesh.");
+        }
+
+        if (scene->mNumMaterials > 0 && scene->mMaterials != nullptr)
+        {
+            outModelData.materials.reserve(scene->mNumMaterials);
+            for (uint32_t materialIndex = 0;
+                 materialIndex < scene->mNumMaterials;
+                 ++materialIndex)
+            {
+                if (scene->mMaterials[materialIndex] == nullptr)
+                {
+                    continue;
+                }
+
+                outModelData.materials.push_back(import_material(
+                    *scene->mMaterials[materialIndex],
+                    materialIndex));
+            }
         }
 
         // メッシュ解析
@@ -136,7 +224,16 @@ namespace Cue::Editor
             }
 
             // メッシュデータをモデルデータに追加
+            Core::Native::ModelRenderPartData renderPart{};
+            renderPart.name = meshData.name;
+            renderPart.meshIndex =
+                static_cast<uint32_t>(outModelData.meshes.size());
+            if (mesh->mMaterialIndex < outModelData.materials.size())
+            {
+                renderPart.materialIndex = mesh->mMaterialIndex;
+            }
             outModelData.meshes.push_back(std::move(meshData));
+            outModelData.renderParts.push_back(std::move(renderPart));
         }
 
         if (outModelData.meshes.empty())

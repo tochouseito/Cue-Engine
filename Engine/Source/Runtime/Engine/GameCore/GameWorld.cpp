@@ -34,8 +34,8 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] ObjectDefinition make_default_static_mesh_object_definition(
-            const Math::float3& a_position, uint32_t a_meshId,
-            MaterialHandle a_defaultMaterialHandle)
+            const Math::float3& a_position,
+            uint32_t a_meshId)
         {
             ObjectDefinition objectDefinition("StaticMeshObject");
 
@@ -51,7 +51,6 @@ namespace Cue::GameCore
             objectDefinition.prototype.add_component(meshFilter);
 
             ECS::StaticMeshRendererComponent renderer{};
-            renderer.materialHandle = a_defaultMaterialHandle;
             renderer.visible = true;
             renderer.castsShadow = true;
             renderer.receivesShadow = true;
@@ -683,7 +682,6 @@ namespace Cue::GameCore
         transform->rotation = Math::Quaternion::identity();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         meshFilter->meshId = m_defaultStaticMeshId;
-        renderer->materialHandle = m_defaultMaterialHandle;
         renderer->visible = true;
         renderer->castsShadow = true;
         renderer->receivesShadow = true;
@@ -905,7 +903,7 @@ namespace Cue::GameCore
 
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
-                a_position, m_defaultStaticMeshId, m_defaultMaterialHandle);
+                a_position, m_defaultStaticMeshId);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 

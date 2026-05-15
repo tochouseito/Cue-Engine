@@ -1357,6 +1357,52 @@ namespace Cue::Editor
                     }),
                 cookedModelPaths.end());
 
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Textures"));
+            std::vector<Core::IO::Path> texturePaths{};
+            bool textureRootExists = false;
+            result = a_fileSystem.exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (textureRootExists)
+            {
+                result = a_fileSystem.list_directory(
+                    textureRoot,
+                    &texturePaths);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+            std::sort(texturePaths.begin(), texturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() != ".dds")
+                {
+                    continue;
+                }
+
+                const std::string textureName = Core::IO::Path::join(
+                    Core::IO::Path("Textures"),
+                    Core::IO::Path(texturePath.filename())).utf8();
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = a_engine.asset_manager().register_texture_from_file(
+                    a_fileSystem,
+                    textureName,
+                    texturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
             for (const Core::IO::Path& cookedModelPath : cookedModelPaths)
             {
                 const std::string modelName = cookedModelPath.stem();
@@ -1984,6 +2030,24 @@ namespace Cue::Editor
                 advance_background_progress(
                     a_operation,
                     "Model: " + sourceModelPath.filename());
+            }
+
+            std::vector<Core::IO::Path> generatedTextureEntries{};
+            result = list_directory_if_exists(
+                a_fileSystem,
+                textureRoot,
+                generatedTextureEntries);
+            if (!result)
+            {
+                finish_background_operation(a_operation, result);
+                return result;
+            }
+            for (const Core::IO::Path& texturePath : generatedTextureEntries)
+            {
+                if (texturePath.extension() == ".dds")
+                {
+                    cookedTexturePaths.push_back(texturePath);
+                }
             }
 
             for (const Core::IO::Path& sourceSoundPath : sourceSoundPaths)
@@ -3402,6 +3466,48 @@ namespace Cue::Editor
             if (!result)
             {
                 return result;
+            }
+
+            const Core::IO::Path textureRoot =
+                m_assetRootPath.is_empty()
+                ? Core::IO::Path::join(
+                      a_assetPath.parent().parent(),
+                      Core::IO::Path("Textures"))
+                : Core::IO::Path::join(
+                      m_assetRootPath,
+                      Core::IO::Path("Textures"));
+            std::vector<Core::IO::Path> texturePaths{};
+            bool textureRootExists = false;
+            result = m_fileSystem->exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (textureRootExists)
+            {
+                result = m_fileSystem->list_directory(textureRoot, &texturePaths);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() != ".dds")
+                {
+                    continue;
+                }
+
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = m_engine->asset_manager().register_texture_from_file(
+                    *m_fileSystem,
+                    make_asset_relative_name(texturePath),
+                    texturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             ModelHandle modelHandle{};

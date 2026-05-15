@@ -116,64 +116,174 @@ namespace Cue::ECS
                 return;
             }
 
-            if (a_meshFilter.meshId == k_invalidMeshId || !a_renderer.visible)
+            if (!a_renderer.visible)
             {
                 return;
             }
 
-            a_renderableInfo.objectId = m_renderableObjectCount;
-            a_renderableInfo.transformId = m_renderableObjectCount;
+            ModelHandle modelHandle{};
+            const std::vector<ModelRenderPartRecord>* renderParts = nullptr;
+            const bool hasModel =
+                !a_meshFilter.modelName.empty() &&
+                m_assetManager != nullptr &&
+                m_assetManager->get_model(
+                    a_meshFilter.modelName,
+                    modelHandle) &&
+                m_assetManager->get_model_render_parts(
+                    modelHandle,
+                    renderParts) &&
+                renderParts != nullptr &&
+                !renderParts->empty();
+
+            const uint32_t baseObjectId = m_renderableObjectCount;
+            if (hasModel)
+            {
+                a_renderableInfo.objectId = baseObjectId;
+                a_renderableInfo.transformId = baseObjectId;
+
+                const Math::float4x4 entityWorld = Math::make_affine_matrix(
+                    a_transform.scale,
+                    a_transform.rotation,
+                    a_transform.position);
+                for (const ModelRenderPartRecord& renderPart : *renderParts)
+                {
+                    submit_static_mesh_part(
+                        baseObjectId,
+                        renderPart.meshId,
+                        renderPart.materialIndex,
+                        renderPart.localTransform * entityWorld,
+                        modelHandle,
+                        a_renderer);
+                }
+                return;
+            }
+
+            if (a_meshFilter.meshId == k_invalidMeshId)
+            {
+                return;
+            }
+
+            a_renderableInfo.objectId = baseObjectId;
+            a_renderableInfo.transformId = baseObjectId;
+            submit_static_mesh_part(
+                baseObjectId,
+                a_meshFilter.meshId,
+                Core::Native::k_invalidModelMaterialIndex,
+                Math::make_affine_matrix(
+                    a_transform.scale,
+                    a_transform.rotation,
+                    a_transform.position),
+                modelHandle,
+                a_renderer);
+        }
+
+        [[nodiscard]] MaterialHandle resolve_material_handle(
+            const StaticMeshRendererComponent& a_renderer) const noexcept
+        {
+            return a_renderer.materialHandle.valid()
+                ? a_renderer.materialHandle
+                : m_defaultMaterialHandle;
+        }
+
+        [[nodiscard]] bool resolve_material(
+            ModelHandle a_modelHandle,
+            uint32_t a_materialIndex,
+            const StaticMeshRendererComponent& a_renderer,
+            GpuData::MaterialGpu& outMaterial) const
+        {
+            MaterialDesc materialDesc{};
+            bool hasMaterialDesc = false;
 
             const MaterialHandle materialHandle =
                 a_renderer.materialHandle.valid()
                     ? a_renderer.materialHandle
-                    : m_defaultMaterialHandle;
-            uint32_t materialId = 0;
-            if (materialHandle.valid())
+                    : MaterialHandle{};
+            if (materialHandle.valid() && m_assetManager != nullptr)
             {
-                materialId = materialHandle.index;
+                hasMaterialDesc =
+                    static_cast<bool>(
+                        m_assetManager->get_material(
+                            materialHandle,
+                            materialDesc));
             }
 
+            if (!hasMaterialDesc &&
+                a_modelHandle.valid() &&
+                a_materialIndex != Core::Native::k_invalidModelMaterialIndex &&
+                m_assetManager != nullptr)
+            {
+                hasMaterialDesc =
+                    static_cast<bool>(
+                        m_assetManager->get_model_imported_material(
+                            a_modelHandle,
+                            a_materialIndex,
+                            materialDesc));
+            }
+
+            if (!hasMaterialDesc)
+            {
+                const MaterialHandle defaultMaterialHandle =
+                    resolve_material_handle(a_renderer);
+                if (defaultMaterialHandle.valid() && m_assetManager != nullptr)
+                {
+                    hasMaterialDesc =
+                        static_cast<bool>(
+                            m_assetManager->get_material(
+                                defaultMaterialHandle,
+                                materialDesc));
+                }
+            }
+
+            if (!hasMaterialDesc)
+            {
+                return false;
+            }
+
+            outMaterial.color = materialDesc.color;
+            outMaterial.textureId = materialDesc.textureId;
+            outMaterial.useTexture = materialDesc.isTextureUsed ? 1u : 0u;
+            outMaterial.useReflectionSkybox =
+                materialDesc.usesReflectionSkybox ? 1u : 0u;
+            outMaterial.shininess = materialDesc.shininess;
+            return true;
+        }
+
+        void submit_static_mesh_part(
+            uint32_t a_pickObjectId,
+            uint32_t a_meshId,
+            uint32_t a_materialIndex,
+            const Math::float4x4& a_worldMatrix,
+            ModelHandle a_modelHandle,
+            const StaticMeshRendererComponent& a_renderer)
+        {
+            const uint32_t drawObjectIndex = m_renderableObjectCount;
+
             GpuData::RenderableInfo gpuRenderableInfo{};
-            gpuRenderableInfo.objectId = a_renderableInfo.objectId;
+            gpuRenderableInfo.objectId = a_pickObjectId;
             gpuRenderableInfo.visible = a_renderer.visible ? 1u : 0u;
-            gpuRenderableInfo.meshId = a_meshFilter.meshId;
-            gpuRenderableInfo.transformId = a_renderableInfo.transformId;
-            gpuRenderableInfo.materialId = materialId;
+            gpuRenderableInfo.meshId = a_meshId;
+            gpuRenderableInfo.transformId = drawObjectIndex;
+            gpuRenderableInfo.materialId = drawObjectIndex;
             gpuRenderableInfo.castsShadow = a_renderer.castsShadow ? 1u : 0u;
             gpuRenderableInfo.receivesShadow =
                 a_renderer.receivesShadow ? 1u : 0u;
             GpuData::ObjectTransformGpu gpuTransform{};
-            gpuTransform.worldMatrix = Math::make_affine_matrix(
-                a_transform.scale,
-                a_transform.rotation,
-                a_transform.position);
+            gpuTransform.worldMatrix = a_worldMatrix;
             gpuTransform.normalMatrix =
                 Math::float4x4::transpose(
                     Math::float4x4::inverse(gpuTransform.worldMatrix));
             GpuData::MaterialGpu gpuMaterial{};
-            bool hasMaterial = false;
-            if (materialHandle.valid() && m_assetManager != nullptr)
-            {
-                MaterialDesc materialDesc{};
-                if (m_assetManager->get_material(materialHandle, materialDesc))
-                {
-                    gpuMaterial.color = materialDesc.color;
-                    gpuMaterial.textureId = materialDesc.textureId;
-                    gpuMaterial.useTexture =
-                        materialDesc.isTextureUsed ? 1u : 0u;
-                    gpuMaterial.useReflectionSkybox =
-                        materialDesc.usesReflectionSkybox ? 1u : 0u;
-                    gpuMaterial.shininess = materialDesc.shininess;
-                    hasMaterial = true;
-                }
-            }
+            const bool hasMaterial = resolve_material(
+                a_modelHandle,
+                a_materialIndex,
+                a_renderer,
+                gpuMaterial);
 
             GpuData::RenderObject renderObject{};
-            renderObject.objectId = a_renderableInfo.objectId;
-            renderObject.meshId = a_meshFilter.meshId;
-            renderObject.transformId = a_renderableInfo.transformId;
-            renderObject.materialId = materialId;
+            renderObject.objectId = a_pickObjectId;
+            renderObject.meshId = a_meshId;
+            renderObject.transformId = drawObjectIndex;
+            renderObject.materialId = drawObjectIndex;
             renderObject.castsShadow = a_renderer.castsShadow ? 1u : 0u;
             renderObject.receivesShadow = a_renderer.receivesShadow ? 1u : 0u;
 
@@ -190,10 +300,10 @@ namespace Cue::ECS
             {
                 DrawSystem::StaticMeshRange meshRange{};
                 if (m_staticMeshPool->get_mesh_range(
-                    a_meshFilter.meshId, meshRange))
+                    a_meshId, meshRange))
                 {
                     drawItem.batching.cpuIndexedDraw = DrawSystem::CpuIndexedDraw{
-                        a_renderableInfo.objectId,
+                        drawObjectIndex,
                         meshRange.indexCount,
                         meshRange.startIndex,
                         meshRange.baseVertex };
