@@ -200,8 +200,161 @@ namespace Cue::Editor
             const std::string extension =
                 to_lower_ascii(a_path.extension());
             return extension == ".png" || extension == ".dds" ||
+                extension == ".jpg" || extension == ".jpeg" ||
+                extension == ".tga" || extension == ".bmp" ||
                 extension == ".wav" ||
-                extension == ".obj";
+                extension == ".obj" || extension == ".gltf" ||
+                extension == ".glb";
+        }
+
+        [[nodiscard]] bool is_source_model_file(
+            const Core::IO::Path& a_path)
+        {
+            const std::string extension =
+                to_lower_ascii(a_path.extension());
+            return extension == ".obj" || extension == ".gltf" ||
+                extension == ".glb";
+        }
+
+        [[nodiscard]] bool is_gltf_json_file(const Core::IO::Path& a_path)
+        {
+            return to_lower_ascii(a_path.extension()) == ".gltf";
+        }
+
+        [[nodiscard]] bool is_data_uri(std::string_view a_uri) noexcept
+        {
+            constexpr std::string_view k_dataPrefix = "data:";
+            return a_uri.size() >= k_dataPrefix.size() &&
+                a_uri.substr(0, k_dataPrefix.size()) == k_dataPrefix;
+        }
+
+        void collect_gltf_external_dependency_uris(const nlohmann::json& a_json,
+            std::string_view a_collectionName,
+            std::vector<std::string>& outUris)
+        {
+            const std::string collectionName(a_collectionName);
+            if (!a_json.contains(collectionName) ||
+                !a_json.at(collectionName).is_array())
+            {
+                return;
+            }
+
+            for (const nlohmann::json& entry : a_json.at(collectionName))
+            {
+                if (!entry.is_object() ||
+                    !entry.contains("uri") ||
+                    !entry.at("uri").is_string())
+                {
+                    continue;
+                }
+
+                const std::string uri = entry.at("uri").get<std::string>();
+                if (uri.empty() || is_data_uri(uri))
+                {
+                    continue;
+                }
+
+                if (std::find(outUris.begin(), outUris.end(), uri) ==
+                    outUris.end())
+                {
+                    outUris.push_back(uri);
+                }
+            }
+        }
+
+        [[nodiscard]] Result copy_gltf_external_dependencies(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            if (!is_gltf_json_file(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            std::vector<std::byte> fileData{};
+            Result result = a_fileSystem.read_all(a_sourcePath, &fileData);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::string text{};
+            if (!fileData.empty())
+            {
+                text.assign(
+                    reinterpret_cast<const char*>(fileData.data()),
+                    fileData.size());
+            }
+
+            const nlohmann::json gltfJson =
+                nlohmann::json::parse(text, nullptr, false);
+            if (gltfJson.is_discarded())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "glTF json parse failed.");
+            }
+
+            std::vector<std::string> dependencyUris{};
+            collect_gltf_external_dependency_uris(
+                gltfJson,
+                "buffers",
+                dependencyUris);
+            collect_gltf_external_dependency_uris(
+                gltfJson,
+                "images",
+                dependencyUris);
+
+            for (const std::string& dependencyUri : dependencyUris)
+            {
+                const Core::IO::Path dependencyPath(dependencyUri);
+                const Core::IO::Path sourceDependencyPath =
+                    dependencyPath.is_absolute()
+                    ? dependencyPath
+                    : Core::IO::Path::join(
+                          a_sourcePath.parent(),
+                          dependencyPath);
+                const Core::IO::Path destinationDependencyPath =
+                    Core::IO::Path::join(
+                        a_destinationPath.parent(),
+                        dependencyPath.is_absolute()
+                            ? Core::IO::Path(dependencyPath.filename())
+                            : dependencyPath);
+
+                result = a_fileSystem.create_directories(
+                    destinationDependencyPath.parent());
+                if (!result)
+                {
+                    return result;
+                }
+
+                bool exists = false;
+                result = a_fileSystem.exists(sourceDependencyPath, &exists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!exists)
+                {
+                    return Result::fail(
+                        Code::NotFound,
+                        Severity::Error,
+                        "glTF dependency file was not found.");
+                }
+
+                result = a_fileSystem.copy_file(
+                    sourceDependencyPath.normalize(),
+                    destinationDependencyPath.normalize(),
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
         }
 
         [[nodiscard]] bool is_source_texture_file(
@@ -209,7 +362,9 @@ namespace Cue::Editor
         {
             const std::string extension =
                 to_lower_ascii(a_path.extension());
-            return extension == ".png";
+            return extension == ".png" || extension == ".jpg" ||
+                extension == ".jpeg" || extension == ".tga" ||
+                extension == ".bmp";
         }
 
         struct DdsPixelFormat final
@@ -1309,7 +1464,7 @@ namespace Cue::Editor
                 {
                     cookedModelPaths.push_back(modelPath);
                 }
-                else if (modelPath.extension() == ".obj")
+                else if (is_source_model_file(modelPath))
                 {
                     sourceModelPaths.push_back(modelPath);
                 }
@@ -1441,21 +1596,35 @@ namespace Cue::Editor
 
             const Core::IO::Path modelRoot = Core::IO::Path::join(
                 a_assetRoot, Core::IO::Path("Models"));
-            const std::string modelFileName =
-                std::string(a_modelName) + ".obj";
             const std::string cookedFileName =
                 std::string(a_modelName) + ".cuemodel";
-            const Core::IO::Path sourceModelPath = Core::IO::Path::join(
-                modelRoot, Core::IO::Path(modelFileName));
             const Core::IO::Path cookedModelPath = Core::IO::Path::join(
                 modelRoot, Core::IO::Path(cookedFileName));
 
             bool hasSourceModel = false;
-            Result result =
-                a_fileSystem.exists(sourceModelPath, &hasSourceModel);
-            if (!result)
+            Core::IO::Path sourceModelPath{};
+            Result result = Result::ok();
+            constexpr std::string_view k_sourceExtensions[] = {
+                ".obj",
+                ".gltf",
+                ".glb",
+            };
+            for (std::string_view extension : k_sourceExtensions)
             {
-                return result;
+                const Core::IO::Path candidatePath = Core::IO::Path::join(
+                    modelRoot,
+                    Core::IO::Path(std::string(a_modelName) +
+                        std::string(extension)));
+                result = a_fileSystem.exists(candidatePath, &hasSourceModel);
+                if (!result)
+                {
+                    return result;
+                }
+                if (hasSourceModel)
+                {
+                    sourceModelPath = candidatePath;
+                    break;
+                }
             }
             if (hasSourceModel)
             {
@@ -1939,7 +2108,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> cookedModelPaths{};
             for (const Core::IO::Path& modelPath : modelEntries)
             {
-                if (modelPath.extension() == ".obj")
+                if (is_source_model_file(modelPath))
                 {
                     sourceModelPaths.push_back(modelPath);
                 }
@@ -3418,6 +3587,15 @@ namespace Cue::Editor
             return result;
         }
 
+        result = copy_gltf_external_dependencies(
+            *m_fileSystem,
+            a_sourcePath,
+            destinationPath);
+        if (!result)
+        {
+            return result;
+        }
+
         return import_copied_asset_file(destinationPath);
     }
 
@@ -3432,10 +3610,10 @@ namespace Cue::Editor
 
         const std::string extension =
             to_lower_ascii(a_assetPath.extension());
-        if (extension == ".png" || extension == ".dds")
+        if (is_source_texture_file(a_assetPath) || extension == ".dds")
         {
             Core::IO::Path texturePath = a_assetPath.normalize();
-            if (extension == ".png")
+            if (extension != ".dds")
             {
                 texturePath = Core::IO::Path::join(
                     a_assetPath.parent(),
@@ -3456,7 +3634,7 @@ namespace Cue::Editor
                 textureId);
         }
 
-        if (extension == ".obj")
+        if (is_source_model_file(a_assetPath))
         {
             const Core::IO::Path cookedPath = Core::IO::Path::join(
                 a_assetPath.parent(),

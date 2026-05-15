@@ -726,6 +726,8 @@ namespace Cue::Editor
         {
             const std::string extension = to_lower_ascii(a_filePath.extension());
             return extension == ".cuetexture" || extension == ".png" ||
+                extension == ".jpg" || extension == ".jpeg" ||
+                extension == ".bmp" || extension == ".tga" ||
                 extension == ".dds";
         }
 

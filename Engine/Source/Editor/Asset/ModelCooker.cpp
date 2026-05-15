@@ -18,10 +18,15 @@
 #include <type_traits>
 #include <vector>
 
+// === ThirdParty Includes ===
+#include <nlohmann/json.hpp>
+
 namespace Cue::Editor
 {
     namespace
     {
+        using Json = nlohmann::json;
+
         static_assert(std::is_trivially_copyable_v<CueModelHeader>);
         static_assert(std::is_trivially_copyable_v<CueModelLegacyHeader>);
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
@@ -63,6 +68,19 @@ namespace Cue::Editor
             return extension == ".png" || extension == ".dds" ||
                 extension == ".jpg" || extension == ".jpeg" ||
                 extension == ".tga" || extension == ".bmp";
+        }
+
+        [[nodiscard]] bool is_gltf_source(
+            const Core::IO::Path& a_path) noexcept
+        {
+            return to_lower_ascii(a_path.extension()) == ".gltf";
+        }
+
+        [[nodiscard]] bool is_data_uri(std::string_view a_uri) noexcept
+        {
+            constexpr std::string_view k_dataPrefix = "data:";
+            return a_uri.size() >= k_dataPrefix.size() &&
+                a_uri.substr(0, k_dataPrefix.size()) == k_dataPrefix;
         }
 
         [[nodiscard]] std::string trim_ascii(std::string_view a_text)
@@ -170,6 +188,157 @@ namespace Cue::Editor
                 Code::NotFound,
                 Severity::Error,
                 "Model material texture file was not found.");
+        }
+
+        [[nodiscard]] Result load_gltf_json(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            Json& outJson)
+        {
+            outJson = Json::object();
+            if (!is_gltf_source(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            std::vector<std::byte> fileData{};
+            Result result = a_fileSystem.read_all(a_sourcePath, &fileData);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::string text{};
+            if (!fileData.empty())
+            {
+                text.assign(
+                    reinterpret_cast<const char*>(fileData.data()),
+                    fileData.size());
+            }
+
+            outJson = Json::parse(text, nullptr, false);
+            if (outJson.is_discarded())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "glTF json parse failed.");
+            }
+
+            return Result::ok();
+        }
+
+        void collect_gltf_uri_paths(const Json& a_json,
+            std::string_view a_collectionName,
+            const Core::IO::Path& a_modelRoot,
+            std::vector<Core::IO::Path>& outPaths)
+        {
+            const std::string collectionName(a_collectionName);
+            if (!a_json.contains(collectionName) ||
+                !a_json.at(collectionName).is_array())
+            {
+                return;
+            }
+
+            for (const Json& entry : a_json.at(collectionName))
+            {
+                if (!entry.is_object() ||
+                    !entry.contains("uri") ||
+                    !entry.at("uri").is_string())
+                {
+                    continue;
+                }
+
+                const std::string uri = entry.at("uri").get<std::string>();
+                if (uri.empty() || is_data_uri(uri))
+                {
+                    continue;
+                }
+
+                const Core::IO::Path uriPath(uri);
+                push_unique_path(
+                    outPaths,
+                    uriPath.is_absolute()
+                        ? uriPath
+                        : Core::IO::Path::join(a_modelRoot, uriPath));
+            }
+        }
+
+        [[nodiscard]] Result collect_gltf_dependencies(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            std::vector<Core::IO::Path>& outBufferPaths,
+            std::vector<Core::IO::Path>& outTexturePaths)
+        {
+            outBufferPaths.clear();
+            outTexturePaths.clear();
+            if (!is_gltf_source(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            Json gltfJson{};
+            Result result = load_gltf_json(
+                a_fileSystem,
+                a_sourcePath,
+                gltfJson);
+            if (!result)
+            {
+                return result;
+            }
+
+            const Core::IO::Path modelRoot = a_sourcePath.parent();
+            collect_gltf_uri_paths(
+                gltfJson,
+                "buffers",
+                modelRoot,
+                outBufferPaths);
+            collect_gltf_uri_paths(
+                gltfJson,
+                "images",
+                modelRoot,
+                outTexturePaths);
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result is_any_dependency_newer(
+            Core::IO::IFileSystem& a_fileSystem,
+            std::span<const Core::IO::Path> a_paths,
+            int64_t a_compareMtimeNs,
+            bool& outIsNewer)
+        {
+            outIsNewer = false;
+            for (const Core::IO::Path& path : a_paths)
+            {
+                bool exists = false;
+                Result result = a_fileSystem.exists(path, &exists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!exists)
+                {
+                    return Result::fail(
+                        Code::NotFound,
+                        Severity::Error,
+                        "glTF dependency file was not found.");
+                }
+
+                Core::IO::FileStat stat{};
+                result = a_fileSystem.stat(path, &stat);
+                if (!result)
+                {
+                    return result;
+                }
+
+                if (stat.mtime_ns > a_compareMtimeNs)
+                {
+                    outIsNewer = true;
+                    return Result::ok();
+                }
+            }
+
+            return Result::ok();
         }
 
         [[nodiscard]] Result resolve_material_texture(
@@ -410,6 +579,63 @@ namespace Cue::Editor
                     break;
                 }
                 lineBegin = lineEnd + 1;
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result ensure_gltf_textures_are_up_to_date(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath)
+        {
+            std::vector<Core::IO::Path> bufferPaths{};
+            std::vector<Core::IO::Path> texturePaths{};
+            Result result = collect_gltf_dependencies(
+                a_fileSystem,
+                a_sourcePath,
+                bufferPaths,
+                texturePaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (texturePaths.empty())
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path assetRoot = a_sourcePath.parent().parent();
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot,
+                Core::IO::Path("Textures"));
+            result = a_fileSystem.create_directories(textureRoot);
+            if (!result)
+            {
+                return result;
+            }
+
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (!is_supported_texture_source(texturePath))
+                {
+                    return Result::fail(
+                        Code::Unsupported,
+                        Severity::Error,
+                        "glTF texture extension is not supported.");
+                }
+
+                const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
+                    textureRoot,
+                    Core::IO::Path(texturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
+                    a_fileSystem,
+                    texturePath,
+                    cookedTexturePath);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             return Result::ok();
@@ -775,6 +1001,34 @@ namespace Cue::Editor
             }
             if (!shouldRecook)
             {
+                std::vector<Core::IO::Path> gltfBufferPaths{};
+                std::vector<Core::IO::Path> gltfTexturePaths{};
+                result = collect_gltf_dependencies(
+                    a_fileSystem,
+                    a_sourcePath,
+                    gltfBufferPaths,
+                    gltfTexturePaths);
+                if (!result)
+                {
+                    return result;
+                }
+
+                bool isDependencyNewer = false;
+                result = is_any_dependency_newer(
+                    a_fileSystem,
+                    std::span<const Core::IO::Path>(
+                        gltfBufferPaths.data(),
+                        gltfBufferPaths.size()),
+                    cookedStat.mtime_ns,
+                    isDependencyNewer);
+                if (!result)
+                {
+                    return result;
+                }
+                shouldRecook = isDependencyNewer;
+            }
+            if (!shouldRecook)
+            {
                 bool isCurrentVersion = false;
                 result = is_cuemodel_version_current(
                     a_fileSystem,
@@ -791,7 +1045,15 @@ namespace Cue::Editor
 
         if (!shouldRecook)
         {
-            return ensure_sidecar_material_textures_are_up_to_date(
+            result = ensure_sidecar_material_textures_are_up_to_date(
+                a_fileSystem,
+                a_sourcePath);
+            if (!result)
+            {
+                return result;
+            }
+
+            return ensure_gltf_textures_are_up_to_date(
                 a_fileSystem,
                 a_sourcePath);
         }
