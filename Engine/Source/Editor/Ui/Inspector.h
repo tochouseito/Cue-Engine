@@ -975,7 +975,8 @@ namespace Cue::Editor
 
             if (m_shouldRefreshSoundFiles)
             {
-                const Result refreshResult = refresh_sound_file_names();
+                const Result refreshResult =
+                    refresh_sound_file_names(component->encoding);
                 if (!refreshResult)
                 {
                     m_audioStatusMessage =
@@ -1017,6 +1018,31 @@ namespace Cue::Editor
             {
                 ImGui::TextUnformatted(
                     "Assets/Sounds に cuesound ファイルが見つかりません。");
+            }
+
+            const char* encodingPreview =
+                component->encoding == ECS::AudioEncoding::Adpcm
+                    ? "ADPCM"
+                    : "PCM";
+            if (ImGui::BeginCombo("encoding", encodingPreview))
+            {
+                if (ImGui::Selectable(
+                        "PCM",
+                        component->encoding == ECS::AudioEncoding::Pcm))
+                {
+                    (void)stop_audio_source(*component);
+                    component->encoding = ECS::AudioEncoding::Pcm;
+                    m_shouldRefreshSoundFiles = true;
+                }
+                if (ImGui::Selectable(
+                        "ADPCM",
+                        component->encoding == ECS::AudioEncoding::Adpcm))
+                {
+                    (void)stop_audio_source(*component);
+                    component->encoding = ECS::AudioEncoding::Adpcm;
+                    m_shouldRefreshSoundFiles = true;
+                }
+                ImGui::EndCombo();
             }
 
             ImGui::Checkbox("Loop", &component->loop);
@@ -3843,7 +3869,8 @@ namespace Cue::Editor
             }
         }
 
-        [[nodiscard]] Result refresh_sound_file_names()
+        [[nodiscard]] Result refresh_sound_file_names(
+            ECS::AudioEncoding a_encoding = ECS::AudioEncoding::Pcm)
         {
             m_soundFileNames.clear();
             m_shouldRefreshSoundFiles = false;
@@ -3906,7 +3933,10 @@ namespace Cue::Editor
                     result = SoundCooker::ensure_cuesound_is_up_to_date(
                         *m_fileSystem,
                         entryPath,
-                        cookedSoundPath);
+                        cookedSoundPath,
+                        a_encoding == ECS::AudioEncoding::Adpcm
+                            ? SoundCookFormat::Adpcm
+                            : SoundCookFormat::Pcm);
                     if (!result)
                     {
                         return result;

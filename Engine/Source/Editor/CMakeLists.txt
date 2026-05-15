@@ -58,6 +58,7 @@ target_link_libraries(Editor PRIVATE
     imgui::imgui
     imguizmo::imguizmo
     nlohmann_json::nlohmann_json
+    msacm32
 )
 
 # インクルードディレクトリの追加

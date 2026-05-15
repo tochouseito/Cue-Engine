@@ -46,6 +46,12 @@ namespace Cue::GameCore
 
 namespace Cue::ECS
 {
+    enum class AudioEncoding : uint8_t
+    {
+        Pcm,
+        Adpcm
+    };
+
     inline constexpr uint32_t k_invalidMeshId =
         (std::numeric_limits<uint32_t>::max)();
     inline constexpr uint32_t k_invalidRenderableId =
@@ -198,6 +204,7 @@ namespace Cue::ECS
         AudioSourceComponent(AudioSourceComponent&&) = default;
         AudioSourceComponent& operator=(AudioSourceComponent&&) = default;
         std::string fileName{};
+        AudioEncoding encoding = AudioEncoding::Pcm;
         float spatialBlend = 0.0f;
         float volume = 1.0f;
         Audio::AudioSourceHandle sourceHandle{};

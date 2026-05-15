@@ -763,6 +763,9 @@ namespace Cue::GameCore
         {
             return Json{
                 { "fileName", a_component.fileName },
+                { "encoding", a_component.encoding == ECS::AudioEncoding::Adpcm
+                    ? "ADPCM"
+                    : "PCM" },
                 { "loop", a_component.loop },
                 { "playOnStart", a_component.playOnStart },
                 { "spatialBlend", a_component.spatialBlend },
@@ -775,6 +778,13 @@ namespace Cue::GameCore
         {
             a_outComponent.fileName =
                 a_json.value("fileName", std::string{});
+            const std::string encoding = a_json.value(
+                "encoding",
+                std::string("PCM"));
+            a_outComponent.encoding =
+                encoding == "ADPCM"
+                    ? ECS::AudioEncoding::Adpcm
+                    : ECS::AudioEncoding::Pcm;
             a_outComponent.loop = a_json.value("loop", false);
             a_outComponent.playOnStart =
                 a_json.value("playOnStart", false);

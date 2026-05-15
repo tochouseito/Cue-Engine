@@ -36,6 +36,7 @@
 #include <span>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -1606,12 +1607,103 @@ namespace Cue::Editor
         [[nodiscard]] Result cook_project_sounds(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_projectRoot,
-            const ProjectSettings& a_settings) noexcept
+            const ProjectSettings& a_settings,
+            bool a_useSceneAudioFormats = false) noexcept
         {
             Core::IO::Path assetRoot(a_settings.assetRoot);
             if (!assetRoot.is_absolute())
             {
                 assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            std::unordered_map<std::string, SoundCookFormat> soundFormats{};
+            if (a_useSceneAudioFormats)
+            {
+                const Core::IO::Path sceneRoot = Core::IO::Path::join(
+                    assetRoot,
+                    Core::IO::Path("Scenes"));
+                bool sceneRootExists = false;
+                Result sceneResult =
+                    a_fileSystem.exists(sceneRoot, &sceneRootExists);
+                if (!sceneResult)
+                {
+                    return sceneResult;
+                }
+                if (sceneRootExists)
+                {
+                    std::vector<Core::IO::Path> scenePaths{};
+                    sceneResult = a_fileSystem.list_directory(
+                        sceneRoot,
+                        &scenePaths);
+                    if (!sceneResult)
+                    {
+                        return sceneResult;
+                    }
+
+                    for (const Core::IO::Path& scenePath : scenePaths)
+                    {
+                        if (scenePath.extension() != ".cuescene")
+                        {
+                            continue;
+                        }
+
+                        std::vector<std::byte> sceneBytes{};
+                        sceneResult =
+                            a_fileSystem.read_all(scenePath, &sceneBytes);
+                        if (!sceneResult)
+                        {
+                            return sceneResult;
+                        }
+                        const std::string sceneText(
+                            reinterpret_cast<const char*>(sceneBytes.data()),
+                            sceneBytes.size());
+                        const nlohmann::json sceneJson =
+                            nlohmann::json::parse(sceneText, nullptr, false);
+                        if (sceneJson.is_discarded() ||
+                            !sceneJson.contains("objects") ||
+                            !sceneJson.at("objects").is_array())
+                        {
+                            continue;
+                        }
+
+                        for (const nlohmann::json& objectJson :
+                            sceneJson.at("objects"))
+                        {
+                            if (!objectJson.contains("components"))
+                            {
+                                continue;
+                            }
+                            const nlohmann::json& componentsJson =
+                                objectJson.at("components");
+                            if (!componentsJson.contains("audioSource"))
+                            {
+                                continue;
+                            }
+                            const nlohmann::json& audioJson =
+                                componentsJson.at("audioSource");
+                            const std::string fileName =
+                                audioJson.value("fileName", std::string{});
+                            if (fileName.empty())
+                            {
+                                continue;
+                            }
+                            const std::string encoding =
+                                audioJson.value(
+                                    "encoding",
+                                    std::string("PCM"));
+                            const SoundCookFormat format =
+                                encoding == "ADPCM"
+                                    ? SoundCookFormat::Adpcm
+                                    : SoundCookFormat::Pcm;
+                            SoundCookFormat& current =
+                                soundFormats[fileName];
+                            if (format == SoundCookFormat::Adpcm)
+                            {
+                                current = SoundCookFormat::Adpcm;
+                            }
+                        }
+                    }
+                }
             }
 
             const Core::IO::Path soundRoot = Core::IO::Path::join(
@@ -1650,10 +1742,17 @@ namespace Cue::Editor
                 const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
                     soundRoot,
                     Core::IO::Path(sourceSoundPath.stem() + ".cuesound"));
+                const auto formatIt =
+                    soundFormats.find(cookedSoundPath.filename());
+                const SoundCookFormat format =
+                    formatIt != soundFormats.end()
+                        ? formatIt->second
+                        : SoundCookFormat::Pcm;
                 result = SoundCooker::ensure_cuesound_is_up_to_date(
                     a_fileSystem,
                     sourceSoundPath,
-                    cookedSoundPath);
+                    cookedSoundPath,
+                    format);
                 if (!result)
                 {
                     return result;
@@ -2977,7 +3076,11 @@ namespace Cue::Editor
             return result;
         }
 
-        result = cook_project_sounds(*m_fileSystem, projectRoot, projectSettings);
+        result = cook_project_sounds(
+            *m_fileSystem,
+            projectRoot,
+            projectSettings,
+            true);
         if (!result)
         {
             return result;
