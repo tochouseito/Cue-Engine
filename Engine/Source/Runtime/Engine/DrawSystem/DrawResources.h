@@ -21,6 +21,7 @@ namespace Cue::DrawSystem
         TransformBuffer,
         ViewProjectionBuffer,
         MaterialBuffer,
+        SkinPaletteBuffer,
         RenderObjectBuffer,
         VisibleObjectCountBuffer,
         SpriteInstanceBuffer,
@@ -48,6 +49,7 @@ namespace Cue::DrawSystem
         Result create_transform_buffer(const uint32_t a_maxObjectCount);
         Result create_view_projection_buffer();
         Result create_material_buffer(const uint32_t a_maxMaterialCount);
+        Result create_skin_palette_buffer(const uint32_t a_maxPaletteCount);
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
         Result create_sprite_instance_buffer(const uint32_t a_maxSpriteCount);
@@ -70,6 +72,11 @@ namespace Cue::DrawSystem
             material_uploaders() noexcept
         {
             return m_materialUploaders;
+        }
+        std::vector<RHI::SlotUploader<GpuData::SkinPaletteGpu>>&
+            skin_palette_uploaders() noexcept
+        {
+            return m_skinPaletteUploaders;
         }
         std::vector<RHI::SlotUploader<uint32_t>>&
             visible_object_count_uploaders() noexcept
@@ -117,6 +124,12 @@ namespace Cue::DrawSystem
                 DrawResourceType::RenderObjectBuffer)];
         }
 
+        [[nodiscard]] RHI::BufferHandle skin_palette_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                DrawResourceType::SkinPaletteBuffer)];
+        }
+
         [[nodiscard]] RHI::BufferHandle visible_object_count_buffer_handle() const noexcept
         {
             return m_bufferHandles[static_cast<size_t>(
@@ -153,6 +166,12 @@ namespace Cue::DrawSystem
                 DrawResourceType::RenderObjectBuffer)];
         }
 
+        [[nodiscard]] RHI::ViewHandle skin_palette_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                DrawResourceType::SkinPaletteBuffer)];
+        }
+
         [[nodiscard]] RHI::ViewHandle visible_object_count_buffer_uav_handle() const noexcept
         {
             return m_viewHandles[static_cast<size_t>(
@@ -175,6 +194,8 @@ namespace Cue::DrawSystem
             m_renderableInfoUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
         std::vector<RHI::SlotUploader<GpuData::MaterialGpu>> m_materialUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::SkinPaletteGpu>>
+            m_skinPaletteUploaders{};
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};

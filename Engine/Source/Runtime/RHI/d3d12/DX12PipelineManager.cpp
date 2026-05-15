@@ -14,6 +14,9 @@ namespace Cue::RHI::DX12
             case InputElementFormat::R32G32B32A32_Float:
                 d3dDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
                 break;
+            case InputElementFormat::R32G32B32A32_UInt:
+                d3dDesc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+                break;
             case InputElementFormat::R32G32B32_Float:
                 d3dDesc.Format = DXGI_FORMAT_R32G32B32_FLOAT;
                 break;

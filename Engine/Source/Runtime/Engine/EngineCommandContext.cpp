@@ -25,6 +25,11 @@ namespace Cue
         Result result = Result::ok();
         switch (a_objectType)
         {
+        case AddObjectType::GameObject:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            break;
         case AddObjectType::Camera:
             result = a_sceneId != GameCore::k_invalidSceneId
                 ? m_gameWorld.add_camera_object_to_scene(a_sceneId, object)
@@ -126,6 +131,14 @@ namespace Cue
             return add_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent already exists.");
 
+        case AddableComponentType::SkinnedMeshRenderer:
+            return add_component_internal<ECS::SkinnedMeshRendererComponent>(
+                a_objectId, "SkinnedMeshRendererComponent already exists.");
+
+        case AddableComponentType::Animation:
+            return add_component_internal<ECS::AnimationComponent>(
+                a_objectId, "AnimationComponent already exists.");
+
         case AddableComponentType::SpriteRenderer:
             return add_component_internal<ECS::SpriteRendererComponent>(
                 a_objectId, "SpriteRendererComponent already exists.");
@@ -184,6 +197,14 @@ namespace Cue
         case AddableComponentType::StaticMeshRenderer:
             return remove_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent was not found.");
+
+        case AddableComponentType::SkinnedMeshRenderer:
+            return remove_component_internal<ECS::SkinnedMeshRendererComponent>(
+                a_objectId, "SkinnedMeshRendererComponent was not found.");
+
+        case AddableComponentType::Animation:
+            return remove_component_internal<ECS::AnimationComponent>(
+                a_objectId, "AnimationComponent was not found.");
 
         case AddableComponentType::SpriteRenderer:
             return remove_component_internal<ECS::SpriteRendererComponent>(

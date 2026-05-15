@@ -31,10 +31,19 @@ namespace Cue::Editor
         using Json = nlohmann::json;
 
         static_assert(std::is_trivially_copyable_v<CueModelHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelHeaderV3>);
         static_assert(std::is_trivially_copyable_v<CueModelLegacyHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelMeshInfoV2>);
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelMaterialInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelSkeletonJointInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelAnimationClipInfo>);
+        static_assert(
+            std::is_trivially_copyable_v<CueModelAnimationChannelInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelVectorKeyframe>);
+        static_assert(
+            std::is_trivially_copyable_v<CueModelQuaternionKeyframe>);
 
         template <typename T>
         void append_bytes(
@@ -841,6 +850,10 @@ namespace Cue::Editor
             std::vector<CueModelMaterialInfo> materialInfos{};
             materialInfos.reserve(a_modelData.materials.size());
             std::vector<CueModelRenderPartInfo> renderPartInfos{};
+            std::vector<CueModelSkeletonJointInfo> jointInfos{};
+            jointInfos.reserve(a_modelData.skeletonJoints.size());
+            std::vector<CueModelAnimationClipInfo> animationClipInfos{};
+            animationClipInfos.reserve(a_modelData.animationClips.size());
             std::vector<std::byte> payload{};
 
             for (const Core::Native::MeshData& meshData : a_modelData.meshes)
@@ -856,6 +869,8 @@ namespace Cue::Editor
                 const uint32_t vertexCount = static_cast<uint32_t>(meshData.positions.size());
                 const bool hasUvs = !meshData.uvs.empty();
                 const bool hasNormals = !meshData.normals.empty();
+                const bool hasSkinInfluences =
+                    !meshData.skinInfluences.empty();
                 if (hasUvs && meshData.uvs.size() != meshData.positions.size())
                 {
                     return Result::fail(
@@ -870,6 +885,14 @@ namespace Cue::Editor
                         Severity::Error,
                         "Model mesh normal count must match position count.");
                 }
+                if (hasSkinInfluences &&
+                    meshData.skinInfluences.size() != meshData.positions.size())
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Model mesh skin influence count must match position count.");
+                }
 
                 CueModelMeshInfo meshInfo{};
                 meshInfo.nameSize = static_cast<uint32_t>(meshData.name.size());
@@ -877,7 +900,10 @@ namespace Cue::Editor
                 meshInfo.indexCount = static_cast<uint32_t>(meshData.indices.size());
                 meshInfo.flags =
                     (hasUvs ? k_cueModelMeshFlagHasUvs : 0u) |
-                    (hasNormals ? k_cueModelMeshFlagHasNormals : 0u);
+                    (hasNormals ? k_cueModelMeshFlagHasNormals : 0u) |
+                    (hasSkinInfluences
+                            ? k_cueModelMeshFlagHasSkinInfluences
+                            : 0u);
 
                 meshInfo.nameOffset = payload.size();
                 append_bytes(payload, meshData.name.data(), meshData.name.size());
@@ -911,6 +937,15 @@ namespace Cue::Editor
                     payload,
                     meshData.indices.data(),
                     meshData.indices.size());
+
+                if (hasSkinInfluences)
+                {
+                    meshInfo.skinInfluencesOffset = payload.size();
+                    append_bytes(
+                        payload,
+                        meshData.skinInfluences.data(),
+                        meshData.skinInfluences.size());
+                }
 
                 meshInfos.push_back(meshInfo);
             }
@@ -1008,27 +1043,95 @@ namespace Cue::Editor
                 renderPartInfos.push_back(renderPartInfo);
             }
 
-            CueModelHeader header{};
+            for (const Core::Native::SkeletonJointData& jointData :
+                 a_modelData.skeletonJoints)
+            {
+                CueModelSkeletonJointInfo jointInfo{};
+                jointInfo.nameSize = static_cast<uint32_t>(jointData.name.size());
+                jointInfo.parentIndex = jointData.parentIndex;
+                jointInfo.inverseBindMatrix = jointData.inverseBindMatrix;
+                jointInfo.localBindMatrix = jointData.localBindMatrix;
+                jointInfo.nameOffset = payload.size();
+                append_bytes(payload, jointData.name.data(), jointData.name.size());
+                jointInfos.push_back(jointInfo);
+            }
+
+            for (const Core::Native::AnimationClipData& clipData :
+                 a_modelData.animationClips)
+            {
+                CueModelAnimationClipInfo clipInfo{};
+                clipInfo.nameSize = static_cast<uint32_t>(clipData.name.size());
+                clipInfo.channelCount =
+                    static_cast<uint32_t>(clipData.channels.size());
+                clipInfo.duration = clipData.duration;
+                clipInfo.ticksPerSecond = clipData.ticksPerSecond;
+                clipInfo.nameOffset = payload.size();
+                append_bytes(payload, clipData.name.data(), clipData.name.size());
+
+                std::vector<CueModelAnimationChannelInfo> channelInfos{};
+                channelInfos.reserve(clipData.channels.size());
+                for (const Core::Native::AnimationChannelData& channelData :
+                     clipData.channels)
+                {
+                    CueModelAnimationChannelInfo channelInfo{};
+                    channelInfo.targetNameSize =
+                        static_cast<uint32_t>(channelData.targetName.size());
+                    channelInfo.jointIndex = channelData.jointIndex;
+                    channelInfo.translationCount =
+                        static_cast<uint32_t>(channelData.translations.size());
+                    channelInfo.rotationCount =
+                        static_cast<uint32_t>(channelData.rotations.size());
+                    channelInfo.scaleCount =
+                        static_cast<uint32_t>(channelData.scales.size());
+                    channelInfo.targetNameOffset = payload.size();
+                    append_bytes(payload,
+                        channelData.targetName.data(),
+                        channelData.targetName.size());
+                    channelInfo.translationsOffset = payload.size();
+                    append_bytes(payload,
+                        channelData.translations.data(),
+                        channelData.translations.size());
+                    channelInfo.rotationsOffset = payload.size();
+                    append_bytes(payload,
+                        channelData.rotations.data(),
+                        channelData.rotations.size());
+                    channelInfo.scalesOffset = payload.size();
+                    append_bytes(
+                        payload, channelData.scales.data(), channelData.scales.size());
+                    channelInfos.push_back(channelInfo);
+                }
+                clipInfo.channelsOffset = payload.size();
+                append_bytes(payload, channelInfos.data(), channelInfos.size());
+                animationClipInfos.push_back(clipInfo);
+            }
+
+            CueModelHeaderV3 header{};
             header.magic = k_cueModelMagic;
             header.version = k_cueModelVersion;
             header.meshCount = static_cast<uint32_t>(a_modelData.meshes.size());
             header.materialCount =
                 static_cast<uint32_t>(a_modelData.materials.size());
             header.renderPartCount = static_cast<uint32_t>(renderParts.size());
+            header.jointCount =
+                static_cast<uint32_t>(a_modelData.skeletonJoints.size());
+            header.animationClipCount =
+                static_cast<uint32_t>(a_modelData.animationClips.size());
             header.dataSize = payload.size();
 
             const size_t headerSize =
-                sizeof(CueModelHeader) +
+                sizeof(CueModelHeaderV3) +
                 sizeof(CueModelMeshInfo) * meshInfos.size() +
                 sizeof(CueModelMaterialInfo) * materialInfos.size() +
-                sizeof(CueModelRenderPartInfo) * renderPartInfos.size();
+                sizeof(CueModelRenderPartInfo) * renderPartInfos.size() +
+                sizeof(CueModelSkeletonJointInfo) * jointInfos.size() +
+                sizeof(CueModelAnimationClipInfo) * animationClipInfos.size();
             std::vector<std::byte> fileData(headerSize + payload.size());
             size_t writeOffset = 0;
             std::memcpy(
                 fileData.data() + writeOffset,
                 &header,
-                sizeof(CueModelHeader));
-            writeOffset += sizeof(CueModelHeader);
+                sizeof(CueModelHeaderV3));
+            writeOffset += sizeof(CueModelHeaderV3);
             std::memcpy(
                 fileData.data() + writeOffset,
                 meshInfos.data(),
@@ -1045,6 +1148,16 @@ namespace Cue::Editor
                 sizeof(CueModelRenderPartInfo) * renderPartInfos.size());
             writeOffset +=
                 sizeof(CueModelRenderPartInfo) * renderPartInfos.size();
+            std::memcpy(
+                fileData.data() + writeOffset,
+                jointInfos.data(),
+                sizeof(CueModelSkeletonJointInfo) * jointInfos.size());
+            writeOffset += sizeof(CueModelSkeletonJointInfo) * jointInfos.size();
+            std::memcpy(
+                fileData.data() + writeOffset,
+                animationClipInfos.data(),
+                sizeof(CueModelAnimationClipInfo) *
+                    animationClipInfos.size());
             std::memcpy(
                 fileData.data() + headerSize,
                 payload.data(),

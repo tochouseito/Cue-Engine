@@ -43,6 +43,8 @@ namespace Cue::Editor
             Camera,
             MeshFilter,
             StaticMeshRenderer,
+            SkinnedMeshRenderer,
+            Animation,
             SpriteRenderer,
             DirectionalLight,
             PointLight,
@@ -259,7 +261,7 @@ namespace Cue::Editor
             const GameCore::GameObject& a_object) const
         {
             std::vector<ComponentTabEntry> tabs{};
-            tabs.reserve(7);
+            tabs.reserve(16);
 
             if (has_component<GameCore::BaseComponent>(a_object))
             {
@@ -291,6 +293,17 @@ namespace Cue::Editor
             {
                 tabs.push_back(
                     { ComponentTab::StaticMeshRenderer, "S" });
+            }
+
+            if (has_component<ECS::SkinnedMeshRendererComponent>(a_object))
+            {
+                tabs.push_back(
+                    { ComponentTab::SkinnedMeshRenderer, "Sk" });
+            }
+
+            if (has_component<ECS::AnimationComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Animation, "An" });
             }
 
             if (has_component<ECS::SpriteRendererComponent>(a_object))
@@ -364,6 +377,20 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::StaticMeshRenderer,
                         "StaticMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::SkinnedMeshRendererComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::SkinnedMeshRenderer,
+                        "SkinnedMeshRendererComponent" });
+            }
+
+            if (!has_component<ECS::AnimationComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::Animation,
+                        "AnimationComponent" });
             }
 
             if (!has_component<ECS::SpriteRendererComponent>(a_object))
@@ -538,6 +565,14 @@ namespace Cue::Editor
 
             case ComponentTab::StaticMeshRenderer:
                 draw_static_mesh_renderer_component(a_object);
+                break;
+
+            case ComponentTab::SkinnedMeshRenderer:
+                draw_skinned_mesh_renderer_component(a_object);
+                break;
+
+            case ComponentTab::Animation:
+                draw_animation_component(a_object);
                 break;
 
             case ComponentTab::SpriteRenderer:
@@ -731,6 +766,13 @@ namespace Cue::Editor
                             {
                                 renderer->materialHandle = {};
                             }
+                            ECS::SkinnedMeshRendererComponent* skinnedRenderer =
+                                nullptr;
+                            if (a_object.get_component(skinnedRenderer) &&
+                                skinnedRenderer != nullptr)
+                            {
+                                skinnedRenderer->materialHandle = {};
+                            }
                         }
                     }
                 }
@@ -764,6 +806,54 @@ namespace Cue::Editor
             ImGui::Checkbox("visible", &component->visible);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
             ImGui::Checkbox("receivesShadow", &component->receivesShadow);
+        }
+
+        void draw_skinned_mesh_renderer_component(GameCore::GameObject& a_object)
+        {
+            ECS::SkinnedMeshRendererComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "SkinnedMeshRendererComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("SkinnedMeshRendererComponent");
+            ImGui::Separator();
+            draw_material_reference_editor("material", component->materialHandle);
+            ImGui::Checkbox("visible", &component->visible);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
+            ImGui::Checkbox("receivesShadow", &component->receivesShadow);
+        }
+
+        void draw_animation_component(GameCore::GameObject& a_object)
+        {
+            ECS::AnimationComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("AnimationComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("AnimationComponent");
+            ImGui::Separator();
+            int animationIndex =
+                component->animationIndex ==
+                    Core::Native::k_invalidAnimationIndex
+                ? -1
+                : static_cast<int>(component->animationIndex);
+            if (ImGui::InputInt("animationIndex", &animationIndex))
+            {
+                component->animationIndex = animationIndex < 0
+                    ? Core::Native::k_invalidAnimationIndex
+                    : static_cast<uint32_t>(animationIndex);
+            }
+            ImGui::InputFloat("time", &component->time);
+            ImGui::InputFloat("speed", &component->speed);
+            ImGui::Checkbox("isPlaying", &component->isPlaying);
+            ImGui::Checkbox("loops", &component->loops);
+            ImGui::Text("frame: %u", component->frame);
+            ImGui::Text("paletteCount: %zu", component->skinPalette.size());
         }
 
         void draw_sprite_renderer_component(GameCore::GameObject& a_object)

@@ -49,6 +49,8 @@ namespace Cue::DrawSystem
         uint64_t uvByteSize = 0;
         uint64_t normalByteOffset = 0;
         uint64_t normalByteSize = 0;
+        uint64_t influenceByteOffset = 0;
+        uint64_t influenceByteSize = 0;
         uint64_t indexByteOffset = 0;
         uint64_t indexByteSize = 0;
     };
@@ -181,6 +183,7 @@ namespace Cue::DrawSystem
         StreamState m_positionStream{};
         StreamState m_uvStream{};
         StreamState m_normalStream{};
+        StreamState m_influenceStream{};
         StreamState m_indexStream{};
         MeshRangeState m_meshRangeState{};
         Result m_initResult = Result::ok();

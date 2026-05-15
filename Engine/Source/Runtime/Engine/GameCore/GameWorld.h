@@ -14,6 +14,7 @@
 #include "SceneAsset.h"
 #include "SceneInstance.h"
 #include "SceneSerializer.h"
+#include <AnimationSystem/AnimationSystem.h>
 #include "Systems/AudioSystem.h"
 #include "Systems/CharacterControllerSystem.h"
 #include "Systems/DemoEnemySystem.h"
@@ -62,6 +63,8 @@ namespace Cue::GameCore
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
         static constexpr uint32_t k_maxSpriteCount = 1000;
+        static constexpr uint32_t k_maxSkinPaletteCount =
+            k_maxRenderObjectCount * 128u;
         static constexpr uint32_t k_maxMaterialCount = 1024;
 
         struct LoadSceneResult final
@@ -156,6 +159,25 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result add_object(
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_game_object()
+        {
+            GameObject object{};
+            return add_game_object(object);
+        }
+
+        [[nodiscard]] Result add_game_object(GameObject& a_outObject)
+        {
+            return add_game_object(make_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_game_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_game_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_game_object(
             const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_camera_object()
         {
@@ -278,6 +300,27 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId)
+        {
+            return add_game_object_to_scene(a_sceneId, make_spawn_position());
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_game_object_to_scene(
+                a_sceneId, make_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_game_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId)
         {

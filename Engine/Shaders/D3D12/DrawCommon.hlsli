@@ -7,6 +7,8 @@ struct RenderableInfo
     uint materialId;
     uint castsShadow;
     uint receivesShadow;
+    uint skinPaletteOffset;
+    uint skinPaletteCount;
 };
 
 struct RenderObject
@@ -17,6 +19,8 @@ struct RenderObject
     uint materialId;
     uint castsShadow;
     uint receivesShadow;
+    uint skinPaletteOffset;
+    uint skinPaletteCount;
 };
 
 struct Material
@@ -95,4 +99,15 @@ struct MeshRange
     uint startIndex;
     int baseVertex;
     uint padding;
+};
+
+struct SkinInfluence
+{
+    uint4 jointIndices;
+    float4 weights;
+};
+
+struct SkinPalette
+{
+    row_major float4x4 matrix;
 };

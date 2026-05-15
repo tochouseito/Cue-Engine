@@ -47,10 +47,16 @@ namespace Cue
         static_assert(std::is_trivially_copyable_v<CueTextureHeader>);
         static_assert(std::is_trivially_copyable_v<CueTextureMipInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelHeaderV3>);
         static_assert(std::is_trivially_copyable_v<CueModelLegacyHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelMeshInfoV2>);
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelMaterialInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelSkeletonJointInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelAnimationClipInfo>);
+        static_assert(
+            std::is_trivially_copyable_v<CueModelAnimationChannelInfo>);
 
         [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
         {
@@ -448,7 +454,7 @@ namespace Cue
             }
 
             if (fileData.size() <
-                sizeof(CueModelLegacyHeader) + sizeof(CueModelMeshInfo))
+                sizeof(CueModelLegacyHeader) + sizeof(CueModelMeshInfoV2))
             {
                 return Result::fail(
                     Code::InvalidArgument,
@@ -473,21 +479,26 @@ namespace Cue
             size_t meshInfoBegin = 0;
             size_t materialInfoBegin = 0;
             size_t renderPartInfoBegin = 0;
+            size_t jointInfoBegin = 0;
+            size_t animationClipInfoBegin = 0;
             size_t payloadBegin = 0;
             uint32_t materialCount = 0;
             uint32_t renderPartCount = 0;
+            uint32_t jointCount = 0;
+            uint32_t animationClipCount = 0;
             uint64_t dataSize = 0;
+            bool isVersion3 = false;
 
             if (legacyHeader.version == k_cueModelLegacyVersion)
             {
                 const size_t meshInfoTableSize =
-                    sizeof(CueModelMeshInfo) *
+                    sizeof(CueModelMeshInfoV2) *
                     static_cast<size_t>(legacyHeader.meshCount);
                 meshInfoBegin = sizeof(CueModelLegacyHeader);
                 payloadBegin = meshInfoBegin + meshInfoTableSize;
                 dataSize = legacyHeader.dataSize;
             }
-            else if (legacyHeader.version == k_cueModelVersion)
+            else if (legacyHeader.version == k_cueModelVersion2)
             {
                 if (fileData.size() < sizeof(CueModelHeader))
                 {
@@ -510,7 +521,7 @@ namespace Cue
                 }
 
                 const size_t meshInfoTableSize =
-                    sizeof(CueModelMeshInfo) *
+                    sizeof(CueModelMeshInfoV2) *
                     static_cast<size_t>(header.meshCount);
                 const size_t materialInfoTableSize =
                     sizeof(CueModelMaterialInfo) *
@@ -525,6 +536,57 @@ namespace Cue
                 materialCount = header.materialCount;
                 renderPartCount = header.renderPartCount;
                 dataSize = header.dataSize;
+            }
+            else if (legacyHeader.version == k_cueModelVersion)
+            {
+                if (fileData.size() < sizeof(CueModelHeaderV3))
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Cooked model file is too small.");
+                }
+
+                CueModelHeaderV3 header{};
+                std::memcpy(&header, fileData.data(), sizeof(CueModelHeaderV3));
+                if (header.magic != k_cueModelMagic ||
+                    header.meshCount == 0 ||
+                    header.renderPartCount == 0)
+                {
+                    return Result::fail(
+                        Code::Unsupported,
+                        Severity::Error,
+                        "Cooked model format is not supported.");
+                }
+
+                const size_t meshInfoTableSize =
+                    sizeof(CueModelMeshInfo) *
+                    static_cast<size_t>(header.meshCount);
+                const size_t materialInfoTableSize =
+                    sizeof(CueModelMaterialInfo) *
+                    static_cast<size_t>(header.materialCount);
+                const size_t renderPartInfoTableSize =
+                    sizeof(CueModelRenderPartInfo) *
+                    static_cast<size_t>(header.renderPartCount);
+                const size_t jointInfoTableSize =
+                    sizeof(CueModelSkeletonJointInfo) *
+                    static_cast<size_t>(header.jointCount);
+                const size_t animationClipInfoTableSize =
+                    sizeof(CueModelAnimationClipInfo) *
+                    static_cast<size_t>(header.animationClipCount);
+                meshInfoBegin = sizeof(CueModelHeaderV3);
+                materialInfoBegin = meshInfoBegin + meshInfoTableSize;
+                renderPartInfoBegin = materialInfoBegin + materialInfoTableSize;
+                jointInfoBegin = renderPartInfoBegin + renderPartInfoTableSize;
+                animationClipInfoBegin = jointInfoBegin + jointInfoTableSize;
+                payloadBegin =
+                    animationClipInfoBegin + animationClipInfoTableSize;
+                materialCount = header.materialCount;
+                renderPartCount = header.renderPartCount;
+                jointCount = header.jointCount;
+                animationClipCount = header.animationClipCount;
+                dataSize = header.dataSize;
+                isVersion3 = true;
             }
             else
             {
@@ -549,12 +611,34 @@ namespace Cue
                  ++meshIndex)
             {
                 CueModelMeshInfo meshInfo{};
-                std::memcpy(
-                    &meshInfo,
-                    fileData.data() + meshInfoBegin +
-                        sizeof(CueModelMeshInfo) *
-                            static_cast<size_t>(meshIndex),
-                    sizeof(CueModelMeshInfo));
+                if (isVersion3)
+                {
+                    std::memcpy(
+                        &meshInfo,
+                        fileData.data() + meshInfoBegin +
+                            sizeof(CueModelMeshInfo) *
+                                static_cast<size_t>(meshIndex),
+                        sizeof(CueModelMeshInfo));
+                }
+                else
+                {
+                    CueModelMeshInfoV2 meshInfoV2{};
+                    std::memcpy(
+                        &meshInfoV2,
+                        fileData.data() + meshInfoBegin +
+                            sizeof(CueModelMeshInfoV2) *
+                                static_cast<size_t>(meshIndex),
+                        sizeof(CueModelMeshInfoV2));
+                    meshInfo.nameSize = meshInfoV2.nameSize;
+                    meshInfo.vertexCount = meshInfoV2.vertexCount;
+                    meshInfo.indexCount = meshInfoV2.indexCount;
+                    meshInfo.flags = meshInfoV2.flags;
+                    meshInfo.nameOffset = meshInfoV2.nameOffset;
+                    meshInfo.positionsOffset = meshInfoV2.positionsOffset;
+                    meshInfo.uvsOffset = meshInfoV2.uvsOffset;
+                    meshInfo.normalsOffset = meshInfoV2.normalsOffset;
+                    meshInfo.indicesOffset = meshInfoV2.indicesOffset;
+                }
 
                 if (meshInfo.vertexCount == 0 || meshInfo.indexCount == 0)
                 {
@@ -614,6 +698,20 @@ namespace Cue
                 if (!result)
                 {
                     return result;
+                }
+
+                if ((meshInfo.flags & k_cueModelMeshFlagHasSkinInfluences) !=
+                    0)
+                {
+                    meshData.skinInfluences.resize(meshInfo.vertexCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        meshInfo.skinInfluencesOffset,
+                        meshData.skinInfluences.data(),
+                        meshData.skinInfluences.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
                 }
 
                 outModelData.meshes.push_back(std::move(meshData));
@@ -725,6 +823,116 @@ namespace Cue
                         renderPartInfo.localTransform;
                     outModelData.renderParts.push_back(std::move(renderPart));
                 }
+            }
+
+            outModelData.skeletonJoints.reserve(jointCount);
+            for (uint32_t jointIndex = 0; jointIndex < jointCount; ++jointIndex)
+            {
+                CueModelSkeletonJointInfo jointInfo{};
+                std::memcpy(
+                    &jointInfo,
+                    fileData.data() + jointInfoBegin +
+                        sizeof(CueModelSkeletonJointInfo) *
+                            static_cast<size_t>(jointIndex),
+                    sizeof(CueModelSkeletonJointInfo));
+
+                Core::Native::SkeletonJointData jointData{};
+                jointData.name.resize(jointInfo.nameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    jointInfo.nameOffset, jointData.name.data(),
+                    jointData.name.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                jointData.parentIndex = jointInfo.parentIndex;
+                jointData.inverseBindMatrix = jointInfo.inverseBindMatrix;
+                jointData.localBindMatrix = jointInfo.localBindMatrix;
+                outModelData.skeletonJoints.push_back(std::move(jointData));
+            }
+
+            outModelData.animationClips.reserve(animationClipCount);
+            for (uint32_t clipIndex = 0; clipIndex < animationClipCount;
+                 ++clipIndex)
+            {
+                CueModelAnimationClipInfo clipInfo{};
+                std::memcpy(
+                    &clipInfo,
+                    fileData.data() + animationClipInfoBegin +
+                        sizeof(CueModelAnimationClipInfo) *
+                            static_cast<size_t>(clipIndex),
+                    sizeof(CueModelAnimationClipInfo));
+
+                Core::Native::AnimationClipData clipData{};
+                clipData.name.resize(clipInfo.nameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    clipInfo.nameOffset, clipData.name.data(),
+                    clipData.name.size());
+                if (!result)
+                {
+                    return result;
+                }
+                clipData.duration = clipInfo.duration;
+                clipData.ticksPerSecond = clipInfo.ticksPerSecond;
+
+                std::vector<CueModelAnimationChannelInfo> channelInfos(
+                    clipInfo.channelCount);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    clipInfo.channelsOffset, channelInfos.data(),
+                    channelInfos.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                clipData.channels.reserve(channelInfos.size());
+                for (const CueModelAnimationChannelInfo& channelInfo :
+                     channelInfos)
+                {
+                    Core::Native::AnimationChannelData channelData{};
+                    channelData.targetName.resize(channelInfo.targetNameSize);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.targetNameOffset,
+                        channelData.targetName.data(),
+                        channelData.targetName.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.jointIndex = channelInfo.jointIndex;
+                    channelData.translations.resize(
+                        channelInfo.translationCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.translationsOffset,
+                        channelData.translations.data(),
+                        channelData.translations.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.rotations.resize(channelInfo.rotationCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.rotationsOffset,
+                        channelData.rotations.data(),
+                        channelData.rotations.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.scales.resize(channelInfo.scaleCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.scalesOffset,
+                        channelData.scales.data(),
+                        channelData.scales.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    clipData.channels.push_back(std::move(channelData));
+                }
+
+                outModelData.animationClips.push_back(std::move(clipData));
             }
 
             return Result::ok();

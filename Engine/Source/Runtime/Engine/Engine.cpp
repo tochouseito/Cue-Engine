@@ -11,6 +11,7 @@
 #include "DrawSystem/Passes/MaterialBufferCopyPass.h"
 #include "DrawSystem/Passes/RenderObjectCopyPass.h"
 #include "DrawSystem/Passes/RenderableInfoCopyPass.h"
+#include "DrawSystem/Passes/SkinPaletteBufferCopyPass.h"
 #include "DrawSystem/Passes/SpriteForwardPass.h"
 #include "DrawSystem/Passes/SpriteInstanceCopyPass.h"
 #include "DrawSystem/Passes/StaticMeshBatchingPass.h"
@@ -1043,6 +1044,9 @@ namespace Cue
             "DebugSelectionCopy"));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::MaterialBufferCopyPass>(
             drawResources->material_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::SkinPaletteBufferCopyPass>(
+                drawResources->skin_palette_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteInstanceCopyPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->sprite_instance_buffer_handle()));
@@ -1146,6 +1150,7 @@ namespace Cue
             drawResources->view_projection_buffer_handle(),
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             lightingBindings,
             shadowBindings,
             m_cubeIndexCount,
@@ -1185,6 +1190,7 @@ namespace Cue
             m_debugViewProjectionBufferHandle,
             drawResources->visible_object_count_buffer_handle(),
             drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             lightingBindings,
             shadowBindings,
             m_cubeIndexCount,

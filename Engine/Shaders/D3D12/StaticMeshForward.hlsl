@@ -15,6 +15,8 @@ struct VsIn
     float4 position : POSITION;
     float2 texcoord : TEXCOORD0;
     float3 normal : NORMAL0;
+    uint4 jointIndices : JOINTS0;
+    float4 weights : WEIGHTS0;
 };
 
 static const float k_pi = 3.14159265359f;
@@ -54,6 +56,7 @@ Texture2D<float> g_directionalShadowMap : register(t9);
 StructuredBuffer<PointShadowFace> g_pointShadowFaces : register(t10);
 Texture2D<float> g_pointShadowMap : register(t11);
 TextureCube<float4> g_reflectionSkybox : register(t12);
+StructuredBuffer<SkinPalette> g_skinPalettes : register(t13);
 Texture2D<float4> g_textures[] : register(t0, space1);
 SamplerState g_sampler : register(s0);
 
@@ -107,9 +110,35 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
-    const float4 localPosition = input.position;
+    float4 localPosition = input.position;
     const float2 localUv = input.texcoord;
-    const float3 localNormal = input.normal;
+    float3 localNormal = input.normal;
+    if (renderObject.skinPaletteCount > 0u)
+    {
+        float4x4 skinMatrix = (float4x4)0;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.x]
+                .matrix *
+            input.weights.x;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.y]
+                .matrix *
+            input.weights.y;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.z]
+                .matrix *
+            input.weights.z;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.w]
+                .matrix *
+            input.weights.w;
+        localPosition = mul(localPosition, skinMatrix);
+        localNormal = normalize(mul(float4(localNormal, 0.0f), skinMatrix).xyz);
+    }
 
     const float4 worldPosition = mul(localPosition, transform.worldMatrix);
     const float3 worldNormal =

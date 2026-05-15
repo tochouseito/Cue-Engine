@@ -296,6 +296,56 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
+    Result DrawResources::create_skin_palette_buffer(
+        const uint32_t a_maxPaletteCount)
+    {
+        RHI::BufferDesc bufferDesc{};
+        bufferDesc.name = "SkinPaletteBuffer";
+        bufferDesc.type = RHI::BufferType::Structured;
+        bufferDesc.defaultHeapCount = 1;
+        bufferDesc.uploadHeapCount = m_bufferCount;
+        bufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        bufferDesc.stride = sizeof(GpuData::SkinPaletteGpu);
+        bufferDesc.elementCount = a_maxPaletteCount;
+        bufferDesc.size = bufferDesc.stride * bufferDesc.elementCount;
+        bufferDesc.alignment = alignof(GpuData::SkinPaletteGpu);
+
+        RHI::BufferHandle& bufferHandle =
+            m_bufferHandles[static_cast<size_t>(
+                DrawResourceType::SkinPaletteBuffer)];
+        Result result = m_bufferManager->create_buffer(bufferDesc, bufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            bufferHandle, m_bufferCount, m_skinPaletteUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_skinPaletteUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(Code::InternalError, Severity::Fatal,
+                "SkinPaletteBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc srvDesc{};
+        srvDesc.name = "SkinPaletteBufferSRV";
+        srvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        srvDesc.bufferKind = RHI::BufferKind::Buffer;
+        srvDesc.bufferHandle = bufferHandle;
+        srvDesc.firstElement = 0;
+        srvDesc.numElements = bufferDesc.elementCount;
+        srvDesc.structureByteStride = bufferDesc.stride;
+
+        RHI::ViewHandle& srvHandle =
+            m_viewHandles[static_cast<size_t>(
+                DrawResourceType::SkinPaletteBuffer)];
+        return m_viewManager->create_view(srvDesc, srvHandle);
+    }
+
     Result DrawResources::create_object_count_buffer()
     {
         // ObjectCountBuffer の設定

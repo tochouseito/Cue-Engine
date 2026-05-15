@@ -20,6 +20,8 @@ namespace Cue::GpuData
         uint32_t materialId = 0;    // マテリアルID
         uint32_t castsShadow = 1;   // 影を落とすか
         uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
     };
 
     // 描画オブジェクト
@@ -31,6 +33,8 @@ namespace Cue::GpuData
         uint32_t materialId = 0;    // マテリアルID
         uint32_t castsShadow = 1;   // 影を落とすか
         uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
     };
 
     struct MaterialGpu
@@ -51,5 +55,16 @@ namespace Cue::GpuData
         uint32_t startIndexLocation = 0;
         int32_t baseVertexLocation = 0;
         uint32_t startInstanceLocation = 0;
+    };
+
+    struct SkinInfluenceGpu
+    {
+        uint32_t jointIndices[4] = {};
+        float weights[4] = {};
+    };
+
+    struct SkinPaletteGpu
+    {
+        Math::float4x4 matrix = Math::float4x4::identity();
     };
 }

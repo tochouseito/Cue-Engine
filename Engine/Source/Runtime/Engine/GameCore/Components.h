@@ -179,6 +179,40 @@ namespace Cue::ECS
         bool receivesShadow = true;
     };
 
+    struct SkinnedMeshRendererComponent : public IComponentTag
+    {
+        SkinnedMeshRendererComponent() = default;
+        SkinnedMeshRendererComponent(const SkinnedMeshRendererComponent&) =
+            default;
+        SkinnedMeshRendererComponent& operator=(
+            const SkinnedMeshRendererComponent&) = default;
+        SkinnedMeshRendererComponent(SkinnedMeshRendererComponent&&) = default;
+        SkinnedMeshRendererComponent& operator=(
+            SkinnedMeshRendererComponent&&) = default;
+        MaterialHandle materialHandle{};
+        bool visible = true;
+        bool castsShadow = true;
+        bool receivesShadow = true;
+    };
+
+    struct AnimationComponent : public IComponentTag
+    {
+        AnimationComponent() = default;
+        AnimationComponent(const AnimationComponent&) = default;
+        AnimationComponent& operator=(const AnimationComponent&) = default;
+        AnimationComponent(AnimationComponent&&) = default;
+        AnimationComponent& operator=(AnimationComponent&&) = default;
+        uint32_t animationIndex = Core::Native::k_invalidAnimationIndex;
+        uint32_t frame = 0;
+        float time = 0.0f;
+        float speed = 1.0f;
+        bool isPlaying = true;
+        bool loops = true;
+        std::vector<Math::float4x4> localPose{};
+        std::vector<Math::float4x4> modelPose{};
+        std::vector<Math::float4x4> skinPalette{};
+    };
+
     struct SpriteRendererComponent : public IComponentTag
     {
         SpriteRendererComponent() = default;

@@ -42,6 +42,7 @@ namespace Cue::RHI
     enum class InputElementFormat : uint8_t
     {
         R32G32B32A32_Float,
+        R32G32B32A32_UInt,
         R32G32B32_Float,
         R32G32_Float,
         R32_Float,

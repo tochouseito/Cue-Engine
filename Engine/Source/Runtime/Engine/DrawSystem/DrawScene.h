@@ -24,6 +24,7 @@ namespace Cue::DrawSystem
     {
         GpuData::ObjectTransformGpu transform{};
         GpuData::MaterialGpu material{};
+        std::vector<GpuData::SkinPaletteGpu> skinPalette{};
         bool hasMaterial = false;
     };
 
@@ -84,6 +85,11 @@ namespace Cue::DrawSystem
             frame.staticMeshBatchItems.clear();
             frame.spriteItems.clear();
             frame.cameraItems.clear();
+        }
+
+        [[nodiscard]] uint32_t frame_count() const noexcept
+        {
+            return static_cast<uint32_t>(m_frames.size());
         }
 
         void submit_static_mesh(

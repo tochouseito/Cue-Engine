@@ -31,6 +31,7 @@ namespace Cue::DrawSystem
             RHI::BufferHandle a_viewProjectionBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
             RHI::BufferHandle a_materialBufferHandle,
+            RHI::BufferHandle a_skinPaletteBufferHandle,
             const LightingSystem::LightingBindings& a_lightingBindings,
             const ShadowSystem::ShadowBindings& a_shadowBindings,
             uint32_t a_indexCountPerInstance,
@@ -47,6 +48,7 @@ namespace Cue::DrawSystem
             m_viewProjectionBufferHandle(a_viewProjectionBufferHandle),
             m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle),
             m_materialBufferHandle(a_materialBufferHandle),
+            m_skinPaletteBufferHandle(a_skinPaletteBufferHandle),
             m_lightingBindings(a_lightingBindings),
             m_shadowBindings(a_shadowBindings),
             m_reflectionSkyboxSrvHandle(a_reflectionSkyboxSrvHandle),
@@ -154,6 +156,13 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer(
+                "StaticMeshPool.SkinInfluence",
+                m_influenceBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.get_buffer("StaticMeshPool.Index", m_indexBufferHandle);
             if (!result)
             {
@@ -183,6 +192,11 @@ namespace Cue::DrawSystem
                 return result;
             }
             result = builder.read_buffer(m_materialBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_skinPaletteBufferHandle);
             if (!result)
             {
                 return result;
@@ -324,6 +338,8 @@ namespace Cue::DrawSystem
                 RHI::RootParameterType::_32BitConstants,
                 RHI::ShaderVisibility::Pixel,
                 5 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 13 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -366,6 +382,8 @@ namespace Cue::DrawSystem
                 { "POSITION", 0, RHI::InputElementFormat::R32G32B32A32_Float, 0, 0 },
                 { "TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0 },
                 { "NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0 },
+                { "JOINTS", 0, RHI::InputElementFormat::R32G32B32A32_UInt, 3, 0 },
+                { "WEIGHTS", 0, RHI::InputElementFormat::R32G32B32A32_Float, 3, 16 },
             };
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
             pipelineDesc.depthStencilState.depthEnable = true;
@@ -478,6 +496,16 @@ namespace Cue::DrawSystem
             }
 
             result = builder.use_buffer(
+                m_influenceBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = builder.use_buffer(
                 m_indexBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
@@ -498,6 +526,15 @@ namespace Cue::DrawSystem
             }
             result = builder.use_buffer(
                 m_materialBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_skinPaletteBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::ShaderResource);
@@ -728,9 +765,11 @@ namespace Cue::DrawSystem
             commandContext->set_32bit_constant(
                 19,
                 m_reflectionSkyboxSrvHandle.valid() ? 1u : 0u);
+            commandContext->set_srv(20, m_skinPaletteBufferHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
+            commandContext->set_vertex_buffer(3, m_influenceBufferHandle);
             add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
             if (frameState.useCpuBatching)
@@ -791,9 +830,11 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_positionBufferHandle{};
         RHI::BufferHandle m_uvBufferHandle{};
         RHI::BufferHandle m_normalBufferHandle{};
+        RHI::BufferHandle m_influenceBufferHandle{};
         RHI::BufferHandle m_indexBufferHandle{};
         RHI::BufferHandle m_meshRangeBufferHandle{};
         RHI::BufferHandle m_materialBufferHandle{};
+        RHI::BufferHandle m_skinPaletteBufferHandle{};
         LightingSystem::LightingBindings m_lightingBindings{};
         ShadowSystem::ShadowBindings m_shadowBindings{};
         uint32_t m_indexCountPerInstance = 0;

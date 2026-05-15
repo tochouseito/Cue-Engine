@@ -6290,6 +6290,22 @@ namespace Cue::Editor
             m_bridge != nullptr && !m_isScriptActionActive &&
             targetSceneId != GameCore::k_invalidSceneId;
 
+        if (ImGui::MenuItem("GameObject を追加", nullptr, false, canAddObject))
+        {
+            const Result result = m_bridge->submit_command(
+                std::make_unique<AddObjectCommand>(
+                    AddObjectType::GameObject, targetSceneId));
+            if (!result)
+            {
+                log_result("Failed to add game object", result);
+                set_status_message("GameObject の追加に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("GameObject を追加しました。", false);
+            }
+        }
+
         if (ImGui::BeginMenu("3D", canAddObject))
         {
             if (ImGui::MenuItem("カメラを追加"))

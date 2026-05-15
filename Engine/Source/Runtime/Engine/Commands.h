@@ -23,6 +23,8 @@ namespace Cue
         Camera,
         MeshFilter,
         StaticMeshRenderer,
+        SkinnedMeshRenderer,
+        Animation,
         SpriteRenderer,
         AudioSource,
         RigidBody,
@@ -36,6 +38,7 @@ namespace Cue
 
     enum class AddObjectType : uint8_t
     {
+        GameObject,
         Camera,
         StaticMesh3D,
         Sprite2D,

@@ -3,6 +3,9 @@
 // === RHI includes ===
 #include <RHICommon.h>
 
+// === Core includes ===
+#include <Native/EngineNativeStruct.h>
+
 namespace Cue::DrawSystem
 {
     using RHI::BufferHandle;
@@ -17,11 +20,13 @@ namespace Cue::DrawSystem
         uint32_t positionStagingSize = 1u * 1024u * 1024u; // Position stream 用の常設 staging サイズ
         uint32_t uvStagingSize = 512u * 1024u; // UV stream 用の常設 staging サイズ
         uint32_t normalStagingSize = 1u * 1024u * 1024u; // Normal stream 用の常設 staging サイズ
+        uint32_t influenceStagingSize = 1u * 1024u * 1024u; // Skin influence stream 用の常設 staging サイズ
         uint32_t indexStagingSize = 1u * 1024u * 1024u; // Index stream 用の常設 staging サイズ
         uint32_t meshRangeStagingCount = 256u; // MeshRange 用の常設 staging 要素数
         std::string_view positionName = "StaticMeshPool.Position";
         std::string_view uvName = "StaticMeshPool.Uv";
         std::string_view normalName = "StaticMeshPool.Normal";
+        std::string_view influenceName = "StaticMeshPool.SkinInfluence";
         std::string_view indexName = "StaticMeshPool.Index";
         std::string_view meshRangeName = "StaticMeshPool.MeshRange";
         std::string_view meshRangeSrvName = "StaticMeshPool.MeshRangeSRV";
@@ -40,6 +45,7 @@ namespace Cue::DrawSystem
         BufferHandle positionBuffer = {};
         BufferHandle uvBuffer = {};
         BufferHandle normalBuffer = {};
+        BufferHandle influenceBuffer = {};
         BufferHandle indexBuffer = {};
         BufferHandle meshRangeBuffer = {};
         ViewHandle meshRangeSrv = {};

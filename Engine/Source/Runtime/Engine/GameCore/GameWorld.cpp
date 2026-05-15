@@ -59,6 +59,20 @@ namespace Cue::GameCore
             return objectDefinition;
         }
 
+        [[nodiscard]] ObjectDefinition make_default_game_object_definition(
+            const Math::float3& a_position)
+        {
+            ObjectDefinition objectDefinition("GameObject");
+
+            ECS::TransformComponent transform{};
+            transform.position = a_position;
+            transform.rotation = Math::Quaternion::identity();
+            transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
+            objectDefinition.prototype.add_component(transform);
+
+            return objectDefinition;
+        }
+
         [[nodiscard]] ObjectDefinition make_default_camera_object_definition(
             const Math::float3& a_position)
         {
@@ -231,6 +245,13 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_drawResources->create_skin_palette_buffer(
+            k_maxSkinPaletteCount);
+        if (!result)
+        {
+            return result;
+        }
+
         result = m_drawResources->create_render_object_buffer(
             k_maxRenderObjectCount);
         if (!result)
@@ -342,7 +363,10 @@ namespace Cue::GameCore
         auto& triggerVolumeSystem = m_ecs.add_system<ECS::TriggerVolumeSystem>();
         auto& demoEnemySystem =
             m_ecs.add_system<ECS::DemoEnemySystem>(&m_debugDraw);
+        auto& animationSystem =
+            m_ecs.add_system<ECS::AnimationSystem>(m_assetManager);
 
+        m_editorPipeline.add_system(&animationSystem);
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
@@ -688,6 +712,32 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    [[nodiscard]] Result GameWorld::add_game_object(
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        Result result = create_object("GameObject", a_outObject);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        result =
+            add_component<ECS::TransformComponent>(a_outObject.entity_id(), transform);
+        if (!result || transform == nullptr)
+        {
+            destroy_object_immediately(a_outObject.entity_id());
+            return result ? Result::fail(Code::CreateFailed, Severity::Error,
+                "Failed to add transform component for game object.") : result;
+        }
+
+        transform->position = a_position;
+        transform->rotation = Math::Quaternion::identity();
+        transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
+        return Result::ok();
+    }
+
     [[nodiscard]] Result GameWorld::add_camera_object(
         const Math::float3& a_position, GameObject& a_outObject)
     {
@@ -904,6 +954,21 @@ namespace Cue::GameCore
         const ObjectDefinition objectDefinition =
             make_default_static_mesh_object_definition(
                 a_position, m_defaultStaticMeshId);
+        return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
+    }
+
+    [[nodiscard]] Result GameWorld::add_game_object_to_scene(SceneId a_sceneId,
+        const Math::float3& a_position, GameObject& a_outObject)
+    {
+        a_outObject = {};
+        if (a_sceneId == k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Scene id is invalid.");
+        }
+
+        const ObjectDefinition objectDefinition =
+            make_default_game_object_definition(a_position);
         return append_object_to_scene(a_sceneId, objectDefinition, a_outObject);
     }
 
@@ -1157,6 +1222,41 @@ namespace Cue::GameCore
                 {
                     return Result::fail(Code::InvalidState, Severity::Error,
                         "Failed to commit material upload.");
+                }
+            }
+        }
+
+        auto& skinPaletteUploaders =
+            m_drawResources->skin_palette_uploaders();
+        if (!skinPaletteUploaders.empty())
+        {
+            const uint32_t uploaderIndex =
+                resolve_uploader_index(
+                    static_cast<uint32_t>(skinPaletteUploaders.size()));
+            if (uploaderIndex < skinPaletteUploaders.size())
+            {
+                auto& uploader = skinPaletteUploaders[uploaderIndex];
+                uploader.begin_frame();
+                uint32_t paletteIndex = 0;
+                for (const DrawSystem::StaticMeshSurfaceItem& item :
+                     sceneFrame.staticMeshSurfaceItems)
+                {
+                    for (const GpuData::SkinPaletteGpu& palette :
+                         item.skinPalette)
+                    {
+                        if (!uploader.push(paletteIndex, palette))
+                        {
+                            return Result::fail(Code::InvalidState,
+                                Severity::Error,
+                                "Failed to queue skin palette upload.");
+                        }
+                        ++paletteIndex;
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit skin palette upload.");
                 }
             }
         }

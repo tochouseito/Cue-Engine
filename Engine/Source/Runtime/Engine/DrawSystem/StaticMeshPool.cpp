@@ -156,6 +156,7 @@ namespace Cue::DrawSystem
         m_meshRangeState.capacity = 0;
         m_meshRangeState.freeMeshIds.clear();
         destroy_stream_state(m_indexStream);
+        destroy_stream_state(m_influenceStream);
         destroy_stream_state(m_normalStream);
         destroy_stream_state(m_uvStream);
         destroy_stream_state(m_positionStream);
@@ -215,6 +216,21 @@ namespace Cue::DrawSystem
             desc.maxIndexCount,
             alignof(uint32_t),
             m_indexStream);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_stream_state(
+            desc.influenceName,
+            BufferType::Vertex,
+            static_cast<uint64_t>(desc.maxVertexCount) *
+                sizeof(Core::Native::SkinInfluenceData),
+            desc.influenceStagingSize,
+            sizeof(Core::Native::SkinInfluenceData),
+            desc.maxVertexCount,
+            alignof(Core::Native::SkinInfluenceData),
+            m_influenceStream);
         if (!result)
         {
             return result;
@@ -802,6 +818,13 @@ namespace Cue::DrawSystem
                 Severity::Error,
                 "Normal count must match the position count.");
         }
+        if (!meshData.skinInfluences.empty() && meshData.skinInfluences.size() != meshData.positions.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Skin influence count must match the position count.");
+        }
 
         // 2) 常駐先の空き領域を先に押さえ、どれか一つでも足りなければ全体を巻き戻す。
         StaticMeshRecord record{};
@@ -810,6 +833,9 @@ namespace Cue::DrawSystem
         record.positionByteSize = byte_size_of(meshData.positions);
         record.uvByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float2);
         record.normalByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float3);
+        record.influenceByteSize =
+            static_cast<uint64_t>(vertexCount) *
+            sizeof(Core::Native::SkinInfluenceData);
         record.indexByteSize = byte_size_of(meshData.indices);
         Result result = allocate_mesh_id(record.meshId);
         if (!result)
@@ -867,15 +893,32 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        result = allocate_stream_range(
+            m_influenceStream,
+            record.influenceByteSize,
+            alignof(Core::Native::SkinInfluenceData),
+            record.influenceByteOffset);
+        if (!result)
+        {
+            release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+            release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
+            release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+            release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
+            return result;
+        }
+
         // 3) 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす。
         UploadAllocation positionUpload{};
         UploadAllocation uvUpload{};
         UploadAllocation normalUpload{};
+        UploadAllocation influenceUpload{};
         UploadAllocation indexUpload{};
 
         result = allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
         if (!result)
         {
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -888,6 +931,7 @@ namespace Cue::DrawSystem
         if (!result)
         {
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -901,6 +945,7 @@ namespace Cue::DrawSystem
         {
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -915,6 +960,27 @@ namespace Cue::DrawSystem
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
+            release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+            release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
+            release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+            release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
+            release_mesh_id(record.meshId);
+            return result;
+        }
+
+        result = allocate_upload_range(
+            m_influenceStream,
+            record.influenceByteSize,
+            alignof(Core::Native::SkinInfluenceData),
+            influenceUpload);
+        if (!result)
+        {
+            release_upload_range(m_indexStream, indexUpload);
+            release_upload_range(m_normalStream, normalUpload);
+            release_upload_range(m_uvStream, uvUpload);
+            release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -936,9 +1002,11 @@ namespace Cue::DrawSystem
         if (!result)
         {
             release_upload_range(m_indexStream, indexUpload);
+            release_upload_range(m_influenceStream, influenceUpload);
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -956,6 +1024,20 @@ namespace Cue::DrawSystem
             normalUpload,
             meshData.normals.empty() ? nullptr : meshData.normals.data(),
             record.normalByteSize);
+        std::vector<Core::Native::SkinInfluenceData> defaultInfluences{};
+        const Core::Native::SkinInfluenceData* influenceSource =
+            meshData.skinInfluences.empty()
+            ? nullptr
+            : meshData.skinInfluences.data();
+        if (influenceSource == nullptr)
+        {
+            defaultInfluences.resize(vertexCount);
+            influenceSource = defaultInfluences.data();
+        }
+        write_upload_bytes(
+            influenceUpload,
+            influenceSource,
+            record.influenceByteSize);
         write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
         write_upload_bytes(meshRangeUpload, &meshRange, sizeof(StaticMeshRange));
 
@@ -993,6 +1075,16 @@ namespace Cue::DrawSystem
             },
             BufferCopyRegion
             {
+                .srcBufferHandle = influenceUpload.bufferHandle,
+                .srcUploadResourceIndex = 0,
+                .srcByteOffset = influenceUpload.byteOffset,
+                .dstBufferHandle = m_influenceStream.defaultBufferHandle,
+                .dstDefaultResourceIndex = 0,
+                .dstByteOffset = record.influenceByteOffset,
+                .byteSize = record.influenceByteSize
+            },
+            BufferCopyRegion
+            {
                 .srcBufferHandle = indexUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
                 .srcByteOffset = indexUpload.byteOffset,
@@ -1017,6 +1109,7 @@ namespace Cue::DrawSystem
 
         release_upload_range(m_meshRangeState, meshRangeUpload);
         release_upload_range(m_indexStream, indexUpload);
+        release_upload_range(m_influenceStream, influenceUpload);
         release_upload_range(m_normalStream, normalUpload);
         release_upload_range(m_uvStream, uvUpload);
         release_upload_range(m_positionStream, positionUpload);
@@ -1024,6 +1117,7 @@ namespace Cue::DrawSystem
         if (!result)
         {
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+            release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
@@ -1063,6 +1157,7 @@ namespace Cue::DrawSystem
         release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
         release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
         release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
+        release_stream_range(m_influenceStream, record.influenceByteOffset, record.influenceByteSize);
         release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
         release_mesh_id(record.meshId);
 
@@ -1114,6 +1209,7 @@ namespace Cue::DrawSystem
         outBindings.positionBuffer = m_positionStream.defaultBufferHandle;
         outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
         outBindings.normalBuffer = m_normalStream.defaultBufferHandle;
+        outBindings.influenceBuffer = m_influenceStream.defaultBufferHandle;
         outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
         outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
         outBindings.meshRangeSrv = m_meshRangeState.srvHandle;

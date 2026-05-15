@@ -758,6 +758,58 @@ namespace Cue::GameCore
                 a_json.value("receivesShadow", a_outComponent.receivesShadow);
         }
 
+        [[nodiscard]] Json serialize_skinned_mesh_renderer(
+            const ECS::SkinnedMeshRendererComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            ECS::StaticMeshRendererComponent proxy{};
+            proxy.materialHandle = a_component.materialHandle;
+            proxy.visible = a_component.visible;
+            proxy.castsShadow = a_component.castsShadow;
+            proxy.receivesShadow = a_component.receivesShadow;
+            return serialize_static_mesh_renderer(proxy, a_options);
+        }
+
+        void deserialize_skinned_mesh_renderer(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::SkinnedMeshRendererComponent& a_outComponent)
+        {
+            ECS::StaticMeshRendererComponent proxy{};
+            deserialize_static_mesh_renderer(a_json, a_options, proxy);
+            a_outComponent.materialHandle = proxy.materialHandle;
+            a_outComponent.visible = proxy.visible;
+            a_outComponent.castsShadow = proxy.castsShadow;
+            a_outComponent.receivesShadow = proxy.receivesShadow;
+        }
+
+        [[nodiscard]] Json serialize_animation(
+            const ECS::AnimationComponent& a_component)
+        {
+            return Json{
+                { "animationIndex", a_component.animationIndex },
+                { "frame", a_component.frame },
+                { "time", a_component.time },
+                { "speed", a_component.speed },
+                { "isPlaying", a_component.isPlaying },
+                { "loops", a_component.loops },
+            };
+        }
+
+        void deserialize_animation(
+            const Json& a_json,
+            ECS::AnimationComponent& a_outComponent)
+        {
+            a_outComponent.animationIndex =
+                a_json.value("animationIndex", a_outComponent.animationIndex);
+            a_outComponent.frame = a_json.value("frame", a_outComponent.frame);
+            a_outComponent.time = a_json.value("time", a_outComponent.time);
+            a_outComponent.speed = a_json.value("speed", a_outComponent.speed);
+            a_outComponent.isPlaying =
+                a_json.value("isPlaying", a_outComponent.isPlaying);
+            a_outComponent.loops = a_json.value("loops", a_outComponent.loops);
+        }
+
         [[nodiscard]] Json serialize_audio_source(
             const ECS::AudioSourceComponent& a_component)
         {
@@ -1186,6 +1238,22 @@ namespace Cue::GameCore
                     serialize_static_mesh_renderer(*renderer, a_options);
             }
 
+            if (const ECS::SkinnedMeshRendererComponent* renderer =
+                a_definition.prototype.get_component_ptr<
+                    ECS::SkinnedMeshRendererComponent>();
+                renderer != nullptr)
+            {
+                componentsJson["skinnedMeshRenderer"] =
+                    serialize_skinned_mesh_renderer(*renderer, a_options);
+            }
+
+            if (const ECS::AnimationComponent* animation =
+                a_definition.prototype.get_component_ptr<ECS::AnimationComponent>();
+                animation != nullptr)
+            {
+                componentsJson["animation"] = serialize_animation(*animation);
+            }
+
             if (const ECS::AudioSourceComponent* audioSource =
                 a_definition.prototype.get_component_ptr<ECS::AudioSourceComponent>();
                 audioSource != nullptr)
@@ -1375,6 +1443,25 @@ namespace Cue::GameCore
                     ECS::StaticMeshRendererComponent renderer{};
                     deserialize_static_mesh_renderer(*rendererIt, a_options, renderer);
                     objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator rendererIt =
+                    componentsJson.find("skinnedMeshRenderer");
+                    rendererIt != componentsJson.end())
+                {
+                    ECS::SkinnedMeshRendererComponent renderer{};
+                    deserialize_skinned_mesh_renderer(
+                        *rendererIt, a_options, renderer);
+                    objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator animationIt =
+                    componentsJson.find("animation");
+                    animationIt != componentsJson.end())
+                {
+                    ECS::AnimationComponent animation{};
+                    deserialize_animation(*animationIt, animation);
+                    objectDefinition.prototype.add_component(animation);
                 }
 
                 if (const Json::const_iterator audioSourceIt =

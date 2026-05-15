@@ -19,6 +19,12 @@
                     },
                     "rotation": {
                         "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
+                        "x": 0.0,
                         "y": 0.0,
                         "z": 0.0
                     },
@@ -38,6 +44,7 @@
         {
             "components": {
                 "audioSource": {
+                    "encoding": "PCM",
                     "fileName": "fanfare.cuesound",
                     "loop": false,
                     "playOnStart": false,
@@ -66,7 +73,7 @@
                     "type": "Box"
                 },
                 "meshFilter": {
-                    "meshId": 3,
+                    "meshId": 66,
                     "modelName": "axis"
                 },
                 "rigidBody": {
@@ -92,7 +99,9 @@
                     "isEnabled": true
                 },
                 "staticMeshRenderer": {
+                    "castsShadow": true,
                     "materialName": "TestRed",
+                    "receivesShadow": true,
                     "visible": true
                 },
                 "transform": {
@@ -102,6 +111,12 @@
                         "z": -9.416049003601074
                     },
                     "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
                         "x": 0.0,
                         "y": -0.0,
                         "z": 0.0
@@ -122,7 +137,7 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 1,
+                    "meshId": 64,
                     "modelName": "NavMeshTest"
                 },
                 "navMeshBakeSource": {
@@ -130,7 +145,9 @@
                     "isIncluded": true
                 },
                 "staticMeshRenderer": {
+                    "castsShadow": true,
                     "materialName": "TestRed",
+                    "receivesShadow": true,
                     "visible": true
                 },
                 "transform": {
@@ -140,6 +157,12 @@
                         "z": 0.0
                     },
                     "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
                         "x": 0.0,
                         "y": 0.0,
                         "z": 0.0
@@ -160,7 +183,7 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 3,
+                    "meshId": 66,
                     "modelName": "axis"
                 },
                 "navAgent": {
@@ -182,7 +205,9 @@
                     "stoppingDistance": 0.20000000298023224
                 },
                 "staticMeshRenderer": {
+                    "castsShadow": true,
                     "materialName": "TestRed",
+                    "receivesShadow": true,
                     "visible": true
                 },
                 "transform": {
@@ -192,6 +217,12 @@
                         "z": -32.0
                     },
                     "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
                         "x": 0.0,
                         "y": 0.0,
                         "z": 0.0
@@ -236,7 +267,13 @@
                     },
                     "rotation": {
                         "x": -0.5565403699874878,
-                        "y": -0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 0.9615320563316345,
+                        "x": -0.2746927738189697,
+                        "y": 0.0,
                         "z": 0.0
                     },
                     "scale": {
@@ -250,6 +287,42 @@
             "isPersistent": false,
             "localObjectId": 6,
             "name": "SpotLight",
+            "tag": "Default"
+        },
+        {
+            "components": {
+                "meshFilter": {
+                    "meshId": 1,
+                    "modelName": "BrainStem"
+                },
+                "transform": {
+                    "position": {
+                        "x": -2.0,
+                        "y": 0.0,
+                        "z": 2.5
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "z": 1.0
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 7,
+            "name": "GameObject",
             "tag": "Default"
         }
     ],
