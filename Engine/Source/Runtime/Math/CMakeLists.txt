@@ -10,7 +10,7 @@ add_library(CueMath STATIC
     "Vector2.h"
     "Vector3.h"
     "Vector4.h"
-)
+ "Quaternion.h")
 
 # リンクするライブラリの指定
 target_link_libraries(CueMath PUBLIC
