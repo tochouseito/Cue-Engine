@@ -468,6 +468,10 @@ namespace Cue
             &ScriptRuntime::get_transform_degrees_bridge;
         m_engineApi.setTransformDegrees =
             &ScriptRuntime::set_transform_degrees_bridge;
+        m_engineApi.getTransformQuaternion =
+            &ScriptRuntime::get_transform_quaternion_bridge;
+        m_engineApi.setTransformQuaternion =
+            &ScriptRuntime::set_transform_quaternion_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1383,6 +1387,26 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_transform_quaternion_bridge(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_transform_quaternion_internal(
+                a_entityHandle, a_outTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_transform_quaternion_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_transform_quaternion_internal(
+                a_entityHandle, a_transform)
+            : CueResult_InvalidState;
+    }
+
     CueSceneId CUE_SCRIPT_CALL ScriptRuntime::request_scene_load_bridge(
         CueStringView a_sceneName)
     {
@@ -1918,8 +1942,10 @@ namespace Cue
 
         a_outTransform->position =
             { transform->position.x, transform->position.y, transform->position.z };
+        const Math::float3 rotationRadians =
+            Math::quaternion_to_euler_xyz(transform->rotation);
         a_outTransform->rotation =
-            { transform->rotation.x, transform->rotation.y, transform->rotation.z };
+            { rotationRadians.x, rotationRadians.y, rotationRadians.z };
         a_outTransform->scale =
             { transform->scale.x, transform->scale.y, transform->scale.z };
         return CueResult_Ok;
@@ -1953,9 +1979,11 @@ namespace Cue
         transform->position =
             Math::float3(a_transform->position.x, a_transform->position.y,
                 a_transform->position.z);
-        transform->rotation =
-            Math::float3(a_transform->rotation.x, a_transform->rotation.y,
-                a_transform->rotation.z);
+        transform->rotation = Math::quaternion_from_euler_xyz(
+            Math::float3(
+                a_transform->rotation.x,
+                a_transform->rotation.y,
+                a_transform->rotation.z));
         transform->scale =
             Math::float3(a_transform->scale.x, a_transform->scale.y,
                 a_transform->scale.z);
@@ -2003,6 +2031,83 @@ namespace Cue
         transform.rotation =
             { rotationRadians.x, rotationRadians.y, rotationRadians.z };
         return set_transform_internal(a_entityHandle, &transform);
+    }
+
+    CueResult ScriptRuntime::get_transform_quaternion_internal(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform) const noexcept
+    {
+        if (a_outTransform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
+            to_entity_id(a_entityHandle), transform);
+        if (!result || transform == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outTransform->position =
+            { transform->position.x, transform->position.y, transform->position.z };
+        a_outTransform->rotation = {
+            transform->rotation.x,
+            transform->rotation.y,
+            transform->rotation.z,
+            transform->rotation.w
+        };
+        a_outTransform->scale =
+            { transform->scale.x, transform->scale.y, transform->scale.z };
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_transform_quaternion_internal(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform) noexcept
+    {
+        if (a_transform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
+            to_entity_id(a_entityHandle), transform);
+        if (!result || transform == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        transform->position =
+            Math::float3(a_transform->position.x, a_transform->position.y,
+                a_transform->position.z);
+        transform->rotation = Math::Quaternion::normalize(Math::Quaternion(
+            a_transform->rotation.x,
+            a_transform->rotation.y,
+            a_transform->rotation.z,
+            a_transform->rotation.w));
+        transform->scale =
+            Math::float3(a_transform->scale.x, a_transform->scale.y,
+                a_transform->scale.z);
+        return CueResult_Ok;
     }
 
     uint8_t ScriptRuntime::push_key_internal(CueKey a_key) const noexcept

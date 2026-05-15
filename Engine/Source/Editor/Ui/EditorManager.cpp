@@ -109,7 +109,10 @@ namespace Cue::Editor
             };
 
             return isClose3(a_left.position, a_right.position) &&
-                isClose3(a_left.rotation, a_right.rotation) &&
+                Math::Quaternion::equals_epsilon(
+                    a_left.rotation,
+                    a_right.rotation,
+                    0.0001f) &&
                 isClose3(a_left.scale, a_right.scale);
         }
 
@@ -435,10 +438,10 @@ namespace Cue::Editor
 
         [[nodiscard]] Math::float3 transform_direction(
             const Math::float3& a_direction,
-            const Math::float3& a_rotation) noexcept
+            const Math::Quaternion& a_rotation) noexcept
         {
             const Math::float4x4 rotationMatrix =
-                Math::xyz_rotate_matrix(a_rotation);
+                Math::quaternion_matrix(a_rotation);
             Math::float3 direction(
                 a_direction.x * rotationMatrix.values[0][0] +
                     a_direction.y * rotationMatrix.values[1][0] +
@@ -451,6 +454,88 @@ namespace Cue::Editor
                     a_direction.z * rotationMatrix.values[2][2]);
             direction.normalize();
             return direction;
+        }
+
+        [[nodiscard]] float basis_length(
+            const Math::float4x4& a_matrix,
+            uint32_t a_row) noexcept
+        {
+            return std::sqrt(
+                a_matrix.values[a_row][0] * a_matrix.values[a_row][0] +
+                a_matrix.values[a_row][1] * a_matrix.values[a_row][1] +
+                a_matrix.values[a_row][2] * a_matrix.values[a_row][2]);
+        }
+
+        [[nodiscard]] Math::Quaternion quaternion_from_affine_matrix(
+            const Math::float4x4& a_matrix,
+            const Math::float3& a_scale) noexcept
+        {
+            Math::float4x4 rotation = Math::float4x4::identity();
+            const float safeScaleX =
+                std::abs(a_scale.x) > 0.000001f ? a_scale.x : 1.0f;
+            const float safeScaleY =
+                std::abs(a_scale.y) > 0.000001f ? a_scale.y : 1.0f;
+            const float safeScaleZ =
+                std::abs(a_scale.z) > 0.000001f ? a_scale.z : 1.0f;
+            for (uint32_t axis = 0; axis < 3; ++axis)
+            {
+                rotation.values[0][axis] =
+                    a_matrix.values[0][axis] / safeScaleX;
+                rotation.values[1][axis] =
+                    a_matrix.values[1][axis] / safeScaleY;
+                rotation.values[2][axis] =
+                    a_matrix.values[2][axis] / safeScaleZ;
+            }
+
+            const float trace =
+                rotation.values[0][0] +
+                rotation.values[1][1] +
+                rotation.values[2][2];
+            Math::Quaternion result{};
+            if (trace > 0.0f)
+            {
+                const float s = std::sqrt(trace + 1.0f) * 2.0f;
+                result.w = 0.25f * s;
+                result.x = (rotation.values[1][2] - rotation.values[2][1]) / s;
+                result.y = (rotation.values[2][0] - rotation.values[0][2]) / s;
+                result.z = (rotation.values[0][1] - rotation.values[1][0]) / s;
+            }
+            else if (rotation.values[0][0] > rotation.values[1][1] &&
+                rotation.values[0][0] > rotation.values[2][2])
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[0][0] -
+                    rotation.values[1][1] -
+                    rotation.values[2][2]) * 2.0f;
+                result.w = (rotation.values[1][2] - rotation.values[2][1]) / s;
+                result.x = 0.25f * s;
+                result.y = (rotation.values[0][1] + rotation.values[1][0]) / s;
+                result.z = (rotation.values[2][0] + rotation.values[0][2]) / s;
+            }
+            else if (rotation.values[1][1] > rotation.values[2][2])
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[1][1] -
+                    rotation.values[0][0] -
+                    rotation.values[2][2]) * 2.0f;
+                result.w = (rotation.values[2][0] - rotation.values[0][2]) / s;
+                result.x = (rotation.values[0][1] + rotation.values[1][0]) / s;
+                result.y = 0.25f * s;
+                result.z = (rotation.values[1][2] + rotation.values[2][1]) / s;
+            }
+            else
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[2][2] -
+                    rotation.values[0][0] -
+                    rotation.values[1][1]) * 2.0f;
+                result.w = (rotation.values[0][1] - rotation.values[1][0]) / s;
+                result.x = (rotation.values[2][0] + rotation.values[0][2]) / s;
+                result.y = (rotation.values[1][2] + rotation.values[2][1]) / s;
+                result.z = 0.25f * s;
+            }
+
+            return Math::Quaternion::normalize(result);
         }
 
         [[nodiscard]] Math::float3 light_forward_axis(
@@ -6555,40 +6640,28 @@ namespace Cue::Editor
 
         if (manipulated)
         {
-            float translation[3] = {};
-            float rotationDegrees[3] = {};
-            float scale[3] = {};
-            ImGuizmo::DecomposeMatrixToComponents(
-                &objectMatrix.values[0][0],
-                translation,
-                rotationDegrees,
-                scale);
+            const Math::float3 translation(
+                objectMatrix.values[3][0],
+                objectMatrix.values[3][1],
+                objectMatrix.values[3][2]);
+            const Math::float3 scale(
+                basis_length(objectMatrix, 0),
+                basis_length(objectMatrix, 1),
+                basis_length(objectMatrix, 2));
             const bool hasFiniteValues =
-                std::isfinite(translation[0]) &&
-                std::isfinite(translation[1]) &&
-                std::isfinite(translation[2]) &&
-                std::isfinite(rotationDegrees[0]) &&
-                std::isfinite(rotationDegrees[1]) &&
-                std::isfinite(rotationDegrees[2]) &&
-                std::isfinite(scale[0]) &&
-                std::isfinite(scale[1]) &&
-                std::isfinite(scale[2]);
+                std::isfinite(translation.x) &&
+                std::isfinite(translation.y) &&
+                std::isfinite(translation.z) &&
+                std::isfinite(scale.x) &&
+                std::isfinite(scale.y) &&
+                std::isfinite(scale.z);
             if (hasFiniteValues)
             {
                 ECS::TransformComponent nextTransform = *transform;
-                nextTransform.position = Math::float3(
-                    translation[0],
-                    translation[1],
-                    translation[2]);
-                nextTransform.rotation = Math::degrees_to_radians(
-                    Math::float3(
-                        rotationDegrees[0],
-                        rotationDegrees[1],
-                        rotationDegrees[2]));
-                nextTransform.scale = Math::float3(
-                    scale[0],
-                    scale[1],
-                    scale[2]);
+                nextTransform.position = translation;
+                nextTransform.rotation =
+                    quaternion_from_affine_matrix(objectMatrix, scale);
+                nextTransform.scale = scale;
                 *transform = nextTransform;
             }
         }
@@ -7181,7 +7254,7 @@ namespace Cue::Editor
             GpuData::DebugSelectionItemGpu item{};
             item.world =
                 Math::y_axis_matrix(Math::k_pi) *
-                Math::xyz_rotate_matrix(a_transform.rotation) *
+                Math::quaternion_matrix(a_transform.rotation) *
                 Math::translate_matrix(a_transform.position);
             item.color = a_isSelected
                 ? Math::float4(1.0f, 0.84f, 0.18f, 1.0f)
@@ -7242,7 +7315,7 @@ namespace Cue::Editor
                 const Math::float4& a_color)
         {
             ECS::TransformComponent markerTransform = a_transform;
-            markerTransform.rotation = Math::float3::zero();
+            markerTransform.rotation = Math::Quaternion::identity();
             appendDebugItem(makeLightLineItem(
                 markerTransform,
                 Math::float3(a_radius, 0.0f, 0.0f),

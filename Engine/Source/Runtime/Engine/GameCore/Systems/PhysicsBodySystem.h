@@ -166,7 +166,7 @@ namespace Cue::ECS
             desc.shape.radius = (std::max)(a_collider.radius, 0.001f);
             desc.shape.halfHeight = (std::max)(a_collider.halfHeight, 0.001f);
             desc.position = a_transform.position + a_collider.offset;
-            desc.rotation = euler_to_quat(a_transform.rotation);
+            desc.rotation = to_float4(a_transform.rotation);
             desc.linearVelocity = a_rigidBody.linearVelocity;
             desc.angularVelocity = a_rigidBody.angularVelocity;
             desc.motion = a_rigidBody.motion;
@@ -279,7 +279,7 @@ namespace Cue::ECS
 
             Physics::BodyTransform transform{};
             transform.position = a_transform.position + a_collider.offset;
-            transform.rotation = euler_to_quat(a_transform.rotation);
+            transform.rotation = to_float4(a_transform.rotation);
             const Result result = m_physicsSystem->set_body_transform(
                 a_rigidBody.body, transform, Physics::BodyActivation::Activate);
             if (!result)
@@ -310,7 +310,7 @@ namespace Cue::ECS
             }
 
             a_transform.position = transform.position - a_collider.offset;
-            a_transform.rotation = quat_to_euler(transform.rotation);
+            a_transform.rotation = to_quaternion(transform.rotation);
         }
 
         void destroy_body(RigidBodyComponent& a_rigidBody)
@@ -342,50 +342,26 @@ namespace Cue::ECS
                 (std::max)(a_halfExtent.z, 0.001f));
         }
 
-        [[nodiscard]] static Math::float4 euler_to_quat(
-            Math::float3 a_euler) noexcept
+        [[nodiscard]] static Math::float4 to_float4(
+            Math::Quaternion a_rotation) noexcept
         {
-            const float halfX = a_euler.x * 0.5f;
-            const float halfY = a_euler.y * 0.5f;
-            const float halfZ = a_euler.z * 0.5f;
-            const float sx = std::sin(halfX);
-            const float cx = std::cos(halfX);
-            const float sy = std::sin(halfY);
-            const float cy = std::cos(halfY);
-            const float sz = std::sin(halfZ);
-            const float cz = std::cos(halfZ);
-
-            Math::float4 result{};
-            result.x = sx * cy * cz + cx * sy * sz;
-            result.y = cx * sy * cz - sx * cy * sz;
-            result.z = cx * cy * sz + sx * sy * cz;
-            result.w = cx * cy * cz - sx * sy * sz;
-            return result;
+            const Math::Quaternion rotation =
+                Math::Quaternion::normalize(a_rotation);
+            return Math::float4(
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w);
         }
 
-        [[nodiscard]] static Math::float3 quat_to_euler(
+        [[nodiscard]] static Math::Quaternion to_quaternion(
             Math::float4 a_quat) noexcept
         {
-            const float sinRollCosPitch =
-                2.0f * (a_quat.w * a_quat.x + a_quat.y * a_quat.z);
-            const float cosRollCosPitch =
-                1.0f - 2.0f * (a_quat.x * a_quat.x + a_quat.y * a_quat.y);
-            const float roll = std::atan2(sinRollCosPitch, cosRollCosPitch);
-
-            const float sinPitch =
-                2.0f * (a_quat.w * a_quat.y - a_quat.z * a_quat.x);
-            const float pitch =
-                std::abs(sinPitch) >= 1.0f
-                ? std::copysign(Math::k_pi * 0.5f, sinPitch)
-                : std::asin(sinPitch);
-
-            const float sinYawCosPitch =
-                2.0f * (a_quat.w * a_quat.z + a_quat.x * a_quat.y);
-            const float cosYawCosPitch =
-                1.0f - 2.0f * (a_quat.y * a_quat.y + a_quat.z * a_quat.z);
-            const float yaw = std::atan2(sinYawCosPitch, cosYawCosPitch);
-
-            return Math::float3(roll, pitch, yaw);
+            return Math::Quaternion::normalize(Math::Quaternion(
+                a_quat.x,
+                a_quat.y,
+                a_quat.z,
+                a_quat.w));
         }
 
     private:

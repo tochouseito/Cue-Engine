@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 16u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 17u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -105,6 +105,14 @@ extern "C"
         float w;
     };
 
+    struct CueQuaternion
+    {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
+
     struct CueMouseDeltaData
     {
         int32_t x;
@@ -136,6 +144,13 @@ extern "C"
         CueFloat3 position;
         /// @brief Euler 回転です。通常 API では弧度法、Degrees API では度数法です。
         CueFloat3 rotation;
+        CueFloat3 scale;
+    };
+
+    struct CueTransformQuaternionData
+    {
+        CueFloat3 position;
+        CueQuaternion rotation;
         CueFloat3 scale;
     };
 
@@ -326,6 +341,18 @@ extern "C"
     using CueSetTransformDegreesFn = CueResult (CUE_SCRIPT_CALL*)(
         CueEntityHandle a_entityHandle,
         const CueTransformData* a_transform
+    );
+
+    /// @brief Transform の値をクォータニオン回転で取得します。
+    using CueGetTransformQuaternionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform
+    );
+
+    /// @brief Transform の値をクォータニオン回転で設定します。
+    using CueSetTransformQuaternionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform
     );
 
     /// @brief 指定キーが押されていれば 1、そうでなければ 0 を返します。
@@ -560,6 +587,10 @@ extern "C"
         CueGetTransformDegreesFn getTransformDegrees;
         /// v16 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueSetTransformDegreesFn setTransformDegrees;
+        /// v17 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetTransformQuaternionFn getTransformQuaternion;
+        /// v17 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetTransformQuaternionFn setTransformQuaternion;
     };
 
     /// @brief Script インスタンス生成時の入力です。

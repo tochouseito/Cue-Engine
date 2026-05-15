@@ -214,7 +214,7 @@ namespace Cue::ShadowSystem
                 { "TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0 },
                 { "NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0 },
             };
-            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
+            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Front;
             pipelineDesc.depthStencilState.depthEnable = true;
             pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
             pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;

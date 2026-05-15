@@ -16,6 +16,7 @@
 #include "Vector3.h"
 #include "Vector4.h"
 #include "Matrix4.h"
+#include "Quaternion.h"
 
 namespace Cue::Math
 {
@@ -75,6 +76,20 @@ namespace Cue::Math
     /// @param a_rotationRadians 弧度法の Euler 回転です。
     [[nodiscard]] float4x4 xyz_rotate_matrix(float3 a_rotationRadians) noexcept;
 
+    /// @brief クォータニオンから回転行列を構築します。
+    [[nodiscard]] float4x4 quaternion_matrix(
+        Quaternion a_rotation) noexcept;
+
+    /// @brief XYZ 順の Euler 回転からクォータニオンを構築します。
+    /// @param a_rotationRadians 弧度法の Euler 回転です。
+    [[nodiscard]] Quaternion quaternion_from_euler_xyz(
+        float3 a_rotationRadians) noexcept;
+
+    /// @brief クォータニオンから XYZ 順の Euler 回転を取得します。
+    /// @return 弧度法の Euler 回転です。
+    [[nodiscard]] float3 quaternion_to_euler_xyz(
+        Quaternion a_rotation) noexcept;
+
     /// @brief 平行移動行列を構築します。
     [[nodiscard]] float4x4 translate_matrix(float3 a_translation) noexcept;
 
@@ -108,5 +123,11 @@ namespace Cue::Math
     [[nodiscard]] float4x4 make_affine_matrix(
         float3 a_scale,
         float3 a_rotateRadians,
+        float3 a_translate) noexcept;
+
+    /// @brief スケール、クォータニオン回転、平行移動を合成したアフィン行列を構築します。
+    [[nodiscard]] float4x4 make_affine_matrix(
+        float3 a_scale,
+        Quaternion a_rotation,
         float3 a_translate) noexcept;
 }

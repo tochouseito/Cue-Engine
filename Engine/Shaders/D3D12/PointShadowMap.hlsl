@@ -45,6 +45,13 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     }
 
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
+    if (renderObject.castsShadow == 0u)
+    {
+        VsOut emptyOutput;
+        emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        return emptyOutput;
+    }
+
     const Transform transform = g_transforms[renderObject.transformId];
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
 

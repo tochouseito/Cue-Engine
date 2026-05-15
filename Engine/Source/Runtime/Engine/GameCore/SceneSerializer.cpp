@@ -34,6 +34,28 @@ namespace Cue::GameCore
             a_outValue.z = a_json.at("z").get<float>();
         }
 
+        [[nodiscard]] Json serialize_quaternion(
+            const Math::Quaternion& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+                { "z", a_value.z },
+                { "w", a_value.w },
+            };
+        }
+
+        void deserialize_quaternion(
+            const Json& a_json,
+            Math::Quaternion& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+            a_outValue.z = a_json.at("z").get<float>();
+            a_outValue.w = a_json.at("w").get<float>();
+            a_outValue.normalize();
+        }
+
         [[nodiscard]] const char* to_string(
             Physics::MotionType a_type) noexcept
         {
@@ -109,7 +131,10 @@ namespace Cue::GameCore
         {
             return Json{
                 { "position", serialize_float3(a_component.position) },
-                { "rotation", serialize_float3(a_component.rotation) },
+                { "rotation", serialize_float3(
+                    Math::quaternion_to_euler_xyz(a_component.rotation)) },
+                { "rotationQuaternion",
+                    serialize_quaternion(a_component.rotation) },
                 { "scale", serialize_float3(a_component.scale) },
             };
         }
@@ -118,7 +143,21 @@ namespace Cue::GameCore
             const Json& a_json, ECS::TransformComponent& a_outComponent)
         {
             deserialize_float3(a_json.at("position"), a_outComponent.position);
-            deserialize_float3(a_json.at("rotation"), a_outComponent.rotation);
+            if (const Json::const_iterator rotationQuaternionIt =
+                a_json.find("rotationQuaternion");
+                rotationQuaternionIt != a_json.end())
+            {
+                deserialize_quaternion(
+                    *rotationQuaternionIt,
+                    a_outComponent.rotation);
+            }
+            else
+            {
+                Math::float3 rotationRadians = Math::float3::zero();
+                deserialize_float3(a_json.at("rotation"), rotationRadians);
+                a_outComponent.rotation =
+                    Math::quaternion_from_euler_xyz(rotationRadians);
+            }
             deserialize_float3(a_json.at("scale"), a_outComponent.scale);
         }
 
@@ -653,6 +692,8 @@ namespace Cue::GameCore
         {
             Json rendererJson = {
                 { "visible", a_component.visible },
+                { "castsShadow", a_component.castsShadow },
+                { "receivesShadow", a_component.receivesShadow },
             };
 
             if (!a_component.materialHandle.valid())
@@ -709,7 +750,12 @@ namespace Cue::GameCore
                     a_outComponent.materialHandle.generation = 0u;
                 }
             }
-            a_outComponent.visible = a_json.at("visible").get<bool>();
+            a_outComponent.visible =
+                a_json.value("visible", a_outComponent.visible);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
+            a_outComponent.receivesShadow =
+                a_json.value("receivesShadow", a_outComponent.receivesShadow);
         }
 
         [[nodiscard]] Json serialize_audio_source(

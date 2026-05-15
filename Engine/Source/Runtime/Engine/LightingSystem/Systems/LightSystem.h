@@ -44,10 +44,10 @@ namespace Cue::ECS
     private:
         [[nodiscard]] static Math::float3 transform_direction(
             const Math::float3& a_direction,
-            const Math::float3& a_rotation) noexcept
+            const Math::Quaternion& a_rotation) noexcept
         {
             const Math::float4x4 rotationMatrix =
-                Math::xyz_rotate_matrix(a_rotation);
+                Math::quaternion_matrix(a_rotation);
             Math::float3 direction(
                 a_direction.x * rotationMatrix.values[0][0] +
                     a_direction.y * rotationMatrix.values[1][0] +

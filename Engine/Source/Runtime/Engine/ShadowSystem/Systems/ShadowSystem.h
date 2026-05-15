@@ -88,7 +88,7 @@ namespace Cue::ECS
                     const float depthRange = distance * 2.0f;
                     const Math::float4x4 worldMatrix =
                         Math::y_axis_matrix(Math::k_pi) *
-                        Math::xyz_rotate_matrix(a_transform.rotation) *
+                        Math::quaternion_matrix(a_transform.rotation) *
                         Math::translate_matrix(a_transform.position);
 
                     Cue::ShadowSystem::DirectionalShadowItem item{};
@@ -215,7 +215,7 @@ namespace Cue::ECS
                 (std::max)(range - 0.001f, 0.001f));
             const Math::float4x4 worldMatrix =
                 Math::y_axis_matrix(Math::k_pi) *
-                Math::xyz_rotate_matrix(a_transform.rotation) *
+                Math::quaternion_matrix(a_transform.rotation) *
                 Math::translate_matrix(a_transform.position);
 
             SpotShadowCandidate candidate{};

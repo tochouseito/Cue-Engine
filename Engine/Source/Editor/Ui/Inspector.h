@@ -750,7 +750,9 @@ namespace Cue::Editor
             ImGui::TextUnformatted("StaticMeshRendererComponent");
             ImGui::Separator();
             draw_material_reference_editor("material", component->materialHandle);
-            ImGui::Text("visible: %s", component->visible ? "true" : "false");
+            ImGui::Checkbox("visible", &component->visible);
+            ImGui::Checkbox("castsShadow", &component->castsShadow);
+            ImGui::Checkbox("receivesShadow", &component->receivesShadow);
         }
 
         void draw_sprite_renderer_component(GameCore::GameObject& a_object)
@@ -3224,6 +3226,8 @@ namespace Cue::Editor
 
             m_transformEditEntityId = a_entityId;
             m_transformEditComponent = a_component;
+            m_transformRotationDegrees = Math::radians_to_degrees(
+                Math::quaternion_to_euler_xyz(a_component.rotation));
         }
 
         [[nodiscard]] bool draw_transform_float3_editor(
@@ -3260,11 +3264,10 @@ namespace Cue::Editor
 
         [[nodiscard]] bool draw_transform_rotation_editor(
             const char* a_label,
-            Math::float3& a_rotationRadians,
+            Math::Quaternion& a_rotation,
             bool& a_outIsEdited)
         {
-            Math::float3 degrees =
-                Math::radians_to_degrees(a_rotationRadians);
+            Math::float3 degrees = m_transformRotationDegrees;
             bool isRotationEdited = false;
             const bool shouldSubmit =
                 draw_transform_float3_editor(
@@ -3274,7 +3277,9 @@ namespace Cue::Editor
                 degrees.x = std::round(degrees.x);
                 degrees.y = std::round(degrees.y);
                 degrees.z = std::round(degrees.z);
-                a_rotationRadians = Math::degrees_to_radians(degrees);
+                m_transformRotationDegrees = degrees;
+                a_rotation = Math::quaternion_from_euler_xyz(
+                    Math::degrees_to_radians(degrees));
                 a_outIsEdited = true;
             }
 
@@ -3283,10 +3288,10 @@ namespace Cue::Editor
 
         [[nodiscard]] static Math::float3 transform_direction(
             const Math::float3& a_direction,
-            const Math::float3& a_rotation) noexcept
+            const Math::Quaternion& a_rotation) noexcept
         {
             const Math::float4x4 rotationMatrix =
-                Math::xyz_rotate_matrix(a_rotation);
+                Math::quaternion_matrix(a_rotation);
             Math::float3 direction(
                 a_direction.x * rotationMatrix.values[0][0] +
                     a_direction.y * rotationMatrix.values[1][0] +
@@ -4002,6 +4007,7 @@ namespace Cue::Editor
             GameCore::k_invalidEntityId;
         ECS::TransformComponent m_transformEditComponent{};
         ECS::TransformComponent m_transformOriginalComponent{};
+        Math::float3 m_transformRotationDegrees = Math::float3::zero();
         bool m_isEditingTransform = false;
         ComponentTab m_currentTab = ComponentTab::Base;
     };

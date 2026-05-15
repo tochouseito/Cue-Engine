@@ -28,6 +28,8 @@ namespace Marionette
     using EntityHandle = CueEntityHandle;
     using SceneId = CueSceneId;
     using Transform = CueTransformData;
+    using Quaternion = CueQuaternion;
+    using TransformQuaternion = CueTransformQuaternionData;
     using MouseDelta = CueMouseDeltaData;
     using RaycastDesc = CueRaycastDesc;
     using RaycastHit = CueRaycastHit;
@@ -1967,6 +1969,48 @@ namespace Marionette
             transform.rotation =
                 Detail::degrees_to_radians(transform.rotation);
             return set_transform(transform);
+        }
+
+        [[nodiscard]] CueResult get_transform_quaternion(
+            TransformQuaternion& a_outTransform) const noexcept
+        {
+            return get_transform_quaternion(m_entityHandle, a_outTransform);
+        }
+
+        [[nodiscard]] CueResult get_transform_quaternion(
+            CueEntityHandle a_entityHandle,
+            TransformQuaternion& a_outTransform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getTransformQuaternion) +
+                        sizeof(CueGetTransformQuaternionFn) ||
+                engineApi->getTransformQuaternion == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getTransformQuaternion(
+                a_entityHandle, &a_outTransform);
+        }
+
+        [[nodiscard]] CueResult set_transform_quaternion(
+            const TransformQuaternion& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setTransformQuaternion) +
+                        sizeof(CueSetTransformQuaternionFn) ||
+                engineApi->setTransformQuaternion == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setTransformQuaternion(
+                m_entityHandle, &a_transform);
         }
 
         [[nodiscard]] CueResult set_rigid_body_linear_velocity(

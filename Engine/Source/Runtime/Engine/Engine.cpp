@@ -1689,7 +1689,7 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::present()
     {
         return [this](uint64_t a_frameNo, uint32_t a_index) {
-            m_backend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
+            m_backend->present(a_frameNo, a_index, true, *m_presentFrameGraph);
             };
     }
 

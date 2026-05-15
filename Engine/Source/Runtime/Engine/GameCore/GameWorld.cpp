@@ -41,7 +41,7 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -53,6 +53,8 @@ namespace Cue::GameCore
             ECS::StaticMeshRendererComponent renderer{};
             renderer.materialHandle = a_defaultMaterialHandle;
             renderer.visible = true;
+            renderer.castsShadow = true;
+            renderer.receivesShadow = true;
             objectDefinition.prototype.add_component(renderer);
 
             return objectDefinition;
@@ -65,7 +67,7 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -83,7 +85,7 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -102,7 +104,8 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3(0.6f, -0.5f, 0.0f);
+            transform.rotation = Math::quaternion_from_euler_xyz(
+                Math::float3(0.6f, -0.5f, 0.0f));
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -119,7 +122,7 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -136,7 +139,8 @@ namespace Cue::GameCore
 
             ECS::TransformComponent transform{};
             transform.position = a_position;
-            transform.rotation = Math::float3(0.35f, 0.0f, 0.0f);
+            transform.rotation = Math::quaternion_from_euler_xyz(
+                Math::float3(0.35f, 0.0f, 0.0f));
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             objectDefinition.prototype.add_component(transform);
 
@@ -676,11 +680,13 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3::zero();
+        transform->rotation = Math::Quaternion::identity();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         meshFilter->meshId = m_defaultStaticMeshId;
         renderer->materialHandle = m_defaultMaterialHandle;
         renderer->visible = true;
+        renderer->castsShadow = true;
+        renderer->receivesShadow = true;
         return Result::ok();
     }
 
@@ -716,7 +722,7 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3::zero();
+        transform->rotation = Math::Quaternion::identity();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         *camera = ECS::CameraComponent{};
         return Result::ok();
@@ -755,7 +761,7 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3::zero();
+        transform->rotation = Math::Quaternion::identity();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         renderer->materialHandle = m_defaultMaterialHandle;
         renderer->isVisible = true;
@@ -796,7 +802,8 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3(0.6f, -0.5f, 0.0f);
+        transform->rotation = Math::quaternion_from_euler_xyz(
+            Math::float3(0.6f, -0.5f, 0.0f));
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         *light = ECS::DirectionalLightComponent{};
         return Result::ok();
@@ -835,7 +842,7 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3::zero();
+        transform->rotation = Math::Quaternion::identity();
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         *light = ECS::PointLightComponent{};
         return Result::ok();
@@ -874,7 +881,8 @@ namespace Cue::GameCore
         }
 
         transform->position = a_position;
-        transform->rotation = Math::float3(0.35f, 0.0f, 0.0f);
+        transform->rotation = Math::quaternion_from_euler_xyz(
+            Math::float3(0.35f, 0.0f, 0.0f));
         transform->scale = Math::float3(1.0f, 1.0f, 1.0f);
         *light = ECS::SpotLightComponent{};
         return Result::ok();

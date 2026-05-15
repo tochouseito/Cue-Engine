@@ -7,6 +7,7 @@ struct VsOut
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
     nointerpolation uint materialId : TEXCOORD1;
+    nointerpolation uint receivesShadow : TEXCOORD2;
 };
 
 struct VsIn
@@ -56,6 +57,24 @@ TextureCube<float4> g_reflectionSkybox : register(t12);
 Texture2D<float4> g_textures[] : register(t0, space1);
 SamplerState g_sampler : register(s0);
 
+float shadow_receiver_bias(
+    float3 worldNormal,
+    float3 surfaceToLight,
+    float baseBias,
+    float slopeBias,
+    float ndcDepth)
+{
+    const float angular = 1.0f - saturate(dot(worldNormal, surfaceToLight));
+    const float depthGradient =
+        max(abs(ddx(ndcDepth)), abs(ddy(ndcDepth)));
+    const float biasLimit = baseBias + slopeBias;
+    const float gradientBias =
+        min(depthGradient * 0.25f, biasLimit * 2.0f);
+    return min(
+        baseBias + slopeBias * angular * angular + gradientBias,
+        biasLimit * 4.0f);
+}
+
 struct DebugViewShadingConstants
 {
     uint mode;
@@ -102,6 +121,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     output.worldNormal = worldNormal;
     output.texcoord = localUv;
     output.materialId = renderObject.materialId;
+    output.receivesShadow = renderObject.receivesShadow;
     return output;
 }
 
@@ -158,15 +178,17 @@ float evaluate_spot_shadow(
     const float2 texel = uv * float2(width, height);
     const int2 baseCoord = int2(texel);
     const float softness = max(shadowFrame.tuning.z, 0.0f);
-    const float receiverBias =
-        shadowFrame.params.y +
-        shadowFrame.tuning.w *
-            (1.0f - saturate(dot(worldNormal, lightDirection)));
     const int2 tileMinCoord =
         int2(shadowFrame.atlas.xy * float2(width, height));
     const int2 tileMaxCoord =
         int2((shadowFrame.atlas.xy + shadowFrame.atlas.zw) *
             float2(width, height)) - int2(1, 1);
+    const float biasedDepth = ndc.z - shadow_receiver_bias(
+        worldNormal,
+        lightDirection,
+        shadowFrame.params.y,
+        shadowFrame.tuning.w,
+        ndc.z);
 
     float visibility = 0.0f;
     [unroll]
@@ -182,7 +204,7 @@ float evaluate_spot_shadow(
                 tileMinCoord,
                 tileMaxCoord);
             const float closestDepth = g_spotShadowMap.Load(int3(coord, 0));
-            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.0f;
+            visibility += (biasedDepth <= closestDepth) ? 1.0f : 0.0f;
         }
     }
 
@@ -230,10 +252,12 @@ float evaluate_directional_shadow(
     const float2 texel = uv * float2(width, height);
     const int2 baseCoord = int2(texel);
     const float softness = max(g_directionalShadowFrame.tuning.z, 0.0f);
-    const float receiverBias =
-        g_directionalShadowFrame.params.y +
-        g_directionalShadowFrame.tuning.w *
-            (1.0f - saturate(dot(worldNormal, -lightDirection)));
+    const float biasedDepth = ndc.z - shadow_receiver_bias(
+        worldNormal,
+        -lightDirection,
+        g_directionalShadowFrame.params.y,
+        g_directionalShadowFrame.tuning.w,
+        ndc.z);
 
     float visibility = 0.0f;
     [unroll]
@@ -250,7 +274,7 @@ float evaluate_directional_shadow(
                 int2((int)width - 1, (int)height - 1));
             const float closestDepth =
                 g_directionalShadowMap.Load(int3(coord, 0));
-            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.0f;
+            visibility += (biasedDepth <= closestDepth) ? 1.0f : 0.0f;
         }
     }
 
@@ -329,15 +353,17 @@ float evaluate_point_shadow(
     const float2 texel = uv * float2(width, height);
     const int2 baseCoord = int2(texel);
     const float softness = max(shadowFace.tuning.z, 0.0f);
-    const float receiverBias =
-        shadowFace.params.y +
-        shadowFace.tuning.w *
-            (1.0f - saturate(dot(worldNormal, lightDirection)));
     const int2 tileMinCoord =
         int2(shadowFace.atlas.xy * float2(width, height));
     const int2 tileMaxCoord =
         int2((shadowFace.atlas.xy + shadowFace.atlas.zw) *
             float2(width, height)) - int2(1, 1);
+    const float biasedDepth = ndc.z - shadow_receiver_bias(
+        worldNormal,
+        lightDirection,
+        shadowFace.params.y,
+        shadowFace.tuning.w,
+        ndc.z);
 
     float visibility = 0.0f;
     [unroll]
@@ -353,7 +379,7 @@ float evaluate_point_shadow(
                 tileMinCoord,
                 tileMaxCoord);
             const float closestDepth = g_pointShadowMap.Load(int3(coord, 0));
-            visibility += (ndc.z - receiverBias <= closestDepth) ? 1.0f : 0.0f;
+            visibility += (biasedDepth <= closestDepth) ? 1.0f : 0.0f;
         }
     }
 
@@ -378,11 +404,20 @@ float evaluate_specular(
     return pow(ndoth, max(shininess, 1.0f));
 }
 
+float evaluate_spot_factor(float spotCos, float outerCos)
+{
+    const float innerCos = lerp(outerCos, 1.0f, 0.2f);
+    const float factor =
+        saturate((spotCos - outerCos) / max(innerCos - outerCos, 0.0001f));
+    return factor * factor * (3.0f - 2.0f * factor);
+}
+
 float3 evaluate_lighting(
     Material material,
     float3 worldPosition,
     float3 worldNormal,
-    float3 viewDirection)
+    float3 viewDirection,
+    bool receivesShadow)
 {
     float3 lighting = g_lightFrame.ambientColorIntensity.rgb *
         g_lightFrame.ambientColorIntensity.a;
@@ -399,11 +434,13 @@ float3 evaluate_lighting(
             surfaceToLight,
             viewDirection,
             material.shininess);
-        const float shadow = evaluate_directional_shadow(
-            lightIndex,
-            worldPosition,
-            worldNormal,
-            lightDirection);
+        const float shadow = receivesShadow
+            ? evaluate_directional_shadow(
+                lightIndex,
+                worldPosition,
+                worldNormal,
+                lightDirection)
+            : 1.0f;
         lighting += light.color.rgb *
             light.directionIntensity.w *
             (diffuse + specular) *
@@ -427,9 +464,10 @@ float3 evaluate_lighting(
             lightDirection,
             viewDirection,
             material.shininess);
-        const float shadow =
-            evaluate_point_shadow(lightIndex, worldPosition, worldNormal,
-                lightDirection);
+        const float shadow = receivesShadow
+            ? evaluate_point_shadow(lightIndex, worldPosition, worldNormal,
+                lightDirection)
+            : 1.0f;
         lighting += light.colorIntensity.rgb *
             light.colorIntensity.w *
             (diffuse + specular) *
@@ -451,16 +489,18 @@ float3 evaluate_lighting(
             : float3(0.0f, 1.0f, 0.0f);
         const float3 spotDirection = normalize(light.directionOuterCos.xyz);
         const float spotCos = dot(-lightDirection, spotDirection);
-        const float spotFactor = step(light.directionOuterCos.w, spotCos);
+        const float spotFactor =
+            evaluate_spot_factor(spotCos, light.directionOuterCos.w);
         const float diffuse = evaluate_diffuse(worldNormal, lightDirection);
         const float specular = evaluate_specular(
             worldNormal,
             lightDirection,
             viewDirection,
             material.shininess);
-        const float shadow =
-            evaluate_spot_shadow(lightIndex, worldPosition, worldNormal,
-                lightDirection);
+        const float shadow = receivesShadow
+            ? evaluate_spot_shadow(lightIndex, worldPosition, worldNormal,
+                lightDirection)
+            : 1.0f;
         lighting += light.colorIntensity.rgb *
             light.colorIntensity.w *
             (diffuse + specular) *
@@ -557,7 +597,8 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
                 material,
                 input.worldPosition,
                 worldNormal,
-                viewDirection),
+                viewDirection,
+                input.receivesShadow != 0u),
             0.0f);
         if (usesMaterial)
         {

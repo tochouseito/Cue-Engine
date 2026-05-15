@@ -18,6 +18,8 @@ namespace Cue::GpuData
         uint32_t meshId = 0;        // メッシュID
         uint32_t transformId = 0;   // 変換ID
         uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
     };
 
     // 描画オブジェクト
@@ -27,6 +29,8 @@ namespace Cue::GpuData
         uint32_t meshId = 0;        // メッシュID
         uint32_t transformId = 0;   // 変換ID
         uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
     };
 
     struct MaterialGpu

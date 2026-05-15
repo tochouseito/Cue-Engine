@@ -140,6 +140,9 @@ namespace Cue::ECS
             gpuRenderableInfo.meshId = a_meshFilter.meshId;
             gpuRenderableInfo.transformId = a_renderableInfo.transformId;
             gpuRenderableInfo.materialId = materialId;
+            gpuRenderableInfo.castsShadow = a_renderer.castsShadow ? 1u : 0u;
+            gpuRenderableInfo.receivesShadow =
+                a_renderer.receivesShadow ? 1u : 0u;
             GpuData::ObjectTransformGpu gpuTransform{};
             gpuTransform.worldMatrix = Math::make_affine_matrix(
                 a_transform.scale,
@@ -171,6 +174,8 @@ namespace Cue::ECS
             renderObject.meshId = a_meshFilter.meshId;
             renderObject.transformId = a_renderableInfo.transformId;
             renderObject.materialId = materialId;
+            renderObject.castsShadow = a_renderer.castsShadow ? 1u : 0u;
+            renderObject.receivesShadow = a_renderer.receivesShadow ? 1u : 0u;
 
             DrawSystem::StaticMeshDrawItem drawItem{};
             drawItem.visibility.renderableInfo = gpuRenderableInfo;

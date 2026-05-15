@@ -28,7 +28,7 @@ namespace Cue::Editor
 
             ECS::TransformComponent transform{};
             transform.position = Math::float3(0.0f, 0.0f, -6.0f);
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             camera.prototype.add_component(transform);
 
@@ -49,7 +49,7 @@ namespace Cue::Editor
 
             ECS::TransformComponent transform{};
             transform.position = Math::float3::zero();
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             cube.prototype.add_component(transform);
 
@@ -61,6 +61,8 @@ namespace Cue::Editor
             ECS::StaticMeshRendererComponent renderer{};
             renderer.materialHandle = {};
             renderer.visible = true;
+            renderer.castsShadow = true;
+            renderer.receivesShadow = true;
             cube.prototype.add_component(renderer);
 
             return cube;

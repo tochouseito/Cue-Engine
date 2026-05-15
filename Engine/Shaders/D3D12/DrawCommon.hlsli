@@ -5,6 +5,8 @@ struct RenderableInfo
     uint meshId;
     uint transformId;
     uint materialId;
+    uint castsShadow;
+    uint receivesShadow;
 };
 
 struct RenderObject
@@ -13,6 +15,8 @@ struct RenderObject
     uint meshId;
     uint transformId;
     uint materialId;
+    uint castsShadow;
+    uint receivesShadow;
 };
 
 struct Material

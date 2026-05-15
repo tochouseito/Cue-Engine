@@ -93,6 +93,78 @@ namespace Cue::Math
             z_axis_matrix(a_rotationRadians.z);
     }
 
+    [[nodiscard]] float4x4 quaternion_matrix(
+        Quaternion a_rotation) noexcept
+    {
+        const Quaternion rotation = Quaternion::normalize(a_rotation);
+        const float xx = rotation.x * rotation.x;
+        const float yy = rotation.y * rotation.y;
+        const float zz = rotation.z * rotation.z;
+        const float xy = rotation.x * rotation.y;
+        const float xz = rotation.x * rotation.z;
+        const float yz = rotation.y * rotation.z;
+        const float wx = rotation.w * rotation.x;
+        const float wy = rotation.w * rotation.y;
+        const float wz = rotation.w * rotation.z;
+
+        float4x4 matrix = float4x4::identity();
+        matrix.values[0][0] = 1.0f - 2.0f * (yy + zz);
+        matrix.values[0][1] = 2.0f * (xy + wz);
+        matrix.values[0][2] = 2.0f * (xz - wy);
+        matrix.values[1][0] = 2.0f * (xy - wz);
+        matrix.values[1][1] = 1.0f - 2.0f * (xx + zz);
+        matrix.values[1][2] = 2.0f * (yz + wx);
+        matrix.values[2][0] = 2.0f * (xz + wy);
+        matrix.values[2][1] = 2.0f * (yz - wx);
+        matrix.values[2][2] = 1.0f - 2.0f * (xx + yy);
+        return matrix;
+    }
+
+    [[nodiscard]] Quaternion quaternion_from_euler_xyz(
+        float3 a_rotationRadians) noexcept
+    {
+        const float halfX = a_rotationRadians.x * 0.5f;
+        const float halfY = a_rotationRadians.y * 0.5f;
+        const float halfZ = a_rotationRadians.z * 0.5f;
+        const float sx = std::sin(halfX);
+        const float cx = std::cos(halfX);
+        const float sy = std::sin(halfY);
+        const float cy = std::cos(halfY);
+        const float sz = std::sin(halfZ);
+        const float cz = std::cos(halfZ);
+
+        Quaternion rotation(
+            sx * cy * cz + cx * sy * sz,
+            cx * sy * cz - sx * cy * sz,
+            cx * cy * sz + sx * sy * cz,
+            cx * cy * cz - sx * sy * sz);
+        return rotation.normalize();
+    }
+
+    [[nodiscard]] float3 quaternion_to_euler_xyz(
+        Quaternion a_rotation) noexcept
+    {
+        const float4x4 matrix = quaternion_matrix(a_rotation);
+        const float sinY = -matrix.values[0][2];
+        const float clampedSinY =
+            sinY < -1.0f ? -1.0f : (sinY > 1.0f ? 1.0f : sinY);
+        const float y = std::asin(clampedSinY);
+        const float cosY = std::cos(y);
+
+        if (std::abs(cosY) > 0.000001f)
+        {
+            return float3(
+                std::atan2(matrix.values[1][2], matrix.values[2][2]),
+                y,
+                std::atan2(matrix.values[0][1], matrix.values[0][0]));
+        }
+
+        return float3(
+            0.0f,
+            y,
+            std::atan2(-matrix.values[1][0], matrix.values[1][1]));
+    }
+
     [[nodiscard]] float4x4 translate_matrix(float3 a_translation) noexcept
     {
         // 1) 単位行列に平行移動成分を設定する
@@ -165,6 +237,15 @@ namespace Cue::Math
     {
         // 1) スケール、回転、平行移動を合成してアフィン変換行列を構築する
         return scale_matrix(a_scale) * xyz_rotate_matrix(a_rotateRadians) *
+            translate_matrix(a_translate);
+    }
+
+    [[nodiscard]] float4x4 make_affine_matrix(
+        float3 a_scale,
+        Quaternion a_rotation,
+        float3 a_translate) noexcept
+    {
+        return scale_matrix(a_scale) * quaternion_matrix(a_rotation) *
             translate_matrix(a_translate);
     }
 }

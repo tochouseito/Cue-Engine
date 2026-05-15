@@ -75,13 +75,23 @@ namespace Cue::ECS
                         targetTransform->position + a_controller.offset;
                     if (a_controller.rotatesTargetYaw)
                     {
-                        targetTransform->rotation.y = a_controller.yaw;
+                        Math::float3 targetRotation =
+                            Math::quaternion_to_euler_xyz(
+                                targetTransform->rotation);
+                        targetRotation.y = a_controller.yaw;
+                        targetTransform->rotation =
+                            Math::quaternion_from_euler_xyz(
+                                targetRotation);
                     }
                 }
             }
 
-            a_transform.rotation.x = a_controller.pitch;
-            a_transform.rotation.y = a_controller.yaw;
+            Math::float3 cameraRotation =
+                Math::quaternion_to_euler_xyz(a_transform.rotation);
+            cameraRotation.x = a_controller.pitch;
+            cameraRotation.y = a_controller.yaw;
+            a_transform.rotation = Math::quaternion_from_euler_xyz(
+                cameraRotation);
             a_camera.fovY = a_controller.fovY;
         }
 

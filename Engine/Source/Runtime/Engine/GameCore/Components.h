@@ -70,9 +70,8 @@ namespace Cue::ECS
         TransformComponent& operator=(const TransformComponent&) = default;
         TransformComponent(TransformComponent&&) = default;
         TransformComponent& operator=(TransformComponent&&) = default;
+        Math::Quaternion rotation = Math::Quaternion::identity();
         Math::float3 position = Math::float3::zero();
-        // Transform の Euler 回転は弧度法で保持する。
-        Math::float3 rotation = Math::float3::zero();
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };
 
@@ -170,6 +169,8 @@ namespace Cue::ECS
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
         bool visible = true;
+        bool castsShadow = true;
+        bool receivesShadow = true;
     };
 
     struct SpriteRendererComponent : public IComponentTag

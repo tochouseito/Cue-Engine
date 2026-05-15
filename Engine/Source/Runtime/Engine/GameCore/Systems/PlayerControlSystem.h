@@ -78,7 +78,8 @@ namespace Cue::ECS
             localInput.x *= scale;
             localInput.z *= scale;
 
-            const float yaw = a_transform.rotation.y;
+            const float yaw =
+                Math::quaternion_to_euler_xyz(a_transform.rotation).y;
             const float sinYaw = std::sin(yaw);
             const float cosYaw = std::cos(yaw);
 

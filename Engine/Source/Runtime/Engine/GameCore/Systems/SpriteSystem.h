@@ -122,7 +122,8 @@ namespace Cue::ECS
                 a_renderer.color.a * materialColor.a);
             instance.textureId = textureId;
             instance.useTexture = useTexture;
-            instance.rotation = a_transform.rotation.z;
+            instance.rotation =
+                Math::quaternion_to_euler_xyz(a_transform.rotation).z;
             instance.pivot = a_renderer.pivot;
 
             DrawSystem::SpriteDrawItem drawItem{};

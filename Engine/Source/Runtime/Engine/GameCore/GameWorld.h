@@ -1655,17 +1655,41 @@ namespace Cue::GameCore
                 switch (entityIndex)
                 {
                 case 0:
-                    transform->rotation.y += a_deltaTime * 1.25f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y += a_deltaTime * 1.25f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 case 1:
-                    transform->rotation.x += a_deltaTime * 0.75f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.x += a_deltaTime * 0.75f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 case 2:
-                    transform->rotation.y -= a_deltaTime * 1.0f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y -= a_deltaTime * 1.0f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 default:
-                    transform->rotation.y += a_deltaTime * 0.5f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y += a_deltaTime * 0.5f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 }
             }
         }

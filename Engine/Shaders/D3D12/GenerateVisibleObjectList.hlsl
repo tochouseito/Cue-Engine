@@ -31,5 +31,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     renderObject.meshId = renderableInfo.meshId;
     renderObject.transformId = renderableInfo.transformId;
     renderObject.materialId = renderableInfo.materialId;
+    renderObject.castsShadow = renderableInfo.castsShadow;
+    renderObject.receivesShadow = renderableInfo.receivesShadow;
     g_renderObjects[dstIndex] = renderObject;
 }
