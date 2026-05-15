@@ -41,6 +41,9 @@
 #include <vector>
 
 // === ThirdParty includes ===
+#include <assimp/Importer.hpp>
+#include <assimp/material.h>
+#include <assimp/scene.h>
 #include <ImGuizmo.h>
 #include <nlohmann/json.hpp>
 
@@ -203,8 +206,8 @@ namespace Cue::Editor
                 extension == ".jpg" || extension == ".jpeg" ||
                 extension == ".tga" || extension == ".bmp" ||
                 extension == ".wav" ||
-                extension == ".obj" || extension == ".gltf" ||
-                extension == ".glb";
+                extension == ".obj" || extension == ".fbx" ||
+                extension == ".gltf" || extension == ".glb";
         }
 
         [[nodiscard]] bool is_source_model_file(
@@ -212,8 +215,8 @@ namespace Cue::Editor
         {
             const std::string extension =
                 to_lower_ascii(a_path.extension());
-            return extension == ".obj" || extension == ".gltf" ||
-                extension == ".glb";
+            return extension == ".obj" || extension == ".fbx" ||
+                extension == ".gltf" || extension == ".glb";
         }
 
         [[nodiscard]] bool is_gltf_json_file(const Core::IO::Path& a_path)
@@ -226,6 +229,140 @@ namespace Cue::Editor
             constexpr std::string_view k_dataPrefix = "data:";
             return a_uri.size() >= k_dataPrefix.size() &&
                 a_uri.substr(0, k_dataPrefix.size()) == k_dataPrefix;
+        }
+
+        [[nodiscard]] bool is_embedded_texture_path(
+            std::string_view a_path) noexcept
+        {
+            return !a_path.empty() && a_path.front() == '*';
+        }
+
+        void collect_assimp_external_texture_paths(
+            const aiMaterial& a_material,
+            std::vector<Core::IO::Path>& outTexturePaths)
+        {
+            constexpr aiTextureType k_textureTypes[] = {
+                aiTextureType_DIFFUSE,
+                aiTextureType_BASE_COLOR,
+            };
+
+            for (const aiTextureType textureType : k_textureTypes)
+            {
+                const uint32_t textureCount =
+                    a_material.GetTextureCount(textureType);
+                for (uint32_t textureIndex = 0;
+                     textureIndex < textureCount;
+                     ++textureIndex)
+                {
+                    aiString texturePath{};
+                    if (a_material.GetTexture(
+                            textureType,
+                            textureIndex,
+                            &texturePath) != AI_SUCCESS ||
+                        texturePath.length == 0 ||
+                        texturePath.C_Str() == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const std::string pathText(
+                        texturePath.C_Str(),
+                        texturePath.length);
+                    if (is_embedded_texture_path(pathText))
+                    {
+                        continue;
+                    }
+
+                    const Core::IO::Path path(pathText);
+                    const std::string normalized = path.normalize().utf8();
+                    const auto it = std::find_if(
+                        outTexturePaths.begin(),
+                        outTexturePaths.end(),
+                        [&normalized](const Core::IO::Path& a_existing)
+                        {
+                            return a_existing.normalize().utf8() ==
+                                normalized;
+                        });
+                    if (it == outTexturePaths.end())
+                    {
+                        outTexturePaths.push_back(path);
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] Result copy_assimp_external_texture_dependencies(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            if (!is_source_model_file(a_sourcePath) ||
+                is_gltf_json_file(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            Assimp::Importer importer{};
+            const aiScene* scene = importer.ReadFile(a_sourcePath.utf8(), 0);
+            if (scene == nullptr ||
+                scene->mNumMaterials == 0 ||
+                scene->mMaterials == nullptr)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> texturePaths{};
+            for (uint32_t materialIndex = 0;
+                 materialIndex < scene->mNumMaterials;
+                 ++materialIndex)
+            {
+                if (scene->mMaterials[materialIndex] == nullptr)
+                {
+                    continue;
+                }
+
+                collect_assimp_external_texture_paths(
+                    *scene->mMaterials[materialIndex],
+                    texturePaths);
+            }
+
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                const Core::IO::Path sourceTexturePath =
+                    texturePath.is_absolute()
+                    ? texturePath
+                    : Core::IO::Path::join(
+                          a_sourcePath.parent(),
+                          texturePath);
+                const Core::IO::Path destinationTexturePath =
+                    Core::IO::Path::join(
+                        a_destinationPath.parent(),
+                        Core::IO::Path(texturePath.filename()));
+
+                bool exists = false;
+                Result result = a_fileSystem.exists(
+                    sourceTexturePath,
+                    &exists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!exists)
+                {
+                    continue;
+                }
+
+                result = a_fileSystem.copy_file(
+                    sourceTexturePath.normalize(),
+                    destinationTexturePath.normalize(),
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
         }
 
         void collect_gltf_external_dependency_uris(const nlohmann::json& a_json,
@@ -1606,6 +1743,7 @@ namespace Cue::Editor
             Result result = Result::ok();
             constexpr std::string_view k_sourceExtensions[] = {
                 ".obj",
+                ".fbx",
                 ".gltf",
                 ".glb",
             };
@@ -3588,6 +3726,15 @@ namespace Cue::Editor
         }
 
         result = copy_gltf_external_dependencies(
+            *m_fileSystem,
+            a_sourcePath,
+            destinationPath);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = copy_assimp_external_texture_dependencies(
             *m_fileSystem,
             a_sourcePath,
             destinationPath);

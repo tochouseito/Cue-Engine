@@ -19,6 +19,9 @@
 #include <vector>
 
 // === ThirdParty Includes ===
+#include <assimp/Importer.hpp>
+#include <assimp/material.h>
+#include <assimp/scene.h>
 #include <nlohmann/json.hpp>
 
 namespace Cue::Editor
@@ -74,6 +77,12 @@ namespace Cue::Editor
             const Core::IO::Path& a_path) noexcept
         {
             return to_lower_ascii(a_path.extension()) == ".gltf";
+        }
+
+        [[nodiscard]] bool is_embedded_texture_path(
+            std::string_view a_path) noexcept
+        {
+            return !a_path.empty() && a_path.front() == '*';
         }
 
         [[nodiscard]] bool is_data_uri(std::string_view a_uri) noexcept
@@ -188,6 +197,134 @@ namespace Cue::Editor
                 Code::NotFound,
                 Severity::Error,
                 "Model material texture file was not found.");
+        }
+
+        void collect_assimp_material_texture_paths(
+            const aiMaterial& a_material,
+            std::vector<Core::IO::Path>& outTexturePaths)
+        {
+            constexpr aiTextureType k_textureTypes[] = {
+                aiTextureType_DIFFUSE,
+                aiTextureType_BASE_COLOR,
+            };
+
+            for (const aiTextureType textureType : k_textureTypes)
+            {
+                const uint32_t textureCount =
+                    a_material.GetTextureCount(textureType);
+                for (uint32_t textureIndex = 0;
+                     textureIndex < textureCount;
+                     ++textureIndex)
+                {
+                    aiString texturePath{};
+                    if (a_material.GetTexture(
+                            textureType,
+                            textureIndex,
+                            &texturePath) != AI_SUCCESS ||
+                        texturePath.length == 0 ||
+                        texturePath.C_Str() == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const std::string pathText(
+                        texturePath.C_Str(),
+                        texturePath.length);
+                    if (is_embedded_texture_path(pathText))
+                    {
+                        continue;
+                    }
+
+                    push_unique_path(
+                        outTexturePaths,
+                        Core::IO::Path(pathText));
+                }
+            }
+        }
+
+        [[nodiscard]] Result collect_assimp_material_texture_dependencies(
+            const Core::IO::Path& a_sourcePath,
+            std::vector<Core::IO::Path>& outTexturePaths)
+        {
+            outTexturePaths.clear();
+
+            Assimp::Importer importer{};
+            const aiScene* scene = importer.ReadFile(a_sourcePath.utf8(), 0);
+            if (scene == nullptr ||
+                scene->mNumMaterials == 0 ||
+                scene->mMaterials == nullptr)
+            {
+                return Result::ok();
+            }
+
+            for (uint32_t materialIndex = 0;
+                 materialIndex < scene->mNumMaterials;
+                 ++materialIndex)
+            {
+                if (scene->mMaterials[materialIndex] == nullptr)
+                {
+                    continue;
+                }
+
+                collect_assimp_material_texture_paths(
+                    *scene->mMaterials[materialIndex],
+                    outTexturePaths);
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result resolve_model_texture_path(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath,
+            const Core::IO::Path& a_texturePath,
+            Core::IO::Path& outResolvedTexturePath)
+        {
+            outResolvedTexturePath = {};
+
+            const Core::IO::Path modelRoot = a_sourcePath.parent();
+            const Core::IO::Path assetRoot = modelRoot.parent();
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot,
+                Core::IO::Path("Textures"));
+
+            std::vector<Core::IO::Path> candidates{};
+            if (a_texturePath.is_absolute())
+            {
+                push_unique_path(candidates, a_texturePath);
+            }
+            else
+            {
+                push_unique_path(
+                    candidates,
+                    Core::IO::Path::join(modelRoot, a_texturePath));
+                push_unique_path(
+                    candidates,
+                    Core::IO::Path::join(assetRoot, a_texturePath));
+                push_unique_path(
+                    candidates,
+                    Core::IO::Path::join(
+                        textureRoot,
+                        Core::IO::Path(a_texturePath.filename())));
+                push_unique_path(
+                    candidates,
+                    Core::IO::Path::join(
+                        modelRoot,
+                        Core::IO::Path(a_texturePath.filename())));
+                push_unique_path(
+                    candidates,
+                    Core::IO::Path::join(
+                        a_destinationPath.parent(),
+                        a_texturePath));
+            }
+
+            return try_resolve_existing_path(
+                a_fileSystem,
+                std::span<const Core::IO::Path>(
+                    candidates.data(),
+                    candidates.size()),
+                outResolvedTexturePath);
         }
 
         [[nodiscard]] Result load_gltf_json(
@@ -362,48 +499,17 @@ namespace Cue::Editor
                     "Model material texture extension is not supported.");
             }
 
-            const Core::IO::Path modelRoot = a_sourcePath.parent();
-            const Core::IO::Path assetRoot = modelRoot.parent();
+            const Core::IO::Path assetRoot = a_sourcePath.parent().parent();
             const Core::IO::Path textureRoot = Core::IO::Path::join(
                 assetRoot,
                 Core::IO::Path("Textures"));
 
-            std::vector<Core::IO::Path> candidates{};
-            if (texturePath.is_absolute())
-            {
-                push_unique_path(candidates, texturePath);
-            }
-            else
-            {
-                push_unique_path(
-                    candidates,
-                    Core::IO::Path::join(modelRoot, texturePath));
-                push_unique_path(
-                    candidates,
-                    Core::IO::Path::join(assetRoot, texturePath));
-                push_unique_path(
-                    candidates,
-                    Core::IO::Path::join(
-                        textureRoot,
-                        Core::IO::Path(texturePath.filename())));
-                push_unique_path(
-                    candidates,
-                    Core::IO::Path::join(
-                        modelRoot,
-                        Core::IO::Path(texturePath.filename())));
-                push_unique_path(
-                    candidates,
-                    Core::IO::Path::join(
-                        a_destinationPath.parent(),
-                        texturePath));
-            }
-
             Core::IO::Path resolvedTexturePath{};
-            Result result = try_resolve_existing_path(
+            Result result = resolve_model_texture_path(
                 a_fileSystem,
-                std::span<const Core::IO::Path>(
-                    candidates.data(),
-                    candidates.size()),
+                a_sourcePath,
+                a_destinationPath,
+                texturePath,
                 resolvedTexturePath);
             if (!result)
             {
@@ -631,6 +737,73 @@ namespace Cue::Editor
                 result = TextureCooker::ensure_dds_is_up_to_date(
                     a_fileSystem,
                     texturePath,
+                    cookedTexturePath);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result ensure_assimp_material_textures_are_up_to_date(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            std::vector<Core::IO::Path> texturePaths{};
+            Result result = collect_assimp_material_texture_dependencies(
+                a_sourcePath,
+                texturePaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            if (texturePaths.empty())
+            {
+                return Result::ok();
+            }
+
+            const Core::IO::Path assetRoot = a_sourcePath.parent().parent();
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot,
+                Core::IO::Path("Textures"));
+            result = a_fileSystem.create_directories(textureRoot);
+            if (!result)
+            {
+                return result;
+            }
+
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (!is_supported_texture_source(texturePath))
+                {
+                    return Result::fail(
+                        Code::Unsupported,
+                        Severity::Error,
+                        "Model material texture extension is not supported.");
+                }
+
+                Core::IO::Path resolvedTexturePath{};
+                result = resolve_model_texture_path(
+                    a_fileSystem,
+                    a_sourcePath,
+                    a_destinationPath,
+                    texturePath,
+                    resolvedTexturePath);
+                if (!result)
+                {
+                    return result;
+                }
+
+                const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
+                    textureRoot,
+                    Core::IO::Path(resolvedTexturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
+                    a_fileSystem,
+                    resolvedTexturePath,
                     cookedTexturePath);
                 if (!result)
                 {
@@ -1053,9 +1226,18 @@ namespace Cue::Editor
                 return result;
             }
 
-            return ensure_gltf_textures_are_up_to_date(
+            result = ensure_gltf_textures_are_up_to_date(
                 a_fileSystem,
                 a_sourcePath);
+            if (!result)
+            {
+                return result;
+            }
+
+            return ensure_assimp_material_textures_are_up_to_date(
+                a_fileSystem,
+                a_sourcePath,
+                a_destinationPath);
         }
 
         return cook_model_to_cuemodel(
