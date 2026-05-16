@@ -151,6 +151,15 @@ namespace Cue::Editor
                 Math::float3(-translation.x, translation.y, translation.z));
         }
 
+        [[nodiscard]] Math::float4x4 convert_inverse_bind_matrix(
+            const aiMatrix4x4& offsetMatrix) noexcept
+        {
+            aiMatrix4x4 bindPoseMatrix = offsetMatrix;
+            bindPoseMatrix.Inverse();
+            return Math::float4x4::inverse(
+                convert_node_transform(bindPoseMatrix));
+        }
+
         [[nodiscard]] Math::float3 convert_translation(
             const aiVector3D& value) noexcept
         {
@@ -244,6 +253,65 @@ namespace Cue::Editor
             }
         }
 
+        [[nodiscard]] bool scene_has_bones(const aiScene& a_scene) noexcept
+        {
+            for (uint32_t meshIndex = 0; meshIndex < a_scene.mNumMeshes;
+                 ++meshIndex)
+            {
+                const aiMesh* mesh = a_scene.mMeshes[meshIndex];
+                if (mesh != nullptr && mesh->mNumBones > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        [[nodiscard]] bool scene_has_animations(const aiScene& a_scene) noexcept
+        {
+            return a_scene.mNumAnimations > 0 && a_scene.mAnimations != nullptr;
+        }
+
+        void collect_skeleton_nodes(
+            const aiNode& a_node,
+            int32_t a_parentJointIndex,
+            Core::Native::ModelData& a_modelData,
+            std::unordered_map<std::string, uint32_t>& outJointIndices)
+        {
+            Core::Native::SkeletonJointData joint{};
+            joint.name = node_name(a_node);
+            if (joint.name.empty())
+            {
+                joint.name =
+                    "Node_" +
+                    std::to_string(a_modelData.skeletonJoints.size());
+            }
+            joint.parentIndex = a_parentJointIndex;
+            joint.localBindMatrix =
+                convert_node_transform(a_node.mTransformation);
+
+            const uint32_t jointIndex =
+                static_cast<uint32_t>(a_modelData.skeletonJoints.size());
+            a_modelData.skeletonJoints.push_back(std::move(joint));
+            outJointIndices.emplace(
+                a_modelData.skeletonJoints.back().name,
+                jointIndex);
+
+            for (uint32_t childIndex = 0; childIndex < a_node.mNumChildren;
+                 ++childIndex)
+            {
+                if (a_node.mChildren[childIndex] == nullptr)
+                {
+                    continue;
+                }
+                collect_skeleton_nodes(*a_node.mChildren[childIndex],
+                    static_cast<int32_t>(jointIndex),
+                    a_modelData,
+                    outJointIndices);
+            }
+        }
+
         void collect_bones(
             const aiScene& a_scene,
             Core::Native::ModelData& a_modelData,
@@ -273,18 +341,23 @@ namespace Cue::Editor
                         continue;
                     }
 
-                    auto [it, inserted] = outJointIndices.emplace(
-                        name,
-                        static_cast<uint32_t>(
-                            a_modelData.skeletonJoints.size()));
-                    if (inserted)
+                    auto it = outJointIndices.find(name);
+                    if (it == outJointIndices.end())
                     {
                         Core::Native::SkeletonJointData joint{};
                         joint.name = name;
-                        joint.inverseBindMatrix =
-                            convert_node_transform(bone->mOffsetMatrix);
+                        joint.parentIndex = -1;
                         a_modelData.skeletonJoints.push_back(std::move(joint));
+                        it = outJointIndices.emplace(
+                            name,
+                            static_cast<uint32_t>(
+                                a_modelData.skeletonJoints.size() - 1u))
+                                 .first;
                     }
+
+                    const uint32_t jointIndex = it->second;
+                    a_modelData.skeletonJoints[jointIndex].inverseBindMatrix =
+                        convert_inverse_bind_matrix(bone->mOffsetMatrix);
 
                     Core::Native::MeshData& meshData =
                         a_modelData.meshes[meshIndex];
@@ -304,7 +377,7 @@ namespace Cue::Editor
                         }
                         add_influence(
                             meshData.skinInfluences[weight.mVertexId],
-                            it->second,
+                            jointIndex,
                             weight.mWeight);
                     }
                 }
@@ -313,38 +386,6 @@ namespace Cue::Editor
             for (Core::Native::MeshData& meshData : a_modelData.meshes)
             {
                 normalize_influences(meshData.skinInfluences);
-            }
-        }
-
-        void assign_joint_hierarchy(
-            const aiNode& a_node,
-            int32_t a_parentJointIndex,
-            const std::unordered_map<std::string, uint32_t>& a_jointIndices,
-            Core::Native::ModelData& a_modelData)
-        {
-            int32_t currentParentIndex = a_parentJointIndex;
-            const auto it = a_jointIndices.find(node_name(a_node));
-            if (it != a_jointIndices.end())
-            {
-                Core::Native::SkeletonJointData& joint =
-                    a_modelData.skeletonJoints[it->second];
-                joint.parentIndex = a_parentJointIndex;
-                joint.localBindMatrix =
-                    convert_node_transform(a_node.mTransformation);
-                currentParentIndex = static_cast<int32_t>(it->second);
-            }
-
-            for (uint32_t childIndex = 0; childIndex < a_node.mNumChildren;
-                 ++childIndex)
-            {
-                if (a_node.mChildren[childIndex] == nullptr)
-                {
-                    continue;
-                }
-                assign_joint_hierarchy(*a_node.mChildren[childIndex],
-                    currentParentIndex,
-                    a_jointIndices,
-                    a_modelData);
             }
         }
 
@@ -470,12 +511,19 @@ namespace Cue::Editor
         void append_render_parts_from_node(const aiScene& scene,
             const aiNode& node,
             const Math::float4x4& parentTransform,
+            const std::unordered_map<std::string, uint32_t>& jointIndices,
             Core::Native::ModelData& outModelData)
         {
             const Math::float4x4 localTransform =
                 convert_node_transform(node.mTransformation);
             const Math::float4x4 worldTransform =
                 localTransform * parentTransform;
+            const std::string currentNodeName = node_name(node);
+            const auto jointIt = jointIndices.find(currentNodeName);
+            const uint32_t jointIndex =
+                jointIt != jointIndices.end()
+                ? jointIt->second
+                : Core::Native::k_invalidAnimationIndex;
 
             for (uint32_t nodeMeshIndex = 0;
                  nodeMeshIndex < node.mNumMeshes;
@@ -496,6 +544,7 @@ namespace Cue::Editor
                     outModelData.meshes[meshIndex],
                     static_cast<uint32_t>(outModelData.renderParts.size()));
                 renderPart.meshIndex = meshIndex;
+                renderPart.jointIndex = jointIndex;
                 renderPart.localTransform = worldTransform;
                 if (sourceMesh.mMaterialIndex < outModelData.materials.size())
                 {
@@ -516,6 +565,7 @@ namespace Cue::Editor
                     scene,
                     *node.mChildren[childIndex],
                     worldTransform,
+                    jointIndices,
                     outModelData);
             }
         }
@@ -655,14 +705,19 @@ namespace Cue::Editor
         }
 
         std::unordered_map<std::string, uint32_t> jointIndices{};
-        collect_bones(*scene, outModelData, jointIndices);
-        if (scene->mRootNode != nullptr && !jointIndices.empty())
+        const bool hasBones = scene_has_bones(*scene);
+        if (scene->mRootNode != nullptr &&
+            (hasBones || scene_has_animations(*scene)))
         {
-            assign_joint_hierarchy(
+            collect_skeleton_nodes(
                 *scene->mRootNode,
                 Core::Native::k_invalidJointIndex,
-                jointIndices,
-                outModelData);
+                outModelData,
+                jointIndices);
+            if (hasBones)
+            {
+                collect_bones(*scene, outModelData, jointIndices);
+            }
             import_animations(*scene, jointIndices, outModelData);
         }
 
@@ -672,6 +727,7 @@ namespace Cue::Editor
                 *scene,
                 *scene->mRootNode,
                 Math::float4x4::identity(),
+                jointIndices,
                 outModelData);
         }
 

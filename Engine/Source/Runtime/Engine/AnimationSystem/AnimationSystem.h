@@ -130,6 +130,137 @@ namespace Cue::ECS
             }
         }
 
+        struct TransformSample final
+        {
+            Math::float3 translation = Math::float3::zero();
+            Math::Quaternion rotation = Math::Quaternion::identity();
+            Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
+        };
+
+        [[nodiscard]] static float row_length(
+            const Math::float4x4& a_matrix,
+            uint32_t a_row) noexcept
+        {
+            return std::sqrt(
+                a_matrix.values[a_row][0] * a_matrix.values[a_row][0] +
+                a_matrix.values[a_row][1] * a_matrix.values[a_row][1] +
+                a_matrix.values[a_row][2] * a_matrix.values[a_row][2]);
+        }
+
+        [[nodiscard]] static Math::Quaternion quaternion_from_matrix(
+            const Math::float4x4& a_matrix) noexcept
+        {
+            const float trace =
+                a_matrix.values[0][0] + a_matrix.values[1][1] +
+                a_matrix.values[2][2];
+            Math::Quaternion rotation{};
+            if (trace > 0.0f)
+            {
+                const float s = std::sqrt(trace + 1.0f) * 2.0f;
+                rotation.w = 0.25f * s;
+                rotation.x = (a_matrix.values[1][2] -
+                              a_matrix.values[2][1]) /
+                             s;
+                rotation.y = (a_matrix.values[2][0] -
+                              a_matrix.values[0][2]) /
+                             s;
+                rotation.z = (a_matrix.values[0][1] -
+                              a_matrix.values[1][0]) /
+                             s;
+            }
+            else if (a_matrix.values[0][0] > a_matrix.values[1][1] &&
+                     a_matrix.values[0][0] > a_matrix.values[2][2])
+            {
+                const float s =
+                    std::sqrt(
+                        1.0f + a_matrix.values[0][0] -
+                        a_matrix.values[1][1] - a_matrix.values[2][2]) *
+                    2.0f;
+                rotation.w = (a_matrix.values[1][2] -
+                              a_matrix.values[2][1]) /
+                             s;
+                rotation.x = 0.25f * s;
+                rotation.y = (a_matrix.values[0][1] +
+                              a_matrix.values[1][0]) /
+                             s;
+                rotation.z = (a_matrix.values[0][2] +
+                              a_matrix.values[2][0]) /
+                             s;
+            }
+            else if (a_matrix.values[1][1] > a_matrix.values[2][2])
+            {
+                const float s =
+                    std::sqrt(
+                        1.0f + a_matrix.values[1][1] -
+                        a_matrix.values[0][0] - a_matrix.values[2][2]) *
+                    2.0f;
+                rotation.w = (a_matrix.values[2][0] -
+                              a_matrix.values[0][2]) /
+                             s;
+                rotation.x = (a_matrix.values[0][1] +
+                              a_matrix.values[1][0]) /
+                             s;
+                rotation.y = 0.25f * s;
+                rotation.z = (a_matrix.values[1][2] +
+                              a_matrix.values[2][1]) /
+                             s;
+            }
+            else
+            {
+                const float s =
+                    std::sqrt(
+                        1.0f + a_matrix.values[2][2] -
+                        a_matrix.values[0][0] - a_matrix.values[1][1]) *
+                    2.0f;
+                rotation.w = (a_matrix.values[0][1] -
+                              a_matrix.values[1][0]) /
+                             s;
+                rotation.x = (a_matrix.values[0][2] +
+                              a_matrix.values[2][0]) /
+                             s;
+                rotation.y = (a_matrix.values[1][2] +
+                              a_matrix.values[2][1]) /
+                             s;
+                rotation.z = 0.25f * s;
+            }
+
+            return Math::Quaternion::normalize(rotation);
+        }
+
+        [[nodiscard]] static TransformSample decompose_transform(
+            const Math::float4x4& a_matrix) noexcept
+        {
+            TransformSample transform{};
+            transform.translation = Math::float3(
+                a_matrix.values[3][0],
+                a_matrix.values[3][1],
+                a_matrix.values[3][2]);
+            transform.scale = Math::float3(
+                row_length(a_matrix, 0),
+                row_length(a_matrix, 1),
+                row_length(a_matrix, 2));
+
+            Math::float4x4 rotationMatrix = a_matrix;
+            for (uint32_t row = 0; row < 3; ++row)
+            {
+                const float scale =
+                    row == 0 ? transform.scale.x
+                    : row == 1 ? transform.scale.y
+                               : transform.scale.z;
+                if (scale > 0.0f)
+                {
+                    rotationMatrix.values[row][0] /= scale;
+                    rotationMatrix.values[row][1] /= scale;
+                    rotationMatrix.values[row][2] /= scale;
+                }
+            }
+            rotationMatrix.values[3][0] = 0.0f;
+            rotationMatrix.values[3][1] = 0.0f;
+            rotationMatrix.values[3][2] = 0.0f;
+            transform.rotation = quaternion_from_matrix(rotationMatrix);
+            return transform;
+        }
+
         static void evaluate_pose(
             const Core::Native::ModelData& a_modelData,
             const Core::Native::AnimationClipData& a_clip,
@@ -153,30 +284,26 @@ namespace Cue::ECS
                     continue;
                 }
 
-                Math::float3 translation = Math::float3::zero();
-                Math::Quaternion rotation = Math::Quaternion::identity();
-                Math::float3 scale(1.0f, 1.0f, 1.0f);
-
                 const Math::float4x4 bind =
                     a_modelData.skeletonJoints[channel.jointIndex]
                         .localBindMatrix;
-                translation = Math::float3(
-                    bind.values[3][0], bind.values[3][1], bind.values[3][2]);
+                const TransformSample bindTransform =
+                    decompose_transform(bind);
 
-                translation = sample_keys(
-                    channel.translations, a_time, translation);
-                rotation = sample_keys(channel.rotations, a_time, rotation);
-                scale = sample_keys(channel.scales, a_time, scale);
+                const Math::float3 translation = sample_keys(
+                    channel.translations,
+                    a_time,
+                    bindTransform.translation);
+                const Math::Quaternion rotation = sample_keys(
+                    channel.rotations, a_time, bindTransform.rotation);
+                const Math::float3 scale =
+                    sample_keys(channel.scales, a_time, bindTransform.scale);
 
                 a_animation.localPose[channel.jointIndex] =
                     Math::make_affine_matrix(scale, rotation, translation);
             }
 
             std::vector<uint8_t> resolved(jointCount, 0u);
-            std::vector<Math::float4x4> bindModelPose(
-                jointCount,
-                Math::float4x4::identity());
-            std::vector<uint8_t> bindResolved(jointCount, 0u);
             auto resolve_model_pose =
                 [&](auto&& self, size_t a_jointIndex) -> Math::float4x4
             {
@@ -202,42 +329,13 @@ namespace Cue::ECS
                 resolved[a_jointIndex] = 1u;
                 return a_animation.modelPose[a_jointIndex];
             };
-            auto resolve_bind_pose =
-                [&](auto&& self, size_t a_jointIndex) -> Math::float4x4
-            {
-                if (bindResolved[a_jointIndex] != 0u)
-                {
-                    return bindModelPose[a_jointIndex];
-                }
-
-                const int32_t parentIndex =
-                    a_modelData.skeletonJoints[a_jointIndex].parentIndex;
-                if (parentIndex >= 0 &&
-                    static_cast<size_t>(parentIndex) < jointCount)
-                {
-                    bindModelPose[a_jointIndex] =
-                        a_modelData.skeletonJoints[a_jointIndex]
-                            .localBindMatrix *
-                        self(self, static_cast<size_t>(parentIndex));
-                }
-                else
-                {
-                    bindModelPose[a_jointIndex] =
-                        a_modelData.skeletonJoints[a_jointIndex]
-                            .localBindMatrix;
-                }
-                bindResolved[a_jointIndex] = 1u;
-                return bindModelPose[a_jointIndex];
-            };
 
             for (size_t jointIndex = 0; jointIndex < jointCount; ++jointIndex)
             {
                 resolve_model_pose(resolve_model_pose, jointIndex);
-                const Math::float4x4 inverseBind =
-                    Math::float4x4::inverse(
-                        resolve_bind_pose(resolve_bind_pose, jointIndex));
                 a_animation.skinPalette[jointIndex] =
-                    inverseBind * a_animation.modelPose[jointIndex];
+                    a_modelData.skeletonJoints[jointIndex].inverseBindMatrix *
+                    a_animation.modelPose[jointIndex];
             }
         }
 

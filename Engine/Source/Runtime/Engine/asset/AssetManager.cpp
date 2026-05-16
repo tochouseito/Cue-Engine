@@ -53,6 +53,7 @@ namespace Cue
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelMaterialInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfoV3>);
         static_assert(std::is_trivially_copyable_v<CueModelSkeletonJointInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelAnimationClipInfo>);
         static_assert(
@@ -488,6 +489,7 @@ namespace Cue
             uint32_t animationClipCount = 0;
             uint64_t dataSize = 0;
             bool isVersion3 = false;
+            bool isVersion4 = false;
 
             if (legacyHeader.version == k_cueModelLegacyVersion)
             {
@@ -527,7 +529,7 @@ namespace Cue
                     sizeof(CueModelMaterialInfo) *
                     static_cast<size_t>(header.materialCount);
                 const size_t renderPartInfoTableSize =
-                    sizeof(CueModelRenderPartInfo) *
+                    sizeof(CueModelRenderPartInfoV3) *
                     static_cast<size_t>(header.renderPartCount);
                 meshInfoBegin = sizeof(CueModelHeader);
                 materialInfoBegin = meshInfoBegin + meshInfoTableSize;
@@ -537,7 +539,8 @@ namespace Cue
                 renderPartCount = header.renderPartCount;
                 dataSize = header.dataSize;
             }
-            else if (legacyHeader.version == k_cueModelVersion)
+            else if (legacyHeader.version == k_cueModelVersion3 ||
+                     legacyHeader.version == k_cueModelVersion)
             {
                 if (fileData.size() < sizeof(CueModelHeaderV3))
                 {
@@ -566,7 +569,9 @@ namespace Cue
                     sizeof(CueModelMaterialInfo) *
                     static_cast<size_t>(header.materialCount);
                 const size_t renderPartInfoTableSize =
-                    sizeof(CueModelRenderPartInfo) *
+                    (legacyHeader.version == k_cueModelVersion
+                            ? sizeof(CueModelRenderPartInfo)
+                            : sizeof(CueModelRenderPartInfoV3)) *
                     static_cast<size_t>(header.renderPartCount);
                 const size_t jointInfoTableSize =
                     sizeof(CueModelSkeletonJointInfo) *
@@ -587,6 +592,7 @@ namespace Cue
                 animationClipCount = header.animationClipCount;
                 dataSize = header.dataSize;
                 isVersion3 = true;
+                isVersion4 = legacyHeader.version == k_cueModelVersion;
             }
             else
             {
@@ -782,12 +788,38 @@ namespace Cue
                      ++renderPartIndex)
                 {
                     CueModelRenderPartInfo renderPartInfo{};
-                    std::memcpy(
-                        &renderPartInfo,
-                        fileData.data() + renderPartInfoBegin +
-                            sizeof(CueModelRenderPartInfo) *
-                                static_cast<size_t>(renderPartIndex),
-                        sizeof(CueModelRenderPartInfo));
+                    const size_t renderPartInfoSize =
+                        isVersion4
+                        ? sizeof(CueModelRenderPartInfo)
+                        : sizeof(CueModelRenderPartInfoV3);
+                    if (isVersion4)
+                    {
+                        std::memcpy(
+                            &renderPartInfo,
+                            fileData.data() + renderPartInfoBegin +
+                                renderPartInfoSize *
+                                    static_cast<size_t>(renderPartIndex),
+                            sizeof(CueModelRenderPartInfo));
+                    }
+                    else
+                    {
+                        CueModelRenderPartInfoV3 renderPartInfoV3{};
+                        std::memcpy(
+                            &renderPartInfoV3,
+                            fileData.data() + renderPartInfoBegin +
+                                renderPartInfoSize *
+                                    static_cast<size_t>(renderPartIndex),
+                            sizeof(CueModelRenderPartInfoV3));
+                        renderPartInfo.nameSize = renderPartInfoV3.nameSize;
+                        renderPartInfo.meshIndex = renderPartInfoV3.meshIndex;
+                        renderPartInfo.materialIndex =
+                            renderPartInfoV3.materialIndex;
+                        renderPartInfo.jointIndex =
+                            Core::Native::k_invalidAnimationIndex;
+                        renderPartInfo.nameOffset = renderPartInfoV3.nameOffset;
+                        renderPartInfo.localTransform =
+                            renderPartInfoV3.localTransform;
+                    }
 
                     if (renderPartInfo.meshIndex >= outModelData.meshes.size())
                     {
@@ -819,6 +851,7 @@ namespace Cue
 
                     renderPart.meshIndex = renderPartInfo.meshIndex;
                     renderPart.materialIndex = renderPartInfo.materialIndex;
+                    renderPart.jointIndex = renderPartInfo.jointIndex;
                     renderPart.localTransform =
                         renderPartInfo.localTransform;
                     outModelData.renderParts.push_back(std::move(renderPart));

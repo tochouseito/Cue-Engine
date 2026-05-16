@@ -24,6 +24,7 @@
 #include "Systems/TriggerVolumeSystem.h"
 #include <DrawSystem/Systems/CameraSystem.h>
 #include <DrawSystem/Systems/RenderableObjectSystem.h>
+#include <DrawSystem/Systems/SkinnedRenderableObjectSystem.h>
 #include <DrawSystem/Systems/SpriteSystem.h>
 #include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
@@ -137,7 +138,8 @@ namespace Cue::GameCore
         [[nodiscard]] Result editor_update(
             uint32_t a_bufferIndex,
             uint32_t a_renderWidth,
-            uint32_t a_renderHeight);
+            uint32_t a_renderHeight,
+            float a_deltaTime = 0.0f);
         [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
             uint32_t a_renderWidth, uint32_t a_renderHeight);
         [[nodiscard]] Result clone_from(const GameWorld& a_source);
@@ -2446,6 +2448,20 @@ namespace Cue::GameCore
                 renderer != nullptr)
             {
                 prototype.add_component(*renderer);
+            }
+
+            if (const ECS::SkinnedMeshRendererComponent* renderer =
+                get_component<ECS::SkinnedMeshRendererComponent>(a_entityId);
+                renderer != nullptr)
+            {
+                prototype.add_component(*renderer);
+            }
+
+            if (const ECS::AnimationComponent* animation =
+                get_component<ECS::AnimationComponent>(a_entityId);
+                animation != nullptr)
+            {
+                prototype.add_component(*animation);
             }
 
             if (const ECS::SpriteRendererComponent* spriteRenderer =

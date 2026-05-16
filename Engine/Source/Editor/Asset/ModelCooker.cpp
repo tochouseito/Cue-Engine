@@ -37,6 +37,7 @@ namespace Cue::Editor
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelMaterialInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfoV3>);
         static_assert(std::is_trivially_copyable_v<CueModelSkeletonJointInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelAnimationClipInfo>);
         static_assert(
@@ -522,6 +523,13 @@ namespace Cue::Editor
                 resolvedTexturePath);
             if (!result)
             {
+                if (result.code == Code::NotFound)
+                {
+                    a_materialData.textureName.clear();
+                    a_materialData.isTextureUsed = false;
+                    return Result::ok();
+                }
+
                 return result;
             }
 
@@ -665,6 +673,16 @@ namespace Cue::Editor
                         resolvedTexturePath);
                     if (!result)
                     {
+                        if (result.code == Code::NotFound)
+                        {
+                            if (lineEnd == std::string::npos)
+                            {
+                                break;
+                            }
+                            lineBegin = lineEnd + 1;
+                            continue;
+                        }
+
                         return result;
                     }
 
@@ -740,6 +758,17 @@ namespace Cue::Editor
                         "glTF texture extension is not supported.");
                 }
 
+                bool textureExists = false;
+                result = a_fileSystem.exists(texturePath, &textureExists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!textureExists)
+                {
+                    continue;
+                }
+
                 const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
                     textureRoot,
                     Core::IO::Path(texturePath.stem() + ".dds"));
@@ -804,6 +833,11 @@ namespace Cue::Editor
                     resolvedTexturePath);
                 if (!result)
                 {
+                    if (result.code == Code::NotFound)
+                    {
+                        continue;
+                    }
+
                     return result;
                 }
 
@@ -1034,6 +1068,7 @@ namespace Cue::Editor
                     static_cast<uint32_t>(renderPart.name.size());
                 renderPartInfo.meshIndex = renderPart.meshIndex;
                 renderPartInfo.materialIndex = renderPart.materialIndex;
+                renderPartInfo.jointIndex = renderPart.jointIndex;
                 renderPartInfo.localTransform = renderPart.localTransform;
                 renderPartInfo.nameOffset = payload.size();
                 append_bytes(

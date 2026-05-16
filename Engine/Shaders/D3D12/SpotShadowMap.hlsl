@@ -5,6 +5,8 @@ struct VsIn
     float4 position : POSITION;
     float2 texcoord : TEXCOORD0;
     float3 normal : NORMAL0;
+    uint4 jointIndices : JOINTS0;
+    float4 weights : WEIGHTS0;
 };
 
 struct VsOut
@@ -29,6 +31,34 @@ StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<SpotShadowFrame> g_spotShadowFrames : register(t3);
+StructuredBuffer<SkinPalette> g_skinPalettes : register(t4);
+
+float4 apply_skinning(float4 position, VsIn input, RenderObject renderObject)
+{
+    if (renderObject.skinPaletteCount == 0u)
+    {
+        return position;
+    }
+
+    float4x4 skinMatrix = (float4x4)0;
+    skinMatrix +=
+        g_skinPalettes[renderObject.skinPaletteOffset + input.jointIndices.x]
+            .matrix *
+        input.weights.x;
+    skinMatrix +=
+        g_skinPalettes[renderObject.skinPaletteOffset + input.jointIndices.y]
+            .matrix *
+        input.weights.y;
+    skinMatrix +=
+        g_skinPalettes[renderObject.skinPaletteOffset + input.jointIndices.z]
+            .matrix *
+        input.weights.z;
+    skinMatrix +=
+        g_skinPalettes[renderObject.skinPaletteOffset + input.jointIndices.w]
+            .matrix *
+        input.weights.w;
+    return mul(position, skinMatrix);
+}
 
 bool is_shadow_caster_visible(Transform transform, SpotShadowFrame shadowFrame)
 {
@@ -102,7 +132,9 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
         return emptyOutput;
     }
 
-    const float4 worldPosition = mul(input.position, transform.worldMatrix);
+    const float4 localPosition =
+        apply_skinning(input.position, input, renderObject);
+    const float4 worldPosition = mul(localPosition, transform.worldMatrix);
 
     VsOut output;
     output.position =

@@ -830,6 +830,7 @@ namespace Cue::DrawSystem
         StaticMeshRecord record{};
         record.vertexCount = vertexCount;
         record.indexCount = static_cast<uint32_t>(meshData.indices.size());
+        record.hasSkinInfluence = !meshData.skinInfluences.empty();
         record.positionByteSize = byte_size_of(meshData.positions);
         record.uvByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float2);
         record.normalByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float3);
@@ -1244,6 +1245,33 @@ namespace Cue::DrawSystem
             static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         outMeshRange.baseVertex =
             static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        return Result::ok();
+    }
+
+    Result StaticMeshPool::has_skin_influence(
+        uint32_t meshId, bool& outHasSkinInfluence) const
+    {
+        outHasSkinInfluence = false;
+
+        const auto it = m_meshIdToHandlesMap.find(meshId);
+        if (it == m_meshIdToHandlesMap.end())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh id was not found.");
+        }
+
+        StaticMeshRecord record{};
+        if (!m_meshRegistry.try_copy_get(it->second, record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh record was not found.");
+        }
+
+        outHasSkinInfluence = record.hasSkinInfluence;
         return Result::ok();
     }
 }

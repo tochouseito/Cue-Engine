@@ -468,6 +468,68 @@ namespace Cue
         bool m_hasAddedComponent = false;
     };
 
+    class RemoveComponentCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        RemoveComponentCommand(GameCore::EntityId a_objectId,
+            AddableComponentType a_componentType) noexcept
+            : m_objectId(a_objectId)
+            , m_componentType(a_componentType)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component removal.");
+            }
+
+            Result result =
+                gameCommandContext->remove_component(m_objectId, m_componentType);
+            if (result)
+            {
+                m_hasRemovedComponent = true;
+            }
+
+            return result;
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component removal undo.");
+            }
+
+            if (!m_hasRemovedComponent)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Remove component command has not been executed.");
+            }
+
+            return gameCommandContext->add_component(
+                m_objectId, m_componentType);
+        }
+
+    private:
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        AddableComponentType m_componentType = AddableComponentType::Camera;
+        bool m_hasRemovedComponent = false;
+    };
+
     class SetTransformComponentCommand final : public Core::CQRS::IUndoableCommand
     {
     public:

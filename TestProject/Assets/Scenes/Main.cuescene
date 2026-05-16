@@ -14,7 +14,7 @@
                 "transform": {
                     "position": {
                         "x": 0.0,
-                        "y": 0.0,
+                        "y": 1.5499999523162842,
                         "z": -6.0
                     },
                     "rotation": {
@@ -73,7 +73,7 @@
                     "type": "Box"
                 },
                 "meshFilter": {
-                    "meshId": 66,
+                    "meshId": 67,
                     "modelName": "axis"
                 },
                 "rigidBody": {
@@ -137,7 +137,7 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 64,
+                    "meshId": 65,
                     "modelName": "NavMeshTest"
                 },
                 "navMeshBakeSource": {
@@ -183,7 +183,7 @@
         {
             "components": {
                 "meshFilter": {
-                    "meshId": 66,
+                    "meshId": 67,
                     "modelName": "axis"
                 },
                 "navAgent": {
@@ -261,9 +261,9 @@
                 },
                 "transform": {
                     "position": {
-                        "x": 0.31822723150253296,
+                        "x": -1.2867017984390259,
                         "y": 3.0,
-                        "z": -4.0
+                        "z": 6.538412570953369
                     },
                     "rotation": {
                         "x": -0.5565403699874878,
@@ -291,9 +291,22 @@
         },
         {
             "components": {
+                "animation": {
+                    "animationIndex": 0,
+                    "frame": 932,
+                    "isPlaying": false,
+                    "loops": true,
+                    "speed": 1.0,
+                    "time": 1.0
+                },
                 "meshFilter": {
-                    "meshId": 1,
+                    "meshId": 2,
                     "modelName": "BrainStem"
+                },
+                "skinnedMeshRenderer": {
+                    "castsShadow": true,
+                    "receivesShadow": true,
+                    "visible": true
                 },
                 "transform": {
                     "position": {
@@ -322,7 +335,154 @@
             "isActive": true,
             "isPersistent": false,
             "localObjectId": 7,
-            "name": "GameObject",
+            "name": "BrainStem",
+            "tag": "Default"
+        },
+        {
+            "components": {
+                "animation": {
+                    "animationIndex": 0,
+                    "frame": 97,
+                    "isPlaying": false,
+                    "loops": true,
+                    "speed": 1.0,
+                    "time": 497.64495849609375
+                },
+                "meshFilter": {
+                    "meshId": 1,
+                    "modelName": "AnimatedCube"
+                },
+                "staticMeshRenderer": {
+                    "castsShadow": true,
+                    "receivesShadow": true,
+                    "visible": true
+                },
+                "transform": {
+                    "position": {
+                        "x": 0.28796201944351196,
+                        "y": 1.7536916732788086,
+                        "z": 1.54585599899292
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "z": 1.0
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 8,
+            "name": "AnimatedCube",
+            "tag": "Default"
+        },
+        {
+            "components": {
+                "animation": {
+                    "animationIndex": 0,
+                    "frame": 388,
+                    "isPlaying": false,
+                    "loops": true,
+                    "speed": 1.0,
+                    "time": 4646.0068359375
+                },
+                "meshFilter": {
+                    "meshId": 68,
+                    "modelName": "simpleSkin"
+                },
+                "skinnedMeshRenderer": {
+                    "castsShadow": true,
+                    "receivesShadow": true,
+                    "visible": true
+                },
+                "transform": {
+                    "position": {
+                        "x": -3.3423705101013184,
+                        "y": 0.5593119859695435,
+                        "z": 4.0993123054504395
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "z": 1.0
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 9,
+            "name": "simpleSkin",
+            "tag": "Default"
+        },
+        {
+            "components": {
+                "animation": {
+                    "animationIndex": 0,
+                    "frame": 1752,
+                    "isPlaying": false,
+                    "loops": true,
+                    "speed": 1.0,
+                    "time": 39.498531341552734
+                },
+                "meshFilter": {
+                    "meshId": 71,
+                    "modelName": "walk"
+                },
+                "skinnedMeshRenderer": {
+                    "castsShadow": true,
+                    "receivesShadow": true,
+                    "visible": true
+                },
+                "transform": {
+                    "position": {
+                        "x": -3.6400928497314453,
+                        "y": 0.0,
+                        "z": 2.5
+                    },
+                    "rotation": {
+                        "x": 0.0,
+                        "y": -0.0,
+                        "z": 0.0
+                    },
+                    "rotationQuaternion": {
+                        "w": 1.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "scale": {
+                        "x": 0.009999999776482582,
+                        "y": 0.009999999776482582,
+                        "z": 0.009999999776482582
+                    }
+                }
+            },
+            "isActive": true,
+            "isPersistent": false,
+            "localObjectId": 10,
+            "name": "human",
             "tag": "Default"
         }
     ],

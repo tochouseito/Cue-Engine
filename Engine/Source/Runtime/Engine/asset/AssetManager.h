@@ -53,6 +53,7 @@ namespace Cue
         std::string name{};
         uint32_t meshId = 0;
         uint32_t materialIndex = Core::Native::k_invalidModelMaterialIndex;
+        uint32_t jointIndex = Core::Native::k_invalidAnimationIndex;
         Math::float4x4 localTransform = Math::float4x4::identity();
     };
 
@@ -479,6 +480,7 @@ namespace Cue
                 renderPart.name = sourcePart.name;
                 renderPart.meshId = meshId;
                 renderPart.materialIndex = sourcePart.materialIndex;
+                renderPart.jointIndex = sourcePart.jointIndex;
                 renderPart.localTransform = sourcePart.localTransform;
                 record.renderParts.push_back(std::move(renderPart));
             }

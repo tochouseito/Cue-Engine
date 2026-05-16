@@ -17,6 +17,7 @@ namespace Cue::DrawSystem
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_viewProjectionBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::BufferHandle a_skinPaletteBufferHandle,
             uint32_t a_indexCountPerInstance,
             const uint32_t& a_selectedObjectId)
             : m_drawFrameState(a_drawFrameState)
@@ -24,6 +25,7 @@ namespace Cue::DrawSystem
             , m_transformBufferHandle(a_transformBufferHandle)
             , m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
+            , m_skinPaletteBufferHandle(a_skinPaletteBufferHandle)
             , m_indexCountPerInstance(a_indexCountPerInstance)
             , m_selectedObjectId(a_selectedObjectId)
         {}
@@ -121,6 +123,13 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer(
+                "StaticMeshPool.SkinInfluence",
+                m_influenceBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.get_buffer("StaticMeshPool.Index", m_indexBufferHandle);
             if (!result)
             {
@@ -170,6 +179,10 @@ namespace Cue::DrawSystem
                 RHI::RootParameterType::SRV,
                 RHI::ShaderVisibility::All,
                 2 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV,
+                RHI::ShaderVisibility::Vertex,
+                3 });
             result = builder.create_root_signature(
                 rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -208,6 +221,8 @@ namespace Cue::DrawSystem
             pipelineDesc.psHandle = m_pixelShaderHandle;
             pipelineDesc.inputElements = {
                 { "POSITION", 0, RHI::InputElementFormat::R32G32B32A32_Float, 0, 0 },
+                { "JOINTS", 0, RHI::InputElementFormat::R32G32B32A32_UInt, 1, 0 },
+                { "WEIGHTS", 0, RHI::InputElementFormat::R32G32B32A32_Float, 1, 16 },
             };
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Back;
             pipelineDesc.depthStencilState.depthEnable = true;
@@ -314,6 +329,15 @@ namespace Cue::DrawSystem
                 return result;
             }
             result = builder.use_buffer(
+                m_influenceBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
                 m_indexBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
@@ -335,6 +359,15 @@ namespace Cue::DrawSystem
                 m_indirectCommandCountBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_skinPaletteBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::Common);
             if (!result)
             {
@@ -378,7 +411,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(3, renderObjectBufferHandle);
             commandContext->set_srv(4, m_transformBufferHandle);
             commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(6, m_skinPaletteBufferHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
+            commandContext->set_vertex_buffer(1, m_influenceBufferHandle);
             commandContext->set_index_buffer(m_indexBufferHandle, RHI::IndexFormat::UInt32);
 
             if (frameState.useCpuBatching)
@@ -422,7 +457,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(3, renderObjectBufferHandle);
             commandContext->set_srv(4, m_transformBufferHandle);
             commandContext->set_srv(5, m_visibleObjectCountBufferHandle);
+            commandContext->set_srv(6, m_skinPaletteBufferHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
+            commandContext->set_vertex_buffer(1, m_influenceBufferHandle);
             commandContext->set_index_buffer(m_indexBufferHandle, RHI::IndexFormat::UInt32);
 
             if (frameState.useCpuBatching)
@@ -463,10 +500,12 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::BufferHandle m_positionBufferHandle{};
+        RHI::BufferHandle m_influenceBufferHandle{};
         RHI::BufferHandle m_indexBufferHandle{};
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::BufferHandle m_skinPaletteBufferHandle{};
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};

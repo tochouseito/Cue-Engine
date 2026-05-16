@@ -3,6 +3,8 @@
 struct VsIn
 {
     float4 position : POSITION;
+    uint4 jointIndices : JOINTS0;
+    float4 weights : WEIGHTS0;
 };
 
 struct VsOut
@@ -33,6 +35,7 @@ ConstantBuffer<SelectedObjectConstants> g_selectedObject : register(b2);
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
+StructuredBuffer<SkinPalette> g_skinPalettes : register(t3);
 
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
@@ -49,7 +52,34 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
-    const float4 worldPosition = mul(input.position, transform.worldMatrix);
+    float4 localPosition = input.position;
+    if (renderObject.skinPaletteCount > 0u)
+    {
+        float4x4 skinMatrix = (float4x4)0;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.x]
+                .matrix *
+            input.weights.x;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.y]
+                .matrix *
+            input.weights.y;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.z]
+                .matrix *
+            input.weights.z;
+        skinMatrix +=
+            g_skinPalettes[renderObject.skinPaletteOffset +
+                input.jointIndices.w]
+                .matrix *
+            input.weights.w;
+        localPosition = mul(localPosition, skinMatrix);
+    }
+
+    const float4 worldPosition = mul(localPosition, transform.worldMatrix);
 
     VsOut output;
     output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);

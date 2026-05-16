@@ -330,6 +330,13 @@ namespace Cue::GameCore
             m_defaultMaterialHandle,
             m_drawFrameState,
             m_drawScene);
+        auto& skinnedRenderableObjectSystem =
+            m_ecs.add_system<ECS::SkinnedRenderableObjectSystem>(
+                m_assetManager,
+                a_staticMeshPool,
+                m_defaultMaterialHandle,
+                m_drawFrameState,
+                m_drawScene);
         auto& spriteSystem = m_ecs.add_system<ECS::SpriteSystem>(
             m_assetManager,
             m_defaultMaterialHandle,
@@ -368,6 +375,7 @@ namespace Cue::GameCore
 
         m_editorPipeline.add_system(&animationSystem);
         m_editorPipeline.add_system(&renderableObjectSystem);
+        m_editorPipeline.add_system(&skinnedRenderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&lightSystem);
@@ -409,7 +417,8 @@ namespace Cue::GameCore
     [[nodiscard]] Result GameWorld::editor_update(
         uint32_t a_bufferIndex,
         uint32_t a_renderWidth,
-        uint32_t a_renderHeight)
+        uint32_t a_renderHeight,
+        float a_deltaTime)
     {
         execute_deferred_deletions_internal();
 
@@ -426,6 +435,7 @@ namespace Cue::GameCore
 
         ECS::UpdateContext updateContext{};
         updateContext.bufferIndex = a_bufferIndex;
+        updateContext.deltaTime = a_deltaTime;
         m_editorPipeline.update(m_ecs, updateContext);
         Result result = upload_draw_scene(a_bufferIndex);
         if (!result)
@@ -451,7 +461,11 @@ namespace Cue::GameCore
             return result;
         }
 
-        return editor_update(a_bufferIndex, a_renderWidth, a_renderHeight);
+        return editor_update(
+            a_bufferIndex,
+            a_renderWidth,
+            a_renderHeight,
+            a_deltaTime);
     }
 
     [[nodiscard]] Result GameWorld::clone_from(const GameWorld& a_source)

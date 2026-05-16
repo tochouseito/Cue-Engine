@@ -53,6 +53,7 @@ namespace Cue::DrawSystem
         uint64_t influenceByteSize = 0;
         uint64_t indexByteOffset = 0;
         uint64_t indexByteSize = 0;
+        bool hasSkinInfluence = false;
     };
 
     struct FreeRange final
@@ -118,6 +119,7 @@ namespace Cue::DrawSystem
         Result free_mesh(StaticMeshHandle handle) override;
         Result get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const override;
         Result get_mesh_range(uint32_t meshId, StaticMeshRange& outMeshRange) const override;
+        Result has_skin_influence(uint32_t meshId, bool& outHasSkinInfluence) const override;
         Result get_bindings(StaticMeshPoolBindings& outBindings) const override;
     private:
         Result initialize_streams(const StaticMeshPoolDesc& desc);

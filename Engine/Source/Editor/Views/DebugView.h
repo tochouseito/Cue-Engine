@@ -133,7 +133,14 @@ namespace Cue::Editor
                 ImGuiWindowFlags_MenuBar |
                 ImGuiWindowFlags_NoScrollbar |
                 ImGuiWindowFlags_NoScrollWithMouse;
-            ImGui::Begin("DebugView", nullptr, windowFlags);
+            const bool isVisible =
+                ImGui::Begin("DebugView", nullptr, windowFlags);
+            if (!isVisible)
+            {
+                ImGui::End();
+                ImGui::PopStyleVar();
+                return;
+            }
 
             if (ImGui::BeginMenuBar())
             {

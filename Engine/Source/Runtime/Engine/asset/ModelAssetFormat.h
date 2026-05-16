@@ -86,6 +86,16 @@ namespace Cue
         uint32_t nameSize = 0;
         uint32_t meshIndex = 0;
         uint32_t materialIndex = 0;
+        uint32_t jointIndex = 0;
+        uint64_t nameOffset = 0;
+        Math::float4x4 localTransform = Math::float4x4::identity();
+    };
+
+    struct CueModelRenderPartInfoV3 final
+    {
+        uint32_t nameSize = 0;
+        uint32_t meshIndex = 0;
+        uint32_t materialIndex = 0;
         uint32_t reserved = 0;
         uint64_t nameOffset = 0;
         Math::float4x4 localTransform = Math::float4x4::identity();
@@ -137,7 +147,8 @@ namespace Cue
     };
 
     inline constexpr uint32_t k_cueModelMagic = 0x4d455543u;
-    inline constexpr uint32_t k_cueModelVersion = 3u;
+    inline constexpr uint32_t k_cueModelVersion = 4u;
+    inline constexpr uint32_t k_cueModelVersion3 = 3u;
     inline constexpr uint32_t k_cueModelVersion2 = 2u;
     inline constexpr uint32_t k_cueModelLegacyVersion = 1u;
     inline constexpr uint32_t k_cueModelMeshFlagHasUvs = 0x1u;

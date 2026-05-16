@@ -5,6 +5,7 @@
 
 // === DrawSystem includes ===
 #include <DrawSystem/DrawCollector.h>
+#include <DrawSystem/DrawFrameState.h>
 #include <DrawSystem/DrawScene.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
 
@@ -14,20 +15,19 @@
 // === Engine includes ===
 #include <Asset/AssetManager.h>
 #include <GameCore/Components.h>
-#include <DrawSystem/DrawFrameState.h>
 #include <GpuData/Batching.h>
 #include <GpuData/Transform.h>
 
 namespace Cue::ECS
 {
-    class RenderableObjectSystem final
+    class SkinnedRenderableObjectSystem final
         : public ECSManager::System<RenderableInfoComponent,
               TransformComponent,
               MeshFilterComponent,
-              StaticMeshRendererComponent>
+              SkinnedMeshRendererComponent>
     {
     public:
-        explicit RenderableObjectSystem(
+        explicit SkinnedRenderableObjectSystem(
             AssetManager* a_assetManager,
             DrawSystem::IStaticMeshPool* a_staticMeshPool,
             MaterialHandle a_defaultMaterialHandle,
@@ -36,34 +36,34 @@ namespace Cue::ECS
             : ECSManager::System<RenderableInfoComponent,
                   TransformComponent,
                   MeshFilterComponent,
-                  StaticMeshRendererComponent>(
+                  SkinnedMeshRendererComponent>(
                   [this](Entity a_entity,
                       RenderableInfoComponent& a_renderableInfo,
                       TransformComponent& a_transform,
                       MeshFilterComponent& a_meshFilter,
-                      StaticMeshRendererComponent& a_renderer,
-                      const UpdateContext& a_context) {
-                          update_component(a_entity, a_renderableInfo,
-                              a_transform, a_meshFilter, a_renderer, a_context);
-                  }),
-            m_assetManager(a_assetManager),
-            m_staticMeshPool(a_staticMeshPool),
-            m_defaultMaterialHandle(a_defaultMaterialHandle),
-            m_drawFrameState(a_drawFrameState),
-            m_drawScene(a_drawScene)
+                      SkinnedMeshRendererComponent& a_renderer,
+                      const UpdateContext& a_context)
+                  {
+                      update_component(a_entity, a_renderableInfo,
+                          a_transform, a_meshFilter, a_renderer, a_context);
+                  })
+            , m_assetManager(a_assetManager)
+            , m_staticMeshPool(a_staticMeshPool)
+            , m_defaultMaterialHandle(a_defaultMaterialHandle)
+            , m_drawFrameState(a_drawFrameState)
+            , m_drawScene(a_drawScene)
         {
         }
 
         void update(const UpdateContext& a_context) override
         {
-            reset_renderable_infos();
             DrawSystem::DrawCollector collector(m_drawScene, a_context.bufferIndex);
             m_currentCollector = &collector;
             begin_collect(a_context);
             ECSManager::System<RenderableInfoComponent,
                 TransformComponent,
                 MeshFilterComponent,
-                StaticMeshRendererComponent>::update(a_context);
+                SkinnedMeshRendererComponent>::update(a_context);
             m_currentCollector = nullptr;
         }
 
@@ -73,13 +73,21 @@ namespace Cue::ECS
             m_currentFrameState = nullptr;
             m_renderableObjectCount = 0;
             m_skinPaletteCount = 0;
+            m_isCpuBatchingEnabled = false;
+
             if (a_context.bufferIndex < m_drawScene.frame_count())
             {
-                m_renderableObjectCount = static_cast<uint32_t>(
-                    m_drawScene.frame(a_context.bufferIndex)
-                        .staticMeshSurfaceItems.size());
+                const DrawSystem::DrawSceneFrame& frame =
+                    m_drawScene.frame(a_context.bufferIndex);
+                m_renderableObjectCount =
+                    static_cast<uint32_t>(frame.staticMeshSurfaceItems.size());
+                for (const DrawSystem::StaticMeshSurfaceItem& item :
+                     frame.staticMeshSurfaceItems)
+                {
+                    m_skinPaletteCount +=
+                        static_cast<uint32_t>(item.skinPalette.size());
+                }
             }
-            m_isCpuBatchingEnabled = false;
 
             if (a_context.bufferIndex < m_drawFrameState.frameStates.size())
             {
@@ -89,150 +97,11 @@ namespace Cue::ECS
             }
         }
 
-        void reset_renderable_infos()
-        {
-            auto* renderableInfoPool =
-                this->m_pEcs->get_component_pool<RenderableInfoComponent>();
-            if (renderableInfoPool == nullptr)
-            {
-                return;
-            }
-
-            for (auto& [_, components] : renderableInfoPool->map())
-            {
-                for (RenderableInfoComponent& renderableInfo : components)
-                {
-                    renderableInfo.objectId = k_invalidRenderableId;
-                    renderableInfo.transformId = k_invalidRenderableId;
-                }
-            }
-        }
-
         void update_component(Entity a_entity,
             RenderableInfoComponent& a_renderableInfo,
             TransformComponent& a_transform,
             MeshFilterComponent& a_meshFilter,
-            StaticMeshRendererComponent& a_renderer,
-            const UpdateContext& a_context)
-        {
-            a_entity;
-            a_context;
-
-            if (m_currentCollector == nullptr)
-            {
-                return;
-            }
-
-            if (!a_renderer.visible)
-            {
-                return;
-            }
-
-            ModelHandle modelHandle{};
-            const std::vector<ModelRenderPartRecord>* renderParts = nullptr;
-            const bool hasModel =
-                !a_meshFilter.modelName.empty() &&
-                m_assetManager != nullptr &&
-                m_assetManager->get_model(
-                    a_meshFilter.modelName,
-                    modelHandle) &&
-                m_assetManager->get_model_render_parts(
-                    modelHandle,
-                    renderParts) &&
-                renderParts != nullptr &&
-                !renderParts->empty();
-
-            const uint32_t baseObjectId = m_renderableObjectCount;
-            if (hasModel)
-            {
-                a_renderableInfo.objectId = baseObjectId;
-                a_renderableInfo.transformId = baseObjectId;
-
-                const Math::float4x4 entityWorld = Math::make_affine_matrix(
-                    a_transform.scale,
-                    a_transform.rotation,
-                    a_transform.position);
-                const AnimationComponent* animation =
-                    this->m_pEcs->get_component<AnimationComponent>(a_entity);
-                for (const ModelRenderPartRecord& renderPart : *renderParts)
-                {
-                    const Math::float4x4& localTransform =
-                        resolve_part_transform(renderPart, animation);
-                    submit_static_mesh_part(
-                        baseObjectId,
-                        renderPart.meshId,
-                        renderPart.materialIndex,
-                        localTransform * entityWorld,
-                        modelHandle,
-                        a_renderer);
-                }
-                return;
-            }
-
-            if (a_meshFilter.meshId == k_invalidMeshId)
-            {
-                return;
-            }
-
-            a_renderableInfo.objectId = baseObjectId;
-            a_renderableInfo.transformId = baseObjectId;
-            submit_static_mesh_part(
-                baseObjectId,
-                a_meshFilter.meshId,
-                Core::Native::k_invalidModelMaterialIndex,
-                Math::make_affine_matrix(
-                    a_transform.scale,
-                    a_transform.rotation,
-                    a_transform.position),
-                modelHandle,
-                a_renderer);
-        }
-
-        void update_skinned_entities(const UpdateContext& a_context)
-        {
-            auto* rendererPool =
-                this->m_pEcs->get_component_pool<SkinnedMeshRendererComponent>();
-            if (rendererPool == nullptr)
-            {
-                return;
-            }
-
-            for (auto& [entity, renderers] : rendererPool->map())
-            {
-                for (SkinnedMeshRendererComponent& skinnedRenderer :
-                     renderers)
-                {
-                    RenderableInfoComponent* renderableInfo =
-                        this->m_pEcs->get_component<RenderableInfoComponent>(
-                            entity);
-                    TransformComponent* transform =
-                        this->m_pEcs->get_component<TransformComponent>(
-                            entity);
-                    MeshFilterComponent* meshFilter =
-                        this->m_pEcs->get_component<MeshFilterComponent>(
-                            entity);
-                    AnimationComponent* animation =
-                        this->m_pEcs->get_component<AnimationComponent>(
-                            entity);
-                    if (renderableInfo == nullptr || transform == nullptr ||
-                        meshFilter == nullptr)
-                    {
-                        continue;
-                    }
-
-                    update_skinned_component(entity, *renderableInfo,
-                        *transform, *meshFilter, skinnedRenderer, animation,
-                        a_context);
-                }
-            }
-        }
-
-        void update_skinned_component(Entity a_entity,
-            RenderableInfoComponent& a_renderableInfo,
-            TransformComponent& a_transform,
-            MeshFilterComponent& a_meshFilter,
             SkinnedMeshRendererComponent& a_renderer,
-            AnimationComponent* a_animation,
             const UpdateContext& a_context)
         {
             a_entity;
@@ -261,6 +130,13 @@ namespace Cue::ECS
                 return;
             }
 
+            const AnimationComponent* animation =
+                this->m_pEcs->get_component<AnimationComponent>(a_entity);
+            const std::vector<Math::float4x4>* skinPalette =
+                animation != nullptr && !animation->skinPalette.empty()
+                ? &animation->skinPalette
+                : nullptr;
+
             StaticMeshRendererComponent rendererProxy{};
             rendererProxy.materialHandle = a_renderer.materialHandle;
             rendererProxy.visible = a_renderer.visible;
@@ -277,16 +153,30 @@ namespace Cue::ECS
                 a_transform.position);
             for (const ModelRenderPartRecord& renderPart : *renderParts)
             {
+                bool hasSkinInfluence = false;
+                if (m_staticMeshPool != nullptr)
+                {
+                    Result skinResult = m_staticMeshPool->has_skin_influence(
+                        renderPart.meshId,
+                        hasSkinInfluence);
+                    if (!skinResult)
+                    {
+                        hasSkinInfluence = false;
+                    }
+                }
+
                 const Math::float4x4& localTransform =
-                    resolve_part_transform(renderPart, a_animation);
-                submit_static_mesh_part(baseObjectId,
+                    resolve_part_transform(renderPart, animation);
+                const Math::float4x4 worldMatrix = hasSkinInfluence
+                    ? entityWorld
+                    : localTransform * entityWorld;
+                submit_mesh_part(baseObjectId,
                     renderPart.meshId,
                     renderPart.materialIndex,
-                    localTransform * entityWorld,
+                    worldMatrix,
                     modelHandle,
                     rendererProxy,
-                    a_animation != nullptr ? &a_animation->skinPalette
-                                           : nullptr);
+                    hasSkinInfluence ? skinPalette : nullptr);
             }
         }
 
@@ -323,8 +213,8 @@ namespace Cue::ECS
 
             const MaterialHandle materialHandle =
                 a_renderer.materialHandle.valid()
-                    ? a_renderer.materialHandle
-                    : MaterialHandle{};
+                ? a_renderer.materialHandle
+                : MaterialHandle{};
             if (materialHandle.valid() && m_assetManager != nullptr)
             {
                 hasMaterialDesc =
@@ -375,14 +265,14 @@ namespace Cue::ECS
             return true;
         }
 
-        void submit_static_mesh_part(
+        void submit_mesh_part(
             uint32_t a_pickObjectId,
             uint32_t a_meshId,
             uint32_t a_materialIndex,
             const Math::float4x4& a_worldMatrix,
             ModelHandle a_modelHandle,
             const StaticMeshRendererComponent& a_renderer,
-            const std::vector<Math::float4x4>* a_skinPalette = nullptr)
+            const std::vector<Math::float4x4>* a_skinPalette)
         {
             const uint32_t drawObjectIndex = m_renderableObjectCount;
             const uint32_t skinPaletteOffset =
@@ -405,11 +295,13 @@ namespace Cue::ECS
                 a_renderer.receivesShadow ? 1u : 0u;
             gpuRenderableInfo.skinPaletteOffset = skinPaletteOffset;
             gpuRenderableInfo.skinPaletteCount = skinPaletteCount;
+
             GpuData::ObjectTransformGpu gpuTransform{};
             gpuTransform.worldMatrix = a_worldMatrix;
             gpuTransform.normalMatrix =
                 Math::float4x4::transpose(
                     Math::float4x4::inverse(gpuTransform.worldMatrix));
+
             GpuData::MaterialGpu gpuMaterial{};
             const bool hasMaterial = resolve_material(
                 a_modelHandle,
@@ -450,14 +342,13 @@ namespace Cue::ECS
                 m_staticMeshPool != nullptr)
             {
                 DrawSystem::StaticMeshRange meshRange{};
-                if (m_staticMeshPool->get_mesh_range(
-                    a_meshId, meshRange))
+                if (m_staticMeshPool->get_mesh_range(a_meshId, meshRange))
                 {
-                    drawItem.batching.cpuIndexedDraw = DrawSystem::CpuIndexedDraw{
-                        drawObjectIndex,
-                        meshRange.indexCount,
-                        meshRange.startIndex,
-                        meshRange.baseVertex };
+                    drawItem.batching.cpuIndexedDraw =
+                        DrawSystem::CpuIndexedDraw{ drawObjectIndex,
+                            meshRange.indexCount,
+                            meshRange.startIndex,
+                            meshRange.baseVertex };
                     drawItem.batching.hasCpuIndexedDraw = true;
                 }
             }

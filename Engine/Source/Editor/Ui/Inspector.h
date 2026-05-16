@@ -492,12 +492,15 @@ namespace Cue::Editor
 
             for (const ComponentTabEntry& entry : a_componentTabs)
             {
+                ImGui::PushID(static_cast<int>(entry.tab));
                 const bool isSelected = m_currentTab == entry.tab;
                 if (ImGui::Selectable(entry.label, isSelected, 0,
                         ImVec2(0.0f, 32.0f)))
                 {
                     m_currentTab = entry.tab;
                 }
+                draw_component_tab_context_menu(entry);
+                ImGui::PopID();
             }
 
             const float buttonHeight = 36.0f;
@@ -537,6 +540,84 @@ namespace Cue::Editor
             }
 
             ImGui::EndChild();
+        }
+
+        void draw_component_tab_context_menu(const ComponentTabEntry& a_entry)
+        {
+            if (!ImGui::BeginPopupContextItem("ComponentContextMenu"))
+            {
+                return;
+            }
+
+            AddableComponentType componentType{};
+            if (component_tab_to_addable_type(a_entry.tab, componentType))
+            {
+                if (ImGui::MenuItem("削除"))
+                {
+                    submit_remove_component_command(componentType);
+                }
+            }
+            else
+            {
+                ImGui::BeginDisabled();
+                ImGui::MenuItem("削除できません");
+                ImGui::EndDisabled();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        [[nodiscard]] static bool component_tab_to_addable_type(
+            ComponentTab a_tab,
+            AddableComponentType& outType) noexcept
+        {
+            switch (a_tab)
+            {
+            case ComponentTab::Camera:
+                outType = AddableComponentType::Camera;
+                return true;
+            case ComponentTab::MeshFilter:
+                outType = AddableComponentType::MeshFilter;
+                return true;
+            case ComponentTab::StaticMeshRenderer:
+                outType = AddableComponentType::StaticMeshRenderer;
+                return true;
+            case ComponentTab::SkinnedMeshRenderer:
+                outType = AddableComponentType::SkinnedMeshRenderer;
+                return true;
+            case ComponentTab::Animation:
+                outType = AddableComponentType::Animation;
+                return true;
+            case ComponentTab::SpriteRenderer:
+                outType = AddableComponentType::SpriteRenderer;
+                return true;
+            case ComponentTab::DirectionalLight:
+                outType = AddableComponentType::DirectionalLight;
+                return true;
+            case ComponentTab::PointLight:
+                outType = AddableComponentType::PointLight;
+                return true;
+            case ComponentTab::SpotLight:
+                outType = AddableComponentType::SpotLight;
+                return true;
+            case ComponentTab::AudioSource:
+                outType = AddableComponentType::AudioSource;
+                return true;
+            case ComponentTab::RigidBody:
+                outType = AddableComponentType::RigidBody;
+                return true;
+            case ComponentTab::Collider:
+                outType = AddableComponentType::Collider;
+                return true;
+            case ComponentTab::CharacterController:
+                outType = AddableComponentType::CharacterController;
+                return true;
+            case ComponentTab::Script:
+                outType = AddableComponentType::Script;
+                return true;
+            default:
+                return false;
+            }
         }
 
         void draw_component_content(GameCore::GameObject& a_object)
@@ -3896,6 +3977,27 @@ namespace Cue::Editor
             {
                 CUE_ASSERTF(false,
                     "Failed to submit add component command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file,
+                    result.line, result.function);
+            }
+        }
+
+        void submit_remove_component_command(AddableComponentType a_type)
+        {
+            if (editorBridge == nullptr || m_selectedEntityId == nullptr ||
+                *m_selectedEntityId == GameCore::k_invalidEntityId)
+            {
+                return;
+            }
+
+            Result result = editorBridge->submit_command(
+                std::make_unique<RemoveComponentCommand>(
+                    *m_selectedEntityId, a_type));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit remove component command: %s (code: %s, severity: %s) at %s:%u in function %s",
                     result.message.data(), Cue::to_string(result.code),
                     Cue::to_string(result.severity), result.file,
                     result.line, result.function);

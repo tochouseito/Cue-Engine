@@ -1118,6 +1118,7 @@ namespace Cue
                 drawResources->render_object_buffer_handle(),
                 drawResources->transform_buffer_handle(),
                 drawResources->visible_object_count_buffer_handle(),
+                drawResources->skin_palette_buffer_handle(),
                 shadowBindings,
                 m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<ShadowSystem::PointShadowMapPass>(
@@ -1125,6 +1126,7 @@ namespace Cue
             drawResources->render_object_buffer_handle(),
             drawResources->transform_buffer_handle(),
             drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             shadowBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(std::make_unique<ShadowSystem::SpotShadowMapPass>(
@@ -1133,6 +1135,7 @@ namespace Cue
             drawResources->render_object_buffer_handle(),
             drawResources->transform_buffer_handle(),
             drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             shadowBindings,
             m_cubeIndexCount));
         m_frameGraph->add_pass(
@@ -1210,6 +1213,7 @@ namespace Cue
             drawResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
             drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             m_cubeIndexCount,
             m_debugSelectedObjectId));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugGridPass>(
@@ -1432,6 +1436,7 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
             const float deltaTime = simulation_delta_time(rawDeltaTime);
+            const float editorDeltaTime = is_playing() ? deltaTime : rawDeltaTime;
 
             if (is_playing() &&
                 m_scriptModuleHost != nullptr &&
@@ -1459,7 +1464,7 @@ namespace Cue
             }
 
             Result updateResult = m_activeWorld->editor_update(a_index,
-                m_backend->width(), m_backend->height());
+                m_backend->width(), m_backend->height(), editorDeltaTime);
             if (!updateResult)
             {
                 CUE_ASSERTF(false, "GameWorld editor update failed: %s",

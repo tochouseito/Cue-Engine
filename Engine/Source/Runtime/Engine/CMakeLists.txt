@@ -93,6 +93,7 @@ add_library(Engine STATIC
     "GameCore/Components.h"
     "Commands.h"
     "DrawSystem/Systems/RenderableObjectSystem.h"
+    "DrawSystem/Systems/SkinnedRenderableObjectSystem.h"
     "DrawSystem/Systems/SpriteSystem.h"
     "GameCore/Systems/DemoEnemySystem.h"
     "GameCore/Systems/FirstPersonCameraControllerSystem.h"

@@ -27,6 +27,7 @@ namespace Cue::ShadowSystem
             RHI::BufferHandle a_renderObjectBufferHandle,
             RHI::BufferHandle a_transformBufferHandle,
             RHI::BufferHandle a_visibleObjectCountBufferHandle,
+            RHI::BufferHandle a_skinPaletteBufferHandle,
             const ShadowBindings& a_shadowBindings,
             uint32_t a_indexCountPerInstance)
             : m_drawFrameState(a_drawFrameState)
@@ -34,6 +35,7 @@ namespace Cue::ShadowSystem
             , m_renderObjectBufferHandle(a_renderObjectBufferHandle)
             , m_transformBufferHandle(a_transformBufferHandle)
             , m_visibleObjectCountBufferHandle(a_visibleObjectCountBufferHandle)
+            , m_skinPaletteBufferHandle(a_skinPaletteBufferHandle)
             , m_shadowBindings(a_shadowBindings)
             , m_indexCountPerInstance(a_indexCountPerInstance)
         {}
@@ -122,6 +124,11 @@ namespace Cue::ShadowSystem
             {
                 return result;
             }
+            result = builder.read_buffer(m_skinPaletteBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
 
             result =
                 builder.get_buffer("StaticMeshPool.Position", m_positionBufferHandle);
@@ -135,6 +142,13 @@ namespace Cue::ShadowSystem
                 return result;
             }
             result = builder.get_buffer("StaticMeshPool.Normal", m_normalBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer(
+                "StaticMeshPool.SkinInfluence",
+                m_influenceBufferHandle);
             if (!result)
             {
                 return result;
@@ -175,6 +189,8 @@ namespace Cue::ShadowSystem
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
+                RHI::RootParameterType::SRV, RHI::ShaderVisibility::Vertex, 4 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -213,8 +229,10 @@ namespace Cue::ShadowSystem
                 { "POSITION", 0, RHI::InputElementFormat::R32G32B32A32_Float, 0, 0 },
                 { "TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0 },
                 { "NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0 },
+                { "JOINTS", 0, RHI::InputElementFormat::R32G32B32A32_UInt, 3, 0 },
+                { "WEIGHTS", 0, RHI::InputElementFormat::R32G32B32A32_Float, 3, 16 },
             };
-            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Front;
+            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
             pipelineDesc.depthStencilState.depthEnable = true;
             pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
             pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
@@ -313,6 +331,24 @@ namespace Cue::ShadowSystem
                 return result;
             }
             result = builder.use_buffer(
+                m_influenceBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_skinPaletteBufferHandle,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
                 m_indexBufferHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
@@ -368,9 +404,11 @@ namespace Cue::ShadowSystem
             commandContext->set_srv(3, m_transformBufferHandle);
             commandContext->set_srv(4, m_visibleObjectCountBufferHandle);
             commandContext->set_srv(5, m_shadowBindings.spotShadowFrameBuffer);
+            commandContext->set_srv(6, m_skinPaletteBufferHandle);
             commandContext->set_vertex_buffer(0, m_positionBufferHandle);
             commandContext->set_vertex_buffer(1, m_uvBufferHandle);
             commandContext->set_vertex_buffer(2, m_normalBufferHandle);
+            commandContext->set_vertex_buffer(3, m_influenceBufferHandle);
 
             const auto drawShadowCasters =
                 [&](const GpuData::SpotShadowFrameGpu& a_shadowFrame)
@@ -524,9 +562,11 @@ namespace Cue::ShadowSystem
         RHI::BufferHandle m_sortedRenderObjectBufferHandle{};
         RHI::BufferHandle m_transformBufferHandle{};
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
+        RHI::BufferHandle m_skinPaletteBufferHandle{};
         RHI::BufferHandle m_positionBufferHandle{};
         RHI::BufferHandle m_uvBufferHandle{};
         RHI::BufferHandle m_normalBufferHandle{};
+        RHI::BufferHandle m_influenceBufferHandle{};
         RHI::BufferHandle m_indexBufferHandle{};
         RHI::BufferHandle m_indirectCommandBufferHandle{};
         RHI::BufferHandle m_indirectCommandCountBufferHandle{};

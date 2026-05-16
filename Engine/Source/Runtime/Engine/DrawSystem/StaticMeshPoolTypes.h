@@ -68,6 +68,7 @@ namespace Cue::DrawSystem
         virtual Result free_mesh(StaticMeshHandle handle) = 0;
         virtual Result get_mesh_id(StaticMeshHandle handle, uint32_t& outMeshId) const = 0;
         virtual Result get_mesh_range(uint32_t meshId, StaticMeshRange& outMeshRange) const = 0;
+        virtual Result has_skin_influence(uint32_t meshId, bool& outHasSkinInfluence) const = 0;
         virtual Result get_bindings(StaticMeshPoolBindings& outBindings) const = 0;
     };
 }
