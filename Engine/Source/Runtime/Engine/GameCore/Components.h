@@ -17,6 +17,7 @@
 
 // === Engine includes ===
 #include "GameCoreTypes.h"
+#include <GpuData/Particle.h>
 
 // === C++ includes ===
 #include <cstdint>
@@ -228,6 +229,43 @@ namespace Cue::ECS
         int32_t layer = 0;
         uint32_t order = 0;
         bool isVisible = true;
+    };
+
+    enum class ParticleBillboardMode : uint32_t
+    {
+        View = 0
+    };
+
+    struct ParticleEmitterComponent : public IComponentTag
+    {
+        ParticleEmitterComponent() = default;
+        ParticleEmitterComponent(const ParticleEmitterComponent&) = default;
+        ParticleEmitterComponent& operator=(const ParticleEmitterComponent&) = default;
+        ParticleEmitterComponent(ParticleEmitterComponent&&) = default;
+        ParticleEmitterComponent& operator=(ParticleEmitterComponent&&) = default;
+
+        MaterialHandle materialHandle{};
+        Math::float4 startColor = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 endColor = Math::float4(1.0f, 1.0f, 1.0f, 0.0f);
+        Math::float3 velocityMin = Math::float3(-0.2f, 0.8f, -0.2f);
+        Math::float3 velocityMax = Math::float3(0.2f, 1.6f, 0.2f);
+        Math::float3 acceleration = Math::float3(0.0f, -0.4f, 0.0f);
+        float startSize = 0.15f;
+        float endSize = 0.0f;
+        float minLifetime = 0.75f;
+        float maxLifetime = 1.25f;
+        float emitRate = 32.0f;
+        uint32_t burstCount = 0;
+        uint32_t maxParticleCount = GpuData::k_defaultEmitterParticleCapacity;
+        uint32_t randomSeed = 1;
+        ParticleBillboardMode billboardMode = ParticleBillboardMode::View;
+        bool isPlaying = true;
+        bool isVisible = true;
+
+        uint32_t runtimeParticleBase = (std::numeric_limits<uint32_t>::max)();
+        uint32_t runtimeParticleCapacity = 0;
+        uint32_t runtimeSpawnCursor = 0;
+        float runtimeEmitAccumulator = 0.0f;
     };
 
     struct AudioSourceComponent : public IComponentTag

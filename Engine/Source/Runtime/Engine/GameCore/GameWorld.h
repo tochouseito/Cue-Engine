@@ -37,6 +37,10 @@
 #include <ShadowSystem/ShadowResources.h>
 #include <ShadowSystem/ShadowScene.h>
 #include <ShadowSystem/Systems/ShadowSystem.h>
+#include <ParticleSystem/ParticleFrameState.h>
+#include <ParticleSystem/ParticleResources.h>
+#include <ParticleSystem/ParticleScene.h>
+#include <ParticleSystem/Systems/ParticleEmitterSystem.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -64,6 +68,10 @@ namespace Cue::GameCore
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
         static constexpr uint32_t k_maxSpriteCount = 1000;
+        static constexpr uint32_t k_maxParticleEmitterCount =
+            GpuData::k_maxParticleEmitterCount;
+        static constexpr uint32_t k_maxParticleCount =
+            GpuData::k_maxParticleCount;
         static constexpr uint32_t k_maxSkinPaletteCount =
             k_maxRenderObjectCount * 128u;
         static constexpr uint32_t k_maxMaterialCount = 1024;
@@ -783,9 +791,25 @@ namespace Cue::GameCore
             return m_shadowResources.get();
         }
 
+        [[nodiscard]] const ParticleSystem::ParticleResources* particle_resources()
+            const noexcept
+        {
+            return m_particleResources.get();
+        }
+
         LightingSystem::LightFrameState& light_frame_state() noexcept
         {
             return m_lightFrameState;
+        }
+
+        ParticleSystem::ParticleFrameState& particle_frame_state() noexcept
+        {
+            return m_particleFrameState;
+        }
+
+        const ParticleSystem::ParticleFrameState& particle_frame_state() const noexcept
+        {
+            return m_particleFrameState;
         }
 
         const LightingSystem::LightFrameState& light_frame_state() const noexcept
@@ -1679,9 +1703,18 @@ namespace Cue::GameCore
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
+
+            if (a_bufferIndex < m_particleFrameState.frameStates.size())
+            {
+                ParticleSystem::ParticleFrameData& particleFrameState =
+                    m_particleFrameState.frame_state(a_bufferIndex);
+                particleFrameState.frame.emitterCount = 0;
+                particleFrameState.frame.particleCount = 0;
+            }
         }
 
         [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_particle_scene(uint32_t a_bufferIndex);
         [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
         [[nodiscard]] Result upload_shadow_scene(uint32_t a_bufferIndex);
 
@@ -2469,6 +2502,20 @@ namespace Cue::GameCore
                 spriteRenderer != nullptr)
             {
                 prototype.add_component(*spriteRenderer);
+            }
+
+            if (const ECS::ParticleEmitterComponent* particleEmitter =
+                get_component<ECS::ParticleEmitterComponent>(a_entityId);
+                particleEmitter != nullptr)
+            {
+                ECS::ParticleEmitterComponent copiedParticleEmitter =
+                    *particleEmitter;
+                copiedParticleEmitter.runtimeParticleBase =
+                    (std::numeric_limits<uint32_t>::max)();
+                copiedParticleEmitter.runtimeParticleCapacity = 0;
+                copiedParticleEmitter.runtimeSpawnCursor = 0;
+                copiedParticleEmitter.runtimeEmitAccumulator = 0.0f;
+                prototype.add_component(copiedParticleEmitter);
             }
 
             if (const ECS::AudioSourceComponent* audioSource =
@@ -3298,6 +3345,7 @@ namespace Cue::GameCore
         std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
         std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
         std::unique_ptr<ShadowSystem::ShadowResources> m_shadowResources = nullptr;
+        std::unique_ptr<ParticleSystem::ParticleResources> m_particleResources = nullptr;
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
@@ -3310,6 +3358,8 @@ namespace Cue::GameCore
         bool m_hasActiveNavMeshAsset = false;
         DrawSystem::DrawScene m_drawScene{};
         DrawSystem::DrawFrameState m_drawFrameState{};
+        ParticleSystem::ParticleScene m_particleScene{};
+        ParticleSystem::ParticleFrameState m_particleFrameState{};
         LightingSystem::LightScene m_lightScene{};
         LightingSystem::LightFrameState m_lightFrameState{};
         ShadowSystem::ShadowScene m_shadowScene{};

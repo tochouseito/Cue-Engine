@@ -22,6 +22,11 @@
 #include "DrawSystem/Passes/ViewProjectionCopyPass.h"
 #include "LightingSystem/GpuData/LightData.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
+#include "ParticleSystem/Passes/ParticleBufferCopyPass.h"
+#include "ParticleSystem/Passes/ParticleInitializePass.h"
+#include "ParticleSystem/Passes/ParticleSpawnPass.h"
+#include "ParticleSystem/Passes/ParticleSpriteForwardPass.h"
+#include "ParticleSystem/Passes/ParticleUpdatePass.h"
 #include "ShadowSystem/GpuData/ShadowData.h"
 #include "ShadowSystem/Passes/DirectionalShadowMapPass.h"
 #include "ShadowSystem/Passes/PointShadowMapPass.h"
@@ -1006,6 +1011,13 @@ namespace Cue
         }
         const ShadowSystem::ShadowBindings shadowBindings =
             shadowResources->bindings();
+        const ParticleSystem::ParticleResources* particleResources =
+            m_activeWorld->particle_resources();
+        if (particleResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine particle resources are not initialized.");
+        }
         auto* bufferManager = m_backend->get_buffer_manager();
         if (bufferManager == nullptr)
         {
@@ -1050,12 +1062,28 @@ namespace Cue
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteInstanceCopyPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleBufferCopyPass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->emitter_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderObjectCopyPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->render_object_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectCountCopyPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleInitializePass>(
+            particleResources->particle_buffer_handle(),
+            particleResources->max_particle_count()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleSpawnPass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->emitter_buffer_handle(),
+            particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleUpdatePass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
             "LightFrameBufferCopy",
             lightingBindings.frameBuffer,
@@ -1166,6 +1194,16 @@ namespace Cue
             "GameSceneDepthDSV",
             drawResources->view_projection_buffer_handle(),
             m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
+                "GameParticleSpriteForward",
+                "GameColor",
+                "GameColorRTV",
+                "GameSceneDepth",
+                "GameSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                drawResources->view_projection_buffer_handle(),
+                particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
             "GameColor",
@@ -1207,6 +1245,16 @@ namespace Cue
             "DebugSceneDepthDSV",
             m_debugViewProjectionBufferHandle,
             m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
+                "DebugParticleSpriteForward",
+                "DebugColor",
+                "DebugColorRTV",
+                "DebugSceneDepth",
+                "DebugSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                m_debugViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->render_object_buffer_handle(),

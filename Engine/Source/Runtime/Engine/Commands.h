@@ -26,6 +26,7 @@ namespace Cue
         SkinnedMeshRenderer,
         Animation,
         SpriteRenderer,
+        ParticleEmitter,
         AudioSource,
         RigidBody,
         Collider,

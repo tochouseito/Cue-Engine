@@ -143,6 +143,10 @@ namespace Cue
             return add_component_internal<ECS::SpriteRendererComponent>(
                 a_objectId, "SpriteRendererComponent already exists.");
 
+        case AddableComponentType::ParticleEmitter:
+            return add_component_internal<ECS::ParticleEmitterComponent>(
+                a_objectId, "ParticleEmitterComponent already exists.");
+
         case AddableComponentType::AudioSource:
             return add_component_internal<ECS::AudioSourceComponent>(
                 a_objectId, "AudioSourceComponent already exists.");
@@ -209,6 +213,10 @@ namespace Cue
         case AddableComponentType::SpriteRenderer:
             return remove_component_internal<ECS::SpriteRendererComponent>(
                 a_objectId, "SpriteRendererComponent was not found.");
+
+        case AddableComponentType::ParticleEmitter:
+            return remove_component_internal<ECS::ParticleEmitterComponent>(
+                a_objectId, "ParticleEmitterComponent was not found.");
 
         case AddableComponentType::AudioSource:
             return remove_component_internal<ECS::AudioSourceComponent>(

@@ -34,6 +34,24 @@ namespace Cue::GameCore
             a_outValue.z = a_json.at("z").get<float>();
         }
 
+        [[nodiscard]] Json serialize_float4(const Math::float4& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+                { "z", a_value.z },
+                { "w", a_value.w },
+            };
+        }
+
+        void deserialize_float4(const Json& a_json, Math::float4& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+            a_outValue.z = a_json.at("z").get<float>();
+            a_outValue.w = a_json.at("w").get<float>();
+        }
+
         [[nodiscard]] Json serialize_quaternion(
             const Math::Quaternion& a_value)
         {
@@ -124,6 +142,30 @@ namespace Cue::GameCore
             }
 
             return Physics::ShapeType::Box;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::ParticleBillboardMode a_mode) noexcept
+        {
+            switch (a_mode)
+            {
+            case ECS::ParticleBillboardMode::View:
+                return "View";
+            }
+
+            return "View";
+        }
+
+        [[nodiscard]] ECS::ParticleBillboardMode parse_particle_billboard_mode(
+            const Json& a_json) noexcept
+        {
+            const std::string modeName = a_json.get<std::string>();
+            if (modeName == "View")
+            {
+                return ECS::ParticleBillboardMode::View;
+            }
+
+            return ECS::ParticleBillboardMode::View;
         }
 
         [[nodiscard]] Json serialize_transform(
@@ -783,6 +825,152 @@ namespace Cue::GameCore
             a_outComponent.receivesShadow = proxy.receivesShadow;
         }
 
+        [[nodiscard]] Json serialize_particle_emitter(
+            const ECS::ParticleEmitterComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            Json emitterJson = {
+                { "startColor", serialize_float4(a_component.startColor) },
+                { "endColor", serialize_float4(a_component.endColor) },
+                { "velocityMin", serialize_float3(a_component.velocityMin) },
+                { "velocityMax", serialize_float3(a_component.velocityMax) },
+                { "acceleration", serialize_float3(a_component.acceleration) },
+                { "startSize", a_component.startSize },
+                { "endSize", a_component.endSize },
+                { "minLifetime", a_component.minLifetime },
+                { "maxLifetime", a_component.maxLifetime },
+                { "emitRate", a_component.emitRate },
+                { "burstCount", a_component.burstCount },
+                { "maxParticleCount", a_component.maxParticleCount },
+                { "randomSeed", a_component.randomSeed },
+                { "billboardMode", to_string(a_component.billboardMode) },
+                { "isPlaying", a_component.isPlaying },
+                { "isVisible", a_component.isVisible },
+            };
+
+            if (!a_component.materialHandle.valid())
+            {
+                return emitterJson;
+            }
+
+            if (a_options.assetManager != nullptr)
+            {
+                std::string materialName{};
+                if (a_options.assetManager->get_material_name(
+                    a_component.materialHandle,
+                    materialName))
+                {
+                    emitterJson["materialName"] = materialName;
+                    return emitterJson;
+                }
+            }
+
+            emitterJson["materialHandleIndex"] = a_component.materialHandle.index;
+            emitterJson["materialHandleGeneration"] =
+                a_component.materialHandle.generation;
+            return emitterJson;
+        }
+
+        void deserialize_particle_emitter(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::ParticleEmitterComponent& a_outComponent)
+        {
+            a_outComponent.materialHandle = {};
+
+            const std::string materialName =
+                a_json.value("materialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(materialName, materialHandle))
+                {
+                    a_outComponent.materialHandle = materialHandle;
+                }
+            }
+
+            if (!a_outComponent.materialHandle.valid())
+            {
+                a_outComponent.materialHandle.index =
+                    a_json.value("materialHandleIndex", MaterialHandle::k_invalid);
+                a_outComponent.materialHandle.generation =
+                    a_json.value("materialHandleGeneration", 0u);
+            }
+
+            if (const Json::const_iterator colorIt =
+                a_json.find("startColor");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.startColor);
+            }
+            if (const Json::const_iterator colorIt = a_json.find("endColor");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.endColor);
+            }
+            if (const Json::const_iterator velocityIt =
+                a_json.find("velocityMin");
+                velocityIt != a_json.end())
+            {
+                deserialize_float3(*velocityIt, a_outComponent.velocityMin);
+            }
+            if (const Json::const_iterator velocityIt =
+                a_json.find("velocityMax");
+                velocityIt != a_json.end())
+            {
+                deserialize_float3(*velocityIt, a_outComponent.velocityMax);
+            }
+            if (const Json::const_iterator accelerationIt =
+                a_json.find("acceleration");
+                accelerationIt != a_json.end())
+            {
+                deserialize_float3(*accelerationIt, a_outComponent.acceleration);
+            }
+
+            a_outComponent.startSize = (std::max)(
+                a_json.value("startSize", a_outComponent.startSize),
+                0.0f);
+            a_outComponent.endSize = (std::max)(
+                a_json.value("endSize", a_outComponent.endSize),
+                0.0f);
+            a_outComponent.minLifetime = (std::max)(
+                a_json.value("minLifetime", a_outComponent.minLifetime),
+                0.01f);
+            a_outComponent.maxLifetime = (std::max)(
+                a_json.value("maxLifetime", a_outComponent.maxLifetime),
+                a_outComponent.minLifetime);
+            a_outComponent.emitRate = (std::max)(
+                a_json.value("emitRate", a_outComponent.emitRate),
+                0.0f);
+            a_outComponent.burstCount =
+                a_json.value("burstCount", a_outComponent.burstCount);
+            a_outComponent.maxParticleCount = (std::clamp)(
+                a_json.value(
+                    "maxParticleCount", a_outComponent.maxParticleCount),
+                1u,
+                GpuData::k_maxParticleCount);
+            a_outComponent.randomSeed =
+                a_json.value("randomSeed", a_outComponent.randomSeed);
+            if (const Json::const_iterator modeIt =
+                a_json.find("billboardMode");
+                modeIt != a_json.end())
+            {
+                a_outComponent.billboardMode =
+                    parse_particle_billboard_mode(*modeIt);
+            }
+            a_outComponent.isPlaying =
+                a_json.value("isPlaying", a_outComponent.isPlaying);
+            a_outComponent.isVisible =
+                a_json.value("isVisible", a_outComponent.isVisible);
+
+            ECS::ParticleEmitterComponent defaultComponent{};
+            a_outComponent.runtimeParticleBase =
+                defaultComponent.runtimeParticleBase;
+            a_outComponent.runtimeParticleCapacity = 0;
+            a_outComponent.runtimeSpawnCursor = 0;
+            a_outComponent.runtimeEmitAccumulator = 0.0f;
+        }
+
         [[nodiscard]] Json serialize_animation(
             const ECS::AnimationComponent& a_component)
         {
@@ -1254,6 +1442,15 @@ namespace Cue::GameCore
                 componentsJson["animation"] = serialize_animation(*animation);
             }
 
+            if (const ECS::ParticleEmitterComponent* emitter =
+                a_definition.prototype.get_component_ptr<
+                    ECS::ParticleEmitterComponent>();
+                emitter != nullptr)
+            {
+                componentsJson["particleEmitter"] =
+                    serialize_particle_emitter(*emitter, a_options);
+            }
+
             if (const ECS::AudioSourceComponent* audioSource =
                 a_definition.prototype.get_component_ptr<ECS::AudioSourceComponent>();
                 audioSource != nullptr)
@@ -1462,6 +1659,15 @@ namespace Cue::GameCore
                     ECS::AnimationComponent animation{};
                     deserialize_animation(*animationIt, animation);
                     objectDefinition.prototype.add_component(animation);
+                }
+
+                if (const Json::const_iterator emitterIt =
+                    componentsJson.find("particleEmitter");
+                    emitterIt != componentsJson.end())
+                {
+                    ECS::ParticleEmitterComponent emitter{};
+                    deserialize_particle_emitter(*emitterIt, a_options, emitter);
+                    objectDefinition.prototype.add_component(emitter);
                 }
 
                 if (const Json::const_iterator audioSourceIt =

@@ -207,6 +207,8 @@ namespace Cue::GameCore
         m_defaultMaterialHandle = a_defaultMaterialHandle;
         m_drawFrameState.resize(a_bufferCount);
         m_drawScene.resize(a_bufferCount);
+        m_particleFrameState.resize(a_bufferCount);
+        m_particleScene.resize(a_bufferCount);
         m_lightFrameState.resize(a_bufferCount);
         m_lightScene.resize(a_bufferCount);
         m_shadowFrameState.resize(a_bufferCount);
@@ -266,6 +268,29 @@ namespace Cue::GameCore
         }
 
         result = m_drawResources->create_sprite_instance_buffer(k_maxSpriteCount);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_particleResources =
+            std::make_unique<ParticleSystem::ParticleResources>(
+                a_bufferManager, a_viewManager, a_bufferCount);
+
+        result = m_particleResources->create_frame_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_particleResources->create_emitter_buffer(
+            k_maxParticleEmitterCount);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_particleResources->create_particle_buffer(k_maxParticleCount);
         if (!result)
         {
             return result;
@@ -342,6 +367,11 @@ namespace Cue::GameCore
             m_defaultMaterialHandle,
             m_drawFrameState,
             m_drawScene);
+        auto& particleEmitterSystem =
+            m_ecs.add_system<ECS::ParticleEmitterSystem>(
+                m_assetManager,
+                m_defaultMaterialHandle,
+                m_particleScene);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_drawFrameState, m_drawScene);
         auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(m_lightScene);
@@ -377,6 +407,7 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&skinnedRenderableObjectSystem);
         m_editorPipeline.add_system(&spriteSystem);
+        m_editorPipeline.add_system(&particleEmitterSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&lightSystem);
         m_editorPipeline.add_system(&shadowSystem);
@@ -429,7 +460,15 @@ namespace Cue::GameCore
         }
 
         sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
+        if (a_bufferIndex < m_particleFrameState.frameStates.size())
+        {
+            ParticleSystem::ParticleFrameData& particleFrame =
+                m_particleFrameState.frame_state(a_bufferIndex);
+            particleFrame.frame.deltaTime = a_deltaTime;
+            particleFrame.frame.time += a_deltaTime;
+        }
         m_drawScene.begin_frame(a_bufferIndex);
+        m_particleScene.begin_frame(a_bufferIndex);
         m_lightScene.begin_frame(a_bufferIndex);
         m_shadowScene.begin_frame(a_bufferIndex);
 
@@ -438,6 +477,12 @@ namespace Cue::GameCore
         updateContext.deltaTime = a_deltaTime;
         m_editorPipeline.update(m_ecs, updateContext);
         Result result = upload_draw_scene(a_bufferIndex);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = upload_particle_scene(a_bufferIndex);
         if (!result)
         {
             return result;
@@ -1414,6 +1459,101 @@ namespace Cue::GameCore
                 {
                     return Result::fail(Code::InvalidState, Severity::Error,
                         "Failed to commit view projection upload.");
+                }
+            }
+        }
+
+        return Result::ok();
+    }
+
+    [[nodiscard]] Result GameWorld::upload_particle_scene(uint32_t a_bufferIndex)
+    {
+        if (m_particleResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Particle resources are not initialized.");
+        }
+
+        if (a_bufferIndex >= m_particleFrameState.frameStates.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Particle frame index is out of range.");
+        }
+
+        auto resolve_uploader_index = [a_bufferIndex](uint32_t a_count) -> uint32_t
+        {
+            if (a_count <= 1)
+            {
+                return 0;
+            }
+
+            return a_bufferIndex;
+        };
+
+        ParticleSystem::ParticleSceneFrame& sceneFrame =
+            m_particleScene.frame(a_bufferIndex);
+        ParticleSystem::ParticleFrameData& frameState =
+            m_particleFrameState.frame_state(a_bufferIndex);
+        frameState.frame.emitterCount = (std::min)(
+            static_cast<uint32_t>(sceneFrame.emitters.size()),
+            k_maxParticleEmitterCount);
+        uint32_t particleCount = 0;
+        for (uint32_t emitterIndex = 0; emitterIndex < frameState.frame.emitterCount;
+             ++emitterIndex)
+        {
+            const GpuData::ParticleEmitterGpu& emitter =
+                sceneFrame.emitters[emitterIndex].emitter;
+            particleCount = (std::max)(
+                particleCount,
+                emitter.particleBase + emitter.particleCapacity);
+        }
+        frameState.frame.particleCount =
+            (std::min)(particleCount, k_maxParticleCount);
+
+        auto& frameUploaders = m_particleResources->frame_uploaders();
+        if (!frameUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(frameUploaders.size()));
+            if (uploaderIndex < frameUploaders.size())
+            {
+                auto& uploader = frameUploaders[uploaderIndex];
+                uploader.begin_frame();
+                if (!uploader.push(0, frameState.frame))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to queue particle frame upload.");
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit particle frame upload.");
+                }
+            }
+        }
+
+        auto& emitterUploaders = m_particleResources->emitter_uploaders();
+        if (!emitterUploaders.empty())
+        {
+            const uint32_t uploaderIndex = resolve_uploader_index(
+                static_cast<uint32_t>(emitterUploaders.size()));
+            if (uploaderIndex < emitterUploaders.size())
+            {
+                auto& uploader = emitterUploaders[uploaderIndex];
+                uploader.begin_frame();
+                for (uint32_t index = 0; index < frameState.frame.emitterCount;
+                     ++index)
+                {
+                    if (!uploader.push(index, sceneFrame.emitters[index].emitter))
+                    {
+                        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Failed to queue particle emitter upload.");
+                    }
+                }
+                if (!uploader.commit())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "Failed to commit particle emitter upload.");
                 }
             }
         }

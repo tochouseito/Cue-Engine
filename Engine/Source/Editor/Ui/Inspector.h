@@ -46,6 +46,7 @@ namespace Cue::Editor
             SkinnedMeshRenderer,
             Animation,
             SpriteRenderer,
+            ParticleEmitter,
             DirectionalLight,
             PointLight,
             SpotLight,
@@ -311,6 +312,11 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::SpriteRenderer, "Sp" });
             }
 
+            if (has_component<ECS::ParticleEmitterComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::ParticleEmitter, "Pt" });
+            }
+
             if (has_component<ECS::DirectionalLightComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::DirectionalLight, "DL" });
@@ -398,6 +404,13 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::SpriteRenderer,
                         "SpriteRendererComponent" });
+            }
+
+            if (!has_component<ECS::ParticleEmitterComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::ParticleEmitter,
+                        "ParticleEmitterComponent" });
             }
 
             if (!has_component<ECS::DirectionalLightComponent>(a_object))
@@ -591,6 +604,9 @@ namespace Cue::Editor
             case ComponentTab::SpriteRenderer:
                 outType = AddableComponentType::SpriteRenderer;
                 return true;
+            case ComponentTab::ParticleEmitter:
+                outType = AddableComponentType::ParticleEmitter;
+                return true;
             case ComponentTab::DirectionalLight:
                 outType = AddableComponentType::DirectionalLight;
                 return true;
@@ -658,6 +674,10 @@ namespace Cue::Editor
 
             case ComponentTab::SpriteRenderer:
                 draw_sprite_renderer_component(a_object);
+                break;
+
+            case ComponentTab::ParticleEmitter:
+                draw_particle_emitter_component(a_object);
                 break;
 
             case ComponentTab::DirectionalLight:
@@ -995,6 +1015,137 @@ namespace Cue::Editor
             }
 
             ImGui::Checkbox("isVisible", &component->isVisible);
+        }
+
+        void draw_particle_emitter_component(GameCore::GameObject& a_object)
+        {
+            ECS::ParticleEmitterComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "ParticleEmitterComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("ParticleEmitterComponent");
+            ImGui::Separator();
+            draw_material_reference_editor("material", component->materialHandle);
+
+            ImGui::Checkbox("isPlaying", &component->isPlaying);
+            ImGui::Checkbox("isVisible", &component->isVisible);
+
+            float startColor[4] = {
+                component->startColor.r,
+                component->startColor.g,
+                component->startColor.b,
+                component->startColor.a
+            };
+            if (ImGui::ColorEdit4("startColor", startColor))
+            {
+                component->startColor = Math::float4(
+                    startColor[0], startColor[1], startColor[2], startColor[3]);
+            }
+
+            float endColor[4] = {
+                component->endColor.r,
+                component->endColor.g,
+                component->endColor.b,
+                component->endColor.a
+            };
+            if (ImGui::ColorEdit4("endColor", endColor))
+            {
+                component->endColor = Math::float4(
+                    endColor[0], endColor[1], endColor[2], endColor[3]);
+            }
+
+            float velocityMin[3] = {
+                component->velocityMin.x,
+                component->velocityMin.y,
+                component->velocityMin.z
+            };
+            if (ImGui::DragFloat3("velocityMin", velocityMin, 0.01f))
+            {
+                component->velocityMin =
+                    Math::float3(velocityMin[0], velocityMin[1], velocityMin[2]);
+            }
+
+            float velocityMax[3] = {
+                component->velocityMax.x,
+                component->velocityMax.y,
+                component->velocityMax.z
+            };
+            if (ImGui::DragFloat3("velocityMax", velocityMax, 0.01f))
+            {
+                component->velocityMax =
+                    Math::float3(velocityMax[0], velocityMax[1], velocityMax[2]);
+            }
+
+            float acceleration[3] = {
+                component->acceleration.x,
+                component->acceleration.y,
+                component->acceleration.z
+            };
+            if (ImGui::DragFloat3("acceleration", acceleration, 0.01f))
+            {
+                component->acceleration = Math::float3(
+                    acceleration[0], acceleration[1], acceleration[2]);
+            }
+
+            ImGui::DragFloat("startSize", &component->startSize, 0.01f,
+                0.0f, 100.0f, "%.3f");
+            ImGui::DragFloat("endSize", &component->endSize, 0.01f,
+                0.0f, 100.0f, "%.3f");
+            ImGui::DragFloat("minLifetime", &component->minLifetime, 0.01f,
+                0.01f, 100.0f, "%.3f");
+            ImGui::DragFloat("maxLifetime", &component->maxLifetime, 0.01f,
+                0.01f, 100.0f, "%.3f");
+            if (component->maxLifetime < component->minLifetime)
+            {
+                component->maxLifetime = component->minLifetime;
+            }
+
+            ImGui::DragFloat("emitRate", &component->emitRate, 0.1f,
+                0.0f, 10000.0f, "%.2f");
+
+            int burstCount = static_cast<int>(component->burstCount);
+            if (ImGui::InputInt("burstCount", &burstCount))
+            {
+                component->burstCount =
+                    static_cast<uint32_t>((std::max)(burstCount, 0));
+            }
+            if (ImGui::Button("Burst 16"))
+            {
+                component->burstCount += 16;
+            }
+
+            int maxParticleCount =
+                static_cast<int>(component->maxParticleCount);
+            if (ImGui::DragInt("maxParticleCount", &maxParticleCount, 1.0f,
+                    1, static_cast<int>(GpuData::k_maxParticleCount)))
+            {
+                component->maxParticleCount = static_cast<uint32_t>(
+                    (std::clamp)(
+                        maxParticleCount,
+                        1,
+                        static_cast<int>(GpuData::k_maxParticleCount)));
+                reset_particle_emitter_runtime(*component);
+            }
+
+            int randomSeed = static_cast<int>(component->randomSeed);
+            if (ImGui::InputInt("randomSeed", &randomSeed))
+            {
+                component->randomSeed =
+                    static_cast<uint32_t>((std::max)(randomSeed, 0));
+                reset_particle_emitter_runtime(*component);
+            }
+
+            ImGui::TextUnformatted("billboardMode: View");
+            ImGui::Text("runtimeRange: %u / %u", component->runtimeParticleBase,
+                component->runtimeParticleCapacity);
+            if (ImGui::Button("Reset Runtime"))
+            {
+                reset_particle_emitter_runtime(*component);
+            }
         }
 
         void draw_directional_light_component(GameCore::GameObject& a_object)
@@ -3894,6 +4045,17 @@ namespace Cue::Editor
             bool hasComponent = false;
             Result result = a_object.has_component<T>(hasComponent);
             return result && hasComponent;
+        }
+
+        static void reset_particle_emitter_runtime(
+            ECS::ParticleEmitterComponent& a_component)
+        {
+            ECS::ParticleEmitterComponent defaultComponent{};
+            a_component.runtimeParticleBase =
+                defaultComponent.runtimeParticleBase;
+            a_component.runtimeParticleCapacity = 0;
+            a_component.runtimeSpawnCursor = 0;
+            a_component.runtimeEmitAccumulator = 0.0f;
         }
 
         [[nodiscard]] static const char* rigid_body_motion_label(
