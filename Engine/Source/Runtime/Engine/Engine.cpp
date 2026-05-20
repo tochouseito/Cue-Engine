@@ -1509,6 +1509,20 @@ namespace Cue
                         simulateResult.message.data());
                     return;
                 }
+
+                if (m_scriptModuleHost != nullptr &&
+                    m_scriptModuleHost->runtime() != nullptr)
+                {
+                    Result collisionResult =
+                        m_scriptModuleHost->runtime()->dispatch_collision_events();
+                    if (!collisionResult)
+                    {
+                        CUE_ASSERTF(false,
+                            "Script collision event dispatch failed: %s",
+                            collisionResult.message.data());
+                        return;
+                    }
+                }
             }
 
             Result updateResult = m_activeWorld->editor_update(a_index,

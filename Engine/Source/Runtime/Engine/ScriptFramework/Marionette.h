@@ -13,6 +13,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace Marionette
 {
@@ -33,8 +34,54 @@ namespace Marionette
     using MouseDelta = CueMouseDeltaData;
     using RaycastDesc = CueRaycastDesc;
     using RaycastHit = CueRaycastHit;
+    using SpawnObjectDesc = CueSpawnObjectDesc;
+    using InstantiateEntityDesc = CueInstantiateEntityDesc;
+    using SphereOverlapDesc = CueSphereOverlapDesc;
+    using ComponentKind = CueComponentKind;
+    using ColliderShapeType = CueColliderShapeType;
+    using CameraComponentData = CueCameraComponentData;
+    using ColliderComponentData = CueColliderComponentData;
+    using TriggerVolumeComponentData = CueTriggerVolumeComponentData;
+    using MeshFilterComponentData = CueMeshFilterComponentData;
+    using StaticMeshRendererComponentData = CueStaticMeshRendererComponentData;
+    using SpriteRendererComponentData = CueSpriteRendererComponentData;
     using Color = CueFloat4;
+    using SpawnObjectKind = CueSpawnObjectKind;
     inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
+    inline constexpr SpawnObjectKind SpawnObjectKindEmpty =
+        CueSpawnObjectKind_Empty;
+    inline constexpr SpawnObjectKind SpawnObjectKindStaticMesh =
+        CueSpawnObjectKind_StaticMesh;
+    inline constexpr SpawnObjectKind SpawnObjectKindSprite =
+        CueSpawnObjectKind_Sprite;
+    inline constexpr SpawnObjectKind SpawnObjectKindCamera =
+        CueSpawnObjectKind_Camera;
+    inline constexpr SpawnObjectKind SpawnObjectKindDirectionalLight =
+        CueSpawnObjectKind_DirectionalLight;
+    inline constexpr SpawnObjectKind SpawnObjectKindPointLight =
+        CueSpawnObjectKind_PointLight;
+    inline constexpr SpawnObjectKind SpawnObjectKindSpotLight =
+        CueSpawnObjectKind_SpotLight;
+    inline constexpr ComponentKind ComponentKindCamera =
+        CueComponentKind_Camera;
+    inline constexpr ComponentKind ComponentKindCollider =
+        CueComponentKind_Collider;
+    inline constexpr ComponentKind ComponentKindTriggerVolume =
+        CueComponentKind_TriggerVolume;
+    inline constexpr ComponentKind ComponentKindMeshFilter =
+        CueComponentKind_MeshFilter;
+    inline constexpr ComponentKind ComponentKindStaticMeshRenderer =
+        CueComponentKind_StaticMeshRenderer;
+    inline constexpr ComponentKind ComponentKindSpriteRenderer =
+        CueComponentKind_SpriteRenderer;
+    inline constexpr ColliderShapeType ColliderShapeTypeBox =
+        CueColliderShapeType_Box;
+    inline constexpr ColliderShapeType ColliderShapeTypeSphere =
+        CueColliderShapeType_Sphere;
+    inline constexpr ColliderShapeType ColliderShapeTypeCapsule =
+        CueColliderShapeType_Capsule;
+    inline constexpr ColliderShapeType ColliderShapeTypeMesh =
+        CueColliderShapeType_Mesh;
 
     enum class Key : uint32_t
     {
@@ -2206,6 +2253,327 @@ namespace Marionette
             }
 
             return engineApi->raycast(&a_desc, &a_outHit);
+        }
+
+        [[nodiscard]] CueResult spawn_object(
+            const SpawnObjectDesc& a_desc,
+            CueEntityHandle& a_outEntityHandle) const noexcept
+        {
+            a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, spawnObject) +
+                        sizeof(CueSpawnObjectFn) ||
+                engineApi->spawnObject == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->spawnObject(&a_desc, &a_outEntityHandle);
+        }
+
+        [[nodiscard]] CueResult instantiate_entity(
+            const InstantiateEntityDesc& a_desc,
+            CueEntityHandle& a_outEntityHandle) const noexcept
+        {
+            a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, instantiateEntity) +
+                        sizeof(CueInstantiateEntityFn) ||
+                engineApi->instantiateEntity == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->instantiateEntity(&a_desc, &a_outEntityHandle);
+        }
+
+        [[nodiscard]] CueResult destroy_entity(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, destroyEntity) +
+                        sizeof(CueDestroyEntityFn) ||
+                engineApi->destroyEntity == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->destroyEntity(a_entityHandle);
+        }
+
+        [[nodiscard]] CueResult destroy_self() const noexcept
+        {
+            return destroy_entity(m_entityHandle);
+        }
+
+        [[nodiscard]] CueResult get_camera_fov_y(
+            CueEntityHandle a_entityHandle,
+            float& a_outFovY) const noexcept
+        {
+            a_outFovY = 0.0f;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getCameraFovY) +
+                        sizeof(CueGetCameraFovYFn) ||
+                engineApi->getCameraFovY == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getCameraFovY(a_entityHandle, &a_outFovY);
+        }
+
+        [[nodiscard]] CueResult get_camera_fov_y(
+            float& a_outFovY) const noexcept
+        {
+            return get_camera_fov_y(m_entityHandle, a_outFovY);
+        }
+
+        [[nodiscard]] CueResult set_camera_fov_y(
+            CueEntityHandle a_entityHandle,
+            float a_fovY) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setCameraFovY) +
+                        sizeof(CueSetCameraFovYFn) ||
+                engineApi->setCameraFovY == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setCameraFovY(a_entityHandle, a_fovY);
+        }
+
+        [[nodiscard]] CueResult set_camera_fov_y(float a_fovY) const noexcept
+        {
+            return set_camera_fov_y(m_entityHandle, a_fovY);
+        }
+
+        [[nodiscard]] CueResult add_or_set_component(
+            CueEntityHandle a_entityHandle,
+            ComponentKind a_componentKind,
+            const void* a_componentData,
+            uint32_t a_componentDataSize) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, addOrSetComponent) +
+                        sizeof(CueAddOrSetComponentFn) ||
+                engineApi->addOrSetComponent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue ||
+                a_componentData == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->addOrSetComponent(
+                a_entityHandle,
+                a_componentKind,
+                a_componentData,
+                a_componentDataSize);
+        }
+
+        template<typename T>
+        [[nodiscard]] CueResult add_or_set_component(
+            CueEntityHandle a_entityHandle,
+            ComponentKind a_componentKind,
+            const T& a_componentData) const noexcept
+        {
+            return add_or_set_component(
+                a_entityHandle,
+                a_componentKind,
+                &a_componentData,
+                static_cast<uint32_t>(sizeof(T)));
+        }
+
+        template<typename T>
+        [[nodiscard]] CueResult add_or_set_component(
+            ComponentKind a_componentKind,
+            const T& a_componentData) const noexcept
+        {
+            return add_or_set_component(
+                m_entityHandle, a_componentKind, a_componentData);
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_tag(
+            std::string_view a_tag) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, findEntitiesByTag) +
+                        sizeof(CueFindEntitiesByTagFn) ||
+                engineApi->findEntitiesByTag == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->findEntitiesByTag(
+                    Detail::to_cue_string_view(a_tag),
+                    nullptr,
+                    0u,
+                    &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->findEntitiesByTag(
+                    Detail::to_cue_string_view(a_tag),
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_name(
+            std::string_view a_name) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, findEntitiesByName) +
+                        sizeof(CueFindEntitiesByNameFn) ||
+                engineApi->findEntitiesByName == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->findEntitiesByName(
+                    Detail::to_cue_string_view(a_name),
+                    nullptr,
+                    0u,
+                    &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->findEntitiesByName(
+                    Detail::to_cue_string_view(a_name),
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> trigger_overlaps(
+            CueEntityHandle a_triggerEntity) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, triggerOverlaps) +
+                        sizeof(CueTriggerOverlapsFn) ||
+                engineApi->triggerOverlaps == nullptr ||
+                a_triggerEntity.value == k_cueInvalidHandleValue)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->triggerOverlaps(
+                    a_triggerEntity, nullptr, 0u, &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->triggerOverlaps(
+                    a_triggerEntity,
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> sphere_overlap(
+            const SphereOverlapDesc& a_desc) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, sphereOverlap) +
+                        sizeof(CueSphereOverlapFn) ||
+                engineApi->sphereOverlap == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->sphereOverlap(
+                    &a_desc, nullptr, 0u, &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->sphereOverlap(
+                    &a_desc, entities.data(), count, &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
         }
 
         [[nodiscard]] CueResult debug_draw_line(

@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 17u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 20u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -89,6 +89,13 @@ extern "C"
         uint64_t value;
     };
 
+    /// @brief 2 要素の float ベクトルです。
+    struct CueFloat2
+    {
+        float x;
+        float y;
+    };
+
     /// @brief 3 要素の float ベクトルです。
     struct CueFloat3
     {
@@ -136,6 +143,42 @@ extern "C"
         float distance;
     };
 
+    enum CueSpawnObjectKind : uint32_t
+    {
+        CueSpawnObjectKind_Empty = 0,
+        CueSpawnObjectKind_StaticMesh = 1,
+        CueSpawnObjectKind_Sprite = 2,
+        CueSpawnObjectKind_Camera = 3,
+        CueSpawnObjectKind_DirectionalLight = 4,
+        CueSpawnObjectKind_PointLight = 5,
+        CueSpawnObjectKind_SpotLight = 6,
+    };
+
+    enum CueScriptCollisionEventType : uint32_t
+    {
+        CueScriptCollisionEventType_Enter = 0,
+        CueScriptCollisionEventType_Stay = 1,
+        CueScriptCollisionEventType_Exit = 2,
+    };
+
+    enum CueComponentKind : uint32_t
+    {
+        CueComponentKind_Camera = 0,
+        CueComponentKind_Collider = 1,
+        CueComponentKind_TriggerVolume = 2,
+        CueComponentKind_MeshFilter = 3,
+        CueComponentKind_StaticMeshRenderer = 4,
+        CueComponentKind_SpriteRenderer = 5,
+    };
+
+    enum CueColliderShapeType : uint32_t
+    {
+        CueColliderShapeType_Box = 0,
+        CueColliderShapeType_Sphere = 1,
+        CueColliderShapeType_Capsule = 2,
+        CueColliderShapeType_Mesh = 3,
+    };
+
     /// @brief Script 側へ公開する Transform データです。
     /// Engine 内部の TransformComponent をそのまま露出せず、
     /// DLL 境界ではこの POD だけを受け渡します。
@@ -152,6 +195,112 @@ extern "C"
         CueFloat3 position;
         CueQuaternion rotation;
         CueFloat3 scale;
+    };
+
+    struct CueSpawnObjectDesc
+    {
+        CueSpawnObjectKind kind;
+        CueSceneId sceneId;
+        CueStringView name;
+        CueStringView tag;
+        CueTransformData transform;
+        uint8_t isActive;
+        uint8_t isPersistent;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueInstantiateEntityDesc
+    {
+        CueEntityHandle sourceEntity;
+        CueStringView name;
+        CueStringView tag;
+        CueTransformData transform;
+        uint8_t usesName;
+        uint8_t usesTag;
+        uint8_t usesTransform;
+        uint8_t usesActive;
+        uint8_t isActive;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueSphereOverlapDesc
+    {
+        CueFloat3 center;
+        CueEntityHandle ignoredEntity;
+        float radius;
+        uint8_t includeTriggers;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueCameraComponentData
+    {
+        float fovY;
+        float aspectRatio;
+        float nearZ;
+        float farZ;
+        uint8_t isMain;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueColliderComponentData
+    {
+        CueStringView meshModelName;
+        CueFloat3 offset;
+        CueFloat3 halfExtent;
+        CueColliderShapeType shapeType;
+        float radius;
+        float halfHeight;
+        float friction;
+        float restitution;
+        uint16_t layer;
+        uint16_t mask;
+        uint8_t isTrigger;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueTriggerVolumeComponentData
+    {
+        uint8_t includeTriggers;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueMeshFilterComponentData
+    {
+        CueStringView modelName;
+        uint32_t meshId;
+    };
+
+    struct CueStaticMeshRendererComponentData
+    {
+        uint8_t visible;
+        uint8_t castsShadow;
+        uint8_t receivesShadow;
+        uint8_t reserved0;
+    };
+
+    struct CueSpriteRendererComponentData
+    {
+        CueFloat4 color;
+        CueFloat4 uvRect;
+        CueFloat2 size;
+        CueFloat2 pivot;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isVisible;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
     };
 
     /// @brief Script から参照できるキーボードキーです。
@@ -512,6 +661,65 @@ extern "C"
         float a_durationSeconds
     );
 
+    using CueSpawnObjectFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueSpawnObjectDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle
+    );
+
+    using CueInstantiateEntityFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueInstantiateEntityDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle
+    );
+
+    using CueFindEntitiesByTagFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_tag,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueFindEntitiesByNameFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_name,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueTriggerOverlapsFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_triggerEntity,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueSphereOverlapFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueSphereOverlapDesc* a_desc,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueDestroyEntityFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
+    using CueGetCameraFovYFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float* a_outFovY
+    );
+
+    using CueSetCameraFovYFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_fovY
+    );
+
+    using CueAddOrSetComponentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueComponentKind a_componentKind,
+        const void* a_componentData,
+        uint32_t a_componentDataSize
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -591,6 +799,26 @@ extern "C"
         CueGetTransformQuaternionFn getTransformQuaternion;
         /// v17 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueSetTransformQuaternionFn setTransformQuaternion;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSpawnObjectFn spawnObject;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueInstantiateEntityFn instantiateEntity;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueFindEntitiesByTagFn findEntitiesByTag;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueFindEntitiesByNameFn findEntitiesByName;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueTriggerOverlapsFn triggerOverlaps;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSphereOverlapFn sphereOverlap;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDestroyEntityFn destroyEntity;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetCameraFovYFn getCameraFovY;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetCameraFovYFn setCameraFovY;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueAddOrSetComponentFn addOrSetComponent;
     };
 
     /// @brief Script インスタンス生成時の入力です。
@@ -628,6 +856,12 @@ extern "C"
     using CueUpdateScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
         CueScriptInstanceHandle a_instanceHandle,
         float a_deltaTimeSeconds
+    );
+
+    using CueDispatchScriptCollisionEventFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueScriptCollisionEventType a_eventType,
+        CueEntityHandle a_otherEntity
     );
 
     /// @brief ScriptInstance の state サイズを返します。
@@ -686,6 +920,8 @@ extern "C"
         CueInvokeScriptFunctionFn invokeScriptFunction;
         /// v6 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueGetScriptInstanceObjectFn getScriptInstanceObject;
+        /// v19 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDispatchScriptCollisionEventFn dispatchScriptCollisionEvent;
     };
 
     /// @brief Script DLL の ABI version を返します。

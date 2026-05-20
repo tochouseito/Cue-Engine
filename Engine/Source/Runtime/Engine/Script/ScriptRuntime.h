@@ -105,6 +105,7 @@ namespace Cue
             StateRestoreReport* a_outReport = nullptr) noexcept;
 
         [[nodiscard]] Result update(float a_deltaTimeSeconds) noexcept;
+        [[nodiscard]] Result dispatch_collision_events() noexcept;
         [[nodiscard]] Result reset() noexcept;
 
     private:
@@ -268,6 +269,54 @@ namespace Cue
                 const CueFloat3* a_halfExtent,
                 const CueFloat4* a_color,
                 float a_durationSeconds);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            spawn_object_bridge(
+                const CueSpawnObjectDesc* a_desc,
+                CueEntityHandle* a_outEntityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            instantiate_entity_bridge(
+                const CueInstantiateEntityDesc* a_desc,
+                CueEntityHandle* a_outEntityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            find_entities_by_tag_bridge(
+                CueStringView a_tag,
+                CueEntityHandle* a_outEntityHandles,
+                uint32_t a_capacity,
+                uint32_t* a_outCount);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            find_entities_by_name_bridge(
+                CueStringView a_name,
+                CueEntityHandle* a_outEntityHandles,
+                uint32_t a_capacity,
+                uint32_t* a_outCount);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            trigger_overlaps_bridge(
+                CueEntityHandle a_triggerEntity,
+                CueEntityHandle* a_outEntityHandles,
+                uint32_t a_capacity,
+                uint32_t* a_outCount);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            sphere_overlap_bridge(
+                const CueSphereOverlapDesc* a_desc,
+                CueEntityHandle* a_outEntityHandles,
+                uint32_t a_capacity,
+                uint32_t* a_outCount);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            destroy_entity_bridge(CueEntityHandle a_entityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_camera_fov_y_bridge(
+                CueEntityHandle a_entityHandle,
+                float* a_outFovY);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_camera_fov_y_bridge(
+                CueEntityHandle a_entityHandle,
+                float a_fovY);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            add_or_set_component_bridge(
+                CueEntityHandle a_entityHandle,
+                CueComponentKind a_componentKind,
+                const void* a_componentData,
+                uint32_t a_componentDataSize);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -378,6 +427,45 @@ namespace Cue
             const CueFloat3* a_halfExtent,
             const CueFloat4* a_color,
             float a_durationSeconds) noexcept;
+        [[nodiscard]] CueResult spawn_object_internal(
+            const CueSpawnObjectDesc* a_desc,
+            CueEntityHandle* a_outEntityHandle) noexcept;
+        [[nodiscard]] CueResult instantiate_entity_internal(
+            const CueInstantiateEntityDesc* a_desc,
+            CueEntityHandle* a_outEntityHandle) noexcept;
+        [[nodiscard]] CueResult find_entities_by_tag_internal(
+            CueStringView a_tag,
+            CueEntityHandle* a_outEntityHandles,
+            uint32_t a_capacity,
+            uint32_t* a_outCount) noexcept;
+        [[nodiscard]] CueResult find_entities_by_name_internal(
+            CueStringView a_name,
+            CueEntityHandle* a_outEntityHandles,
+            uint32_t a_capacity,
+            uint32_t* a_outCount) noexcept;
+        [[nodiscard]] CueResult trigger_overlaps_internal(
+            CueEntityHandle a_triggerEntity,
+            CueEntityHandle* a_outEntityHandles,
+            uint32_t a_capacity,
+            uint32_t* a_outCount) noexcept;
+        [[nodiscard]] CueResult sphere_overlap_internal(
+            const CueSphereOverlapDesc* a_desc,
+            CueEntityHandle* a_outEntityHandles,
+            uint32_t a_capacity,
+            uint32_t* a_outCount) noexcept;
+        [[nodiscard]] CueResult destroy_entity_internal(
+            CueEntityHandle a_entityHandle) noexcept;
+        [[nodiscard]] CueResult get_camera_fov_y_internal(
+            CueEntityHandle a_entityHandle,
+            float* a_outFovY) const noexcept;
+        [[nodiscard]] CueResult set_camera_fov_y_internal(
+            CueEntityHandle a_entityHandle,
+            float a_fovY) noexcept;
+        [[nodiscard]] CueResult add_or_set_component_internal(
+            CueEntityHandle a_entityHandle,
+            CueComponentKind a_componentKind,
+            const void* a_componentData,
+            uint32_t a_componentDataSize) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

@@ -161,6 +161,14 @@ extern "C"
                 return g_scriptRuntime.get_script_instance_object(
                     a_instanceHandle);
             };
+        a_outExports->dispatchScriptCollisionEvent =
+            [](CueScriptInstanceHandle a_instanceHandle,
+                CueScriptCollisionEventType a_eventType,
+                CueEntityHandle a_otherEntity) -> CueResult
+            {
+                return g_scriptRuntime.dispatch_script_collision_event(
+                    a_instanceHandle, a_eventType, a_otherEntity);
+            };
         return CueResult_Ok;
     }
 }
