@@ -120,6 +120,66 @@ namespace Cue::Editor
                 isClose3(a_left.scale, a_right.scale);
         }
 
+        [[nodiscard]] ECS::WorldTransformComponent make_world_transform(
+            const ECS::TransformComponent& a_transform) noexcept
+        {
+            ECS::WorldTransformComponent worldTransform{};
+            worldTransform.position = a_transform.position;
+            worldTransform.rotation = a_transform.rotation;
+            worldTransform.scale = a_transform.scale;
+            return worldTransform;
+        }
+
+        [[nodiscard]] bool get_debug_world_transform(
+            GameCore::GameObject& a_object,
+            ECS::WorldTransformComponent& a_outTransform)
+        {
+            ECS::WorldTransformComponent* worldTransform = nullptr;
+            if (a_object.get_component(worldTransform) &&
+                worldTransform != nullptr)
+            {
+                a_outTransform = *worldTransform;
+                return true;
+            }
+
+            ECS::TransformComponent* transform = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr)
+            {
+                return false;
+            }
+
+            a_outTransform = make_world_transform(*transform);
+            return true;
+        }
+
+        [[nodiscard]] bool get_debug_world_transform(
+            GameCore::GameWorld& a_world,
+            GameCore::EntityId a_entityId,
+            ECS::WorldTransformComponent& a_outTransform)
+        {
+            const ECS::WorldTransformComponent* worldTransform = nullptr;
+            if (a_world.get_component<ECS::WorldTransformComponent>(
+                    a_entityId,
+                    worldTransform) &&
+                worldTransform != nullptr)
+            {
+                a_outTransform = *worldTransform;
+                return true;
+            }
+
+            const ECS::TransformComponent* transform = nullptr;
+            if (!a_world.get_component<ECS::TransformComponent>(
+                    a_entityId,
+                    transform) ||
+                transform == nullptr)
+            {
+                return false;
+            }
+
+            a_outTransform = make_world_transform(*transform);
+            return true;
+        }
+
         void draw_gizmo_mode_button(
             const char* a_label,
             uint32_t a_value,
@@ -832,7 +892,7 @@ namespace Cue::Editor
         }
 
         [[nodiscard]] Math::float3 light_forward_axis(
-            const ECS::TransformComponent& a_transform) noexcept
+            const ECS::WorldTransformComponent& a_transform) noexcept
         {
             return transform_direction(
                 Math::float3(0.0f, 0.0f, -1.0f),
@@ -7477,7 +7537,7 @@ namespace Cue::Editor
         auto pickCamera =
             [&ray, &evaluateHit](
                 GameCore::EntityId a_entityId,
-                const ECS::TransformComponent& a_transform,
+                const ECS::WorldTransformComponent& a_transform,
                 const ECS::CameraComponent& a_camera) noexcept
         {
             constexpr std::array<uint32_t, 24> k_lineVertexToCorner = {
@@ -7579,7 +7639,7 @@ namespace Cue::Editor
         auto pickTransformPoint =
             [&ray, &evaluateHit](
                 GameCore::EntityId a_entityId,
-                const ECS::TransformComponent& a_transform) noexcept
+                const ECS::WorldTransformComponent& a_transform) noexcept
         {
             RayDistance distance{};
             if (!distance_ray_point(ray, a_transform.position, distance))
@@ -7604,7 +7664,7 @@ namespace Cue::Editor
         auto pickLight =
             [&ray, &evaluateHit](
                 GameCore::EntityId a_entityId,
-                const ECS::TransformComponent& a_transform,
+                const ECS::WorldTransformComponent& a_transform,
                 float a_length) noexcept
         {
             const Math::float3 start = a_transform.position;
@@ -7637,8 +7697,8 @@ namespace Cue::Editor
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
         {
-            ECS::TransformComponent* transform = nullptr;
-            if (!a_object.get_component(transform) || transform == nullptr)
+            ECS::WorldTransformComponent transform{};
+            if (!get_debug_world_transform(a_object, transform))
             {
                 return;
             }
@@ -7646,7 +7706,7 @@ namespace Cue::Editor
             ECS::CameraComponent* camera = nullptr;
             if (a_object.get_component(camera) && camera != nullptr)
             {
-                pickCamera(a_entityId, *transform, *camera);
+                pickCamera(a_entityId, transform, *camera);
                 return;
             }
 
@@ -7654,21 +7714,21 @@ namespace Cue::Editor
             if (a_object.get_component(directionalLight) &&
                 directionalLight != nullptr)
             {
-                pickLight(a_entityId, *transform, 3.0f);
+                pickLight(a_entityId, transform, 3.0f);
                 return;
             }
 
             ECS::PointLightComponent* pointLight = nullptr;
             if (a_object.get_component(pointLight) && pointLight != nullptr)
             {
-                pickTransformPoint(a_entityId, *transform);
+                pickTransformPoint(a_entityId, transform);
                 return;
             }
 
             ECS::SpotLightComponent* spotLight = nullptr;
             if (a_object.get_component(spotLight) && spotLight != nullptr)
             {
-                pickLight(a_entityId, *transform, 2.5f);
+                pickLight(a_entityId, transform, 2.5f);
                 return;
             }
 
@@ -7679,7 +7739,7 @@ namespace Cue::Editor
                 renderableInfo->objectId != ECS::k_invalidRenderableId;
             if (!hasRenderable)
             {
-                pickTransformPoint(a_entityId, *transform);
+                pickTransformPoint(a_entityId, transform);
             }
         };
 
@@ -7764,7 +7824,7 @@ namespace Cue::Editor
             ++selection.itemCount;
         };
         auto makeCameraItem =
-            [&](const ECS::TransformComponent& a_transform,
+            [&](const ECS::WorldTransformComponent& a_transform,
                 const ECS::CameraComponent& a_camera,
                 bool a_isSelected) noexcept
         {
@@ -7787,7 +7847,7 @@ namespace Cue::Editor
             return item;
         };
         auto makeSpotShadowFrustumItem =
-            [](const ECS::TransformComponent& a_transform,
+            [](const ECS::WorldTransformComponent& a_transform,
                 const ECS::SpotLightComponent& a_spotLight,
                 bool a_isSelected) noexcept
         {
@@ -7820,7 +7880,7 @@ namespace Cue::Editor
             return item;
         };
         auto makeLightLineItem =
-            [](const ECS::TransformComponent& a_transform,
+            [](const ECS::WorldTransformComponent& a_transform,
                 const Math::float3& a_end,
                 const Math::float4& a_color) noexcept
         {
@@ -7838,7 +7898,7 @@ namespace Cue::Editor
         };
         auto appendLightArrow =
             [&appendDebugItem](
-                const ECS::TransformComponent& a_transform,
+                const ECS::WorldTransformComponent& a_transform,
                 float a_length,
                 const Math::float4& a_color)
         {
@@ -7860,11 +7920,11 @@ namespace Cue::Editor
         };
         auto appendPointLightMarker =
             [&appendDebugItem, &makeLightLineItem](
-                const ECS::TransformComponent& a_transform,
+                const ECS::WorldTransformComponent& a_transform,
                 float a_radius,
                 const Math::float4& a_color)
         {
-            ECS::TransformComponent markerTransform = a_transform;
+            ECS::WorldTransformComponent markerTransform = a_transform;
             markerTransform.rotation = Math::Quaternion::identity();
             appendDebugItem(makeLightLineItem(
                 markerTransform,
@@ -7900,12 +7960,12 @@ namespace Cue::Editor
                 renderableInfo != nullptr &&
                 renderableInfo->objectId != ECS::k_invalidRenderableId;
 
-            const ECS::TransformComponent* transform = nullptr;
-            const Result transformResult =
-                debugWorld->get_component<ECS::TransformComponent>(
-                    m_selectedEntityId, transform);
+            ECS::WorldTransformComponent transform{};
             const ECS::CameraComponent* camera = nullptr;
-            if (transformResult)
+            if (get_debug_world_transform(
+                    *debugWorld,
+                    m_selectedEntityId,
+                    transform))
             {
                 (void)debugWorld->get_component<ECS::CameraComponent>(
                     m_selectedEntityId,
@@ -7927,9 +7987,9 @@ namespace Cue::Editor
                 {
                     GpuData::DebugSelectionItemGpu item{};
                     item.world = Math::make_affine_matrix(
-                        transform->scale * 1.08f,
-                        transform->rotation,
-                        transform->position);
+                        transform.scale * 1.08f,
+                        transform.rotation,
+                        transform.position);
                     item.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
                     item.shape = static_cast<uint32_t>(
                         GpuData::DebugSelectionShape::Box);
@@ -7950,16 +8010,16 @@ namespace Cue::Editor
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
         {
-            ECS::TransformComponent* transform = nullptr;
+            ECS::WorldTransformComponent transform{};
             ECS::CameraComponent* camera = nullptr;
-            if (!a_object.get_component(transform) || transform == nullptr ||
+            if (!get_debug_world_transform(a_object, transform) ||
                 !a_object.get_component(camera) || camera == nullptr)
             {
                 return;
             }
 
             appendDebugItem(makeCameraItem(
-                *transform,
+                transform,
                 *camera,
                 a_entityId == m_selectedEntityId));
         };
@@ -7973,8 +8033,8 @@ namespace Cue::Editor
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
         {
-            ECS::TransformComponent* transform = nullptr;
-            if (!a_object.get_component(transform) || transform == nullptr)
+            ECS::WorldTransformComponent transform{};
+            if (!get_debug_world_transform(a_object, transform))
             {
                 return;
             }
@@ -7988,7 +8048,7 @@ namespace Cue::Editor
                 directionalLight != nullptr)
             {
                 appendLightArrow(
-                    *transform,
+                    transform,
                     3.0f,
                     isSelected
                         ? selectedColor
@@ -8000,7 +8060,7 @@ namespace Cue::Editor
             if (a_object.get_component(pointLight) && pointLight != nullptr)
             {
                 appendPointLightMarker(
-                    *transform,
+                    transform,
                     0.45f,
                     isSelected
                         ? selectedColor
@@ -8014,12 +8074,12 @@ namespace Cue::Editor
                 if (spotLight->castsShadow)
                 {
                     appendDebugItem(makeSpotShadowFrustumItem(
-                        *transform,
+                        transform,
                         *spotLight,
                         isSelected));
                 }
                 appendLightArrow(
-                    *transform,
+                    transform,
                     2.5f,
                     isSelected
                         ? selectedColor

@@ -18,13 +18,13 @@
 namespace Cue::ECS
 {
     class ShadowSystem final
-        : public ECSManager::System<TransformComponent>
+        : public ECSManager::System<WorldTransformComponent>
     {
     public:
         explicit ShadowSystem(Cue::ShadowSystem::ShadowScene& a_shadowScene)
-            : ECSManager::System<TransformComponent>(
+            : ECSManager::System<WorldTransformComponent>(
                   [this](Entity a_entity,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       const UpdateContext& a_context)
                   {
                       update_component(a_entity, a_transform, a_context);
@@ -43,7 +43,7 @@ namespace Cue::ECS
             m_hasPointShadow = false;
             m_spotLightIndex = 0;
             m_spotShadowCandidates.clear();
-            ECSManager::System<TransformComponent>::update(a_context);
+            ECSManager::System<WorldTransformComponent>::update(a_context);
             submit_spot_shadow_candidates();
             m_currentCollector = nullptr;
         }
@@ -58,7 +58,7 @@ namespace Cue::ECS
 
         void update_component(
             Entity a_entity,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             const UpdateContext& a_context)
         {
             a_entity;

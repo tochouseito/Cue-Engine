@@ -16,22 +16,22 @@
 namespace Cue::ECS
 {
     class CameraSystem final
-        : public ECSManager::System<TransformComponent, CameraComponent>
+        : public ECSManager::System<WorldTransformComponent, CameraComponent>
     {
     public:
         explicit CameraSystem(
             const DrawSystem::DrawFrameState& a_drawFrameState,
             DrawSystem::DrawScene& a_drawScene)
-            : ECSManager::System<TransformComponent, CameraComponent>(
-                [this](Entity a_entity, TransformComponent& a_transform,
+            : ECSManager::System<WorldTransformComponent, CameraComponent>(
+                [this](Entity a_entity, WorldTransformComponent& a_transform,
                     CameraComponent& a_camera, const UpdateContext& a_context) {
                         update_component(a_entity, a_transform, a_camera, a_context);
                 },
-                [this](Entity a_entity, TransformComponent& a_transform,
+                [this](Entity a_entity, WorldTransformComponent& a_transform,
                     CameraComponent& a_camera, const InitializeContext& a_context) {
                         initialize_component(a_entity, a_transform, a_camera, a_context);
                 },
-                [this](Entity a_entity, TransformComponent& a_transform,
+                [this](Entity a_entity, WorldTransformComponent& a_transform,
                     CameraComponent& a_camera, const FinalizeContext& a_context) {
                         finalize_component(a_entity, a_transform, a_camera, a_context);
                 }),
@@ -43,12 +43,12 @@ namespace Cue::ECS
         {
             DrawSystem::DrawCollector collector(m_drawScene, a_context.bufferIndex);
             m_currentCollector = &collector;
-            ECSManager::System<TransformComponent, CameraComponent>::update(a_context);
+            ECSManager::System<WorldTransformComponent, CameraComponent>::update(a_context);
             m_currentCollector = nullptr;
         }
 
     private:
-        void update_component(Entity a_entity, TransformComponent& a_transform,
+        void update_component(Entity a_entity, WorldTransformComponent& a_transform,
             CameraComponent& a_camera, const UpdateContext& a_context)
         {
             a_entity;
@@ -84,7 +84,7 @@ namespace Cue::ECS
             m_currentCollector->submit_camera(drawItem);
         }
 
-        void initialize_component(Entity a_entity, TransformComponent& a_transform,
+        void initialize_component(Entity a_entity, WorldTransformComponent& a_transform,
             CameraComponent& a_camera, const InitializeContext& a_context)
         {
             a_entity;
@@ -93,7 +93,7 @@ namespace Cue::ECS
             a_context;
         }
 
-        void finalize_component(Entity a_entity, TransformComponent& a_transform,
+        void finalize_component(Entity a_entity, WorldTransformComponent& a_transform,
             CameraComponent& a_camera, const FinalizeContext& a_context)
         {
             a_entity;

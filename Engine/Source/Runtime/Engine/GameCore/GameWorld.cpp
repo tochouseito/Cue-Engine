@@ -434,6 +434,7 @@ namespace Cue::GameCore
         m_debugDraw.update(a_deltaTime);
         ECS::UpdateContext updateContext{};
         updateContext.deltaTime = a_deltaTime;
+        sync_world_transforms();
         m_simulationPipeline.update(m_ecs, updateContext);
         return Result::ok();
     }
@@ -459,6 +460,7 @@ namespace Cue::GameCore
             return sceneLoadResult;
         }
 
+        sync_world_transforms();
         sync_draw_frame_state(a_bufferIndex, a_renderWidth, a_renderHeight);
         if (a_bufferIndex < m_particleFrameState.frameStates.size())
         {

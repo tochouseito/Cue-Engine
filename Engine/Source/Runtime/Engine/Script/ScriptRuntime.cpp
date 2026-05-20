@@ -551,6 +551,9 @@ namespace Cue
         m_engineApi.setCameraFovY = &ScriptRuntime::set_camera_fov_y_bridge;
         m_engineApi.addOrSetComponent =
             &ScriptRuntime::add_or_set_component_bridge;
+        m_engineApi.getParent = &ScriptRuntime::get_parent_bridge;
+        m_engineApi.setParent = &ScriptRuntime::set_parent_bridge;
+        m_engineApi.detachParent = &ScriptRuntime::detach_parent_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -999,8 +1002,10 @@ namespace Cue
 
         for (const auto& [entityId, binding] : m_bindings)
         {
+            m_executingEntityId = entityId;
             const CueResult updateResult =
                 exports->updateScriptInstance(binding.instanceHandle, a_deltaTimeSeconds);
+            m_executingEntityId = GameCore::k_invalidEntityId;
             if (updateResult == CueResult_Ok)
             {
                 continue;
@@ -1846,6 +1851,37 @@ namespace Cue
                 a_componentKind,
                 a_componentData,
                 a_componentDataSize)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_parent_internal(
+                a_entityHandle, a_outParentEntity)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_parent_internal(
+                a_entityHandle, a_parentEntity, a_keepsWorldTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::detach_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->detach_parent_internal(
+                a_entityHandle, a_keepsWorldTransform)
             : CueResult_InvalidState;
     }
 
@@ -2797,9 +2833,20 @@ namespace Cue
         const Math::float3 position = to_math_float3(a_desc->transform.position);
         GameCore::GameObject object{};
         Result result{};
-        const bool isSceneObject = a_desc->sceneId != k_cueInvalidSceneId;
-        const GameCore::SceneId sceneId =
+        GameCore::SceneId sceneId =
             static_cast<GameCore::SceneId>(a_desc->sceneId);
+        if (sceneId == GameCore::k_invalidSceneId &&
+            m_executingEntityId != GameCore::k_invalidEntityId)
+        {
+            GameCore::SceneId executingSceneId = GameCore::k_invalidSceneId;
+            const Result sceneResult =
+                m_gameWorld->source_scene_id(m_executingEntityId, executingSceneId);
+            if (sceneResult && executingSceneId != GameCore::k_invalidSceneId)
+            {
+                sceneId = executingSceneId;
+            }
+        }
+        const bool isSceneObject = sceneId != GameCore::k_invalidSceneId;
 
         switch (a_desc->kind)
         {
@@ -3448,6 +3495,74 @@ namespace Cue
         default:
             return CueResult_InvalidArgument;
         }
+    }
+
+    CueResult ScriptRuntime::get_parent_internal(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outParentEntity == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outParentEntity = CueEntityHandle{ k_cueInvalidHandleValue };
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        GameCore::EntityId parentEntity = GameCore::k_invalidEntityId;
+        const Result result =
+            m_gameWorld->get_parent(to_entity_id(a_entityHandle), parentEntity);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outParentEntity = to_entity_handle(parentEntity);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_parent_internal(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_parentEntity.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_parent(
+            to_entity_id(a_entityHandle),
+            to_entity_id(a_parentEntity),
+            a_keepsWorldTransform != 0u);
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::detach_parent_internal(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->detach_parent(
+            to_entity_id(a_entityHandle),
+            a_keepsWorldTransform != 0u);
+        return convert_result_code(result);
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(

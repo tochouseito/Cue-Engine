@@ -17,13 +17,13 @@
 namespace Cue::ECS
 {
     class LightSystem final
-        : public ECSManager::System<TransformComponent>
+        : public ECSManager::System<WorldTransformComponent>
     {
     public:
         explicit LightSystem(LightingSystem::LightScene& a_lightScene)
-            : ECSManager::System<TransformComponent>(
+            : ECSManager::System<WorldTransformComponent>(
                   [this](Entity a_entity,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       const UpdateContext& a_context)
                   {
                       update_component(a_entity, a_transform, a_context);
@@ -37,7 +37,7 @@ namespace Cue::ECS
             LightingSystem::LightCollector collector(
                 m_lightScene, a_context.bufferIndex);
             m_currentCollector = &collector;
-            ECSManager::System<TransformComponent>::update(a_context);
+            ECSManager::System<WorldTransformComponent>::update(a_context);
             m_currentCollector = nullptr;
         }
 
@@ -63,7 +63,7 @@ namespace Cue::ECS
         }
 
         [[nodiscard]] static Math::float3 light_direction(
-            const TransformComponent& a_transform) noexcept
+            const WorldTransformComponent& a_transform) noexcept
         {
             return transform_direction(
                 Math::float3(0.0f, 0.0f, -1.0f),
@@ -72,7 +72,7 @@ namespace Cue::ECS
 
         void update_component(
             Entity a_entity,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             const UpdateContext& a_context)
         {
             a_entity;

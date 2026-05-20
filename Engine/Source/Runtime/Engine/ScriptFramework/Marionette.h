@@ -1956,6 +1956,21 @@ namespace Marionette
             return engineApi->setTransform(m_entityHandle, &a_transform);
         }
 
+        [[nodiscard]] CueResult set_transform(
+            CueEntityHandle a_entityHandle,
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->setTransform == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setTransform(a_entityHandle, &a_transform);
+        }
+
         [[nodiscard]] CueResult get_transform_degrees(
             Transform& a_outTransform) const noexcept
         {
@@ -2016,6 +2031,32 @@ namespace Marionette
             transform.rotation =
                 Detail::degrees_to_radians(transform.rotation);
             return set_transform(transform);
+        }
+
+        [[nodiscard]] CueResult set_transform_degrees(
+            CueEntityHandle a_entityHandle,
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, setTransformDegrees) +
+                        sizeof(CueSetTransformDegreesFn) &&
+                engineApi->setTransformDegrees != nullptr)
+            {
+                return engineApi->setTransformDegrees(
+                    a_entityHandle, &a_transform);
+            }
+
+            Transform transform = a_transform;
+            transform.rotation =
+                Detail::degrees_to_radians(transform.rotation);
+            return set_transform(a_entityHandle, transform);
         }
 
         [[nodiscard]] CueResult get_transform_quaternion(
@@ -2406,6 +2447,88 @@ namespace Marionette
         {
             return add_or_set_component(
                 m_entityHandle, a_componentKind, a_componentData);
+        }
+
+        [[nodiscard]] CueResult get_parent(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle& a_outParentEntity) const noexcept
+        {
+            a_outParentEntity = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getParent) +
+                        sizeof(CueGetParentFn) ||
+                engineApi->getParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getParent(a_entityHandle, &a_outParentEntity);
+        }
+
+        [[nodiscard]] CueResult get_parent(
+            CueEntityHandle& a_outParentEntity) const noexcept
+        {
+            return get_parent(m_entityHandle, a_outParentEntity);
+        }
+
+        [[nodiscard]] CueResult set_parent(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle a_parentEntity,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setParent) +
+                        sizeof(CueSetParentFn) ||
+                engineApi->setParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue ||
+                a_parentEntity.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setParent(
+                a_entityHandle,
+                a_parentEntity,
+                a_keepsWorldTransform ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult set_parent(
+            CueEntityHandle a_parentEntity,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            return set_parent(
+                m_entityHandle, a_parentEntity, a_keepsWorldTransform);
+        }
+
+        [[nodiscard]] CueResult detach_parent(
+            CueEntityHandle a_entityHandle,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, detachParent) +
+                        sizeof(CueDetachParentFn) ||
+                engineApi->detachParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->detachParent(
+                a_entityHandle,
+                a_keepsWorldTransform ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult detach_parent(
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            return detach_parent(m_entityHandle, a_keepsWorldTransform);
         }
 
         [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_tag(
@@ -2846,6 +2969,7 @@ namespace Marionette
             &Cue::Core::Native::create_script_state_adapter<T>,
             &Cue::Core::Native::destroy_script_state_adapter<T>,
             &Cue::Core::Native::update_script_state_adapter<T>,
+            &Cue::Core::Native::dispatch_collision_state_adapter<T>,
             &Cue::Core::Native::serialize_script_state_adapter<T>,
             &Cue::Core::Native::restore_script_state_adapter<T>
         };

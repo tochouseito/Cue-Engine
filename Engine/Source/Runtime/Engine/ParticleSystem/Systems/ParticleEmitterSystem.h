@@ -16,16 +16,16 @@
 namespace Cue::ECS
 {
     class ParticleEmitterSystem final
-        : public ECSManager::System<TransformComponent, ParticleEmitterComponent>
+        : public ECSManager::System<WorldTransformComponent, ParticleEmitterComponent>
     {
     public:
         explicit ParticleEmitterSystem(
             AssetManager* a_assetManager,
             MaterialHandle a_defaultMaterialHandle,
             ParticleSystem::ParticleScene& a_scene)
-            : ECSManager::System<TransformComponent, ParticleEmitterComponent>(
+            : ECSManager::System<WorldTransformComponent, ParticleEmitterComponent>(
                   [this](Entity a_entity,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       ParticleEmitterComponent& a_emitter,
                       const UpdateContext& a_context)
                   {
@@ -40,7 +40,7 @@ namespace Cue::ECS
         void update(const UpdateContext& a_context) override
         {
             m_currentBufferIndex = a_context.bufferIndex;
-            ECSManager::System<TransformComponent, ParticleEmitterComponent>::update(
+            ECSManager::System<WorldTransformComponent, ParticleEmitterComponent>::update(
                 a_context);
             m_currentBufferIndex = 0;
         }
@@ -103,7 +103,7 @@ namespace Cue::ECS
         }
 
         void collect_emitter(Entity a_entity,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             ParticleEmitterComponent& a_emitter,
             const UpdateContext& a_context)
         {

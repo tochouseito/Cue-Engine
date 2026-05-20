@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 20u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 21u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -720,6 +720,22 @@ extern "C"
         uint32_t a_componentDataSize
     );
 
+    using CueGetParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity
+    );
+
+    using CueSetParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform
+    );
+
+    using CueDetachParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -819,6 +835,12 @@ extern "C"
         CueSetCameraFovYFn setCameraFovY;
         /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueAddOrSetComponentFn addOrSetComponent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetParentFn getParent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetParentFn setParent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDetachParentFn detachParent;
     };
 
     /// @brief Script インスタンス生成時の入力です。

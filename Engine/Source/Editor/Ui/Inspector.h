@@ -765,6 +765,7 @@ namespace Cue::Editor
             ImGui::TextUnformatted("TransformComponent");
             ImGui::Separator();
 
+            ImGui::TextUnformatted("Local");
             bool isEdited = false;
             bool shouldSubmit = false;
             shouldSubmit = draw_transform_float3_editor("position",
@@ -787,6 +788,24 @@ namespace Cue::Editor
                 submit_set_transform_component_command(
                     m_transformOriginalComponent,
                     m_transformEditComponent);
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextUnformatted("World");
+
+            ECS::WorldTransformComponent* worldComponent = nullptr;
+            if (a_object.get_component(worldComponent) &&
+                worldComponent != nullptr)
+            {
+                draw_transform_text(worldComponent->position,
+                    worldComponent->rotation,
+                    worldComponent->scale);
+            }
+            else
+            {
+                ImGui::TextDisabled(
+                    "WorldTransformComponent が見つかりません。");
             }
         }
 
@@ -3557,6 +3576,17 @@ namespace Cue::Editor
         {
             ImGui::Text("%s: (%.3f, %.3f, %.3f)", a_label, a_value.x, a_value.y,
                 a_value.z);
+        }
+
+        void draw_transform_text(const Math::float3& a_position,
+            const Math::Quaternion& a_rotation,
+            const Math::float3& a_scale)
+        {
+            draw_float3_text("position", a_position);
+            draw_float3_text("rotation(deg)",
+                Math::radians_to_degrees(
+                    Math::quaternion_to_euler_xyz(a_rotation)));
+            draw_float3_text("scale", a_scale);
         }
 
         void draw_light_direction(GameCore::GameObject& a_object)

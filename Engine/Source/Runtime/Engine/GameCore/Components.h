@@ -82,6 +82,20 @@ namespace Cue::ECS
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };
 
+    struct WorldTransformComponent : public IComponentTag
+    {
+        WorldTransformComponent() = default;
+        WorldTransformComponent(const WorldTransformComponent&) = default;
+        WorldTransformComponent& operator=(const WorldTransformComponent&) =
+            default;
+        WorldTransformComponent(WorldTransformComponent&&) = default;
+        WorldTransformComponent& operator=(WorldTransformComponent&&) =
+            default;
+        Math::Quaternion rotation = Math::Quaternion::identity();
+        Math::float3 position = Math::float3::zero();
+        Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
+    };
+
     struct CameraComponent : public IComponentTag
     {
         CameraComponent() = default;

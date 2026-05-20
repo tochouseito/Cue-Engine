@@ -509,6 +509,146 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
+        [[nodiscard]] Result get_parent(
+            EntityId a_entityId,
+            EntityId& a_outParent) const noexcept
+        {
+            a_outParent = k_invalidEntityId;
+            if (!contains_object(a_entityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+
+            const BaseComponent* base = get_component<BaseComponent>(a_entityId);
+            if (base == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+
+            a_outParent = base->parent;
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result set_parent(
+            EntityId a_childEntityId,
+            EntityId a_parentEntityId,
+            bool a_keepsWorldTransform) noexcept
+        {
+            if (!contains_object(a_childEntityId) ||
+                !contains_object(a_parentEntityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+            if (a_childEntityId == a_parentEntityId)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld parent cannot be the child itself.");
+            }
+            if (is_descendant_of(a_parentEntityId, a_childEntityId))
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld parent cycle was rejected.");
+            }
+
+            ECS::TransformComponent* childTransform = nullptr;
+            ECS::TransformComponent* parentTransform = nullptr;
+            Result childTransformResult =
+                get_component(a_childEntityId, childTransform);
+            Result parentTransformResult =
+                get_component(a_parentEntityId, parentTransform);
+            if (!childTransformResult || childTransform == nullptr)
+            {
+                return childTransformResult;
+            }
+            if (!parentTransformResult || parentTransform == nullptr)
+            {
+                return parentTransformResult;
+            }
+
+            ECS::WorldTransformComponent childWorld{};
+            ECS::WorldTransformComponent parentWorld{};
+            if (a_keepsWorldTransform)
+            {
+                std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+                if (!resolve_world_transform(
+                        a_childEntityId, state, childWorld) ||
+                    !resolve_world_transform(
+                        a_parentEntityId, state, parentWorld))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "GameWorld world transform could not be resolved.");
+                }
+            }
+
+            BaseComponent* childBase = get_component<BaseComponent>(a_childEntityId);
+            if (childBase == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+            childBase->parent = a_parentEntityId;
+
+            if (a_keepsWorldTransform)
+            {
+                *childTransform =
+                    make_local_transform(parentWorld, childWorld);
+            }
+
+            sync_world_transforms();
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result detach_parent(
+            EntityId a_childEntityId,
+            bool a_keepsWorldTransform) noexcept
+        {
+            if (!contains_object(a_childEntityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+
+            BaseComponent* childBase = get_component<BaseComponent>(a_childEntityId);
+            ECS::TransformComponent* childTransform = nullptr;
+            Result childTransformResult =
+                get_component(a_childEntityId, childTransform);
+            if (childBase == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+            if (!childTransformResult || childTransform == nullptr)
+            {
+                return childTransformResult;
+            }
+
+            ECS::WorldTransformComponent childWorld{};
+            if (a_keepsWorldTransform)
+            {
+                std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+                if (!resolve_world_transform(
+                        a_childEntityId, state, childWorld))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "GameWorld world transform could not be resolved.");
+                }
+            }
+
+            childBase->parent = k_invalidEntityId;
+            if (a_keepsWorldTransform)
+            {
+                childTransform->position = childWorld.position;
+                childTransform->rotation = childWorld.rotation;
+                childTransform->scale = childWorld.scale;
+            }
+
+            sync_world_transforms();
+            return Result::ok();
+        }
+
         DrawSystem::DrawFrameState& draw_frame_state() noexcept
         {
             return m_drawFrameState;
@@ -1687,6 +1827,197 @@ namespace Cue::GameCore
         [[nodiscard]] Math::float3 make_light_spawn_position() const noexcept
         {
             return Math::float3(0.0f, 3.0f, -4.0f);
+        }
+
+        [[nodiscard]] static Math::float3 multiply_components(
+            const Math::float3& a_left,
+            const Math::float3& a_right) noexcept
+        {
+            return Math::float3(
+                a_left.x * a_right.x,
+                a_left.y * a_right.y,
+                a_left.z * a_right.z);
+        }
+
+        [[nodiscard]] static Math::float3 divide_components_safe(
+            const Math::float3& a_left,
+            const Math::float3& a_right) noexcept
+        {
+            const auto divide = [](float a_value, float a_divisor) noexcept
+            {
+                return a_divisor != 0.0f ? a_value / a_divisor : a_value;
+            };
+            return Math::float3(
+                divide(a_left.x, a_right.x),
+                divide(a_left.y, a_right.y),
+                divide(a_left.z, a_right.z));
+        }
+
+        [[nodiscard]] static Math::float3 rotate_vector(
+            const Math::Quaternion& a_rotation,
+            const Math::float3& a_value) noexcept
+        {
+            const Math::Quaternion rotation =
+                Math::Quaternion::normalize(a_rotation);
+            const Math::Quaternion vector(
+                a_value.x, a_value.y, a_value.z, 0.0f);
+            const Math::Quaternion result =
+                rotation * vector * Math::Quaternion::inverse(rotation);
+            return Math::float3(result.x, result.y, result.z);
+        }
+
+        [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::TransformComponent& a_local) noexcept
+        {
+            ECS::WorldTransformComponent world{};
+            world.scale = multiply_components(a_parent.scale, a_local.scale);
+            world.rotation = Math::Quaternion::normalize(
+                a_parent.rotation * a_local.rotation);
+            const Math::float3 scaledLocalPosition =
+                multiply_components(a_local.position, a_parent.scale);
+            world.position =
+                a_parent.position +
+                rotate_vector(a_parent.rotation, scaledLocalPosition);
+            return world;
+        }
+
+        [[nodiscard]] static ECS::TransformComponent make_local_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::WorldTransformComponent& a_world) noexcept
+        {
+            ECS::TransformComponent local{};
+            const Math::Quaternion inverseParentRotation =
+                Math::Quaternion::inverse(a_parent.rotation);
+            local.position = divide_components_safe(
+                rotate_vector(
+                    inverseParentRotation,
+                    a_world.position - a_parent.position),
+                a_parent.scale);
+            local.rotation = Math::Quaternion::normalize(
+                inverseParentRotation * a_world.rotation);
+            local.scale = divide_components_safe(a_world.scale, a_parent.scale);
+            return local;
+        }
+
+        [[nodiscard]] bool is_descendant_of(
+            EntityId a_entityId,
+            EntityId a_potentialAncestorId) const noexcept
+        {
+            EntityId current = a_entityId;
+            std::unordered_set<EntityId> visited{};
+            while (current != k_invalidEntityId)
+            {
+                if (current == a_potentialAncestorId)
+                {
+                    return true;
+                }
+                if (!visited.insert(current).second)
+                {
+                    return true;
+                }
+
+                const BaseComponent* base = get_component<BaseComponent>(current);
+                current = base != nullptr ? base->parent : k_invalidEntityId;
+            }
+
+            return false;
+        }
+
+        [[nodiscard]] bool resolve_world_transform(
+            EntityId a_entityId,
+            std::vector<uint8_t>& a_state,
+            ECS::WorldTransformComponent& a_outWorld) noexcept
+        {
+            if (!contains_object(a_entityId) ||
+                static_cast<size_t>(a_entityId) >= a_state.size())
+            {
+                return false;
+            }
+
+            uint8_t& state = a_state[static_cast<size_t>(a_entityId)];
+            if (state == 2u)
+            {
+                const ECS::WorldTransformComponent* world =
+                    get_component<ECS::WorldTransformComponent>(a_entityId);
+                if (world == nullptr)
+                {
+                    return false;
+                }
+                a_outWorld = *world;
+                return true;
+            }
+            if (state == 1u)
+            {
+                return false;
+            }
+
+            ECS::TransformComponent* local =
+                get_component<ECS::TransformComponent>(a_entityId);
+            if (local == nullptr)
+            {
+                return false;
+            }
+
+            ECS::WorldTransformComponent* world =
+                get_component<ECS::WorldTransformComponent>(a_entityId);
+            if (world == nullptr)
+            {
+                Result addWorldResult =
+                    add_component<ECS::WorldTransformComponent>(
+                        a_entityId, world);
+                if (!addWorldResult || world == nullptr)
+                {
+                    return false;
+                }
+            }
+
+            if (world == nullptr)
+            {
+                return false;
+            }
+
+            state = 1u;
+            const BaseComponent* base = get_component<BaseComponent>(a_entityId);
+            if (base != nullptr &&
+                base->parent != k_invalidEntityId &&
+                contains_object(base->parent))
+            {
+                ECS::WorldTransformComponent parentWorld{};
+                if (!resolve_world_transform(base->parent, a_state, parentWorld))
+                {
+                    return false;
+                }
+                *world = compose_world_transform(parentWorld, *local);
+            }
+            else
+            {
+                world->position = local->position;
+                world->rotation = local->rotation;
+                world->scale = local->scale;
+            }
+
+            state = 2u;
+            a_outWorld = *world;
+            return true;
+        }
+
+        void sync_world_transforms() noexcept
+        {
+            std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size());
+                 ++entity)
+            {
+                if (!contains_object(entity) ||
+                    get_component<ECS::TransformComponent>(entity) == nullptr)
+                {
+                    continue;
+                }
+
+                ECS::WorldTransformComponent world{};
+                (void)resolve_world_transform(entity, state, world);
+            }
         }
 
         void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,

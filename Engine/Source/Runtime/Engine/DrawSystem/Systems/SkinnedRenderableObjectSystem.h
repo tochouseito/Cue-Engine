@@ -22,7 +22,7 @@ namespace Cue::ECS
 {
     class SkinnedRenderableObjectSystem final
         : public ECSManager::System<RenderableInfoComponent,
-              TransformComponent,
+              WorldTransformComponent,
               MeshFilterComponent,
               SkinnedMeshRendererComponent>
     {
@@ -34,12 +34,12 @@ namespace Cue::ECS
             const DrawSystem::DrawFrameState& a_drawFrameState,
             DrawSystem::DrawScene& a_drawScene)
             : ECSManager::System<RenderableInfoComponent,
-                  TransformComponent,
+                  WorldTransformComponent,
                   MeshFilterComponent,
                   SkinnedMeshRendererComponent>(
                   [this](Entity a_entity,
                       RenderableInfoComponent& a_renderableInfo,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       MeshFilterComponent& a_meshFilter,
                       SkinnedMeshRendererComponent& a_renderer,
                       const UpdateContext& a_context)
@@ -61,7 +61,7 @@ namespace Cue::ECS
             m_currentCollector = &collector;
             begin_collect(a_context);
             ECSManager::System<RenderableInfoComponent,
-                TransformComponent,
+                WorldTransformComponent,
                 MeshFilterComponent,
                 SkinnedMeshRendererComponent>::update(a_context);
             m_currentCollector = nullptr;
@@ -99,7 +99,7 @@ namespace Cue::ECS
 
         void update_component(Entity a_entity,
             RenderableInfoComponent& a_renderableInfo,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             MeshFilterComponent& a_meshFilter,
             SkinnedMeshRendererComponent& a_renderer,
             const UpdateContext& a_context)

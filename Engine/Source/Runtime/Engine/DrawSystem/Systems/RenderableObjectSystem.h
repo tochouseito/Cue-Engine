@@ -22,7 +22,7 @@ namespace Cue::ECS
 {
     class RenderableObjectSystem final
         : public ECSManager::System<RenderableInfoComponent,
-              TransformComponent,
+              WorldTransformComponent,
               MeshFilterComponent,
               StaticMeshRendererComponent>
     {
@@ -34,12 +34,12 @@ namespace Cue::ECS
             const DrawSystem::DrawFrameState& a_drawFrameState,
             DrawSystem::DrawScene& a_drawScene)
             : ECSManager::System<RenderableInfoComponent,
-                  TransformComponent,
+                  WorldTransformComponent,
                   MeshFilterComponent,
                   StaticMeshRendererComponent>(
                   [this](Entity a_entity,
                       RenderableInfoComponent& a_renderableInfo,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       MeshFilterComponent& a_meshFilter,
                       StaticMeshRendererComponent& a_renderer,
                       const UpdateContext& a_context) {
@@ -61,7 +61,7 @@ namespace Cue::ECS
             m_currentCollector = &collector;
             begin_collect(a_context);
             ECSManager::System<RenderableInfoComponent,
-                TransformComponent,
+                WorldTransformComponent,
                 MeshFilterComponent,
                 StaticMeshRendererComponent>::update(a_context);
             m_currentCollector = nullptr;
@@ -110,7 +110,7 @@ namespace Cue::ECS
 
         void update_component(Entity a_entity,
             RenderableInfoComponent& a_renderableInfo,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             MeshFilterComponent& a_meshFilter,
             StaticMeshRendererComponent& a_renderer,
             const UpdateContext& a_context)
@@ -205,8 +205,8 @@ namespace Cue::ECS
                     RenderableInfoComponent* renderableInfo =
                         this->m_pEcs->get_component<RenderableInfoComponent>(
                             entity);
-                    TransformComponent* transform =
-                        this->m_pEcs->get_component<TransformComponent>(
+                    WorldTransformComponent* transform =
+                        this->m_pEcs->get_component<WorldTransformComponent>(
                             entity);
                     MeshFilterComponent* meshFilter =
                         this->m_pEcs->get_component<MeshFilterComponent>(
@@ -229,7 +229,7 @@ namespace Cue::ECS
 
         void update_skinned_component(Entity a_entity,
             RenderableInfoComponent& a_renderableInfo,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             MeshFilterComponent& a_meshFilter,
             SkinnedMeshRendererComponent& a_renderer,
             AnimationComponent* a_animation,

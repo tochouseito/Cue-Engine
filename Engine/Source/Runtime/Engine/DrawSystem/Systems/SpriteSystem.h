@@ -17,7 +17,7 @@
 namespace Cue::ECS
 {
     class SpriteSystem final
-        : public ECSManager::System<TransformComponent, SpriteRendererComponent>
+        : public ECSManager::System<WorldTransformComponent, SpriteRendererComponent>
     {
     public:
         explicit SpriteSystem(
@@ -25,9 +25,9 @@ namespace Cue::ECS
             MaterialHandle a_defaultMaterialHandle,
             DrawSystem::DrawFrameState& a_drawFrameState,
             DrawSystem::DrawScene& a_drawScene)
-            : ECSManager::System<TransformComponent, SpriteRendererComponent>(
+            : ECSManager::System<WorldTransformComponent, SpriteRendererComponent>(
                   [this](Entity a_entity,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       SpriteRendererComponent& a_renderer,
                       const UpdateContext& a_context)
                   {
@@ -52,7 +52,7 @@ namespace Cue::ECS
 
             DrawSystem::DrawCollector collector(m_drawScene, a_context.bufferIndex);
             m_currentCollector = &collector;
-            ECSManager::System<TransformComponent, SpriteRendererComponent>::update(
+            ECSManager::System<WorldTransformComponent, SpriteRendererComponent>::update(
                 a_context);
             m_currentCollector = nullptr;
             m_currentFrameState = nullptr;
@@ -61,7 +61,7 @@ namespace Cue::ECS
     private:
 
         void collect_sprite(Entity a_entity,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             SpriteRendererComponent& a_renderer,
             const UpdateContext& a_context)
         {

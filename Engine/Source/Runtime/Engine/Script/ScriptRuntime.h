@@ -317,6 +317,19 @@ namespace Cue
                 CueComponentKind a_componentKind,
                 const void* a_componentData,
                 uint32_t a_componentDataSize);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_parent_bridge(
+                CueEntityHandle a_entityHandle,
+                CueEntityHandle* a_outParentEntity);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_parent_bridge(
+                CueEntityHandle a_entityHandle,
+                CueEntityHandle a_parentEntity,
+                uint8_t a_keepsWorldTransform);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            detach_parent_bridge(
+                CueEntityHandle a_entityHandle,
+                uint8_t a_keepsWorldTransform);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -466,6 +479,16 @@ namespace Cue
             CueComponentKind a_componentKind,
             const void* a_componentData,
             uint32_t a_componentDataSize) noexcept;
+        [[nodiscard]] CueResult get_parent_internal(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle* a_outParentEntity) const noexcept;
+        [[nodiscard]] CueResult set_parent_internal(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle a_parentEntity,
+            uint8_t a_keepsWorldTransform) noexcept;
+        [[nodiscard]] CueResult detach_parent_internal(
+            CueEntityHandle a_entityHandle,
+            uint8_t a_keepsWorldTransform) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;
@@ -487,5 +510,6 @@ namespace Cue
         std::unordered_map<uint64_t, GameCore::EntityId> m_entityIdsByInstanceHandle{};
         std::vector<std::string> m_registeredScriptClasses{};
         std::unordered_map<std::string, ScriptClassInfo> m_scriptClassInfos{};
+        GameCore::EntityId m_executingEntityId = GameCore::k_invalidEntityId;
     };
 }
