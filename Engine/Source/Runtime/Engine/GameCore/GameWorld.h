@@ -22,10 +22,12 @@
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/PlayerControlSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
+#include "Systems/UiLayoutSystem.h"
 #include <DrawSystem/Systems/CameraSystem.h>
 #include <DrawSystem/Systems/RenderableObjectSystem.h>
 #include <DrawSystem/Systems/SkinnedRenderableObjectSystem.h>
 #include <DrawSystem/Systems/SpriteSystem.h>
+#include <DrawSystem/Systems/TextSystem.h>
 #include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
@@ -2031,6 +2033,9 @@ namespace Cue::GameCore
             DrawSystem::DrawFrameData& frameState = m_drawFrameState.frame_state(a_bufferIndex);
             frameState.objectCount = 0;
             frameState.spriteCount = 0;
+            frameState.cpuIndexedDraws.clear();
+            frameState.transparentCpuIndexedDraws.clear();
+            frameState.cpuShadowCasters.clear();
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
@@ -2731,6 +2736,38 @@ namespace Cue::GameCore
                 camera != nullptr)
             {
                 prototype.add_component(*camera);
+            }
+
+            if (const ECS::CanvasComponent* canvas =
+                get_component<ECS::CanvasComponent>(a_entityId);
+                canvas != nullptr)
+            {
+                prototype.add_component(*canvas);
+            }
+
+            if (const ECS::UiRectTransformComponent* rect =
+                get_component<ECS::UiRectTransformComponent>(a_entityId);
+                rect != nullptr)
+            {
+                ECS::UiRectTransformComponent copiedRect = *rect;
+                copiedRect.resolvedMin = Math::float2(0.0f, 0.0f);
+                copiedRect.resolvedSize = Math::float2(0.0f, 0.0f);
+                copiedRect.isResolved = false;
+                prototype.add_component(copiedRect);
+            }
+
+            if (const ECS::UiLayoutGroupComponent* layout =
+                get_component<ECS::UiLayoutGroupComponent>(a_entityId);
+                layout != nullptr)
+            {
+                prototype.add_component(*layout);
+            }
+
+            if (const ECS::TextRendererComponent* text =
+                get_component<ECS::TextRendererComponent>(a_entityId);
+                text != nullptr)
+            {
+                prototype.add_component(*text);
             }
 
             if (const ECS::DirectionalLightComponent* directionalLight =
@@ -3687,6 +3724,7 @@ namespace Cue::GameCore
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         bool m_hasActiveNavMeshAsset = false;
+        DrawSystem::FontAtlasManager m_fontAtlasManager{};
         DrawSystem::DrawScene m_drawScene{};
         DrawSystem::DrawFrameState m_drawFrameState{};
         ParticleSystem::ParticleScene m_particleScene{};

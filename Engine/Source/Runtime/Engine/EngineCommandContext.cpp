@@ -35,6 +35,59 @@ namespace Cue
                 ? m_gameWorld.add_camera_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_camera_object(object);
             break;
+        case AddObjectType::Canvas:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            if (result)
+            {
+                result = m_gameWorld.set_object_name(
+                    object.entity_id(), "Canvas");
+            }
+            if (result)
+            {
+                result = add_component_internal<ECS::CanvasComponent>(
+                    object.entity_id(), "CanvasComponent already exists.");
+            }
+            if (result)
+            {
+                result =
+                    add_component_internal<ECS::UiRectTransformComponent>(
+                        object.entity_id(),
+                        "UiRectTransformComponent already exists.");
+            }
+            if (!result && object.is_valid())
+            {
+                (void)m_gameWorld.destroy_object(object.entity_id());
+                object = {};
+            }
+            break;
+        case AddObjectType::Text:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            if (result)
+            {
+                result = m_gameWorld.set_object_name(object.entity_id(), "Text");
+            }
+            if (result)
+            {
+                result =
+                    add_component_internal<ECS::UiRectTransformComponent>(
+                        object.entity_id(),
+                        "UiRectTransformComponent already exists.");
+            }
+            if (result)
+            {
+                result = add_component_internal<ECS::TextRendererComponent>(
+                    object.entity_id(), "TextRendererComponent already exists.");
+            }
+            if (!result && object.is_valid())
+            {
+                (void)m_gameWorld.destroy_object(object.entity_id());
+                object = {};
+            }
+            break;
         case AddObjectType::StaticMesh3D:
             result = a_sceneId != GameCore::k_invalidSceneId
                 ? m_gameWorld.add_object_to_scene(a_sceneId, object)
@@ -123,6 +176,22 @@ namespace Cue
             return add_component_internal<ECS::CameraComponent>(
                 a_objectId, "CameraComponent already exists.");
 
+        case AddableComponentType::Canvas:
+            return add_component_internal<ECS::CanvasComponent>(
+                a_objectId, "CanvasComponent already exists.");
+
+        case AddableComponentType::UiRectTransform:
+            return add_component_internal<ECS::UiRectTransformComponent>(
+                a_objectId, "UiRectTransformComponent already exists.");
+
+        case AddableComponentType::UiLayoutGroup:
+            return add_component_internal<ECS::UiLayoutGroupComponent>(
+                a_objectId, "UiLayoutGroupComponent already exists.");
+
+        case AddableComponentType::TextRenderer:
+            return add_component_internal<ECS::TextRendererComponent>(
+                a_objectId, "TextRendererComponent already exists.");
+
         case AddableComponentType::MeshFilter:
             return add_component_internal<ECS::MeshFilterComponent>(
                 a_objectId, "MeshFilterComponent already exists.");
@@ -193,6 +262,22 @@ namespace Cue
         case AddableComponentType::Camera:
             return remove_component_internal<ECS::CameraComponent>(
                 a_objectId, "CameraComponent was not found.");
+
+        case AddableComponentType::Canvas:
+            return remove_component_internal<ECS::CanvasComponent>(
+                a_objectId, "CanvasComponent was not found.");
+
+        case AddableComponentType::UiRectTransform:
+            return remove_component_internal<ECS::UiRectTransformComponent>(
+                a_objectId, "UiRectTransformComponent was not found.");
+
+        case AddableComponentType::UiLayoutGroup:
+            return remove_component_internal<ECS::UiLayoutGroupComponent>(
+                a_objectId, "UiLayoutGroupComponent was not found.");
+
+        case AddableComponentType::TextRenderer:
+            return remove_component_internal<ECS::TextRendererComponent>(
+                a_objectId, "TextRendererComponent was not found.");
 
         case AddableComponentType::MeshFilter:
             return remove_component_internal<ECS::MeshFilterComponent>(

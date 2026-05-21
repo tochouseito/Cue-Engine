@@ -1296,6 +1296,98 @@ namespace Cue
         return Result::ok();
     }
 
+    Result AssetManager::register_texture_from_rgba8(
+        std::string_view name,
+        uint32_t width,
+        uint32_t height,
+        std::span<const std::byte> pixels,
+        uint32_t& outTextureId)
+    {
+        outTextureId = k_errorTextureId;
+        if (name.empty() || width == 0 || height == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "RGBA texture name and size must be valid.");
+        }
+
+        const uint64_t expectedSize =
+            static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
+        if (pixels.size() != expectedSize)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "RGBA texture pixel data size is invalid.");
+        }
+
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Texture manager is not initialized in AssetManager.");
+        }
+
+        RHI::TextureDesc textureDesc{};
+        textureDesc.name = std::string(name);
+        textureDesc.kind = RHI::TextureKind::Default;
+        textureDesc.type = RHI::TextureType::Texture2D;
+        textureDesc.width = width;
+        textureDesc.height = height;
+        textureDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
+
+        RHI::TextureSubresourceData subresource{};
+        subresource.data = pixels.data();
+        subresource.dataSize = pixels.size();
+        subresource.rowPitch = width * 4u;
+        subresource.slicePitch = subresource.rowPitch * height;
+
+        RHI::TextureHandle textureHandle{};
+        Result result = m_textureManager->create_texture(
+            textureDesc,
+            std::span<const RHI::TextureSubresourceData>(&subresource, 1),
+            textureHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            m_textureManager->get_texture_descriptor_index(textureHandle, outTextureId);
+        if (!result)
+        {
+            (void)m_textureManager->destroy_texture(textureHandle);
+            return result;
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        auto existingIt = m_textureNameMap.find(nameId);
+        if (existingIt != m_textureNameMap.end())
+        {
+            // フォントアトラスのように描画収集中に再生成されるテクスチャは、
+            // 同一フレーム内で古い descriptor id を参照する draw item が残り得る。
+            // 即破棄せず、新しい名前解決だけを最新 descriptor id に更新する。
+            existingIt->second = outTextureId;
+        }
+        else
+        {
+            m_textureNameMap.emplace(nameId, outTextureId);
+        }
+
+        if (outTextureId >= m_textures.size())
+        {
+            m_textures.resize(static_cast<size_t>(outTextureId) + 1);
+        }
+
+        m_textures[outTextureId] = TextureAssetRecord{
+            std::string(name),
+            textureHandle
+        };
+        return Result::ok();
+    }
+
     Result AssetManager::register_error_texture_from_file(
         Core::IO::IFileSystem& fileSystem,
         const Core::IO::Path& filePath)

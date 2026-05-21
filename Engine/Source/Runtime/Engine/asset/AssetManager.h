@@ -25,6 +25,7 @@
 
 // === C++ Includes ===
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -137,6 +138,12 @@ namespace Cue
             Core::IO::IFileSystem& fileSystem,
             std::string_view name,
             const Core::IO::Path& filePath,
+            uint32_t& outTextureId);
+        Result register_texture_from_rgba8(
+            std::string_view name,
+            uint32_t width,
+            uint32_t height,
+            std::span<const std::byte> pixels,
             uint32_t& outTextureId);
         Result register_error_texture_from_cuetexture(
             Core::IO::IFileSystem& fileSystem,

@@ -1,5 +1,6 @@
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
+find_package(Freetype REQUIRED)
 
 # Engine の CMakeLists.txt
 
@@ -31,6 +32,8 @@ add_library(Engine STATIC
     "DrawSystem/DrawResources.h"
     "DrawSystem/DrawResources.cpp"
     "DrawSystem/DebugViewShadingMode.h"
+    "DrawSystem/FontAtlasManager.h"
+    "DrawSystem/FontAtlasManager.cpp"
     "DrawSystem/StaticMeshPool.h"
     "DrawSystem/StaticMeshPool.cpp"
     "DrawSystem/StaticMeshPoolTypes.h"
@@ -106,6 +109,7 @@ add_library(Engine STATIC
     "DrawSystem/Systems/RenderableObjectSystem.h"
     "DrawSystem/Systems/SkinnedRenderableObjectSystem.h"
     "DrawSystem/Systems/SpriteSystem.h"
+    "DrawSystem/Systems/TextSystem.h"
     "GameCore/Systems/DemoEnemySystem.h"
     "GameCore/Systems/FirstPersonCameraControllerSystem.h"
     "GameCore/Systems/CharacterControllerSystem.h"
@@ -153,6 +157,7 @@ target_link_libraries(Engine PUBLIC
     nlohmann_json::nlohmann_json
     RecastNavigation::Detour
     RecastNavigation::Recast
+    Freetype::Freetype
 )
 
 # インクルードディレクトリの追加

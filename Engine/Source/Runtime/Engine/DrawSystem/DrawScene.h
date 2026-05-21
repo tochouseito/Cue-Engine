@@ -14,6 +14,12 @@
 
 namespace Cue::DrawSystem
 {
+    enum class StaticMeshRenderQueue : uint8_t
+    {
+        Opaque,
+        Transparent,
+    };
+
     struct StaticMeshVisibilityItem final
     {
         GpuData::RenderableInfo renderableInfo{};
@@ -25,6 +31,7 @@ namespace Cue::DrawSystem
         GpuData::ObjectTransformGpu transform{};
         GpuData::MaterialGpu material{};
         std::vector<GpuData::SkinPaletteGpu> skinPalette{};
+        StaticMeshRenderQueue renderQueue = StaticMeshRenderQueue::Opaque;
         bool hasMaterial = false;
     };
 

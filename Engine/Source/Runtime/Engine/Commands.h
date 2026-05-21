@@ -21,6 +21,10 @@ namespace Cue
     enum class AddableComponentType : uint8_t
     {
         Camera,
+        Canvas,
+        UiRectTransform,
+        UiLayoutGroup,
+        TextRenderer,
         MeshFilter,
         StaticMeshRenderer,
         SkinnedMeshRenderer,
@@ -41,6 +45,8 @@ namespace Cue
     {
         GameObject,
         Camera,
+        Canvas,
+        Text,
         StaticMesh3D,
         Sprite2D,
         DirectionalLight,

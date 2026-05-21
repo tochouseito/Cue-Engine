@@ -83,6 +83,9 @@ namespace Cue::ECS
                 return;
             }
 
+            const UiRectTransformComponent* rect =
+                this->m_pEcs->get_component<UiRectTransformComponent>(a_entity);
+
             const MaterialHandle materialHandle =
                 a_renderer.materialHandle.valid()
                 ? a_renderer.materialHandle
@@ -102,12 +105,24 @@ namespace Cue::ECS
                 }
             }
 
-            const float sizeX = a_renderer.size.x * a_transform.scale.x;
-            const float sizeY = a_renderer.size.y * a_transform.scale.y;
-            const float positionX =
-                (a_transform.position.x / renderWidth) * 2.0f - 1.0f;
-            const float positionY =
-                1.0f - (a_transform.position.y / renderHeight) * 2.0f;
+            const bool usesUiRect = rect != nullptr && rect->isResolved;
+            const float sizeX = usesUiRect
+                ? rect->resolvedSize.x
+                : a_renderer.size.x * a_transform.scale.x;
+            const float sizeY = usesUiRect
+                ? rect->resolvedSize.y
+                : a_renderer.size.y * a_transform.scale.y;
+            const Math::float2 pivot = usesUiRect
+                ? rect->pivot
+                : a_renderer.pivot;
+            const float screenX = usesUiRect
+                ? rect->resolvedMin.x + sizeX * pivot.x
+                : a_transform.position.x;
+            const float screenY = usesUiRect
+                ? rect->resolvedMin.y + sizeY * pivot.y
+                : a_transform.position.y;
+            const float positionX = (screenX / renderWidth) * 2.0f - 1.0f;
+            const float positionY = 1.0f - (screenY / renderHeight) * 2.0f;
             const float sizeNdcX = (sizeX / renderWidth) * 2.0f;
             const float sizeNdcY = (sizeY / renderHeight) * 2.0f;
 
@@ -124,7 +139,7 @@ namespace Cue::ECS
             instance.useTexture = useTexture;
             instance.rotation =
                 Math::quaternion_to_euler_xyz(a_transform.rotation).z;
-            instance.pivot = a_renderer.pivot;
+            instance.pivot = pivot;
 
             DrawSystem::SpriteDrawItem drawItem{};
             drawItem.instance = instance;

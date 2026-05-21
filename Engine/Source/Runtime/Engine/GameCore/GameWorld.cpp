@@ -33,6 +33,35 @@ namespace Cue::GameCore
             return caster;
         }
 
+        [[nodiscard]] Math::float3 transform_position(
+            const GpuData::ObjectTransformGpu& a_transform) noexcept
+        {
+            const Math::float4x4& world = a_transform.worldMatrix;
+            return Math::float3(
+                world.values[3][0],
+                world.values[3][1],
+                world.values[3][2]);
+        }
+
+        [[nodiscard]] Math::float3 camera_position(
+            const GpuData::ViewProjectionGpu& a_viewProjection) noexcept
+        {
+            const Math::float4x4 world =
+                Math::float4x4::inverse(a_viewProjection.view);
+            return Math::float3(
+                world.values[3][0],
+                world.values[3][1],
+                world.values[3][2]);
+        }
+
+        [[nodiscard]] float distance_squared(
+            const Math::float3& a_left,
+            const Math::float3& a_right) noexcept
+        {
+            const Math::float3 diff = a_left - a_right;
+            return diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
+        }
+
         [[nodiscard]] ObjectDefinition make_default_static_mesh_object_definition(
             const Math::float3& a_position,
             uint32_t a_meshId)
@@ -349,6 +378,12 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_fontAtlasManager.initialize(m_assetManager);
+        if (!result)
+        {
+            return result;
+        }
+
         auto& renderableObjectSystem = m_ecs.add_system<ECS::RenderableObjectSystem>(
             m_assetManager,
             a_staticMeshPool,
@@ -367,11 +402,17 @@ namespace Cue::GameCore
             m_defaultMaterialHandle,
             m_drawFrameState,
             m_drawScene);
+        auto& textSystem = m_ecs.add_system<ECS::TextSystem>(
+            m_fontAtlasManager,
+            m_drawFrameState,
+            m_drawScene);
         auto& particleEmitterSystem =
             m_ecs.add_system<ECS::ParticleEmitterSystem>(
                 m_assetManager,
                 m_defaultMaterialHandle,
                 m_particleScene);
+        auto& uiLayoutSystem =
+            m_ecs.add_system<ECS::UiLayoutSystem>(m_drawFrameState);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_drawFrameState, m_drawScene);
         auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(m_lightScene);
@@ -406,6 +447,8 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&animationSystem);
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&skinnedRenderableObjectSystem);
+        m_editorPipeline.add_system(&uiLayoutSystem);
+        m_editorPipeline.add_system(&textSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&particleEmitterSystem);
         m_editorPipeline.add_system(&cameraSystem);
@@ -1163,10 +1206,12 @@ namespace Cue::GameCore
                 "Static mesh draw scene item counts are inconsistent.");
         }
 
-        frameState.objectCount =
+        const uint32_t staticMeshCount =
             static_cast<uint32_t>(sceneFrame.staticMeshVisibilityItems.size());
+        frameState.objectCount = staticMeshCount;
         frameState.spriteCount = 0;
         frameState.cpuIndexedDraws.clear();
+        frameState.transparentCpuIndexedDraws.clear();
         frameState.cpuShadowCasters.clear();
         frameState.cpuShadowCasters.reserve(
             sceneFrame.staticMeshSurfaceItems.size());
@@ -1177,18 +1222,78 @@ namespace Cue::GameCore
                 make_cpu_shadow_caster(item.transform));
         }
 
+        const DrawSystem::CameraDrawItem* sortCamera = nullptr;
+        for (const DrawSystem::CameraDrawItem& item : sceneFrame.cameraItems)
+        {
+            if (item.isMain)
+            {
+                sortCamera = &item;
+                break;
+            }
+            if (sortCamera == nullptr)
+            {
+                sortCamera = &item;
+            }
+        }
+
+        const Math::float3 currentCameraPosition =
+            sortCamera != nullptr
+            ? camera_position(sortCamera->viewProjection)
+            : Math::float3::zero();
+
+        bool hasTransparentStaticMesh = false;
+        for (const DrawSystem::StaticMeshSurfaceItem& item :
+            sceneFrame.staticMeshSurfaceItems)
+        {
+            if (item.renderQueue == DrawSystem::StaticMeshRenderQueue::Transparent)
+            {
+                hasTransparentStaticMesh = true;
+                break;
+            }
+        }
+        if (hasTransparentStaticMesh)
+        {
+            frameState.useCpuBatching = true;
+        }
+
         if (frameState.useCpuBatching)
         {
             frameState.cpuIndexedDraws.reserve(
                 sceneFrame.staticMeshBatchItems.size());
-            for (const DrawSystem::StaticMeshBatchItem& item :
-                sceneFrame.staticMeshBatchItems)
+            frameState.transparentCpuIndexedDraws.reserve(
+                sceneFrame.staticMeshBatchItems.size());
+            for (uint32_t index = 0; index < staticMeshCount; ++index)
             {
-                if (item.hasCpuIndexedDraw)
+                const DrawSystem::StaticMeshBatchItem& item =
+                    sceneFrame.staticMeshBatchItems[index];
+                if (!item.hasCpuIndexedDraw)
                 {
-                    frameState.cpuIndexedDraws.push_back(item.cpuIndexedDraw);
+                    continue;
                 }
+
+                DrawSystem::CpuIndexedDraw draw = item.cpuIndexedDraw;
+                draw.sortDepth = distance_squared(
+                    transform_position(sceneFrame.staticMeshSurfaceItems[index].transform),
+                    currentCameraPosition);
+
+                if (sceneFrame.staticMeshSurfaceItems[index].renderQueue ==
+                    DrawSystem::StaticMeshRenderQueue::Transparent)
+                {
+                    frameState.transparentCpuIndexedDraws.push_back(draw);
+                    continue;
+                }
+
+                frameState.cpuIndexedDraws.push_back(draw);
             }
+
+            std::stable_sort(
+                frameState.transparentCpuIndexedDraws.begin(),
+                frameState.transparentCpuIndexedDraws.end(),
+                [](const DrawSystem::CpuIndexedDraw& a_left,
+                    const DrawSystem::CpuIndexedDraw& a_right)
+                {
+                    return a_left.sortDepth > a_right.sortDepth;
+                });
         }
 
         auto& renderableInfoUploaders =

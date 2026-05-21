@@ -20,6 +20,9 @@
       "default-features": false
     },
     {
+      "name": "freetype"
+    },
+    {
       "name": "imgui",
       "features": [
         "win32-binding",

@@ -41,6 +41,10 @@ namespace Cue::Editor
             RenderableInfo,
             Transform,
             Camera,
+            Canvas,
+            UiRectTransform,
+            UiLayoutGroup,
+            TextRenderer,
             MeshFilter,
             StaticMeshRenderer,
             SkinnedMeshRenderer,
@@ -285,6 +289,26 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::Camera, "C" });
             }
 
+            if (has_component<ECS::CanvasComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::Canvas, "Cv" });
+            }
+
+            if (has_component<ECS::UiRectTransformComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiRectTransform, "Rt" });
+            }
+
+            if (has_component<ECS::UiLayoutGroupComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiLayoutGroup, "Lg" });
+            }
+
+            if (has_component<ECS::TextRendererComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::TextRenderer, "Tx" });
+            }
+
             if (has_component<ECS::MeshFilterComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::MeshFilter, "M" });
@@ -370,6 +394,33 @@ namespace Cue::Editor
             {
                 components.push_back(
                     { AddableComponentType::Camera, "CameraComponent" });
+            }
+
+            if (!has_component<ECS::CanvasComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::Canvas, "CanvasComponent" });
+            }
+
+            if (!has_component<ECS::UiRectTransformComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiRectTransform,
+                        "UiRectTransformComponent" });
+            }
+
+            if (!has_component<ECS::UiLayoutGroupComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiLayoutGroup,
+                        "UiLayoutGroupComponent" });
+            }
+
+            if (!has_component<ECS::TextRendererComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::TextRenderer,
+                        "TextRendererComponent" });
             }
 
             if (!has_component<ECS::MeshFilterComponent>(a_object))
@@ -589,6 +640,18 @@ namespace Cue::Editor
             case ComponentTab::Camera:
                 outType = AddableComponentType::Camera;
                 return true;
+            case ComponentTab::Canvas:
+                outType = AddableComponentType::Canvas;
+                return true;
+            case ComponentTab::UiRectTransform:
+                outType = AddableComponentType::UiRectTransform;
+                return true;
+            case ComponentTab::UiLayoutGroup:
+                outType = AddableComponentType::UiLayoutGroup;
+                return true;
+            case ComponentTab::TextRenderer:
+                outType = AddableComponentType::TextRenderer;
+                return true;
             case ComponentTab::MeshFilter:
                 outType = AddableComponentType::MeshFilter;
                 return true;
@@ -654,6 +717,22 @@ namespace Cue::Editor
 
             case ComponentTab::Camera:
                 draw_camera_component(a_object);
+                break;
+
+            case ComponentTab::Canvas:
+                draw_canvas_component(a_object);
+                break;
+
+            case ComponentTab::UiRectTransform:
+                draw_ui_rect_transform_component(a_object);
+                break;
+
+            case ComponentTab::UiLayoutGroup:
+                draw_ui_layout_group_component(a_object);
+                break;
+
+            case ComponentTab::TextRenderer:
+                draw_text_renderer_component(a_object);
                 break;
 
             case ComponentTab::MeshFilter:
@@ -856,6 +935,157 @@ namespace Cue::Editor
             }
         }
 
+        void draw_canvas_component(GameCore::GameObject& a_object)
+        {
+            ECS::CanvasComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("CanvasComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("CanvasComponent");
+            ImGui::Separator();
+            float referenceSize[2] = {
+                component->referenceSize.x,
+                component->referenceSize.y
+            };
+            if (ImGui::DragFloat2(
+                    "referenceSize", referenceSize, 1.0f, 1.0f, 8192.0f))
+            {
+                component->referenceSize = Math::float2(
+                    (std::max)(referenceSize[0], 1.0f),
+                    (std::max)(referenceSize[1], 1.0f));
+            }
+            if (ImGui::DragFloat(
+                    "scaleFactor", &component->scaleFactor, 0.01f, 0.01f,
+                    16.0f, "%.2f"))
+            {
+                component->scaleFactor =
+                    (std::max)(component->scaleFactor, 0.01f);
+            }
+            ImGui::DragInt("sortOrder", &component->sortOrder, 1.0f);
+            ImGui::Checkbox("matchesScreen", &component->matchesScreen);
+        }
+
+        void draw_ui_rect_transform_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiRectTransformComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "UiRectTransformComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiRectTransformComponent");
+            ImGui::Separator();
+            float anchorMin[2] = {
+                component->anchorMin.x,
+                component->anchorMin.y
+            };
+            if (ImGui::DragFloat2("anchorMin", anchorMin, 0.01f, 0.0f, 1.0f))
+            {
+                component->anchorMin = Math::float2(
+                    std::clamp(anchorMin[0], 0.0f, 1.0f),
+                    std::clamp(anchorMin[1], 0.0f, 1.0f));
+            }
+
+            float anchorMax[2] = {
+                component->anchorMax.x,
+                component->anchorMax.y
+            };
+            if (ImGui::DragFloat2("anchorMax", anchorMax, 0.01f, 0.0f, 1.0f))
+            {
+                component->anchorMax = Math::float2(
+                    std::clamp(anchorMax[0], 0.0f, 1.0f),
+                    std::clamp(anchorMax[1], 0.0f, 1.0f));
+            }
+
+            float pivot[2] = { component->pivot.x, component->pivot.y };
+            if (ImGui::DragFloat2("pivot", pivot, 0.01f, 0.0f, 1.0f))
+            {
+                component->pivot = Math::float2(
+                    std::clamp(pivot[0], 0.0f, 1.0f),
+                    std::clamp(pivot[1], 0.0f, 1.0f));
+            }
+
+            float anchoredPosition[2] = {
+                component->anchoredPosition.x,
+                component->anchoredPosition.y
+            };
+            if (ImGui::DragFloat2(
+                    "anchoredPosition", anchoredPosition, 1.0f))
+            {
+                component->anchoredPosition =
+                    Math::float2(anchoredPosition[0], anchoredPosition[1]);
+            }
+
+            float sizeDelta[2] = {
+                component->sizeDelta.x,
+                component->sizeDelta.y
+            };
+            if (ImGui::DragFloat2("sizeDelta", sizeDelta, 1.0f))
+            {
+                component->sizeDelta =
+                    Math::float2(sizeDelta[0], sizeDelta[1]);
+            }
+
+            ImGui::Separator();
+            ImGui::Text("resolved: %s",
+                component->isResolved ? "true" : "false");
+            ImGui::Text("resolvedMin: %.1f, %.1f",
+                component->resolvedMin.x,
+                component->resolvedMin.y);
+            ImGui::Text("resolvedSize: %.1f, %.1f",
+                component->resolvedSize.x,
+                component->resolvedSize.y);
+        }
+
+        void draw_ui_layout_group_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiLayoutGroupComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "UiLayoutGroupComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiLayoutGroupComponent");
+            ImGui::Separator();
+            const char* directionNames[] = { "Horizontal", "Vertical" };
+            int directionIndex =
+                component->direction == ECS::UiLayoutDirection::Vertical
+                ? 1
+                : 0;
+            if (ImGui::Combo(
+                    "direction", &directionIndex, directionNames, 2))
+            {
+                component->direction = directionIndex == 1
+                    ? ECS::UiLayoutDirection::Vertical
+                    : ECS::UiLayoutDirection::Horizontal;
+            }
+
+            float padding[4] = {
+                component->padding.x,
+                component->padding.y,
+                component->padding.z,
+                component->padding.w
+            };
+            if (ImGui::DragFloat4("padding(LTRB)", padding, 1.0f, 0.0f))
+            {
+                component->padding = Math::float4(
+                    (std::max)(padding[0], 0.0f),
+                    (std::max)(padding[1], 0.0f),
+                    (std::max)(padding[2], 0.0f),
+                    (std::max)(padding[3], 0.0f));
+            }
+            ImGui::DragFloat("spacing", &component->spacing, 1.0f, 0.0f);
+            ImGui::Checkbox(
+                "controlsChildSize", &component->controlsChildSize);
+        }
+
         void draw_mesh_filter_component(GameCore::GameObject& a_object)
         {
             ECS::MeshFilterComponent* component = nullptr;
@@ -975,6 +1205,168 @@ namespace Cue::Editor
             ImGui::EndCombo();
         }
 
+        static void draw_render_queue_combo(ECS::RenderQueue& a_queue)
+        {
+            const char* currentLabel = "Auto";
+            if (a_queue == ECS::RenderQueue::Opaque)
+            {
+                currentLabel = "Opaque";
+            }
+            else if (a_queue == ECS::RenderQueue::Transparent)
+            {
+                currentLabel = "Transparent";
+            }
+
+            if (!ImGui::BeginCombo("renderQueue", currentLabel))
+            {
+                return;
+            }
+
+            const bool isAuto = a_queue == ECS::RenderQueue::Auto;
+            if (ImGui::Selectable("Auto", isAuto))
+            {
+                a_queue = ECS::RenderQueue::Auto;
+            }
+            if (isAuto)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            const bool isOpaque = a_queue == ECS::RenderQueue::Opaque;
+            if (ImGui::Selectable("Opaque", isOpaque))
+            {
+                a_queue = ECS::RenderQueue::Opaque;
+            }
+
+            const bool isTransparent =
+                a_queue == ECS::RenderQueue::Transparent;
+            if (ImGui::Selectable("Transparent", isTransparent))
+            {
+                a_queue = ECS::RenderQueue::Transparent;
+            }
+
+            ImGui::EndCombo();
+        }
+
+        static int input_text_resize_callback(ImGuiInputTextCallbackData* a_data)
+        {
+            if (a_data->EventFlag != ImGuiInputTextFlags_CallbackResize)
+            {
+                return 0;
+            }
+
+            auto* value = static_cast<std::string*>(a_data->UserData);
+            if (value == nullptr)
+            {
+                return 0;
+            }
+
+            value->resize(static_cast<size_t>(a_data->BufTextLen));
+            a_data->Buf = value->data();
+            return 0;
+        }
+
+        static bool input_text_string(
+            const char* a_label,
+            std::string& a_value,
+            ImVec2 a_size = ImVec2(0.0f, 0.0f),
+            bool a_multiline = false)
+        {
+            if (a_value.capacity() == 0u)
+            {
+                a_value.reserve(256u);
+            }
+            const size_t previousSize = a_value.size();
+            a_value.resize(a_value.capacity());
+            a_value[previousSize] = '\0';
+
+            ImGuiInputTextFlags flags = ImGuiInputTextFlags_CallbackResize;
+            const bool changed = a_multiline
+                ? ImGui::InputTextMultiline(
+                    a_label,
+                    a_value.data(),
+                    a_value.capacity() + 1u,
+                    a_size,
+                    flags,
+                    input_text_resize_callback,
+                    &a_value)
+                : ImGui::InputText(
+                    a_label,
+                    a_value.data(),
+                    a_value.capacity() + 1u,
+                    flags,
+                    input_text_resize_callback,
+                    &a_value);
+            a_value.resize(std::strlen(a_value.c_str()));
+            return changed;
+        }
+
+        void draw_text_renderer_component(GameCore::GameObject& a_object)
+        {
+            ECS::TextRendererComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted(
+                    "TextRendererComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("TextRendererComponent");
+            ImGui::Separator();
+            ImGui::Checkbox("visible", &component->visible);
+            input_text_string(
+                "text",
+                component->text,
+                ImVec2(0.0f, ImGui::GetTextLineHeight() * 5.0f),
+                true);
+            input_text_string("fontPath", component->fontPath);
+
+            int fontSize = static_cast<int>(component->fontSize);
+            if (ImGui::DragInt("fontSize", &fontSize, 1.0f, 1, 256))
+            {
+                component->fontSize =
+                    static_cast<uint32_t>((std::clamp)(fontSize, 1, 256));
+            }
+
+            float color[4] = {
+                component->color.x,
+                component->color.y,
+                component->color.z,
+                component->color.w
+            };
+            if (ImGui::ColorEdit4("color", color))
+            {
+                component->color =
+                    Math::float4(color[0], color[1], color[2], color[3]);
+            }
+
+            ImGui::DragInt("layer", &component->layer, 1.0f);
+            int order = static_cast<int>(component->order);
+            if (ImGui::DragInt("order", &order, 1.0f, 0))
+            {
+                component->order = static_cast<uint32_t>((std::max)(order, 0));
+            }
+
+            const char* horizontalNames[] = { "Left", "Center", "Right" };
+            int horizontalIndex = static_cast<int>(component->horizontalAlign);
+            if (ImGui::Combo(
+                    "horizontalAlign", &horizontalIndex, horizontalNames, 3))
+            {
+                component->horizontalAlign =
+                    static_cast<ECS::TextHorizontalAlign>(
+                        (std::clamp)(horizontalIndex, 0, 2));
+            }
+
+            const char* verticalNames[] = { "Top", "Middle", "Bottom" };
+            int verticalIndex = static_cast<int>(component->verticalAlign);
+            if (ImGui::Combo("verticalAlign", &verticalIndex, verticalNames, 3))
+            {
+                component->verticalAlign =
+                    static_cast<ECS::TextVerticalAlign>(
+                        (std::clamp)(verticalIndex, 0, 2));
+            }
+        }
+
         void draw_static_mesh_renderer_component(GameCore::GameObject& a_object)
         {
             ECS::StaticMeshRendererComponent* component = nullptr;
@@ -989,6 +1381,7 @@ namespace Cue::Editor
             ImGui::Separator();
             draw_material_reference_editor("material", component->materialHandle);
             ImGui::Checkbox("visible", &component->visible);
+            draw_render_queue_combo(component->renderQueue);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
             ImGui::BeginDisabled(!component->castsShadow);
             draw_shadow_caster_mode_combo(component->shadowCasterMode);
@@ -1010,6 +1403,7 @@ namespace Cue::Editor
             ImGui::Separator();
             draw_material_reference_editor("material", component->materialHandle);
             ImGui::Checkbox("visible", &component->visible);
+            draw_render_queue_combo(component->renderQueue);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
             ImGui::BeginDisabled(!component->castsShadow);
             draw_shadow_caster_mode_combo(component->shadowCasterMode);

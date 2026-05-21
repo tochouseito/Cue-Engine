@@ -330,6 +330,25 @@ namespace Cue
             detach_parent_bridge(
                 CueEntityHandle a_entityHandle,
                 uint8_t a_keepsWorldTransform);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_material_property_block_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueMaterialPropertyBlockData* a_propertyBlock);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_material_property_block_bridge(
+                CueEntityHandle a_entityHandle,
+                CueMaterialPropertyBlockData* a_outPropertyBlock);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            clear_material_property_block_bridge(
+                CueEntityHandle a_entityHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_material_color_bridge(
+                CueEntityHandle a_entityHandle,
+                const CueFloat4* a_color);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_material_shininess_bridge(
+                CueEntityHandle a_entityHandle,
+                float a_shininess);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -489,6 +508,20 @@ namespace Cue
         [[nodiscard]] CueResult detach_parent_internal(
             CueEntityHandle a_entityHandle,
             uint8_t a_keepsWorldTransform) noexcept;
+        [[nodiscard]] CueResult set_material_property_block_internal(
+            CueEntityHandle a_entityHandle,
+            const CueMaterialPropertyBlockData* a_propertyBlock) noexcept;
+        [[nodiscard]] CueResult get_material_property_block_internal(
+            CueEntityHandle a_entityHandle,
+            CueMaterialPropertyBlockData* a_outPropertyBlock) const noexcept;
+        [[nodiscard]] CueResult clear_material_property_block_internal(
+            CueEntityHandle a_entityHandle) noexcept;
+        [[nodiscard]] CueResult set_material_color_internal(
+            CueEntityHandle a_entityHandle,
+            const CueFloat4* a_color) noexcept;
+        [[nodiscard]] CueResult set_material_shininess_internal(
+            CueEntityHandle a_entityHandle,
+            float a_shininess) noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;

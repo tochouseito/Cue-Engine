@@ -14,6 +14,7 @@ namespace Cue::DrawSystem
         uint32_t indexCount = 0;
         uint32_t startIndex = 0;
         int32_t baseVertex = 0;
+        float sortDepth = 0.0f;
     };
 
     struct CpuShadowCaster final
@@ -30,6 +31,7 @@ namespace Cue::DrawSystem
         uint32_t renderHeight = 1;
         bool useCpuBatching = false;
         std::vector<CpuIndexedDraw> cpuIndexedDraws{};
+        std::vector<CpuIndexedDraw> transparentCpuIndexedDraws{};
         std::vector<CpuShadowCaster> cpuShadowCasters{};
     };
 

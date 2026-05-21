@@ -6458,6 +6458,39 @@ namespace Cue::Editor
 
         if (ImGui::BeginMenu("2D", canAddObject))
         {
+            if (ImGui::MenuItem("Canvas を追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Canvas, targetSceneId));
+                if (!result)
+                {
+                    log_result("Failed to add canvas object", result);
+                    set_status_message(
+                        "Canvas の追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("Canvas を追加しました。", false);
+                }
+            }
+
+            if (ImGui::MenuItem("Text を追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Text, targetSceneId));
+                if (!result)
+                {
+                    log_result("Failed to add text object", result);
+                    set_status_message("Text の追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("Text を追加しました。", false);
+                }
+            }
+
             if (ImGui::MenuItem("オブジェクトを追加"))
             {
                 const Result result = m_bridge->submit_command(
@@ -8629,9 +8662,13 @@ namespace Cue::Editor
             m_selectedSceneId;
         if (m_hierarchy != nullptr)
         {
+            m_hierarchy->set_game_world(
+                m_engine != nullptr ? m_engine->active_world() : nullptr);
+            m_hierarchy->set_read_only(
+                m_engine != nullptr && m_engine->is_playing());
             m_hierarchy->set_scenes(collect_hierarchy_scenes());
+            m_hierarchy->update();
         }
-        m_hierarchy->update();
         if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
             m_selectedEntityId != GameCore::k_invalidEntityId)
         {

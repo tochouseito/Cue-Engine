@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 21u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 24u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -169,12 +169,43 @@ extern "C"
         CueComponentKind_MeshFilter = 3,
         CueComponentKind_StaticMeshRenderer = 4,
         CueComponentKind_SpriteRenderer = 5,
+        CueComponentKind_Canvas = 6,
+        CueComponentKind_UiRectTransform = 7,
+        CueComponentKind_UiLayoutGroup = 8,
+        CueComponentKind_TextRenderer = 9,
+    };
+
+    enum CueUiLayoutDirection : uint32_t
+    {
+        CueUiLayoutDirection_Horizontal = 0,
+        CueUiLayoutDirection_Vertical = 1,
+    };
+
+    enum CueTextHorizontalAlign : uint32_t
+    {
+        CueTextHorizontalAlign_Left = 0,
+        CueTextHorizontalAlign_Center = 1,
+        CueTextHorizontalAlign_Right = 2,
+    };
+
+    enum CueTextVerticalAlign : uint32_t
+    {
+        CueTextVerticalAlign_Top = 0,
+        CueTextVerticalAlign_Middle = 1,
+        CueTextVerticalAlign_Bottom = 2,
     };
 
     enum CueShadowCasterMode : uint8_t
     {
         CueShadowCasterMode_Solid = 0,
         CueShadowCasterMode_TwoSided = 1,
+    };
+
+    enum CueMaterialPropertyOverride : uint32_t
+    {
+        CueMaterialPropertyOverride_Color = 1u << 0,
+        CueMaterialPropertyOverride_Shininess = 1u << 1,
+        CueMaterialPropertyOverride_ReflectionSkybox = 1u << 2,
     };
 
     enum CueColliderShapeType : uint32_t
@@ -295,6 +326,17 @@ extern "C"
         uint8_t shadowCasterMode;
     };
 
+    struct CueMaterialPropertyBlockData
+    {
+        CueFloat4 color;
+        float shininess;
+        uint32_t overrideMask;
+        uint8_t usesReflectionSkybox;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
     struct CueSpriteRendererComponentData
     {
         CueFloat4 color;
@@ -304,6 +346,53 @@ extern "C"
         int32_t layer;
         uint32_t order;
         uint8_t isVisible;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueCanvasComponentData
+    {
+        CueFloat2 referenceSize;
+        float scaleFactor;
+        int32_t sortOrder;
+        uint8_t matchesScreen;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiRectTransformComponentData
+    {
+        CueFloat2 anchorMin;
+        CueFloat2 anchorMax;
+        CueFloat2 pivot;
+        CueFloat2 anchoredPosition;
+        CueFloat2 sizeDelta;
+    };
+
+    struct CueUiLayoutGroupComponentData
+    {
+        CueFloat4 padding;
+        float spacing;
+        CueUiLayoutDirection direction;
+        uint8_t controlsChildSize;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueTextRendererComponentData
+    {
+        CueStringView text;
+        CueStringView fontPath;
+        CueFloat4 color;
+        uint32_t fontSize;
+        int32_t layer;
+        uint32_t order;
+        CueTextHorizontalAlign horizontalAlign;
+        CueTextVerticalAlign verticalAlign;
+        uint8_t visible;
         uint8_t reserved0;
         uint8_t reserved1;
         uint8_t reserved2;
@@ -742,6 +831,30 @@ extern "C"
         uint8_t a_keepsWorldTransform
     );
 
+    using CueSetMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock
+    );
+
+    using CueGetMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock
+    );
+
+    using CueClearMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
+    using CueSetMaterialColorFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color
+    );
+
+    using CueSetMaterialShininessFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_shininess
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -847,6 +960,16 @@ extern "C"
         CueSetParentFn setParent;
         /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueDetachParentFn detachParent;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialPropertyBlockFn setMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetMaterialPropertyBlockFn getMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueClearMaterialPropertyBlockFn clearMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialColorFn setMaterialColor;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialShininessFn setMaterialShininess;
     };
 
     /// @brief Script インスタンス生成時の入力です。

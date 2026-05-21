@@ -184,6 +184,7 @@ Script 内では次の操作を使えます。
 - `add_rigid_body_force()` / `add_rigid_body_impulse()`: RigidBody に力またはインパルスを加えます。
 - `set_character_move_velocity()` / `request_character_jump()`: CharacterController の水平移動とジャンプを要求します。
 - `set_nav_agent_destination()` / `set_nav_agent_target()`: NavAgent の目的地または追跡対象を設定します。
+- `set_material_color()`、`set_material_shininess()`、`set_material_property_block()`、`clear_material_property_block()`: owner の StaticMeshRenderer または SkinnedMeshRenderer に、オブジェクト単位の Material 上書きを設定します。
 
 Transform を動かす最小例です。
 
@@ -208,6 +209,44 @@ void RotateCube::update()
 
 `rotationSpeed` は rad/s として扱います。
 度数法で扱いたい場合は `get_transform_degrees()` と `set_transform_degrees()` を使います。
+
+## Material を Script から上書きする
+
+Material は次の優先順位で解決されます。
+
+- `MaterialAsset`: AssetManager が持つ共有 Material 定義です。
+- `MaterialInstance`: Renderer が参照する Material 実体です。
+- `MaterialPropertyBlock`: Script などから Entity 単位で上書きする値です。
+
+Script から一時的な色、発光演出、ヒット時の点滅などを入れる場合は、共有 Material を直接変更せず `MaterialPropertyBlock` を使います。
+
+```cpp
+void HitFlash::start()
+{
+    (void)set_material_color(Color{ 1.0f, 0.2f, 0.1f, 1.0f });
+}
+
+void HitFlash::clear()
+{
+    (void)clear_material_property_block();
+}
+```
+
+複数の値をまとめて設定する場合は `overrideMask` に対象フラグを入れます。
+
+```cpp
+void WetMaterial::start()
+{
+    MaterialPropertyBlockData block{};
+    block.color = Color{ 0.7f, 0.85f, 1.0f, 1.0f };
+    block.shininess = 96.0f;
+    block.overrideMask =
+        MaterialPropertyOverrideColor |
+        MaterialPropertyOverrideShininess;
+
+    (void)set_material_property_block(block);
+}
+```
 
 ## CharacterController を使った移動
 

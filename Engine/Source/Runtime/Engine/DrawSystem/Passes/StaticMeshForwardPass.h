@@ -12,11 +12,18 @@
 // === C++ includes ===
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <utility>
 
 namespace Cue::DrawSystem
 {
+    enum class StaticMeshForwardQueue : uint8_t
+    {
+        Opaque,
+        Transparent,
+    };
+
     class StaticMeshForwardPass final : public RHI::FrameGraphPass
     {
     public:
@@ -36,7 +43,8 @@ namespace Cue::DrawSystem
             const ShadowSystem::ShadowBindings& a_shadowBindings,
             uint32_t a_indexCountPerInstance,
             const RHI::ViewHandle& a_reflectionSkyboxSrvHandle,
-            const DebugViewShadingMode* a_shadingMode = nullptr)
+            const DebugViewShadingMode* a_shadingMode = nullptr,
+            StaticMeshForwardQueue a_queue = StaticMeshForwardQueue::Opaque)
             : m_name(std::move(a_name)),
             m_colorName(std::move(a_colorName)),
             m_colorRtvName(std::move(a_colorRtvName)),
@@ -53,6 +61,7 @@ namespace Cue::DrawSystem
             m_shadowBindings(a_shadowBindings),
             m_reflectionSkyboxSrvHandle(a_reflectionSkyboxSrvHandle),
             m_shadingMode(a_shadingMode),
+            m_queue(a_queue),
             m_indexCountPerInstance(a_indexCountPerInstance)
         {}
 
@@ -90,31 +99,48 @@ namespace Cue::DrawSystem
                 return result;
             }
 
-            RHI::TextureDesc sceneDepthDesc{};
-            sceneDepthDesc.name = m_depthName;
-            sceneDepthDesc.bufferCount = 1;
-            sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
-            sceneDepthDesc.width = builder.width();
-            sceneDepthDesc.height = builder.height();
-            sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
-            sceneDepthDesc.clearDepth = 1.0f;
-            sceneDepthDesc.clearStencil = 0;
-            result = builder.create_texture(sceneDepthDesc, m_depthHandle);
-            if (!result)
+            if (m_queue == StaticMeshForwardQueue::Opaque)
             {
-                return result;
-            }
+                RHI::TextureDesc sceneDepthDesc{};
+                sceneDepthDesc.name = m_depthName;
+                sceneDepthDesc.bufferCount = 1;
+                sceneDepthDesc.kind = RHI::TextureKind::DepthStencil;
+                sceneDepthDesc.width = builder.width();
+                sceneDepthDesc.height = builder.height();
+                sceneDepthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+                sceneDepthDesc.clearDepth = 1.0f;
+                sceneDepthDesc.clearStencil = 0;
+                result = builder.create_texture(sceneDepthDesc, m_depthHandle);
+                if (!result)
+                {
+                    return result;
+                }
 
-            RHI::ViewDesc sceneDepthDsvDesc{};
-            sceneDepthDsvDesc.name = m_depthDsvName;
-            sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
-            sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
-            sceneDepthDsvDesc.textureHandle = m_depthHandle;
-            sceneDepthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-            result = builder.create_view(sceneDepthDsvDesc, m_depthDsvHandle);
-            if (!result)
+                RHI::ViewDesc sceneDepthDsvDesc{};
+                sceneDepthDsvDesc.name = m_depthDsvName;
+                sceneDepthDsvDesc.type = RHI::ViewType::DepthStencil;
+                sceneDepthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+                sceneDepthDsvDesc.textureHandle = m_depthHandle;
+                sceneDepthDsvDesc.colorFormat =
+                    RHI::ColorFormat::D24_UNorm_S8_UInt;
+                result = builder.create_view(sceneDepthDsvDesc, m_depthDsvHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+            else
             {
-                return result;
+                result = builder.get_texture(m_depthName, m_depthHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                result = builder.get_view(m_depthDsvName, m_depthDsvHandle);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             result = builder.read_buffer(m_renderObjectBufferHandle);
@@ -374,7 +400,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::GraphicsPipelineStateDesc pipelineDesc{};
-            pipelineDesc.name = "StaticMeshForwardPipeline";
+            pipelineDesc.name = m_name + "Pipeline";
             pipelineDesc.rootSignatureHandle = m_rootSignatureHandle;
             pipelineDesc.vsHandle = m_vertexShaderHandle;
             pipelineDesc.psHandle = m_pixelShaderHandle;
@@ -387,10 +413,17 @@ namespace Cue::DrawSystem
             };
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
             pipelineDesc.depthStencilState.depthEnable = true;
-            pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
+            pipelineDesc.depthStencilState.depthWriteMask =
+                m_queue == StaticMeshForwardQueue::Transparent
+                ? RHI::DepthWriteMask::Zero
+                : RHI::DepthWriteMask::All;
             pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
             pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-            pipelineDesc.blendMode = { RHI::BlendMode::None };
+            pipelineDesc.blendMode = {
+                m_queue == StaticMeshForwardQueue::Transparent
+                ? RHI::BlendMode::Normal
+                : RHI::BlendMode::None
+            };
             pipelineDesc.rtvFormats = { RHI::ColorFormat::R8G8B8A8_UNORM };
             result = builder.create_graphics_pipeline(pipelineDesc, m_pipelineHandle);
             if (!result)
@@ -706,9 +739,12 @@ namespace Cue::DrawSystem
                 m_drawFrameState.frame_state(context.frame_index());
 
             const Clock::time_point clearStartTime = Clock::now();
-            commandContext->clear_render_target(m_colorRtvHandle,
-                k_clearColorVec.data());
-            commandContext->clear_depth_stencil(m_depthDsvHandle, 1.0f, 0);
+            if (m_queue == StaticMeshForwardQueue::Opaque)
+            {
+                commandContext->clear_render_target(m_colorRtvHandle,
+                    k_clearColorVec.data());
+                commandContext->clear_depth_stencil(m_depthDsvHandle, 1.0f, 0);
+            }
             add_detail_timing("clear", clearStartTime, Clock::now());
 
             const Clock::time_point targetSetupStartTime = Clock::now();
@@ -772,7 +808,30 @@ namespace Cue::DrawSystem
             commandContext->set_vertex_buffer(3, m_influenceBufferHandle);
             add_detail_timing("resource_bind", bindingStartTime, Clock::now());
 
-            if (frameState.useCpuBatching)
+            if (m_queue == StaticMeshForwardQueue::Transparent)
+            {
+                const Clock::time_point drawSetupStartTime = Clock::now();
+                commandContext->set_index_buffer(
+                    m_indexBufferHandle, RHI::IndexFormat::UInt32);
+                add_detail_timing("index_buffer", drawSetupStartTime, Clock::now());
+
+                const Clock::time_point drawLoopStartTime = Clock::now();
+                for (const CpuIndexedDraw& draw :
+                    frameState.transparentCpuIndexedDraws)
+                {
+                    if (draw.indexCount == 0)
+                    {
+                        continue;
+                    }
+
+                    commandContext->set_32bit_constant(0, draw.renderObjectId);
+                    commandContext->draw_indexed_instanced(
+                        draw.indexCount, 1, draw.startIndex, draw.baseVertex, 0);
+                }
+                add_detail_timing(
+                    "transparent_draw_loop", drawLoopStartTime, Clock::now());
+            }
+            else if (frameState.useCpuBatching)
             {
                 const Clock::time_point drawSetupStartTime = Clock::now();
                 commandContext->set_index_buffer(
@@ -849,6 +908,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_visibleObjectCountBufferHandle{};
         const RHI::ViewHandle& m_reflectionSkyboxSrvHandle;
         const DebugViewShadingMode* m_shadingMode = nullptr;
+        StaticMeshForwardQueue m_queue = StaticMeshForwardQueue::Opaque;
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_vertexShaderHandle{};
         RHI::ShaderBlobHandle m_pixelShaderHandle{};

@@ -71,6 +71,65 @@ namespace Cue
             return Math::float2(a_value.x, a_value.y);
         }
 
+        [[nodiscard]] bool is_finite(const CueFloat2& a_value) noexcept
+        {
+            return std::isfinite(a_value.x) && std::isfinite(a_value.y);
+        }
+
+        [[nodiscard]] Math::float4 to_math_float4(const CueFloat4& a_value) noexcept
+        {
+            return Math::float4(a_value.x, a_value.y, a_value.z, a_value.w);
+        }
+
+        [[nodiscard]] CueFloat4 to_cue_float4(const Math::float4& a_value) noexcept
+        {
+            return CueFloat4{ a_value.x, a_value.y, a_value.z, a_value.w };
+        }
+
+        [[nodiscard]] bool is_finite(const CueFloat4& a_value) noexcept
+        {
+            return std::isfinite(a_value.x) &&
+                std::isfinite(a_value.y) &&
+                std::isfinite(a_value.z) &&
+                std::isfinite(a_value.w);
+        }
+
+        [[nodiscard]] uint32_t sanitize_material_override_mask(
+            uint32_t a_mask) noexcept
+        {
+            constexpr uint32_t k_allowedMask =
+                ECS::MaterialPropertyOverrideColor |
+                ECS::MaterialPropertyOverrideShininess |
+                ECS::MaterialPropertyOverrideReflectionSkybox;
+            return a_mask & k_allowedMask;
+        }
+
+        [[nodiscard]] ECS::MaterialPropertyBlock to_material_property_block(
+            const CueMaterialPropertyBlockData& a_data) noexcept
+        {
+            ECS::MaterialPropertyBlock propertyBlock{};
+            propertyBlock.color = to_math_float4(a_data.color);
+            propertyBlock.shininess = a_data.shininess;
+            propertyBlock.overrideMask =
+                sanitize_material_override_mask(a_data.overrideMask);
+            propertyBlock.usesReflectionSkybox =
+                a_data.usesReflectionSkybox != 0u;
+            return propertyBlock;
+        }
+
+        [[nodiscard]] CueMaterialPropertyBlockData to_cue_material_property_block(
+            const ECS::MaterialPropertyBlock& a_propertyBlock) noexcept
+        {
+            CueMaterialPropertyBlockData data{};
+            data.color = to_cue_float4(a_propertyBlock.color);
+            data.shininess = a_propertyBlock.shininess;
+            data.overrideMask =
+                sanitize_material_override_mask(a_propertyBlock.overrideMask);
+            data.usesReflectionSkybox =
+                a_propertyBlock.usesReflectionSkybox ? 1u : 0u;
+            return data;
+        }
+
         [[nodiscard]] float length_squared(const Math::float3& a_value) noexcept
         {
             return a_value.x * a_value.x + a_value.y * a_value.y +
@@ -554,6 +613,16 @@ namespace Cue
         m_engineApi.getParent = &ScriptRuntime::get_parent_bridge;
         m_engineApi.setParent = &ScriptRuntime::set_parent_bridge;
         m_engineApi.detachParent = &ScriptRuntime::detach_parent_bridge;
+        m_engineApi.setMaterialPropertyBlock =
+            &ScriptRuntime::set_material_property_block_bridge;
+        m_engineApi.getMaterialPropertyBlock =
+            &ScriptRuntime::get_material_property_block_bridge;
+        m_engineApi.clearMaterialPropertyBlock =
+            &ScriptRuntime::clear_material_property_block_bridge;
+        m_engineApi.setMaterialColor =
+            &ScriptRuntime::set_material_color_bridge;
+        m_engineApi.setMaterialShininess =
+            &ScriptRuntime::set_material_shininess_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1882,6 +1951,55 @@ namespace Cue
         return s_activeInstance != nullptr
             ? s_activeInstance->detach_parent_internal(
                 a_entityHandle, a_keepsWorldTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_property_block_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_property_block_internal(
+                a_entityHandle, a_propertyBlock)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_material_property_block_bridge(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_material_property_block_internal(
+                a_entityHandle, a_outPropertyBlock)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::clear_material_property_block_bridge(
+        CueEntityHandle a_entityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->clear_material_property_block_internal(
+                a_entityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_color_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_color_internal(
+                a_entityHandle, a_color)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_shininess_bridge(
+        CueEntityHandle a_entityHandle,
+        float a_shininess)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_shininess_internal(
+                a_entityHandle, a_shininess)
             : CueResult_InvalidState;
     }
 
@@ -3309,6 +3427,199 @@ namespace Cue
         return CueResult_Ok;
     }
 
+    CueResult ScriptRuntime::set_material_property_block_internal(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_propertyBlock == nullptr ||
+            !is_finite(a_propertyBlock->color) ||
+            !std::isfinite(a_propertyBlock->shininess) ||
+            a_propertyBlock->shininess <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+        const ECS::MaterialPropertyBlock propertyBlock =
+            to_material_property_block(*a_propertyBlock);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock = propertyBlock;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock = propertyBlock;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::get_material_property_block_internal(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outPropertyBlock == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outPropertyBlock =
+            to_cue_material_property_block(ECS::MaterialPropertyBlock{});
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            *a_outPropertyBlock =
+                to_cue_material_property_block(staticRenderer->propertyBlock);
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            *a_outPropertyBlock =
+                to_cue_material_property_block(skinnedRenderer->propertyBlock);
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::clear_material_property_block_internal(
+        CueEntityHandle a_entityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock = ECS::MaterialPropertyBlock{};
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock = ECS::MaterialPropertyBlock{};
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::set_material_color_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_color == nullptr ||
+            !is_finite(*a_color))
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+        const Math::float4 color = to_math_float4(*a_color);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock.color = color;
+            staticRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideColor;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock.color = color;
+            skinnedRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideColor;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::set_material_shininess_internal(
+        CueEntityHandle a_entityHandle,
+        float a_shininess) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            !std::isfinite(a_shininess) ||
+            a_shininess <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock.shininess = a_shininess;
+            staticRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideShininess;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock.shininess = a_shininess;
+            skinnedRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideShininess;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
     CueResult ScriptRuntime::add_or_set_component_internal(
         CueEntityHandle a_entityHandle,
         CueComponentKind a_componentKind,
@@ -3425,6 +3736,121 @@ namespace Cue
             collider.mask = data.mask;
             collider.isTrigger = data.isTrigger != 0u;
             return addOrSetComponent(collider);
+        }
+        case CueComponentKind_Canvas:
+        {
+            if (a_componentDataSize < sizeof(CueCanvasComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueCanvasComponentData*>(a_componentData);
+            if (!is_finite(data.referenceSize) ||
+                !std::isfinite(data.scaleFactor) ||
+                data.referenceSize.x <= 0.0f ||
+                data.referenceSize.y <= 0.0f ||
+                data.scaleFactor <= 0.0f)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::CanvasComponent canvas{};
+            canvas.referenceSize = to_math_float2(data.referenceSize);
+            canvas.scaleFactor = data.scaleFactor;
+            canvas.sortOrder = data.sortOrder;
+            canvas.matchesScreen = data.matchesScreen != 0u;
+            return addOrSetComponent(canvas);
+        }
+        case CueComponentKind_UiRectTransform:
+        {
+            if (a_componentDataSize < sizeof(CueUiRectTransformComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiRectTransformComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.anchorMin) ||
+                !is_finite(data.anchorMax) ||
+                !is_finite(data.pivot) ||
+                !is_finite(data.anchoredPosition) ||
+                !is_finite(data.sizeDelta))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiRectTransformComponent rect{};
+            rect.anchorMin = to_math_float2(data.anchorMin);
+            rect.anchorMax = to_math_float2(data.anchorMax);
+            rect.pivot = to_math_float2(data.pivot);
+            rect.anchoredPosition = to_math_float2(data.anchoredPosition);
+            rect.sizeDelta = to_math_float2(data.sizeDelta);
+            rect.resolvedMin = Math::float2(0.0f, 0.0f);
+            rect.resolvedSize = Math::float2(0.0f, 0.0f);
+            rect.isResolved = false;
+            return addOrSetComponent(rect);
+        }
+        case CueComponentKind_UiLayoutGroup:
+        {
+            if (a_componentDataSize < sizeof(CueUiLayoutGroupComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiLayoutGroupComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.padding) ||
+                !std::isfinite(data.spacing) ||
+                data.spacing < 0.0f)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiLayoutGroupComponent layout{};
+            layout.padding = to_math_float4(data.padding);
+            layout.spacing = data.spacing;
+            layout.direction =
+                data.direction == CueUiLayoutDirection_Vertical
+                    ? ECS::UiLayoutDirection::Vertical
+                    : ECS::UiLayoutDirection::Horizontal;
+            layout.controlsChildSize = data.controlsChildSize != 0u;
+            return addOrSetComponent(layout);
+        }
+        case CueComponentKind_TextRenderer:
+        {
+            if (a_componentDataSize < sizeof(CueTextRendererComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueTextRendererComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.color) || data.fontSize == 0u)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::TextRendererComponent text{};
+            text.text = std::string(to_string_view(data.text));
+            text.fontPath = std::string(to_string_view(data.fontPath));
+            text.color = to_math_float4(data.color);
+            text.fontSize = data.fontSize;
+            text.layer = data.layer;
+            text.order = data.order;
+            text.horizontalAlign =
+                data.horizontalAlign == CueTextHorizontalAlign_Center
+                    ? ECS::TextHorizontalAlign::Center
+                    : data.horizontalAlign == CueTextHorizontalAlign_Right
+                    ? ECS::TextHorizontalAlign::Right
+                    : ECS::TextHorizontalAlign::Left;
+            text.verticalAlign =
+                data.verticalAlign == CueTextVerticalAlign_Middle
+                    ? ECS::TextVerticalAlign::Middle
+                    : data.verticalAlign == CueTextVerticalAlign_Bottom
+                    ? ECS::TextVerticalAlign::Bottom
+                    : ECS::TextVerticalAlign::Top;
+            text.visible = data.visible != 0u;
+            return addOrSetComponent(text);
         }
         case CueComponentKind_TriggerVolume:
         {

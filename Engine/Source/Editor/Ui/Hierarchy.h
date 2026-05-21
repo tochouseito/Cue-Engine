@@ -62,6 +62,20 @@ namespace Cue::Editor
             m_sourceScenes = std::move(a_scenes);
         }
 
+        void set_game_world(GameCore::GameWorld* a_gameWorld) noexcept
+        {
+            m_gameWorld = a_gameWorld;
+        }
+
+        void set_read_only(bool a_isReadOnly) noexcept
+        {
+            m_isReadOnly = a_isReadOnly;
+            if (m_isReadOnly)
+            {
+                cancel_rename();
+            }
+        }
+
         void update()
         {
             ImGui::Begin("ヒエラルキー");
@@ -320,7 +334,8 @@ namespace Cue::Editor
             }
 
             if (ImGui::IsItemHovered() &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                !m_isReadOnly)
             {
                 begin_rename(object);
             }
@@ -374,6 +389,11 @@ namespace Cue::Editor
 
         void draw_object_context_menu(const ObjectEntry& a_object)
         {
+            if (m_isReadOnly)
+            {
+                return;
+            }
+
             if (ImGui::BeginPopupContextItem("HierarchyContextMenu"))
             {
                 set_selected_entity_id(a_object.entityId);
@@ -417,6 +437,12 @@ namespace Cue::Editor
 
         void submit_rename_command(GameCore::EntityId a_entityId)
         {
+            if (editorBridge == nullptr || m_isReadOnly)
+            {
+                cancel_rename();
+                return;
+            }
+
             std::string newName = m_renameBuffer.data();
             const auto objectIt = std::find_if(m_objects.begin(), m_objects.end(),
                 [a_entityId](const ObjectEntry& a_object)
@@ -444,6 +470,11 @@ namespace Cue::Editor
 
         void submit_delete_command(GameCore::EntityId a_entityId)
         {
+            if (editorBridge == nullptr || m_isReadOnly)
+            {
+                return;
+            }
+
             Result result = editorBridge->submit_command(
                 std::make_unique<Cue::DeleteObjectCommand>(a_entityId));
             if (!result)
@@ -506,5 +537,6 @@ namespace Cue::Editor
         GameCore::EntityId m_renamingEntityId = GameCore::k_invalidEntityId;
         std::array<char, 256> m_renameBuffer{};
         bool m_focusRenameInput = false;
+        bool m_isReadOnly = false;
     };
 }

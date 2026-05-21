@@ -18,6 +18,20 @@ namespace Cue::GameCore
     {
         using Json = nlohmann::json;
 
+        [[nodiscard]] Json serialize_float2(const Math::float2& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+            };
+        }
+
+        void deserialize_float2(const Json& a_json, Math::float2& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+        }
+
         [[nodiscard]] Json serialize_float3(const Math::float3& a_value)
         {
             return Json{
@@ -97,6 +111,35 @@ namespace Cue::GameCore
             }
 
             return ECS::ShadowCasterMode::Solid;
+        }
+
+        [[nodiscard]] const char* to_string(ECS::RenderQueue a_queue) noexcept
+        {
+            switch (a_queue)
+            {
+            case ECS::RenderQueue::Opaque:
+                return "Opaque";
+            case ECS::RenderQueue::Transparent:
+                return "Transparent";
+            case ECS::RenderQueue::Auto:
+            default:
+                return "Auto";
+            }
+        }
+
+        [[nodiscard]] ECS::RenderQueue render_queue_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Opaque")
+            {
+                return ECS::RenderQueue::Opaque;
+            }
+            if (a_value == "Transparent")
+            {
+                return ECS::RenderQueue::Transparent;
+            }
+
+            return ECS::RenderQueue::Auto;
         }
 
         [[nodiscard]] const char* to_string(
@@ -357,6 +400,242 @@ namespace Cue::GameCore
             a_outComponent.aspectRatio = a_json.at("aspectRatio").get<float>();
             a_outComponent.nearZ = a_json.at("nearZ").get<float>();
             a_outComponent.farZ = a_json.at("farZ").get<float>();
+        }
+
+        [[nodiscard]] Json serialize_canvas(
+            const ECS::CanvasComponent& a_component)
+        {
+            return Json{
+                { "referenceSize", serialize_float2(a_component.referenceSize) },
+                { "scaleFactor", a_component.scaleFactor },
+                { "sortOrder", a_component.sortOrder },
+                { "matchesScreen", a_component.matchesScreen },
+            };
+        }
+
+        void deserialize_canvas(
+            const Json& a_json,
+            ECS::CanvasComponent& a_outComponent)
+        {
+            if (const Json::const_iterator sizeIt =
+                    a_json.find("referenceSize");
+                sizeIt != a_json.end())
+            {
+                deserialize_float2(*sizeIt, a_outComponent.referenceSize);
+            }
+            a_outComponent.scaleFactor =
+                a_json.value("scaleFactor", a_outComponent.scaleFactor);
+            a_outComponent.sortOrder =
+                a_json.value("sortOrder", a_outComponent.sortOrder);
+            a_outComponent.matchesScreen =
+                a_json.value("matchesScreen", a_outComponent.matchesScreen);
+        }
+
+        [[nodiscard]] Json serialize_ui_rect_transform(
+            const ECS::UiRectTransformComponent& a_component)
+        {
+            return Json{
+                { "anchorMin", serialize_float2(a_component.anchorMin) },
+                { "anchorMax", serialize_float2(a_component.anchorMax) },
+                { "pivot", serialize_float2(a_component.pivot) },
+                { "anchoredPosition",
+                    serialize_float2(a_component.anchoredPosition) },
+                { "sizeDelta", serialize_float2(a_component.sizeDelta) },
+            };
+        }
+
+        void deserialize_ui_rect_transform(
+            const Json& a_json,
+            ECS::UiRectTransformComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("anchorMin");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchorMin);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("anchorMax");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchorMax);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("pivot");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.pivot);
+            }
+            if (const Json::const_iterator valueIt =
+                    a_json.find("anchoredPosition");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchoredPosition);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("sizeDelta");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.sizeDelta);
+            }
+            a_outComponent.resolvedMin = Math::float2(0.0f, 0.0f);
+            a_outComponent.resolvedSize = Math::float2(0.0f, 0.0f);
+            a_outComponent.isResolved = false;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::UiLayoutDirection a_direction) noexcept
+        {
+            switch (a_direction)
+            {
+            case ECS::UiLayoutDirection::Horizontal:
+                return "Horizontal";
+            case ECS::UiLayoutDirection::Vertical:
+                return "Vertical";
+            }
+
+            return "Horizontal";
+        }
+
+        [[nodiscard]] ECS::UiLayoutDirection ui_layout_direction_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Vertical")
+            {
+                return ECS::UiLayoutDirection::Vertical;
+            }
+
+            return ECS::UiLayoutDirection::Horizontal;
+        }
+
+        [[nodiscard]] Json serialize_ui_layout_group(
+            const ECS::UiLayoutGroupComponent& a_component)
+        {
+            return Json{
+                { "padding", serialize_float4(a_component.padding) },
+                { "spacing", a_component.spacing },
+                { "direction", to_string(a_component.direction) },
+                { "controlsChildSize", a_component.controlsChildSize },
+            };
+        }
+
+        void deserialize_ui_layout_group(
+            const Json& a_json,
+            ECS::UiLayoutGroupComponent& a_outComponent)
+        {
+            if (const Json::const_iterator paddingIt = a_json.find("padding");
+                paddingIt != a_json.end())
+            {
+                deserialize_float4(*paddingIt, a_outComponent.padding);
+            }
+            a_outComponent.spacing =
+                a_json.value("spacing", a_outComponent.spacing);
+            a_outComponent.direction = ui_layout_direction_from_string(
+                a_json.value("direction",
+                    std::string(to_string(a_outComponent.direction))));
+            a_outComponent.controlsChildSize =
+                a_json.value("controlsChildSize",
+                    a_outComponent.controlsChildSize);
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::TextHorizontalAlign a_align) noexcept
+        {
+            switch (a_align)
+            {
+            case ECS::TextHorizontalAlign::Center:
+                return "Center";
+            case ECS::TextHorizontalAlign::Right:
+                return "Right";
+            case ECS::TextHorizontalAlign::Left:
+            default:
+                return "Left";
+            }
+        }
+
+        [[nodiscard]] ECS::TextHorizontalAlign text_horizontal_align_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Center")
+            {
+                return ECS::TextHorizontalAlign::Center;
+            }
+            if (a_value == "Right")
+            {
+                return ECS::TextHorizontalAlign::Right;
+            }
+            return ECS::TextHorizontalAlign::Left;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::TextVerticalAlign a_align) noexcept
+        {
+            switch (a_align)
+            {
+            case ECS::TextVerticalAlign::Middle:
+                return "Middle";
+            case ECS::TextVerticalAlign::Bottom:
+                return "Bottom";
+            case ECS::TextVerticalAlign::Top:
+            default:
+                return "Top";
+            }
+        }
+
+        [[nodiscard]] ECS::TextVerticalAlign text_vertical_align_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Middle")
+            {
+                return ECS::TextVerticalAlign::Middle;
+            }
+            if (a_value == "Bottom")
+            {
+                return ECS::TextVerticalAlign::Bottom;
+            }
+            return ECS::TextVerticalAlign::Top;
+        }
+
+        [[nodiscard]] Json serialize_text_renderer(
+            const ECS::TextRendererComponent& a_component)
+        {
+            return Json{
+                { "text", a_component.text },
+                { "fontPath", a_component.fontPath },
+                { "color", serialize_float4(a_component.color) },
+                { "fontSize", a_component.fontSize },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "horizontalAlign", to_string(a_component.horizontalAlign) },
+                { "verticalAlign", to_string(a_component.verticalAlign) },
+                { "visible", a_component.visible },
+            };
+        }
+
+        void deserialize_text_renderer(
+            const Json& a_json,
+            ECS::TextRendererComponent& a_outComponent)
+        {
+            a_outComponent.text = a_json.value("text", a_outComponent.text);
+            a_outComponent.fontPath =
+                a_json.value("fontPath", a_outComponent.fontPath);
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.fontSize =
+                a_json.value("fontSize", a_outComponent.fontSize);
+            a_outComponent.layer =
+                a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order =
+                a_json.value("order", a_outComponent.order);
+            a_outComponent.horizontalAlign = text_horizontal_align_from_string(
+                a_json.value(
+                    "horizontalAlign",
+                    std::string(to_string(a_outComponent.horizontalAlign))));
+            a_outComponent.verticalAlign = text_vertical_align_from_string(
+                a_json.value(
+                    "verticalAlign",
+                    std::string(to_string(a_outComponent.verticalAlign))));
+            a_outComponent.visible =
+                a_json.value("visible", a_outComponent.visible);
         }
 
         [[nodiscard]] Json serialize_directional_light(
@@ -761,6 +1040,7 @@ namespace Cue::GameCore
                 { "visible", a_component.visible },
                 { "castsShadow", a_component.castsShadow },
                 { "receivesShadow", a_component.receivesShadow },
+                { "renderQueue", to_string(a_component.renderQueue) },
                 { "shadowCasterMode", to_string(a_component.shadowCasterMode) },
             };
 
@@ -824,6 +1104,10 @@ namespace Cue::GameCore
                 a_json.value("castsShadow", a_outComponent.castsShadow);
             a_outComponent.receivesShadow =
                 a_json.value("receivesShadow", a_outComponent.receivesShadow);
+            a_outComponent.renderQueue = render_queue_from_string(
+                a_json.value(
+                    "renderQueue",
+                    std::string(to_string(a_outComponent.renderQueue))));
             a_outComponent.shadowCasterMode = shadow_caster_mode_from_string(
                 a_json.value(
                     "shadowCasterMode",
@@ -839,6 +1123,7 @@ namespace Cue::GameCore
             proxy.visible = a_component.visible;
             proxy.castsShadow = a_component.castsShadow;
             proxy.receivesShadow = a_component.receivesShadow;
+            proxy.renderQueue = a_component.renderQueue;
             proxy.shadowCasterMode = a_component.shadowCasterMode;
             return serialize_static_mesh_renderer(proxy, a_options);
         }
@@ -854,6 +1139,7 @@ namespace Cue::GameCore
             a_outComponent.visible = proxy.visible;
             a_outComponent.castsShadow = proxy.castsShadow;
             a_outComponent.receivesShadow = proxy.receivesShadow;
+            a_outComponent.renderQueue = proxy.renderQueue;
             a_outComponent.shadowCasterMode = proxy.shadowCasterMode;
         }
 
@@ -1388,6 +1674,39 @@ namespace Cue::GameCore
                 componentsJson["camera"] = serialize_camera(*camera);
             }
 
+            if (const ECS::CanvasComponent* canvas =
+                a_definition.prototype.get_component_ptr<ECS::CanvasComponent>();
+                canvas != nullptr)
+            {
+                componentsJson["canvas"] = serialize_canvas(*canvas);
+            }
+
+            if (const ECS::UiRectTransformComponent* rect =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiRectTransformComponent>();
+                rect != nullptr)
+            {
+                componentsJson["uiRectTransform"] =
+                    serialize_ui_rect_transform(*rect);
+            }
+
+            if (const ECS::UiLayoutGroupComponent* layout =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiLayoutGroupComponent>();
+                layout != nullptr)
+            {
+                componentsJson["uiLayoutGroup"] =
+                    serialize_ui_layout_group(*layout);
+            }
+
+            if (const ECS::TextRendererComponent* text =
+                a_definition.prototype.get_component_ptr<
+                    ECS::TextRendererComponent>();
+                text != nullptr)
+            {
+                componentsJson["textRenderer"] = serialize_text_renderer(*text);
+            }
+
             if (const ECS::DirectionalLightComponent* directionalLight =
                 a_definition.prototype.get_component_ptr<
                     ECS::DirectionalLightComponent>();
@@ -1587,6 +1906,42 @@ namespace Cue::GameCore
                     ECS::CameraComponent camera{};
                     deserialize_camera(*cameraIt, camera);
                     objectDefinition.prototype.add_component(camera);
+                }
+
+                if (const Json::const_iterator canvasIt =
+                    componentsJson.find("canvas");
+                    canvasIt != componentsJson.end())
+                {
+                    ECS::CanvasComponent canvas{};
+                    deserialize_canvas(*canvasIt, canvas);
+                    objectDefinition.prototype.add_component(canvas);
+                }
+
+                if (const Json::const_iterator rectIt =
+                    componentsJson.find("uiRectTransform");
+                    rectIt != componentsJson.end())
+                {
+                    ECS::UiRectTransformComponent rect{};
+                    deserialize_ui_rect_transform(*rectIt, rect);
+                    objectDefinition.prototype.add_component(rect);
+                }
+
+                if (const Json::const_iterator layoutIt =
+                    componentsJson.find("uiLayoutGroup");
+                    layoutIt != componentsJson.end())
+                {
+                    ECS::UiLayoutGroupComponent layout{};
+                    deserialize_ui_layout_group(*layoutIt, layout);
+                    objectDefinition.prototype.add_component(layout);
+                }
+
+                if (const Json::const_iterator textIt =
+                    componentsJson.find("textRenderer");
+                    textIt != componentsJson.end())
+                {
+                    ECS::TextRendererComponent text{};
+                    deserialize_text_renderer(*textIt, text);
+                    objectDefinition.prototype.add_component(text);
                 }
 
                 if (const Json::const_iterator directionalLightIt =

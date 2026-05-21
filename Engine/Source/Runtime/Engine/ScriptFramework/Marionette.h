@@ -45,6 +45,12 @@ namespace Marionette
     using MeshFilterComponentData = CueMeshFilterComponentData;
     using StaticMeshRendererComponentData = CueStaticMeshRendererComponentData;
     using SpriteRendererComponentData = CueSpriteRendererComponentData;
+    using CanvasComponentData = CueCanvasComponentData;
+    using UiRectTransformComponentData = CueUiRectTransformComponentData;
+    using UiLayoutGroupComponentData = CueUiLayoutGroupComponentData;
+    using TextRendererComponentData = CueTextRendererComponentData;
+    using UiLayoutDirection = CueUiLayoutDirection;
+    using MaterialPropertyBlockData = CueMaterialPropertyBlockData;
     using Color = CueFloat4;
     using SpawnObjectKind = CueSpawnObjectKind;
     inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
@@ -74,6 +80,30 @@ namespace Marionette
         CueComponentKind_StaticMeshRenderer;
     inline constexpr ComponentKind ComponentKindSpriteRenderer =
         CueComponentKind_SpriteRenderer;
+    inline constexpr ComponentKind ComponentKindCanvas =
+        CueComponentKind_Canvas;
+    inline constexpr ComponentKind ComponentKindUiRectTransform =
+        CueComponentKind_UiRectTransform;
+    inline constexpr ComponentKind ComponentKindUiLayoutGroup =
+        CueComponentKind_UiLayoutGroup;
+    inline constexpr ComponentKind ComponentKindTextRenderer =
+        CueComponentKind_TextRenderer;
+    inline constexpr UiLayoutDirection UiLayoutDirectionHorizontal =
+        CueUiLayoutDirection_Horizontal;
+    inline constexpr UiLayoutDirection UiLayoutDirectionVertical =
+        CueUiLayoutDirection_Vertical;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignLeft =
+        CueTextHorizontalAlign_Left;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignCenter =
+        CueTextHorizontalAlign_Center;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignRight =
+        CueTextHorizontalAlign_Right;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignTop =
+        CueTextVerticalAlign_Top;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignMiddle =
+        CueTextVerticalAlign_Middle;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignBottom =
+        CueTextVerticalAlign_Bottom;
     inline constexpr ColliderShapeType ColliderShapeTypeBox =
         CueColliderShapeType_Box;
     inline constexpr ColliderShapeType ColliderShapeTypeSphere =
@@ -82,6 +112,12 @@ namespace Marionette
         CueColliderShapeType_Capsule;
     inline constexpr ColliderShapeType ColliderShapeTypeMesh =
         CueColliderShapeType_Mesh;
+    inline constexpr uint32_t MaterialPropertyOverrideColor =
+        CueMaterialPropertyOverride_Color;
+    inline constexpr uint32_t MaterialPropertyOverrideShininess =
+        CueMaterialPropertyOverride_Shininess;
+    inline constexpr uint32_t MaterialPropertyOverrideReflectionSkybox =
+        CueMaterialPropertyOverride_ReflectionSkybox;
 
     enum class Key : uint32_t
     {
@@ -2529,6 +2565,129 @@ namespace Marionette
             bool a_keepsWorldTransform = true) const noexcept
         {
             return detach_parent(m_entityHandle, a_keepsWorldTransform);
+        }
+
+        [[nodiscard]] CueResult set_material_property_block(
+            CueEntityHandle a_entityHandle,
+            const MaterialPropertyBlockData& a_propertyBlock) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialPropertyBlock) +
+                        sizeof(CueSetMaterialPropertyBlockFn) ||
+                engineApi->setMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialPropertyBlock(
+                a_entityHandle, &a_propertyBlock);
+        }
+
+        [[nodiscard]] CueResult set_material_property_block(
+            const MaterialPropertyBlockData& a_propertyBlock) const noexcept
+        {
+            return set_material_property_block(m_entityHandle, a_propertyBlock);
+        }
+
+        [[nodiscard]] CueResult get_material_property_block(
+            CueEntityHandle a_entityHandle,
+            MaterialPropertyBlockData& a_outPropertyBlock) const noexcept
+        {
+            a_outPropertyBlock = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getMaterialPropertyBlock) +
+                        sizeof(CueGetMaterialPropertyBlockFn) ||
+                engineApi->getMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getMaterialPropertyBlock(
+                a_entityHandle, &a_outPropertyBlock);
+        }
+
+        [[nodiscard]] CueResult get_material_property_block(
+            MaterialPropertyBlockData& a_outPropertyBlock) const noexcept
+        {
+            return get_material_property_block(
+                m_entityHandle, a_outPropertyBlock);
+        }
+
+        [[nodiscard]] CueResult clear_material_property_block(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, clearMaterialPropertyBlock) +
+                        sizeof(CueClearMaterialPropertyBlockFn) ||
+                engineApi->clearMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->clearMaterialPropertyBlock(a_entityHandle);
+        }
+
+        [[nodiscard]] CueResult clear_material_property_block() const noexcept
+        {
+            return clear_material_property_block(m_entityHandle);
+        }
+
+        [[nodiscard]] CueResult set_material_color(
+            CueEntityHandle a_entityHandle,
+            const Color& a_color) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialColor) +
+                        sizeof(CueSetMaterialColorFn) ||
+                engineApi->setMaterialColor == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialColor(a_entityHandle, &a_color);
+        }
+
+        [[nodiscard]] CueResult set_material_color(
+            const Color& a_color) const noexcept
+        {
+            return set_material_color(m_entityHandle, a_color);
+        }
+
+        [[nodiscard]] CueResult set_material_shininess(
+            CueEntityHandle a_entityHandle,
+            float a_shininess) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialShininess) +
+                        sizeof(CueSetMaterialShininessFn) ||
+                engineApi->setMaterialShininess == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialShininess(
+                a_entityHandle, a_shininess);
+        }
+
+        [[nodiscard]] CueResult set_material_shininess(
+            float a_shininess) const noexcept
+        {
+            return set_material_shininess(m_entityHandle, a_shininess);
         }
 
         [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_tag(

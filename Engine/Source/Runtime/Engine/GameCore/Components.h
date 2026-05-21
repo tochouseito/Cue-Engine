@@ -96,6 +96,90 @@ namespace Cue::ECS
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };
 
+    struct CanvasComponent : public IComponentTag
+    {
+        CanvasComponent() = default;
+        CanvasComponent(const CanvasComponent&) = default;
+        CanvasComponent& operator=(const CanvasComponent&) = default;
+        CanvasComponent(CanvasComponent&&) = default;
+        CanvasComponent& operator=(CanvasComponent&&) = default;
+        Math::float2 referenceSize = Math::float2(1920.0f, 1080.0f);
+        float scaleFactor = 1.0f;
+        int32_t sortOrder = 0;
+        bool matchesScreen = true;
+    };
+
+    struct UiRectTransformComponent : public IComponentTag
+    {
+        UiRectTransformComponent() = default;
+        UiRectTransformComponent(const UiRectTransformComponent&) = default;
+        UiRectTransformComponent& operator=(
+            const UiRectTransformComponent&) = default;
+        UiRectTransformComponent(UiRectTransformComponent&&) = default;
+        UiRectTransformComponent& operator=(
+            UiRectTransformComponent&&) = default;
+        Math::float2 anchorMin = Math::float2(0.5f, 0.5f);
+        Math::float2 anchorMax = Math::float2(0.5f, 0.5f);
+        Math::float2 pivot = Math::float2(0.5f, 0.5f);
+        Math::float2 anchoredPosition = Math::float2(0.0f, 0.0f);
+        Math::float2 sizeDelta = Math::float2(100.0f, 100.0f);
+        Math::float2 resolvedMin = Math::float2(0.0f, 0.0f);
+        Math::float2 resolvedSize = Math::float2(0.0f, 0.0f);
+        bool isResolved = false;
+    };
+
+    enum class UiLayoutDirection : uint8_t
+    {
+        Horizontal = 0,
+        Vertical = 1,
+    };
+
+    struct UiLayoutGroupComponent : public IComponentTag
+    {
+        UiLayoutGroupComponent() = default;
+        UiLayoutGroupComponent(const UiLayoutGroupComponent&) = default;
+        UiLayoutGroupComponent& operator=(
+            const UiLayoutGroupComponent&) = default;
+        UiLayoutGroupComponent(UiLayoutGroupComponent&&) = default;
+        UiLayoutGroupComponent& operator=(UiLayoutGroupComponent&&) = default;
+        Math::float4 padding = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float spacing = 0.0f;
+        UiLayoutDirection direction = UiLayoutDirection::Horizontal;
+        bool controlsChildSize = true;
+    };
+
+    enum class TextHorizontalAlign : uint8_t
+    {
+        Left = 0,
+        Center = 1,
+        Right = 2,
+    };
+
+    enum class TextVerticalAlign : uint8_t
+    {
+        Top = 0,
+        Middle = 1,
+        Bottom = 2,
+    };
+
+    struct TextRendererComponent : public IComponentTag
+    {
+        TextRendererComponent() = default;
+        TextRendererComponent(const TextRendererComponent&) = default;
+        TextRendererComponent& operator=(const TextRendererComponent&) = default;
+        TextRendererComponent(TextRendererComponent&&) = default;
+        TextRendererComponent& operator=(TextRendererComponent&&) = default;
+        std::string text{ "Text" };
+        std::string fontPath{};
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        uint32_t fontSize = 32;
+        int32_t layer = 100;
+        uint32_t order = 0;
+        TextHorizontalAlign horizontalAlign = TextHorizontalAlign::Left;
+        TextVerticalAlign verticalAlign = TextVerticalAlign::Top;
+        bool visible = true;
+    };
+
     struct CameraComponent : public IComponentTag
     {
         CameraComponent() = default;
@@ -187,6 +271,28 @@ namespace Cue::ECS
         TwoSided = 1,
     };
 
+    enum class RenderQueue : uint8_t
+    {
+        Opaque = 0,
+        Transparent = 1,
+        Auto = 2,
+    };
+
+    enum MaterialPropertyOverride : uint32_t
+    {
+        MaterialPropertyOverrideColor = 1u << 0,
+        MaterialPropertyOverrideShininess = 1u << 1,
+        MaterialPropertyOverrideReflectionSkybox = 1u << 2,
+    };
+
+    struct MaterialPropertyBlock final
+    {
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        float shininess = 32.0f;
+        uint32_t overrideMask = 0u;
+        bool usesReflectionSkybox = false;
+    };
+
     struct StaticMeshRendererComponent : public IComponentTag
     {
         StaticMeshRendererComponent() = default;
@@ -195,6 +301,8 @@ namespace Cue::ECS
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
+        MaterialPropertyBlock propertyBlock{};
+        RenderQueue renderQueue = RenderQueue::Auto;
         ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
         bool visible = true;
         bool castsShadow = true;
@@ -212,6 +320,8 @@ namespace Cue::ECS
         SkinnedMeshRendererComponent& operator=(
             SkinnedMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{};
+        MaterialPropertyBlock propertyBlock{};
+        RenderQueue renderQueue = RenderQueue::Auto;
         ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
         bool visible = true;
         bool castsShadow = true;

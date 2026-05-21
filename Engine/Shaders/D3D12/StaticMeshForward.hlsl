@@ -595,10 +595,10 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     material.useTexture = 0;
     material.useReflectionSkybox = 0;
     material.shininess = 32.0f;
+    float4 textureColor = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (usesMaterial)
     {
         material = g_materials[input.materialId];
-        float3 textureColor = float3(1.0f, 1.0f, 1.0f);
         if (material.useTexture != 0)
         {
             const uint textureIndex = NonUniformResourceIndex(material.textureId);
@@ -610,11 +610,15 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
                 min((uint)(wrappedUv.x * textureWidth), textureWidth - 1),
                 min((uint)(wrappedUv.y * textureHeight), textureHeight - 1));
             textureColor =
-                g_textures[textureIndex].Load(int3(texelCoord, 0)).rgb;
+                g_textures[textureIndex].Load(int3(texelCoord, 0));
         }
 
-        baseColor = material.color.rgb * textureColor;
+        baseColor = material.color.rgb * textureColor.rgb;
     }
+
+    const float alpha = usesMaterial
+        ? saturate(material.color.a * textureColor.a)
+        : 1.0f;
 
     float3 color = baseColor;
     if (usesLighting)
@@ -637,5 +641,5 @@ float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
                 worldNormal);
         }
     }
-    return float4(color, 1.0f);
+    return float4(color, alpha);
 }

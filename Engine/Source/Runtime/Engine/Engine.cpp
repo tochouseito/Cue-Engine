@@ -1170,7 +1170,7 @@ namespace Cue
             std::make_unique<ShadowSystem::SpotShadowMapPreviewPass>(
                 shadowBindings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
-            "GameStaticMeshForward",
+            "GameOpaqueStaticMeshForward",
             "GameColor",
             "GameColorRTV",
             "GameSceneDepth",
@@ -1194,6 +1194,25 @@ namespace Cue
             "GameSceneDepthDSV",
             drawResources->view_projection_buffer_handle(),
             m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "GameTransparentStaticMeshForward",
+            "GameColor",
+            "GameColorRTV",
+            "GameSceneDepth",
+            "GameSceneDepthDSV",
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->view_projection_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
+            nullptr,
+            DrawSystem::StaticMeshForwardQueue::Transparent));
         m_frameGraph->add_pass(
             std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
                 "GameParticleSpriteForward",
@@ -1220,7 +1239,7 @@ namespace Cue
             *bufferManager,
             drawResources->view_projection_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
-            "DebugStaticMeshForward",
+            "DebugOpaqueStaticMeshForward",
             "DebugColor",
             "DebugColorRTV",
             "DebugSceneDepth",
@@ -1245,6 +1264,25 @@ namespace Cue
             "DebugSceneDepthDSV",
             m_debugViewProjectionBufferHandle,
             m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "DebugTransparentStaticMeshForward",
+            "DebugColor",
+            "DebugColorRTV",
+            "DebugSceneDepth",
+            "DebugSceneDepthDSV",
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            m_debugViewProjectionBufferHandle,
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
+            &m_debugViewShadingMode,
+            DrawSystem::StaticMeshForwardQueue::Transparent));
         m_frameGraph->add_pass(
             std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
                 "DebugParticleSpriteForward",

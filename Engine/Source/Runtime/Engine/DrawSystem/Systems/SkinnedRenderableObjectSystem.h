@@ -139,6 +139,8 @@ namespace Cue::ECS
 
             StaticMeshRendererComponent rendererProxy{};
             rendererProxy.materialHandle = a_renderer.materialHandle;
+            rendererProxy.propertyBlock = a_renderer.propertyBlock;
+            rendererProxy.renderQueue = a_renderer.renderQueue;
             rendererProxy.shadowCasterMode = a_renderer.shadowCasterMode;
             rendererProxy.visible = a_renderer.visible;
             rendererProxy.castsShadow = a_renderer.castsShadow;
@@ -263,7 +265,50 @@ namespace Cue::ECS
             outMaterial.useReflectionSkybox =
                 materialDesc.usesReflectionSkybox ? 1u : 0u;
             outMaterial.shininess = materialDesc.shininess;
+            apply_property_block(a_renderer.propertyBlock, outMaterial);
             return true;
+        }
+
+        static void apply_property_block(
+            const MaterialPropertyBlock& a_propertyBlock,
+            GpuData::MaterialGpu& a_material) noexcept
+        {
+            if ((a_propertyBlock.overrideMask &
+                    MaterialPropertyOverrideColor) != 0u)
+            {
+                a_material.color = a_propertyBlock.color;
+            }
+            if ((a_propertyBlock.overrideMask &
+                    MaterialPropertyOverrideShininess) != 0u)
+            {
+                a_material.shininess = a_propertyBlock.shininess;
+            }
+            if ((a_propertyBlock.overrideMask &
+                    MaterialPropertyOverrideReflectionSkybox) != 0u)
+            {
+                a_material.useReflectionSkybox =
+                    a_propertyBlock.usesReflectionSkybox ? 1u : 0u;
+            }
+        }
+
+        [[nodiscard]] static DrawSystem::StaticMeshRenderQueue resolve_render_queue(
+            RenderQueue a_renderQueue,
+            const GpuData::MaterialGpu& a_material) noexcept
+        {
+            switch (a_renderQueue)
+            {
+            case RenderQueue::Opaque:
+                return DrawSystem::StaticMeshRenderQueue::Opaque;
+            case RenderQueue::Transparent:
+                return DrawSystem::StaticMeshRenderQueue::Transparent;
+            case RenderQueue::Auto:
+            default:
+                break;
+            }
+
+            return a_material.color.a < 1.0f
+                ? DrawSystem::StaticMeshRenderQueue::Transparent
+                : DrawSystem::StaticMeshRenderQueue::Opaque;
         }
 
         void submit_mesh_part(
@@ -342,9 +387,7 @@ namespace Cue::ECS
                 m_skinPaletteCount += skinPaletteCount;
             }
 
-            if (m_isCpuBatchingEnabled &&
-                m_currentFrameState != nullptr &&
-                m_staticMeshPool != nullptr)
+            if (m_staticMeshPool != nullptr)
             {
                 DrawSystem::StaticMeshRange meshRange{};
                 if (m_staticMeshPool->get_mesh_range(a_meshId, meshRange))
@@ -353,10 +396,14 @@ namespace Cue::ECS
                         DrawSystem::CpuIndexedDraw{ drawObjectIndex,
                             meshRange.indexCount,
                             meshRange.startIndex,
-                            meshRange.baseVertex };
+                            meshRange.baseVertex,
+                            0.0f };
                     drawItem.batching.hasCpuIndexedDraw = true;
                 }
             }
+
+            drawItem.surface.renderQueue =
+                resolve_render_queue(a_renderer.renderQueue, gpuMaterial);
 
             m_currentCollector->submit_static_mesh(drawItem);
             ++m_renderableObjectCount;
