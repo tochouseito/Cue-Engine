@@ -20,6 +20,7 @@ namespace Cue::GpuData
         uint32_t materialId = 0;    // マテリアルID
         uint32_t castsShadow = 1;   // 影を落とすか
         uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
         uint32_t skinPaletteOffset = UINT32_MAX;
         uint32_t skinPaletteCount = 0;
     };
@@ -33,6 +34,7 @@ namespace Cue::GpuData
         uint32_t materialId = 0;    // マテリアルID
         uint32_t castsShadow = 1;   // 影を落とすか
         uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
         uint32_t skinPaletteOffset = UINT32_MAX;
         uint32_t skinPaletteCount = 0;
     };

@@ -139,6 +139,7 @@ namespace Cue::ECS
 
             StaticMeshRendererComponent rendererProxy{};
             rendererProxy.materialHandle = a_renderer.materialHandle;
+            rendererProxy.shadowCasterMode = a_renderer.shadowCasterMode;
             rendererProxy.visible = a_renderer.visible;
             rendererProxy.castsShadow = a_renderer.castsShadow;
             rendererProxy.receivesShadow = a_renderer.receivesShadow;
@@ -293,6 +294,8 @@ namespace Cue::ECS
             gpuRenderableInfo.castsShadow = a_renderer.castsShadow ? 1u : 0u;
             gpuRenderableInfo.receivesShadow =
                 a_renderer.receivesShadow ? 1u : 0u;
+            gpuRenderableInfo.shadowCasterMode =
+                static_cast<uint32_t>(a_renderer.shadowCasterMode);
             gpuRenderableInfo.skinPaletteOffset = skinPaletteOffset;
             gpuRenderableInfo.skinPaletteCount = skinPaletteCount;
 
@@ -316,6 +319,8 @@ namespace Cue::ECS
             renderObject.materialId = drawObjectIndex;
             renderObject.castsShadow = a_renderer.castsShadow ? 1u : 0u;
             renderObject.receivesShadow = a_renderer.receivesShadow ? 1u : 0u;
+            renderObject.shadowCasterMode =
+                static_cast<uint32_t>(a_renderer.shadowCasterMode);
             renderObject.skinPaletteOffset = skinPaletteOffset;
             renderObject.skinPaletteCount = skinPaletteCount;
 

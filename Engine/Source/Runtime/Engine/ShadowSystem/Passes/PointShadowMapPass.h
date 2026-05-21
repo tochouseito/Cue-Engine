@@ -226,6 +226,8 @@ namespace Cue::ShadowSystem
                 { "WEIGHTS", 0, RHI::InputElementFormat::R32G32B32A32_Float, 3, 16 },
             };
             pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
+            pipelineDesc.rasterizerState.depthBias = 1000;
+            pipelineDesc.rasterizerState.slopeScaledDepthBias = 2.0f;
             pipelineDesc.depthStencilState.depthEnable = true;
             pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
             pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;

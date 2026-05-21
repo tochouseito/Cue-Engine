@@ -3468,6 +3468,10 @@ namespace Cue
             renderer.visible = data.visible != 0u;
             renderer.castsShadow = data.castsShadow != 0u;
             renderer.receivesShadow = data.receivesShadow != 0u;
+            renderer.shadowCasterMode =
+                data.shadowCasterMode == CueShadowCasterMode_TwoSided
+                    ? ECS::ShadowCasterMode::TwoSided
+                    : ECS::ShadowCasterMode::Solid;
             return addOrSetComponent(renderer);
         }
         case CueComponentKind_SpriteRenderer:

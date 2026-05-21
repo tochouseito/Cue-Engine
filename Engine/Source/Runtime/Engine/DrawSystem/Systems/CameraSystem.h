@@ -69,8 +69,13 @@ namespace Cue::ECS
                 a_transform.scale,
                 a_transform.rotation,
                 a_transform.position);
-            const float aspectRatio = static_cast<float>(frameState.renderWidth) /
+            const float renderAspectRatio =
+                static_cast<float>(frameState.renderWidth) /
                 static_cast<float>(frameState.renderHeight);
+            const float aspectRatio =
+                a_camera.aspectRatio > 0.0f
+                    ? a_camera.aspectRatio
+                    : renderAspectRatio;
             gpuViewProjection.view = Math::float4x4::inverse(worldMatrix);
             gpuViewProjection.projection = Math::perspective_fov_matrix(
                 a_camera.fovY * Math::k_pi / 180.0f,

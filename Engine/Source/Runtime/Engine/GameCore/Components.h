@@ -181,6 +181,12 @@ namespace Cue::ECS
         uint32_t meshId = k_invalidMeshId; // StaticMeshPool に登録されたメッシュ ID
     };
 
+    enum class ShadowCasterMode : uint8_t
+    {
+        Solid = 0,
+        TwoSided = 1,
+    };
+
     struct StaticMeshRendererComponent : public IComponentTag
     {
         StaticMeshRendererComponent() = default;
@@ -189,6 +195,7 @@ namespace Cue::ECS
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
+        ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
         bool visible = true;
         bool castsShadow = true;
         bool receivesShadow = true;
@@ -205,6 +212,7 @@ namespace Cue::ECS
         SkinnedMeshRendererComponent& operator=(
             SkinnedMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{};
+        ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
         bool visible = true;
         bool castsShadow = true;
         bool receivesShadow = true;

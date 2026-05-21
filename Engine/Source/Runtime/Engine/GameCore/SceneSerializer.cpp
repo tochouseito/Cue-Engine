@@ -75,6 +75,31 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] const char* to_string(
+            ECS::ShadowCasterMode a_mode) noexcept
+        {
+            switch (a_mode)
+            {
+            case ECS::ShadowCasterMode::Solid:
+                return "Solid";
+            case ECS::ShadowCasterMode::TwoSided:
+                return "TwoSided";
+            default:
+                return "Solid";
+            }
+        }
+
+        [[nodiscard]] ECS::ShadowCasterMode shadow_caster_mode_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "TwoSided")
+            {
+                return ECS::ShadowCasterMode::TwoSided;
+            }
+
+            return ECS::ShadowCasterMode::Solid;
+        }
+
+        [[nodiscard]] const char* to_string(
             Physics::MotionType a_type) noexcept
         {
             switch (a_type)
@@ -736,6 +761,7 @@ namespace Cue::GameCore
                 { "visible", a_component.visible },
                 { "castsShadow", a_component.castsShadow },
                 { "receivesShadow", a_component.receivesShadow },
+                { "shadowCasterMode", to_string(a_component.shadowCasterMode) },
             };
 
             if (!a_component.materialHandle.valid())
@@ -798,6 +824,10 @@ namespace Cue::GameCore
                 a_json.value("castsShadow", a_outComponent.castsShadow);
             a_outComponent.receivesShadow =
                 a_json.value("receivesShadow", a_outComponent.receivesShadow);
+            a_outComponent.shadowCasterMode = shadow_caster_mode_from_string(
+                a_json.value(
+                    "shadowCasterMode",
+                    std::string(to_string(a_outComponent.shadowCasterMode))));
         }
 
         [[nodiscard]] Json serialize_skinned_mesh_renderer(
@@ -809,6 +839,7 @@ namespace Cue::GameCore
             proxy.visible = a_component.visible;
             proxy.castsShadow = a_component.castsShadow;
             proxy.receivesShadow = a_component.receivesShadow;
+            proxy.shadowCasterMode = a_component.shadowCasterMode;
             return serialize_static_mesh_renderer(proxy, a_options);
         }
 
@@ -823,6 +854,7 @@ namespace Cue::GameCore
             a_outComponent.visible = proxy.visible;
             a_outComponent.castsShadow = proxy.castsShadow;
             a_outComponent.receivesShadow = proxy.receivesShadow;
+            a_outComponent.shadowCasterMode = proxy.shadowCasterMode;
         }
 
         [[nodiscard]] Json serialize_particle_emitter(

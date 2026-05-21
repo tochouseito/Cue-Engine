@@ -12,6 +12,7 @@ struct VsIn
 struct VsOut
 {
     float4 position : SV_POSITION;
+    nointerpolation uint shadowCasterMode : TEXCOORD0;
 };
 
 struct DrawObjectIndexConstants
@@ -71,6 +72,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     {
         VsOut emptyOutput;
         emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        emptyOutput.shadowCasterMode = k_shadowCasterModeTwoSided;
         return emptyOutput;
     }
 
@@ -79,6 +81,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     {
         VsOut emptyOutput;
         emptyOutput.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
+        emptyOutput.shadowCasterMode = k_shadowCasterModeTwoSided;
         return emptyOutput;
     }
 
@@ -91,8 +94,14 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     output.position =
         mul(mul(worldPosition, shadowFace.view), shadowFace.projection);
     output.position.z = output.position.z * 0.5f + output.position.w * 0.5f;
+    output.shadowCasterMode = renderObject.shadowCasterMode;
     return output;
 }
 
-void ps_main()
-{}
+void ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace)
+{
+    if (input.shadowCasterMode == k_shadowCasterModeSolid && isFrontFace)
+    {
+        discard;
+    }
+}

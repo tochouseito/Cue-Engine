@@ -820,10 +820,40 @@ namespace Cue::Editor
 
             ImGui::TextUnformatted("CameraComponent");
             ImGui::Separator();
-            ImGui::Text("fovY: %.3f", component->fovY);
-            ImGui::Text("aspectRatio: %.3f", component->aspectRatio);
-            ImGui::Text("nearZ: %.3f", component->nearZ);
-            ImGui::Text("farZ: %.3f", component->farZ);
+
+            ImGui::Text("isMain: %s", component->isMain ? "true" : "false");
+            ImGui::BeginDisabled(component->isMain);
+            if (ImGui::Button("Set Main Camera"))
+            {
+                submit_set_main_camera_command();
+            }
+            ImGui::EndDisabled();
+
+            if (ImGui::DragFloat("fovY", &component->fovY, 0.1f, 1.0f,
+                    179.0f, "%.2f"))
+            {
+                component->fovY = std::clamp(component->fovY, 1.0f, 179.0f);
+            }
+            if (ImGui::DragFloat("aspectRatio", &component->aspectRatio,
+                    0.01f, 0.01f, 100.0f, "%.3f"))
+            {
+                component->aspectRatio =
+                    (std::max)(component->aspectRatio, 0.01f);
+            }
+
+            const float maxNearZ = (std::max)(component->farZ - 0.001f, 0.001f);
+            if (ImGui::DragFloat("nearZ", &component->nearZ, 0.001f,
+                    0.001f, maxNearZ, "%.4f"))
+            {
+                component->nearZ = std::clamp(
+                    component->nearZ, 0.001f, maxNearZ);
+            }
+            if (ImGui::DragFloat("farZ", &component->farZ, 0.1f,
+                    component->nearZ + 0.001f, 100000.0f, "%.2f"))
+            {
+                component->farZ =
+                    (std::max)(component->farZ, component->nearZ + 0.001f);
+            }
         }
 
         void draw_mesh_filter_component(GameCore::GameObject& a_object)
@@ -910,6 +940,41 @@ namespace Cue::Editor
             }
         }
 
+        static void draw_shadow_caster_mode_combo(
+            ECS::ShadowCasterMode& a_mode)
+        {
+            const char* currentLabel =
+                a_mode == ECS::ShadowCasterMode::TwoSided
+                    ? "TwoSided"
+                    : "Solid";
+            if (!ImGui::BeginCombo("shadowCasterMode", currentLabel))
+            {
+                return;
+            }
+
+            const bool isSolid = a_mode == ECS::ShadowCasterMode::Solid;
+            if (ImGui::Selectable("Solid", isSolid))
+            {
+                a_mode = ECS::ShadowCasterMode::Solid;
+            }
+            if (isSolid)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            const bool isTwoSided = a_mode == ECS::ShadowCasterMode::TwoSided;
+            if (ImGui::Selectable("TwoSided", isTwoSided))
+            {
+                a_mode = ECS::ShadowCasterMode::TwoSided;
+            }
+            if (isTwoSided)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            ImGui::EndCombo();
+        }
+
         void draw_static_mesh_renderer_component(GameCore::GameObject& a_object)
         {
             ECS::StaticMeshRendererComponent* component = nullptr;
@@ -925,6 +990,9 @@ namespace Cue::Editor
             draw_material_reference_editor("material", component->materialHandle);
             ImGui::Checkbox("visible", &component->visible);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
+            ImGui::BeginDisabled(!component->castsShadow);
+            draw_shadow_caster_mode_combo(component->shadowCasterMode);
+            ImGui::EndDisabled();
             ImGui::Checkbox("receivesShadow", &component->receivesShadow);
         }
 
@@ -943,6 +1011,9 @@ namespace Cue::Editor
             draw_material_reference_editor("material", component->materialHandle);
             ImGui::Checkbox("visible", &component->visible);
             ImGui::Checkbox("castsShadow", &component->castsShadow);
+            ImGui::BeginDisabled(!component->castsShadow);
+            draw_shadow_caster_mode_combo(component->shadowCasterMode);
+            ImGui::EndDisabled();
             ImGui::Checkbox("receivesShadow", &component->receivesShadow);
         }
 
@@ -4213,6 +4284,26 @@ namespace Cue::Editor
             {
                 CUE_ASSERTF(false,
                     "Failed to submit set TransformComponent command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file,
+                    result.line, result.function);
+            }
+        }
+
+        void submit_set_main_camera_command()
+        {
+            if (editorBridge == nullptr || m_selectedEntityId == nullptr ||
+                *m_selectedEntityId == GameCore::k_invalidEntityId)
+            {
+                return;
+            }
+
+            Result result = editorBridge->submit_command(
+                std::make_unique<SetMainCameraCommand>(*m_selectedEntityId));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit set main camera command: %s (code: %s, severity: %s) at %s:%u in function %s",
                     result.message.data(), Cue::to_string(result.code),
                     Cue::to_string(result.severity), result.file,
                     result.line, result.function);

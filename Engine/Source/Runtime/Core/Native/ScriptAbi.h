@@ -171,6 +171,12 @@ extern "C"
         CueComponentKind_SpriteRenderer = 5,
     };
 
+    enum CueShadowCasterMode : uint8_t
+    {
+        CueShadowCasterMode_Solid = 0,
+        CueShadowCasterMode_TwoSided = 1,
+    };
+
     enum CueColliderShapeType : uint32_t
     {
         CueColliderShapeType_Box = 0,
@@ -286,7 +292,7 @@ extern "C"
         uint8_t visible;
         uint8_t castsShadow;
         uint8_t receivesShadow;
-        uint8_t reserved0;
+        uint8_t shadowCasterMode;
     };
 
     struct CueSpriteRendererComponentData

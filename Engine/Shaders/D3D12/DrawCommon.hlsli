@@ -7,6 +7,7 @@ struct RenderableInfo
     uint materialId;
     uint castsShadow;
     uint receivesShadow;
+    uint shadowCasterMode;
     uint skinPaletteOffset;
     uint skinPaletteCount;
 };
@@ -19,9 +20,13 @@ struct RenderObject
     uint materialId;
     uint castsShadow;
     uint receivesShadow;
+    uint shadowCasterMode;
     uint skinPaletteOffset;
     uint skinPaletteCount;
 };
+
+static const uint k_shadowCasterModeSolid = 0u;
+static const uint k_shadowCasterModeTwoSided = 1u;
 
 struct Material
 {
