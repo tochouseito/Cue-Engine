@@ -52,6 +52,7 @@ namespace Marionette
     using UiLayoutDirection = CueUiLayoutDirection;
     using MaterialPropertyBlockData = CueMaterialPropertyBlockData;
     using Color = CueFloat4;
+    using JsonConfigHandle = CueJsonConfigHandle;
     using SpawnObjectKind = CueSpawnObjectKind;
     inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
     inline constexpr SpawnObjectKind SpawnObjectKindEmpty =
@@ -2688,6 +2689,166 @@ namespace Marionette
             float a_shininess) const noexcept
         {
             return set_material_shininess(m_entityHandle, a_shininess);
+        }
+
+        [[nodiscard]] CueResult load_json_config(
+            std::string_view a_assetPath,
+            JsonConfigHandle& a_outConfigHandle) const noexcept
+        {
+            a_outConfigHandle = k_cueInvalidJsonConfigHandle;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, loadJsonConfig) +
+                        sizeof(CueLoadJsonConfigFn) ||
+                engineApi->loadJsonConfig == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->loadJsonConfig(
+                Detail::to_cue_string_view(a_assetPath),
+                &a_outConfigHandle);
+        }
+
+        [[nodiscard]] CueResult unload_json_config(
+            JsonConfigHandle a_configHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, unloadJsonConfig) +
+                        sizeof(CueUnloadJsonConfigFn) ||
+                engineApi->unloadJsonConfig == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->unloadJsonConfig(a_configHandle);
+        }
+
+        [[nodiscard]] CueResult get_json_config_bool(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            bool& a_outValue) const noexcept
+        {
+            a_outValue = false;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigBool) +
+                        sizeof(CueGetJsonConfigBoolFn) ||
+                engineApi->getJsonConfigBool == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            uint8_t value = 0u;
+            const CueResult result = engineApi->getJsonConfigBool(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &value);
+            if (result == CueResult_Ok)
+            {
+                a_outValue = value != 0u;
+            }
+            return result;
+        }
+
+        [[nodiscard]] CueResult get_json_config_int(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            int32_t& a_outValue) const noexcept
+        {
+            a_outValue = 0;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigInt) +
+                        sizeof(CueGetJsonConfigIntFn) ||
+                engineApi->getJsonConfigInt == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getJsonConfigInt(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &a_outValue);
+        }
+
+        [[nodiscard]] CueResult get_json_config_float(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            float& a_outValue) const noexcept
+        {
+            a_outValue = 0.0f;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigFloat) +
+                        sizeof(CueGetJsonConfigFloatFn) ||
+                engineApi->getJsonConfigFloat == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getJsonConfigFloat(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &a_outValue);
+        }
+
+        [[nodiscard]] CueResult get_json_config_string(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            std::string& a_outValue) const
+        {
+            a_outValue.clear();
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigString) +
+                        sizeof(CueGetJsonConfigStringFn) ||
+                engineApi->getJsonConfigString == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            uint32_t requiredSize = 0u;
+            CueResult result = engineApi->getJsonConfigString(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                nullptr,
+                0u,
+                &requiredSize);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+            if (requiredSize == 0u)
+            {
+                return CueResult_InternalError;
+            }
+
+            std::string buffer(requiredSize, '\0');
+            result = engineApi->getJsonConfigString(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                buffer.data(),
+                requiredSize,
+                &requiredSize);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+
+            if (!buffer.empty() && buffer.back() == '\0')
+            {
+                buffer.pop_back();
+            }
+            a_outValue = std::move(buffer);
+            return CueResult_Ok;
         }
 
         [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_tag(

@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 24u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 25u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -73,6 +73,18 @@ extern "C"
     struct CueEntityHandle
     {
         uint64_t value;
+    };
+
+    /// @brief Script から参照する JSON 設定ハンドルです。
+    struct CueJsonConfigHandle
+    {
+        uint32_t index;
+        uint32_t generation;
+    };
+
+    inline constexpr CueJsonConfigHandle k_cueInvalidJsonConfigHandle{
+        0xffffffffu,
+        0u
     };
 
     /// @brief Component を表す外部公開ハンドルです。
@@ -855,6 +867,41 @@ extern "C"
         float a_shininess
     );
 
+    using CueLoadJsonConfigFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle
+    );
+
+    using CueUnloadJsonConfigFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle
+    );
+
+    using CueGetJsonConfigBoolFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue
+    );
+
+    using CueGetJsonConfigIntFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue
+    );
+
+    using CueGetJsonConfigFloatFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue
+    );
+
+    using CueGetJsonConfigStringFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -970,6 +1017,18 @@ extern "C"
         CueSetMaterialColorFn setMaterialColor;
         /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueSetMaterialShininessFn setMaterialShininess;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueLoadJsonConfigFn loadJsonConfig;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueUnloadJsonConfigFn unloadJsonConfig;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigBoolFn getJsonConfigBool;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigIntFn getJsonConfigInt;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigFloatFn getJsonConfigFloat;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigStringFn getJsonConfigString;
     };
 
     /// @brief Script インスタンス生成時の入力です。

@@ -144,6 +144,16 @@ namespace Cue::GameCore
             m_assetRootPath = a_assetRootPath.normalize();
         }
 
+        [[nodiscard]] const Core::IO::Path& asset_root_path() const noexcept
+        {
+            return m_assetRootPath;
+        }
+
+        [[nodiscard]] Core::IO::IFileSystem* file_system() const noexcept
+        {
+            return m_fileSystem;
+        }
+
         [[nodiscard]] Result simulate(float a_deltaTime);
         [[nodiscard]] Result editor_update(
             uint32_t a_bufferIndex,

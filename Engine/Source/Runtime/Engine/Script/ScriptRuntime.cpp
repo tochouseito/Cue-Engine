@@ -12,9 +12,15 @@
 #include "../GameCore/GameWorld.h"
 #include "ScriptModule.h"
 
+// === ThirdParty includes ===
+#include <nlohmann/json.hpp>
+
 // === C++ includes ===
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <unordered_set>
 #include <vector>
 
@@ -59,6 +65,85 @@ namespace Cue
         [[nodiscard]] bool has_text(CueStringView a_value) noexcept
         {
             return a_value.data != nullptr && a_value.size > 0u;
+        }
+
+        [[nodiscard]] const nlohmann::json* find_json_value(
+            const nlohmann::json& a_root,
+            std::string_view a_keyPath) noexcept
+        {
+            if (a_keyPath.empty())
+            {
+                return &a_root;
+            }
+
+            const nlohmann::json* value = &a_root;
+            size_t offset = 0u;
+            while (offset < a_keyPath.size())
+            {
+                const size_t keyBegin = offset;
+                while (offset < a_keyPath.size() && a_keyPath[offset] != '.' &&
+                    a_keyPath[offset] != '[')
+                {
+                    ++offset;
+                }
+
+                if (offset > keyBegin)
+                {
+                    if (!value->is_object())
+                    {
+                        return nullptr;
+                    }
+
+                    const std::string key(a_keyPath.substr(keyBegin, offset - keyBegin));
+                    const auto iterator = value->find(key);
+                    if (iterator == value->end())
+                    {
+                        return nullptr;
+                    }
+                    value = &(*iterator);
+                }
+
+                while (offset < a_keyPath.size() && a_keyPath[offset] == '[')
+                {
+                    ++offset;
+                    if (offset >= a_keyPath.size() || !std::isdigit(
+                            static_cast<unsigned char>(a_keyPath[offset])))
+                    {
+                        return nullptr;
+                    }
+
+                    size_t index = 0u;
+                    while (offset < a_keyPath.size() &&
+                        std::isdigit(static_cast<unsigned char>(a_keyPath[offset])))
+                    {
+                        index = index * 10u +
+                            static_cast<size_t>(a_keyPath[offset] - '0');
+                        ++offset;
+                    }
+                    if (offset >= a_keyPath.size() || a_keyPath[offset] != ']' ||
+                        !value->is_array() || index >= value->size())
+                    {
+                        return nullptr;
+                    }
+                    ++offset;
+                    value = &((*value)[index]);
+                }
+
+                if (offset < a_keyPath.size())
+                {
+                    if (a_keyPath[offset] != '.')
+                    {
+                        return nullptr;
+                    }
+                    ++offset;
+                    if (offset >= a_keyPath.size())
+                    {
+                        return nullptr;
+                    }
+                }
+            }
+
+            return value;
         }
 
         [[nodiscard]] Math::float3 to_math_float3(const CueFloat3& a_value) noexcept
@@ -531,6 +616,12 @@ namespace Cue
         }
     }
 
+    struct ScriptRuntime::JsonConfigEntry final
+    {
+        nlohmann::json document{};
+        uint32_t generation = 0u;
+    };
+
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
 
     ScriptRuntime::ScriptRuntime(
@@ -623,6 +714,14 @@ namespace Cue
             &ScriptRuntime::set_material_color_bridge;
         m_engineApi.setMaterialShininess =
             &ScriptRuntime::set_material_shininess_bridge;
+        m_engineApi.loadJsonConfig = &ScriptRuntime::load_json_config_bridge;
+        m_engineApi.unloadJsonConfig = &ScriptRuntime::unload_json_config_bridge;
+        m_engineApi.getJsonConfigBool = &ScriptRuntime::get_json_config_bool_bridge;
+        m_engineApi.getJsonConfigInt = &ScriptRuntime::get_json_config_int_bridge;
+        m_engineApi.getJsonConfigFloat =
+            &ScriptRuntime::get_json_config_float_bridge;
+        m_engineApi.getJsonConfigString =
+            &ScriptRuntime::get_json_config_string_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1048,15 +1147,15 @@ namespace Cue
             return result;
         }
 
+        if (!ScriptModule::is_loaded(m_module))
+        {
+            return Result::ok();
+        }
+
         result = sync_instances();
         if (!result)
         {
             return result;
-        }
-
-        if (!ScriptModule::is_loaded(m_module))
-        {
-            return Result::ok();
         }
 
         const CueScriptExports* exports = m_module->exports();
@@ -1198,6 +1297,8 @@ namespace Cue
 
     Result ScriptRuntime::reset() noexcept
     {
+        m_jsonConfigs.clear();
+        m_nextJsonConfigGeneration = 1u;
         return destroy_all_instances();
     }
 
@@ -2000,6 +2101,74 @@ namespace Cue
         return s_activeInstance != nullptr
             ? s_activeInstance->set_material_shininess_internal(
                 a_entityHandle, a_shininess)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::load_json_config_bridge(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->load_json_config_internal(
+                a_assetPath, a_outConfigHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::unload_json_config_bridge(
+        CueJsonConfigHandle a_configHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->unload_json_config_internal(a_configHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_bool_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_bool_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_int_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_int_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_float_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_float_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_string_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_string_internal(
+                a_configHandle,
+                a_keyPath,
+                a_outBuffer,
+                a_bufferSize,
+                a_outRequiredSize)
             : CueResult_InvalidState;
     }
 
@@ -3620,6 +3789,271 @@ namespace Cue
         return CueResult_NotFound;
     }
 
+    CueResult ScriptRuntime::load_json_config_internal(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle) noexcept
+    {
+        if (a_outConfigHandle == nullptr || !has_text(a_assetPath))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outConfigHandle = k_cueInvalidJsonConfigHandle;
+        if (m_gameWorld == nullptr || m_gameWorld->file_system() == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        Core::IO::Path filePath(std::string(to_string_view(a_assetPath)));
+        if (!filePath.is_absolute())
+        {
+            const Core::IO::Path& assetRootPath = m_gameWorld->asset_root_path();
+            if (assetRootPath.is_empty())
+            {
+                return CueResult_InvalidState;
+            }
+            filePath = Core::IO::Path::join(assetRootPath, filePath);
+        }
+        filePath = filePath.normalize();
+
+        std::vector<std::byte> fileData{};
+        const Result readResult =
+            m_gameWorld->file_system()->read_all(filePath, &fileData);
+        if (!readResult)
+        {
+            return convert_result_code(readResult);
+        }
+        if (fileData.empty())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        try
+        {
+            const std::string text(
+                reinterpret_cast<const char*>(fileData.data()),
+                fileData.size());
+            auto entry = std::make_unique<JsonConfigEntry>();
+            entry->document = nlohmann::json::parse(text);
+            entry->generation = m_nextJsonConfigGeneration++;
+            if (m_nextJsonConfigGeneration == 0u)
+            {
+                m_nextJsonConfigGeneration = 1u;
+            }
+
+            for (uint32_t index = 0u;
+                index < static_cast<uint32_t>(m_jsonConfigs.size());
+                ++index)
+            {
+                if (m_jsonConfigs[index] == nullptr)
+                {
+                    *a_outConfigHandle =
+                        CueJsonConfigHandle{ index, entry->generation };
+                    m_jsonConfigs[index] = std::move(entry);
+                    return CueResult_Ok;
+                }
+            }
+
+            if (m_jsonConfigs.size() >=
+                static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+            {
+                return CueResult_InternalError;
+            }
+
+            const uint32_t index =
+                static_cast<uint32_t>(m_jsonConfigs.size());
+            *a_outConfigHandle = CueJsonConfigHandle{ index, entry->generation };
+            m_jsonConfigs.push_back(std::move(entry));
+            return CueResult_Ok;
+        }
+        catch (...)
+        {
+            return CueResult_InternalError;
+        }
+    }
+
+    CueResult ScriptRuntime::unload_json_config_internal(
+        CueJsonConfigHandle a_configHandle) noexcept
+    {
+        if (json_config_entry(a_configHandle) == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        m_jsonConfigs[a_configHandle.index].reset();
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_bool_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_boolean())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = value->get<bool>() ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_int_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_number_integer() && !value->is_number_unsigned())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        int64_t number = 0;
+        if (value->is_number_unsigned())
+        {
+            const uint64_t unsignedNumber = value->get<uint64_t>();
+            if (unsignedNumber >
+                static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
+            {
+                return CueResult_InvalidArgument;
+            }
+            number = static_cast<int64_t>(unsignedNumber);
+        }
+        else
+        {
+            number = value->get<int64_t>();
+        }
+
+        if (number < static_cast<int64_t>(std::numeric_limits<int32_t>::min()) ||
+            number > static_cast<int64_t>(std::numeric_limits<int32_t>::max()))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = static_cast<int32_t>(number);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_float_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_number())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const float number = value->get<float>();
+        if (!std::isfinite(number))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = number;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_string_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize) const noexcept
+    {
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_string())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const std::string& text = value->get_ref<const std::string&>();
+        if (text.size() >=
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+        {
+            return CueResult_InternalError;
+        }
+        const uint32_t requiredSize = static_cast<uint32_t>(text.size() + 1u);
+        if (a_outRequiredSize != nullptr)
+        {
+            *a_outRequiredSize = requiredSize;
+        }
+        if (a_outBuffer == nullptr || a_bufferSize == 0u)
+        {
+            return CueResult_Ok;
+        }
+        if (a_bufferSize < requiredSize)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        std::memcpy(a_outBuffer, text.data(), text.size());
+        a_outBuffer[text.size()] = '\0';
+        return CueResult_Ok;
+    }
+
     CueResult ScriptRuntime::add_or_set_component_internal(
         CueEntityHandle a_entityHandle,
         CueComponentKind a_componentKind,
@@ -4314,5 +4748,24 @@ namespace Cue
         return a_entityId != GameCore::k_invalidEntityId
             ? CueEntityHandle{ static_cast<uint64_t>(a_entityId) }
             : CueEntityHandle{ k_cueInvalidHandleValue };
+    }
+
+    const ScriptRuntime::JsonConfigEntry* ScriptRuntime::json_config_entry(
+        CueJsonConfigHandle a_configHandle) const noexcept
+    {
+        if (a_configHandle.index >= m_jsonConfigs.size() ||
+            a_configHandle.generation == 0u)
+        {
+            return nullptr;
+        }
+
+        const std::unique_ptr<JsonConfigEntry>& entry =
+            m_jsonConfigs[a_configHandle.index];
+        if (entry == nullptr || entry->generation != a_configHandle.generation)
+        {
+            return nullptr;
+        }
+
+        return entry.get();
     }
 }

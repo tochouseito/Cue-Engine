@@ -349,6 +349,29 @@ namespace Cue
             set_material_shininess_bridge(
                 CueEntityHandle a_entityHandle,
                 float a_shininess);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL load_json_config_bridge(
+            CueStringView a_assetPath,
+            CueJsonConfigHandle* a_outConfigHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL unload_json_config_bridge(
+            CueJsonConfigHandle a_configHandle);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL get_json_config_bool_bridge(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            uint8_t* a_outValue);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL get_json_config_int_bridge(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            int32_t* a_outValue);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL get_json_config_float_bridge(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            float* a_outValue);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL get_json_config_string_bridge(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            char* a_outBuffer,
+            uint32_t a_bufferSize,
+            uint32_t* a_outRequiredSize);
 
         [[nodiscard]] CueResult log_internal(
             CueLogSeverity a_severity,
@@ -522,6 +545,29 @@ namespace Cue
         [[nodiscard]] CueResult set_material_shininess_internal(
             CueEntityHandle a_entityHandle,
             float a_shininess) noexcept;
+        [[nodiscard]] CueResult load_json_config_internal(
+            CueStringView a_assetPath,
+            CueJsonConfigHandle* a_outConfigHandle) noexcept;
+        [[nodiscard]] CueResult unload_json_config_internal(
+            CueJsonConfigHandle a_configHandle) noexcept;
+        [[nodiscard]] CueResult get_json_config_bool_internal(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            uint8_t* a_outValue) const noexcept;
+        [[nodiscard]] CueResult get_json_config_int_internal(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            int32_t* a_outValue) const noexcept;
+        [[nodiscard]] CueResult get_json_config_float_internal(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            float* a_outValue) const noexcept;
+        [[nodiscard]] CueResult get_json_config_string_internal(
+            CueJsonConfigHandle a_configHandle,
+            CueStringView a_keyPath,
+            char* a_outBuffer,
+            uint32_t a_bufferSize,
+            uint32_t* a_outRequiredSize) const noexcept;
 
         [[nodiscard]] static Result convert_script_result(CueResult a_result) noexcept;
         [[nodiscard]] static CueResult convert_result_code(const Result& a_result) noexcept;
@@ -529,6 +575,10 @@ namespace Cue
             CueEntityHandle a_entityHandle) noexcept;
         [[nodiscard]] static CueEntityHandle to_entity_handle(
             GameCore::EntityId a_entityId) noexcept;
+
+        struct JsonConfigEntry;
+        [[nodiscard]] const JsonConfigEntry* json_config_entry(
+            CueJsonConfigHandle a_configHandle) const noexcept;
 
         static ScriptRuntime* s_activeInstance;
 
@@ -543,6 +593,8 @@ namespace Cue
         std::unordered_map<uint64_t, GameCore::EntityId> m_entityIdsByInstanceHandle{};
         std::vector<std::string> m_registeredScriptClasses{};
         std::unordered_map<std::string, ScriptClassInfo> m_scriptClassInfos{};
+        std::vector<std::unique_ptr<JsonConfigEntry>> m_jsonConfigs{};
         GameCore::EntityId m_executingEntityId = GameCore::k_invalidEntityId;
+        uint32_t m_nextJsonConfigGeneration = 1u;
     };
 }
