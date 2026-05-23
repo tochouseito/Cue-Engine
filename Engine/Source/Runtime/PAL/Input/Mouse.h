@@ -25,6 +25,12 @@ namespace Cue::PAL
         int32_t wheel = 0;
     };
 
+    struct MousePosition final
+    {
+        int32_t x = 0;
+        int32_t y = 0;
+    };
+
     class IMouse
     {
     public:
@@ -32,6 +38,7 @@ namespace Cue::PAL
 
         [[nodiscard]] virtual Result update() noexcept = 0;
         [[nodiscard]] virtual MouseDelta delta() const noexcept = 0;
+        [[nodiscard]] virtual MousePosition position() const noexcept = 0;
         [[nodiscard]] virtual bool is_button_down(MouseButton a_button) const noexcept = 0;
     };
 }

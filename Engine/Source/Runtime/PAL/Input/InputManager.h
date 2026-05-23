@@ -28,10 +28,19 @@ namespace Cue::PAL
         [[nodiscard]] bool push_key(Key a_key) const noexcept;
         /// @brief 指定マウスボタンが押されていれば `true` を返します。
         [[nodiscard]] bool push_mouse_button(MouseButton a_button) const noexcept;
+        /// @brief 指定マウスボタンがこのフレームで押されたら `true` を返します。
+        [[nodiscard]] bool mouse_button_pressed(MouseButton a_button) const noexcept;
+        /// @brief 指定マウスボタンがこのフレームで離されたら `true` を返します。
+        [[nodiscard]] bool mouse_button_released(MouseButton a_button) const noexcept;
         /// @brief 前フレームからのマウス移動量を返します。
         [[nodiscard]] MouseDelta mouse_delta() const noexcept
         {
             return m_mouseDelta;
+        }
+        /// @brief クライアント領域内のマウス座標を返します。
+        [[nodiscard]] MousePosition mouse_position() const noexcept
+        {
+            return m_mousePosition;
         }
 
     private:
@@ -43,6 +52,9 @@ namespace Cue::PAL
         IMouse* m_mouse = nullptr;
         std::array<bool, k_keyCount> m_keyStates{};
         std::array<bool, static_cast<size_t>(MouseButton::Count)> m_mouseButtonStates{};
+        std::array<bool, static_cast<size_t>(MouseButton::Count)>
+            m_previousMouseButtonStates{};
         MouseDelta m_mouseDelta{};
+        MousePosition m_mousePosition{};
     };
 }

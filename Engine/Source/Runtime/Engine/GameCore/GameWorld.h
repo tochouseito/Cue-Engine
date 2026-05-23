@@ -23,6 +23,7 @@
 #include "Systems/PlayerControlSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
 #include "Systems/UiLayoutSystem.h"
+#include "Systems/UiWidgetSystem.h"
 #include <DrawSystem/Systems/CameraSystem.h>
 #include <DrawSystem/Systems/RenderableObjectSystem.h>
 #include <DrawSystem/Systems/SkinnedRenderableObjectSystem.h>
@@ -2778,6 +2779,49 @@ namespace Cue::GameCore
                 text != nullptr)
             {
                 prototype.add_component(*text);
+            }
+
+            if (const ECS::UiImageComponent* image =
+                get_component<ECS::UiImageComponent>(a_entityId);
+                image != nullptr)
+            {
+                prototype.add_component(*image);
+            }
+
+            if (const ECS::UiButtonComponent* button =
+                get_component<ECS::UiButtonComponent>(a_entityId);
+                button != nullptr)
+            {
+                ECS::UiButtonComponent copiedButton = *button;
+                copiedButton.isHovered = false;
+                copiedButton.isPressed = false;
+                copiedButton.wasClicked = false;
+                copiedButton.hasFocus = false;
+                prototype.add_component(copiedButton);
+            }
+
+            if (const ECS::UiCheckboxComponent* checkbox =
+                get_component<ECS::UiCheckboxComponent>(a_entityId);
+                checkbox != nullptr)
+            {
+                ECS::UiCheckboxComponent copiedCheckbox = *checkbox;
+                copiedCheckbox.isHovered = false;
+                copiedCheckbox.isPressed = false;
+                copiedCheckbox.wasChanged = false;
+                copiedCheckbox.hasFocus = false;
+                prototype.add_component(copiedCheckbox);
+            }
+
+            if (const ECS::UiSliderComponent* slider =
+                get_component<ECS::UiSliderComponent>(a_entityId);
+                slider != nullptr)
+            {
+                ECS::UiSliderComponent copiedSlider = *slider;
+                copiedSlider.isHovered = false;
+                copiedSlider.isDragging = false;
+                copiedSlider.wasChanged = false;
+                copiedSlider.hasFocus = false;
+                prototype.add_component(copiedSlider);
             }
 
             if (const ECS::DirectionalLightComponent* directionalLight =

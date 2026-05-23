@@ -100,14 +100,18 @@ namespace Cue::Editor
         };
 
         Result save_current_scene();
+        Result save_scene(GameCore::SceneId a_sceneId);
+        Result create_scene_asset(const std::string& a_sceneName);
         Result reload_current_scene();
         Result start_background_scene_reload();
         void update_background_scene_reload();
         Result apply_background_scene_reload(SceneReloadOperation& a_operation);
+        Result unload_scene(GameCore::SceneId a_sceneId);
         Result unload_current_scene();
         Result load_scene_to_world(
             const Core::IO::Path& a_scenePath,
             bool a_isPrimaryScene);
+        Result set_current_scene(GameCore::SceneId a_sceneId);
         Result collect_project_scene_paths(
             std::vector<Core::IO::Path>& a_outScenePaths) const;
         Result bake_current_scene_navigation();
@@ -145,6 +149,7 @@ namespace Cue::Editor
         Result stop_play_mode();
         Result exit_play_mode();
         Result refresh_script_project_intellisense(BuildResult& a_outResult);
+        void draw_create_scene_popup();
         void draw_create_script_popup();
         void draw_script_build_output();
         void draw_navigation_debug_window();
@@ -182,6 +187,10 @@ namespace Cue::Editor
         [[nodiscard]] GameCore::SceneId selected_add_scene_id() const noexcept;
         [[nodiscard]] std::vector<Hierarchy::SceneEntry>
             collect_hierarchy_scenes() const;
+        [[nodiscard]] LoadedSceneEntry* find_loaded_scene(
+            GameCore::SceneId a_sceneId) noexcept;
+        [[nodiscard]] const LoadedSceneEntry* find_loaded_scene(
+            GameCore::SceneId a_sceneId) const noexcept;
         [[nodiscard]] bool is_scene_path_loaded(
             const Core::IO::Path& a_scenePath) const noexcept;
         void process_debug_pick_request();
@@ -252,11 +261,14 @@ namespace Cue::Editor
         bool m_hasScriptBuildNotification = false;
         bool m_hasScriptBuildNotificationError = false;
         bool m_openScriptBuildNotificationPopup = false;
+        bool m_openCreateScenePopup = false;
         bool m_openCreateScriptPopup = false;
         bool m_openGameReleaseAppSettingsPopup = false;
+        bool m_focusCreateSceneNameInput = false;
         bool m_focusCreateScriptNameInput = false;
         bool m_hasScriptSourceSnapshot = false;
         bool m_hasPendingAutoScriptBuild = false;
+        std::array<char, 128> m_createSceneNameBuffer{};
         std::array<char, 128> m_createScriptNameBuffer{};
         std::array<char, 128> m_gameReleaseExecutableNameBuffer{};
         std::array<char, 128> m_gameReleaseWindowTitleBuffer{};

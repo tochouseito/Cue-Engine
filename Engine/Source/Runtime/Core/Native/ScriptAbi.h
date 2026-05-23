@@ -185,6 +185,10 @@ extern "C"
         CueComponentKind_UiRectTransform = 7,
         CueComponentKind_UiLayoutGroup = 8,
         CueComponentKind_TextRenderer = 9,
+        CueComponentKind_UiImage = 10,
+        CueComponentKind_UiButton = 11,
+        CueComponentKind_UiCheckbox = 12,
+        CueComponentKind_UiSlider = 13,
     };
 
     enum CueUiLayoutDirection : uint32_t
@@ -410,6 +414,92 @@ extern "C"
         uint8_t reserved2;
     };
 
+    struct CueUiImageComponentData
+    {
+        CueFloat4 color;
+        CueFloat4 uvRect;
+        int32_t layer;
+        uint32_t order;
+        uint8_t visible;
+        uint8_t raycastTarget;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueUiButtonComponentData
+    {
+        CueFloat4 normalColor;
+        CueFloat4 hoverColor;
+        CueFloat4 pressedColor;
+        CueFloat4 disabledColor;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiButtonStateData
+    {
+        uint8_t isHovered;
+        uint8_t isPressed;
+        uint8_t wasClicked;
+        uint8_t hasFocus;
+    };
+
+    struct CueUiCheckboxComponentData
+    {
+        CueFloat4 normalColor;
+        CueFloat4 hoverColor;
+        CueFloat4 checkColor;
+        CueFloat4 disabledColor;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t isChecked;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueUiCheckboxStateData
+    {
+        uint8_t isChecked;
+        uint8_t isHovered;
+        uint8_t isPressed;
+        uint8_t wasChanged;
+        uint8_t hasFocus;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiSliderComponentData
+    {
+        CueFloat4 trackColor;
+        CueFloat4 fillColor;
+        CueFloat4 handleColor;
+        CueFloat4 disabledColor;
+        float minValue;
+        float maxValue;
+        float value;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiSliderStateData
+    {
+        float value;
+        uint8_t isHovered;
+        uint8_t isDragging;
+        uint8_t wasChanged;
+        uint8_t hasFocus;
+    };
+
     /// @brief Script から参照できるキーボードキーです。
     enum CueKey : uint32_t
     {
@@ -620,6 +710,31 @@ extern "C"
 
     using CuePushMouseButtonFn =
         uint8_t (CUE_SCRIPT_CALL*)(CueMouseButton a_button);
+
+    using CueGetUiButtonStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState
+    );
+
+    using CueGetUiCheckboxStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState
+    );
+
+    using CueSetUiCheckboxCheckedFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked
+    );
+
+    using CueGetUiSliderStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState
+    );
+
+    using CueSetUiSliderValueFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_value
+    );
 
     /// @brief Script DLL が利用可能な Script クラス名を Engine へ通知します。
     /// `a_scriptClassName` は UTF-8 の非所有文字列です。
@@ -1029,6 +1144,16 @@ extern "C"
         CueGetJsonConfigFloatFn getJsonConfigFloat;
         /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueGetJsonConfigStringFn getJsonConfigString;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiButtonStateFn getUiButtonState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiCheckboxStateFn getUiCheckboxState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetUiCheckboxCheckedFn setUiCheckboxChecked;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiSliderStateFn getUiSliderState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetUiSliderValueFn setUiSliderValue;
     };
 
     /// @brief Script インスタンス生成時の入力です。

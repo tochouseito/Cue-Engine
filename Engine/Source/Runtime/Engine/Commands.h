@@ -25,6 +25,10 @@ namespace Cue
         UiRectTransform,
         UiLayoutGroup,
         TextRenderer,
+        UiImage,
+        UiButton,
+        UiCheckbox,
+        UiSlider,
         MeshFilter,
         StaticMeshRenderer,
         SkinnedMeshRenderer,
@@ -73,6 +77,13 @@ namespace Cue
             GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(
             GameCore::EntityId a_objectId, std::string_view a_name) = 0;
+        virtual Result get_parent(
+            GameCore::EntityId a_objectId,
+            GameCore::EntityId& a_outParentId) = 0;
+        virtual Result set_parent(
+            GameCore::EntityId a_objectId,
+            GameCore::EntityId a_parentId,
+            bool a_keepsWorldTransform) = 0;
         virtual Result capture_deleted_object(
             GameCore::EntityId a_objectId,
             GameCore::DeletedObjectSnapshot& a_outSnapshot) = 0;
@@ -411,6 +422,79 @@ namespace Cue
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         GameCore::DeletedObjectSnapshot m_snapshot{};
         bool m_hasSnapshot = false;
+    };
+
+    class SetParentCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        SetParentCommand(
+            GameCore::EntityId a_objectId,
+            GameCore::EntityId a_newParentId,
+            bool a_keepsWorldTransform = true) noexcept
+            : m_objectId(a_objectId)
+            , m_newParentId(a_newParentId)
+            , m_keepsWorldTransform(a_keepsWorldTransform)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support parent updates.");
+            }
+
+            if (!m_hasOldParent)
+            {
+                Result captureResult =
+                    gameCommandContext->get_parent(m_objectId, m_oldParentId);
+                if (!captureResult)
+                {
+                    return captureResult;
+                }
+
+                m_hasOldParent = true;
+            }
+
+            return gameCommandContext->set_parent(
+                m_objectId, m_newParentId, m_keepsWorldTransform);
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support parent update undo.");
+            }
+
+            if (!m_hasOldParent)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Set parent command has not been executed.");
+            }
+
+            return gameCommandContext->set_parent(
+                m_objectId, m_oldParentId, m_keepsWorldTransform);
+        }
+
+    private:
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        GameCore::EntityId m_oldParentId = GameCore::k_invalidEntityId;
+        GameCore::EntityId m_newParentId = GameCore::k_invalidEntityId;
+        bool m_keepsWorldTransform = true;
+        bool m_hasOldParent = false;
     };
 
     class AddComponentCommand final : public Core::CQRS::IUndoableCommand

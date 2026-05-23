@@ -152,6 +152,28 @@ namespace Cue
         return m_gameWorld.set_object_name(a_objectId, a_name);
     }
 
+    Result EngineCommandContext::get_parent(
+        GameCore::EntityId a_objectId,
+        GameCore::EntityId& a_outParentId)
+    {
+        return m_gameWorld.get_parent(a_objectId, a_outParentId);
+    }
+
+    Result EngineCommandContext::set_parent(
+        GameCore::EntityId a_objectId,
+        GameCore::EntityId a_parentId,
+        bool a_keepsWorldTransform)
+    {
+        if (a_parentId == GameCore::k_invalidEntityId)
+        {
+            return m_gameWorld.detach_parent(
+                a_objectId, a_keepsWorldTransform);
+        }
+
+        return m_gameWorld.set_parent(
+            a_objectId, a_parentId, a_keepsWorldTransform);
+    }
+
     Result EngineCommandContext::capture_deleted_object(
         GameCore::EntityId a_objectId,
         GameCore::DeletedObjectSnapshot& a_outSnapshot)
@@ -191,6 +213,22 @@ namespace Cue
         case AddableComponentType::TextRenderer:
             return add_component_internal<ECS::TextRendererComponent>(
                 a_objectId, "TextRendererComponent already exists.");
+
+        case AddableComponentType::UiImage:
+            return add_component_internal<ECS::UiImageComponent>(
+                a_objectId, "UiImageComponent already exists.");
+
+        case AddableComponentType::UiButton:
+            return add_component_internal<ECS::UiButtonComponent>(
+                a_objectId, "UiButtonComponent already exists.");
+
+        case AddableComponentType::UiCheckbox:
+            return add_component_internal<ECS::UiCheckboxComponent>(
+                a_objectId, "UiCheckboxComponent already exists.");
+
+        case AddableComponentType::UiSlider:
+            return add_component_internal<ECS::UiSliderComponent>(
+                a_objectId, "UiSliderComponent already exists.");
 
         case AddableComponentType::MeshFilter:
             return add_component_internal<ECS::MeshFilterComponent>(
@@ -278,6 +316,22 @@ namespace Cue
         case AddableComponentType::TextRenderer:
             return remove_component_internal<ECS::TextRendererComponent>(
                 a_objectId, "TextRendererComponent was not found.");
+
+        case AddableComponentType::UiImage:
+            return remove_component_internal<ECS::UiImageComponent>(
+                a_objectId, "UiImageComponent was not found.");
+
+        case AddableComponentType::UiButton:
+            return remove_component_internal<ECS::UiButtonComponent>(
+                a_objectId, "UiButtonComponent was not found.");
+
+        case AddableComponentType::UiCheckbox:
+            return remove_component_internal<ECS::UiCheckboxComponent>(
+                a_objectId, "UiCheckboxComponent was not found.");
+
+        case AddableComponentType::UiSlider:
+            return remove_component_internal<ECS::UiSliderComponent>(
+                a_objectId, "UiSliderComponent was not found.");
 
         case AddableComponentType::MeshFilter:
             return remove_component_internal<ECS::MeshFilterComponent>(

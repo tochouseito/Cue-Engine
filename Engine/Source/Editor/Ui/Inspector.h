@@ -45,6 +45,10 @@ namespace Cue::Editor
             UiRectTransform,
             UiLayoutGroup,
             TextRenderer,
+            UiImage,
+            UiButton,
+            UiCheckbox,
+            UiSlider,
             MeshFilter,
             StaticMeshRenderer,
             SkinnedMeshRenderer,
@@ -309,6 +313,26 @@ namespace Cue::Editor
                 tabs.push_back({ ComponentTab::TextRenderer, "Tx" });
             }
 
+            if (has_component<ECS::UiImageComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiImage, "Img" });
+            }
+
+            if (has_component<ECS::UiButtonComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiButton, "Btn" });
+            }
+
+            if (has_component<ECS::UiCheckboxComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiCheckbox, "Chk" });
+            }
+
+            if (has_component<ECS::UiSliderComponent>(a_object))
+            {
+                tabs.push_back({ ComponentTab::UiSlider, "Sld" });
+            }
+
             if (has_component<ECS::MeshFilterComponent>(a_object))
             {
                 tabs.push_back({ ComponentTab::MeshFilter, "M" });
@@ -421,6 +445,31 @@ namespace Cue::Editor
                 components.push_back(
                     { AddableComponentType::TextRenderer,
                         "TextRendererComponent" });
+            }
+
+            if (!has_component<ECS::UiImageComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiImage, "UiImageComponent" });
+            }
+
+            if (!has_component<ECS::UiButtonComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiButton, "UiButtonComponent" });
+            }
+
+            if (!has_component<ECS::UiCheckboxComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiCheckbox,
+                        "UiCheckboxComponent" });
+            }
+
+            if (!has_component<ECS::UiSliderComponent>(a_object))
+            {
+                components.push_back(
+                    { AddableComponentType::UiSlider, "UiSliderComponent" });
             }
 
             if (!has_component<ECS::MeshFilterComponent>(a_object))
@@ -652,6 +701,18 @@ namespace Cue::Editor
             case ComponentTab::TextRenderer:
                 outType = AddableComponentType::TextRenderer;
                 return true;
+            case ComponentTab::UiImage:
+                outType = AddableComponentType::UiImage;
+                return true;
+            case ComponentTab::UiButton:
+                outType = AddableComponentType::UiButton;
+                return true;
+            case ComponentTab::UiCheckbox:
+                outType = AddableComponentType::UiCheckbox;
+                return true;
+            case ComponentTab::UiSlider:
+                outType = AddableComponentType::UiSlider;
+                return true;
             case ComponentTab::MeshFilter:
                 outType = AddableComponentType::MeshFilter;
                 return true;
@@ -733,6 +794,22 @@ namespace Cue::Editor
 
             case ComponentTab::TextRenderer:
                 draw_text_renderer_component(a_object);
+                break;
+
+            case ComponentTab::UiImage:
+                draw_ui_image_component(a_object);
+                break;
+
+            case ComponentTab::UiButton:
+                draw_ui_button_component(a_object);
+                break;
+
+            case ComponentTab::UiCheckbox:
+                draw_ui_checkbox_component(a_object);
+                break;
+
+            case ComponentTab::UiSlider:
+                draw_ui_slider_component(a_object);
                 break;
 
             case ComponentTab::MeshFilter:
@@ -1365,6 +1442,149 @@ namespace Cue::Editor
                     static_cast<ECS::TextVerticalAlign>(
                         (std::clamp)(verticalIndex, 0, 2));
             }
+        }
+
+        static bool draw_float4_color(
+            const char* a_label,
+            Math::float4& a_color)
+        {
+            float color[4] = { a_color.x, a_color.y, a_color.z, a_color.w };
+            if (!ImGui::ColorEdit4(a_label, color))
+            {
+                return false;
+            }
+
+            a_color = Math::float4(color[0], color[1], color[2], color[3]);
+            return true;
+        }
+
+        static void draw_layer_order_controls(int32_t& a_layer, uint32_t& a_order)
+        {
+            ImGui::DragInt("layer", &a_layer, 1.0f);
+            int order = static_cast<int>(a_order);
+            if (ImGui::DragInt("order", &order, 1.0f, 0))
+            {
+                a_order = static_cast<uint32_t>((std::max)(order, 0));
+            }
+        }
+
+        void draw_ui_image_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiImageComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("UiImageComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiImageComponent");
+            ImGui::Separator();
+            ImGui::Checkbox("visible", &component->visible);
+            ImGui::Checkbox("raycastTarget", &component->raycastTarget);
+            draw_material_reference_editor("material", component->materialHandle);
+            draw_float4_color("color", component->color);
+
+            float uvRect[4] = {
+                component->uvRect.x,
+                component->uvRect.y,
+                component->uvRect.z,
+                component->uvRect.w
+            };
+            if (ImGui::DragFloat4("uvRect", uvRect, 0.001f, 0.0f, 1.0f))
+            {
+                component->uvRect =
+                    Math::float4(uvRect[0], uvRect[1], uvRect[2], uvRect[3]);
+            }
+
+            draw_layer_order_controls(component->layer, component->order);
+        }
+
+        void draw_ui_button_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiButtonComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("UiButtonComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiButtonComponent");
+            ImGui::Separator();
+            ImGui::Checkbox("isInteractable", &component->isInteractable);
+            draw_float4_color("normalColor", component->normalColor);
+            draw_float4_color("hoverColor", component->hoverColor);
+            draw_float4_color("pressedColor", component->pressedColor);
+            draw_float4_color("disabledColor", component->disabledColor);
+            draw_layer_order_controls(component->layer, component->order);
+            ImGui::Separator();
+            ImGui::Text("isHovered: %s", component->isHovered ? "true" : "false");
+            ImGui::Text("isPressed: %s", component->isPressed ? "true" : "false");
+            ImGui::Text("wasClicked: %s", component->wasClicked ? "true" : "false");
+            ImGui::Text("hasFocus: %s", component->hasFocus ? "true" : "false");
+        }
+
+        void draw_ui_checkbox_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiCheckboxComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("UiCheckboxComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiCheckboxComponent");
+            ImGui::Separator();
+            ImGui::Checkbox("isInteractable", &component->isInteractable);
+            ImGui::Checkbox("isChecked", &component->isChecked);
+            draw_float4_color("normalColor", component->normalColor);
+            draw_float4_color("hoverColor", component->hoverColor);
+            draw_float4_color("checkColor", component->checkColor);
+            draw_float4_color("disabledColor", component->disabledColor);
+            draw_layer_order_controls(component->layer, component->order);
+            ImGui::Separator();
+            ImGui::Text("isHovered: %s", component->isHovered ? "true" : "false");
+            ImGui::Text("isPressed: %s", component->isPressed ? "true" : "false");
+            ImGui::Text("wasChanged: %s", component->wasChanged ? "true" : "false");
+            ImGui::Text("hasFocus: %s", component->hasFocus ? "true" : "false");
+        }
+
+        void draw_ui_slider_component(GameCore::GameObject& a_object)
+        {
+            ECS::UiSliderComponent* component = nullptr;
+            if (!a_object.get_component(component) || component == nullptr)
+            {
+                ImGui::TextUnformatted("UiSliderComponent が見つかりません。");
+                return;
+            }
+
+            ImGui::TextUnformatted("UiSliderComponent");
+            ImGui::Separator();
+            ImGui::Checkbox("isInteractable", &component->isInteractable);
+            ImGui::DragFloat("minValue", &component->minValue, 0.01f);
+            ImGui::DragFloat("maxValue", &component->maxValue, 0.01f);
+            if (component->maxValue < component->minValue)
+            {
+                component->maxValue = component->minValue;
+            }
+            ImGui::SliderFloat(
+                "value",
+                &component->value,
+                component->minValue,
+                component->maxValue);
+            component->value = (std::clamp)(
+                component->value,
+                component->minValue,
+                component->maxValue);
+            draw_float4_color("trackColor", component->trackColor);
+            draw_float4_color("fillColor", component->fillColor);
+            draw_float4_color("handleColor", component->handleColor);
+            draw_float4_color("disabledColor", component->disabledColor);
+            draw_layer_order_controls(component->layer, component->order);
+            ImGui::Separator();
+            ImGui::Text("isHovered: %s", component->isHovered ? "true" : "false");
+            ImGui::Text("isDragging: %s", component->isDragging ? "true" : "false");
+            ImGui::Text("wasChanged: %s", component->wasChanged ? "true" : "false");
+            ImGui::Text("hasFocus: %s", component->hasFocus ? "true" : "false");
         }
 
         void draw_static_mesh_renderer_component(GameCore::GameObject& a_object)

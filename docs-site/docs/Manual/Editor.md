@@ -157,8 +157,11 @@ GameObject 名は World 全体で一意です。別 Scene であっても同名�
 ### シーン
 
 `読み込み済みシーン` には、現在 Editor World に読み込まれている Scene 名だけが表示されます。
+`新規 Scene` から `Assets/Scenes` 配下に空の `.cuescene` を作成して読み込めます。
 `読込` ボタンから `Assets/Scenes` 配下の `.cuescene` を追加読み込みできます。
 すでに読み込まれている Scene は一覧上で選べない状態になります。
+読み込み済み Scene ごとに `Current`、`保存`、`Unload` を実行できます。
+`Current` は追加読み込みした Scene を現在の編集対象 Scene に切り替えます。
 
 ## Asset Browser
 
@@ -199,6 +202,20 @@ Material Inspector では現在次の項目を編集できます。
 
 RendererComponent の Material 欄には Asset Browser から `.cuematerial` を drag and drop できます。
 
+### Runtime UI
+
+GameObject に `CanvasComponent` と `UiRectTransformComponent` を組み合わせると画面座標ベースの UI として扱われます。
+Inspector の `Add Component` から次の Runtime UI Component を追加できます。
+
+- `UiImageComponent`: Material texture を矩形に描画します。Material 欄へ `.cuematerial` を drag and drop できます。
+- `UiButtonComponent`: hover / pressed / clicked / focus 状態を持つクリック可能な矩形です。
+- `UiCheckboxComponent`: click で checked を切り替え、changed / focus 状態を持ちます。
+- `UiSliderComponent`: drag で value を更新し、changed / focus 状態を持ちます。
+
+GameScript からは `ComponentKindUiImage`、`ComponentKindUiButton`、`ComponentKindUiCheckbox`、`ComponentKindUiSlider` を `add_or_set_component` に渡せます。
+Button / Checkbox / Slider の状態は `get_ui_button_state`、`get_ui_checkbox_state`、`get_ui_slider_state` で取得できます。
+Checkbox と Slider は `set_ui_checkbox_checked`、`set_ui_slider_value` で値を設定できます。
+
 ## ヒエラルキー
 
 ヒエラルキーは Scene 単位の tree で表示されます。
@@ -206,6 +223,8 @@ RendererComponent の Material 欄には Asset Browser から `.cuematerial` を
 
 - Scene をクリックすると Scene が選択されます。
 - GameObject をクリックすると GameObject と所属 Scene が選択されます。
+- GameObject を同じ Scene 内の別 GameObject へ drag and drop すると親を変更できます。
+- GameObject を所属 Scene へ drag and drop すると親を解除して Scene 直下へ戻せます。
 - GameObject のダブルクリック、または右クリックメニューから名前変更できます。
 - GameObject の右クリックメニューから削除できます。
 

@@ -248,6 +248,26 @@ namespace Cue
         [[nodiscard]] static uint8_t CUE_SCRIPT_CALL
             push_mouse_button_bridge(CueMouseButton a_button);
         [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_ui_button_state_bridge(
+                CueEntityHandle a_entityHandle,
+                CueUiButtonStateData* a_outState);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_ui_checkbox_state_bridge(
+                CueEntityHandle a_entityHandle,
+                CueUiCheckboxStateData* a_outState);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_ui_checkbox_checked_bridge(
+                CueEntityHandle a_entityHandle,
+                uint8_t a_isChecked);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            get_ui_slider_state_bridge(
+                CueEntityHandle a_entityHandle,
+                CueUiSliderStateData* a_outState);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
+            set_ui_slider_value_bridge(
+                CueEntityHandle a_entityHandle,
+                float a_value);
+        [[nodiscard]] static CueResult CUE_SCRIPT_CALL
             raycast_bridge(
                 const CueRaycastDesc* a_desc,
                 CueRaycastHit* a_outHit);
@@ -464,6 +484,21 @@ namespace Cue
             CueMouseDeltaData* a_outDelta) const noexcept;
         [[nodiscard]] uint8_t push_mouse_button_internal(
             CueMouseButton a_button) const noexcept;
+        [[nodiscard]] CueResult get_ui_button_state_internal(
+            CueEntityHandle a_entityHandle,
+            CueUiButtonStateData* a_outState) const noexcept;
+        [[nodiscard]] CueResult get_ui_checkbox_state_internal(
+            CueEntityHandle a_entityHandle,
+            CueUiCheckboxStateData* a_outState) const noexcept;
+        [[nodiscard]] CueResult set_ui_checkbox_checked_internal(
+            CueEntityHandle a_entityHandle,
+            uint8_t a_isChecked) noexcept;
+        [[nodiscard]] CueResult get_ui_slider_state_internal(
+            CueEntityHandle a_entityHandle,
+            CueUiSliderStateData* a_outState) const noexcept;
+        [[nodiscard]] CueResult set_ui_slider_value_internal(
+            CueEntityHandle a_entityHandle,
+            float a_value) noexcept;
         [[nodiscard]] CueResult raycast_internal(
             const CueRaycastDesc* a_desc,
             CueRaycastHit* a_outHit) const noexcept;

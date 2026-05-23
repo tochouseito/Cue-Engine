@@ -9,6 +9,7 @@ namespace Cue::PAL::Win
             return Result::fail(Code::InvalidArgument, Severity::Error,
                 "DirectInput mouse initialization requires valid window handles.");
         }
+        m_windowHandle = a_windowHandle;
 
         HRESULT hr = ::DirectInput8Create(a_instanceHandle, DIRECTINPUT_VERSION,
             IID_IDirectInput8W,
@@ -56,7 +57,9 @@ namespace Cue::PAL::Win
 
         m_directInput.Reset();
         m_buttonStates.fill(0);
+        m_windowHandle = nullptr;
         m_delta = {};
+        m_position = {};
     }
 
     Result WinMouse::update() noexcept
@@ -96,6 +99,16 @@ namespace Cue::PAL::Win
         m_delta.x = static_cast<int32_t>(state.lX);
         m_delta.y = static_cast<int32_t>(state.lY);
         m_delta.wheel = static_cast<int32_t>(state.lZ);
+        if (m_windowHandle != nullptr)
+        {
+            POINT point{};
+            if (::GetCursorPos(&point) != FALSE &&
+                ::ScreenToClient(m_windowHandle, &point) != FALSE)
+            {
+                m_position.x = static_cast<int32_t>(point.x);
+                m_position.y = static_cast<int32_t>(point.y);
+            }
+        }
         for (size_t buttonIndex = 0; buttonIndex < m_buttonStates.size();
              ++buttonIndex)
         {

@@ -115,6 +115,7 @@ add_library(Engine STATIC
     "GameCore/Systems/CharacterControllerSystem.h"
     "GameCore/Systems/PhysicsBodySystem.h"
     "GameCore/Systems/TriggerVolumeSystem.h"
+    "GameCore/Systems/UiWidgetSystem.h"
     "GpuData/ViewProjection.h"
     "DrawSystem/Systems/CameraSystem.h"
     "GameCore/GameWorld.h"

@@ -722,6 +722,16 @@ namespace Cue
             &ScriptRuntime::get_json_config_float_bridge;
         m_engineApi.getJsonConfigString =
             &ScriptRuntime::get_json_config_string_bridge;
+        m_engineApi.getUiButtonState =
+            &ScriptRuntime::get_ui_button_state_bridge;
+        m_engineApi.getUiCheckboxState =
+            &ScriptRuntime::get_ui_checkbox_state_bridge;
+        m_engineApi.setUiCheckboxChecked =
+            &ScriptRuntime::set_ui_checkbox_checked_bridge;
+        m_engineApi.getUiSliderState =
+            &ScriptRuntime::get_ui_slider_state_bridge;
+        m_engineApi.setUiSliderValue =
+            &ScriptRuntime::set_ui_slider_value_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -1869,6 +1879,56 @@ namespace Cue
             : 0;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_button_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_button_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_checkbox_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_checkbox_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_ui_checkbox_checked_bridge(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_ui_checkbox_checked_internal(
+                a_entityHandle, a_isChecked)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_slider_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_slider_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_ui_slider_value_bridge(
+        CueEntityHandle a_entityHandle,
+        float a_value)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_ui_slider_value_internal(
+                a_entityHandle, a_value)
+            : CueResult_InvalidState;
+    }
+
     CueResult CUE_SCRIPT_CALL ScriptRuntime::raycast_bridge(
         const CueRaycastDesc* a_desc,
         CueRaycastHit* a_outHit)
@@ -2994,6 +3054,157 @@ namespace Cue
         }
 
         return m_platform->input_manager().push_mouse_button(button) ? 1 : 0;
+    }
+
+    CueResult ScriptRuntime::get_ui_button_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiButtonComponent* button = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiButtonComponent>(
+            to_entity_id(a_entityHandle),
+            button);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->isHovered = button->isHovered ? 1u : 0u;
+        a_outState->isPressed = button->isPressed ? 1u : 0u;
+        a_outState->wasClicked = button->wasClicked ? 1u : 0u;
+        a_outState->hasFocus = button->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_ui_checkbox_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiCheckboxComponent* checkbox = nullptr;
+        const Result result =
+            m_gameWorld->get_component<ECS::UiCheckboxComponent>(
+                to_entity_id(a_entityHandle),
+                checkbox);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->isChecked = checkbox->isChecked ? 1u : 0u;
+        a_outState->isHovered = checkbox->isHovered ? 1u : 0u;
+        a_outState->isPressed = checkbox->isPressed ? 1u : 0u;
+        a_outState->wasChanged = checkbox->wasChanged ? 1u : 0u;
+        a_outState->hasFocus = checkbox->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_ui_checkbox_checked_internal(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::UiCheckboxComponent* checkbox = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiCheckboxComponent>(
+            to_entity_id(a_entityHandle),
+            checkbox);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        checkbox->isChecked = a_isChecked != 0u;
+        checkbox->wasChanged = false;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_ui_slider_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiSliderComponent* slider = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiSliderComponent>(
+            to_entity_id(a_entityHandle),
+            slider);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->value = slider->value;
+        a_outState->isHovered = slider->isHovered ? 1u : 0u;
+        a_outState->isDragging = slider->isDragging ? 1u : 0u;
+        a_outState->wasChanged = slider->wasChanged ? 1u : 0u;
+        a_outState->hasFocus = slider->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_ui_slider_value_internal(
+        CueEntityHandle a_entityHandle,
+        float a_value) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            !std::isfinite(a_value))
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::UiSliderComponent* slider = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiSliderComponent>(
+            to_entity_id(a_entityHandle),
+            slider);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        slider->value = (std::clamp)(a_value, slider->minValue, slider->maxValue);
+        slider->wasChanged = false;
+        return CueResult_Ok;
     }
 
     CueResult ScriptRuntime::raycast_internal(
@@ -4285,6 +4496,114 @@ namespace Cue
                     : ECS::TextVerticalAlign::Top;
             text.visible = data.visible != 0u;
             return addOrSetComponent(text);
+        }
+        case CueComponentKind_UiImage:
+        {
+            if (a_componentDataSize < sizeof(CueUiImageComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiImageComponentData*>(a_componentData);
+            if (!is_finite(data.color) || !is_finite(data.uvRect))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiImageComponent image{};
+            image.color = to_math_float4(data.color);
+            image.uvRect = to_math_float4(data.uvRect);
+            image.layer = data.layer;
+            image.order = data.order;
+            image.visible = data.visible != 0u;
+            image.raycastTarget = data.raycastTarget != 0u;
+            return addOrSetComponent(image);
+        }
+        case CueComponentKind_UiButton:
+        {
+            if (a_componentDataSize < sizeof(CueUiButtonComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiButtonComponentData*>(a_componentData);
+            if (!is_finite(data.normalColor) ||
+                !is_finite(data.hoverColor) ||
+                !is_finite(data.pressedColor) ||
+                !is_finite(data.disabledColor))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiButtonComponent button{};
+            button.normalColor = to_math_float4(data.normalColor);
+            button.hoverColor = to_math_float4(data.hoverColor);
+            button.pressedColor = to_math_float4(data.pressedColor);
+            button.disabledColor = to_math_float4(data.disabledColor);
+            button.layer = data.layer;
+            button.order = data.order;
+            button.isInteractable = data.isInteractable != 0u;
+            return addOrSetComponent(button);
+        }
+        case CueComponentKind_UiCheckbox:
+        {
+            if (a_componentDataSize < sizeof(CueUiCheckboxComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiCheckboxComponentData*>(a_componentData);
+            if (!is_finite(data.normalColor) ||
+                !is_finite(data.hoverColor) ||
+                !is_finite(data.checkColor) ||
+                !is_finite(data.disabledColor))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiCheckboxComponent checkbox{};
+            checkbox.normalColor = to_math_float4(data.normalColor);
+            checkbox.hoverColor = to_math_float4(data.hoverColor);
+            checkbox.checkColor = to_math_float4(data.checkColor);
+            checkbox.disabledColor = to_math_float4(data.disabledColor);
+            checkbox.layer = data.layer;
+            checkbox.order = data.order;
+            checkbox.isInteractable = data.isInteractable != 0u;
+            checkbox.isChecked = data.isChecked != 0u;
+            return addOrSetComponent(checkbox);
+        }
+        case CueComponentKind_UiSlider:
+        {
+            if (a_componentDataSize < sizeof(CueUiSliderComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiSliderComponentData*>(a_componentData);
+            if (!is_finite(data.trackColor) ||
+                !is_finite(data.fillColor) ||
+                !is_finite(data.handleColor) ||
+                !is_finite(data.disabledColor) ||
+                !std::isfinite(data.minValue) ||
+                !std::isfinite(data.maxValue) ||
+                !std::isfinite(data.value) ||
+                data.maxValue < data.minValue)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiSliderComponent slider{};
+            slider.trackColor = to_math_float4(data.trackColor);
+            slider.fillColor = to_math_float4(data.fillColor);
+            slider.handleColor = to_math_float4(data.handleColor);
+            slider.disabledColor = to_math_float4(data.disabledColor);
+            slider.minValue = data.minValue;
+            slider.maxValue = data.maxValue;
+            slider.value = (std::clamp)(data.value, data.minValue, data.maxValue);
+            slider.layer = data.layer;
+            slider.order = data.order;
+            slider.isInteractable = data.isInteractable != 0u;
+            return addOrSetComponent(slider);
         }
         case CueComponentKind_TriggerVolume:
         {

@@ -46,6 +46,12 @@ namespace Cue::Editor
             std::vector<size_t> roots{};
         };
 
+        struct DragObjectPayload final
+        {
+            GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+            GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
+        };
+
         Hierarchy(Core::CQRS::Bridge* bridge, GameCore::GameWorld* gameWorld,
             GameCore::EntityId* a_selectedEntityId,
             GameCore::SceneId* a_selectedSceneId)
@@ -285,6 +291,8 @@ namespace Cue::Editor
                 set_selected_entity_id(GameCore::k_invalidEntityId);
             }
 
+            draw_scene_drop_target(a_scene);
+
             if (isOpen)
             {
                 for (const size_t objectIndex : a_scene.roots)
@@ -340,6 +348,8 @@ namespace Cue::Editor
                 begin_rename(object);
             }
 
+            draw_object_drag_source(object);
+            draw_object_drop_target(object);
             draw_object_context_menu(object);
 
             if (isOpen)
@@ -384,6 +394,80 @@ namespace Cue::Editor
             else if (deactivated)
             {
                 cancel_rename();
+            }
+        }
+
+        void draw_scene_drop_target(const SceneNode& a_scene)
+        {
+            if (m_isReadOnly)
+            {
+                return;
+            }
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                const ImGuiPayload* payload =
+                    ImGui::AcceptDragDropPayload(k_objectDragPayloadType);
+                if (payload != nullptr &&
+                    payload->DataSize == sizeof(DragObjectPayload))
+                {
+                    const DragObjectPayload& dragPayload =
+                        *static_cast<const DragObjectPayload*>(payload->Data);
+                    if (dragPayload.sceneId == a_scene.scene.sceneId)
+                    {
+                        submit_parent_command(
+                            dragPayload.entityId,
+                            GameCore::k_invalidEntityId);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
+        void draw_object_drag_source(const ObjectEntry& a_object)
+        {
+            if (m_isReadOnly)
+            {
+                return;
+            }
+
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+            {
+                DragObjectPayload payload{};
+                payload.entityId = a_object.entityId;
+                payload.sceneId = a_object.sceneId;
+                ImGui::SetDragDropPayload(
+                    k_objectDragPayloadType, &payload, sizeof(payload));
+                ImGui::TextUnformatted(a_object.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+        }
+
+        void draw_object_drop_target(const ObjectEntry& a_object)
+        {
+            if (m_isReadOnly)
+            {
+                return;
+            }
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                const ImGuiPayload* payload =
+                    ImGui::AcceptDragDropPayload(k_objectDragPayloadType);
+                if (payload != nullptr &&
+                    payload->DataSize == sizeof(DragObjectPayload))
+                {
+                    const DragObjectPayload& dragPayload =
+                        *static_cast<const DragObjectPayload*>(payload->Data);
+                    if (dragPayload.sceneId == a_object.sceneId &&
+                        dragPayload.entityId != a_object.entityId)
+                    {
+                        submit_parent_command(
+                            dragPayload.entityId,
+                            a_object.entityId);
+                    }
+                }
+                ImGui::EndDragDropTarget();
             }
         }
 
@@ -496,6 +580,30 @@ namespace Cue::Editor
             }
         }
 
+        void submit_parent_command(
+            GameCore::EntityId a_entityId,
+            GameCore::EntityId a_parentId)
+        {
+            if (editorBridge == nullptr || m_isReadOnly)
+            {
+                return;
+            }
+
+            Result result = editorBridge->submit_command(
+                std::make_unique<Cue::SetParentCommand>(
+                    a_entityId,
+                    a_parentId,
+                    true));
+            if (!result)
+            {
+                CUE_ASSERTF(false,
+                    "Failed to submit set parent command: %s (code: %s, severity: %s) at %s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file,
+                    result.line, result.function);
+            }
+        }
+
         [[nodiscard]] GameCore::EntityId selected_entity_id() const noexcept
         {
             return m_selectedEntityId != nullptr
@@ -527,6 +635,8 @@ namespace Cue::Editor
         }
 
         Core::CQRS::Bridge* editorBridge = nullptr;
+        static constexpr const char* k_objectDragPayloadType =
+            "CueHierarchyObject";
         GameCore::GameWorld* m_gameWorld = nullptr;
         std::vector<SceneEntry> m_sourceScenes{};
         std::vector<SceneNode> m_scenes{};

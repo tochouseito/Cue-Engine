@@ -3109,14 +3109,20 @@ namespace Cue::Editor
 
     Result EditorManager::save_current_scene()
     {
+        return save_scene(m_currentSceneId);
+    }
+
+    Result EditorManager::save_scene(GameCore::SceneId a_sceneId)
+    {
         if (m_fileSystem == nullptr || m_engine == nullptr ||
             m_engine->game_world() == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "EditorManager dependencies are not initialized.");
         }
-        if (m_currentSceneId == GameCore::k_invalidSceneId ||
-            m_currentScenePath.empty())
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr || entry->path.empty())
         {
             return Result::fail(Code::InvalidState, Severity::Warning,
                 "There is no loaded scene to save.");
@@ -3134,15 +3140,22 @@ namespace Cue::Editor
             return result;
         }
 
-        const std::string sceneName = !m_loadedSceneAsset.name().empty()
-            ? m_loadedSceneAsset.name()
-            : Core::IO::Path(m_currentScenePath).stem();
+        const GameCore::SceneAsset* sourceAsset =
+            a_sceneId == m_currentSceneId ? &m_loadedSceneAsset
+                                          : entry->asset.get();
+        const std::string sceneName =
+            sourceAsset != nullptr && !sourceAsset->name().empty()
+            ? sourceAsset->name()
+            : Core::IO::Path(entry->path).stem();
         GameCore::SceneAsset sceneAsset(sceneName);
-        sceneAsset.set_navigation_mesh_path(
-            m_loadedSceneAsset.navigation_mesh_path());
+        if (sourceAsset != nullptr)
+        {
+            sceneAsset.set_navigation_mesh_path(
+                sourceAsset->navigation_mesh_path());
+        }
         Result captureResult = Result::ok();
         result = m_engine->game_world()->for_each_object_in_scene(
-            m_currentSceneId,
+            a_sceneId,
             [this, &sceneAsset, &captureResult](GameCore::EntityId a_entityId,
                 GameCore::SceneId, GameCore::GameObject&)
             {
@@ -3178,30 +3191,118 @@ namespace Cue::Editor
         result = GameCore::SceneSerializer::save_scene_asset(
             sceneAsset,
             *m_fileSystem,
-            Core::IO::Path(m_currentScenePath),
+            Core::IO::Path(entry->path),
             saveOptions);
         if (!result)
         {
             return result;
         }
 
-        for (LoadedSceneEntry& entry : m_loadedEditorScenes)
+        if (entry->asset == nullptr)
         {
-            if (entry.sceneId != m_currentSceneId || entry.asset == nullptr)
-            {
-                continue;
-            }
+            entry->asset = std::make_unique<GameCore::SceneAsset>();
+        }
+        *entry->asset = sceneAsset;
+        entry->name = sceneAsset.name().empty()
+            ? Core::IO::Path(entry->path).stem()
+            : sceneAsset.name();
 
-            *entry.asset = sceneAsset;
-            entry.name = sceneAsset.name().empty()
-                ? Core::IO::Path(m_currentScenePath).stem()
-                : sceneAsset.name();
-            entry.path = m_currentScenePath;
-            break;
+        if (a_sceneId == m_currentSceneId)
+        {
+            m_loadedSceneAsset = sceneAsset;
+            m_currentScenePath = entry->path;
         }
 
-        m_loadedSceneAsset = std::move(sceneAsset);
         set_status_message("シーンを保存しました。", false);
+        return Result::ok();
+    }
+
+    Result EditorManager::create_scene_asset(const std::string& a_sceneName)
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+        if (m_projectPath.empty() || m_assetRootPath.is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Project is not opened.");
+        }
+
+        std::string sceneName = a_sceneName;
+        sceneName.erase(sceneName.begin(),
+            std::find_if(sceneName.begin(), sceneName.end(),
+                [](unsigned char a_ch) { return !std::isspace(a_ch); }));
+        sceneName.erase(
+            std::find_if(sceneName.rbegin(), sceneName.rend(),
+                [](unsigned char a_ch) { return !std::isspace(a_ch); })
+                .base(),
+            sceneName.end());
+        if (sceneName.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                "Scene name is empty.");
+        }
+        if (sceneName.find_first_of("\\/:*?\"<>|") != std::string::npos)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                "Scene name contains invalid path characters.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path sceneRoot =
+            Core::IO::Path::join(m_assetRootPath, Core::IO::Path("Scenes"));
+        result = m_fileSystem->create_directories(sceneRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::string fileName = sceneName + ".cuescene";
+        const Core::IO::Path scenePath =
+            Core::IO::Path::join(sceneRoot, Core::IO::Path(fileName))
+                .normalize();
+        bool exists = false;
+        result = m_fileSystem->exists(scenePath, &exists);
+        if (!result)
+        {
+            return result;
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Scene file already exists.");
+        }
+
+        GameCore::SceneAsset sceneAsset(sceneName);
+        GameCore::SceneSerializer::SaveOptions saveOptions{};
+        saveOptions.shouldSerializeScriptField = &should_serialize_script_field;
+        saveOptions.userData = m_engine;
+        saveOptions.assetManager = &m_engine->asset_manager();
+
+        result = GameCore::SceneSerializer::save_scene_asset(
+            sceneAsset,
+            *m_fileSystem,
+            scenePath,
+            saveOptions);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = load_scene_to_world(scenePath, true);
+        if (!result)
+        {
+            return result;
+        }
+
+        set_status_message("シーンを作成しました。", false);
         return Result::ok();
     }
 
@@ -4978,6 +5079,71 @@ namespace Cue::Editor
         return load_scene_to_world(Core::IO::Path(m_currentScenePath), true);
     }
 
+    Result EditorManager::unload_scene(GameCore::SceneId a_sceneId)
+    {
+        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene is not loaded.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->unload_scene(a_sceneId);
+        if (!result && result.code != Code::NotFound)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->execute_deferred_deletions();
+        if (!result)
+        {
+            return result;
+        }
+
+        const bool wasCurrent = a_sceneId == m_currentSceneId;
+        m_loadedEditorScenes.erase(
+            std::remove_if(m_loadedEditorScenes.begin(),
+                m_loadedEditorScenes.end(),
+                [a_sceneId](const LoadedSceneEntry& a_entry)
+                {
+                    return a_entry.sceneId == a_sceneId;
+                }),
+            m_loadedEditorScenes.end());
+
+        if (m_selectedSceneId == a_sceneId)
+        {
+            m_selectedSceneId = GameCore::k_invalidSceneId;
+        }
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+
+        if (wasCurrent)
+        {
+            if (!m_loadedEditorScenes.empty())
+            {
+                return set_current_scene(m_loadedEditorScenes.front().sceneId);
+            }
+
+            m_currentSceneId = GameCore::k_invalidSceneId;
+            m_currentScenePath.clear();
+            m_loadedSceneAsset = {};
+            m_engine->set_editor_scene_id(GameCore::k_invalidSceneId);
+        }
+
+        return Result::ok();
+    }
+
     Result EditorManager::unload_current_scene()
     {
         if (m_engine == nullptr || m_engine->game_world() == nullptr)
@@ -5110,16 +5276,43 @@ namespace Cue::Editor
 
         if (a_isPrimaryScene)
         {
-            m_currentSceneId = loadResult.sceneId;
-            m_currentScenePath = scenePath.utf8();
-            m_loadedSceneAsset = *storedSceneAsset;
-            m_engine->set_editor_scene_id(m_currentSceneId);
+            m_currentSceneId = GameCore::k_invalidSceneId;
         }
 
         entry.asset = std::move(storedSceneAsset);
         m_selectedSceneId = loadResult.sceneId;
         m_loadedEditorScenes.push_back(std::move(entry));
         m_selectedEntityId = GameCore::k_invalidEntityId;
+
+        if (a_isPrimaryScene || m_currentSceneId == GameCore::k_invalidSceneId)
+        {
+            return set_current_scene(loadResult.sceneId);
+        }
+
+        return Result::ok();
+    }
+
+    Result EditorManager::set_current_scene(GameCore::SceneId a_sceneId)
+    {
+        if (m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+        }
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr || entry->asset == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene is not loaded.");
+        }
+
+        m_currentSceneId = entry->sceneId;
+        m_currentScenePath = entry->path;
+        m_loadedSceneAsset = *entry->asset;
+        m_selectedSceneId = entry->sceneId;
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+        m_engine->set_editor_scene_id(m_currentSceneId);
         return Result::ok();
     }
 
@@ -6042,6 +6235,76 @@ namespace Cue::Editor
         ImGui::EndPopup();
     }
 
+    void EditorManager::draw_create_scene_popup()
+    {
+        if (m_openCreateScenePopup)
+        {
+            ImGui::OpenPopup("Create Scene");
+            m_openCreateScenePopup = false;
+            m_focusCreateSceneNameInput = true;
+        }
+
+        if (!ImGui::BeginPopupModal(
+                "Create Scene",
+                nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui::TextUnformatted("Assets/Scenes/ に新しい Scene を作成します。");
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Scene 名");
+        if (m_focusCreateSceneNameInput)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_focusCreateSceneNameInput = false;
+        }
+
+        const bool submitted = ImGui::InputText(
+            "##CreateSceneName",
+            m_createSceneNameBuffer.data(),
+            m_createSceneNameBuffer.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("例: Stage01");
+
+        auto submit = [this]()
+        {
+            const std::string sceneName = m_createSceneNameBuffer.data();
+            const Result result = create_scene_asset(sceneName);
+            if (!result)
+            {
+                log_result("Failed to create scene", result);
+                set_status_message(
+                    result.message.empty()
+                        ? "Scene 作成に失敗しました。"
+                        : std::string(result.message),
+                    true);
+                return;
+            }
+
+            m_createSceneNameBuffer.fill('\0');
+            set_status_message(
+                std::string("Scene を作成しました: ") + sceneName,
+                false);
+            ImGui::CloseCurrentPopup();
+        };
+
+        ImGui::Spacing();
+        if (submitted || ImGui::Button("作成"))
+        {
+            submit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_createSceneNameBuffer.fill('\0');
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     void EditorManager::draw_create_script_popup()
     {
         if (m_openCreateScriptPopup)
@@ -6598,6 +6861,10 @@ namespace Cue::Editor
         ImGui::TextUnformatted("読み込み済みシーン");
         ImGui::Separator();
 
+        const bool canEditScene =
+            m_engine != nullptr && !m_engine->is_playing() &&
+            !m_projectPath.empty() && !m_assetRootPath.is_empty();
+
         if (m_loadedEditorScenes.empty())
         {
             ImGui::TextDisabled("読み込まれているシーンはありません。");
@@ -6608,19 +6875,71 @@ namespace Cue::Editor
             {
                 ImGui::PushID(static_cast<int>(entry.sceneId));
                 const bool isPrimary = entry.sceneId == m_currentSceneId;
-                ImGui::Text(
-                    "%s%s",
-                    entry.name.empty() ? "<unnamed>" : entry.name.c_str(),
-                    isPrimary ? " (Current)" : "");
+                ImGui::TextUnformatted(
+                    entry.name.empty() ? "<unnamed>" : entry.name.c_str());
+                if (isPrimary)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(Current)");
+                }
+
+                ImGui::BeginDisabled(!canEditScene || isPrimary);
+                if (ImGui::SmallButton("Current"))
+                {
+                    const Result result = set_current_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to switch current scene", result);
+                        set_status_message(
+                            "Current Scene の切り替えに失敗しました。",
+                            true);
+                    }
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!canEditScene);
+                if (ImGui::SmallButton("保存"))
+                {
+                    const Result result = save_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to save scene", result);
+                        set_status_message("シーンの保存に失敗しました。", true);
+                    }
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!canEditScene);
+                if (ImGui::SmallButton("Unload"))
+                {
+                    const Result result = unload_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to unload scene", result);
+                        set_status_message("シーンの Unload に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message("シーンを Unload しました。", false);
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::EndDisabled();
+
                 ImGui::PopID();
             }
         }
 
         ImGui::Separator();
-        const bool canLoadScene =
-            m_engine != nullptr && !m_engine->is_playing() &&
-            !m_projectPath.empty() && !m_assetRootPath.is_empty();
-        ImGui::BeginDisabled(!canLoadScene);
+        ImGui::BeginDisabled(!canEditScene);
+        if (ImGui::Button("新規 Scene", ImVec2(-1.0f, 0.0f)))
+        {
+            m_createSceneNameBuffer.fill('\0');
+            m_openCreateScenePopup = true;
+        }
         if (ImGui::Button("読込", ImVec2(-1.0f, 0.0f)))
         {
             ImGui::OpenPopup("LoadScenePopup");
@@ -6802,6 +7121,32 @@ namespace Cue::Editor
         }
 
         return scenes;
+    }
+
+    EditorManager::LoadedSceneEntry* EditorManager::find_loaded_scene(
+        GameCore::SceneId a_sceneId) noexcept
+    {
+        const auto it = std::find_if(
+            m_loadedEditorScenes.begin(),
+            m_loadedEditorScenes.end(),
+            [a_sceneId](const LoadedSceneEntry& a_entry)
+            {
+                return a_entry.sceneId == a_sceneId;
+            });
+        return it != m_loadedEditorScenes.end() ? &*it : nullptr;
+    }
+
+    const EditorManager::LoadedSceneEntry* EditorManager::find_loaded_scene(
+        GameCore::SceneId a_sceneId) const noexcept
+    {
+        const auto it = std::find_if(
+            m_loadedEditorScenes.begin(),
+            m_loadedEditorScenes.end(),
+            [a_sceneId](const LoadedSceneEntry& a_entry)
+            {
+                return a_entry.sceneId == a_sceneId;
+            });
+        return it != m_loadedEditorScenes.end() ? &*it : nullptr;
     }
 
     bool EditorManager::is_scene_path_loaded(
@@ -8633,6 +8978,7 @@ namespace Cue::Editor
 
         Core::Time::Timer createScriptPopupTimer(m_platform->clock());
         createScriptPopupTimer.start();
+        draw_create_scene_popup();
         draw_create_script_popup();
         draw_game_release_app_settings_popup();
         draw_background_progress_window();

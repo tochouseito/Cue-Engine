@@ -413,6 +413,12 @@ namespace Cue::GameCore
                 m_particleScene);
         auto& uiLayoutSystem =
             m_ecs.add_system<ECS::UiLayoutSystem>(m_drawFrameState);
+        auto& uiWidgetSystem = m_ecs.add_system<ECS::UiWidgetSystem>(
+            m_inputManager,
+            m_assetManager,
+            m_defaultMaterialHandle,
+            m_drawFrameState,
+            m_drawScene);
         auto& cameraSystem = m_ecs.add_system<ECS::CameraSystem>(
             m_drawFrameState, m_drawScene);
         auto& lightSystem = m_ecs.add_system<ECS::LightSystem>(m_lightScene);
@@ -448,6 +454,7 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&skinnedRenderableObjectSystem);
         m_editorPipeline.add_system(&uiLayoutSystem);
+        m_editorPipeline.add_system(&uiWidgetSystem);
         m_editorPipeline.add_system(&textSystem);
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&particleEmitterSystem);

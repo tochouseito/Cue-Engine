@@ -49,6 +49,13 @@ namespace Marionette
     using UiRectTransformComponentData = CueUiRectTransformComponentData;
     using UiLayoutGroupComponentData = CueUiLayoutGroupComponentData;
     using TextRendererComponentData = CueTextRendererComponentData;
+    using UiImageComponentData = CueUiImageComponentData;
+    using UiButtonComponentData = CueUiButtonComponentData;
+    using UiButtonStateData = CueUiButtonStateData;
+    using UiCheckboxComponentData = CueUiCheckboxComponentData;
+    using UiCheckboxStateData = CueUiCheckboxStateData;
+    using UiSliderComponentData = CueUiSliderComponentData;
+    using UiSliderStateData = CueUiSliderStateData;
     using UiLayoutDirection = CueUiLayoutDirection;
     using MaterialPropertyBlockData = CueMaterialPropertyBlockData;
     using Color = CueFloat4;
@@ -89,6 +96,14 @@ namespace Marionette
         CueComponentKind_UiLayoutGroup;
     inline constexpr ComponentKind ComponentKindTextRenderer =
         CueComponentKind_TextRenderer;
+    inline constexpr ComponentKind ComponentKindUiImage =
+        CueComponentKind_UiImage;
+    inline constexpr ComponentKind ComponentKindUiButton =
+        CueComponentKind_UiButton;
+    inline constexpr ComponentKind ComponentKindUiCheckbox =
+        CueComponentKind_UiCheckbox;
+    inline constexpr ComponentKind ComponentKindUiSlider =
+        CueComponentKind_UiSlider;
     inline constexpr UiLayoutDirection UiLayoutDirectionHorizontal =
         CueUiLayoutDirection_Horizontal;
     inline constexpr UiLayoutDirection UiLayoutDirectionVertical =
@@ -2484,6 +2499,129 @@ namespace Marionette
         {
             return add_or_set_component(
                 m_entityHandle, a_componentKind, a_componentData);
+        }
+
+        [[nodiscard]] CueResult get_ui_button_state(
+            CueEntityHandle a_entityHandle,
+            UiButtonStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiButtonState) +
+                        sizeof(CueGetUiButtonStateFn) ||
+                engineApi->getUiButtonState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiButtonState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_button_state(
+            UiButtonStateData& a_outState) const noexcept
+        {
+            return get_ui_button_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_checkbox_state(
+            CueEntityHandle a_entityHandle,
+            UiCheckboxStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiCheckboxState) +
+                        sizeof(CueGetUiCheckboxStateFn) ||
+                engineApi->getUiCheckboxState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiCheckboxState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_checkbox_state(
+            UiCheckboxStateData& a_outState) const noexcept
+        {
+            return get_ui_checkbox_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult set_ui_checkbox_checked(
+            CueEntityHandle a_entityHandle,
+            bool a_isChecked) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setUiCheckboxChecked) +
+                        sizeof(CueSetUiCheckboxCheckedFn) ||
+                engineApi->setUiCheckboxChecked == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setUiCheckboxChecked(
+                a_entityHandle, a_isChecked ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult set_ui_checkbox_checked(
+            bool a_isChecked) const noexcept
+        {
+            return set_ui_checkbox_checked(m_entityHandle, a_isChecked);
+        }
+
+        [[nodiscard]] CueResult get_ui_slider_state(
+            CueEntityHandle a_entityHandle,
+            UiSliderStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiSliderState) +
+                        sizeof(CueGetUiSliderStateFn) ||
+                engineApi->getUiSliderState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiSliderState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_slider_state(
+            UiSliderStateData& a_outState) const noexcept
+        {
+            return get_ui_slider_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult set_ui_slider_value(
+            CueEntityHandle a_entityHandle,
+            float a_value) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setUiSliderValue) +
+                        sizeof(CueSetUiSliderValueFn) ||
+                engineApi->setUiSliderValue == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setUiSliderValue(a_entityHandle, a_value);
+        }
+
+        [[nodiscard]] CueResult set_ui_slider_value(float a_value) const noexcept
+        {
+            return set_ui_slider_value(m_entityHandle, a_value);
         }
 
         [[nodiscard]] CueResult get_parent(

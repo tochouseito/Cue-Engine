@@ -534,6 +534,238 @@ namespace Cue::GameCore
                     a_outComponent.controlsChildSize);
         }
 
+        [[nodiscard]] Json serialize_ui_image(
+            const ECS::UiImageComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            Json imageJson = {
+                { "color", serialize_float4(a_component.color) },
+                { "uvRect", serialize_float4(a_component.uvRect) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "visible", a_component.visible },
+                { "raycastTarget", a_component.raycastTarget },
+            };
+
+            if (!a_component.materialHandle.valid())
+            {
+                return imageJson;
+            }
+
+            if (a_options.assetManager != nullptr)
+            {
+                std::string materialName{};
+                if (a_options.assetManager->get_material_name(
+                    a_component.materialHandle,
+                    materialName))
+                {
+                    imageJson["materialName"] = materialName;
+                    return imageJson;
+                }
+            }
+
+            imageJson["materialHandleIndex"] = a_component.materialHandle.index;
+            imageJson["materialHandleGeneration"] =
+                a_component.materialHandle.generation;
+            return imageJson;
+        }
+
+        void deserialize_ui_image(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::UiImageComponent& a_outComponent)
+        {
+            a_outComponent.materialHandle = {};
+            const std::string materialName =
+                a_json.value("materialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(materialName, materialHandle))
+                {
+                    a_outComponent.materialHandle = materialHandle;
+                }
+            }
+
+            if (!a_outComponent.materialHandle.valid())
+            {
+                a_outComponent.materialHandle.index =
+                    a_json.value("materialHandleIndex", MaterialHandle::k_invalid);
+                a_outComponent.materialHandle.generation =
+                    a_json.value("materialHandleGeneration", 0u);
+            }
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.color);
+            }
+            if (const Json::const_iterator uvIt = a_json.find("uvRect");
+                uvIt != a_json.end())
+            {
+                deserialize_float4(*uvIt, a_outComponent.uvRect);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.visible = a_json.value("visible", a_outComponent.visible);
+            a_outComponent.raycastTarget =
+                a_json.value("raycastTarget", a_outComponent.raycastTarget);
+        }
+
+        [[nodiscard]] Json serialize_ui_button(
+            const ECS::UiButtonComponent& a_component)
+        {
+            return Json{
+                { "normalColor", serialize_float4(a_component.normalColor) },
+                { "hoverColor", serialize_float4(a_component.hoverColor) },
+                { "pressedColor", serialize_float4(a_component.pressedColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+            };
+        }
+
+        void deserialize_ui_button(
+            const Json& a_json,
+            ECS::UiButtonComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("normalColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.normalColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("hoverColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.hoverColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("pressedColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.pressedColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isHovered = false;
+            a_outComponent.isPressed = false;
+            a_outComponent.wasClicked = false;
+            a_outComponent.hasFocus = false;
+        }
+
+        [[nodiscard]] Json serialize_ui_checkbox(
+            const ECS::UiCheckboxComponent& a_component)
+        {
+            return Json{
+                { "normalColor", serialize_float4(a_component.normalColor) },
+                { "hoverColor", serialize_float4(a_component.hoverColor) },
+                { "checkColor", serialize_float4(a_component.checkColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+                { "isChecked", a_component.isChecked },
+            };
+        }
+
+        void deserialize_ui_checkbox(
+            const Json& a_json,
+            ECS::UiCheckboxComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("normalColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.normalColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("hoverColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.hoverColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("checkColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.checkColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isChecked =
+                a_json.value("isChecked", a_outComponent.isChecked);
+            a_outComponent.isHovered = false;
+            a_outComponent.isPressed = false;
+            a_outComponent.wasChanged = false;
+            a_outComponent.hasFocus = false;
+        }
+
+        [[nodiscard]] Json serialize_ui_slider(
+            const ECS::UiSliderComponent& a_component)
+        {
+            return Json{
+                { "trackColor", serialize_float4(a_component.trackColor) },
+                { "fillColor", serialize_float4(a_component.fillColor) },
+                { "handleColor", serialize_float4(a_component.handleColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "minValue", a_component.minValue },
+                { "maxValue", a_component.maxValue },
+                { "value", a_component.value },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+            };
+        }
+
+        void deserialize_ui_slider(
+            const Json& a_json,
+            ECS::UiSliderComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("trackColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.trackColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("fillColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.fillColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("handleColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.handleColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.minValue =
+                a_json.value("minValue", a_outComponent.minValue);
+            a_outComponent.maxValue =
+                a_json.value("maxValue", a_outComponent.maxValue);
+            a_outComponent.value = a_json.value("value", a_outComponent.value);
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isHovered = false;
+            a_outComponent.isDragging = false;
+            a_outComponent.wasChanged = false;
+            a_outComponent.hasFocus = false;
+        }
+
         [[nodiscard]] const char* to_string(
             ECS::TextHorizontalAlign a_align) noexcept
         {
@@ -1707,6 +1939,35 @@ namespace Cue::GameCore
                 componentsJson["textRenderer"] = serialize_text_renderer(*text);
             }
 
+            if (const ECS::UiImageComponent* image =
+                a_definition.prototype.get_component_ptr<ECS::UiImageComponent>();
+                image != nullptr)
+            {
+                componentsJson["uiImage"] = serialize_ui_image(*image, a_options);
+            }
+
+            if (const ECS::UiButtonComponent* button =
+                a_definition.prototype.get_component_ptr<ECS::UiButtonComponent>();
+                button != nullptr)
+            {
+                componentsJson["uiButton"] = serialize_ui_button(*button);
+            }
+
+            if (const ECS::UiCheckboxComponent* checkbox =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiCheckboxComponent>();
+                checkbox != nullptr)
+            {
+                componentsJson["uiCheckbox"] = serialize_ui_checkbox(*checkbox);
+            }
+
+            if (const ECS::UiSliderComponent* slider =
+                a_definition.prototype.get_component_ptr<ECS::UiSliderComponent>();
+                slider != nullptr)
+            {
+                componentsJson["uiSlider"] = serialize_ui_slider(*slider);
+            }
+
             if (const ECS::DirectionalLightComponent* directionalLight =
                 a_definition.prototype.get_component_ptr<
                     ECS::DirectionalLightComponent>();
@@ -1942,6 +2203,42 @@ namespace Cue::GameCore
                     ECS::TextRendererComponent text{};
                     deserialize_text_renderer(*textIt, text);
                     objectDefinition.prototype.add_component(text);
+                }
+
+                if (const Json::const_iterator imageIt =
+                    componentsJson.find("uiImage");
+                    imageIt != componentsJson.end())
+                {
+                    ECS::UiImageComponent image{};
+                    deserialize_ui_image(*imageIt, a_options, image);
+                    objectDefinition.prototype.add_component(image);
+                }
+
+                if (const Json::const_iterator buttonIt =
+                    componentsJson.find("uiButton");
+                    buttonIt != componentsJson.end())
+                {
+                    ECS::UiButtonComponent button{};
+                    deserialize_ui_button(*buttonIt, button);
+                    objectDefinition.prototype.add_component(button);
+                }
+
+                if (const Json::const_iterator checkboxIt =
+                    componentsJson.find("uiCheckbox");
+                    checkboxIt != componentsJson.end())
+                {
+                    ECS::UiCheckboxComponent checkbox{};
+                    deserialize_ui_checkbox(*checkboxIt, checkbox);
+                    objectDefinition.prototype.add_component(checkbox);
+                }
+
+                if (const Json::const_iterator sliderIt =
+                    componentsJson.find("uiSlider");
+                    sliderIt != componentsJson.end())
+                {
+                    ECS::UiSliderComponent slider{};
+                    deserialize_ui_slider(*sliderIt, slider);
+                    objectDefinition.prototype.add_component(slider);
                 }
 
                 if (const Json::const_iterator directionalLightIt =
