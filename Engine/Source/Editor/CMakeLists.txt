@@ -1,8 +1,8 @@
 # Editor モジュールの CMake 設定
 
-find_package(directxtex CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(imguizmo CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットの追加
@@ -54,10 +54,11 @@ target_link_libraries(Editor PRIVATE
     xaudio2_backend
     jolt_physics_backend
     Engine
-    Microsoft::DirectXTex
     assimp::assimp
     imgui::imgui
+    imguizmo::imguizmo
     nlohmann_json::nlohmann_json
+    msacm32
 )
 
 # インクルードディレクトリの追加
@@ -94,7 +95,6 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E rm -f
             "$<TARGET_FILE_DIR:Editor>/assimp-vc145-mt.dll"
             "$<TARGET_FILE_DIR:Editor>/assimp-vc145-mtd.dll"
-            "$<TARGET_FILE_DIR:Editor>/DirectXTex.dll"
             "$<TARGET_FILE_DIR:Editor>/kubazip.dll"
             "$<TARGET_FILE_DIR:Editor>/minizip.dll"
             "$<TARGET_FILE_DIR:Editor>/poly2tri.dll"

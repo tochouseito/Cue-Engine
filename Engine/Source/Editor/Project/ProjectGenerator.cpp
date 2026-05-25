@@ -28,7 +28,7 @@ namespace Cue::Editor
 
             ECS::TransformComponent transform{};
             transform.position = Math::float3(0.0f, 0.0f, -6.0f);
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             camera.prototype.add_component(transform);
 
@@ -49,7 +49,7 @@ namespace Cue::Editor
 
             ECS::TransformComponent transform{};
             transform.position = Math::float3::zero();
-            transform.rotation = Math::float3::zero();
+            transform.rotation = Math::Quaternion::identity();
             transform.scale = Math::float3(1.0f, 1.0f, 1.0f);
             cube.prototype.add_component(transform);
 
@@ -61,6 +61,8 @@ namespace Cue::Editor
             ECS::StaticMeshRendererComponent renderer{};
             renderer.materialHandle = {};
             renderer.visible = true;
+            renderer.castsShadow = true;
+            renderer.receivesShadow = true;
             cube.prototype.add_component(renderer);
 
             return cube;
@@ -376,6 +378,8 @@ namespace Cue::Editor
             "set(CUE_ENGINE_VCPKG_TARGET_TRIPLET \"x64-windows-static-md\")\n"
             "set(CUE_ENGINE_VCPKG_TARGET_ROOT\n"
             "    \"${CUE_ENGINE_ROOT}/out/build/win-x64/vcpkg_installed/${CUE_ENGINE_VCPKG_TARGET_TRIPLET}\")\n"
+            "list(APPEND CMAKE_PREFIX_PATH \"${CUE_ENGINE_VCPKG_TARGET_ROOT}\")\n"
+            "find_package(directxtk12 CONFIG REQUIRED)\n"
             "\n"
             "set(CUE_GAME_RELEASE_EXECUTABLE_NAME \"Game\")\n"
             "set(CUE_GAME_RELEASE_WINDOW_TITLE \"Cue App\")\n"
@@ -638,6 +642,7 @@ namespace Cue::Editor
             "    \"${CUE_ENGINE_OUTPUT_DIR}/jolt_physics_backend.lib\"\n"
             "    \"$<IF:$<CONFIG:Debug>,${CUE_ENGINE_VCPKG_TARGET_ROOT}/debug/lib/Jolt.lib,${CUE_ENGINE_VCPKG_TARGET_ROOT}/lib/Jolt.lib>\"\n"
             "    \"${CUE_ENGINE_OUTPUT_DIR}/d3d12_backend.lib\"\n"
+            "    Microsoft::DirectXTK12\n"
             "    \"${CUE_ENGINE_OUTPUT_DIR}/xaudio2_backend.lib\"\n"
             "    winmm.lib\n"
             "    ole32.lib\n"

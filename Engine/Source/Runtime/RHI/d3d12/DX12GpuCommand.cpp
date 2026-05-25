@@ -794,6 +794,15 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::set_viewport_scissor(uint32_t width, uint32_t height)
     {
+        return set_viewport_scissor(0, 0, width, height);
+    }
+
+    Result DX12GpuCommandContext::set_viewport_scissor(
+        uint32_t x,
+        uint32_t y,
+        uint32_t width,
+        uint32_t height)
+    {
         // queue 種別を検証して RS state を設定する。
         if (type() != CommandListType::Graphics)
         {
@@ -805,18 +814,18 @@ namespace Cue::RHI::DX12
 
         // ビューポートとシザー矩形の設定
         D3D12_VIEWPORT viewport{};
-        viewport.TopLeftX = 0.0f;
-        viewport.TopLeftY = 0.0f;
+        viewport.TopLeftX = static_cast<float>(x);
+        viewport.TopLeftY = static_cast<float>(y);
         viewport.Width = static_cast<float>(width);
         viewport.Height = static_cast<float>(height);
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
 
         D3D12_RECT scissorRect{};
-        scissorRect.left = 0;
-        scissorRect.top = 0;
-        scissorRect.right = static_cast<LONG>(width);
-        scissorRect.bottom = static_cast<LONG>(height);
+        scissorRect.left = static_cast<LONG>(x);
+        scissorRect.top = static_cast<LONG>(y);
+        scissorRect.right = static_cast<LONG>(x + width);
+        scissorRect.bottom = static_cast<LONG>(y + height);
 
         m_commandList->RSSetViewports(1, &viewport);
         m_commandList->RSSetScissorRects(1, &scissorRect);

@@ -13,6 +13,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace Marionette
 {
@@ -28,11 +29,111 @@ namespace Marionette
     using EntityHandle = CueEntityHandle;
     using SceneId = CueSceneId;
     using Transform = CueTransformData;
+    using Quaternion = CueQuaternion;
+    using TransformQuaternion = CueTransformQuaternionData;
     using MouseDelta = CueMouseDeltaData;
     using RaycastDesc = CueRaycastDesc;
     using RaycastHit = CueRaycastHit;
+    using SpawnObjectDesc = CueSpawnObjectDesc;
+    using InstantiateEntityDesc = CueInstantiateEntityDesc;
+    using SphereOverlapDesc = CueSphereOverlapDesc;
+    using ComponentKind = CueComponentKind;
+    using ColliderShapeType = CueColliderShapeType;
+    using CameraComponentData = CueCameraComponentData;
+    using ColliderComponentData = CueColliderComponentData;
+    using TriggerVolumeComponentData = CueTriggerVolumeComponentData;
+    using MeshFilterComponentData = CueMeshFilterComponentData;
+    using StaticMeshRendererComponentData = CueStaticMeshRendererComponentData;
+    using SpriteRendererComponentData = CueSpriteRendererComponentData;
+    using CanvasComponentData = CueCanvasComponentData;
+    using UiRectTransformComponentData = CueUiRectTransformComponentData;
+    using UiLayoutGroupComponentData = CueUiLayoutGroupComponentData;
+    using TextRendererComponentData = CueTextRendererComponentData;
+    using UiImageComponentData = CueUiImageComponentData;
+    using UiButtonComponentData = CueUiButtonComponentData;
+    using UiButtonStateData = CueUiButtonStateData;
+    using UiCheckboxComponentData = CueUiCheckboxComponentData;
+    using UiCheckboxStateData = CueUiCheckboxStateData;
+    using UiSliderComponentData = CueUiSliderComponentData;
+    using UiSliderStateData = CueUiSliderStateData;
+    using UiLayoutDirection = CueUiLayoutDirection;
+    using MaterialPropertyBlockData = CueMaterialPropertyBlockData;
     using Color = CueFloat4;
+    using JsonConfigHandle = CueJsonConfigHandle;
+    using SpawnObjectKind = CueSpawnObjectKind;
     inline constexpr SceneId k_invalidSceneId = k_cueInvalidSceneId;
+    inline constexpr SpawnObjectKind SpawnObjectKindEmpty =
+        CueSpawnObjectKind_Empty;
+    inline constexpr SpawnObjectKind SpawnObjectKindStaticMesh =
+        CueSpawnObjectKind_StaticMesh;
+    inline constexpr SpawnObjectKind SpawnObjectKindSprite =
+        CueSpawnObjectKind_Sprite;
+    inline constexpr SpawnObjectKind SpawnObjectKindCamera =
+        CueSpawnObjectKind_Camera;
+    inline constexpr SpawnObjectKind SpawnObjectKindDirectionalLight =
+        CueSpawnObjectKind_DirectionalLight;
+    inline constexpr SpawnObjectKind SpawnObjectKindPointLight =
+        CueSpawnObjectKind_PointLight;
+    inline constexpr SpawnObjectKind SpawnObjectKindSpotLight =
+        CueSpawnObjectKind_SpotLight;
+    inline constexpr ComponentKind ComponentKindCamera =
+        CueComponentKind_Camera;
+    inline constexpr ComponentKind ComponentKindCollider =
+        CueComponentKind_Collider;
+    inline constexpr ComponentKind ComponentKindTriggerVolume =
+        CueComponentKind_TriggerVolume;
+    inline constexpr ComponentKind ComponentKindMeshFilter =
+        CueComponentKind_MeshFilter;
+    inline constexpr ComponentKind ComponentKindStaticMeshRenderer =
+        CueComponentKind_StaticMeshRenderer;
+    inline constexpr ComponentKind ComponentKindSpriteRenderer =
+        CueComponentKind_SpriteRenderer;
+    inline constexpr ComponentKind ComponentKindCanvas =
+        CueComponentKind_Canvas;
+    inline constexpr ComponentKind ComponentKindUiRectTransform =
+        CueComponentKind_UiRectTransform;
+    inline constexpr ComponentKind ComponentKindUiLayoutGroup =
+        CueComponentKind_UiLayoutGroup;
+    inline constexpr ComponentKind ComponentKindTextRenderer =
+        CueComponentKind_TextRenderer;
+    inline constexpr ComponentKind ComponentKindUiImage =
+        CueComponentKind_UiImage;
+    inline constexpr ComponentKind ComponentKindUiButton =
+        CueComponentKind_UiButton;
+    inline constexpr ComponentKind ComponentKindUiCheckbox =
+        CueComponentKind_UiCheckbox;
+    inline constexpr ComponentKind ComponentKindUiSlider =
+        CueComponentKind_UiSlider;
+    inline constexpr UiLayoutDirection UiLayoutDirectionHorizontal =
+        CueUiLayoutDirection_Horizontal;
+    inline constexpr UiLayoutDirection UiLayoutDirectionVertical =
+        CueUiLayoutDirection_Vertical;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignLeft =
+        CueTextHorizontalAlign_Left;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignCenter =
+        CueTextHorizontalAlign_Center;
+    inline constexpr CueTextHorizontalAlign TextHorizontalAlignRight =
+        CueTextHorizontalAlign_Right;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignTop =
+        CueTextVerticalAlign_Top;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignMiddle =
+        CueTextVerticalAlign_Middle;
+    inline constexpr CueTextVerticalAlign TextVerticalAlignBottom =
+        CueTextVerticalAlign_Bottom;
+    inline constexpr ColliderShapeType ColliderShapeTypeBox =
+        CueColliderShapeType_Box;
+    inline constexpr ColliderShapeType ColliderShapeTypeSphere =
+        CueColliderShapeType_Sphere;
+    inline constexpr ColliderShapeType ColliderShapeTypeCapsule =
+        CueColliderShapeType_Capsule;
+    inline constexpr ColliderShapeType ColliderShapeTypeMesh =
+        CueColliderShapeType_Mesh;
+    inline constexpr uint32_t MaterialPropertyOverrideColor =
+        CueMaterialPropertyOverride_Color;
+    inline constexpr uint32_t MaterialPropertyOverrideShininess =
+        CueMaterialPropertyOverride_Shininess;
+    inline constexpr uint32_t MaterialPropertyOverrideReflectionSkybox =
+        CueMaterialPropertyOverride_ReflectionSkybox;
 
     enum class Key : uint32_t
     {
@@ -279,6 +380,38 @@ namespace Marionette
         [[nodiscard]] inline const CueEngineApi* current_engine_api() noexcept
         {
             return g_currentEngineApi;
+        }
+
+        [[nodiscard]] constexpr float degrees_to_radians(
+            float a_degrees) noexcept
+        {
+            return a_degrees * 0.017453292519943295769f;
+        }
+
+        [[nodiscard]] constexpr float radians_to_degrees(
+            float a_radians) noexcept
+        {
+            return a_radians * 57.295779513082320877f;
+        }
+
+        [[nodiscard]] constexpr CueFloat3 degrees_to_radians(
+            CueFloat3 a_degrees) noexcept
+        {
+            return CueFloat3{
+                degrees_to_radians(a_degrees.x),
+                degrees_to_radians(a_degrees.y),
+                degrees_to_radians(a_degrees.z)
+            };
+        }
+
+        [[nodiscard]] constexpr CueFloat3 radians_to_degrees(
+            CueFloat3 a_radians) noexcept
+        {
+            return CueFloat3{
+                radians_to_degrees(a_radians.x),
+                radians_to_degrees(a_radians.y),
+                radians_to_degrees(a_radians.z)
+            };
         }
 
         template<typename T>
@@ -1875,6 +2008,151 @@ namespace Marionette
             return engineApi->setTransform(m_entityHandle, &a_transform);
         }
 
+        [[nodiscard]] CueResult set_transform(
+            CueEntityHandle a_entityHandle,
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->setTransform == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setTransform(a_entityHandle, &a_transform);
+        }
+
+        [[nodiscard]] CueResult get_transform_degrees(
+            Transform& a_outTransform) const noexcept
+        {
+            return get_transform_degrees(m_entityHandle, a_outTransform);
+        }
+
+        [[nodiscard]] CueResult get_transform_degrees(
+            CueEntityHandle a_entityHandle,
+            Transform& a_outTransform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, getTransformDegrees) +
+                        sizeof(CueGetTransformDegreesFn) &&
+                engineApi->getTransformDegrees != nullptr)
+            {
+                return engineApi->getTransformDegrees(
+                    a_entityHandle, &a_outTransform);
+            }
+
+            const CueResult result =
+                get_transform(a_entityHandle, a_outTransform);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+
+            a_outTransform.rotation =
+                Detail::radians_to_degrees(a_outTransform.rotation);
+            return CueResult_Ok;
+        }
+
+        [[nodiscard]] CueResult set_transform_degrees(
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, setTransformDegrees) +
+                        sizeof(CueSetTransformDegreesFn) &&
+                engineApi->setTransformDegrees != nullptr)
+            {
+                return engineApi->setTransformDegrees(
+                    m_entityHandle, &a_transform);
+            }
+
+            Transform transform = a_transform;
+            transform.rotation =
+                Detail::degrees_to_radians(transform.rotation);
+            return set_transform(transform);
+        }
+
+        [[nodiscard]] CueResult set_transform_degrees(
+            CueEntityHandle a_entityHandle,
+            const Transform& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            if (engineApi->structSize >=
+                    offsetof(CueEngineApi, setTransformDegrees) +
+                        sizeof(CueSetTransformDegreesFn) &&
+                engineApi->setTransformDegrees != nullptr)
+            {
+                return engineApi->setTransformDegrees(
+                    a_entityHandle, &a_transform);
+            }
+
+            Transform transform = a_transform;
+            transform.rotation =
+                Detail::degrees_to_radians(transform.rotation);
+            return set_transform(a_entityHandle, transform);
+        }
+
+        [[nodiscard]] CueResult get_transform_quaternion(
+            TransformQuaternion& a_outTransform) const noexcept
+        {
+            return get_transform_quaternion(m_entityHandle, a_outTransform);
+        }
+
+        [[nodiscard]] CueResult get_transform_quaternion(
+            CueEntityHandle a_entityHandle,
+            TransformQuaternion& a_outTransform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getTransformQuaternion) +
+                        sizeof(CueGetTransformQuaternionFn) ||
+                engineApi->getTransformQuaternion == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getTransformQuaternion(
+                a_entityHandle, &a_outTransform);
+        }
+
+        [[nodiscard]] CueResult set_transform_quaternion(
+            const TransformQuaternion& a_transform) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setTransformQuaternion) +
+                        sizeof(CueSetTransformQuaternionFn) ||
+                engineApi->setTransformQuaternion == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setTransformQuaternion(
+                m_entityHandle, &a_transform);
+        }
+
         [[nodiscard]] CueResult set_rigid_body_linear_velocity(
             const CueFloat3& a_velocity) const noexcept
         {
@@ -2068,6 +2346,815 @@ namespace Marionette
             }
 
             return engineApi->raycast(&a_desc, &a_outHit);
+        }
+
+        [[nodiscard]] CueResult spawn_object(
+            const SpawnObjectDesc& a_desc,
+            CueEntityHandle& a_outEntityHandle) const noexcept
+        {
+            a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, spawnObject) +
+                        sizeof(CueSpawnObjectFn) ||
+                engineApi->spawnObject == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->spawnObject(&a_desc, &a_outEntityHandle);
+        }
+
+        [[nodiscard]] CueResult instantiate_entity(
+            const InstantiateEntityDesc& a_desc,
+            CueEntityHandle& a_outEntityHandle) const noexcept
+        {
+            a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, instantiateEntity) +
+                        sizeof(CueInstantiateEntityFn) ||
+                engineApi->instantiateEntity == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->instantiateEntity(&a_desc, &a_outEntityHandle);
+        }
+
+        [[nodiscard]] CueResult destroy_entity(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, destroyEntity) +
+                        sizeof(CueDestroyEntityFn) ||
+                engineApi->destroyEntity == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->destroyEntity(a_entityHandle);
+        }
+
+        [[nodiscard]] CueResult destroy_self() const noexcept
+        {
+            return destroy_entity(m_entityHandle);
+        }
+
+        [[nodiscard]] CueResult get_camera_fov_y(
+            CueEntityHandle a_entityHandle,
+            float& a_outFovY) const noexcept
+        {
+            a_outFovY = 0.0f;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getCameraFovY) +
+                        sizeof(CueGetCameraFovYFn) ||
+                engineApi->getCameraFovY == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getCameraFovY(a_entityHandle, &a_outFovY);
+        }
+
+        [[nodiscard]] CueResult get_camera_fov_y(
+            float& a_outFovY) const noexcept
+        {
+            return get_camera_fov_y(m_entityHandle, a_outFovY);
+        }
+
+        [[nodiscard]] CueResult set_camera_fov_y(
+            CueEntityHandle a_entityHandle,
+            float a_fovY) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setCameraFovY) +
+                        sizeof(CueSetCameraFovYFn) ||
+                engineApi->setCameraFovY == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setCameraFovY(a_entityHandle, a_fovY);
+        }
+
+        [[nodiscard]] CueResult set_camera_fov_y(float a_fovY) const noexcept
+        {
+            return set_camera_fov_y(m_entityHandle, a_fovY);
+        }
+
+        [[nodiscard]] CueResult add_or_set_component(
+            CueEntityHandle a_entityHandle,
+            ComponentKind a_componentKind,
+            const void* a_componentData,
+            uint32_t a_componentDataSize) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, addOrSetComponent) +
+                        sizeof(CueAddOrSetComponentFn) ||
+                engineApi->addOrSetComponent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue ||
+                a_componentData == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->addOrSetComponent(
+                a_entityHandle,
+                a_componentKind,
+                a_componentData,
+                a_componentDataSize);
+        }
+
+        template<typename T>
+        [[nodiscard]] CueResult add_or_set_component(
+            CueEntityHandle a_entityHandle,
+            ComponentKind a_componentKind,
+            const T& a_componentData) const noexcept
+        {
+            return add_or_set_component(
+                a_entityHandle,
+                a_componentKind,
+                &a_componentData,
+                static_cast<uint32_t>(sizeof(T)));
+        }
+
+        template<typename T>
+        [[nodiscard]] CueResult add_or_set_component(
+            ComponentKind a_componentKind,
+            const T& a_componentData) const noexcept
+        {
+            return add_or_set_component(
+                m_entityHandle, a_componentKind, a_componentData);
+        }
+
+        [[nodiscard]] CueResult get_ui_button_state(
+            CueEntityHandle a_entityHandle,
+            UiButtonStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiButtonState) +
+                        sizeof(CueGetUiButtonStateFn) ||
+                engineApi->getUiButtonState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiButtonState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_button_state(
+            UiButtonStateData& a_outState) const noexcept
+        {
+            return get_ui_button_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_checkbox_state(
+            CueEntityHandle a_entityHandle,
+            UiCheckboxStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiCheckboxState) +
+                        sizeof(CueGetUiCheckboxStateFn) ||
+                engineApi->getUiCheckboxState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiCheckboxState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_checkbox_state(
+            UiCheckboxStateData& a_outState) const noexcept
+        {
+            return get_ui_checkbox_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult set_ui_checkbox_checked(
+            CueEntityHandle a_entityHandle,
+            bool a_isChecked) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setUiCheckboxChecked) +
+                        sizeof(CueSetUiCheckboxCheckedFn) ||
+                engineApi->setUiCheckboxChecked == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setUiCheckboxChecked(
+                a_entityHandle, a_isChecked ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult set_ui_checkbox_checked(
+            bool a_isChecked) const noexcept
+        {
+            return set_ui_checkbox_checked(m_entityHandle, a_isChecked);
+        }
+
+        [[nodiscard]] CueResult get_ui_slider_state(
+            CueEntityHandle a_entityHandle,
+            UiSliderStateData& a_outState) const noexcept
+        {
+            a_outState = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getUiSliderState) +
+                        sizeof(CueGetUiSliderStateFn) ||
+                engineApi->getUiSliderState == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getUiSliderState(a_entityHandle, &a_outState);
+        }
+
+        [[nodiscard]] CueResult get_ui_slider_state(
+            UiSliderStateData& a_outState) const noexcept
+        {
+            return get_ui_slider_state(m_entityHandle, a_outState);
+        }
+
+        [[nodiscard]] CueResult set_ui_slider_value(
+            CueEntityHandle a_entityHandle,
+            float a_value) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setUiSliderValue) +
+                        sizeof(CueSetUiSliderValueFn) ||
+                engineApi->setUiSliderValue == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setUiSliderValue(a_entityHandle, a_value);
+        }
+
+        [[nodiscard]] CueResult set_ui_slider_value(float a_value) const noexcept
+        {
+            return set_ui_slider_value(m_entityHandle, a_value);
+        }
+
+        [[nodiscard]] CueResult get_parent(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle& a_outParentEntity) const noexcept
+        {
+            a_outParentEntity = CueEntityHandle{ k_cueInvalidHandleValue };
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getParent) +
+                        sizeof(CueGetParentFn) ||
+                engineApi->getParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getParent(a_entityHandle, &a_outParentEntity);
+        }
+
+        [[nodiscard]] CueResult get_parent(
+            CueEntityHandle& a_outParentEntity) const noexcept
+        {
+            return get_parent(m_entityHandle, a_outParentEntity);
+        }
+
+        [[nodiscard]] CueResult set_parent(
+            CueEntityHandle a_entityHandle,
+            CueEntityHandle a_parentEntity,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setParent) +
+                        sizeof(CueSetParentFn) ||
+                engineApi->setParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue ||
+                a_parentEntity.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setParent(
+                a_entityHandle,
+                a_parentEntity,
+                a_keepsWorldTransform ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult set_parent(
+            CueEntityHandle a_parentEntity,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            return set_parent(
+                m_entityHandle, a_parentEntity, a_keepsWorldTransform);
+        }
+
+        [[nodiscard]] CueResult detach_parent(
+            CueEntityHandle a_entityHandle,
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, detachParent) +
+                        sizeof(CueDetachParentFn) ||
+                engineApi->detachParent == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->detachParent(
+                a_entityHandle,
+                a_keepsWorldTransform ? 1u : 0u);
+        }
+
+        [[nodiscard]] CueResult detach_parent(
+            bool a_keepsWorldTransform = true) const noexcept
+        {
+            return detach_parent(m_entityHandle, a_keepsWorldTransform);
+        }
+
+        [[nodiscard]] CueResult set_material_property_block(
+            CueEntityHandle a_entityHandle,
+            const MaterialPropertyBlockData& a_propertyBlock) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialPropertyBlock) +
+                        sizeof(CueSetMaterialPropertyBlockFn) ||
+                engineApi->setMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialPropertyBlock(
+                a_entityHandle, &a_propertyBlock);
+        }
+
+        [[nodiscard]] CueResult set_material_property_block(
+            const MaterialPropertyBlockData& a_propertyBlock) const noexcept
+        {
+            return set_material_property_block(m_entityHandle, a_propertyBlock);
+        }
+
+        [[nodiscard]] CueResult get_material_property_block(
+            CueEntityHandle a_entityHandle,
+            MaterialPropertyBlockData& a_outPropertyBlock) const noexcept
+        {
+            a_outPropertyBlock = {};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getMaterialPropertyBlock) +
+                        sizeof(CueGetMaterialPropertyBlockFn) ||
+                engineApi->getMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getMaterialPropertyBlock(
+                a_entityHandle, &a_outPropertyBlock);
+        }
+
+        [[nodiscard]] CueResult get_material_property_block(
+            MaterialPropertyBlockData& a_outPropertyBlock) const noexcept
+        {
+            return get_material_property_block(
+                m_entityHandle, a_outPropertyBlock);
+        }
+
+        [[nodiscard]] CueResult clear_material_property_block(
+            CueEntityHandle a_entityHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, clearMaterialPropertyBlock) +
+                        sizeof(CueClearMaterialPropertyBlockFn) ||
+                engineApi->clearMaterialPropertyBlock == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->clearMaterialPropertyBlock(a_entityHandle);
+        }
+
+        [[nodiscard]] CueResult clear_material_property_block() const noexcept
+        {
+            return clear_material_property_block(m_entityHandle);
+        }
+
+        [[nodiscard]] CueResult set_material_color(
+            CueEntityHandle a_entityHandle,
+            const Color& a_color) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialColor) +
+                        sizeof(CueSetMaterialColorFn) ||
+                engineApi->setMaterialColor == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialColor(a_entityHandle, &a_color);
+        }
+
+        [[nodiscard]] CueResult set_material_color(
+            const Color& a_color) const noexcept
+        {
+            return set_material_color(m_entityHandle, a_color);
+        }
+
+        [[nodiscard]] CueResult set_material_shininess(
+            CueEntityHandle a_entityHandle,
+            float a_shininess) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, setMaterialShininess) +
+                        sizeof(CueSetMaterialShininessFn) ||
+                engineApi->setMaterialShininess == nullptr ||
+                a_entityHandle.value == k_cueInvalidHandleValue)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->setMaterialShininess(
+                a_entityHandle, a_shininess);
+        }
+
+        [[nodiscard]] CueResult set_material_shininess(
+            float a_shininess) const noexcept
+        {
+            return set_material_shininess(m_entityHandle, a_shininess);
+        }
+
+        [[nodiscard]] CueResult load_json_config(
+            std::string_view a_assetPath,
+            JsonConfigHandle& a_outConfigHandle) const noexcept
+        {
+            a_outConfigHandle = k_cueInvalidJsonConfigHandle;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, loadJsonConfig) +
+                        sizeof(CueLoadJsonConfigFn) ||
+                engineApi->loadJsonConfig == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->loadJsonConfig(
+                Detail::to_cue_string_view(a_assetPath),
+                &a_outConfigHandle);
+        }
+
+        [[nodiscard]] CueResult unload_json_config(
+            JsonConfigHandle a_configHandle) const noexcept
+        {
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, unloadJsonConfig) +
+                        sizeof(CueUnloadJsonConfigFn) ||
+                engineApi->unloadJsonConfig == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->unloadJsonConfig(a_configHandle);
+        }
+
+        [[nodiscard]] CueResult get_json_config_bool(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            bool& a_outValue) const noexcept
+        {
+            a_outValue = false;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigBool) +
+                        sizeof(CueGetJsonConfigBoolFn) ||
+                engineApi->getJsonConfigBool == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            uint8_t value = 0u;
+            const CueResult result = engineApi->getJsonConfigBool(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &value);
+            if (result == CueResult_Ok)
+            {
+                a_outValue = value != 0u;
+            }
+            return result;
+        }
+
+        [[nodiscard]] CueResult get_json_config_int(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            int32_t& a_outValue) const noexcept
+        {
+            a_outValue = 0;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigInt) +
+                        sizeof(CueGetJsonConfigIntFn) ||
+                engineApi->getJsonConfigInt == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getJsonConfigInt(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &a_outValue);
+        }
+
+        [[nodiscard]] CueResult get_json_config_float(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            float& a_outValue) const noexcept
+        {
+            a_outValue = 0.0f;
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigFloat) +
+                        sizeof(CueGetJsonConfigFloatFn) ||
+                engineApi->getJsonConfigFloat == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return engineApi->getJsonConfigFloat(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                &a_outValue);
+        }
+
+        [[nodiscard]] CueResult get_json_config_string(
+            JsonConfigHandle a_configHandle,
+            std::string_view a_keyPath,
+            std::string& a_outValue) const
+        {
+            a_outValue.clear();
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, getJsonConfigString) +
+                        sizeof(CueGetJsonConfigStringFn) ||
+                engineApi->getJsonConfigString == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            uint32_t requiredSize = 0u;
+            CueResult result = engineApi->getJsonConfigString(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                nullptr,
+                0u,
+                &requiredSize);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+            if (requiredSize == 0u)
+            {
+                return CueResult_InternalError;
+            }
+
+            std::string buffer(requiredSize, '\0');
+            result = engineApi->getJsonConfigString(
+                a_configHandle,
+                Detail::to_cue_string_view(a_keyPath),
+                buffer.data(),
+                requiredSize,
+                &requiredSize);
+            if (result != CueResult_Ok)
+            {
+                return result;
+            }
+
+            if (!buffer.empty() && buffer.back() == '\0')
+            {
+                buffer.pop_back();
+            }
+            a_outValue = std::move(buffer);
+            return CueResult_Ok;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_tag(
+            std::string_view a_tag) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, findEntitiesByTag) +
+                        sizeof(CueFindEntitiesByTagFn) ||
+                engineApi->findEntitiesByTag == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->findEntitiesByTag(
+                    Detail::to_cue_string_view(a_tag),
+                    nullptr,
+                    0u,
+                    &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->findEntitiesByTag(
+                    Detail::to_cue_string_view(a_tag),
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> find_entities_by_name(
+            std::string_view a_name) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, findEntitiesByName) +
+                        sizeof(CueFindEntitiesByNameFn) ||
+                engineApi->findEntitiesByName == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->findEntitiesByName(
+                    Detail::to_cue_string_view(a_name),
+                    nullptr,
+                    0u,
+                    &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->findEntitiesByName(
+                    Detail::to_cue_string_view(a_name),
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> trigger_overlaps(
+            CueEntityHandle a_triggerEntity) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, triggerOverlaps) +
+                        sizeof(CueTriggerOverlapsFn) ||
+                engineApi->triggerOverlaps == nullptr ||
+                a_triggerEntity.value == k_cueInvalidHandleValue)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->triggerOverlaps(
+                    a_triggerEntity, nullptr, 0u, &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->triggerOverlaps(
+                    a_triggerEntity,
+                    entities.data(),
+                    count,
+                    &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
+        }
+
+        [[nodiscard]] std::vector<CueEntityHandle> sphere_overlap(
+            const SphereOverlapDesc& a_desc) const
+        {
+            std::vector<CueEntityHandle> entities{};
+            const CueEngineApi* engineApi = runtime_engine_api();
+            if (engineApi == nullptr ||
+                engineApi->structSize <
+                    offsetof(CueEngineApi, sphereOverlap) +
+                        sizeof(CueSphereOverlapFn) ||
+                engineApi->sphereOverlap == nullptr)
+            {
+                return entities;
+            }
+
+            uint32_t count = 0u;
+            if (engineApi->sphereOverlap(
+                    &a_desc, nullptr, 0u, &count) != CueResult_Ok ||
+                count == 0u)
+            {
+                return entities;
+            }
+
+            entities.resize(count);
+            uint32_t writtenCount = count;
+            if (engineApi->sphereOverlap(
+                    &a_desc, entities.data(), count, &writtenCount) != CueResult_Ok)
+            {
+                entities.clear();
+                return entities;
+            }
+
+            if (static_cast<size_t>(writtenCount) < entities.size())
+            {
+                entities.resize(writtenCount);
+            }
+            return entities;
         }
 
         [[nodiscard]] CueResult debug_draw_line(
@@ -2340,6 +3427,7 @@ namespace Marionette
             &Cue::Core::Native::create_script_state_adapter<T>,
             &Cue::Core::Native::destroy_script_state_adapter<T>,
             &Cue::Core::Native::update_script_state_adapter<T>,
+            &Cue::Core::Native::dispatch_collision_state_adapter<T>,
             &Cue::Core::Native::serialize_script_state_adapter<T>,
             &Cue::Core::Native::restore_script_state_adapter<T>
         };

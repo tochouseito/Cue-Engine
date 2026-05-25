@@ -31,6 +31,13 @@ namespace Cue::Core::Native
         float a_deltaTimeSeconds
     );
 
+    using CueScriptDispatchCollisionStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueEngineApi* a_engineApi,
+        void* a_state,
+        CueScriptCollisionEventType a_eventType,
+        CueEntityHandle a_otherEntity
+    );
+
     using CueScriptInvokeStateFn = CueResult (CUE_SCRIPT_CALL*)(
         const CueEngineApi* a_engineApi,
         void* a_state
@@ -65,6 +72,7 @@ namespace Cue::Core::Native
         CueScriptCreateStateFn createState = nullptr;
         CueScriptDestroyStateFn destroyState = nullptr;
         CueScriptUpdateStateFn updateState = nullptr;
+        CueScriptDispatchCollisionStateFn dispatchCollisionEvent = nullptr;
         CueScriptSerializeStateFn serializeState = nullptr;
         CueScriptRestoreStateFn restoreState = nullptr;
     };
@@ -235,6 +243,75 @@ namespace Cue::Core::Native
     };
 
     template<typename T>
+    concept ScriptStateHasCollisionEnter = requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_enter(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_enter(a_otherEntity) } -> std::same_as<void>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionEnter(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionEnter(a_otherEntity) } -> std::same_as<void>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasCollisionStay = requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_stay(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_stay(a_otherEntity) } -> std::same_as<void>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionStay(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionStay(a_otherEntity) } -> std::same_as<void>;
+    };
+
+    template<typename T>
+    concept ScriptStateHasCollisionExit = requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_exit(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.on_collision_exit(a_otherEntity) } -> std::same_as<void>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionExit(a_otherEntity) } -> std::convertible_to<CueResult>;
+    } || requires(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        { a_state.OnCollisionExit(a_otherEntity) } -> std::same_as<void>;
+    };
+
+    template<typename T>
     concept ScriptStateHasRawSerialize = requires(
         const T& a_state,
         void* a_outStateBuffer,
@@ -326,6 +403,179 @@ namespace Cue::Core::Native
         }
 
         return static_cast<T*>(a_state)->update(a_engineApi, a_deltaTimeSeconds);
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult invoke_collision_enter(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        if constexpr (requires
+            {
+                { a_state.on_collision_enter(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.on_collision_enter(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.on_collision_enter(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.on_collision_enter(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionEnter(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.OnCollisionEnter(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionEnter(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.OnCollisionEnter(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else
+        {
+            return CueResult_Ok;
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult invoke_collision_stay(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        if constexpr (requires
+            {
+                { a_state.on_collision_stay(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.on_collision_stay(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.on_collision_stay(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.on_collision_stay(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionStay(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.OnCollisionStay(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionStay(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.OnCollisionStay(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else
+        {
+            return CueResult_Ok;
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult invoke_collision_exit(
+        T& a_state,
+        CueEntityHandle a_otherEntity)
+    {
+        if constexpr (requires
+            {
+                { a_state.on_collision_exit(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.on_collision_exit(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.on_collision_exit(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.on_collision_exit(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionExit(a_otherEntity) } -> std::convertible_to<CueResult>;
+            })
+        {
+            return a_state.OnCollisionExit(a_otherEntity);
+        }
+        else if constexpr (requires
+            {
+                { a_state.OnCollisionExit(a_otherEntity) } -> std::same_as<void>;
+            })
+        {
+            a_state.OnCollisionExit(a_otherEntity);
+            return CueResult_Ok;
+        }
+        else
+        {
+            return CueResult_Ok;
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] CueResult CUE_SCRIPT_CALL dispatch_collision_state_adapter(
+        const CueEngineApi* a_engineApi,
+        void* a_state,
+        CueScriptCollisionEventType a_eventType,
+        CueEntityHandle a_otherEntity)
+    {
+        if (a_engineApi == nullptr || a_state == nullptr ||
+            a_otherEntity.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        T& state = *static_cast<T*>(a_state);
+        if constexpr (requires
+            {
+                state.begin_script_call(a_engineApi);
+            })
+        {
+            state.begin_script_call(a_engineApi);
+        }
+
+        CueResult result = CueResult_Ok;
+        switch (a_eventType)
+        {
+        case CueScriptCollisionEventType_Enter:
+            result = invoke_collision_enter(state, a_otherEntity);
+            break;
+        case CueScriptCollisionEventType_Stay:
+            result = invoke_collision_stay(state, a_otherEntity);
+            break;
+        case CueScriptCollisionEventType_Exit:
+            result = invoke_collision_exit(state, a_otherEntity);
+            break;
+        default:
+            result = CueResult_InvalidArgument;
+            break;
+        }
+
+        if constexpr (requires
+            {
+                state.end_script_call();
+            })
+        {
+            state.end_script_call();
+        }
+
+        return result;
     }
 
     template<typename T, auto TFunction>
@@ -517,6 +767,7 @@ namespace Cue::Core::Native
             &create_script_state_adapter<T>,
             &destroy_script_state_adapter<T>,
             &update_script_state_adapter<T>,
+            &dispatch_collision_state_adapter<T>,
             &serialize_script_state_adapter<T>,
             &restore_script_state_adapter<T>
         };
@@ -632,6 +883,28 @@ namespace Cue::Core::Native
 
             return instance->scriptClass->updateState(
                 m_engineApi, instance->state, a_deltaTimeSeconds);
+        }
+
+        [[nodiscard]] CueResult dispatch_script_collision_event(
+            CueScriptInstanceHandle a_instanceHandle,
+            CueScriptCollisionEventType a_eventType,
+            CueEntityHandle a_otherEntity) noexcept
+        {
+            const InstanceRecord* instance = find_instance(a_instanceHandle);
+            if (instance == nullptr)
+            {
+                return a_instanceHandle.value == k_cueInvalidHandleValue
+                    ? CueResult_InvalidArgument
+                    : CueResult_NotFound;
+            }
+            if (m_engineApi == nullptr || instance->scriptClass == nullptr ||
+                instance->scriptClass->dispatchCollisionEvent == nullptr)
+            {
+                return CueResult_InvalidState;
+            }
+
+            return instance->scriptClass->dispatchCollisionEvent(
+                m_engineApi, instance->state, a_eventType, a_otherEntity);
         }
 
         [[nodiscard]] CueResult invoke_script_instance_function(

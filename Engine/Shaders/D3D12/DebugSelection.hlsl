@@ -8,9 +8,11 @@ static const uint kMaxDebugSelectionItemCount = 64;
 static const uint kShapeBox = 0;
 static const uint kShapeCameraFrustum = 1;
 static const uint kShapeLine = 2;
+static const uint kShapeLightArrow = 3;
 static const uint kBoxVertexCount = 24;
 static const uint kCameraFrustumVertexCount = 30;
 static const uint kLineVertexCount = 2;
+static const uint kLightArrowVertexCount = 18;
 
 struct DebugSelectionItem
 {
@@ -87,6 +89,63 @@ float3 make_camera_up_marker_vertex(uint markerIndex, float4 camera)
     return baseRight;
 }
 
+float3 make_light_arrow_vertex(uint vertexIndex, float4 camera)
+{
+    const float length = camera.x;
+    const float headLength = camera.y;
+    const float headWidth = camera.z;
+    const float tailLength = length - headLength;
+    const float3 origin = float3(0.0f, 0.0f, 0.0f);
+    const float3 tip = float3(0.0f, 0.0f, -length);
+    const float3 neck = float3(0.0f, 0.0f, -tailLength);
+    const float3 right = float3(headWidth, 0.0f, -tailLength);
+    const float3 left = float3(-headWidth, 0.0f, -tailLength);
+    const float3 up = float3(0.0f, headWidth, -tailLength);
+    const float3 down = float3(0.0f, -headWidth, -tailLength);
+
+    switch (vertexIndex)
+    {
+    case 0:
+        return origin;
+    case 1:
+        return tip;
+    case 2:
+        return tip;
+    case 3:
+        return right;
+    case 4:
+        return tip;
+    case 5:
+        return left;
+    case 6:
+        return tip;
+    case 7:
+        return up;
+    case 8:
+        return tip;
+    case 9:
+        return down;
+    case 10:
+        return right;
+    case 11:
+        return up;
+    case 12:
+        return up;
+    case 13:
+        return left;
+    case 14:
+        return left;
+    case 15:
+        return down;
+    case 16:
+        return down;
+    case 17:
+        return right;
+    default:
+        return neck;
+    }
+}
+
 struct VsOut
 {
     float4 position : SV_POSITION;
@@ -100,11 +159,14 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     const bool isEnabled = instanceId < g_itemCount && item.isEnabled != 0;
     const bool isLine = item.shape == kShapeLine;
     const bool isCameraFrustum = item.shape == kShapeCameraFrustum;
+    const bool isLightArrow = item.shape == kShapeLightArrow;
     const bool isVisibleVertex = isLine
         ? vertexId < kLineVertexCount
-        : (isCameraFrustum
-            ? vertexId < kCameraFrustumVertexCount
-            : vertexId < kBoxVertexCount);
+        : (isLightArrow
+            ? vertexId < kLightArrowVertexCount
+            : (isCameraFrustum
+                ? vertexId < kCameraFrustumVertexCount
+                : vertexId < kBoxVertexCount));
     const uint cornerIndex =
         kLineVertexToCorner[min(vertexId, kBoxVertexCount - 1)];
     const uint markerIndex =
@@ -114,9 +176,12 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     const float3 frustumCorner = vertexId < kBoxVertexCount
         ? make_camera_frustum_corner(cornerIndex, item.camera)
         : make_camera_up_marker_vertex(markerIndex, item.camera);
+    const float3 arrowCorner = make_light_arrow_vertex(vertexId, item.camera);
     const float3 localCorner = isLine
         ? lineCorner
-        : (isCameraFrustum ? frustumCorner : kCorners[cornerIndex]);
+        : (isLightArrow
+            ? arrowCorner
+            : (isCameraFrustum ? frustumCorner : kCorners[cornerIndex]));
     float4 localPosition = float4(localCorner, 1.0f);
     if (!isEnabled || !isVisibleVertex)
     {

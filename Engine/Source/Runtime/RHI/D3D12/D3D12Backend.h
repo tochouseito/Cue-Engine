@@ -18,7 +18,6 @@
 #include "DX12TextureManager.h"
 #include "DX12ViewManager.h"
 #include "DX12PipelineManager.h"
-#include "DX12StaticMeshPool.h"
 
 namespace Cue::RHI::DX12
 {
@@ -56,7 +55,8 @@ namespace Cue::RHI::DX12
         IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
         ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
         IViewManager* get_view_manager() override { return m_viewManager.get(); }
-        IStaticMeshPool* get_static_mesh_pool() override { return m_staticMeshPool.get(); }
+        ICommandPool* get_command_pool() override { return m_commandPool.get(); }
+        IQueuePool* get_queue_pool() override { return m_queuePool.get(); }
         uint32_t width() const noexcept override { return m_swapChain ? m_swapChain->width() : 0; }
         uint32_t height() const noexcept override { return m_swapChain ? m_swapChain->height() : 0; }
 
@@ -94,7 +94,6 @@ namespace Cue::RHI::DX12
         std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
-        std::unique_ptr<DX12StaticMeshPool> m_staticMeshPool = nullptr; // 静的メッシュプール
         uint32_t m_bufferCount = 0; // バッファ数
     };
 }

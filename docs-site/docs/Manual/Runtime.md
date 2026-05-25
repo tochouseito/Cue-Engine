@@ -40,6 +40,8 @@ Scene asset は `.cuescene` です。
 
 `ScriptComponent` の Entity 参照は、Scene 保存時に localObjectId として保存されます。
 Scene 読み込み時に Runtime EntityId へ解決されます。
+`TransformComponent.rotation` は内部と Scene asset では弧度法の Euler 回転として保存されます。
+Editor の Inspector では度数法で表示、入力します。
 
 ## Asset Browser と import
 
@@ -50,11 +52,12 @@ Editor Window へ外部ファイルをドロップすると、Asset Browser の�
 
 | 外部ファイル | 生成される asset | 用途 |
 | --- | --- | --- |
-| `.png` | `.cuetexture` | Texture / Material |
+| `.png` | `.dds` | Texture / Material |
+| `.dds` | `.dds` | Texture / Skybox CubeMap |
 | `.wav` | `.cuesound` | AudioSource |
 | `.obj` | `.cuemodel` | MeshFilter / MeshCollider |
 
-Asset Browser では `.png` と `.cuetexture` のプレビュー表示を試みます。
+Asset Browser では `.png`、`.dds` のプレビュー表示を試みます。
 プレビューできない場合は Image アイコンを表示します。
 
 ## Material
@@ -65,9 +68,11 @@ Material asset は `.cuematerial` です。
 - `color`: 描画色です。
 - `texture`: 登録済み texture 名です。
 - `useTexture`: texture を使うかどうかです。
+- `reflectionSkybox`: 選択中 Skybox を環境反射として使うかどうかです。
+- `shininess`: 環境反射の鋭さです。値が大きいほど低 mip の反射を使います。
 
-Inspector で Material asset を選択すると、`color` と `Use Texture` を編集できます。
-Asset Browser から `.cuetexture` を Material Inspector へドロップすると、Material の texture に設定されます。
+Inspector で Material asset を選択すると、`color`、`Use Texture`、`Reflection Skybox`、`shininess` を編集できます。
+Asset Browser から `.dds` を Material Inspector へドロップすると、Material の texture に設定されます。
 Asset Browser から `.cuematerial` を RendererComponent の drop target へドロップすると、その Renderer に Material を設定できます。
 
 ## 物理 Component

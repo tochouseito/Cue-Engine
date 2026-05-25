@@ -328,43 +328,11 @@ namespace Cue::PAL::Win
     // メッセージハンドラ
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
-        // 外部登録ハンドラを先に評価
-        for (const MessageHandlerEntry& entry : m_messageHandlers)
-        {
-            if (!entry.handler)
-            {
-                continue;
-            }
-
-            LRESULT handledResult = 0;
-            const bool isHandled = entry.handler(a_hwnd, a_message, a_wParam, a_lParam, handledResult);
-            if (isHandled)
-            {
-                return handledResult;
-            }
-        }
-
-        // 未処理メッセージを既定処理へ移譲
+        // Platform のサイズ変更は描画解像度の基準なので、外部ハンドラより先に確定する。
         switch (a_message)
         {
-        case WM_CLOSE:
-            // 破棄は engine 終了手順へ移譲
-            // メインループ終了フラグ設定
-            m_shouldClose = true;
-            return 0;
-
-        case WM_GETMINMAXINFO:
-        {
-            // クライアントサイズ変更直前
-            MINMAXINFO* pMinMaxInfo = reinterpret_cast<MINMAXINFO*>(a_lParam);
-            pMinMaxInfo->ptMinTrackSize.x = k_minimumWindowWidth;
-            pMinMaxInfo->ptMinTrackSize.y = k_minimumWindowHeight;
-            return 0;
-        }
-
         case WM_SIZE:
         {
-            // クライアントサイズ更新後
             if (m_platformBridge == nullptr || a_wParam == SIZE_MINIMIZED)
             {
                 return 0;
@@ -432,6 +400,44 @@ namespace Cue::PAL::Win
                     result.function);
             }
 
+            return 0;
+        }
+
+        default:
+            break;
+        }
+
+        // 外部登録ハンドラを先に評価
+        for (const MessageHandlerEntry& entry : m_messageHandlers)
+        {
+            if (!entry.handler)
+            {
+                continue;
+            }
+
+            LRESULT handledResult = 0;
+            const bool isHandled = entry.handler(a_hwnd, a_message, a_wParam, a_lParam, handledResult);
+            if (isHandled)
+            {
+                return handledResult;
+            }
+        }
+
+        // 未処理メッセージを既定処理へ移譲
+        switch (a_message)
+        {
+        case WM_CLOSE:
+            // 破棄は engine 終了手順へ移譲
+            // メインループ終了フラグ設定
+            m_shouldClose = true;
+            return 0;
+
+        case WM_GETMINMAXINFO:
+        {
+            // クライアントサイズ変更直前
+            MINMAXINFO* pMinMaxInfo = reinterpret_cast<MINMAXINFO*>(a_lParam);
+            pMinMaxInfo->ptMinTrackSize.x = k_minimumWindowWidth;
+            pMinMaxInfo->ptMinTrackSize.y = k_minimumWindowHeight;
             return 0;
         }
 

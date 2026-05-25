@@ -14,6 +14,9 @@ namespace Cue::RHI::DX12
             case InputElementFormat::R32G32B32A32_Float:
                 d3dDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
                 break;
+            case InputElementFormat::R32G32B32A32_UInt:
+                d3dDesc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+                break;
             case InputElementFormat::R32G32B32_Float:
                 d3dDesc.Format = DXGI_FORMAT_R32G32B32_FLOAT;
                 break;
@@ -78,6 +81,10 @@ namespace Cue::RHI::DX12
         D3D12_RASTERIZER_DESC convert_rasterizer_state(const RasterizerStateDesc& desc)
         {
             D3D12_RASTERIZER_DESC d3dDesc{};
+            d3dDesc.DepthBias = desc.depthBias;
+            d3dDesc.DepthBiasClamp = desc.depthBiasClamp;
+            d3dDesc.SlopeScaledDepthBias = desc.slopeScaledDepthBias;
+            d3dDesc.DepthClipEnable = TRUE;
             switch (desc.cullMode)
             {
             case CullMode::None:
@@ -471,6 +478,23 @@ namespace Cue::RHI::DX12
         // D3D12_ROOT_SIGNATURE_DESC にパラメータをセットする。
         rootSignatureDesc.NumParameters = static_cast<UINT>(d3dParameters.size());
         rootSignatureDesc.pParameters = d3dParameters.data();
+
+        D3D12_STATIC_SAMPLER_DESC staticSampler{};
+        staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        staticSampler.MipLODBias = 0.0f;
+        staticSampler.MaxAnisotropy = 1;
+        staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        staticSampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+        staticSampler.MinLOD = 0.0f;
+        staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
+        staticSampler.ShaderRegister = 0;
+        staticSampler.RegisterSpace = 0;
+        staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootSignatureDesc.NumStaticSamplers = 1;
+        rootSignatureDesc.pStaticSamplers = &staticSampler;
 
         // D3D12_ROOT_SIGNATURE_DESC をシリアライズしてバイナリ化する。
         comPtr<ID3DBlob> serializedRootSig;

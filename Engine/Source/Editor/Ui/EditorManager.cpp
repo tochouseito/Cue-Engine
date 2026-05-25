@@ -18,6 +18,7 @@
 #include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
 #include <Script/MarionnetteObject.h>
+#include <ShadowSystem/GpuData/ShadowData.h>
 
 // === Win includes ===
 #include <shellapi.h>
@@ -28,16 +29,22 @@
 #include <cmath>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
 #include <mutex>
 #include <span>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 // === ThirdParty includes ===
+#include <assimp/Importer.hpp>
+#include <assimp/material.h>
+#include <assimp/scene.h>
+#include <ImGuizmo.h>
 #include <nlohmann/json.hpp>
 
 namespace Cue::Editor
@@ -84,6 +91,118 @@ namespace Cue::Editor
         constexpr float k_cameraFrustumFar = 1.0f;
         constexpr uint32_t k_autoScriptBuildScanIntervalFrames = 30;
         constexpr uint32_t k_autoScriptBuildDebounceFrames = 45;
+
+        [[nodiscard]] bool transform_nearly_equal(
+            const ECS::TransformComponent& a_left,
+            const ECS::TransformComponent& a_right) noexcept
+        {
+            auto isClose =
+                [](float a_leftValue, float a_rightValue) noexcept
+            {
+                constexpr float k_epsilon = 0.0001f;
+                return std::abs(a_leftValue - a_rightValue) <= k_epsilon;
+            };
+            auto isClose3 =
+                [&isClose](
+                    const Math::float3& a_leftValue,
+                    const Math::float3& a_rightValue) noexcept
+            {
+                return isClose(a_leftValue.x, a_rightValue.x) &&
+                    isClose(a_leftValue.y, a_rightValue.y) &&
+                    isClose(a_leftValue.z, a_rightValue.z);
+            };
+
+            return isClose3(a_left.position, a_right.position) &&
+                Math::Quaternion::equals_epsilon(
+                    a_left.rotation,
+                    a_right.rotation,
+                    0.0001f) &&
+                isClose3(a_left.scale, a_right.scale);
+        }
+
+        [[nodiscard]] ECS::WorldTransformComponent make_world_transform(
+            const ECS::TransformComponent& a_transform) noexcept
+        {
+            ECS::WorldTransformComponent worldTransform{};
+            worldTransform.position = a_transform.position;
+            worldTransform.rotation = a_transform.rotation;
+            worldTransform.scale = a_transform.scale;
+            return worldTransform;
+        }
+
+        [[nodiscard]] bool get_debug_world_transform(
+            GameCore::GameObject& a_object,
+            ECS::WorldTransformComponent& a_outTransform)
+        {
+            ECS::WorldTransformComponent* worldTransform = nullptr;
+            if (a_object.get_component(worldTransform) &&
+                worldTransform != nullptr)
+            {
+                a_outTransform = *worldTransform;
+                return true;
+            }
+
+            ECS::TransformComponent* transform = nullptr;
+            if (!a_object.get_component(transform) || transform == nullptr)
+            {
+                return false;
+            }
+
+            a_outTransform = make_world_transform(*transform);
+            return true;
+        }
+
+        [[nodiscard]] bool get_debug_world_transform(
+            GameCore::GameWorld& a_world,
+            GameCore::EntityId a_entityId,
+            ECS::WorldTransformComponent& a_outTransform)
+        {
+            const ECS::WorldTransformComponent* worldTransform = nullptr;
+            if (a_world.get_component<ECS::WorldTransformComponent>(
+                    a_entityId,
+                    worldTransform) &&
+                worldTransform != nullptr)
+            {
+                a_outTransform = *worldTransform;
+                return true;
+            }
+
+            const ECS::TransformComponent* transform = nullptr;
+            if (!a_world.get_component<ECS::TransformComponent>(
+                    a_entityId,
+                    transform) ||
+                transform == nullptr)
+            {
+                return false;
+            }
+
+            a_outTransform = make_world_transform(*transform);
+            return true;
+        }
+
+        void draw_gizmo_mode_button(
+            const char* a_label,
+            uint32_t a_value,
+            uint32_t& a_inOutValue) noexcept
+        {
+            const bool isSelected = a_inOutValue == a_value;
+            if (isSelected)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            }
+
+            if (ImGui::Button(a_label, ImVec2(44.0f, 0.0f)))
+            {
+                a_inOutValue = a_value;
+            }
+
+            if (isSelected)
+            {
+                ImGui::PopStyleColor();
+            }
+        }
 
         template<size_t BufferSize>
         void set_text_buffer(
@@ -143,8 +262,413 @@ namespace Cue::Editor
         {
             const std::string extension =
                 to_lower_ascii(a_path.extension());
-            return extension == ".png" || extension == ".wav" ||
-                extension == ".obj";
+            return extension == ".png" || extension == ".dds" ||
+                extension == ".jpg" || extension == ".jpeg" ||
+                extension == ".tga" || extension == ".bmp" ||
+                extension == ".wav" ||
+                extension == ".obj" || extension == ".fbx" ||
+                extension == ".gltf" || extension == ".glb";
+        }
+
+        [[nodiscard]] bool is_source_model_file(
+            const Core::IO::Path& a_path)
+        {
+            const std::string extension =
+                to_lower_ascii(a_path.extension());
+            return extension == ".obj" || extension == ".fbx" ||
+                extension == ".gltf" || extension == ".glb";
+        }
+
+        [[nodiscard]] bool is_gltf_json_file(const Core::IO::Path& a_path)
+        {
+            return to_lower_ascii(a_path.extension()) == ".gltf";
+        }
+
+        [[nodiscard]] bool is_data_uri(std::string_view a_uri) noexcept
+        {
+            constexpr std::string_view k_dataPrefix = "data:";
+            return a_uri.size() >= k_dataPrefix.size() &&
+                a_uri.substr(0, k_dataPrefix.size()) == k_dataPrefix;
+        }
+
+        [[nodiscard]] bool is_embedded_texture_path(
+            std::string_view a_path) noexcept
+        {
+            return !a_path.empty() && a_path.front() == '*';
+        }
+
+        void collect_assimp_external_texture_paths(
+            const aiMaterial& a_material,
+            std::vector<Core::IO::Path>& outTexturePaths)
+        {
+            constexpr aiTextureType k_textureTypes[] = {
+                aiTextureType_DIFFUSE,
+                aiTextureType_BASE_COLOR,
+            };
+
+            for (const aiTextureType textureType : k_textureTypes)
+            {
+                const uint32_t textureCount =
+                    a_material.GetTextureCount(textureType);
+                for (uint32_t textureIndex = 0;
+                     textureIndex < textureCount;
+                     ++textureIndex)
+                {
+                    aiString texturePath{};
+                    if (a_material.GetTexture(
+                            textureType,
+                            textureIndex,
+                            &texturePath) != AI_SUCCESS ||
+                        texturePath.length == 0 ||
+                        texturePath.C_Str() == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const std::string pathText(
+                        texturePath.C_Str(),
+                        texturePath.length);
+                    if (is_embedded_texture_path(pathText))
+                    {
+                        continue;
+                    }
+
+                    const Core::IO::Path path(pathText);
+                    const std::string normalized = path.normalize().utf8();
+                    const auto it = std::find_if(
+                        outTexturePaths.begin(),
+                        outTexturePaths.end(),
+                        [&normalized](const Core::IO::Path& a_existing)
+                        {
+                            return a_existing.normalize().utf8() ==
+                                normalized;
+                        });
+                    if (it == outTexturePaths.end())
+                    {
+                        outTexturePaths.push_back(path);
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] Result copy_assimp_external_texture_dependencies(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            if (!is_source_model_file(a_sourcePath) ||
+                is_gltf_json_file(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            Assimp::Importer importer{};
+            const aiScene* scene = importer.ReadFile(a_sourcePath.utf8(), 0);
+            if (scene == nullptr ||
+                scene->mNumMaterials == 0 ||
+                scene->mMaterials == nullptr)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> texturePaths{};
+            for (uint32_t materialIndex = 0;
+                 materialIndex < scene->mNumMaterials;
+                 ++materialIndex)
+            {
+                if (scene->mMaterials[materialIndex] == nullptr)
+                {
+                    continue;
+                }
+
+                collect_assimp_external_texture_paths(
+                    *scene->mMaterials[materialIndex],
+                    texturePaths);
+            }
+
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                const Core::IO::Path sourceTexturePath =
+                    texturePath.is_absolute()
+                    ? texturePath
+                    : Core::IO::Path::join(
+                          a_sourcePath.parent(),
+                          texturePath);
+                const Core::IO::Path destinationTexturePath =
+                    Core::IO::Path::join(
+                        a_destinationPath.parent(),
+                        Core::IO::Path(texturePath.filename()));
+
+                bool exists = false;
+                Result result = a_fileSystem.exists(
+                    sourceTexturePath,
+                    &exists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!exists)
+                {
+                    continue;
+                }
+
+                result = a_fileSystem.copy_file(
+                    sourceTexturePath.normalize(),
+                    destinationTexturePath.normalize(),
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        void collect_gltf_external_dependency_uris(const nlohmann::json& a_json,
+            std::string_view a_collectionName,
+            std::vector<std::string>& outUris)
+        {
+            const std::string collectionName(a_collectionName);
+            if (!a_json.contains(collectionName) ||
+                !a_json.at(collectionName).is_array())
+            {
+                return;
+            }
+
+            for (const nlohmann::json& entry : a_json.at(collectionName))
+            {
+                if (!entry.is_object() ||
+                    !entry.contains("uri") ||
+                    !entry.at("uri").is_string())
+                {
+                    continue;
+                }
+
+                const std::string uri = entry.at("uri").get<std::string>();
+                if (uri.empty() || is_data_uri(uri))
+                {
+                    continue;
+                }
+
+                if (std::find(outUris.begin(), outUris.end(), uri) ==
+                    outUris.end())
+                {
+                    outUris.push_back(uri);
+                }
+            }
+        }
+
+        [[nodiscard]] Result copy_gltf_external_dependencies(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_sourcePath,
+            const Core::IO::Path& a_destinationPath)
+        {
+            if (!is_gltf_json_file(a_sourcePath))
+            {
+                return Result::ok();
+            }
+
+            std::vector<std::byte> fileData{};
+            Result result = a_fileSystem.read_all(a_sourcePath, &fileData);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::string text{};
+            if (!fileData.empty())
+            {
+                text.assign(
+                    reinterpret_cast<const char*>(fileData.data()),
+                    fileData.size());
+            }
+
+            const nlohmann::json gltfJson =
+                nlohmann::json::parse(text, nullptr, false);
+            if (gltfJson.is_discarded())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "glTF json parse failed.");
+            }
+
+            std::vector<std::string> dependencyUris{};
+            collect_gltf_external_dependency_uris(
+                gltfJson,
+                "buffers",
+                dependencyUris);
+            collect_gltf_external_dependency_uris(
+                gltfJson,
+                "images",
+                dependencyUris);
+
+            for (const std::string& dependencyUri : dependencyUris)
+            {
+                const Core::IO::Path dependencyPath(dependencyUri);
+                const Core::IO::Path sourceDependencyPath =
+                    dependencyPath.is_absolute()
+                    ? dependencyPath
+                    : Core::IO::Path::join(
+                          a_sourcePath.parent(),
+                          dependencyPath);
+                const Core::IO::Path destinationDependencyPath =
+                    Core::IO::Path::join(
+                        a_destinationPath.parent(),
+                        dependencyPath.is_absolute()
+                            ? Core::IO::Path(dependencyPath.filename())
+                            : dependencyPath);
+
+                result = a_fileSystem.create_directories(
+                    destinationDependencyPath.parent());
+                if (!result)
+                {
+                    return result;
+                }
+
+                bool exists = false;
+                result = a_fileSystem.exists(sourceDependencyPath, &exists);
+                if (!result)
+                {
+                    return result;
+                }
+                if (!exists)
+                {
+                    return Result::fail(
+                        Code::NotFound,
+                        Severity::Error,
+                        "glTF dependency file was not found.");
+                }
+
+                result = a_fileSystem.copy_file(
+                    sourceDependencyPath.normalize(),
+                    destinationDependencyPath.normalize(),
+                    true);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] bool is_source_texture_file(
+            const Core::IO::Path& a_path)
+        {
+            const std::string extension =
+                to_lower_ascii(a_path.extension());
+            return extension == ".png" || extension == ".jpg" ||
+                extension == ".jpeg" || extension == ".tga" ||
+                extension == ".bmp";
+        }
+
+        struct DdsPixelFormat final
+        {
+            uint32_t size = 0;
+            uint32_t flags = 0;
+            uint32_t fourCc = 0;
+            uint32_t rgbBitCount = 0;
+            uint32_t rBitMask = 0;
+            uint32_t gBitMask = 0;
+            uint32_t bBitMask = 0;
+            uint32_t aBitMask = 0;
+        };
+
+        struct DdsHeader final
+        {
+            uint32_t size = 0;
+            uint32_t flags = 0;
+            uint32_t height = 0;
+            uint32_t width = 0;
+            uint32_t pitchOrLinearSize = 0;
+            uint32_t depth = 0;
+            uint32_t mipMapCount = 0;
+            uint32_t reserved1[11]{};
+            DdsPixelFormat pixelFormat{};
+            uint32_t caps = 0;
+            uint32_t caps2 = 0;
+            uint32_t caps3 = 0;
+            uint32_t caps4 = 0;
+            uint32_t reserved2 = 0;
+        };
+
+        struct DdsHeaderDx10 final
+        {
+            uint32_t dxgiFormat = 0;
+            uint32_t resourceDimension = 0;
+            uint32_t miscFlag = 0;
+            uint32_t arraySize = 0;
+            uint32_t miscFlags2 = 0;
+        };
+
+        inline constexpr uint32_t k_ddsMagic = 0x20534444u;
+        inline constexpr uint32_t k_ddsFourCc = 0x4u;
+        inline constexpr uint32_t k_ddsFourCcDx10 = 0x30315844u;
+        inline constexpr uint32_t k_ddsCaps2Cubemap = 0x200u;
+        inline constexpr uint32_t k_ddsCaps2CubemapAllFaces = 0xFC00u;
+        inline constexpr uint32_t k_ddsDx10TextureCube = 0x4u;
+
+        [[nodiscard]] bool is_cube_dds_file(
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_path)
+        {
+            if (to_lower_ascii(a_path.extension()) != ".dds")
+            {
+                return false;
+            }
+
+            std::vector<std::byte> fileData{};
+            const Result result = a_fileSystem.read_all(a_path.normalize(), &fileData);
+            if (!result ||
+                fileData.size() < sizeof(uint32_t) + sizeof(DdsHeader))
+            {
+                return false;
+            }
+
+            uint32_t magic = 0;
+            std::memcpy(&magic, fileData.data(), sizeof(magic));
+            if (magic != k_ddsMagic)
+            {
+                return false;
+            }
+
+            DdsHeader header{};
+            std::memcpy(
+                &header,
+                fileData.data() + sizeof(uint32_t),
+                sizeof(header));
+            if (header.size != sizeof(DdsHeader) ||
+                header.pixelFormat.size != sizeof(DdsPixelFormat))
+            {
+                return false;
+            }
+            if ((header.caps2 & k_ddsCaps2Cubemap) != 0)
+            {
+                return (header.caps2 & k_ddsCaps2CubemapAllFaces) ==
+                    k_ddsCaps2CubemapAllFaces;
+            }
+
+            if ((header.pixelFormat.flags & k_ddsFourCc) == 0 ||
+                header.pixelFormat.fourCc != k_ddsFourCcDx10)
+            {
+                return false;
+            }
+
+            if (fileData.size() <
+                sizeof(uint32_t) + sizeof(DdsHeader) + sizeof(DdsHeaderDx10))
+            {
+                return false;
+            }
+
+            DdsHeaderDx10 dx10Header{};
+            std::memcpy(
+                &dx10Header,
+                fileData.data() + sizeof(uint32_t) + sizeof(DdsHeader),
+                sizeof(dx10Header));
+            return (dx10Header.miscFlag & k_ddsDx10TextureCube) != 0 &&
+                dx10Header.arraySize == 1;
         }
 
         [[nodiscard]] std::string trim_ascii(std::string a_text)
@@ -263,6 +787,116 @@ namespace Cue::Editor
                     a_point.y * a_matrix.values[1][2] +
                     a_point.z * a_matrix.values[2][2] +
                     a_matrix.values[3][2]);
+        }
+
+        [[nodiscard]] Math::float3 transform_direction(
+            const Math::float3& a_direction,
+            const Math::Quaternion& a_rotation) noexcept
+        {
+            const Math::float4x4 rotationMatrix =
+                Math::quaternion_matrix(a_rotation);
+            Math::float3 direction(
+                a_direction.x * rotationMatrix.values[0][0] +
+                    a_direction.y * rotationMatrix.values[1][0] +
+                    a_direction.z * rotationMatrix.values[2][0],
+                a_direction.x * rotationMatrix.values[0][1] +
+                    a_direction.y * rotationMatrix.values[1][1] +
+                    a_direction.z * rotationMatrix.values[2][1],
+                a_direction.x * rotationMatrix.values[0][2] +
+                    a_direction.y * rotationMatrix.values[1][2] +
+                    a_direction.z * rotationMatrix.values[2][2]);
+            direction.normalize();
+            return direction;
+        }
+
+        [[nodiscard]] float basis_length(
+            const Math::float4x4& a_matrix,
+            uint32_t a_row) noexcept
+        {
+            return std::sqrt(
+                a_matrix.values[a_row][0] * a_matrix.values[a_row][0] +
+                a_matrix.values[a_row][1] * a_matrix.values[a_row][1] +
+                a_matrix.values[a_row][2] * a_matrix.values[a_row][2]);
+        }
+
+        [[nodiscard]] Math::Quaternion quaternion_from_affine_matrix(
+            const Math::float4x4& a_matrix,
+            const Math::float3& a_scale) noexcept
+        {
+            Math::float4x4 rotation = Math::float4x4::identity();
+            const float safeScaleX =
+                std::abs(a_scale.x) > 0.000001f ? a_scale.x : 1.0f;
+            const float safeScaleY =
+                std::abs(a_scale.y) > 0.000001f ? a_scale.y : 1.0f;
+            const float safeScaleZ =
+                std::abs(a_scale.z) > 0.000001f ? a_scale.z : 1.0f;
+            for (uint32_t axis = 0; axis < 3; ++axis)
+            {
+                rotation.values[0][axis] =
+                    a_matrix.values[0][axis] / safeScaleX;
+                rotation.values[1][axis] =
+                    a_matrix.values[1][axis] / safeScaleY;
+                rotation.values[2][axis] =
+                    a_matrix.values[2][axis] / safeScaleZ;
+            }
+
+            const float trace =
+                rotation.values[0][0] +
+                rotation.values[1][1] +
+                rotation.values[2][2];
+            Math::Quaternion result{};
+            if (trace > 0.0f)
+            {
+                const float s = std::sqrt(trace + 1.0f) * 2.0f;
+                result.w = 0.25f * s;
+                result.x = (rotation.values[1][2] - rotation.values[2][1]) / s;
+                result.y = (rotation.values[2][0] - rotation.values[0][2]) / s;
+                result.z = (rotation.values[0][1] - rotation.values[1][0]) / s;
+            }
+            else if (rotation.values[0][0] > rotation.values[1][1] &&
+                rotation.values[0][0] > rotation.values[2][2])
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[0][0] -
+                    rotation.values[1][1] -
+                    rotation.values[2][2]) * 2.0f;
+                result.w = (rotation.values[1][2] - rotation.values[2][1]) / s;
+                result.x = 0.25f * s;
+                result.y = (rotation.values[0][1] + rotation.values[1][0]) / s;
+                result.z = (rotation.values[2][0] + rotation.values[0][2]) / s;
+            }
+            else if (rotation.values[1][1] > rotation.values[2][2])
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[1][1] -
+                    rotation.values[0][0] -
+                    rotation.values[2][2]) * 2.0f;
+                result.w = (rotation.values[2][0] - rotation.values[0][2]) / s;
+                result.x = (rotation.values[0][1] + rotation.values[1][0]) / s;
+                result.y = 0.25f * s;
+                result.z = (rotation.values[1][2] + rotation.values[2][1]) / s;
+            }
+            else
+            {
+                const float s = std::sqrt(
+                    1.0f + rotation.values[2][2] -
+                    rotation.values[0][0] -
+                    rotation.values[1][1]) * 2.0f;
+                result.w = (rotation.values[0][1] - rotation.values[1][0]) / s;
+                result.x = (rotation.values[2][0] + rotation.values[0][2]) / s;
+                result.y = (rotation.values[1][2] + rotation.values[2][1]) / s;
+                result.z = 0.25f * s;
+            }
+
+            return Math::Quaternion::normalize(result);
+        }
+
+        [[nodiscard]] Math::float3 light_forward_axis(
+            const ECS::WorldTransformComponent& a_transform) noexcept
+        {
+            return transform_direction(
+                Math::float3(0.0f, 0.0f, -1.0f),
+                a_transform.rotation);
         }
 
         [[nodiscard]] Math::float3 make_camera_frustum_corner(
@@ -643,7 +1277,7 @@ namespace Cue::Editor
             const Core::IO::Path& a_filePath) noexcept
         {
             const std::string extension = a_filePath.extension();
-            return extension == ".cuetexture" ||
+            return extension == ".dds" ||
                 extension == ".cuematerial" ||
                 extension == ".cuescene" ||
                 extension == ".cuemodel" ||
@@ -1027,7 +1661,7 @@ namespace Cue::Editor
                 {
                     cookedModelPaths.push_back(modelPath);
                 }
-                else if (modelPath.extension() == ".obj")
+                else if (is_source_model_file(modelPath))
                 {
                     sourceModelPaths.push_back(modelPath);
                 }
@@ -1075,6 +1709,52 @@ namespace Cue::Editor
                     }),
                 cookedModelPaths.end());
 
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Textures"));
+            std::vector<Core::IO::Path> texturePaths{};
+            bool textureRootExists = false;
+            result = a_fileSystem.exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (textureRootExists)
+            {
+                result = a_fileSystem.list_directory(
+                    textureRoot,
+                    &texturePaths);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+            std::sort(texturePaths.begin(), texturePaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() != ".dds")
+                {
+                    continue;
+                }
+
+                const std::string textureName = Core::IO::Path::join(
+                    Core::IO::Path("Textures"),
+                    Core::IO::Path(texturePath.filename())).utf8();
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = a_engine.asset_manager().register_texture_from_file(
+                    a_fileSystem,
+                    textureName,
+                    texturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
             for (const Core::IO::Path& cookedModelPath : cookedModelPaths)
             {
                 const std::string modelName = cookedModelPath.stem();
@@ -1113,21 +1793,36 @@ namespace Cue::Editor
 
             const Core::IO::Path modelRoot = Core::IO::Path::join(
                 a_assetRoot, Core::IO::Path("Models"));
-            const std::string modelFileName =
-                std::string(a_modelName) + ".obj";
             const std::string cookedFileName =
                 std::string(a_modelName) + ".cuemodel";
-            const Core::IO::Path sourceModelPath = Core::IO::Path::join(
-                modelRoot, Core::IO::Path(modelFileName));
             const Core::IO::Path cookedModelPath = Core::IO::Path::join(
                 modelRoot, Core::IO::Path(cookedFileName));
 
             bool hasSourceModel = false;
-            Result result =
-                a_fileSystem.exists(sourceModelPath, &hasSourceModel);
-            if (!result)
+            Core::IO::Path sourceModelPath{};
+            Result result = Result::ok();
+            constexpr std::string_view k_sourceExtensions[] = {
+                ".obj",
+                ".fbx",
+                ".gltf",
+                ".glb",
+            };
+            for (std::string_view extension : k_sourceExtensions)
             {
-                return result;
+                const Core::IO::Path candidatePath = Core::IO::Path::join(
+                    modelRoot,
+                    Core::IO::Path(std::string(a_modelName) +
+                        std::string(extension)));
+                result = a_fileSystem.exists(candidatePath, &hasSourceModel);
+                if (!result)
+                {
+                    return result;
+                }
+                if (hasSourceModel)
+                {
+                    sourceModelPath = candidatePath;
+                    break;
+                }
             }
             if (hasSourceModel)
             {
@@ -1256,11 +1951,11 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> sourceTexturePaths{};
             for (const Core::IO::Path& texturePath : texturePaths)
             {
-                if (texturePath.extension() == ".cuetexture")
+                if (texturePath.extension() == ".dds")
                 {
                     cookedTexturePaths.push_back(texturePath);
                 }
-                else if (texturePath.extension() == ".png")
+                else if (is_source_texture_file(texturePath))
                 {
                     sourceTexturePaths.push_back(texturePath);
                 }
@@ -1276,8 +1971,8 @@ namespace Cue::Editor
             {
                 const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
                     textureRoot,
-                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
-                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    Core::IO::Path(sourceTexturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
                     a_fileSystem,
                     sourceTexturePath,
                     cookedTexturePath);
@@ -1308,7 +2003,7 @@ namespace Cue::Editor
                     Core::IO::Path("Textures"),
                     Core::IO::Path(cookedTexturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     cookedTexturePath,
@@ -1325,12 +2020,103 @@ namespace Cue::Editor
         [[nodiscard]] Result cook_project_sounds(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_projectRoot,
-            const ProjectSettings& a_settings) noexcept
+            const ProjectSettings& a_settings,
+            bool a_useSceneAudioFormats = false) noexcept
         {
             Core::IO::Path assetRoot(a_settings.assetRoot);
             if (!assetRoot.is_absolute())
             {
                 assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            std::unordered_map<std::string, SoundCookFormat> soundFormats{};
+            if (a_useSceneAudioFormats)
+            {
+                const Core::IO::Path sceneRoot = Core::IO::Path::join(
+                    assetRoot,
+                    Core::IO::Path("Scenes"));
+                bool sceneRootExists = false;
+                Result sceneResult =
+                    a_fileSystem.exists(sceneRoot, &sceneRootExists);
+                if (!sceneResult)
+                {
+                    return sceneResult;
+                }
+                if (sceneRootExists)
+                {
+                    std::vector<Core::IO::Path> scenePaths{};
+                    sceneResult = a_fileSystem.list_directory(
+                        sceneRoot,
+                        &scenePaths);
+                    if (!sceneResult)
+                    {
+                        return sceneResult;
+                    }
+
+                    for (const Core::IO::Path& scenePath : scenePaths)
+                    {
+                        if (scenePath.extension() != ".cuescene")
+                        {
+                            continue;
+                        }
+
+                        std::vector<std::byte> sceneBytes{};
+                        sceneResult =
+                            a_fileSystem.read_all(scenePath, &sceneBytes);
+                        if (!sceneResult)
+                        {
+                            return sceneResult;
+                        }
+                        const std::string sceneText(
+                            reinterpret_cast<const char*>(sceneBytes.data()),
+                            sceneBytes.size());
+                        const nlohmann::json sceneJson =
+                            nlohmann::json::parse(sceneText, nullptr, false);
+                        if (sceneJson.is_discarded() ||
+                            !sceneJson.contains("objects") ||
+                            !sceneJson.at("objects").is_array())
+                        {
+                            continue;
+                        }
+
+                        for (const nlohmann::json& objectJson :
+                            sceneJson.at("objects"))
+                        {
+                            if (!objectJson.contains("components"))
+                            {
+                                continue;
+                            }
+                            const nlohmann::json& componentsJson =
+                                objectJson.at("components");
+                            if (!componentsJson.contains("audioSource"))
+                            {
+                                continue;
+                            }
+                            const nlohmann::json& audioJson =
+                                componentsJson.at("audioSource");
+                            const std::string fileName =
+                                audioJson.value("fileName", std::string{});
+                            if (fileName.empty())
+                            {
+                                continue;
+                            }
+                            const std::string encoding =
+                                audioJson.value(
+                                    "encoding",
+                                    std::string("PCM"));
+                            const SoundCookFormat format =
+                                encoding == "ADPCM"
+                                    ? SoundCookFormat::Adpcm
+                                    : SoundCookFormat::Pcm;
+                            SoundCookFormat& current =
+                                soundFormats[fileName];
+                            if (format == SoundCookFormat::Adpcm)
+                            {
+                                current = SoundCookFormat::Adpcm;
+                            }
+                        }
+                    }
+                }
             }
 
             const Core::IO::Path soundRoot = Core::IO::Path::join(
@@ -1369,10 +2155,17 @@ namespace Cue::Editor
                 const Core::IO::Path cookedSoundPath = Core::IO::Path::join(
                     soundRoot,
                     Core::IO::Path(sourceSoundPath.stem() + ".cuesound"));
+                const auto formatIt =
+                    soundFormats.find(cookedSoundPath.filename());
+                const SoundCookFormat format =
+                    formatIt != soundFormats.end()
+                        ? formatIt->second
+                        : SoundCookFormat::Pcm;
                 result = SoundCooker::ensure_cuesound_is_up_to_date(
                     a_fileSystem,
                     sourceSoundPath,
-                    cookedSoundPath);
+                    cookedSoundPath,
+                    format);
                 if (!result)
                 {
                     return result;
@@ -1499,11 +2292,11 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> cookedTexturePaths{};
             for (const Core::IO::Path& texturePath : textureEntries)
             {
-                if (texturePath.extension() == ".png")
+                if (is_source_texture_file(texturePath))
                 {
                     sourceTexturePaths.push_back(texturePath);
                 }
-                else if (texturePath.extension() == ".cuetexture")
+                else if (texturePath.extension() == ".dds")
                 {
                     cookedTexturePaths.push_back(texturePath);
                 }
@@ -1513,7 +2306,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> cookedModelPaths{};
             for (const Core::IO::Path& modelPath : modelEntries)
             {
-                if (modelPath.extension() == ".obj")
+                if (is_source_model_file(modelPath))
                 {
                     sourceModelPaths.push_back(modelPath);
                 }
@@ -1557,8 +2350,8 @@ namespace Cue::Editor
             {
                 const Core::IO::Path cookedTexturePath = Core::IO::Path::join(
                     textureRoot,
-                    Core::IO::Path(sourceTexturePath.stem() + ".cuetexture"));
-                result = TextureCooker::ensure_cuetexture_is_up_to_date(
+                    Core::IO::Path(sourceTexturePath.stem() + ".dds"));
+                result = TextureCooker::ensure_dds_is_up_to_date(
                     a_fileSystem,
                     sourceTexturePath,
                     cookedTexturePath);
@@ -1604,6 +2397,24 @@ namespace Cue::Editor
                 advance_background_progress(
                     a_operation,
                     "Model: " + sourceModelPath.filename());
+            }
+
+            std::vector<Core::IO::Path> generatedTextureEntries{};
+            result = list_directory_if_exists(
+                a_fileSystem,
+                textureRoot,
+                generatedTextureEntries);
+            if (!result)
+            {
+                finish_background_operation(a_operation, result);
+                return result;
+            }
+            for (const Core::IO::Path& texturePath : generatedTextureEntries)
+            {
+                if (texturePath.extension() == ".dds")
+                {
+                    cookedTexturePaths.push_back(texturePath);
+                }
             }
 
             for (const Core::IO::Path& sourceSoundPath : sourceSoundPaths)
@@ -1656,7 +2467,7 @@ namespace Cue::Editor
                     Core::IO::Path("Textures"),
                     Core::IO::Path(texturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     texturePath,
@@ -2097,6 +2908,9 @@ namespace Cue::Editor
 
     void EditorManager::initialize()
     {
+        m_debugGizmoOperation = static_cast<uint32_t>(ImGuizmo::TRANSLATE);
+        m_debugGizmoMode = static_cast<uint32_t>(ImGuizmo::WORLD);
+
         if (m_fileSystem != nullptr)
         {
             m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
@@ -2130,6 +2944,19 @@ namespace Cue::Editor
             [](void* a_context)
             {
                 static_cast<EditorManager*>(a_context)->draw_add_menu_items();
+            });
+        m_debugView->set_overlay_callback(
+            this,
+            [](void* a_context,
+                const ImVec2& a_viewportMin,
+                const ImVec2& a_viewportMax,
+                ImDrawList* a_drawList)
+            {
+                return static_cast<EditorManager*>(a_context)
+                    ->draw_debug_overlay(
+                        a_viewportMin,
+                        a_viewportMax,
+                        a_drawList);
             });
         m_debugView->set_view_menu_callback(
             this,
@@ -2282,14 +3109,20 @@ namespace Cue::Editor
 
     Result EditorManager::save_current_scene()
     {
+        return save_scene(m_currentSceneId);
+    }
+
+    Result EditorManager::save_scene(GameCore::SceneId a_sceneId)
+    {
         if (m_fileSystem == nullptr || m_engine == nullptr ||
             m_engine->game_world() == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "EditorManager dependencies are not initialized.");
         }
-        if (m_currentSceneId == GameCore::k_invalidSceneId ||
-            m_currentScenePath.empty())
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr || entry->path.empty())
         {
             return Result::fail(Code::InvalidState, Severity::Warning,
                 "There is no loaded scene to save.");
@@ -2307,15 +3140,22 @@ namespace Cue::Editor
             return result;
         }
 
-        const std::string sceneName = !m_loadedSceneAsset.name().empty()
-            ? m_loadedSceneAsset.name()
-            : Core::IO::Path(m_currentScenePath).stem();
+        const GameCore::SceneAsset* sourceAsset =
+            a_sceneId == m_currentSceneId ? &m_loadedSceneAsset
+                                          : entry->asset.get();
+        const std::string sceneName =
+            sourceAsset != nullptr && !sourceAsset->name().empty()
+            ? sourceAsset->name()
+            : Core::IO::Path(entry->path).stem();
         GameCore::SceneAsset sceneAsset(sceneName);
-        sceneAsset.set_navigation_mesh_path(
-            m_loadedSceneAsset.navigation_mesh_path());
+        if (sourceAsset != nullptr)
+        {
+            sceneAsset.set_navigation_mesh_path(
+                sourceAsset->navigation_mesh_path());
+        }
         Result captureResult = Result::ok();
         result = m_engine->game_world()->for_each_object_in_scene(
-            m_currentSceneId,
+            a_sceneId,
             [this, &sceneAsset, &captureResult](GameCore::EntityId a_entityId,
                 GameCore::SceneId, GameCore::GameObject&)
             {
@@ -2351,30 +3191,118 @@ namespace Cue::Editor
         result = GameCore::SceneSerializer::save_scene_asset(
             sceneAsset,
             *m_fileSystem,
-            Core::IO::Path(m_currentScenePath),
+            Core::IO::Path(entry->path),
             saveOptions);
         if (!result)
         {
             return result;
         }
 
-        for (LoadedSceneEntry& entry : m_loadedEditorScenes)
+        if (entry->asset == nullptr)
         {
-            if (entry.sceneId != m_currentSceneId || entry.asset == nullptr)
-            {
-                continue;
-            }
+            entry->asset = std::make_unique<GameCore::SceneAsset>();
+        }
+        *entry->asset = sceneAsset;
+        entry->name = sceneAsset.name().empty()
+            ? Core::IO::Path(entry->path).stem()
+            : sceneAsset.name();
 
-            *entry.asset = sceneAsset;
-            entry.name = sceneAsset.name().empty()
-                ? Core::IO::Path(m_currentScenePath).stem()
-                : sceneAsset.name();
-            entry.path = m_currentScenePath;
-            break;
+        if (a_sceneId == m_currentSceneId)
+        {
+            m_loadedSceneAsset = sceneAsset;
+            m_currentScenePath = entry->path;
         }
 
-        m_loadedSceneAsset = std::move(sceneAsset);
         set_status_message("シーンを保存しました。", false);
+        return Result::ok();
+    }
+
+    Result EditorManager::create_scene_asset(const std::string& a_sceneName)
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+        if (m_projectPath.empty() || m_assetRootPath.is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Project is not opened.");
+        }
+
+        std::string sceneName = a_sceneName;
+        sceneName.erase(sceneName.begin(),
+            std::find_if(sceneName.begin(), sceneName.end(),
+                [](unsigned char a_ch) { return !std::isspace(a_ch); }));
+        sceneName.erase(
+            std::find_if(sceneName.rbegin(), sceneName.rend(),
+                [](unsigned char a_ch) { return !std::isspace(a_ch); })
+                .base(),
+            sceneName.end());
+        if (sceneName.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                "Scene name is empty.");
+        }
+        if (sceneName.find_first_of("\\/:*?\"<>|") != std::string::npos)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                "Scene name contains invalid path characters.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        const Core::IO::Path sceneRoot =
+            Core::IO::Path::join(m_assetRootPath, Core::IO::Path("Scenes"));
+        result = m_fileSystem->create_directories(sceneRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::string fileName = sceneName + ".cuescene";
+        const Core::IO::Path scenePath =
+            Core::IO::Path::join(sceneRoot, Core::IO::Path(fileName))
+                .normalize();
+        bool exists = false;
+        result = m_fileSystem->exists(scenePath, &exists);
+        if (!result)
+        {
+            return result;
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Scene file already exists.");
+        }
+
+        GameCore::SceneAsset sceneAsset(sceneName);
+        GameCore::SceneSerializer::SaveOptions saveOptions{};
+        saveOptions.shouldSerializeScriptField = &should_serialize_script_field;
+        saveOptions.userData = m_engine;
+        saveOptions.assetManager = &m_engine->asset_manager();
+
+        result = GameCore::SceneSerializer::save_scene_asset(
+            sceneAsset,
+            *m_fileSystem,
+            scenePath,
+            saveOptions);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = load_scene_to_world(scenePath, true);
+        if (!result)
+        {
+            return result;
+        }
+
+        set_status_message("シーンを作成しました。", false);
         return Result::ok();
     }
 
@@ -2680,7 +3608,11 @@ namespace Cue::Editor
             return result;
         }
 
-        result = cook_project_sounds(*m_fileSystem, projectRoot, projectSettings);
+        result = cook_project_sounds(
+            *m_fileSystem,
+            projectRoot,
+            projectSettings,
+            true);
         if (!result)
         {
             return result;
@@ -2954,6 +3886,24 @@ namespace Cue::Editor
             return result;
         }
 
+        result = copy_gltf_external_dependencies(
+            *m_fileSystem,
+            a_sourcePath,
+            destinationPath);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = copy_assimp_external_texture_dependencies(
+            *m_fileSystem,
+            a_sourcePath,
+            destinationPath);
+        if (!result)
+        {
+            return result;
+        }
+
         return import_copied_asset_file(destinationPath);
     }
 
@@ -2968,27 +3918,31 @@ namespace Cue::Editor
 
         const std::string extension =
             to_lower_ascii(a_assetPath.extension());
-        if (extension == ".png")
+        if (is_source_texture_file(a_assetPath) || extension == ".dds")
         {
-            const Core::IO::Path cookedPath = Core::IO::Path::join(
-                a_assetPath.parent(),
-                Core::IO::Path(a_assetPath.stem() + ".cuetexture"));
-            Result result = TextureCooker::ensure_cuetexture_is_up_to_date(
-                *m_fileSystem, a_assetPath, cookedPath);
-            if (!result)
+            Core::IO::Path texturePath = a_assetPath.normalize();
+            if (extension != ".dds")
             {
-                return result;
+                texturePath = Core::IO::Path::join(
+                    a_assetPath.parent(),
+                    Core::IO::Path(a_assetPath.stem() + ".dds"));
+                Result result = TextureCooker::ensure_dds_is_up_to_date(
+                    *m_fileSystem, a_assetPath, texturePath);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             uint32_t textureId = AssetManager::k_errorTextureId;
-            return m_engine->asset_manager().register_texture_from_cuetexture(
+            return m_engine->asset_manager().register_texture_from_file(
                 *m_fileSystem,
-                make_asset_relative_name(cookedPath),
-                cookedPath,
+                make_asset_relative_name(texturePath),
+                texturePath,
                 textureId);
         }
 
-        if (extension == ".obj")
+        if (is_source_model_file(a_assetPath))
         {
             const Core::IO::Path cookedPath = Core::IO::Path::join(
                 a_assetPath.parent(),
@@ -2998,6 +3952,48 @@ namespace Cue::Editor
             if (!result)
             {
                 return result;
+            }
+
+            const Core::IO::Path textureRoot =
+                m_assetRootPath.is_empty()
+                ? Core::IO::Path::join(
+                      a_assetPath.parent().parent(),
+                      Core::IO::Path("Textures"))
+                : Core::IO::Path::join(
+                      m_assetRootPath,
+                      Core::IO::Path("Textures"));
+            std::vector<Core::IO::Path> texturePaths{};
+            bool textureRootExists = false;
+            result = m_fileSystem->exists(textureRoot, &textureRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (textureRootExists)
+            {
+                result = m_fileSystem->list_directory(textureRoot, &texturePaths);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+            for (const Core::IO::Path& texturePath : texturePaths)
+            {
+                if (texturePath.extension() != ".dds")
+                {
+                    continue;
+                }
+
+                uint32_t textureId = AssetManager::k_errorTextureId;
+                result = m_engine->asset_manager().register_texture_from_file(
+                    *m_fileSystem,
+                    make_asset_relative_name(texturePath),
+                    texturePath,
+                    textureId);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             ModelHandle modelHandle{};
@@ -4083,6 +5079,71 @@ namespace Cue::Editor
         return load_scene_to_world(Core::IO::Path(m_currentScenePath), true);
     }
 
+    Result EditorManager::unload_scene(GameCore::SceneId a_sceneId)
+    {
+        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "EditorManager dependencies are not initialized.");
+        }
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene is not loaded.");
+        }
+
+        Result result = drain_pending_editor_commands();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->unload_scene(a_sceneId);
+        if (!result && result.code != Code::NotFound)
+        {
+            return result;
+        }
+
+        result = m_engine->game_world()->execute_deferred_deletions();
+        if (!result)
+        {
+            return result;
+        }
+
+        const bool wasCurrent = a_sceneId == m_currentSceneId;
+        m_loadedEditorScenes.erase(
+            std::remove_if(m_loadedEditorScenes.begin(),
+                m_loadedEditorScenes.end(),
+                [a_sceneId](const LoadedSceneEntry& a_entry)
+                {
+                    return a_entry.sceneId == a_sceneId;
+                }),
+            m_loadedEditorScenes.end());
+
+        if (m_selectedSceneId == a_sceneId)
+        {
+            m_selectedSceneId = GameCore::k_invalidSceneId;
+        }
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+
+        if (wasCurrent)
+        {
+            if (!m_loadedEditorScenes.empty())
+            {
+                return set_current_scene(m_loadedEditorScenes.front().sceneId);
+            }
+
+            m_currentSceneId = GameCore::k_invalidSceneId;
+            m_currentScenePath.clear();
+            m_loadedSceneAsset = {};
+            m_engine->set_editor_scene_id(GameCore::k_invalidSceneId);
+        }
+
+        return Result::ok();
+    }
+
     Result EditorManager::unload_current_scene()
     {
         if (m_engine == nullptr || m_engine->game_world() == nullptr)
@@ -4215,16 +5276,43 @@ namespace Cue::Editor
 
         if (a_isPrimaryScene)
         {
-            m_currentSceneId = loadResult.sceneId;
-            m_currentScenePath = scenePath.utf8();
-            m_loadedSceneAsset = *storedSceneAsset;
-            m_engine->set_editor_scene_id(m_currentSceneId);
+            m_currentSceneId = GameCore::k_invalidSceneId;
         }
 
         entry.asset = std::move(storedSceneAsset);
         m_selectedSceneId = loadResult.sceneId;
         m_loadedEditorScenes.push_back(std::move(entry));
         m_selectedEntityId = GameCore::k_invalidEntityId;
+
+        if (a_isPrimaryScene || m_currentSceneId == GameCore::k_invalidSceneId)
+        {
+            return set_current_scene(loadResult.sceneId);
+        }
+
+        return Result::ok();
+    }
+
+    Result EditorManager::set_current_scene(GameCore::SceneId a_sceneId)
+    {
+        if (m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine is not initialized.");
+        }
+
+        LoadedSceneEntry* entry = find_loaded_scene(a_sceneId);
+        if (entry == nullptr || entry->asset == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                "Scene is not loaded.");
+        }
+
+        m_currentSceneId = entry->sceneId;
+        m_currentScenePath = entry->path;
+        m_loadedSceneAsset = *entry->asset;
+        m_selectedSceneId = entry->sceneId;
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+        m_engine->set_editor_scene_id(m_currentSceneId);
         return Result::ok();
     }
 
@@ -5147,6 +6235,76 @@ namespace Cue::Editor
         ImGui::EndPopup();
     }
 
+    void EditorManager::draw_create_scene_popup()
+    {
+        if (m_openCreateScenePopup)
+        {
+            ImGui::OpenPopup("Create Scene");
+            m_openCreateScenePopup = false;
+            m_focusCreateSceneNameInput = true;
+        }
+
+        if (!ImGui::BeginPopupModal(
+                "Create Scene",
+                nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui::TextUnformatted("Assets/Scenes/ に新しい Scene を作成します。");
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Scene 名");
+        if (m_focusCreateSceneNameInput)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_focusCreateSceneNameInput = false;
+        }
+
+        const bool submitted = ImGui::InputText(
+            "##CreateSceneName",
+            m_createSceneNameBuffer.data(),
+            m_createSceneNameBuffer.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("例: Stage01");
+
+        auto submit = [this]()
+        {
+            const std::string sceneName = m_createSceneNameBuffer.data();
+            const Result result = create_scene_asset(sceneName);
+            if (!result)
+            {
+                log_result("Failed to create scene", result);
+                set_status_message(
+                    result.message.empty()
+                        ? "Scene 作成に失敗しました。"
+                        : std::string(result.message),
+                    true);
+                return;
+            }
+
+            m_createSceneNameBuffer.fill('\0');
+            set_status_message(
+                std::string("Scene を作成しました: ") + sceneName,
+                false);
+            ImGui::CloseCurrentPopup();
+        };
+
+        ImGui::Spacing();
+        if (submitted || ImGui::Button("作成"))
+        {
+            submit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_createSceneNameBuffer.fill('\0');
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     void EditorManager::draw_create_script_popup()
     {
         if (m_openCreateScriptPopup)
@@ -5455,6 +6613,22 @@ namespace Cue::Editor
             m_bridge != nullptr && !m_isScriptActionActive &&
             targetSceneId != GameCore::k_invalidSceneId;
 
+        if (ImGui::MenuItem("GameObject を追加", nullptr, false, canAddObject))
+        {
+            const Result result = m_bridge->submit_command(
+                std::make_unique<AddObjectCommand>(
+                    AddObjectType::GameObject, targetSceneId));
+            if (!result)
+            {
+                log_result("Failed to add game object", result);
+                set_status_message("GameObject の追加に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("GameObject を追加しました。", false);
+            }
+        }
+
         if (ImGui::BeginMenu("3D", canAddObject))
         {
             if (ImGui::MenuItem("カメラを追加"))
@@ -5490,11 +6664,96 @@ namespace Cue::Editor
                 }
             }
 
+            if (ImGui::BeginMenu("ライト"))
+            {
+                auto addLight =
+                    [this, targetSceneId](
+                        AddObjectType a_type,
+                        const char* a_logLabel,
+                        const char* a_successMessage,
+                        const char* a_failureMessage)
+                {
+                    const Result result = m_bridge->submit_command(
+                        std::make_unique<AddObjectCommand>(
+                            a_type,
+                            targetSceneId));
+                    if (!result)
+                    {
+                        log_result(a_logLabel, result);
+                        set_status_message(a_failureMessage, true);
+                    }
+                    else
+                    {
+                        set_status_message(a_successMessage, false);
+                    }
+                };
+
+                if (ImGui::MenuItem("Directional Light"))
+                {
+                    addLight(
+                        AddObjectType::DirectionalLight,
+                        "Failed to add directional light",
+                        "Directional Light を追加しました。",
+                        "Directional Light の追加に失敗しました。");
+                }
+                if (ImGui::MenuItem("Point Light"))
+                {
+                    addLight(
+                        AddObjectType::PointLight,
+                        "Failed to add point light",
+                        "Point Light を追加しました。",
+                        "Point Light の追加に失敗しました。");
+                }
+                if (ImGui::MenuItem("Spot Light"))
+                {
+                    addLight(
+                        AddObjectType::SpotLight,
+                        "Failed to add spot light",
+                        "Spot Light を追加しました。",
+                        "Spot Light の追加に失敗しました。");
+                }
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
         if (ImGui::BeginMenu("2D", canAddObject))
         {
+            if (ImGui::MenuItem("Canvas を追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Canvas, targetSceneId));
+                if (!result)
+                {
+                    log_result("Failed to add canvas object", result);
+                    set_status_message(
+                        "Canvas の追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("Canvas を追加しました。", false);
+                }
+            }
+
+            if (ImGui::MenuItem("Text を追加"))
+            {
+                const Result result = m_bridge->submit_command(
+                    std::make_unique<AddObjectCommand>(
+                        AddObjectType::Text, targetSceneId));
+                if (!result)
+                {
+                    log_result("Failed to add text object", result);
+                    set_status_message("Text の追加に失敗しました。", true);
+                }
+                else
+                {
+                    set_status_message("Text を追加しました。", false);
+                }
+            }
+
             if (ImGui::MenuItem("オブジェクトを追加"))
             {
                 const Result result = m_bridge->submit_command(
@@ -5553,13 +6812,58 @@ namespace Cue::Editor
         {
             m_engine->set_debug_grid_visible(isGridVisible);
         }
+
+        DrawSystem::DebugViewShadingMode shadingMode =
+            m_engine != nullptr
+            ? m_engine->debug_view_shading_mode()
+            : DrawSystem::DebugViewShadingMode::MaterialLighting;
+        if (ImGui::BeginMenu("描画モード"))
+        {
+            if (ImGui::MenuItem("ソリッド", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Solid) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Solid);
+            }
+            if (ImGui::MenuItem("マテリアル", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Material) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Material);
+            }
+            if (ImGui::MenuItem("ライティング", nullptr,
+                    shadingMode == DrawSystem::DebugViewShadingMode::Lighting) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::Lighting);
+            }
+            if (ImGui::MenuItem("レンダー", nullptr,
+                    shadingMode ==
+                        DrawSystem::DebugViewShadingMode::MaterialLighting) &&
+                m_engine != nullptr)
+            {
+                m_engine->set_debug_view_shading_mode(
+                    DrawSystem::DebugViewShadingMode::MaterialLighting);
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndDisabled();
+
+        ImGui::Separator();
+        ImGui::Checkbox("SpotShadowMap Preview", &m_showSpotShadowMapPreview);
     }
 
     void EditorManager::draw_scene_menu_items()
     {
         ImGui::TextUnformatted("読み込み済みシーン");
         ImGui::Separator();
+
+        const bool canEditScene =
+            m_engine != nullptr && !m_engine->is_playing() &&
+            !m_projectPath.empty() && !m_assetRootPath.is_empty();
 
         if (m_loadedEditorScenes.empty())
         {
@@ -5571,19 +6875,71 @@ namespace Cue::Editor
             {
                 ImGui::PushID(static_cast<int>(entry.sceneId));
                 const bool isPrimary = entry.sceneId == m_currentSceneId;
-                ImGui::Text(
-                    "%s%s",
-                    entry.name.empty() ? "<unnamed>" : entry.name.c_str(),
-                    isPrimary ? " (Current)" : "");
+                ImGui::TextUnformatted(
+                    entry.name.empty() ? "<unnamed>" : entry.name.c_str());
+                if (isPrimary)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(Current)");
+                }
+
+                ImGui::BeginDisabled(!canEditScene || isPrimary);
+                if (ImGui::SmallButton("Current"))
+                {
+                    const Result result = set_current_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to switch current scene", result);
+                        set_status_message(
+                            "Current Scene の切り替えに失敗しました。",
+                            true);
+                    }
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!canEditScene);
+                if (ImGui::SmallButton("保存"))
+                {
+                    const Result result = save_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to save scene", result);
+                        set_status_message("シーンの保存に失敗しました。", true);
+                    }
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!canEditScene);
+                if (ImGui::SmallButton("Unload"))
+                {
+                    const Result result = unload_scene(entry.sceneId);
+                    if (!result)
+                    {
+                        log_result("Failed to unload scene", result);
+                        set_status_message("シーンの Unload に失敗しました。", true);
+                    }
+                    else
+                    {
+                        set_status_message("シーンを Unload しました。", false);
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::EndDisabled();
+
                 ImGui::PopID();
             }
         }
 
         ImGui::Separator();
-        const bool canLoadScene =
-            m_engine != nullptr && !m_engine->is_playing() &&
-            !m_projectPath.empty() && !m_assetRootPath.is_empty();
-        ImGui::BeginDisabled(!canLoadScene);
+        ImGui::BeginDisabled(!canEditScene);
+        if (ImGui::Button("新規 Scene", ImVec2(-1.0f, 0.0f)))
+        {
+            m_createSceneNameBuffer.fill('\0');
+            m_openCreateScenePopup = true;
+        }
         if (ImGui::Button("読込", ImVec2(-1.0f, 0.0f)))
         {
             ImGui::OpenPopup("LoadScenePopup");
@@ -5767,6 +7123,32 @@ namespace Cue::Editor
         return scenes;
     }
 
+    EditorManager::LoadedSceneEntry* EditorManager::find_loaded_scene(
+        GameCore::SceneId a_sceneId) noexcept
+    {
+        const auto it = std::find_if(
+            m_loadedEditorScenes.begin(),
+            m_loadedEditorScenes.end(),
+            [a_sceneId](const LoadedSceneEntry& a_entry)
+            {
+                return a_entry.sceneId == a_sceneId;
+            });
+        return it != m_loadedEditorScenes.end() ? &*it : nullptr;
+    }
+
+    const EditorManager::LoadedSceneEntry* EditorManager::find_loaded_scene(
+        GameCore::SceneId a_sceneId) const noexcept
+    {
+        const auto it = std::find_if(
+            m_loadedEditorScenes.begin(),
+            m_loadedEditorScenes.end(),
+            [a_sceneId](const LoadedSceneEntry& a_entry)
+            {
+                return a_entry.sceneId == a_sceneId;
+            });
+        return it != m_loadedEditorScenes.end() ? &*it : nullptr;
+    }
+
     bool EditorManager::is_scene_path_loaded(
         const Core::IO::Path& a_scenePath) const noexcept
     {
@@ -5861,10 +7243,188 @@ namespace Cue::Editor
         ImGui::EndMenu();
     }
 
+    void EditorManager::draw_skybox_menu()
+    {
+        if (!ImGui::BeginMenu("Skybox"))
+        {
+            return;
+        }
+
+        const bool canSelectSkybox =
+            m_engine != nullptr && m_fileSystem != nullptr &&
+            m_backend != nullptr &&
+            m_backend->get_view_manager() != nullptr &&
+            m_backend->get_texture_manager() != nullptr &&
+            !m_assetRootPath.is_empty();
+        ImGui::BeginDisabled(!canSelectSkybox);
+
+        const bool isNoneSelected =
+            m_engine == nullptr || m_engine->skybox_texture_id() == 0xffffffffu;
+        if (ImGui::MenuItem("なし", nullptr, isNoneSelected, canSelectSkybox) &&
+            m_engine != nullptr)
+        {
+            m_engine->clear_skybox_texture();
+            set_status_message("Skybox を解除しました。", false);
+        }
+
+        ImGui::Separator();
+
+        uint32_t cubeTextureCount = 0;
+        if (canSelectSkybox)
+        {
+            const Core::IO::Path textureRoot = Core::IO::Path::join(
+                m_assetRootPath,
+                Core::IO::Path("Textures"));
+            bool textureRootExists = false;
+            Result result = m_fileSystem->exists(textureRoot, &textureRootExists);
+            if (result && textureRootExists)
+            {
+                std::vector<Core::IO::Path> texturePaths{};
+                result = m_fileSystem->list_directory(textureRoot, &texturePaths);
+                if (result)
+                {
+                    std::sort(texturePaths.begin(), texturePaths.end(),
+                        [](const Core::IO::Path& a_left,
+                            const Core::IO::Path& a_right)
+                        {
+                            return a_left.utf8() < a_right.utf8();
+                        });
+
+                    for (const Core::IO::Path& texturePath : texturePaths)
+                    {
+                        if (!is_cube_dds_file(*m_fileSystem, texturePath))
+                        {
+                            continue;
+                        }
+
+                        ++cubeTextureCount;
+                        const std::string textureName =
+                            make_asset_relative_name(texturePath);
+                        const bool isSelected =
+                            m_engine->skybox_texture_name() == textureName;
+                        if (ImGui::MenuItem(
+                                textureName.c_str(),
+                                nullptr,
+                                isSelected,
+                                true) &&
+                            !isSelected)
+                        {
+                            uint32_t textureId = AssetManager::k_errorTextureId;
+                            result = m_engine->asset_manager()
+                                .register_texture_from_file(
+                                    *m_fileSystem,
+                                    textureName,
+                                    texturePath,
+                                    textureId);
+                            if (!result)
+                            {
+                                log_result("Failed to set skybox texture", result);
+                                set_status_message(
+                                    "Skybox texture の設定に失敗しました。",
+                                    true);
+                            }
+                            else
+                            {
+                                RHI::TextureHandle textureHandle{};
+                                result = m_engine->asset_manager()
+                                    .get_texture_handle(textureId, textureHandle);
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to get skybox texture handle",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture の取得に失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                RHI::TextureDesc textureDesc{};
+                                result = m_backend->get_texture_manager()
+                                    ->get_texture_desc(
+                                        textureHandle,
+                                        textureDesc);
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to get skybox texture desc",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture 情報の読み込みに失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                RHI::ViewHandle textureSrvHandle{};
+                                const std::string viewName =
+                                    "Skybox/" + textureName;
+                                result = m_backend->get_view_manager()->get_view(
+                                    viewName,
+                                    textureSrvHandle);
+                                if (!result)
+                                {
+                                    RHI::ViewDesc viewDesc{};
+                                    viewDesc.name = viewName;
+                                    viewDesc.type =
+                                        RHI::ViewType::ShaderResourceTextureCube;
+                                    viewDesc.bufferKind = RHI::BufferKind::Texture;
+                                    viewDesc.textureHandle = textureHandle;
+                                    viewDesc.colorFormat = textureDesc.format;
+                                    viewDesc.mipSlice = 0;
+                                    viewDesc.mipLevels = textureDesc.mipLevels;
+                                    result = m_backend->get_view_manager()
+                                        ->create_view(viewDesc, textureSrvHandle);
+                                }
+
+                                if (!result)
+                                {
+                                    log_result(
+                                        "Failed to create skybox texture view",
+                                        result);
+                                    set_status_message(
+                                        "Skybox texture view の作成に失敗しました。",
+                                        true);
+                                    continue;
+                                }
+
+                                m_engine->set_skybox_texture(
+                                    textureId,
+                                    textureSrvHandle,
+                                    textureName);
+                                set_status_message(
+                                    "Skybox texture を設定しました。",
+                                    false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cubeTextureCount == 0)
+        {
+            ImGui::TextDisabled("CubeMap の .dds がありません。");
+        }
+
+        ImGui::EndDisabled();
+        ImGui::EndMenu();
+    }
+
     void EditorManager::process_debug_pick_request()
     {
         if (m_debugView == nullptr || m_engine == nullptr)
         {
+            return;
+        }
+
+        if (m_debugGizmoPickBlockFrames > 0)
+        {
+            GameCore::EntityId discardedEntityId = GameCore::k_invalidEntityId;
+            (void)m_engine->consume_debug_pick_result(discardedEntityId);
+            m_engine->cancel_debug_pick();
+            m_debugView->clear_pick_request();
+            m_hasPendingDebugPickFallback = false;
+            --m_debugGizmoPickBlockFrames;
             return;
         }
 
@@ -5925,6 +7485,396 @@ namespace Cue::Editor
         }
     }
 
+    bool EditorManager::draw_debug_transform_gizmo(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        ImGuizmo::BeginFrame();
+        if (m_debugView == nullptr || m_engine == nullptr ||
+            m_engine->game_world() == nullptr || m_bridge == nullptr ||
+            m_engine->is_playing() || m_isScriptActionActive)
+        {
+            m_isDebugGizmoEditing = false;
+            m_debugGizmoEntityId = GameCore::k_invalidEntityId;
+            return false;
+        }
+
+        const ImVec2 viewportSize(
+            a_viewportMax.x - a_viewportMin.x,
+            a_viewportMax.y - a_viewportMin.y);
+        if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f ||
+            m_selectedEntityId == GameCore::k_invalidEntityId)
+        {
+            return false;
+        }
+
+        GameCore::GameWorld* debugWorld = m_engine->game_world();
+        ECS::TransformComponent* transform = nullptr;
+        const Result transformResult =
+            debugWorld->get_component<ECS::TransformComponent>(
+                m_selectedEntityId,
+                transform);
+        if (!transformResult || transform == nullptr)
+        {
+            return false;
+        }
+
+        const ImGuiWindowFlags toolbarFlags =
+            ImGuiWindowFlags_NoDecoration |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoDocking;
+        ImGui::SetNextWindowPos(
+            ImVec2(a_viewportMin.x + 8.0f, a_viewportMin.y + 8.0f),
+            ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.72f);
+        if (ImGui::Begin("DebugTransformGizmoToolbar", nullptr, toolbarFlags))
+        {
+            draw_gizmo_mode_button(
+                "移動",
+                static_cast<uint32_t>(ImGuizmo::TRANSLATE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "回転",
+                static_cast<uint32_t>(ImGuizmo::ROTATE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "拡縮",
+                static_cast<uint32_t>(ImGuizmo::SCALE),
+                m_debugGizmoOperation);
+            ImGui::SameLine();
+            ImGui::TextUnformatted("|");
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "World",
+                static_cast<uint32_t>(ImGuizmo::WORLD),
+                m_debugGizmoMode);
+            ImGui::SameLine();
+            draw_gizmo_mode_button(
+                "Local",
+                static_cast<uint32_t>(ImGuizmo::LOCAL),
+                m_debugGizmoMode);
+        }
+        ImGui::End();
+
+        ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantTextInput)
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::TRANSLATE);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::ROTATE);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+            {
+                m_debugGizmoOperation =
+                    static_cast<uint32_t>(ImGuizmo::SCALE);
+            }
+        }
+
+        const GpuData::ViewProjectionGpu viewProjection =
+            m_debugCamera.view_projection();
+        Math::float4x4 objectMatrix = Math::make_affine_matrix(
+            transform->scale,
+            transform->rotation,
+            transform->position);
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetDrawlist(a_drawList);
+        ImGuizmo::SetRect(
+            a_viewportMin.x,
+            a_viewportMin.y,
+            viewportSize.x,
+            viewportSize.y);
+
+        const ImGuizmo::OPERATION operation =
+            static_cast<ImGuizmo::OPERATION>(m_debugGizmoOperation);
+        const ImGuizmo::MODE mode =
+            static_cast<ImGuizmo::MODE>(m_debugGizmoMode);
+        a_drawList->PushClipRect(a_viewportMin, a_viewportMax, true);
+        const bool manipulated = ImGuizmo::Manipulate(
+            &viewProjection.view.values[0][0],
+            &viewProjection.projection.values[0][0],
+            operation,
+            mode,
+            &objectMatrix.values[0][0]);
+        a_drawList->PopClipRect();
+        const bool isUsing = ImGuizmo::IsUsing();
+        if (ImGuizmo::IsOver() || isUsing)
+        {
+            m_debugView->clear_pick_request();
+            m_engine->cancel_debug_pick();
+            m_hasPendingDebugPickFallback = false;
+            m_debugGizmoPickBlockFrames = 2;
+        }
+        const bool isBlockingPick = ImGuizmo::IsOver() || isUsing;
+
+        if (isUsing &&
+            (!m_isDebugGizmoEditing ||
+                m_debugGizmoEntityId != m_selectedEntityId))
+        {
+            m_debugGizmoStartTransform = *transform;
+            m_debugGizmoEntityId = m_selectedEntityId;
+            m_isDebugGizmoEditing = true;
+        }
+
+        if (manipulated)
+        {
+            const Math::float3 translation(
+                objectMatrix.values[3][0],
+                objectMatrix.values[3][1],
+                objectMatrix.values[3][2]);
+            const Math::float3 scale(
+                basis_length(objectMatrix, 0),
+                basis_length(objectMatrix, 1),
+                basis_length(objectMatrix, 2));
+            const bool hasFiniteValues =
+                std::isfinite(translation.x) &&
+                std::isfinite(translation.y) &&
+                std::isfinite(translation.z) &&
+                std::isfinite(scale.x) &&
+                std::isfinite(scale.y) &&
+                std::isfinite(scale.z);
+            if (hasFiniteValues)
+            {
+                ECS::TransformComponent nextTransform = *transform;
+                nextTransform.position = translation;
+                nextTransform.rotation =
+                    quaternion_from_affine_matrix(objectMatrix, scale);
+                nextTransform.scale = scale;
+                *transform = nextTransform;
+            }
+        }
+
+        if (!isUsing && m_isDebugGizmoEditing)
+        {
+            ECS::TransformComponent* currentTransform = nullptr;
+            const Result currentResult =
+                debugWorld->get_component<ECS::TransformComponent>(
+                    m_debugGizmoEntityId,
+                    currentTransform);
+            if (currentResult && currentTransform != nullptr &&
+                !transform_nearly_equal(
+                    m_debugGizmoStartTransform,
+                    *currentTransform))
+            {
+                const Result commandResult = m_bridge->submit_command(
+                    std::make_unique<SetTransformComponentCommand>(
+                        m_debugGizmoEntityId,
+                        m_debugGizmoStartTransform,
+                        *currentTransform));
+                if (!commandResult)
+                {
+                    log_result(
+                        "Failed to submit debug gizmo transform command",
+                        commandResult);
+                    set_status_message(
+                        "DebugView の Transform 操作を履歴に追加できませんでした。",
+                        true);
+                }
+            }
+
+            m_isDebugGizmoEditing = false;
+            m_debugGizmoEntityId = GameCore::k_invalidEntityId;
+        }
+
+        return isBlockingPick;
+    }
+
+    bool EditorManager::draw_debug_overlay(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        const bool isGizmoBlocking = draw_debug_transform_gizmo(
+            a_viewportMin,
+            a_viewportMax,
+            a_drawList);
+        const bool isPreviewBlocking = draw_spot_shadow_map_preview(
+            a_viewportMin,
+            a_viewportMax,
+            a_drawList);
+        return isGizmoBlocking || isPreviewBlocking;
+    }
+
+    bool EditorManager::draw_spot_shadow_map_preview(
+        const ImVec2& a_viewportMin,
+        const ImVec2& a_viewportMax,
+        ImDrawList* a_drawList)
+    {
+        if (!m_showSpotShadowMapPreview || m_backend == nullptr ||
+            a_drawList == nullptr)
+        {
+            return false;
+        }
+
+        RHI::IViewManager* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return false;
+        }
+
+        RHI::ViewHandle viewHandle{};
+        const Result viewResult =
+            viewManager->get_view("SpotShadowMapPreviewSRV", viewHandle);
+        if (!viewResult || !viewHandle.valid())
+        {
+            return false;
+        }
+
+        const uint32_t bufferIndex = m_backend->current_back_buffer_index();
+        const D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+            m_backend->get_gpu_descriptor_handle(
+                viewHandle,
+                bufferIndex,
+                m_backend->buffer_count());
+        if (gpuHandle.ptr == 0)
+        {
+            return false;
+        }
+
+        const ImVec2 viewportSize(
+            a_viewportMax.x - a_viewportMin.x,
+            a_viewportMax.y - a_viewportMin.y);
+        if (viewportSize.x <= 80.0f || viewportSize.y <= 80.0f)
+        {
+            return false;
+        }
+
+        const float imageSize = std::clamp(
+            (std::min)(viewportSize.x, viewportSize.y) * 0.28f,
+            96.0f,
+            240.0f);
+        const float titleHeight = 22.0f;
+        const float padding = 8.0f;
+        const ImVec2 panelMin(
+            a_viewportMax.x - imageSize - padding * 2.0f - 10.0f,
+            a_viewportMin.y + 10.0f);
+        const ImVec2 panelMax(
+            panelMin.x + imageSize + padding * 2.0f,
+            panelMin.y + imageSize + titleHeight + padding * 2.0f);
+        const ImVec2 imageMin(
+            panelMin.x + padding,
+            panelMin.y + titleHeight + padding);
+        const ImVec2 imageMax(
+            imageMin.x + imageSize,
+            imageMin.y + imageSize);
+
+        a_drawList->AddRectFilled(
+            panelMin,
+            panelMax,
+            IM_COL32(16, 16, 16, 210),
+            4.0f);
+        a_drawList->AddText(
+            ImVec2(panelMin.x + padding, panelMin.y + 4.0f),
+            IM_COL32(230, 230, 230, 255),
+            "SpotShadowMap");
+        a_drawList->AddImage(
+            static_cast<ImTextureID>(gpuHandle.ptr),
+            imageMin,
+            imageMax,
+            ImVec2(0.0f, 0.0f),
+            ImVec2(1.0f, 1.0f),
+            IM_COL32(255, 255, 255, 255));
+        a_drawList->AddRect(
+            imageMin,
+            imageMax,
+            IM_COL32(255, 255, 255, 180),
+            0.0f,
+            0,
+            1.0f);
+
+        const GameCore::GameWorld* world =
+            m_engine != nullptr ? m_engine->active_world() : nullptr;
+        const Cue::ShadowSystem::ShadowFrameData* shadowFrame = nullptr;
+        if (world != nullptr &&
+            bufferIndex < world->shadow_frame_state().frameStates.size())
+        {
+            shadowFrame =
+                &world->shadow_frame_state().frame_state(bufferIndex);
+        }
+
+        const float tileWidth =
+            imageSize /
+            static_cast<float>(GpuData::k_spotShadowAtlasColumnCount);
+        const float tileHeight =
+            imageSize /
+            static_cast<float>(GpuData::k_spotShadowAtlasRowCount);
+        for (uint32_t row = 0; row < GpuData::k_spotShadowAtlasRowCount; ++row)
+        {
+            for (uint32_t column = 0;
+                 column < GpuData::k_spotShadowAtlasColumnCount;
+                 ++column)
+            {
+                const uint32_t shadowIndex =
+                    row * GpuData::k_spotShadowAtlasColumnCount + column;
+                const ImVec2 tileMin(
+                    imageMin.x + static_cast<float>(column) * tileWidth,
+                    imageMin.y + static_cast<float>(row) * tileHeight);
+                const ImVec2 tileMax(
+                    tileMin.x + tileWidth,
+                    tileMin.y + tileHeight);
+                const bool hasShadow =
+                    shadowFrame != nullptr &&
+                    shadowIndex < shadowFrame->spotShadows.size() &&
+                    shadowFrame->spotShadows[shadowIndex].params.x >= 0.5f;
+
+                a_drawList->AddRect(
+                    tileMin,
+                    tileMax,
+                    hasShadow
+                        ? IM_COL32(80, 230, 255, 230)
+                        : IM_COL32(120, 120, 120, 160),
+                    0.0f,
+                    0,
+                    hasShadow ? 1.5f : 1.0f);
+
+                char label[32]{};
+                if (hasShadow)
+                {
+                    const uint32_t lightIndex = static_cast<uint32_t>(
+                        shadowFrame->spotShadows[shadowIndex].params.w + 0.5f);
+                    std::snprintf(
+                        label,
+                        sizeof(label),
+                        "S%u L%u",
+                        shadowIndex,
+                        lightIndex);
+                }
+                else
+                {
+                    std::snprintf(
+                        label,
+                        sizeof(label),
+                        "S%u",
+                        shadowIndex);
+                }
+
+                a_drawList->AddRectFilled(
+                    tileMin,
+                    ImVec2(tileMin.x + 48.0f, tileMin.y + 18.0f),
+                    IM_COL32(0, 0, 0, 150),
+                    2.0f);
+                a_drawList->AddText(
+                    ImVec2(tileMin.x + 4.0f, tileMin.y + 2.0f),
+                    hasShadow
+                        ? IM_COL32(220, 250, 255, 255)
+                        : IM_COL32(180, 180, 180, 255),
+                    label);
+            }
+        }
+
+        return ImGui::IsMouseHoveringRect(panelMin, panelMax);
+    }
+
     bool EditorManager::pick_debug_non_rendered_object(
         const DebugView::PickRequest& a_request,
         GameCore::EntityId& a_outEntityId) const
@@ -5965,7 +7915,7 @@ namespace Cue::Editor
         auto pickCamera =
             [&ray, &evaluateHit](
                 GameCore::EntityId a_entityId,
-                const ECS::TransformComponent& a_transform,
+                const ECS::WorldTransformComponent& a_transform,
                 const ECS::CameraComponent& a_camera) noexcept
         {
             constexpr std::array<uint32_t, 24> k_lineVertexToCorner = {
@@ -6067,7 +8017,7 @@ namespace Cue::Editor
         auto pickTransformPoint =
             [&ray, &evaluateHit](
                 GameCore::EntityId a_entityId,
-                const ECS::TransformComponent& a_transform) noexcept
+                const ECS::WorldTransformComponent& a_transform) noexcept
         {
             RayDistance distance{};
             if (!distance_ray_point(ray, a_transform.position, distance))
@@ -6089,14 +8039,44 @@ namespace Cue::Editor
                 (std::max)(scaleRadius, debug_pick_radius(distance.rayDistance)));
         };
 
+        auto pickLight =
+            [&ray, &evaluateHit](
+                GameCore::EntityId a_entityId,
+                const ECS::WorldTransformComponent& a_transform,
+                float a_length) noexcept
+        {
+            const Math::float3 start = a_transform.position;
+            const Math::float3 end =
+                start + light_forward_axis(a_transform) * a_length;
+
+            RayDistance segmentDistance{};
+            if (distance_ray_segment(ray, start, end, segmentDistance))
+            {
+                evaluateHit(
+                    a_entityId,
+                    segmentDistance,
+                    debug_pick_radius(segmentDistance.rayDistance));
+            }
+
+            RayDistance pointDistance{};
+            if (distance_ray_point(ray, start, pointDistance))
+            {
+                evaluateHit(
+                    a_entityId,
+                    pointDistance,
+                    (std::max)(0.25f,
+                        debug_pick_radius(pointDistance.rayDistance)));
+            }
+        };
+
         auto pickObject =
-            [&pickCamera, &pickTransformPoint](
+            [&pickCamera, &pickTransformPoint, &pickLight](
                 GameCore::EntityId a_entityId,
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
         {
-            ECS::TransformComponent* transform = nullptr;
-            if (!a_object.get_component(transform) || transform == nullptr)
+            ECS::WorldTransformComponent transform{};
+            if (!get_debug_world_transform(a_object, transform))
             {
                 return;
             }
@@ -6104,7 +8084,29 @@ namespace Cue::Editor
             ECS::CameraComponent* camera = nullptr;
             if (a_object.get_component(camera) && camera != nullptr)
             {
-                pickCamera(a_entityId, *transform, *camera);
+                pickCamera(a_entityId, transform, *camera);
+                return;
+            }
+
+            ECS::DirectionalLightComponent* directionalLight = nullptr;
+            if (a_object.get_component(directionalLight) &&
+                directionalLight != nullptr)
+            {
+                pickLight(a_entityId, transform, 3.0f);
+                return;
+            }
+
+            ECS::PointLightComponent* pointLight = nullptr;
+            if (a_object.get_component(pointLight) && pointLight != nullptr)
+            {
+                pickTransformPoint(a_entityId, transform);
+                return;
+            }
+
+            ECS::SpotLightComponent* spotLight = nullptr;
+            if (a_object.get_component(spotLight) && spotLight != nullptr)
+            {
+                pickLight(a_entityId, transform, 2.5f);
                 return;
             }
 
@@ -6115,7 +8117,7 @@ namespace Cue::Editor
                 renderableInfo->objectId != ECS::k_invalidRenderableId;
             if (!hasRenderable)
             {
-                pickTransformPoint(a_entityId, *transform);
+                pickTransformPoint(a_entityId, transform);
             }
         };
 
@@ -6200,7 +8202,7 @@ namespace Cue::Editor
             ++selection.itemCount;
         };
         auto makeCameraItem =
-            [&](const ECS::TransformComponent& a_transform,
+            [&](const ECS::WorldTransformComponent& a_transform,
                 const ECS::CameraComponent& a_camera,
                 bool a_isSelected) noexcept
         {
@@ -6222,6 +8224,111 @@ namespace Cue::Editor
             item.isEnabled = 1;
             return item;
         };
+        auto makeSpotShadowFrustumItem =
+            [](const ECS::WorldTransformComponent& a_transform,
+                const ECS::SpotLightComponent& a_spotLight,
+                bool a_isSelected) noexcept
+        {
+            const float range = (std::max)(a_spotLight.range, 0.001f);
+            const float nearClip = std::clamp(
+                a_spotLight.shadowNearClip,
+                0.001f,
+                (std::max)(range - 0.001f, 0.001f));
+            const float outerAngle = std::clamp(
+                a_spotLight.outerAngleDegrees,
+                1.0f,
+                89.0f);
+
+            GpuData::DebugSelectionItemGpu item{};
+            item.world =
+                Math::y_axis_matrix(Math::k_pi) *
+                Math::quaternion_matrix(a_transform.rotation) *
+                Math::translate_matrix(a_transform.position);
+            item.color = a_isSelected
+                ? Math::float4(1.0f, 0.84f, 0.18f, 1.0f)
+                : Math::float4(0.2f, 0.95f, 1.0f, 1.0f);
+            item.camera = Math::float4(
+                outerAngle * 2.0f,
+                1.0f,
+                nearClip,
+                range);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::CameraFrustum);
+            item.isEnabled = 1;
+            return item;
+        };
+        auto makeLightLineItem =
+            [](const ECS::WorldTransformComponent& a_transform,
+                const Math::float3& a_end,
+                const Math::float4& a_color) noexcept
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_color;
+            item.camera = Math::float4(a_end.x, a_end.y, a_end.z, 0.0f);
+            item.shape =
+                static_cast<uint32_t>(GpuData::DebugSelectionShape::Line);
+            item.isEnabled = 1;
+            return item;
+        };
+        auto appendLightArrow =
+            [&appendDebugItem](
+                const ECS::WorldTransformComponent& a_transform,
+                float a_length,
+                const Math::float4& a_color)
+        {
+            GpuData::DebugSelectionItemGpu item{};
+            item.world = Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                a_transform.rotation,
+                a_transform.position);
+            item.color = a_color;
+            item.camera = Math::float4(
+                a_length,
+                a_length * 0.26f,
+                a_length * 0.14f,
+                0.0f);
+            item.shape = static_cast<uint32_t>(
+                GpuData::DebugSelectionShape::LightArrow);
+            item.isEnabled = 1;
+            appendDebugItem(item);
+        };
+        auto appendPointLightMarker =
+            [&appendDebugItem, &makeLightLineItem](
+                const ECS::WorldTransformComponent& a_transform,
+                float a_radius,
+                const Math::float4& a_color)
+        {
+            ECS::WorldTransformComponent markerTransform = a_transform;
+            markerTransform.rotation = Math::Quaternion::identity();
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(a_radius, 0.0f, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(-a_radius, 0.0f, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, a_radius, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, -a_radius, 0.0f),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, 0.0f, a_radius),
+                a_color));
+            appendDebugItem(makeLightLineItem(
+                markerTransform,
+                Math::float3(0.0f, 0.0f, -a_radius),
+                a_color));
+        };
         if (m_selectedEntityId != GameCore::k_invalidEntityId)
         {
             const ECS::RenderableInfoComponent* renderableInfo = nullptr;
@@ -6231,23 +8338,36 @@ namespace Cue::Editor
                 renderableInfo != nullptr &&
                 renderableInfo->objectId != ECS::k_invalidRenderableId;
 
-            const ECS::TransformComponent* transform = nullptr;
-            const Result transformResult =
-                debugWorld->get_component<ECS::TransformComponent>(
-                    m_selectedEntityId, transform);
+            ECS::WorldTransformComponent transform{};
             const ECS::CameraComponent* camera = nullptr;
-            if (transformResult)
+            if (get_debug_world_transform(
+                    *debugWorld,
+                    m_selectedEntityId,
+                    transform))
             {
                 (void)debugWorld->get_component<ECS::CameraComponent>(
                     m_selectedEntityId,
                     camera);
-                if (camera == nullptr && !hasRenderableOutline)
+                const ECS::DirectionalLightComponent* directionalLight = nullptr;
+                const ECS::PointLightComponent* pointLight = nullptr;
+                const ECS::SpotLightComponent* spotLight = nullptr;
+                const bool hasLight =
+                    debugWorld->get_component<ECS::DirectionalLightComponent>(
+                        m_selectedEntityId, directionalLight) &&
+                        directionalLight != nullptr ||
+                    debugWorld->get_component<ECS::PointLightComponent>(
+                        m_selectedEntityId, pointLight) &&
+                        pointLight != nullptr ||
+                    debugWorld->get_component<ECS::SpotLightComponent>(
+                        m_selectedEntityId, spotLight) &&
+                        spotLight != nullptr;
+                if (camera == nullptr && !hasRenderableOutline && !hasLight)
                 {
                     GpuData::DebugSelectionItemGpu item{};
                     item.world = Math::make_affine_matrix(
-                        transform->scale * 1.08f,
-                        transform->rotation,
-                        transform->position);
+                        transform.scale * 1.08f,
+                        transform.rotation,
+                        transform.position);
                     item.color = Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
                     item.shape = static_cast<uint32_t>(
                         GpuData::DebugSelectionShape::Box);
@@ -6268,18 +8388,81 @@ namespace Cue::Editor
                 GameCore::SceneId,
                 GameCore::GameObject& a_object)
         {
-            ECS::TransformComponent* transform = nullptr;
+            ECS::WorldTransformComponent transform{};
             ECS::CameraComponent* camera = nullptr;
-            if (!a_object.get_component(transform) || transform == nullptr ||
+            if (!get_debug_world_transform(a_object, transform) ||
                 !a_object.get_component(camera) || camera == nullptr)
             {
                 return;
             }
 
             appendDebugItem(makeCameraItem(
-                *transform,
+                transform,
                 *camera,
                 a_entityId == m_selectedEntityId));
+        };
+        auto appendLightObject =
+            [this,
+                &appendDebugItem,
+                &appendLightArrow,
+                &appendPointLightMarker,
+                &makeSpotShadowFrustumItem](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject& a_object)
+        {
+            ECS::WorldTransformComponent transform{};
+            if (!get_debug_world_transform(a_object, transform))
+            {
+                return;
+            }
+
+            const bool isSelected = a_entityId == m_selectedEntityId;
+            const Math::float4 selectedColor =
+                Math::float4(1.0f, 0.84f, 0.18f, 1.0f);
+
+            ECS::DirectionalLightComponent* directionalLight = nullptr;
+            if (a_object.get_component(directionalLight) &&
+                directionalLight != nullptr)
+            {
+                appendLightArrow(
+                    transform,
+                    3.0f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(1.0f, 0.92f, 0.25f, 1.0f));
+                return;
+            }
+
+            ECS::PointLightComponent* pointLight = nullptr;
+            if (a_object.get_component(pointLight) && pointLight != nullptr)
+            {
+                appendPointLightMarker(
+                    transform,
+                    0.45f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(1.0f, 0.72f, 0.32f, 1.0f));
+                return;
+            }
+
+            ECS::SpotLightComponent* spotLight = nullptr;
+            if (a_object.get_component(spotLight) && spotLight != nullptr)
+            {
+                if (spotLight->castsShadow)
+                {
+                    appendDebugItem(makeSpotShadowFrustumItem(
+                        transform,
+                        *spotLight,
+                        isSelected));
+                }
+                appendLightArrow(
+                    transform,
+                    2.5f,
+                    isSelected
+                        ? selectedColor
+                        : Math::float4(0.52f, 0.82f, 1.0f, 1.0f));
+            }
         };
         bool hasCollectedSceneCameras = false;
         if (m_currentSceneId != GameCore::k_invalidSceneId)
@@ -6293,6 +8476,20 @@ namespace Cue::Editor
         if (!hasCollectedSceneCameras)
         {
             (void)debugWorld->for_each_object(appendCameraObject);
+        }
+
+        bool hasCollectedSceneLights = false;
+        if (m_currentSceneId != GameCore::k_invalidSceneId)
+        {
+            const Result collectResult =
+                debugWorld->for_each_object_in_scene(
+                m_currentSceneId,
+                appendLightObject);
+            hasCollectedSceneLights = static_cast<bool>(collectResult);
+        }
+        if (!hasCollectedSceneLights)
+        {
+            (void)debugWorld->for_each_object(appendLightObject);
         }
 
         m_engine->set_debug_selection(selection);
@@ -6462,6 +8659,8 @@ namespace Cue::Editor
 
                 ImGui::EndMenu();
             }
+
+            draw_skybox_menu();
 
             if (ImGui::BeginMenu("ビルド"))
             {
@@ -6765,11 +8964,9 @@ namespace Cue::Editor
         {
             Core::Time::Timer assetBrowserTimer(m_platform->clock());
             assetBrowserTimer.start();
-            const std::string selectedAssetBefore =
-                m_selectedAssetPath.normalize().utf8();
             m_assetBrowser->update();
-            if (m_selectedAssetPath.normalize().utf8() != selectedAssetBefore &&
-                m_selectedAssetPath.extension() == ".cuematerial")
+            if (m_assetBrowser->was_asset_selected() &&
+                to_lower_ascii(m_selectedAssetPath.extension()) == ".cuematerial")
             {
                 m_selectedEntityId = GameCore::k_invalidEntityId;
                 m_selectedSceneId = GameCore::k_invalidSceneId;
@@ -6781,6 +8978,7 @@ namespace Cue::Editor
 
         Core::Time::Timer createScriptPopupTimer(m_platform->clock());
         createScriptPopupTimer.start();
+        draw_create_scene_popup();
         draw_create_script_popup();
         draw_game_release_app_settings_popup();
         draw_background_progress_window();
@@ -6810,9 +9008,13 @@ namespace Cue::Editor
             m_selectedSceneId;
         if (m_hierarchy != nullptr)
         {
+            m_hierarchy->set_game_world(
+                m_engine != nullptr ? m_engine->active_world() : nullptr);
+            m_hierarchy->set_read_only(
+                m_engine != nullptr && m_engine->is_playing());
             m_hierarchy->set_scenes(collect_hierarchy_scenes());
+            m_hierarchy->update();
         }
-        m_hierarchy->update();
         if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
             m_selectedEntityId != GameCore::k_invalidEntityId)
         {

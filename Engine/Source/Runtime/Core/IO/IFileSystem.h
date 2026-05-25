@@ -122,6 +122,8 @@ namespace Cue::Core::IO
         IFileSystem& operator=(IFileSystem&&) = delete;
 
         // --- 基本メタデータ ---
+        /// @brief 実行ファイルが配置されているディレクトリを取得します。
+        virtual Result executable_directory(Path& a_outDirectory) noexcept = 0;
         /// @brief パスの存在有無を取得します。
         virtual Result exists(const Path& a_path, bool* a_outExists) noexcept = 0;
         /// @brief ファイル情報を取得します。

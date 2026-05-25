@@ -16,6 +16,7 @@ namespace Cue::GpuData
         Box = 0,
         CameraFrustum = 1,
         Line = 2,
+        LightArrow = 3,
     };
 
     struct DebugSelectionItemGpu final

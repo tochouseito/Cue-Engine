@@ -241,7 +241,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 #if defined(CUE_PROJECT_ROOT_PATH)
     engineInfo.errorTexturePath = Core::IO::Path::join(
         Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
-        Core::IO::Path("Engine/Textures/CueDummy.cuetexture"));
+        Core::IO::Path("Engine/Textures/CueDummy.dds"));
 #endif
 
     // エンジンの初期化

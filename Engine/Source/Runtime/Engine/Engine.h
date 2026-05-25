@@ -20,6 +20,8 @@
 
 // === Engine includes ===
 #include "Asset/AssetManager.h"
+#include "DrawSystem/DebugViewShadingMode.h"
+#include "DrawSystem/StaticMeshPool.h"
 #include "EngineCommandContext.h"
 #include "FrameController.h"
 #include "GameCore/GameWorld.h"
@@ -32,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Cue
@@ -234,6 +237,49 @@ namespace Cue
             return m_isDebugGridVisible;
         }
 
+        void set_debug_view_shading_mode(
+            DrawSystem::DebugViewShadingMode a_mode) noexcept
+        {
+            m_debugViewShadingMode = a_mode;
+        }
+
+        [[nodiscard]] DrawSystem::DebugViewShadingMode
+            debug_view_shading_mode() const noexcept
+        {
+            return m_debugViewShadingMode;
+        }
+
+        void set_skybox_texture(uint32_t a_textureId,
+            RHI::ViewHandle a_textureSrvHandle,
+            std::string a_name)
+        {
+            m_skyboxTextureId = a_textureId;
+            m_skyboxTextureSrvHandle = a_textureSrvHandle;
+            m_skyboxTextureName = std::move(a_name);
+        }
+
+        void clear_skybox_texture()
+        {
+            m_skyboxTextureId = k_invalidSkyboxTextureId;
+            m_skyboxTextureSrvHandle = {};
+            m_skyboxTextureName.clear();
+        }
+
+        [[nodiscard]] uint32_t skybox_texture_id() const noexcept
+        {
+            return m_skyboxTextureId;
+        }
+
+        [[nodiscard]] RHI::ViewHandle skybox_texture_srv_handle() const noexcept
+        {
+            return m_skyboxTextureSrvHandle;
+        }
+
+        [[nodiscard]] std::string_view skybox_texture_name() const noexcept
+        {
+            return m_skyboxTextureName;
+        }
+
         [[nodiscard]] bool request_debug_pick(
             float a_normalizedX,
             float a_normalizedY) noexcept;
@@ -341,6 +387,7 @@ namespace Cue
         Audio::IBackend* m_audioBackend = nullptr;
         Physics::IPhysicsSystem* m_physicsSystem = nullptr;
         AssetManager m_assetManager{};
+        std::unique_ptr<DrawSystem::StaticMeshPool> m_staticMeshPool = nullptr;
         std::unique_ptr<FrameController> m_frameController = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
         std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
@@ -367,6 +414,8 @@ namespace Cue
         RHI::ReadbackBufferView m_debugPickReadbackView{};
         GpuData::DebugPickState m_debugPickState{};
         GameCore::EntityId m_debugPickResultEntityId = GameCore::k_invalidEntityId;
+        DrawSystem::DebugViewShadingMode m_debugViewShadingMode =
+            DrawSystem::DebugViewShadingMode::MaterialLighting;
         bool m_hasDebugPickResult = false;
         bool m_isDebugGridVisible = true;
         uint32_t m_debugSelectedObjectId = 0;
@@ -375,6 +424,10 @@ namespace Cue
         MaterialHandle m_defaultMaterialHandle{};
         uint32_t m_cubeIndexCount = 0;
         uint32_t m_defaultCubeMeshId = ECS::k_invalidMeshId;
+        static constexpr uint32_t k_invalidSkyboxTextureId = 0xffffffffu;
+        uint32_t m_skyboxTextureId = k_invalidSkyboxTextureId;
+        RHI::ViewHandle m_skyboxTextureSrvHandle{};
+        std::string m_skyboxTextureName{};
         GameCore::SceneId m_editorSceneId = GameCore::k_invalidSceneId;
         Core::IO::Path m_scriptRoot{};
         uint32_t m_simulationWarmupFrames = 0;

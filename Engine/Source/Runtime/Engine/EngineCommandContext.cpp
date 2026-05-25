@@ -25,10 +25,68 @@ namespace Cue
         Result result = Result::ok();
         switch (a_objectType)
         {
+        case AddObjectType::GameObject:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            break;
         case AddObjectType::Camera:
             result = a_sceneId != GameCore::k_invalidSceneId
                 ? m_gameWorld.add_camera_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_camera_object(object);
+            break;
+        case AddObjectType::Canvas:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            if (result)
+            {
+                result = m_gameWorld.set_object_name(
+                    object.entity_id(), "Canvas");
+            }
+            if (result)
+            {
+                result = add_component_internal<ECS::CanvasComponent>(
+                    object.entity_id(), "CanvasComponent already exists.");
+            }
+            if (result)
+            {
+                result =
+                    add_component_internal<ECS::UiRectTransformComponent>(
+                        object.entity_id(),
+                        "UiRectTransformComponent already exists.");
+            }
+            if (!result && object.is_valid())
+            {
+                (void)m_gameWorld.destroy_object(object.entity_id());
+                object = {};
+            }
+            break;
+        case AddObjectType::Text:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_game_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_game_object(object);
+            if (result)
+            {
+                result = m_gameWorld.set_object_name(object.entity_id(), "Text");
+            }
+            if (result)
+            {
+                result =
+                    add_component_internal<ECS::UiRectTransformComponent>(
+                        object.entity_id(),
+                        "UiRectTransformComponent already exists.");
+            }
+            if (result)
+            {
+                result = add_component_internal<ECS::TextRendererComponent>(
+                    object.entity_id(), "TextRendererComponent already exists.");
+            }
+            if (!result && object.is_valid())
+            {
+                (void)m_gameWorld.destroy_object(object.entity_id());
+                object = {};
+            }
             break;
         case AddObjectType::StaticMesh3D:
             result = a_sceneId != GameCore::k_invalidSceneId
@@ -39,6 +97,22 @@ namespace Cue
             result = a_sceneId != GameCore::k_invalidSceneId
                 ? m_gameWorld.add_sprite_object_to_scene(a_sceneId, object)
                 : m_gameWorld.add_sprite_object(object);
+            break;
+        case AddObjectType::DirectionalLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_directional_light_object_to_scene(
+                    a_sceneId, object)
+                : m_gameWorld.add_directional_light_object(object);
+            break;
+        case AddObjectType::PointLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_point_light_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_point_light_object(object);
+            break;
+        case AddObjectType::SpotLight:
+            result = a_sceneId != GameCore::k_invalidSceneId
+                ? m_gameWorld.add_spot_light_object_to_scene(a_sceneId, object)
+                : m_gameWorld.add_spot_light_object(object);
             break;
         }
 
@@ -78,6 +152,28 @@ namespace Cue
         return m_gameWorld.set_object_name(a_objectId, a_name);
     }
 
+    Result EngineCommandContext::get_parent(
+        GameCore::EntityId a_objectId,
+        GameCore::EntityId& a_outParentId)
+    {
+        return m_gameWorld.get_parent(a_objectId, a_outParentId);
+    }
+
+    Result EngineCommandContext::set_parent(
+        GameCore::EntityId a_objectId,
+        GameCore::EntityId a_parentId,
+        bool a_keepsWorldTransform)
+    {
+        if (a_parentId == GameCore::k_invalidEntityId)
+        {
+            return m_gameWorld.detach_parent(
+                a_objectId, a_keepsWorldTransform);
+        }
+
+        return m_gameWorld.set_parent(
+            a_objectId, a_parentId, a_keepsWorldTransform);
+    }
+
     Result EngineCommandContext::capture_deleted_object(
         GameCore::EntityId a_objectId,
         GameCore::DeletedObjectSnapshot& a_outSnapshot)
@@ -102,6 +198,38 @@ namespace Cue
             return add_component_internal<ECS::CameraComponent>(
                 a_objectId, "CameraComponent already exists.");
 
+        case AddableComponentType::Canvas:
+            return add_component_internal<ECS::CanvasComponent>(
+                a_objectId, "CanvasComponent already exists.");
+
+        case AddableComponentType::UiRectTransform:
+            return add_component_internal<ECS::UiRectTransformComponent>(
+                a_objectId, "UiRectTransformComponent already exists.");
+
+        case AddableComponentType::UiLayoutGroup:
+            return add_component_internal<ECS::UiLayoutGroupComponent>(
+                a_objectId, "UiLayoutGroupComponent already exists.");
+
+        case AddableComponentType::TextRenderer:
+            return add_component_internal<ECS::TextRendererComponent>(
+                a_objectId, "TextRendererComponent already exists.");
+
+        case AddableComponentType::UiImage:
+            return add_component_internal<ECS::UiImageComponent>(
+                a_objectId, "UiImageComponent already exists.");
+
+        case AddableComponentType::UiButton:
+            return add_component_internal<ECS::UiButtonComponent>(
+                a_objectId, "UiButtonComponent already exists.");
+
+        case AddableComponentType::UiCheckbox:
+            return add_component_internal<ECS::UiCheckboxComponent>(
+                a_objectId, "UiCheckboxComponent already exists.");
+
+        case AddableComponentType::UiSlider:
+            return add_component_internal<ECS::UiSliderComponent>(
+                a_objectId, "UiSliderComponent already exists.");
+
         case AddableComponentType::MeshFilter:
             return add_component_internal<ECS::MeshFilterComponent>(
                 a_objectId, "MeshFilterComponent already exists.");
@@ -110,9 +238,21 @@ namespace Cue
             return add_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent already exists.");
 
+        case AddableComponentType::SkinnedMeshRenderer:
+            return add_component_internal<ECS::SkinnedMeshRendererComponent>(
+                a_objectId, "SkinnedMeshRendererComponent already exists.");
+
+        case AddableComponentType::Animation:
+            return add_component_internal<ECS::AnimationComponent>(
+                a_objectId, "AnimationComponent already exists.");
+
         case AddableComponentType::SpriteRenderer:
             return add_component_internal<ECS::SpriteRendererComponent>(
                 a_objectId, "SpriteRendererComponent already exists.");
+
+        case AddableComponentType::ParticleEmitter:
+            return add_component_internal<ECS::ParticleEmitterComponent>(
+                a_objectId, "ParticleEmitterComponent already exists.");
 
         case AddableComponentType::AudioSource:
             return add_component_internal<ECS::AudioSourceComponent>(
@@ -129,6 +269,18 @@ namespace Cue
         case AddableComponentType::CharacterController:
             return add_component_internal<ECS::CharacterControllerComponent>(
                 a_objectId, "CharacterControllerComponent already exists.");
+
+        case AddableComponentType::DirectionalLight:
+            return add_component_internal<ECS::DirectionalLightComponent>(
+                a_objectId, "DirectionalLightComponent already exists.");
+
+        case AddableComponentType::PointLight:
+            return add_component_internal<ECS::PointLightComponent>(
+                a_objectId, "PointLightComponent already exists.");
+
+        case AddableComponentType::SpotLight:
+            return add_component_internal<ECS::SpotLightComponent>(
+                a_objectId, "SpotLightComponent already exists.");
 
         case AddableComponentType::Script:
             return add_component_internal<ECS::ScriptComponent>(
@@ -149,6 +301,38 @@ namespace Cue
             return remove_component_internal<ECS::CameraComponent>(
                 a_objectId, "CameraComponent was not found.");
 
+        case AddableComponentType::Canvas:
+            return remove_component_internal<ECS::CanvasComponent>(
+                a_objectId, "CanvasComponent was not found.");
+
+        case AddableComponentType::UiRectTransform:
+            return remove_component_internal<ECS::UiRectTransformComponent>(
+                a_objectId, "UiRectTransformComponent was not found.");
+
+        case AddableComponentType::UiLayoutGroup:
+            return remove_component_internal<ECS::UiLayoutGroupComponent>(
+                a_objectId, "UiLayoutGroupComponent was not found.");
+
+        case AddableComponentType::TextRenderer:
+            return remove_component_internal<ECS::TextRendererComponent>(
+                a_objectId, "TextRendererComponent was not found.");
+
+        case AddableComponentType::UiImage:
+            return remove_component_internal<ECS::UiImageComponent>(
+                a_objectId, "UiImageComponent was not found.");
+
+        case AddableComponentType::UiButton:
+            return remove_component_internal<ECS::UiButtonComponent>(
+                a_objectId, "UiButtonComponent was not found.");
+
+        case AddableComponentType::UiCheckbox:
+            return remove_component_internal<ECS::UiCheckboxComponent>(
+                a_objectId, "UiCheckboxComponent was not found.");
+
+        case AddableComponentType::UiSlider:
+            return remove_component_internal<ECS::UiSliderComponent>(
+                a_objectId, "UiSliderComponent was not found.");
+
         case AddableComponentType::MeshFilter:
             return remove_component_internal<ECS::MeshFilterComponent>(
                 a_objectId, "MeshFilterComponent was not found.");
@@ -157,9 +341,21 @@ namespace Cue
             return remove_component_internal<ECS::StaticMeshRendererComponent>(
                 a_objectId, "StaticMeshRendererComponent was not found.");
 
+        case AddableComponentType::SkinnedMeshRenderer:
+            return remove_component_internal<ECS::SkinnedMeshRendererComponent>(
+                a_objectId, "SkinnedMeshRendererComponent was not found.");
+
+        case AddableComponentType::Animation:
+            return remove_component_internal<ECS::AnimationComponent>(
+                a_objectId, "AnimationComponent was not found.");
+
         case AddableComponentType::SpriteRenderer:
             return remove_component_internal<ECS::SpriteRendererComponent>(
                 a_objectId, "SpriteRendererComponent was not found.");
+
+        case AddableComponentType::ParticleEmitter:
+            return remove_component_internal<ECS::ParticleEmitterComponent>(
+                a_objectId, "ParticleEmitterComponent was not found.");
 
         case AddableComponentType::AudioSource:
             return remove_component_internal<ECS::AudioSourceComponent>(
@@ -176,6 +372,18 @@ namespace Cue
         case AddableComponentType::CharacterController:
             return remove_component_internal<ECS::CharacterControllerComponent>(
                 a_objectId, "CharacterControllerComponent was not found.");
+
+        case AddableComponentType::DirectionalLight:
+            return remove_component_internal<ECS::DirectionalLightComponent>(
+                a_objectId, "DirectionalLightComponent was not found.");
+
+        case AddableComponentType::PointLight:
+            return remove_component_internal<ECS::PointLightComponent>(
+                a_objectId, "PointLightComponent was not found.");
+
+        case AddableComponentType::SpotLight:
+            return remove_component_internal<ECS::SpotLightComponent>(
+                a_objectId, "SpotLightComponent was not found.");
 
         case AddableComponentType::Script:
             return remove_component_internal<ECS::ScriptComponent>(

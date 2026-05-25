@@ -177,6 +177,31 @@ namespace Cue::PAL::Win
 
 namespace Cue::PAL::Win
 {
+    Result WinFileSystem::executable_directory(Core::IO::Path& a_outDirectory) noexcept
+    {
+        a_outDirectory = {};
+
+        wchar_t buffer[MAX_PATH]{};
+        const DWORD written =
+            ::GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(MAX_PATH));
+        if (written == 0 || written >= MAX_PATH)
+        {
+            return Result::fail(Code::GetFailed, Severity::Error,
+                "Executable path could not be resolved.");
+        }
+
+        std::string executablePath{};
+        Result result =
+            wide_to_utf8(std::wstring_view(buffer, written), &executablePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outDirectory = Core::IO::Path(executablePath).parent();
+        return Result::ok();
+    }
+
     Result WinFileSystem::exists(const Core::IO::Path& a_path, bool* a_outExists) noexcept
     {
         // 引数チェック

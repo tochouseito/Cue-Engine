@@ -148,6 +148,7 @@ namespace Cue::RHI::DX12
                 // https://stackoverflow.com/questions/69805245/directx-12-application-is-crashing-in-windows-11
                 D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE,
                 D3D12_MESSAGE_ID_GPU_BASED_VALIDATION_RESOURCE_STATE_IMPRECISE,
+                D3D12_MESSAGE_ID_GPU_BASED_VALIDATION_INCOMPATIBLE_TEXTURE_LAYOUT,
                 D3D12_MESSAGE_ID_FENCE_ZERO_WAIT // imgui 起因メッセージ
             };
 

@@ -12,17 +12,17 @@
 namespace Cue::ECS
 {
     class TriggerVolumeSystem final
-        : public ECSManager::System<TransformComponent,
+        : public ECSManager::System<WorldTransformComponent,
               ColliderComponent,
               TriggerVolumeComponent>
     {
     public:
         TriggerVolumeSystem()
-            : ECSManager::System<TransformComponent,
+            : ECSManager::System<WorldTransformComponent,
                   ColliderComponent,
                   TriggerVolumeComponent>(
                   [this](Entity a_entity,
-                      TransformComponent& a_transform,
+                      WorldTransformComponent& a_transform,
                       ColliderComponent& a_collider,
                       TriggerVolumeComponent& a_trigger,
                       const UpdateContext&)
@@ -59,7 +59,7 @@ namespace Cue::ECS
         }
 
         [[nodiscard]] static Bounds make_bounds(
-            const TransformComponent& a_transform,
+            const WorldTransformComponent& a_transform,
             const ColliderComponent& a_collider) noexcept
         {
             const Math::float3 center = a_transform.position + a_collider.offset;
@@ -80,7 +80,7 @@ namespace Cue::ECS
         }
 
         void update_component(Entity a_entity,
-            TransformComponent& a_transform,
+            WorldTransformComponent& a_transform,
             ColliderComponent& a_collider,
             TriggerVolumeComponent& a_trigger)
         {
@@ -107,8 +107,8 @@ namespace Cue::ECS
                         continue;
                     }
 
-                    const TransformComponent* transform =
-                        m_pEcs->get_component<TransformComponent>(candidate);
+                    const WorldTransformComponent* transform =
+                        m_pEcs->get_component<WorldTransformComponent>(candidate);
                     const ColliderComponent* collider =
                         m_pEcs->get_component<ColliderComponent>(candidate);
                     if (transform == nullptr || collider == nullptr)

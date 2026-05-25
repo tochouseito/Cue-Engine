@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-    inline constexpr uint32_t k_cueScriptAbiVersion = 15u;
+    inline constexpr uint32_t k_cueScriptAbiVersion = 25u;
     inline constexpr uint64_t k_cueInvalidHandleValue = 0ull;
     inline constexpr uint64_t k_cueInvalidSceneId = 0ull;
 
@@ -75,6 +75,18 @@ extern "C"
         uint64_t value;
     };
 
+    /// @brief Script から参照する JSON 設定ハンドルです。
+    struct CueJsonConfigHandle
+    {
+        uint32_t index;
+        uint32_t generation;
+    };
+
+    inline constexpr CueJsonConfigHandle k_cueInvalidJsonConfigHandle{
+        0xffffffffu,
+        0u
+    };
+
     /// @brief Component を表す外部公開ハンドルです。
     /// 将来拡張向けに残している公開ハンドルです。
     struct CueComponentHandle
@@ -89,6 +101,13 @@ extern "C"
         uint64_t value;
     };
 
+    /// @brief 2 要素の float ベクトルです。
+    struct CueFloat2
+    {
+        float x;
+        float y;
+    };
+
     /// @brief 3 要素の float ベクトルです。
     struct CueFloat3
     {
@@ -98,6 +117,14 @@ extern "C"
     };
 
     struct CueFloat4
+    {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
+
+    struct CueQuaternion
     {
         float x;
         float y;
@@ -128,14 +155,349 @@ extern "C"
         float distance;
     };
 
+    enum CueSpawnObjectKind : uint32_t
+    {
+        CueSpawnObjectKind_Empty = 0,
+        CueSpawnObjectKind_StaticMesh = 1,
+        CueSpawnObjectKind_Sprite = 2,
+        CueSpawnObjectKind_Camera = 3,
+        CueSpawnObjectKind_DirectionalLight = 4,
+        CueSpawnObjectKind_PointLight = 5,
+        CueSpawnObjectKind_SpotLight = 6,
+    };
+
+    enum CueScriptCollisionEventType : uint32_t
+    {
+        CueScriptCollisionEventType_Enter = 0,
+        CueScriptCollisionEventType_Stay = 1,
+        CueScriptCollisionEventType_Exit = 2,
+    };
+
+    enum CueComponentKind : uint32_t
+    {
+        CueComponentKind_Camera = 0,
+        CueComponentKind_Collider = 1,
+        CueComponentKind_TriggerVolume = 2,
+        CueComponentKind_MeshFilter = 3,
+        CueComponentKind_StaticMeshRenderer = 4,
+        CueComponentKind_SpriteRenderer = 5,
+        CueComponentKind_Canvas = 6,
+        CueComponentKind_UiRectTransform = 7,
+        CueComponentKind_UiLayoutGroup = 8,
+        CueComponentKind_TextRenderer = 9,
+        CueComponentKind_UiImage = 10,
+        CueComponentKind_UiButton = 11,
+        CueComponentKind_UiCheckbox = 12,
+        CueComponentKind_UiSlider = 13,
+    };
+
+    enum CueUiLayoutDirection : uint32_t
+    {
+        CueUiLayoutDirection_Horizontal = 0,
+        CueUiLayoutDirection_Vertical = 1,
+    };
+
+    enum CueTextHorizontalAlign : uint32_t
+    {
+        CueTextHorizontalAlign_Left = 0,
+        CueTextHorizontalAlign_Center = 1,
+        CueTextHorizontalAlign_Right = 2,
+    };
+
+    enum CueTextVerticalAlign : uint32_t
+    {
+        CueTextVerticalAlign_Top = 0,
+        CueTextVerticalAlign_Middle = 1,
+        CueTextVerticalAlign_Bottom = 2,
+    };
+
+    enum CueShadowCasterMode : uint8_t
+    {
+        CueShadowCasterMode_Solid = 0,
+        CueShadowCasterMode_TwoSided = 1,
+    };
+
+    enum CueMaterialPropertyOverride : uint32_t
+    {
+        CueMaterialPropertyOverride_Color = 1u << 0,
+        CueMaterialPropertyOverride_Shininess = 1u << 1,
+        CueMaterialPropertyOverride_ReflectionSkybox = 1u << 2,
+    };
+
+    enum CueColliderShapeType : uint32_t
+    {
+        CueColliderShapeType_Box = 0,
+        CueColliderShapeType_Sphere = 1,
+        CueColliderShapeType_Capsule = 2,
+        CueColliderShapeType_Mesh = 3,
+    };
+
     /// @brief Script 側へ公開する Transform データです。
     /// Engine 内部の TransformComponent をそのまま露出せず、
     /// DLL 境界ではこの POD だけを受け渡します。
     struct CueTransformData
     {
         CueFloat3 position;
+        /// @brief Euler 回転です。通常 API では弧度法、Degrees API では度数法です。
         CueFloat3 rotation;
         CueFloat3 scale;
+    };
+
+    struct CueTransformQuaternionData
+    {
+        CueFloat3 position;
+        CueQuaternion rotation;
+        CueFloat3 scale;
+    };
+
+    struct CueSpawnObjectDesc
+    {
+        CueSpawnObjectKind kind;
+        CueSceneId sceneId;
+        CueStringView name;
+        CueStringView tag;
+        CueTransformData transform;
+        uint8_t isActive;
+        uint8_t isPersistent;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueInstantiateEntityDesc
+    {
+        CueEntityHandle sourceEntity;
+        CueStringView name;
+        CueStringView tag;
+        CueTransformData transform;
+        uint8_t usesName;
+        uint8_t usesTag;
+        uint8_t usesTransform;
+        uint8_t usesActive;
+        uint8_t isActive;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueSphereOverlapDesc
+    {
+        CueFloat3 center;
+        CueEntityHandle ignoredEntity;
+        float radius;
+        uint8_t includeTriggers;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueCameraComponentData
+    {
+        float fovY;
+        float aspectRatio;
+        float nearZ;
+        float farZ;
+        uint8_t isMain;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueColliderComponentData
+    {
+        CueStringView meshModelName;
+        CueFloat3 offset;
+        CueFloat3 halfExtent;
+        CueColliderShapeType shapeType;
+        float radius;
+        float halfHeight;
+        float friction;
+        float restitution;
+        uint16_t layer;
+        uint16_t mask;
+        uint8_t isTrigger;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueTriggerVolumeComponentData
+    {
+        uint8_t includeTriggers;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueMeshFilterComponentData
+    {
+        CueStringView modelName;
+        uint32_t meshId;
+    };
+
+    struct CueStaticMeshRendererComponentData
+    {
+        uint8_t visible;
+        uint8_t castsShadow;
+        uint8_t receivesShadow;
+        uint8_t shadowCasterMode;
+    };
+
+    struct CueMaterialPropertyBlockData
+    {
+        CueFloat4 color;
+        float shininess;
+        uint32_t overrideMask;
+        uint8_t usesReflectionSkybox;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueSpriteRendererComponentData
+    {
+        CueFloat4 color;
+        CueFloat4 uvRect;
+        CueFloat2 size;
+        CueFloat2 pivot;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isVisible;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueCanvasComponentData
+    {
+        CueFloat2 referenceSize;
+        float scaleFactor;
+        int32_t sortOrder;
+        uint8_t matchesScreen;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiRectTransformComponentData
+    {
+        CueFloat2 anchorMin;
+        CueFloat2 anchorMax;
+        CueFloat2 pivot;
+        CueFloat2 anchoredPosition;
+        CueFloat2 sizeDelta;
+    };
+
+    struct CueUiLayoutGroupComponentData
+    {
+        CueFloat4 padding;
+        float spacing;
+        CueUiLayoutDirection direction;
+        uint8_t controlsChildSize;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueTextRendererComponentData
+    {
+        CueStringView text;
+        CueStringView fontPath;
+        CueFloat4 color;
+        uint32_t fontSize;
+        int32_t layer;
+        uint32_t order;
+        CueTextHorizontalAlign horizontalAlign;
+        CueTextVerticalAlign verticalAlign;
+        uint8_t visible;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiImageComponentData
+    {
+        CueFloat4 color;
+        CueFloat4 uvRect;
+        int32_t layer;
+        uint32_t order;
+        uint8_t visible;
+        uint8_t raycastTarget;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueUiButtonComponentData
+    {
+        CueFloat4 normalColor;
+        CueFloat4 hoverColor;
+        CueFloat4 pressedColor;
+        CueFloat4 disabledColor;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiButtonStateData
+    {
+        uint8_t isHovered;
+        uint8_t isPressed;
+        uint8_t wasClicked;
+        uint8_t hasFocus;
+    };
+
+    struct CueUiCheckboxComponentData
+    {
+        CueFloat4 normalColor;
+        CueFloat4 hoverColor;
+        CueFloat4 checkColor;
+        CueFloat4 disabledColor;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t isChecked;
+        uint8_t reserved0;
+        uint8_t reserved1;
+    };
+
+    struct CueUiCheckboxStateData
+    {
+        uint8_t isChecked;
+        uint8_t isHovered;
+        uint8_t isPressed;
+        uint8_t wasChanged;
+        uint8_t hasFocus;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiSliderComponentData
+    {
+        CueFloat4 trackColor;
+        CueFloat4 fillColor;
+        CueFloat4 handleColor;
+        CueFloat4 disabledColor;
+        float minValue;
+        float maxValue;
+        float value;
+        int32_t layer;
+        uint32_t order;
+        uint8_t isInteractable;
+        uint8_t reserved0;
+        uint8_t reserved1;
+        uint8_t reserved2;
+    };
+
+    struct CueUiSliderStateData
+    {
+        float value;
+        uint8_t isHovered;
+        uint8_t isDragging;
+        uint8_t wasChanged;
+        uint8_t hasFocus;
     };
 
     /// @brief Script から参照できるキーボードキーです。
@@ -313,6 +675,32 @@ extern "C"
         const CueTransformData* a_transform
     );
 
+    /// @brief Transform の値を度数法の回転で取得します。
+    /// `position` と `scale` は通常の Transform と同じ単位です。
+    using CueGetTransformDegreesFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform
+    );
+
+    /// @brief Transform の値を度数法の回転で設定します。
+    /// `position` と `scale` は通常の Transform と同じ単位です。
+    using CueSetTransformDegreesFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform
+    );
+
+    /// @brief Transform の値をクォータニオン回転で取得します。
+    using CueGetTransformQuaternionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform
+    );
+
+    /// @brief Transform の値をクォータニオン回転で設定します。
+    using CueSetTransformQuaternionFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform
+    );
+
     /// @brief 指定キーが押されていれば 1、そうでなければ 0 を返します。
     using CuePushKeyFn = uint8_t (CUE_SCRIPT_CALL*)(CueKey a_key);
 
@@ -322,6 +710,31 @@ extern "C"
 
     using CuePushMouseButtonFn =
         uint8_t (CUE_SCRIPT_CALL*)(CueMouseButton a_button);
+
+    using CueGetUiButtonStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState
+    );
+
+    using CueGetUiCheckboxStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState
+    );
+
+    using CueSetUiCheckboxCheckedFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked
+    );
+
+    using CueGetUiSliderStateFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState
+    );
+
+    using CueSetUiSliderValueFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_value
+    );
 
     /// @brief Script DLL が利用可能な Script クラス名を Engine へ通知します。
     /// `a_scriptClassName` は UTF-8 の非所有文字列です。
@@ -470,6 +883,140 @@ extern "C"
         float a_durationSeconds
     );
 
+    using CueSpawnObjectFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueSpawnObjectDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle
+    );
+
+    using CueInstantiateEntityFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueInstantiateEntityDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle
+    );
+
+    using CueFindEntitiesByTagFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_tag,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueFindEntitiesByNameFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_name,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueTriggerOverlapsFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_triggerEntity,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueSphereOverlapFn = CueResult (CUE_SCRIPT_CALL*)(
+        const CueSphereOverlapDesc* a_desc,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount
+    );
+
+    using CueDestroyEntityFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
+    using CueGetCameraFovYFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float* a_outFovY
+    );
+
+    using CueSetCameraFovYFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_fovY
+    );
+
+    using CueAddOrSetComponentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueComponentKind a_componentKind,
+        const void* a_componentData,
+        uint32_t a_componentDataSize
+    );
+
+    using CueGetParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity
+    );
+
+    using CueSetParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform
+    );
+
+    using CueDetachParentFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform
+    );
+
+    using CueSetMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock
+    );
+
+    using CueGetMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock
+    );
+
+    using CueClearMaterialPropertyBlockFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle
+    );
+
+    using CueSetMaterialColorFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color
+    );
+
+    using CueSetMaterialShininessFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueEntityHandle a_entityHandle,
+        float a_shininess
+    );
+
+    using CueLoadJsonConfigFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle
+    );
+
+    using CueUnloadJsonConfigFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle
+    );
+
+    using CueGetJsonConfigBoolFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue
+    );
+
+    using CueGetJsonConfigIntFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue
+    );
+
+    using CueGetJsonConfigFloatFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue
+    );
+
+    using CueGetJsonConfigStringFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize
+    );
+
     /// @brief Engine から Script へ渡す関数テーブルです。
     /// 末尾拡張のみを許可します。
     struct CueEngineApi
@@ -541,6 +1088,72 @@ extern "C"
         CueDebugDrawSphereFn debugDrawSphere;
         /// v15 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueDebugDrawBoxFn debugDrawBox;
+        /// v16 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetTransformDegreesFn getTransformDegrees;
+        /// v16 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetTransformDegreesFn setTransformDegrees;
+        /// v17 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetTransformQuaternionFn getTransformQuaternion;
+        /// v17 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetTransformQuaternionFn setTransformQuaternion;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSpawnObjectFn spawnObject;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueInstantiateEntityFn instantiateEntity;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueFindEntitiesByTagFn findEntitiesByTag;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueFindEntitiesByNameFn findEntitiesByName;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueTriggerOverlapsFn triggerOverlaps;
+        /// v18 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSphereOverlapFn sphereOverlap;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDestroyEntityFn destroyEntity;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetCameraFovYFn getCameraFovY;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetCameraFovYFn setCameraFovY;
+        /// v20 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueAddOrSetComponentFn addOrSetComponent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetParentFn getParent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetParentFn setParent;
+        /// v21 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDetachParentFn detachParent;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialPropertyBlockFn setMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetMaterialPropertyBlockFn getMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueClearMaterialPropertyBlockFn clearMaterialPropertyBlock;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialColorFn setMaterialColor;
+        /// v22 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetMaterialShininessFn setMaterialShininess;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueLoadJsonConfigFn loadJsonConfig;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueUnloadJsonConfigFn unloadJsonConfig;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigBoolFn getJsonConfigBool;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigIntFn getJsonConfigInt;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigFloatFn getJsonConfigFloat;
+        /// v25 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetJsonConfigStringFn getJsonConfigString;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiButtonStateFn getUiButtonState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiCheckboxStateFn getUiCheckboxState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetUiCheckboxCheckedFn setUiCheckboxChecked;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueGetUiSliderStateFn getUiSliderState;
+        /// v26 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueSetUiSliderValueFn setUiSliderValue;
     };
 
     /// @brief Script インスタンス生成時の入力です。
@@ -578,6 +1191,12 @@ extern "C"
     using CueUpdateScriptInstanceFn = CueResult (CUE_SCRIPT_CALL*)(
         CueScriptInstanceHandle a_instanceHandle,
         float a_deltaTimeSeconds
+    );
+
+    using CueDispatchScriptCollisionEventFn = CueResult (CUE_SCRIPT_CALL*)(
+        CueScriptInstanceHandle a_instanceHandle,
+        CueScriptCollisionEventType a_eventType,
+        CueEntityHandle a_otherEntity
     );
 
     /// @brief ScriptInstance の state サイズを返します。
@@ -636,6 +1255,8 @@ extern "C"
         CueInvokeScriptFunctionFn invokeScriptFunction;
         /// v6 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
         CueGetScriptInstanceObjectFn getScriptInstanceObject;
+        /// v19 拡張です。`structSize` がこのメンバに届く場合だけ参照します。
+        CueDispatchScriptCollisionEventFn dispatchScriptCollisionEvent;
     };
 
     /// @brief Script DLL の ABI version を返します。

@@ -65,6 +65,37 @@ namespace Cue::ECS
             std::vector<std::byte> audioData{};
         };
 
+        [[nodiscard]] static uint16_t read_u16(
+            const std::byte* a_data) noexcept
+        {
+            return static_cast<uint16_t>(
+                static_cast<uint16_t>(std::to_integer<uint8_t>(a_data[0])) |
+                (static_cast<uint16_t>(
+                    std::to_integer<uint8_t>(a_data[1])) << 8));
+        }
+
+        [[nodiscard]] static uint32_t loop_length_samples(
+            const Audio::AudioFormatDesc& a_format,
+            size_t a_audioDataSize) noexcept
+        {
+            if (a_format.blockAlign == 0)
+            {
+                return 0;
+            }
+
+            const uint32_t blockCount = static_cast<uint32_t>(
+                a_audioDataSize / a_format.blockAlign);
+            if (a_format.formatTag == 2 &&
+                a_format.extraData.size() >= sizeof(uint16_t))
+            {
+                return blockCount *
+                    static_cast<uint32_t>(
+                        read_u16(a_format.extraData.data()));
+            }
+
+            return blockCount;
+        }
+
         void initialize_component(Entity a_entity,
             AudioSourceComponent& a_audioSource,
             const InitializeContext& a_context)
@@ -185,8 +216,9 @@ namespace Cue::ECS
                 sourceDesc.loopCount = k_loopInfinite;
                 if (sourceDesc.format.blockAlign > 0)
                 {
-                    sourceDesc.loopLength = static_cast<uint32_t>(
-                        soundData.audioData.size() / sourceDesc.format.blockAlign);
+                    sourceDesc.loopLength = loop_length_samples(
+                        sourceDesc.format,
+                        soundData.audioData.size());
                 }
             }
 

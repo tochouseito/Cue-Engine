@@ -17,6 +17,7 @@
 
 // === Engine includes ===
 #include "GameCoreTypes.h"
+#include <GpuData/Particle.h>
 
 // === C++ includes ===
 #include <cstdint>
@@ -46,6 +47,12 @@ namespace Cue::GameCore
 
 namespace Cue::ECS
 {
+    enum class AudioEncoding : uint8_t
+    {
+        Pcm,
+        Adpcm
+    };
+
     inline constexpr uint32_t k_invalidMeshId =
         (std::numeric_limits<uint32_t>::max)();
     inline constexpr uint32_t k_invalidRenderableId =
@@ -70,9 +77,187 @@ namespace Cue::ECS
         TransformComponent& operator=(const TransformComponent&) = default;
         TransformComponent(TransformComponent&&) = default;
         TransformComponent& operator=(TransformComponent&&) = default;
+        Math::Quaternion rotation = Math::Quaternion::identity();
         Math::float3 position = Math::float3::zero();
-        Math::float3 rotation = Math::float3::zero();
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
+    };
+
+    struct WorldTransformComponent : public IComponentTag
+    {
+        WorldTransformComponent() = default;
+        WorldTransformComponent(const WorldTransformComponent&) = default;
+        WorldTransformComponent& operator=(const WorldTransformComponent&) =
+            default;
+        WorldTransformComponent(WorldTransformComponent&&) = default;
+        WorldTransformComponent& operator=(WorldTransformComponent&&) =
+            default;
+        Math::Quaternion rotation = Math::Quaternion::identity();
+        Math::float3 position = Math::float3::zero();
+        Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
+    };
+
+    struct CanvasComponent : public IComponentTag
+    {
+        CanvasComponent() = default;
+        CanvasComponent(const CanvasComponent&) = default;
+        CanvasComponent& operator=(const CanvasComponent&) = default;
+        CanvasComponent(CanvasComponent&&) = default;
+        CanvasComponent& operator=(CanvasComponent&&) = default;
+        Math::float2 referenceSize = Math::float2(1920.0f, 1080.0f);
+        float scaleFactor = 1.0f;
+        int32_t sortOrder = 0;
+        bool matchesScreen = true;
+    };
+
+    struct UiRectTransformComponent : public IComponentTag
+    {
+        UiRectTransformComponent() = default;
+        UiRectTransformComponent(const UiRectTransformComponent&) = default;
+        UiRectTransformComponent& operator=(
+            const UiRectTransformComponent&) = default;
+        UiRectTransformComponent(UiRectTransformComponent&&) = default;
+        UiRectTransformComponent& operator=(
+            UiRectTransformComponent&&) = default;
+        Math::float2 anchorMin = Math::float2(0.5f, 0.5f);
+        Math::float2 anchorMax = Math::float2(0.5f, 0.5f);
+        Math::float2 pivot = Math::float2(0.5f, 0.5f);
+        Math::float2 anchoredPosition = Math::float2(0.0f, 0.0f);
+        Math::float2 sizeDelta = Math::float2(100.0f, 100.0f);
+        Math::float2 resolvedMin = Math::float2(0.0f, 0.0f);
+        Math::float2 resolvedSize = Math::float2(0.0f, 0.0f);
+        bool isResolved = false;
+    };
+
+    enum class UiLayoutDirection : uint8_t
+    {
+        Horizontal = 0,
+        Vertical = 1,
+    };
+
+    struct UiLayoutGroupComponent : public IComponentTag
+    {
+        UiLayoutGroupComponent() = default;
+        UiLayoutGroupComponent(const UiLayoutGroupComponent&) = default;
+        UiLayoutGroupComponent& operator=(
+            const UiLayoutGroupComponent&) = default;
+        UiLayoutGroupComponent(UiLayoutGroupComponent&&) = default;
+        UiLayoutGroupComponent& operator=(UiLayoutGroupComponent&&) = default;
+        Math::float4 padding = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float spacing = 0.0f;
+        UiLayoutDirection direction = UiLayoutDirection::Horizontal;
+        bool controlsChildSize = true;
+    };
+
+    enum class TextHorizontalAlign : uint8_t
+    {
+        Left = 0,
+        Center = 1,
+        Right = 2,
+    };
+
+    enum class TextVerticalAlign : uint8_t
+    {
+        Top = 0,
+        Middle = 1,
+        Bottom = 2,
+    };
+
+    struct TextRendererComponent : public IComponentTag
+    {
+        TextRendererComponent() = default;
+        TextRendererComponent(const TextRendererComponent&) = default;
+        TextRendererComponent& operator=(const TextRendererComponent&) = default;
+        TextRendererComponent(TextRendererComponent&&) = default;
+        TextRendererComponent& operator=(TextRendererComponent&&) = default;
+        std::string text{ "Text" };
+        std::string fontPath{};
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        uint32_t fontSize = 32;
+        int32_t layer = 100;
+        uint32_t order = 0;
+        TextHorizontalAlign horizontalAlign = TextHorizontalAlign::Left;
+        TextVerticalAlign verticalAlign = TextVerticalAlign::Top;
+        bool visible = true;
+    };
+
+    struct UiImageComponent : public IComponentTag
+    {
+        UiImageComponent() = default;
+        UiImageComponent(const UiImageComponent&) = default;
+        UiImageComponent& operator=(const UiImageComponent&) = default;
+        UiImageComponent(UiImageComponent&&) = default;
+        UiImageComponent& operator=(UiImageComponent&&) = default;
+        MaterialHandle materialHandle{};
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 uvRect = Math::float4(0.0f, 0.0f, 1.0f, 1.0f);
+        int32_t layer = 100;
+        uint32_t order = 0;
+        bool visible = true;
+        bool raycastTarget = false;
+    };
+
+    struct UiButtonComponent : public IComponentTag
+    {
+        UiButtonComponent() = default;
+        UiButtonComponent(const UiButtonComponent&) = default;
+        UiButtonComponent& operator=(const UiButtonComponent&) = default;
+        UiButtonComponent(UiButtonComponent&&) = default;
+        UiButtonComponent& operator=(UiButtonComponent&&) = default;
+        Math::float4 normalColor = Math::float4(0.18f, 0.20f, 0.23f, 1.0f);
+        Math::float4 hoverColor = Math::float4(0.25f, 0.29f, 0.34f, 1.0f);
+        Math::float4 pressedColor = Math::float4(0.10f, 0.13f, 0.16f, 1.0f);
+        Math::float4 disabledColor = Math::float4(0.08f, 0.08f, 0.09f, 0.75f);
+        int32_t layer = 110;
+        uint32_t order = 0;
+        bool isInteractable = true;
+        bool isHovered = false;
+        bool isPressed = false;
+        bool wasClicked = false;
+        bool hasFocus = false;
+    };
+
+    struct UiCheckboxComponent : public IComponentTag
+    {
+        UiCheckboxComponent() = default;
+        UiCheckboxComponent(const UiCheckboxComponent&) = default;
+        UiCheckboxComponent& operator=(const UiCheckboxComponent&) = default;
+        UiCheckboxComponent(UiCheckboxComponent&&) = default;
+        UiCheckboxComponent& operator=(UiCheckboxComponent&&) = default;
+        Math::float4 normalColor = Math::float4(0.18f, 0.20f, 0.23f, 1.0f);
+        Math::float4 hoverColor = Math::float4(0.25f, 0.29f, 0.34f, 1.0f);
+        Math::float4 checkColor = Math::float4(0.10f, 0.56f, 0.92f, 1.0f);
+        Math::float4 disabledColor = Math::float4(0.08f, 0.08f, 0.09f, 0.75f);
+        int32_t layer = 110;
+        uint32_t order = 0;
+        bool isInteractable = true;
+        bool isChecked = false;
+        bool isHovered = false;
+        bool isPressed = false;
+        bool wasChanged = false;
+        bool hasFocus = false;
+    };
+
+    struct UiSliderComponent : public IComponentTag
+    {
+        UiSliderComponent() = default;
+        UiSliderComponent(const UiSliderComponent&) = default;
+        UiSliderComponent& operator=(const UiSliderComponent&) = default;
+        UiSliderComponent(UiSliderComponent&&) = default;
+        UiSliderComponent& operator=(UiSliderComponent&&) = default;
+        Math::float4 trackColor = Math::float4(0.15f, 0.16f, 0.18f, 1.0f);
+        Math::float4 fillColor = Math::float4(0.10f, 0.56f, 0.92f, 1.0f);
+        Math::float4 handleColor = Math::float4(0.92f, 0.94f, 0.96f, 1.0f);
+        Math::float4 disabledColor = Math::float4(0.08f, 0.08f, 0.09f, 0.75f);
+        float minValue = 0.0f;
+        float maxValue = 1.0f;
+        float value = 0.0f;
+        int32_t layer = 110;
+        uint32_t order = 0;
+        bool isInteractable = true;
+        bool isHovered = false;
+        bool isDragging = false;
+        bool wasChanged = false;
+        bool hasFocus = false;
     };
 
     struct CameraComponent : public IComponentTag
@@ -89,6 +274,66 @@ namespace Cue::ECS
         float farZ = 1000.0f; // ファークリップ距離
     };
 
+    struct DirectionalLightComponent : public IComponentTag
+    {
+        DirectionalLightComponent() = default;
+        DirectionalLightComponent(const DirectionalLightComponent&) = default;
+        DirectionalLightComponent& operator=(
+            const DirectionalLightComponent&) = default;
+        DirectionalLightComponent(DirectionalLightComponent&&) = default;
+        DirectionalLightComponent& operator=(
+            DirectionalLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 1.0f, 1.0f);
+        float intensity = 1.0f;
+        float shadowBias = 0.001f;
+        float shadowSlopeBias = 0.002f;
+        float shadowSize = 40.0f;
+        float shadowDistance = 80.0f;
+        float shadowStrength = 0.75f;
+        float shadowSoftness = 1.0f;
+        bool isEnabled = true;
+        bool castsShadow = true;
+    };
+
+    struct PointLightComponent : public IComponentTag
+    {
+        PointLightComponent() = default;
+        PointLightComponent(const PointLightComponent&) = default;
+        PointLightComponent& operator=(const PointLightComponent&) = default;
+        PointLightComponent(PointLightComponent&&) = default;
+        PointLightComponent& operator=(PointLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 0.92f, 0.78f);
+        float intensity = 3.0f;
+        float range = 10.0f;
+        float shadowBias = 0.002f;
+        float shadowSlopeBias = 0.004f;
+        float shadowNearClip = 0.05f;
+        float shadowStrength = 0.75f;
+        float shadowSoftness = 1.0f;
+        bool isEnabled = true;
+        bool castsShadow = true;
+    };
+
+    struct SpotLightComponent : public IComponentTag
+    {
+        SpotLightComponent() = default;
+        SpotLightComponent(const SpotLightComponent&) = default;
+        SpotLightComponent& operator=(const SpotLightComponent&) = default;
+        SpotLightComponent(SpotLightComponent&&) = default;
+        SpotLightComponent& operator=(SpotLightComponent&&) = default;
+        Math::float3 color = Math::float3(1.0f, 0.95f, 0.84f);
+        float intensity = 5.0f;
+        float range = 12.0f;
+        float outerAngleDegrees = 35.0f;
+        float shadowBias = 0.002f;
+        float shadowSlopeBias = 0.004f;
+        float shadowNearClip = 0.05f;
+        float shadowStrength = 0.75f;
+        float shadowSoftness = 1.0f;
+        bool isEnabled = true;
+        bool castsShadow = true;
+    };
+
     struct MeshFilterComponent : public IComponentTag
     {
         MeshFilterComponent() = default;
@@ -100,6 +345,34 @@ namespace Cue::ECS
         uint32_t meshId = k_invalidMeshId; // StaticMeshPool に登録されたメッシュ ID
     };
 
+    enum class ShadowCasterMode : uint8_t
+    {
+        Solid = 0,
+        TwoSided = 1,
+    };
+
+    enum class RenderQueue : uint8_t
+    {
+        Opaque = 0,
+        Transparent = 1,
+        Auto = 2,
+    };
+
+    enum MaterialPropertyOverride : uint32_t
+    {
+        MaterialPropertyOverrideColor = 1u << 0,
+        MaterialPropertyOverrideShininess = 1u << 1,
+        MaterialPropertyOverrideReflectionSkybox = 1u << 2,
+    };
+
+    struct MaterialPropertyBlock final
+    {
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        float shininess = 32.0f;
+        uint32_t overrideMask = 0u;
+        bool usesReflectionSkybox = false;
+    };
+
     struct StaticMeshRendererComponent : public IComponentTag
     {
         StaticMeshRendererComponent() = default;
@@ -108,7 +381,49 @@ namespace Cue::ECS
         StaticMeshRendererComponent(StaticMeshRendererComponent&&) = default;
         StaticMeshRendererComponent& operator=(StaticMeshRendererComponent&&) = default;
         MaterialHandle materialHandle{}; // マテリアルアセットへの参照
+        MaterialPropertyBlock propertyBlock{};
+        RenderQueue renderQueue = RenderQueue::Auto;
+        ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
         bool visible = true;
+        bool castsShadow = true;
+        bool receivesShadow = true;
+    };
+
+    struct SkinnedMeshRendererComponent : public IComponentTag
+    {
+        SkinnedMeshRendererComponent() = default;
+        SkinnedMeshRendererComponent(const SkinnedMeshRendererComponent&) =
+            default;
+        SkinnedMeshRendererComponent& operator=(
+            const SkinnedMeshRendererComponent&) = default;
+        SkinnedMeshRendererComponent(SkinnedMeshRendererComponent&&) = default;
+        SkinnedMeshRendererComponent& operator=(
+            SkinnedMeshRendererComponent&&) = default;
+        MaterialHandle materialHandle{};
+        MaterialPropertyBlock propertyBlock{};
+        RenderQueue renderQueue = RenderQueue::Auto;
+        ShadowCasterMode shadowCasterMode = ShadowCasterMode::Solid;
+        bool visible = true;
+        bool castsShadow = true;
+        bool receivesShadow = true;
+    };
+
+    struct AnimationComponent : public IComponentTag
+    {
+        AnimationComponent() = default;
+        AnimationComponent(const AnimationComponent&) = default;
+        AnimationComponent& operator=(const AnimationComponent&) = default;
+        AnimationComponent(AnimationComponent&&) = default;
+        AnimationComponent& operator=(AnimationComponent&&) = default;
+        uint32_t animationIndex = Core::Native::k_invalidAnimationIndex;
+        uint32_t frame = 0;
+        float time = 0.0f;
+        float speed = 1.0f;
+        bool isPlaying = true;
+        bool loops = true;
+        std::vector<Math::float4x4> localPose{};
+        std::vector<Math::float4x4> modelPose{};
+        std::vector<Math::float4x4> skinPalette{};
     };
 
     struct SpriteRendererComponent : public IComponentTag
@@ -128,6 +443,43 @@ namespace Cue::ECS
         bool isVisible = true;
     };
 
+    enum class ParticleBillboardMode : uint32_t
+    {
+        View = 0
+    };
+
+    struct ParticleEmitterComponent : public IComponentTag
+    {
+        ParticleEmitterComponent() = default;
+        ParticleEmitterComponent(const ParticleEmitterComponent&) = default;
+        ParticleEmitterComponent& operator=(const ParticleEmitterComponent&) = default;
+        ParticleEmitterComponent(ParticleEmitterComponent&&) = default;
+        ParticleEmitterComponent& operator=(ParticleEmitterComponent&&) = default;
+
+        MaterialHandle materialHandle{};
+        Math::float4 startColor = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 endColor = Math::float4(1.0f, 1.0f, 1.0f, 0.0f);
+        Math::float3 velocityMin = Math::float3(-0.2f, 0.8f, -0.2f);
+        Math::float3 velocityMax = Math::float3(0.2f, 1.6f, 0.2f);
+        Math::float3 acceleration = Math::float3(0.0f, -0.4f, 0.0f);
+        float startSize = 0.15f;
+        float endSize = 0.0f;
+        float minLifetime = 0.75f;
+        float maxLifetime = 1.25f;
+        float emitRate = 32.0f;
+        uint32_t burstCount = 0;
+        uint32_t maxParticleCount = GpuData::k_defaultEmitterParticleCapacity;
+        uint32_t randomSeed = 1;
+        ParticleBillboardMode billboardMode = ParticleBillboardMode::View;
+        bool isPlaying = true;
+        bool isVisible = true;
+
+        uint32_t runtimeParticleBase = (std::numeric_limits<uint32_t>::max)();
+        uint32_t runtimeParticleCapacity = 0;
+        uint32_t runtimeSpawnCursor = 0;
+        float runtimeEmitAccumulator = 0.0f;
+    };
+
     struct AudioSourceComponent : public IComponentTag
     {
         AudioSourceComponent() = default;
@@ -136,6 +488,7 @@ namespace Cue::ECS
         AudioSourceComponent(AudioSourceComponent&&) = default;
         AudioSourceComponent& operator=(AudioSourceComponent&&) = default;
         std::string fileName{};
+        AudioEncoding encoding = AudioEncoding::Pcm;
         float spatialBlend = 0.0f;
         float volume = 1.0f;
         Audio::AudioSourceHandle sourceHandle{};

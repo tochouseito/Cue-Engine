@@ -10,8 +10,12 @@ namespace Cue::RHI
     {
         R8G8B8A8_UNORM,
         R8G8B8A8_UNORM_SRGB,
+        BC6H_UF16,
+        BC7_UNORM,
+        BC7_UNORM_SRGB,
         R32_UINT,
-        D24_UNorm_S8_UInt
+        D24_UNorm_S8_UInt,
+        R24_UNorm_X8_Typeless
     };
 
     inline const char* color_format_to_string(ColorFormat format) noexcept
@@ -20,8 +24,13 @@ namespace Cue::RHI
         {
         case ColorFormat::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
         case ColorFormat::R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
+        case ColorFormat::BC6H_UF16: return "BC6H_UF16";
+        case ColorFormat::BC7_UNORM: return "BC7_UNORM";
+        case ColorFormat::BC7_UNORM_SRGB: return "BC7_UNORM_SRGB";
         case ColorFormat::R32_UINT: return "R32_UINT";
         case ColorFormat::D24_UNorm_S8_UInt: return "D24_UNorm_S8_UInt";
+        case ColorFormat::R24_UNorm_X8_Typeless:
+            return "R24_UNorm_X8_Typeless";
         default: return "Unknown";
         }
     }
@@ -34,6 +43,10 @@ namespace Cue::RHI
         case ColorFormat::R8G8B8A8_UNORM_SRGB:
         case ColorFormat::R32_UINT:
             return 4;
+        case ColorFormat::BC6H_UF16:
+        case ColorFormat::BC7_UNORM:
+        case ColorFormat::BC7_UNORM_SRGB:
+            return 0;
         default:
             return 0;
         }
@@ -81,6 +94,7 @@ namespace Cue::RHI
         UnorderedAccessBuffer,
         UnorderedAccessRawBuffer,
         ShaderResourceTexture2D,
+        ShaderResourceTextureCube,
         UnorderedAccessTexture2D,
         RenderTarget,
         DepthStencil,

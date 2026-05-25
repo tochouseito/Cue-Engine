@@ -166,7 +166,7 @@ namespace Cue::ECS
             desc.shape.radius = (std::max)(a_collider.radius, 0.001f);
             desc.shape.halfHeight = (std::max)(a_collider.halfHeight, 0.001f);
             desc.position = a_transform.position + a_collider.offset;
-            desc.rotation = euler_to_quat(a_transform.rotation);
+            desc.rotation = to_float4(a_transform.rotation);
             desc.linearVelocity = a_rigidBody.linearVelocity;
             desc.angularVelocity = a_rigidBody.angularVelocity;
             desc.motion = a_rigidBody.motion;
@@ -228,26 +228,26 @@ namespace Cue::ECS
                 return result;
             }
 
-            for (const Core::Native::MeshData& mesh : modelData.meshes)
+            auto append_mesh =
+                [&a_outDesc](
+                    const Core::Native::MeshData& a_mesh,
+                    const Math::float4x4& a_matrix) -> Result
             {
                 const uint32_t vertexBase =
                     static_cast<uint32_t>(a_outDesc.vertices.size());
                 a_outDesc.vertices.reserve(
-                    a_outDesc.vertices.size() + mesh.positions.size());
-                for (const Math::float4& position : mesh.positions)
+                    a_outDesc.vertices.size() + a_mesh.positions.size());
+                for (const Math::float4& position : a_mesh.positions)
                 {
                     a_outDesc.vertices.push_back(
-                        Math::float3(
-                            position.x * a_transform.scale.x,
-                            position.y * a_transform.scale.y,
-                            position.z * a_transform.scale.z));
+                        transform_point(a_matrix, position));
                 }
 
                 a_outDesc.indices.reserve(
-                    a_outDesc.indices.size() + mesh.indices.size());
-                for (uint32_t index : mesh.indices)
+                    a_outDesc.indices.size() + a_mesh.indices.size());
+                for (uint32_t index : a_mesh.indices)
                 {
-                    if (index >= mesh.positions.size())
+                    if (index >= a_mesh.positions.size())
                     {
                         return Result::fail(
                             Code::InvalidArgument,
@@ -255,6 +255,44 @@ namespace Cue::ECS
                             "Mesh collider index is out of range.");
                     }
                     a_outDesc.indices.push_back(vertexBase + index);
+                }
+
+                return Result::ok();
+            };
+
+            const Math::float4x4 scaleMatrix =
+                Math::scale_matrix(a_transform.scale);
+            if (modelData.renderParts.empty())
+            {
+                for (const Core::Native::MeshData& mesh : modelData.meshes)
+                {
+                    result = append_mesh(mesh, scaleMatrix);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+            }
+            else
+            {
+                for (const Core::Native::ModelRenderPartData& renderPart :
+                    modelData.renderParts)
+                {
+                    if (renderPart.meshIndex >= modelData.meshes.size())
+                    {
+                        return Result::fail(
+                            Code::InvalidArgument,
+                            Severity::Error,
+                            "Mesh collider render part mesh index is out of range.");
+                    }
+
+                    result = append_mesh(
+                        modelData.meshes[renderPart.meshIndex],
+                        renderPart.localTransform * scaleMatrix);
+                    if (!result)
+                    {
+                        return result;
+                    }
                 }
             }
 
@@ -279,7 +317,7 @@ namespace Cue::ECS
 
             Physics::BodyTransform transform{};
             transform.position = a_transform.position + a_collider.offset;
-            transform.rotation = euler_to_quat(a_transform.rotation);
+            transform.rotation = to_float4(a_transform.rotation);
             const Result result = m_physicsSystem->set_body_transform(
                 a_rigidBody.body, transform, Physics::BodyActivation::Activate);
             if (!result)
@@ -310,7 +348,7 @@ namespace Cue::ECS
             }
 
             a_transform.position = transform.position - a_collider.offset;
-            a_transform.rotation = quat_to_euler(transform.rotation);
+            a_transform.rotation = to_quaternion(transform.rotation);
         }
 
         void destroy_body(RigidBodyComponent& a_rigidBody)
@@ -342,50 +380,45 @@ namespace Cue::ECS
                 (std::max)(a_halfExtent.z, 0.001f));
         }
 
-        [[nodiscard]] static Math::float4 euler_to_quat(
-            Math::float3 a_euler) noexcept
+        [[nodiscard]] static Math::float4 to_float4(
+            Math::Quaternion a_rotation) noexcept
         {
-            const float halfX = a_euler.x * 0.5f;
-            const float halfY = a_euler.y * 0.5f;
-            const float halfZ = a_euler.z * 0.5f;
-            const float sx = std::sin(halfX);
-            const float cx = std::cos(halfX);
-            const float sy = std::sin(halfY);
-            const float cy = std::cos(halfY);
-            const float sz = std::sin(halfZ);
-            const float cz = std::cos(halfZ);
-
-            Math::float4 result{};
-            result.x = sx * cy * cz + cx * sy * sz;
-            result.y = cx * sy * cz - sx * cy * sz;
-            result.z = cx * cy * sz + sx * sy * cz;
-            result.w = cx * cy * cz - sx * sy * sz;
-            return result;
+            const Math::Quaternion rotation =
+                Math::Quaternion::normalize(a_rotation);
+            return Math::float4(
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w);
         }
 
-        [[nodiscard]] static Math::float3 quat_to_euler(
+        [[nodiscard]] static Math::float3 transform_point(
+            const Math::float4x4& a_matrix,
+            const Math::float4& a_point) noexcept
+        {
+            return Math::float3(
+                a_point.x * a_matrix.values[0][0] +
+                    a_point.y * a_matrix.values[1][0] +
+                    a_point.z * a_matrix.values[2][0] +
+                    a_point.w * a_matrix.values[3][0],
+                a_point.x * a_matrix.values[0][1] +
+                    a_point.y * a_matrix.values[1][1] +
+                    a_point.z * a_matrix.values[2][1] +
+                    a_point.w * a_matrix.values[3][1],
+                a_point.x * a_matrix.values[0][2] +
+                    a_point.y * a_matrix.values[1][2] +
+                    a_point.z * a_matrix.values[2][2] +
+                    a_point.w * a_matrix.values[3][2]);
+        }
+
+        [[nodiscard]] static Math::Quaternion to_quaternion(
             Math::float4 a_quat) noexcept
         {
-            const float sinRollCosPitch =
-                2.0f * (a_quat.w * a_quat.x + a_quat.y * a_quat.z);
-            const float cosRollCosPitch =
-                1.0f - 2.0f * (a_quat.x * a_quat.x + a_quat.y * a_quat.y);
-            const float roll = std::atan2(sinRollCosPitch, cosRollCosPitch);
-
-            const float sinPitch =
-                2.0f * (a_quat.w * a_quat.y - a_quat.z * a_quat.x);
-            const float pitch =
-                std::abs(sinPitch) >= 1.0f
-                ? std::copysign(Math::k_pi * 0.5f, sinPitch)
-                : std::asin(sinPitch);
-
-            const float sinYawCosPitch =
-                2.0f * (a_quat.w * a_quat.z + a_quat.x * a_quat.y);
-            const float cosYawCosPitch =
-                1.0f - 2.0f * (a_quat.y * a_quat.y + a_quat.z * a_quat.z);
-            const float yaw = std::atan2(sinYawCosPitch, cosYawCosPitch);
-
-            return Math::float3(roll, pitch, yaw);
+            return Math::Quaternion::normalize(Math::Quaternion(
+                a_quat.x,
+                a_quat.y,
+                a_quat.z,
+                a_quat.w));
         }
 
     private:

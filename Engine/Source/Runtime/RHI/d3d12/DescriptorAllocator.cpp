@@ -574,6 +574,31 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
+    Result DescriptorAllocator::create_srv_texture_cube(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice, uint32_t mipLevels)
+    {
+        if (!id.valid())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
+        }
+        if (resource == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Texture resource is null.");
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
+        desc.Format = format;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        desc.TextureCube.MostDetailedMip = mipSlice;
+        desc.TextureCube.MipLevels = mipLevels;
+        desc.TextureCube.ResourceMinLODClamp = 0.0f;
+
+        auto cpuH = get_cpu_handle(id);
+        m_device.CreateShaderResourceView(resource->get_resource(), &desc, cpuH);
+        copy_to_gpu_heap(id);
+        return Result::ok();
+    }
+
     Result DescriptorAllocator::create_uav_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
     {
         // 1) UAV texture は単一 mip に対してだけ張れるので、対象 slice のみを受け付ける。

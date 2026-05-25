@@ -42,6 +42,7 @@ namespace Cue::RHI
     enum class InputElementFormat : uint8_t
     {
         R32G32B32A32_Float,
+        R32G32B32A32_UInt,
         R32G32B32_Float,
         R32G32_Float,
         R32_Float,
@@ -79,6 +80,9 @@ namespace Cue::RHI
     {
         CullMode cullMode = CullMode::Back;
         FillMode fillMode = FillMode::Solid;
+        float depthBiasClamp = 0.0f;
+        float slopeScaledDepthBias = 0.0f;
+        int32_t depthBias = 0;
     };
 
     enum class DepthWriteMask : uint8_t

@@ -26,12 +26,19 @@ namespace Cue::PAL::Win
             return m_delta;
         }
 
+        [[nodiscard]] MousePosition position() const noexcept override
+        {
+            return m_position;
+        }
+
         [[nodiscard]] bool is_button_down(MouseButton a_button) const noexcept override;
 
     private:
         std::array<std::uint8_t, static_cast<size_t>(MouseButton::Count)>
             m_buttonStates{};
+        HWND m_windowHandle = nullptr;
         MouseDelta m_delta{};
+        MousePosition m_position{};
         Microsoft::WRL::ComPtr<IDirectInput8W> m_directInput = nullptr;
         Microsoft::WRL::ComPtr<IDirectInputDevice8W> m_mouseDevice = nullptr;
     };

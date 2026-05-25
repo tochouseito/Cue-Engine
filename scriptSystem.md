@@ -55,6 +55,8 @@ Script 側が触るのは、内部 Component の実体ではなく、安定し�
 - `get_transform(EntityHandle, CueTransformData*)`
 - `set_transform(EntityHandle, const CueTransformData*)`
 
+`CueTransformData::rotation` は通常の Transform API では弧度法、Degrees API では度数法の Euler 回転として扱います。
+
 この形にしておけば、内部の ECS 実装や Component レイアウトを変更しても、Script 側の契約を保ちやすくなります。
 
 ### 1.4 この方式を採用する理由

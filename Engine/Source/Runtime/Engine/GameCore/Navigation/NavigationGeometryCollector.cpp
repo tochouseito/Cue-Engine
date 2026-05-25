@@ -101,41 +101,79 @@ namespace Cue::GameCore
             ? k_fnvOffset
             : a_outInput.sourceGeometryHash;
 
-        for (const Core::Native::MeshData& mesh : a_modelData.meshes)
+        auto append_mesh =
+            [&a_outInput, &hash, a_area](
+                const Core::Native::MeshData& a_mesh,
+                const Math::float4x4& a_matrix) -> Result
         {
-            if (mesh.indices.empty() || mesh.positions.empty())
+            if (a_mesh.indices.empty() || a_mesh.positions.empty())
             {
-                continue;
+                return Result::ok();
             }
 
-            if ((mesh.indices.size() % 3u) != 0u)
+            if ((a_mesh.indices.size() % 3u) != 0u)
             {
                 return Result::fail(Code::InvalidArgument, Severity::Error,
                     "Navigation source mesh index count must be a multiple of 3.");
             }
 
             a_outInput.triangles.reserve(
-                a_outInput.triangles.size() + mesh.indices.size() / 3u);
+                a_outInput.triangles.size() + a_mesh.indices.size() / 3u);
 
-            for (size_t index = 0; index < mesh.indices.size(); index += 3u)
+            for (size_t index = 0; index < a_mesh.indices.size(); index += 3u)
             {
-                const uint32_t i0 = mesh.indices[index];
-                const uint32_t i1 = mesh.indices[index + 1u];
-                const uint32_t i2 = mesh.indices[index + 2u];
-                if (i0 >= mesh.positions.size() || i1 >= mesh.positions.size() ||
-                    i2 >= mesh.positions.size())
+                const uint32_t i0 = a_mesh.indices[index];
+                const uint32_t i1 = a_mesh.indices[index + 1u];
+                const uint32_t i2 = a_mesh.indices[index + 2u];
+                if (i0 >= a_mesh.positions.size() ||
+                    i1 >= a_mesh.positions.size() ||
+                    i2 >= a_mesh.positions.size())
                 {
                     return Result::fail(Code::InvalidArgument, Severity::Error,
                         "Navigation source mesh index is out of range.");
                 }
 
                 NavMeshTriangle triangle{};
-                triangle.v0 = transform_point(worldMatrix, mesh.positions[i0]);
-                triangle.v1 = transform_point(worldMatrix, mesh.positions[i1]);
-                triangle.v2 = transform_point(worldMatrix, mesh.positions[i2]);
+                triangle.v0 = transform_point(a_matrix, a_mesh.positions[i0]);
+                triangle.v1 = transform_point(a_matrix, a_mesh.positions[i1]);
+                triangle.v2 = transform_point(a_matrix, a_mesh.positions[i2]);
                 triangle.area = a_area;
                 hash_triangle(hash, triangle);
                 a_outInput.triangles.push_back(triangle);
+            }
+
+            return Result::ok();
+        };
+
+        if (a_modelData.renderParts.empty())
+        {
+            for (const Core::Native::MeshData& mesh : a_modelData.meshes)
+            {
+                Result result = append_mesh(mesh, worldMatrix);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+        else
+        {
+            for (const Core::Native::ModelRenderPartData& renderPart :
+                a_modelData.renderParts)
+            {
+                if (renderPart.meshIndex >= a_modelData.meshes.size())
+                {
+                    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "Navigation source render part mesh index is out of range.");
+                }
+
+                Result result = append_mesh(
+                    a_modelData.meshes[renderPart.meshIndex],
+                    renderPart.localTransform * worldMatrix);
+                if (!result)
+                {
+                    return result;
+                }
             }
         }
 

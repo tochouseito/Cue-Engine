@@ -18,6 +18,20 @@ namespace Cue::GameCore
     {
         using Json = nlohmann::json;
 
+        [[nodiscard]] Json serialize_float2(const Math::float2& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+            };
+        }
+
+        void deserialize_float2(const Json& a_json, Math::float2& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+        }
+
         [[nodiscard]] Json serialize_float3(const Math::float3& a_value)
         {
             return Json{
@@ -32,6 +46,100 @@ namespace Cue::GameCore
             a_outValue.x = a_json.at("x").get<float>();
             a_outValue.y = a_json.at("y").get<float>();
             a_outValue.z = a_json.at("z").get<float>();
+        }
+
+        [[nodiscard]] Json serialize_float4(const Math::float4& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+                { "z", a_value.z },
+                { "w", a_value.w },
+            };
+        }
+
+        void deserialize_float4(const Json& a_json, Math::float4& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+            a_outValue.z = a_json.at("z").get<float>();
+            a_outValue.w = a_json.at("w").get<float>();
+        }
+
+        [[nodiscard]] Json serialize_quaternion(
+            const Math::Quaternion& a_value)
+        {
+            return Json{
+                { "x", a_value.x },
+                { "y", a_value.y },
+                { "z", a_value.z },
+                { "w", a_value.w },
+            };
+        }
+
+        void deserialize_quaternion(
+            const Json& a_json,
+            Math::Quaternion& a_outValue)
+        {
+            a_outValue.x = a_json.at("x").get<float>();
+            a_outValue.y = a_json.at("y").get<float>();
+            a_outValue.z = a_json.at("z").get<float>();
+            a_outValue.w = a_json.at("w").get<float>();
+            a_outValue.normalize();
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::ShadowCasterMode a_mode) noexcept
+        {
+            switch (a_mode)
+            {
+            case ECS::ShadowCasterMode::Solid:
+                return "Solid";
+            case ECS::ShadowCasterMode::TwoSided:
+                return "TwoSided";
+            default:
+                return "Solid";
+            }
+        }
+
+        [[nodiscard]] ECS::ShadowCasterMode shadow_caster_mode_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "TwoSided")
+            {
+                return ECS::ShadowCasterMode::TwoSided;
+            }
+
+            return ECS::ShadowCasterMode::Solid;
+        }
+
+        [[nodiscard]] const char* to_string(ECS::RenderQueue a_queue) noexcept
+        {
+            switch (a_queue)
+            {
+            case ECS::RenderQueue::Opaque:
+                return "Opaque";
+            case ECS::RenderQueue::Transparent:
+                return "Transparent";
+            case ECS::RenderQueue::Auto:
+            default:
+                return "Auto";
+            }
+        }
+
+        [[nodiscard]] ECS::RenderQueue render_queue_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Opaque")
+            {
+                return ECS::RenderQueue::Opaque;
+            }
+            if (a_value == "Transparent")
+            {
+                return ECS::RenderQueue::Transparent;
+            }
+
+            return ECS::RenderQueue::Auto;
         }
 
         [[nodiscard]] const char* to_string(
@@ -104,12 +212,39 @@ namespace Cue::GameCore
             return Physics::ShapeType::Box;
         }
 
+        [[nodiscard]] const char* to_string(
+            ECS::ParticleBillboardMode a_mode) noexcept
+        {
+            switch (a_mode)
+            {
+            case ECS::ParticleBillboardMode::View:
+                return "View";
+            }
+
+            return "View";
+        }
+
+        [[nodiscard]] ECS::ParticleBillboardMode parse_particle_billboard_mode(
+            const Json& a_json) noexcept
+        {
+            const std::string modeName = a_json.get<std::string>();
+            if (modeName == "View")
+            {
+                return ECS::ParticleBillboardMode::View;
+            }
+
+            return ECS::ParticleBillboardMode::View;
+        }
+
         [[nodiscard]] Json serialize_transform(
             const ECS::TransformComponent& a_component)
         {
             return Json{
                 { "position", serialize_float3(a_component.position) },
-                { "rotation", serialize_float3(a_component.rotation) },
+                { "rotation", serialize_float3(
+                    Math::quaternion_to_euler_xyz(a_component.rotation)) },
+                { "rotationQuaternion",
+                    serialize_quaternion(a_component.rotation) },
                 { "scale", serialize_float3(a_component.scale) },
             };
         }
@@ -118,7 +253,21 @@ namespace Cue::GameCore
             const Json& a_json, ECS::TransformComponent& a_outComponent)
         {
             deserialize_float3(a_json.at("position"), a_outComponent.position);
-            deserialize_float3(a_json.at("rotation"), a_outComponent.rotation);
+            if (const Json::const_iterator rotationQuaternionIt =
+                a_json.find("rotationQuaternion");
+                rotationQuaternionIt != a_json.end())
+            {
+                deserialize_quaternion(
+                    *rotationQuaternionIt,
+                    a_outComponent.rotation);
+            }
+            else
+            {
+                Math::float3 rotationRadians = Math::float3::zero();
+                deserialize_float3(a_json.at("rotation"), rotationRadians);
+                a_outComponent.rotation =
+                    Math::quaternion_from_euler_xyz(rotationRadians);
+            }
             deserialize_float3(a_json.at("scale"), a_outComponent.scale);
         }
 
@@ -251,6 +400,617 @@ namespace Cue::GameCore
             a_outComponent.aspectRatio = a_json.at("aspectRatio").get<float>();
             a_outComponent.nearZ = a_json.at("nearZ").get<float>();
             a_outComponent.farZ = a_json.at("farZ").get<float>();
+        }
+
+        [[nodiscard]] Json serialize_canvas(
+            const ECS::CanvasComponent& a_component)
+        {
+            return Json{
+                { "referenceSize", serialize_float2(a_component.referenceSize) },
+                { "scaleFactor", a_component.scaleFactor },
+                { "sortOrder", a_component.sortOrder },
+                { "matchesScreen", a_component.matchesScreen },
+            };
+        }
+
+        void deserialize_canvas(
+            const Json& a_json,
+            ECS::CanvasComponent& a_outComponent)
+        {
+            if (const Json::const_iterator sizeIt =
+                    a_json.find("referenceSize");
+                sizeIt != a_json.end())
+            {
+                deserialize_float2(*sizeIt, a_outComponent.referenceSize);
+            }
+            a_outComponent.scaleFactor =
+                a_json.value("scaleFactor", a_outComponent.scaleFactor);
+            a_outComponent.sortOrder =
+                a_json.value("sortOrder", a_outComponent.sortOrder);
+            a_outComponent.matchesScreen =
+                a_json.value("matchesScreen", a_outComponent.matchesScreen);
+        }
+
+        [[nodiscard]] Json serialize_ui_rect_transform(
+            const ECS::UiRectTransformComponent& a_component)
+        {
+            return Json{
+                { "anchorMin", serialize_float2(a_component.anchorMin) },
+                { "anchorMax", serialize_float2(a_component.anchorMax) },
+                { "pivot", serialize_float2(a_component.pivot) },
+                { "anchoredPosition",
+                    serialize_float2(a_component.anchoredPosition) },
+                { "sizeDelta", serialize_float2(a_component.sizeDelta) },
+            };
+        }
+
+        void deserialize_ui_rect_transform(
+            const Json& a_json,
+            ECS::UiRectTransformComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("anchorMin");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchorMin);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("anchorMax");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchorMax);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("pivot");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.pivot);
+            }
+            if (const Json::const_iterator valueIt =
+                    a_json.find("anchoredPosition");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.anchoredPosition);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("sizeDelta");
+                valueIt != a_json.end())
+            {
+                deserialize_float2(*valueIt, a_outComponent.sizeDelta);
+            }
+            a_outComponent.resolvedMin = Math::float2(0.0f, 0.0f);
+            a_outComponent.resolvedSize = Math::float2(0.0f, 0.0f);
+            a_outComponent.isResolved = false;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::UiLayoutDirection a_direction) noexcept
+        {
+            switch (a_direction)
+            {
+            case ECS::UiLayoutDirection::Horizontal:
+                return "Horizontal";
+            case ECS::UiLayoutDirection::Vertical:
+                return "Vertical";
+            }
+
+            return "Horizontal";
+        }
+
+        [[nodiscard]] ECS::UiLayoutDirection ui_layout_direction_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Vertical")
+            {
+                return ECS::UiLayoutDirection::Vertical;
+            }
+
+            return ECS::UiLayoutDirection::Horizontal;
+        }
+
+        [[nodiscard]] Json serialize_ui_layout_group(
+            const ECS::UiLayoutGroupComponent& a_component)
+        {
+            return Json{
+                { "padding", serialize_float4(a_component.padding) },
+                { "spacing", a_component.spacing },
+                { "direction", to_string(a_component.direction) },
+                { "controlsChildSize", a_component.controlsChildSize },
+            };
+        }
+
+        void deserialize_ui_layout_group(
+            const Json& a_json,
+            ECS::UiLayoutGroupComponent& a_outComponent)
+        {
+            if (const Json::const_iterator paddingIt = a_json.find("padding");
+                paddingIt != a_json.end())
+            {
+                deserialize_float4(*paddingIt, a_outComponent.padding);
+            }
+            a_outComponent.spacing =
+                a_json.value("spacing", a_outComponent.spacing);
+            a_outComponent.direction = ui_layout_direction_from_string(
+                a_json.value("direction",
+                    std::string(to_string(a_outComponent.direction))));
+            a_outComponent.controlsChildSize =
+                a_json.value("controlsChildSize",
+                    a_outComponent.controlsChildSize);
+        }
+
+        [[nodiscard]] Json serialize_ui_image(
+            const ECS::UiImageComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            Json imageJson = {
+                { "color", serialize_float4(a_component.color) },
+                { "uvRect", serialize_float4(a_component.uvRect) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "visible", a_component.visible },
+                { "raycastTarget", a_component.raycastTarget },
+            };
+
+            if (!a_component.materialHandle.valid())
+            {
+                return imageJson;
+            }
+
+            if (a_options.assetManager != nullptr)
+            {
+                std::string materialName{};
+                if (a_options.assetManager->get_material_name(
+                    a_component.materialHandle,
+                    materialName))
+                {
+                    imageJson["materialName"] = materialName;
+                    return imageJson;
+                }
+            }
+
+            imageJson["materialHandleIndex"] = a_component.materialHandle.index;
+            imageJson["materialHandleGeneration"] =
+                a_component.materialHandle.generation;
+            return imageJson;
+        }
+
+        void deserialize_ui_image(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::UiImageComponent& a_outComponent)
+        {
+            a_outComponent.materialHandle = {};
+            const std::string materialName =
+                a_json.value("materialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(materialName, materialHandle))
+                {
+                    a_outComponent.materialHandle = materialHandle;
+                }
+            }
+
+            if (!a_outComponent.materialHandle.valid())
+            {
+                a_outComponent.materialHandle.index =
+                    a_json.value("materialHandleIndex", MaterialHandle::k_invalid);
+                a_outComponent.materialHandle.generation =
+                    a_json.value("materialHandleGeneration", 0u);
+            }
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.color);
+            }
+            if (const Json::const_iterator uvIt = a_json.find("uvRect");
+                uvIt != a_json.end())
+            {
+                deserialize_float4(*uvIt, a_outComponent.uvRect);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.visible = a_json.value("visible", a_outComponent.visible);
+            a_outComponent.raycastTarget =
+                a_json.value("raycastTarget", a_outComponent.raycastTarget);
+        }
+
+        [[nodiscard]] Json serialize_ui_button(
+            const ECS::UiButtonComponent& a_component)
+        {
+            return Json{
+                { "normalColor", serialize_float4(a_component.normalColor) },
+                { "hoverColor", serialize_float4(a_component.hoverColor) },
+                { "pressedColor", serialize_float4(a_component.pressedColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+            };
+        }
+
+        void deserialize_ui_button(
+            const Json& a_json,
+            ECS::UiButtonComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("normalColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.normalColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("hoverColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.hoverColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("pressedColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.pressedColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isHovered = false;
+            a_outComponent.isPressed = false;
+            a_outComponent.wasClicked = false;
+            a_outComponent.hasFocus = false;
+        }
+
+        [[nodiscard]] Json serialize_ui_checkbox(
+            const ECS::UiCheckboxComponent& a_component)
+        {
+            return Json{
+                { "normalColor", serialize_float4(a_component.normalColor) },
+                { "hoverColor", serialize_float4(a_component.hoverColor) },
+                { "checkColor", serialize_float4(a_component.checkColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+                { "isChecked", a_component.isChecked },
+            };
+        }
+
+        void deserialize_ui_checkbox(
+            const Json& a_json,
+            ECS::UiCheckboxComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("normalColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.normalColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("hoverColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.hoverColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("checkColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.checkColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isChecked =
+                a_json.value("isChecked", a_outComponent.isChecked);
+            a_outComponent.isHovered = false;
+            a_outComponent.isPressed = false;
+            a_outComponent.wasChanged = false;
+            a_outComponent.hasFocus = false;
+        }
+
+        [[nodiscard]] Json serialize_ui_slider(
+            const ECS::UiSliderComponent& a_component)
+        {
+            return Json{
+                { "trackColor", serialize_float4(a_component.trackColor) },
+                { "fillColor", serialize_float4(a_component.fillColor) },
+                { "handleColor", serialize_float4(a_component.handleColor) },
+                { "disabledColor", serialize_float4(a_component.disabledColor) },
+                { "minValue", a_component.minValue },
+                { "maxValue", a_component.maxValue },
+                { "value", a_component.value },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "isInteractable", a_component.isInteractable },
+            };
+        }
+
+        void deserialize_ui_slider(
+            const Json& a_json,
+            ECS::UiSliderComponent& a_outComponent)
+        {
+            if (const Json::const_iterator valueIt = a_json.find("trackColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.trackColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("fillColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.fillColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("handleColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.handleColor);
+            }
+            if (const Json::const_iterator valueIt = a_json.find("disabledColor");
+                valueIt != a_json.end())
+            {
+                deserialize_float4(*valueIt, a_outComponent.disabledColor);
+            }
+            a_outComponent.minValue =
+                a_json.value("minValue", a_outComponent.minValue);
+            a_outComponent.maxValue =
+                a_json.value("maxValue", a_outComponent.maxValue);
+            a_outComponent.value = a_json.value("value", a_outComponent.value);
+            a_outComponent.layer = a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order = a_json.value("order", a_outComponent.order);
+            a_outComponent.isInteractable =
+                a_json.value("isInteractable", a_outComponent.isInteractable);
+            a_outComponent.isHovered = false;
+            a_outComponent.isDragging = false;
+            a_outComponent.wasChanged = false;
+            a_outComponent.hasFocus = false;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::TextHorizontalAlign a_align) noexcept
+        {
+            switch (a_align)
+            {
+            case ECS::TextHorizontalAlign::Center:
+                return "Center";
+            case ECS::TextHorizontalAlign::Right:
+                return "Right";
+            case ECS::TextHorizontalAlign::Left:
+            default:
+                return "Left";
+            }
+        }
+
+        [[nodiscard]] ECS::TextHorizontalAlign text_horizontal_align_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Center")
+            {
+                return ECS::TextHorizontalAlign::Center;
+            }
+            if (a_value == "Right")
+            {
+                return ECS::TextHorizontalAlign::Right;
+            }
+            return ECS::TextHorizontalAlign::Left;
+        }
+
+        [[nodiscard]] const char* to_string(
+            ECS::TextVerticalAlign a_align) noexcept
+        {
+            switch (a_align)
+            {
+            case ECS::TextVerticalAlign::Middle:
+                return "Middle";
+            case ECS::TextVerticalAlign::Bottom:
+                return "Bottom";
+            case ECS::TextVerticalAlign::Top:
+            default:
+                return "Top";
+            }
+        }
+
+        [[nodiscard]] ECS::TextVerticalAlign text_vertical_align_from_string(
+            const std::string& a_value) noexcept
+        {
+            if (a_value == "Middle")
+            {
+                return ECS::TextVerticalAlign::Middle;
+            }
+            if (a_value == "Bottom")
+            {
+                return ECS::TextVerticalAlign::Bottom;
+            }
+            return ECS::TextVerticalAlign::Top;
+        }
+
+        [[nodiscard]] Json serialize_text_renderer(
+            const ECS::TextRendererComponent& a_component)
+        {
+            return Json{
+                { "text", a_component.text },
+                { "fontPath", a_component.fontPath },
+                { "color", serialize_float4(a_component.color) },
+                { "fontSize", a_component.fontSize },
+                { "layer", a_component.layer },
+                { "order", a_component.order },
+                { "horizontalAlign", to_string(a_component.horizontalAlign) },
+                { "verticalAlign", to_string(a_component.verticalAlign) },
+                { "visible", a_component.visible },
+            };
+        }
+
+        void deserialize_text_renderer(
+            const Json& a_json,
+            ECS::TextRendererComponent& a_outComponent)
+        {
+            a_outComponent.text = a_json.value("text", a_outComponent.text);
+            a_outComponent.fontPath =
+                a_json.value("fontPath", a_outComponent.fontPath);
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.fontSize =
+                a_json.value("fontSize", a_outComponent.fontSize);
+            a_outComponent.layer =
+                a_json.value("layer", a_outComponent.layer);
+            a_outComponent.order =
+                a_json.value("order", a_outComponent.order);
+            a_outComponent.horizontalAlign = text_horizontal_align_from_string(
+                a_json.value(
+                    "horizontalAlign",
+                    std::string(to_string(a_outComponent.horizontalAlign))));
+            a_outComponent.verticalAlign = text_vertical_align_from_string(
+                a_json.value(
+                    "verticalAlign",
+                    std::string(to_string(a_outComponent.verticalAlign))));
+            a_outComponent.visible =
+                a_json.value("visible", a_outComponent.visible);
+        }
+
+        [[nodiscard]] Json serialize_directional_light(
+            const ECS::DirectionalLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
+                { "shadowSize", a_component.shadowSize },
+                { "shadowDistance", a_component.shadowDistance },
+                { "shadowStrength", a_component.shadowStrength },
+                { "shadowSoftness", a_component.shadowSoftness },
+                { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
+            };
+        }
+
+        void deserialize_directional_light(
+            const Json& a_json,
+            ECS::DirectionalLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
+            a_outComponent.shadowSize =
+                a_json.value("shadowSize", a_outComponent.shadowSize);
+            a_outComponent.shadowDistance =
+                a_json.value("shadowDistance", a_outComponent.shadowDistance);
+            a_outComponent.shadowStrength =
+                a_json.value("shadowStrength", a_outComponent.shadowStrength);
+            a_outComponent.shadowSoftness =
+                a_json.value("shadowSoftness", a_outComponent.shadowSoftness);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
+        }
+
+        [[nodiscard]] Json serialize_point_light(
+            const ECS::PointLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "range", a_component.range },
+                { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
+                { "shadowNearClip", a_component.shadowNearClip },
+                { "shadowStrength", a_component.shadowStrength },
+                { "shadowSoftness", a_component.shadowSoftness },
+                { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
+            };
+        }
+
+        void deserialize_point_light(
+            const Json& a_json,
+            ECS::PointLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.range = a_json.value("range", a_outComponent.range);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
+            a_outComponent.shadowNearClip =
+                a_json.value("shadowNearClip", a_outComponent.shadowNearClip);
+            a_outComponent.shadowStrength =
+                a_json.value("shadowStrength", a_outComponent.shadowStrength);
+            a_outComponent.shadowSoftness =
+                a_json.value("shadowSoftness", a_outComponent.shadowSoftness);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
+        }
+
+        [[nodiscard]] Json serialize_spot_light(
+            const ECS::SpotLightComponent& a_component)
+        {
+            return Json{
+                { "color", serialize_float3(a_component.color) },
+                { "intensity", a_component.intensity },
+                { "range", a_component.range },
+                { "outerAngleDegrees", a_component.outerAngleDegrees },
+                { "shadowBias", a_component.shadowBias },
+                { "shadowSlopeBias", a_component.shadowSlopeBias },
+                { "shadowNearClip", a_component.shadowNearClip },
+                { "shadowStrength", a_component.shadowStrength },
+                { "shadowSoftness", a_component.shadowSoftness },
+                { "isEnabled", a_component.isEnabled },
+                { "castsShadow", a_component.castsShadow },
+            };
+        }
+
+        void deserialize_spot_light(
+            const Json& a_json,
+            ECS::SpotLightComponent& a_outComponent)
+        {
+            if (const Json::const_iterator colorIt = a_json.find("color");
+                colorIt != a_json.end())
+            {
+                deserialize_float3(*colorIt, a_outComponent.color);
+            }
+            a_outComponent.intensity =
+                a_json.value("intensity", a_outComponent.intensity);
+            a_outComponent.range = a_json.value("range", a_outComponent.range);
+            a_outComponent.outerAngleDegrees =
+                a_json.value("outerAngleDegrees",
+                    a_outComponent.outerAngleDegrees);
+            a_outComponent.shadowBias =
+                a_json.value("shadowBias", a_outComponent.shadowBias);
+            a_outComponent.shadowSlopeBias =
+                a_json.value("shadowSlopeBias",
+                    a_outComponent.shadowSlopeBias);
+            a_outComponent.shadowNearClip =
+                a_json.value("shadowNearClip", a_outComponent.shadowNearClip);
+            a_outComponent.shadowStrength =
+                a_json.value("shadowStrength", a_outComponent.shadowStrength);
+            a_outComponent.shadowSoftness =
+                a_json.value("shadowSoftness", a_outComponent.shadowSoftness);
+            a_outComponent.isEnabled =
+                a_json.value("isEnabled", a_outComponent.isEnabled);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
         }
 
         [[nodiscard]] Json serialize_first_person_camera_controller(
@@ -510,6 +1270,10 @@ namespace Cue::GameCore
         {
             Json rendererJson = {
                 { "visible", a_component.visible },
+                { "castsShadow", a_component.castsShadow },
+                { "receivesShadow", a_component.receivesShadow },
+                { "renderQueue", to_string(a_component.renderQueue) },
+                { "shadowCasterMode", to_string(a_component.shadowCasterMode) },
             };
 
             if (!a_component.materialHandle.valid())
@@ -566,7 +1330,222 @@ namespace Cue::GameCore
                     a_outComponent.materialHandle.generation = 0u;
                 }
             }
-            a_outComponent.visible = a_json.at("visible").get<bool>();
+            a_outComponent.visible =
+                a_json.value("visible", a_outComponent.visible);
+            a_outComponent.castsShadow =
+                a_json.value("castsShadow", a_outComponent.castsShadow);
+            a_outComponent.receivesShadow =
+                a_json.value("receivesShadow", a_outComponent.receivesShadow);
+            a_outComponent.renderQueue = render_queue_from_string(
+                a_json.value(
+                    "renderQueue",
+                    std::string(to_string(a_outComponent.renderQueue))));
+            a_outComponent.shadowCasterMode = shadow_caster_mode_from_string(
+                a_json.value(
+                    "shadowCasterMode",
+                    std::string(to_string(a_outComponent.shadowCasterMode))));
+        }
+
+        [[nodiscard]] Json serialize_skinned_mesh_renderer(
+            const ECS::SkinnedMeshRendererComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            ECS::StaticMeshRendererComponent proxy{};
+            proxy.materialHandle = a_component.materialHandle;
+            proxy.visible = a_component.visible;
+            proxy.castsShadow = a_component.castsShadow;
+            proxy.receivesShadow = a_component.receivesShadow;
+            proxy.renderQueue = a_component.renderQueue;
+            proxy.shadowCasterMode = a_component.shadowCasterMode;
+            return serialize_static_mesh_renderer(proxy, a_options);
+        }
+
+        void deserialize_skinned_mesh_renderer(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::SkinnedMeshRendererComponent& a_outComponent)
+        {
+            ECS::StaticMeshRendererComponent proxy{};
+            deserialize_static_mesh_renderer(a_json, a_options, proxy);
+            a_outComponent.materialHandle = proxy.materialHandle;
+            a_outComponent.visible = proxy.visible;
+            a_outComponent.castsShadow = proxy.castsShadow;
+            a_outComponent.receivesShadow = proxy.receivesShadow;
+            a_outComponent.renderQueue = proxy.renderQueue;
+            a_outComponent.shadowCasterMode = proxy.shadowCasterMode;
+        }
+
+        [[nodiscard]] Json serialize_particle_emitter(
+            const ECS::ParticleEmitterComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            Json emitterJson = {
+                { "startColor", serialize_float4(a_component.startColor) },
+                { "endColor", serialize_float4(a_component.endColor) },
+                { "velocityMin", serialize_float3(a_component.velocityMin) },
+                { "velocityMax", serialize_float3(a_component.velocityMax) },
+                { "acceleration", serialize_float3(a_component.acceleration) },
+                { "startSize", a_component.startSize },
+                { "endSize", a_component.endSize },
+                { "minLifetime", a_component.minLifetime },
+                { "maxLifetime", a_component.maxLifetime },
+                { "emitRate", a_component.emitRate },
+                { "burstCount", a_component.burstCount },
+                { "maxParticleCount", a_component.maxParticleCount },
+                { "randomSeed", a_component.randomSeed },
+                { "billboardMode", to_string(a_component.billboardMode) },
+                { "isPlaying", a_component.isPlaying },
+                { "isVisible", a_component.isVisible },
+            };
+
+            if (!a_component.materialHandle.valid())
+            {
+                return emitterJson;
+            }
+
+            if (a_options.assetManager != nullptr)
+            {
+                std::string materialName{};
+                if (a_options.assetManager->get_material_name(
+                    a_component.materialHandle,
+                    materialName))
+                {
+                    emitterJson["materialName"] = materialName;
+                    return emitterJson;
+                }
+            }
+
+            emitterJson["materialHandleIndex"] = a_component.materialHandle.index;
+            emitterJson["materialHandleGeneration"] =
+                a_component.materialHandle.generation;
+            return emitterJson;
+        }
+
+        void deserialize_particle_emitter(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::ParticleEmitterComponent& a_outComponent)
+        {
+            a_outComponent.materialHandle = {};
+
+            const std::string materialName =
+                a_json.value("materialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(materialName, materialHandle))
+                {
+                    a_outComponent.materialHandle = materialHandle;
+                }
+            }
+
+            if (!a_outComponent.materialHandle.valid())
+            {
+                a_outComponent.materialHandle.index =
+                    a_json.value("materialHandleIndex", MaterialHandle::k_invalid);
+                a_outComponent.materialHandle.generation =
+                    a_json.value("materialHandleGeneration", 0u);
+            }
+
+            if (const Json::const_iterator colorIt =
+                a_json.find("startColor");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.startColor);
+            }
+            if (const Json::const_iterator colorIt = a_json.find("endColor");
+                colorIt != a_json.end())
+            {
+                deserialize_float4(*colorIt, a_outComponent.endColor);
+            }
+            if (const Json::const_iterator velocityIt =
+                a_json.find("velocityMin");
+                velocityIt != a_json.end())
+            {
+                deserialize_float3(*velocityIt, a_outComponent.velocityMin);
+            }
+            if (const Json::const_iterator velocityIt =
+                a_json.find("velocityMax");
+                velocityIt != a_json.end())
+            {
+                deserialize_float3(*velocityIt, a_outComponent.velocityMax);
+            }
+            if (const Json::const_iterator accelerationIt =
+                a_json.find("acceleration");
+                accelerationIt != a_json.end())
+            {
+                deserialize_float3(*accelerationIt, a_outComponent.acceleration);
+            }
+
+            a_outComponent.startSize = (std::max)(
+                a_json.value("startSize", a_outComponent.startSize),
+                0.0f);
+            a_outComponent.endSize = (std::max)(
+                a_json.value("endSize", a_outComponent.endSize),
+                0.0f);
+            a_outComponent.minLifetime = (std::max)(
+                a_json.value("minLifetime", a_outComponent.minLifetime),
+                0.01f);
+            a_outComponent.maxLifetime = (std::max)(
+                a_json.value("maxLifetime", a_outComponent.maxLifetime),
+                a_outComponent.minLifetime);
+            a_outComponent.emitRate = (std::max)(
+                a_json.value("emitRate", a_outComponent.emitRate),
+                0.0f);
+            a_outComponent.burstCount =
+                a_json.value("burstCount", a_outComponent.burstCount);
+            a_outComponent.maxParticleCount = (std::clamp)(
+                a_json.value(
+                    "maxParticleCount", a_outComponent.maxParticleCount),
+                1u,
+                GpuData::k_maxParticleCount);
+            a_outComponent.randomSeed =
+                a_json.value("randomSeed", a_outComponent.randomSeed);
+            if (const Json::const_iterator modeIt =
+                a_json.find("billboardMode");
+                modeIt != a_json.end())
+            {
+                a_outComponent.billboardMode =
+                    parse_particle_billboard_mode(*modeIt);
+            }
+            a_outComponent.isPlaying =
+                a_json.value("isPlaying", a_outComponent.isPlaying);
+            a_outComponent.isVisible =
+                a_json.value("isVisible", a_outComponent.isVisible);
+
+            ECS::ParticleEmitterComponent defaultComponent{};
+            a_outComponent.runtimeParticleBase =
+                defaultComponent.runtimeParticleBase;
+            a_outComponent.runtimeParticleCapacity = 0;
+            a_outComponent.runtimeSpawnCursor = 0;
+            a_outComponent.runtimeEmitAccumulator = 0.0f;
+        }
+
+        [[nodiscard]] Json serialize_animation(
+            const ECS::AnimationComponent& a_component)
+        {
+            return Json{
+                { "animationIndex", a_component.animationIndex },
+                { "frame", a_component.frame },
+                { "time", a_component.time },
+                { "speed", a_component.speed },
+                { "isPlaying", a_component.isPlaying },
+                { "loops", a_component.loops },
+            };
+        }
+
+        void deserialize_animation(
+            const Json& a_json,
+            ECS::AnimationComponent& a_outComponent)
+        {
+            a_outComponent.animationIndex =
+                a_json.value("animationIndex", a_outComponent.animationIndex);
+            a_outComponent.frame = a_json.value("frame", a_outComponent.frame);
+            a_outComponent.time = a_json.value("time", a_outComponent.time);
+            a_outComponent.speed = a_json.value("speed", a_outComponent.speed);
+            a_outComponent.isPlaying =
+                a_json.value("isPlaying", a_outComponent.isPlaying);
+            a_outComponent.loops = a_json.value("loops", a_outComponent.loops);
         }
 
         [[nodiscard]] Json serialize_audio_source(
@@ -574,6 +1553,9 @@ namespace Cue::GameCore
         {
             return Json{
                 { "fileName", a_component.fileName },
+                { "encoding", a_component.encoding == ECS::AudioEncoding::Adpcm
+                    ? "ADPCM"
+                    : "PCM" },
                 { "loop", a_component.loop },
                 { "playOnStart", a_component.playOnStart },
                 { "spatialBlend", a_component.spatialBlend },
@@ -586,6 +1568,13 @@ namespace Cue::GameCore
         {
             a_outComponent.fileName =
                 a_json.value("fileName", std::string{});
+            const std::string encoding = a_json.value(
+                "encoding",
+                std::string("PCM"));
+            a_outComponent.encoding =
+                encoding == "ADPCM"
+                    ? ECS::AudioEncoding::Adpcm
+                    : ECS::AudioEncoding::Pcm;
             a_outComponent.loop = a_json.value("loop", false);
             a_outComponent.playOnStart =
                 a_json.value("playOnStart", false);
@@ -917,6 +1906,91 @@ namespace Cue::GameCore
                 componentsJson["camera"] = serialize_camera(*camera);
             }
 
+            if (const ECS::CanvasComponent* canvas =
+                a_definition.prototype.get_component_ptr<ECS::CanvasComponent>();
+                canvas != nullptr)
+            {
+                componentsJson["canvas"] = serialize_canvas(*canvas);
+            }
+
+            if (const ECS::UiRectTransformComponent* rect =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiRectTransformComponent>();
+                rect != nullptr)
+            {
+                componentsJson["uiRectTransform"] =
+                    serialize_ui_rect_transform(*rect);
+            }
+
+            if (const ECS::UiLayoutGroupComponent* layout =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiLayoutGroupComponent>();
+                layout != nullptr)
+            {
+                componentsJson["uiLayoutGroup"] =
+                    serialize_ui_layout_group(*layout);
+            }
+
+            if (const ECS::TextRendererComponent* text =
+                a_definition.prototype.get_component_ptr<
+                    ECS::TextRendererComponent>();
+                text != nullptr)
+            {
+                componentsJson["textRenderer"] = serialize_text_renderer(*text);
+            }
+
+            if (const ECS::UiImageComponent* image =
+                a_definition.prototype.get_component_ptr<ECS::UiImageComponent>();
+                image != nullptr)
+            {
+                componentsJson["uiImage"] = serialize_ui_image(*image, a_options);
+            }
+
+            if (const ECS::UiButtonComponent* button =
+                a_definition.prototype.get_component_ptr<ECS::UiButtonComponent>();
+                button != nullptr)
+            {
+                componentsJson["uiButton"] = serialize_ui_button(*button);
+            }
+
+            if (const ECS::UiCheckboxComponent* checkbox =
+                a_definition.prototype.get_component_ptr<
+                    ECS::UiCheckboxComponent>();
+                checkbox != nullptr)
+            {
+                componentsJson["uiCheckbox"] = serialize_ui_checkbox(*checkbox);
+            }
+
+            if (const ECS::UiSliderComponent* slider =
+                a_definition.prototype.get_component_ptr<ECS::UiSliderComponent>();
+                slider != nullptr)
+            {
+                componentsJson["uiSlider"] = serialize_ui_slider(*slider);
+            }
+
+            if (const ECS::DirectionalLightComponent* directionalLight =
+                a_definition.prototype.get_component_ptr<
+                    ECS::DirectionalLightComponent>();
+                directionalLight != nullptr)
+            {
+                componentsJson["directionalLight"] =
+                    serialize_directional_light(*directionalLight);
+            }
+
+            if (const ECS::PointLightComponent* pointLight =
+                a_definition.prototype.get_component_ptr<ECS::PointLightComponent>();
+                pointLight != nullptr)
+            {
+                componentsJson["pointLight"] = serialize_point_light(*pointLight);
+            }
+
+            if (const ECS::SpotLightComponent* spotLight =
+                a_definition.prototype.get_component_ptr<ECS::SpotLightComponent>();
+                spotLight != nullptr)
+            {
+                componentsJson["spotLight"] = serialize_spot_light(*spotLight);
+            }
+
             if (const ECS::FirstPersonCameraControllerComponent* controller =
                 a_definition.prototype.get_component_ptr<
                     ECS::FirstPersonCameraControllerComponent>();
@@ -962,6 +2036,31 @@ namespace Cue::GameCore
             {
                 componentsJson["staticMeshRenderer"] =
                     serialize_static_mesh_renderer(*renderer, a_options);
+            }
+
+            if (const ECS::SkinnedMeshRendererComponent* renderer =
+                a_definition.prototype.get_component_ptr<
+                    ECS::SkinnedMeshRendererComponent>();
+                renderer != nullptr)
+            {
+                componentsJson["skinnedMeshRenderer"] =
+                    serialize_skinned_mesh_renderer(*renderer, a_options);
+            }
+
+            if (const ECS::AnimationComponent* animation =
+                a_definition.prototype.get_component_ptr<ECS::AnimationComponent>();
+                animation != nullptr)
+            {
+                componentsJson["animation"] = serialize_animation(*animation);
+            }
+
+            if (const ECS::ParticleEmitterComponent* emitter =
+                a_definition.prototype.get_component_ptr<
+                    ECS::ParticleEmitterComponent>();
+                emitter != nullptr)
+            {
+                componentsJson["particleEmitter"] =
+                    serialize_particle_emitter(*emitter, a_options);
             }
 
             if (const ECS::AudioSourceComponent* audioSource =
@@ -1070,6 +2169,107 @@ namespace Cue::GameCore
                     objectDefinition.prototype.add_component(camera);
                 }
 
+                if (const Json::const_iterator canvasIt =
+                    componentsJson.find("canvas");
+                    canvasIt != componentsJson.end())
+                {
+                    ECS::CanvasComponent canvas{};
+                    deserialize_canvas(*canvasIt, canvas);
+                    objectDefinition.prototype.add_component(canvas);
+                }
+
+                if (const Json::const_iterator rectIt =
+                    componentsJson.find("uiRectTransform");
+                    rectIt != componentsJson.end())
+                {
+                    ECS::UiRectTransformComponent rect{};
+                    deserialize_ui_rect_transform(*rectIt, rect);
+                    objectDefinition.prototype.add_component(rect);
+                }
+
+                if (const Json::const_iterator layoutIt =
+                    componentsJson.find("uiLayoutGroup");
+                    layoutIt != componentsJson.end())
+                {
+                    ECS::UiLayoutGroupComponent layout{};
+                    deserialize_ui_layout_group(*layoutIt, layout);
+                    objectDefinition.prototype.add_component(layout);
+                }
+
+                if (const Json::const_iterator textIt =
+                    componentsJson.find("textRenderer");
+                    textIt != componentsJson.end())
+                {
+                    ECS::TextRendererComponent text{};
+                    deserialize_text_renderer(*textIt, text);
+                    objectDefinition.prototype.add_component(text);
+                }
+
+                if (const Json::const_iterator imageIt =
+                    componentsJson.find("uiImage");
+                    imageIt != componentsJson.end())
+                {
+                    ECS::UiImageComponent image{};
+                    deserialize_ui_image(*imageIt, a_options, image);
+                    objectDefinition.prototype.add_component(image);
+                }
+
+                if (const Json::const_iterator buttonIt =
+                    componentsJson.find("uiButton");
+                    buttonIt != componentsJson.end())
+                {
+                    ECS::UiButtonComponent button{};
+                    deserialize_ui_button(*buttonIt, button);
+                    objectDefinition.prototype.add_component(button);
+                }
+
+                if (const Json::const_iterator checkboxIt =
+                    componentsJson.find("uiCheckbox");
+                    checkboxIt != componentsJson.end())
+                {
+                    ECS::UiCheckboxComponent checkbox{};
+                    deserialize_ui_checkbox(*checkboxIt, checkbox);
+                    objectDefinition.prototype.add_component(checkbox);
+                }
+
+                if (const Json::const_iterator sliderIt =
+                    componentsJson.find("uiSlider");
+                    sliderIt != componentsJson.end())
+                {
+                    ECS::UiSliderComponent slider{};
+                    deserialize_ui_slider(*sliderIt, slider);
+                    objectDefinition.prototype.add_component(slider);
+                }
+
+                if (const Json::const_iterator directionalLightIt =
+                    componentsJson.find("directionalLight");
+                    directionalLightIt != componentsJson.end())
+                {
+                    ECS::DirectionalLightComponent directionalLight{};
+                    deserialize_directional_light(
+                        *directionalLightIt,
+                        directionalLight);
+                    objectDefinition.prototype.add_component(directionalLight);
+                }
+
+                if (const Json::const_iterator pointLightIt =
+                    componentsJson.find("pointLight");
+                    pointLightIt != componentsJson.end())
+                {
+                    ECS::PointLightComponent pointLight{};
+                    deserialize_point_light(*pointLightIt, pointLight);
+                    objectDefinition.prototype.add_component(pointLight);
+                }
+
+                if (const Json::const_iterator spotLightIt =
+                    componentsJson.find("spotLight");
+                    spotLightIt != componentsJson.end())
+                {
+                    ECS::SpotLightComponent spotLight{};
+                    deserialize_spot_light(*spotLightIt, spotLight);
+                    objectDefinition.prototype.add_component(spotLight);
+                }
+
                 if (const Json::const_iterator controllerIt =
                     componentsJson.find("firstPersonCameraController");
                     controllerIt != componentsJson.end())
@@ -1124,6 +2324,34 @@ namespace Cue::GameCore
                     ECS::StaticMeshRendererComponent renderer{};
                     deserialize_static_mesh_renderer(*rendererIt, a_options, renderer);
                     objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator rendererIt =
+                    componentsJson.find("skinnedMeshRenderer");
+                    rendererIt != componentsJson.end())
+                {
+                    ECS::SkinnedMeshRendererComponent renderer{};
+                    deserialize_skinned_mesh_renderer(
+                        *rendererIt, a_options, renderer);
+                    objectDefinition.prototype.add_component(renderer);
+                }
+
+                if (const Json::const_iterator animationIt =
+                    componentsJson.find("animation");
+                    animationIt != componentsJson.end())
+                {
+                    ECS::AnimationComponent animation{};
+                    deserialize_animation(*animationIt, animation);
+                    objectDefinition.prototype.add_component(animation);
+                }
+
+                if (const Json::const_iterator emitterIt =
+                    componentsJson.find("particleEmitter");
+                    emitterIt != componentsJson.end())
+                {
+                    ECS::ParticleEmitterComponent emitter{};
+                    deserialize_particle_emitter(*emitterIt, a_options, emitter);
+                    objectDefinition.prototype.add_component(emitter);
                 }
 
                 if (const Json::const_iterator audioSourceIt =

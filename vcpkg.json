@@ -10,7 +10,17 @@
       "host": true
     },
     {
-      "name": "directxtex"
+      "name": "directxtex",
+      "features": [
+        "tools"
+      ]
+    },
+    {
+      "name": "directxtk12",
+      "default-features": false
+    },
+    {
+      "name": "freetype"
     },
     {
       "name": "imgui",
@@ -19,6 +29,9 @@
         "dx12-binding",
         "docking-experimental"
       ]
+    },
+    {
+      "name": "imguizmo"
     },
     {
       "name": "joltphysics"

@@ -100,14 +100,18 @@ namespace Cue::Editor
         };
 
         Result save_current_scene();
+        Result save_scene(GameCore::SceneId a_sceneId);
+        Result create_scene_asset(const std::string& a_sceneName);
         Result reload_current_scene();
         Result start_background_scene_reload();
         void update_background_scene_reload();
         Result apply_background_scene_reload(SceneReloadOperation& a_operation);
+        Result unload_scene(GameCore::SceneId a_sceneId);
         Result unload_current_scene();
         Result load_scene_to_world(
             const Core::IO::Path& a_scenePath,
             bool a_isPrimaryScene);
+        Result set_current_scene(GameCore::SceneId a_sceneId);
         Result collect_project_scene_paths(
             std::vector<Core::IO::Path>& a_outScenePaths) const;
         Result bake_current_scene_navigation();
@@ -145,6 +149,7 @@ namespace Cue::Editor
         Result stop_play_mode();
         Result exit_play_mode();
         Result refresh_script_project_intellisense(BuildResult& a_outResult);
+        void draw_create_scene_popup();
         void draw_create_script_popup();
         void draw_script_build_output();
         void draw_navigation_debug_window();
@@ -174,6 +179,7 @@ namespace Cue::Editor
         void draw_view_menu_items();
         void draw_display_menu_items();
         void draw_main_camera_menu();
+        void draw_skybox_menu();
         void show_and_focus_window(
             const char* a_windowName,
             bool* a_showWindow = nullptr);
@@ -181,9 +187,25 @@ namespace Cue::Editor
         [[nodiscard]] GameCore::SceneId selected_add_scene_id() const noexcept;
         [[nodiscard]] std::vector<Hierarchy::SceneEntry>
             collect_hierarchy_scenes() const;
+        [[nodiscard]] LoadedSceneEntry* find_loaded_scene(
+            GameCore::SceneId a_sceneId) noexcept;
+        [[nodiscard]] const LoadedSceneEntry* find_loaded_scene(
+            GameCore::SceneId a_sceneId) const noexcept;
         [[nodiscard]] bool is_scene_path_loaded(
             const Core::IO::Path& a_scenePath) const noexcept;
         void process_debug_pick_request();
+        [[nodiscard]] bool draw_debug_transform_gizmo(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
+        [[nodiscard]] bool draw_debug_overlay(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
+        [[nodiscard]] bool draw_spot_shadow_map_preview(
+            const ImVec2& a_viewportMin,
+            const ImVec2& a_viewportMax,
+            ImDrawList* a_drawList);
         [[nodiscard]] bool pick_debug_non_rendered_object(
             const DebugView::PickRequest& a_request,
             GameCore::EntityId& a_outEntityId) const;
@@ -233,16 +255,20 @@ namespace Cue::Editor
         std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
         bool m_showNavigationDebugWindow = false;
+        bool m_showSpotShadowMapPreview = true;
         bool m_isScriptActionActive = false;
         bool m_hasStatusError = false;
         bool m_hasScriptBuildNotification = false;
         bool m_hasScriptBuildNotificationError = false;
         bool m_openScriptBuildNotificationPopup = false;
+        bool m_openCreateScenePopup = false;
         bool m_openCreateScriptPopup = false;
         bool m_openGameReleaseAppSettingsPopup = false;
+        bool m_focusCreateSceneNameInput = false;
         bool m_focusCreateScriptNameInput = false;
         bool m_hasScriptSourceSnapshot = false;
         bool m_hasPendingAutoScriptBuild = false;
+        std::array<char, 128> m_createSceneNameBuffer{};
         std::array<char, 128> m_createScriptNameBuffer{};
         std::array<char, 128> m_gameReleaseExecutableNameBuffer{};
         std::array<char, 128> m_gameReleaseWindowTitleBuffer{};
@@ -251,8 +277,15 @@ namespace Cue::Editor
         uint64_t m_scriptSourceVersion = 0;
         DebugView::PickRequest m_pendingDebugPickFallback{};
         DebugCamera m_debugCamera{};
+        ECS::TransformComponent m_debugGizmoStartTransform{};
+        GameCore::EntityId m_debugGizmoEntityId =
+            GameCore::k_invalidEntityId;
         EditorUpdateMetrics m_currentUpdateMetrics{};
         EditorUpdateMetrics m_lastUpdateMetrics{};
+        uint32_t m_debugGizmoOperation = 0;
+        uint32_t m_debugGizmoMode = 0;
+        uint32_t m_debugGizmoPickBlockFrames = 0;
+        bool m_isDebugGizmoEditing = false;
         bool m_hasPendingDebugPickFallback = false;
     };
 }

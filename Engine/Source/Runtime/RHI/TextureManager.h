@@ -65,9 +65,31 @@ namespace Cue::RHI
         virtual Result create_texture(const TextureDesc& desc,
             std::span<const TextureSubresourceData> initialData,
             TextureHandle& out) = 0;
+        virtual Result create_texture_from_file(
+            std::string_view name,
+            std::string_view filePath,
+            TextureHandle& out)
+        {
+            (void)name;
+            (void)filePath;
+            out = {};
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Texture file loading is not supported by this backend.");
+        }
         virtual Result destroy_texture(TextureHandle handle) = 0;
         virtual Result get_texture_descriptor_index(TextureHandle handle,
             uint32_t& outIndex) = 0;
+        virtual Result get_texture_desc(TextureHandle handle, TextureDesc& outDesc)
+        {
+            (void)handle;
+            outDesc = {};
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Texture description query is not supported by this backend.");
+        }
 
         // --- 名前からテクスチャハンドルの取得 ---
         virtual Result get_texture(std::string_view name, TextureHandle& out) = 0;

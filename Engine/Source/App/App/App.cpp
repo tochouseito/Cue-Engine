@@ -23,7 +23,6 @@
 #include <Engine.h>
 #include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
-#include <Engine/Source/Runtime/PAL/Win/ConvertUTF.h>
 
 #if defined(CUE_STATIC_GAME_LINK)
 #include <Native/ScriptAbi.h>
@@ -40,31 +39,6 @@ namespace
 #ifndef CUE_APP_WINDOW_TITLE
 #define CUE_APP_WINDOW_TITLE "Cue App"
 #endif
-
-    [[nodiscard]] Result resolve_executable_directory(
-        Core::IO::Path& a_outExecutableDirectory) noexcept
-    {
-        wchar_t buffer[MAX_PATH]{};
-        const DWORD written = ::GetModuleFileNameW(
-            nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
-        if (written == 0 || written >= std::size(buffer))
-        {
-            return Result::fail(Code::GetFailed, Severity::Error,
-                "Executable path could not be resolved.");
-        }
-
-        std::string executablePath{};
-        Result result = PAL::Win::wide_to_utf8(
-            std::wstring_view(buffer, written),
-            &executablePath);
-        if (!result)
-        {
-            return result;
-        }
-
-        a_outExecutableDirectory = Core::IO::Path(executablePath).parent();
-        return Result::ok();
-    }
 
     struct ProjectSettings final
     {
@@ -200,26 +174,13 @@ namespace
         Core::IO::IFileSystem& a_fileSystem,
         Core::IO::Path& a_outProjectRoot) noexcept
     {
-        wchar_t buffer[MAX_PATH]{};
-        const DWORD written = ::GetModuleFileNameW(
-            nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
-        if (written == 0 || written >= std::size(buffer))
-        {
-            return Result::fail(Code::GetFailed, Severity::Error,
-                "Executable path could not be resolved.");
-        }
-
-        std::string executablePath{};
-        Result result = PAL::Win::wide_to_utf8(
-            std::wstring_view(buffer, written),
-            &executablePath);
+        Core::IO::Path executableDirectory{};
+        Result result = a_fileSystem.executable_directory(executableDirectory);
         if (!result)
         {
             return result;
         }
 
-        const Core::IO::Path executableDirectory =
-            Core::IO::Path(executablePath).parent();
         const Core::IO::Path packagedProjectFile = Core::IO::Path::join(
             executableDirectory,
             Core::IO::Path("cueproject.json"));
@@ -304,7 +265,7 @@ namespace
 
             for (const Core::IO::Path& texturePath : texturePaths)
             {
-                if (texturePath.extension() != ".cuetexture")
+                if (texturePath.extension() != ".dds")
                 {
                     continue;
                 }
@@ -313,7 +274,7 @@ namespace
                     Core::IO::Path("Textures"),
                     Core::IO::Path(texturePath.filename())).utf8();
                 uint32_t textureId = AssetManager::k_errorTextureId;
-                result = a_engine.asset_manager().register_texture_from_cuetexture(
+                result = a_engine.asset_manager().register_texture_from_file(
                     a_fileSystem,
                     textureName,
                     texturePath,
@@ -351,36 +312,18 @@ namespace
             for (const Core::IO::Path& modelPath : modelPaths)
             {
                 const std::string extension = modelPath.extension();
-                if (extension != ".cuemodel" && extension != ".obj")
+                if (extension != ".cuemodel")
                 {
                     continue;
                 }
 
                 const std::string modelName = modelPath.stem();
                 ModelHandle modelHandle{};
-                if (extension == ".cuemodel")
-                {
-                    result = a_engine.asset_manager().register_model_from_cuemodel(
-                        a_fileSystem,
-                        modelName,
-                        modelPath,
-                        modelHandle);
-                }
-                else
-                {
-                    Result existingResult =
-                        a_engine.asset_manager().get_model(modelName, modelHandle);
-                    if (existingResult)
-                    {
-                        continue;
-                    }
-
-                    result = a_engine.asset_manager().load_model_from_obj(
-                        a_fileSystem,
-                        modelName,
-                        modelPath,
-                        modelHandle);
-                }
+                result = a_engine.asset_manager().register_model_from_cuemodel(
+                    a_fileSystem,
+                    modelName,
+                    modelPath,
+                    modelHandle);
                 if (!result)
                 {
                     return result;
@@ -478,24 +421,31 @@ namespace
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
+    // パラメーター
     constexpr uint32_t k_width = 1280;
     constexpr uint32_t k_height = 720;
     constexpr uint32_t k_bufferCount = 3;
     constexpr uint32_t k_maxFps = 60;
     constexpr bool k_enableDebugLayer = true;
 
+    // 初期化
     Result result = Result::ok();
+
+    // CQRS ブリッジの初期化
     Core::CQRS::Bridge platformBridge{};
 
+    // プラットフォームの生成
     auto platform = std::make_unique<PAL::Win::WinPlatform>();
     platform->set_platform_bridge(&platformBridge);
 
+    // プラットフォームの設定
     PAL::PlatformSetupInfo platformInfo{};
     platformInfo.width = k_width;
     platformInfo.height = k_height;
     platformInfo.className = "CueAppWindowClass";
     platformInfo.title = CUE_APP_WINDOW_TITLE;
 
+    // プラットフォームの初期化
     result = platform->initialize(platformInfo);
     if (!result)
     {
@@ -503,21 +453,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // レンダリングバックエンドの生成
     auto backend = std::make_unique<RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
 
+    // オーディオバックエンドの生成
     auto audioBackend = Audio::create_backend();
     if (audioBackend == nullptr)
     {
         return -1;
     }
 
+    // レンダリングバックエンドの設定
     RHI::BackendSetupInfo backendInfo{};
     backendInfo.enableDebugLayer = k_enableDebugLayer;
     backendInfo.width = k_width;
     backendInfo.height = k_height;
     backendInfo.bufferCount = k_bufferCount;
 
+    // レンダリングバックエンドの初期化
     result = backend->initialize(backendInfo);
     if (!result)
     {
@@ -525,6 +479,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // オーディオバックエンドの初期化
     result = audioBackend->initialize();
     if (!result)
     {
@@ -533,6 +488,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // 物理システムの生成
     auto physicsSystem = std::make_unique<Physics::Jolt::JoltPhysicsSystem>();
     Physics::PhysicsWorldDesc physicsWorldDesc{};
     result = physicsSystem->initialize(physicsWorldDesc);
@@ -546,8 +502,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // エンジンの生成
     auto engine = std::make_unique<Engine>();
 
+    // エンジンの設定
     EngineSetupInfo engineInfo{};
     engineInfo.platform = platform.get();
     engineInfo.backend = backend.get();
@@ -555,8 +513,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineInfo.physicsSystem = physicsSystem.get();
     engineInfo.maxFps = k_maxFps;
     engineInfo.platformBridge = &platformBridge;
+
+    // アプリケーションの実行ファイルのディレクトリを解決してエンジンに渡す
     Core::IO::Path executableDirectory{};
-    result = resolve_executable_directory(executableDirectory);
+    result = platform->file_system().executable_directory(executableDirectory);
     if (!result)
     {
         log_failure("Resolve executable directory", result);
@@ -568,10 +528,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         backend.reset();
         return -1;
     }
+
+    // エラー用テクスチャのパスを設定
     engineInfo.errorTexturePath = Core::IO::Path::join(
         executableDirectory,
-        Core::IO::Path("EngineResources/Textures/CueDummy.cuetexture"));
+        Core::IO::Path("EngineResources/Textures/CueDummy.dds"));
 
+    // エンジンの初期化
     result = engine->initialize(engineInfo);
     if (!result)
     {
@@ -585,6 +548,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // 静的ゲームモジュールのロード
 #if defined(CUE_STATIC_GAME_LINK)
     result = engine->load_static_script_module(
         &cue_script_get_abi_version,
@@ -603,6 +567,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 #endif
 
+    // プロジェクトルートの解決
     Core::IO::Path projectRoot{};
     result = resolve_project_root(platform->file_system(), projectRoot);
     if (!result)
@@ -618,6 +583,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // プロジェクト設定のロード
     ProjectSettings projectSettings{};
     result = load_project_settings(
         platform->file_system(),
@@ -635,7 +601,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         backend.reset();
         return -1;
     }
-
+    
+    // スタートアップシーンのロード
     result = load_startup_scene(
         *engine, platform->file_system(), projectRoot, projectSettings);
     if (!result)
@@ -651,6 +618,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // プラットフォームの開始
     result = platform->start();
     if (!result)
     {
@@ -665,6 +633,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // メインループ
     bool isRunning = true;
     while (isRunning)
     {
@@ -697,6 +666,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
     }
 
+    // 終了処理
     engine->shutdown();
     engine.reset();
 

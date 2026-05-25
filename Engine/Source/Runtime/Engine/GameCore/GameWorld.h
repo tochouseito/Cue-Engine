@@ -9,22 +9,41 @@
 #include "DebugDraw.h"
 #include "GameObject.h"
 #include "Navigation/Navigation.h"
-#include "RenderSceneState.h"
+#include <DrawSystem/DrawScene.h>
+#include <DrawSystem/DrawFrameState.h>
 #include "SceneAsset.h"
 #include "SceneInstance.h"
 #include "SceneSerializer.h"
+#include <AnimationSystem/AnimationSystem.h>
 #include "Systems/AudioSystem.h"
-#include "Systems/CameraSystem.h"
 #include "Systems/CharacterControllerSystem.h"
 #include "Systems/DemoEnemySystem.h"
 #include "Systems/FirstPersonCameraControllerSystem.h"
 #include "Systems/PhysicsBodySystem.h"
 #include "Systems/PlayerControlSystem.h"
-#include "Systems/RenderableObjectSystem.h"
-#include "Systems/SpriteSystem.h"
 #include "Systems/TriggerVolumeSystem.h"
-#include "WorldResources.h"
+#include "Systems/UiLayoutSystem.h"
+#include "Systems/UiWidgetSystem.h"
+#include <DrawSystem/Systems/CameraSystem.h>
+#include <DrawSystem/Systems/RenderableObjectSystem.h>
+#include <DrawSystem/Systems/SkinnedRenderableObjectSystem.h>
+#include <DrawSystem/Systems/SpriteSystem.h>
+#include <DrawSystem/Systems/TextSystem.h>
+#include <DrawSystem/DrawResources.h>
 #include <Asset/AssetManager.h>
+#include <DrawSystem/StaticMeshPoolTypes.h>
+#include <LightingSystem/LightFrameState.h>
+#include <LightingSystem/LightResources.h>
+#include <LightingSystem/LightScene.h>
+#include <LightingSystem/Systems/LightSystem.h>
+#include <ShadowSystem/ShadowFrameState.h>
+#include <ShadowSystem/ShadowResources.h>
+#include <ShadowSystem/ShadowScene.h>
+#include <ShadowSystem/Systems/ShadowSystem.h>
+#include <ParticleSystem/ParticleFrameState.h>
+#include <ParticleSystem/ParticleResources.h>
+#include <ParticleSystem/ParticleScene.h>
+#include <ParticleSystem/Systems/ParticleEmitterSystem.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -52,6 +71,12 @@ namespace Cue::GameCore
     public:
         static constexpr uint32_t k_maxRenderObjectCount = 1000;
         static constexpr uint32_t k_maxSpriteCount = 1000;
+        static constexpr uint32_t k_maxParticleEmitterCount =
+            GpuData::k_maxParticleEmitterCount;
+        static constexpr uint32_t k_maxParticleCount =
+            GpuData::k_maxParticleCount;
+        static constexpr uint32_t k_maxSkinPaletteCount =
+            k_maxRenderObjectCount * 128u;
         static constexpr uint32_t k_maxMaterialCount = 1024;
 
         struct LoadSceneResult final
@@ -102,7 +127,7 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result initialize(RHI::IBufferManager* a_bufferManager,
             RHI::IViewManager* a_viewManager,
-            RHI::IStaticMeshPool* a_staticMeshPool,
+            DrawSystem::IStaticMeshPool* a_staticMeshPool,
             AssetManager* a_assetManager,
             Core::IO::IFileSystem* a_fileSystem,
             Audio::IBackend* a_audioBackend,
@@ -120,11 +145,22 @@ namespace Cue::GameCore
             m_assetRootPath = a_assetRootPath.normalize();
         }
 
+        [[nodiscard]] const Core::IO::Path& asset_root_path() const noexcept
+        {
+            return m_assetRootPath;
+        }
+
+        [[nodiscard]] Core::IO::IFileSystem* file_system() const noexcept
+        {
+            return m_fileSystem;
+        }
+
         [[nodiscard]] Result simulate(float a_deltaTime);
         [[nodiscard]] Result editor_update(
             uint32_t a_bufferIndex,
             uint32_t a_renderWidth,
-            uint32_t a_renderHeight);
+            uint32_t a_renderHeight,
+            float a_deltaTime = 0.0f);
         [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
             uint32_t a_renderWidth, uint32_t a_renderHeight);
         [[nodiscard]] Result clone_from(const GameWorld& a_source);
@@ -147,6 +183,25 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_game_object()
+        {
+            GameObject object{};
+            return add_game_object(object);
+        }
+
+        [[nodiscard]] Result add_game_object(GameObject& a_outObject)
+        {
+            return add_game_object(make_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_game_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_game_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_game_object(
+            const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_camera_object()
         {
             GameObject object{};
@@ -166,6 +221,69 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_camera_object(
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_directional_light_object()
+        {
+            GameObject object{};
+            return add_directional_light_object(object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(GameObject& a_outObject)
+        {
+            return add_directional_light_object(
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_directional_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_point_light_object()
+        {
+            GameObject object{};
+            return add_point_light_object(object);
+        }
+
+        [[nodiscard]] Result add_point_light_object(GameObject& a_outObject)
+        {
+            return add_point_light_object(make_light_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_point_light_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_point_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_point_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_spot_light_object()
+        {
+            GameObject object{};
+            return add_spot_light_object(object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(GameObject& a_outObject)
+        {
+            return add_spot_light_object(make_light_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_spot_light_object(a_position, object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object(
+            const Math::float3& a_position,
+            GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object()
         {
             GameObject object{};
@@ -206,6 +324,27 @@ namespace Cue::GameCore
 
         [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId)
+        {
+            return add_game_object_to_scene(a_sceneId, make_spawn_position());
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(
+            SceneId a_sceneId, GameObject& a_outObject)
+        {
+            return add_game_object_to_scene(
+                a_sceneId, make_spawn_position(), a_outObject);
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(
+            SceneId a_sceneId, const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_game_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId)
         {
             return add_camera_object_to_scene(
@@ -227,6 +366,92 @@ namespace Cue::GameCore
         }
 
         [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_directional_light_object_to_scene(
+                a_sceneId,
+                a_position,
+                object);
+        }
+
+        [[nodiscard]] Result add_directional_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position,
+            GameObject& a_outObject);
+        [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_point_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_point_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_point_light_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId,
+            const Math::float3& a_position, GameObject& a_outObject);
+        [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId)
+        {
+            return add_spot_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position());
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(
+            SceneId a_sceneId,
+            GameObject& a_outObject)
+        {
+            return add_spot_light_object_to_scene(
+                a_sceneId,
+                make_light_spawn_position(),
+                a_outObject);
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(
+            SceneId a_sceneId,
+            const Math::float3& a_position)
+        {
+            GameObject object{};
+            return add_spot_light_object_to_scene(a_sceneId, a_position, object);
+        }
+
+        [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId,
             const Math::float3& a_position, GameObject& a_outObject);
         [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId)
         {
@@ -297,14 +522,154 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
-        RenderSceneState& render_scene_state() noexcept
+        [[nodiscard]] Result get_parent(
+            EntityId a_entityId,
+            EntityId& a_outParent) const noexcept
         {
-            return m_renderSceneState;
+            a_outParent = k_invalidEntityId;
+            if (!contains_object(a_entityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+
+            const BaseComponent* base = get_component<BaseComponent>(a_entityId);
+            if (base == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+
+            a_outParent = base->parent;
+            return Result::ok();
         }
 
-        const RenderSceneState& render_scene_state() const noexcept
+        [[nodiscard]] Result set_parent(
+            EntityId a_childEntityId,
+            EntityId a_parentEntityId,
+            bool a_keepsWorldTransform) noexcept
         {
-            return m_renderSceneState;
+            if (!contains_object(a_childEntityId) ||
+                !contains_object(a_parentEntityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+            if (a_childEntityId == a_parentEntityId)
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld parent cannot be the child itself.");
+            }
+            if (is_descendant_of(a_parentEntityId, a_childEntityId))
+            {
+                return Result::fail(Code::InvalidArgument, Severity::Error,
+                    "GameWorld parent cycle was rejected.");
+            }
+
+            ECS::TransformComponent* childTransform = nullptr;
+            ECS::TransformComponent* parentTransform = nullptr;
+            Result childTransformResult =
+                get_component(a_childEntityId, childTransform);
+            Result parentTransformResult =
+                get_component(a_parentEntityId, parentTransform);
+            if (!childTransformResult || childTransform == nullptr)
+            {
+                return childTransformResult;
+            }
+            if (!parentTransformResult || parentTransform == nullptr)
+            {
+                return parentTransformResult;
+            }
+
+            ECS::WorldTransformComponent childWorld{};
+            ECS::WorldTransformComponent parentWorld{};
+            if (a_keepsWorldTransform)
+            {
+                std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+                if (!resolve_world_transform(
+                        a_childEntityId, state, childWorld) ||
+                    !resolve_world_transform(
+                        a_parentEntityId, state, parentWorld))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "GameWorld world transform could not be resolved.");
+                }
+            }
+
+            BaseComponent* childBase = get_component<BaseComponent>(a_childEntityId);
+            if (childBase == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+            childBase->parent = a_parentEntityId;
+
+            if (a_keepsWorldTransform)
+            {
+                *childTransform =
+                    make_local_transform(parentWorld, childWorld);
+            }
+
+            sync_world_transforms();
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result detach_parent(
+            EntityId a_childEntityId,
+            bool a_keepsWorldTransform) noexcept
+        {
+            if (!contains_object(a_childEntityId))
+            {
+                return Result::fail(
+                    Code::NotFound, Severity::Warning, "GameWorld object was not found.");
+            }
+
+            BaseComponent* childBase = get_component<BaseComponent>(a_childEntityId);
+            ECS::TransformComponent* childTransform = nullptr;
+            Result childTransformResult =
+                get_component(a_childEntityId, childTransform);
+            if (childBase == nullptr)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                    "GameWorld BaseComponent is missing.");
+            }
+            if (!childTransformResult || childTransform == nullptr)
+            {
+                return childTransformResult;
+            }
+
+            ECS::WorldTransformComponent childWorld{};
+            if (a_keepsWorldTransform)
+            {
+                std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+                if (!resolve_world_transform(
+                        a_childEntityId, state, childWorld))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                        "GameWorld world transform could not be resolved.");
+                }
+            }
+
+            childBase->parent = k_invalidEntityId;
+            if (a_keepsWorldTransform)
+            {
+                childTransform->position = childWorld.position;
+                childTransform->rotation = childWorld.rotation;
+                childTransform->scale = childWorld.scale;
+            }
+
+            sync_world_transforms();
+            return Result::ok();
+        }
+
+        DrawSystem::DrawFrameState& draw_frame_state() noexcept
+        {
+            return m_drawFrameState;
+        }
+
+        const DrawSystem::DrawFrameState& draw_frame_state() const noexcept
+        {
+            return m_drawFrameState;
         }
 
         NavigationWorld& navigation_world() noexcept
@@ -562,9 +927,57 @@ namespace Cue::GameCore
             return Result::ok();
         }
 
-        [[nodiscard]] const WorldResources* world_resources() const noexcept
+        [[nodiscard]] const DrawSystem::DrawResources* draw_resources() const noexcept
         {
-            return m_worldResources.get();
+            return m_drawResources.get();
+        }
+
+        [[nodiscard]] const LightingSystem::LightResources* light_resources()
+            const noexcept
+        {
+            return m_lightResources.get();
+        }
+
+        [[nodiscard]] const ShadowSystem::ShadowResources* shadow_resources()
+            const noexcept
+        {
+            return m_shadowResources.get();
+        }
+
+        [[nodiscard]] const ParticleSystem::ParticleResources* particle_resources()
+            const noexcept
+        {
+            return m_particleResources.get();
+        }
+
+        LightingSystem::LightFrameState& light_frame_state() noexcept
+        {
+            return m_lightFrameState;
+        }
+
+        ParticleSystem::ParticleFrameState& particle_frame_state() noexcept
+        {
+            return m_particleFrameState;
+        }
+
+        const ParticleSystem::ParticleFrameState& particle_frame_state() const noexcept
+        {
+            return m_particleFrameState;
+        }
+
+        const LightingSystem::LightFrameState& light_frame_state() const noexcept
+        {
+            return m_lightFrameState;
+        }
+
+        ShadowSystem::ShadowFrameState& shadow_frame_state() noexcept
+        {
+            return m_shadowFrameState;
+        }
+
+        const ShadowSystem::ShadowFrameState& shadow_frame_state() const noexcept
+        {
+            return m_shadowFrameState;
         }
 
         void set_cpu_batching_enabled(bool a_enabled) noexcept
@@ -1410,10 +1823,10 @@ namespace Cue::GameCore
 
         [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept
         {
-            if (!m_renderSceneState.frameStates.empty())
+            if (!m_drawFrameState.frameStates.empty())
             {
-                const RenderFrameState& frameState =
-                    m_renderSceneState.frameStates.front();
+                const DrawSystem::DrawFrameData& frameState =
+                    m_drawFrameState.frameStates.front();
                 return Math::float3{
                     static_cast<float>(frameState.renderWidth) * 0.5f,
                     static_cast<float>(frameState.renderHeight) * 0.5f,
@@ -1424,21 +1837,233 @@ namespace Cue::GameCore
             return Math::float3(320.0f, 180.0f, 0.0f);
         }
 
-        void sync_render_scene_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
+        [[nodiscard]] Math::float3 make_light_spawn_position() const noexcept
+        {
+            return Math::float3(0.0f, 3.0f, -4.0f);
+        }
+
+        [[nodiscard]] static Math::float3 multiply_components(
+            const Math::float3& a_left,
+            const Math::float3& a_right) noexcept
+        {
+            return Math::float3(
+                a_left.x * a_right.x,
+                a_left.y * a_right.y,
+                a_left.z * a_right.z);
+        }
+
+        [[nodiscard]] static Math::float3 divide_components_safe(
+            const Math::float3& a_left,
+            const Math::float3& a_right) noexcept
+        {
+            const auto divide = [](float a_value, float a_divisor) noexcept
+            {
+                return a_divisor != 0.0f ? a_value / a_divisor : a_value;
+            };
+            return Math::float3(
+                divide(a_left.x, a_right.x),
+                divide(a_left.y, a_right.y),
+                divide(a_left.z, a_right.z));
+        }
+
+        [[nodiscard]] static Math::float3 rotate_vector(
+            const Math::Quaternion& a_rotation,
+            const Math::float3& a_value) noexcept
+        {
+            const Math::Quaternion rotation =
+                Math::Quaternion::normalize(a_rotation);
+            const Math::Quaternion vector(
+                a_value.x, a_value.y, a_value.z, 0.0f);
+            const Math::Quaternion result =
+                rotation * vector * Math::Quaternion::inverse(rotation);
+            return Math::float3(result.x, result.y, result.z);
+        }
+
+        [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::TransformComponent& a_local) noexcept
+        {
+            ECS::WorldTransformComponent world{};
+            world.scale = multiply_components(a_parent.scale, a_local.scale);
+            world.rotation = Math::Quaternion::normalize(
+                a_parent.rotation * a_local.rotation);
+            const Math::float3 scaledLocalPosition =
+                multiply_components(a_local.position, a_parent.scale);
+            world.position =
+                a_parent.position +
+                rotate_vector(a_parent.rotation, scaledLocalPosition);
+            return world;
+        }
+
+        [[nodiscard]] static ECS::TransformComponent make_local_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::WorldTransformComponent& a_world) noexcept
+        {
+            ECS::TransformComponent local{};
+            const Math::Quaternion inverseParentRotation =
+                Math::Quaternion::inverse(a_parent.rotation);
+            local.position = divide_components_safe(
+                rotate_vector(
+                    inverseParentRotation,
+                    a_world.position - a_parent.position),
+                a_parent.scale);
+            local.rotation = Math::Quaternion::normalize(
+                inverseParentRotation * a_world.rotation);
+            local.scale = divide_components_safe(a_world.scale, a_parent.scale);
+            return local;
+        }
+
+        [[nodiscard]] bool is_descendant_of(
+            EntityId a_entityId,
+            EntityId a_potentialAncestorId) const noexcept
+        {
+            EntityId current = a_entityId;
+            std::unordered_set<EntityId> visited{};
+            while (current != k_invalidEntityId)
+            {
+                if (current == a_potentialAncestorId)
+                {
+                    return true;
+                }
+                if (!visited.insert(current).second)
+                {
+                    return true;
+                }
+
+                const BaseComponent* base = get_component<BaseComponent>(current);
+                current = base != nullptr ? base->parent : k_invalidEntityId;
+            }
+
+            return false;
+        }
+
+        [[nodiscard]] bool resolve_world_transform(
+            EntityId a_entityId,
+            std::vector<uint8_t>& a_state,
+            ECS::WorldTransformComponent& a_outWorld) noexcept
+        {
+            if (!contains_object(a_entityId) ||
+                static_cast<size_t>(a_entityId) >= a_state.size())
+            {
+                return false;
+            }
+
+            uint8_t& state = a_state[static_cast<size_t>(a_entityId)];
+            if (state == 2u)
+            {
+                const ECS::WorldTransformComponent* world =
+                    get_component<ECS::WorldTransformComponent>(a_entityId);
+                if (world == nullptr)
+                {
+                    return false;
+                }
+                a_outWorld = *world;
+                return true;
+            }
+            if (state == 1u)
+            {
+                return false;
+            }
+
+            ECS::TransformComponent* local =
+                get_component<ECS::TransformComponent>(a_entityId);
+            if (local == nullptr)
+            {
+                return false;
+            }
+
+            ECS::WorldTransformComponent* world =
+                get_component<ECS::WorldTransformComponent>(a_entityId);
+            if (world == nullptr)
+            {
+                Result addWorldResult =
+                    add_component<ECS::WorldTransformComponent>(
+                        a_entityId, world);
+                if (!addWorldResult || world == nullptr)
+                {
+                    return false;
+                }
+            }
+
+            if (world == nullptr)
+            {
+                return false;
+            }
+
+            state = 1u;
+            const BaseComponent* base = get_component<BaseComponent>(a_entityId);
+            if (base != nullptr &&
+                base->parent != k_invalidEntityId &&
+                contains_object(base->parent))
+            {
+                ECS::WorldTransformComponent parentWorld{};
+                if (!resolve_world_transform(base->parent, a_state, parentWorld))
+                {
+                    return false;
+                }
+                *world = compose_world_transform(parentWorld, *local);
+            }
+            else
+            {
+                world->position = local->position;
+                world->rotation = local->rotation;
+                world->scale = local->scale;
+            }
+
+            state = 2u;
+            a_outWorld = *world;
+            return true;
+        }
+
+        void sync_world_transforms() noexcept
+        {
+            std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+            for (EntityId entity = 0;
+                 entity < static_cast<EntityId>(m_entityRecords.size());
+                 ++entity)
+            {
+                if (!contains_object(entity) ||
+                    get_component<ECS::TransformComponent>(entity) == nullptr)
+                {
+                    continue;
+                }
+
+                ECS::WorldTransformComponent world{};
+                (void)resolve_world_transform(entity, state, world);
+            }
+        }
+
+        void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
             uint32_t a_renderHeight) noexcept
         {
-            if (a_bufferIndex >= m_renderSceneState.frameStates.size())
+            if (a_bufferIndex >= m_drawFrameState.frameStates.size())
             {
                 return;
             }
 
-            RenderFrameState& frameState = m_renderSceneState.frame_state(a_bufferIndex);
+            DrawSystem::DrawFrameData& frameState = m_drawFrameState.frame_state(a_bufferIndex);
             frameState.objectCount = 0;
             frameState.spriteCount = 0;
+            frameState.cpuIndexedDraws.clear();
+            frameState.transparentCpuIndexedDraws.clear();
+            frameState.cpuShadowCasters.clear();
             frameState.renderWidth = a_renderWidth;
             frameState.renderHeight = a_renderHeight;
             frameState.useCpuBatching = m_isCpuBatchingEnabled;
+
+            if (a_bufferIndex < m_particleFrameState.frameStates.size())
+            {
+                ParticleSystem::ParticleFrameData& particleFrameState =
+                    m_particleFrameState.frame_state(a_bufferIndex);
+                particleFrameState.frame.emitterCount = 0;
+                particleFrameState.frame.particleCount = 0;
+            }
         }
+
+        [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_particle_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
+        [[nodiscard]] Result upload_shadow_scene(uint32_t a_bufferIndex);
 
         void animate_static_mesh_objects(float a_deltaTime)
         {
@@ -1455,17 +2080,41 @@ namespace Cue::GameCore
                 switch (entityIndex)
                 {
                 case 0:
-                    transform->rotation.y += a_deltaTime * 1.25f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y += a_deltaTime * 1.25f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 case 1:
-                    transform->rotation.x += a_deltaTime * 0.75f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.x += a_deltaTime * 0.75f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 case 2:
-                    transform->rotation.y -= a_deltaTime * 1.0f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y -= a_deltaTime * 1.0f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 default:
-                    transform->rotation.y += a_deltaTime * 0.5f;
+                {
+                    Math::float3 rotation =
+                        Math::quaternion_to_euler_xyz(transform->rotation);
+                    rotation.y += a_deltaTime * 0.5f;
+                    transform->rotation =
+                        Math::quaternion_from_euler_xyz(rotation);
                     break;
+                }
                 }
             }
         }
@@ -2100,6 +2749,102 @@ namespace Cue::GameCore
                 prototype.add_component(*camera);
             }
 
+            if (const ECS::CanvasComponent* canvas =
+                get_component<ECS::CanvasComponent>(a_entityId);
+                canvas != nullptr)
+            {
+                prototype.add_component(*canvas);
+            }
+
+            if (const ECS::UiRectTransformComponent* rect =
+                get_component<ECS::UiRectTransformComponent>(a_entityId);
+                rect != nullptr)
+            {
+                ECS::UiRectTransformComponent copiedRect = *rect;
+                copiedRect.resolvedMin = Math::float2(0.0f, 0.0f);
+                copiedRect.resolvedSize = Math::float2(0.0f, 0.0f);
+                copiedRect.isResolved = false;
+                prototype.add_component(copiedRect);
+            }
+
+            if (const ECS::UiLayoutGroupComponent* layout =
+                get_component<ECS::UiLayoutGroupComponent>(a_entityId);
+                layout != nullptr)
+            {
+                prototype.add_component(*layout);
+            }
+
+            if (const ECS::TextRendererComponent* text =
+                get_component<ECS::TextRendererComponent>(a_entityId);
+                text != nullptr)
+            {
+                prototype.add_component(*text);
+            }
+
+            if (const ECS::UiImageComponent* image =
+                get_component<ECS::UiImageComponent>(a_entityId);
+                image != nullptr)
+            {
+                prototype.add_component(*image);
+            }
+
+            if (const ECS::UiButtonComponent* button =
+                get_component<ECS::UiButtonComponent>(a_entityId);
+                button != nullptr)
+            {
+                ECS::UiButtonComponent copiedButton = *button;
+                copiedButton.isHovered = false;
+                copiedButton.isPressed = false;
+                copiedButton.wasClicked = false;
+                copiedButton.hasFocus = false;
+                prototype.add_component(copiedButton);
+            }
+
+            if (const ECS::UiCheckboxComponent* checkbox =
+                get_component<ECS::UiCheckboxComponent>(a_entityId);
+                checkbox != nullptr)
+            {
+                ECS::UiCheckboxComponent copiedCheckbox = *checkbox;
+                copiedCheckbox.isHovered = false;
+                copiedCheckbox.isPressed = false;
+                copiedCheckbox.wasChanged = false;
+                copiedCheckbox.hasFocus = false;
+                prototype.add_component(copiedCheckbox);
+            }
+
+            if (const ECS::UiSliderComponent* slider =
+                get_component<ECS::UiSliderComponent>(a_entityId);
+                slider != nullptr)
+            {
+                ECS::UiSliderComponent copiedSlider = *slider;
+                copiedSlider.isHovered = false;
+                copiedSlider.isDragging = false;
+                copiedSlider.wasChanged = false;
+                copiedSlider.hasFocus = false;
+                prototype.add_component(copiedSlider);
+            }
+
+            if (const ECS::DirectionalLightComponent* directionalLight =
+                get_component<ECS::DirectionalLightComponent>(a_entityId);
+                directionalLight != nullptr)
+            {
+                prototype.add_component(*directionalLight);
+            }
+
+            if (const ECS::PointLightComponent* pointLight =
+                get_component<ECS::PointLightComponent>(a_entityId);
+                pointLight != nullptr)
+            {
+                prototype.add_component(*pointLight);
+            }
+
+            if (const ECS::SpotLightComponent* spotLight =
+                get_component<ECS::SpotLightComponent>(a_entityId);
+                spotLight != nullptr)
+            {
+                prototype.add_component(*spotLight);
+            }
+
             if (const ECS::FirstPersonCameraControllerComponent* controller =
                 get_component<ECS::FirstPersonCameraControllerComponent>(
                     a_entityId);
@@ -2160,11 +2905,39 @@ namespace Cue::GameCore
                 prototype.add_component(*renderer);
             }
 
+            if (const ECS::SkinnedMeshRendererComponent* renderer =
+                get_component<ECS::SkinnedMeshRendererComponent>(a_entityId);
+                renderer != nullptr)
+            {
+                prototype.add_component(*renderer);
+            }
+
+            if (const ECS::AnimationComponent* animation =
+                get_component<ECS::AnimationComponent>(a_entityId);
+                animation != nullptr)
+            {
+                prototype.add_component(*animation);
+            }
+
             if (const ECS::SpriteRendererComponent* spriteRenderer =
                 get_component<ECS::SpriteRendererComponent>(a_entityId);
                 spriteRenderer != nullptr)
             {
                 prototype.add_component(*spriteRenderer);
+            }
+
+            if (const ECS::ParticleEmitterComponent* particleEmitter =
+                get_component<ECS::ParticleEmitterComponent>(a_entityId);
+                particleEmitter != nullptr)
+            {
+                ECS::ParticleEmitterComponent copiedParticleEmitter =
+                    *particleEmitter;
+                copiedParticleEmitter.runtimeParticleBase =
+                    (std::numeric_limits<uint32_t>::max)();
+                copiedParticleEmitter.runtimeParticleCapacity = 0;
+                copiedParticleEmitter.runtimeSpawnCursor = 0;
+                copiedParticleEmitter.runtimeEmitAccumulator = 0.0f;
+                prototype.add_component(copiedParticleEmitter);
             }
 
             if (const ECS::AudioSourceComponent* audioSource =
@@ -2991,7 +3764,10 @@ namespace Cue::GameCore
         ECS::NavigationSystem* m_navigationSystem = nullptr;
         NavMeshHandle m_activeNavMesh{};
         NavMeshAssetData m_activeNavMeshAsset{};
-        std::unique_ptr<WorldResources> m_worldResources = nullptr;
+        std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+        std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
+        std::unique_ptr<ShadowSystem::ShadowResources> m_shadowResources = nullptr;
+        std::unique_ptr<ParticleSystem::ParticleResources> m_particleResources = nullptr;
         AssetManager* m_assetManager = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
         Audio::IBackend* m_audioBackend = nullptr;
@@ -3002,7 +3778,15 @@ namespace Cue::GameCore
         Core::IO::Path m_assetRootPath{};
         bool m_isCpuBatchingEnabled = false;
         bool m_hasActiveNavMeshAsset = false;
-        RenderSceneState m_renderSceneState{};
+        DrawSystem::FontAtlasManager m_fontAtlasManager{};
+        DrawSystem::DrawScene m_drawScene{};
+        DrawSystem::DrawFrameState m_drawFrameState{};
+        ParticleSystem::ParticleScene m_particleScene{};
+        ParticleSystem::ParticleFrameState m_particleFrameState{};
+        LightingSystem::LightScene m_lightScene{};
+        LightingSystem::LightFrameState m_lightFrameState{};
+        ShadowSystem::ShadowScene m_shadowScene{};
+        ShadowSystem::ShadowFrameState m_shadowFrameState{};
         MaterialHandle m_defaultMaterialHandle{};
         std::unordered_map<SceneId, SceneInstance> m_scenes{};
         std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};

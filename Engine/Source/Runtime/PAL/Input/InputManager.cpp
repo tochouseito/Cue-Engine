@@ -14,7 +14,9 @@ namespace Cue::PAL
         m_mouse = a_mouse;
         m_keyStates.fill(false);
         m_mouseButtonStates.fill(false);
+        m_previousMouseButtonStates.fill(false);
         m_mouseDelta = {};
+        m_mousePosition = {};
         return Result::ok();
     }
 
@@ -33,6 +35,7 @@ namespace Cue::PAL
         }
 
         m_mouseDelta = {};
+        m_previousMouseButtonStates = m_mouseButtonStates;
         m_mouseButtonStates.fill(false);
         if (m_mouse != nullptr)
         {
@@ -43,6 +46,7 @@ namespace Cue::PAL
             }
 
             m_mouseDelta = m_mouse->delta();
+            m_mousePosition = m_mouse->position();
             for (size_t buttonIndex = 0;
                  buttonIndex < m_mouseButtonStates.size(); ++buttonIndex)
             {
@@ -68,7 +72,9 @@ namespace Cue::PAL
         m_mouse = nullptr;
         m_keyStates.fill(false);
         m_mouseButtonStates.fill(false);
+        m_previousMouseButtonStates.fill(false);
         m_mouseDelta = {};
+        m_mousePosition = {};
     }
 
     bool InputManager::push_key(Key a_key) const noexcept
@@ -91,5 +97,29 @@ namespace Cue::PAL
         }
 
         return m_mouseButtonStates[buttonIndex];
+    }
+
+    bool InputManager::mouse_button_pressed(MouseButton a_button) const noexcept
+    {
+        const size_t buttonIndex = static_cast<size_t>(a_button);
+        if (buttonIndex >= m_mouseButtonStates.size())
+        {
+            return false;
+        }
+
+        return m_mouseButtonStates[buttonIndex] &&
+            !m_previousMouseButtonStates[buttonIndex];
+    }
+
+    bool InputManager::mouse_button_released(MouseButton a_button) const noexcept
+    {
+        const size_t buttonIndex = static_cast<size_t>(a_button);
+        if (buttonIndex >= m_mouseButtonStates.size())
+        {
+            return false;
+        }
+
+        return !m_mouseButtonStates[buttonIndex] &&
+            m_previousMouseButtonStates[buttonIndex];
     }
 }

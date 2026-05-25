@@ -2,7 +2,7 @@
 
 // === C++ includes ===
 #include <algorithm>
-#include <charconv>
+#include <cctype>
 #include <cstring>
 #include <limits>
 #include <string_view>
@@ -33,6 +33,7 @@ namespace Cue
             RHI::ColorFormat format = RHI::ColorFormat::R8G8B8A8_UNORM;
             uint32_t width = 0;
             uint32_t height = 0;
+            uint32_t mipLevels = 1;
             uint32_t arraySize = 1;
             uint32_t flags = 0;
         };
@@ -43,359 +44,29 @@ namespace Cue
             std::vector<RHI::TextureSubresourceData> subresources{};
         };
 
-        struct ObjIndexKey final
-        {
-            int32_t positionIndex = 0;
-            int32_t texcoordIndex = 0;
-            int32_t normalIndex = 0;
-
-            [[nodiscard]] bool operator==(const ObjIndexKey& other) const noexcept
-            {
-                return positionIndex == other.positionIndex &&
-                    texcoordIndex == other.texcoordIndex &&
-                    normalIndex == other.normalIndex;
-            }
-        };
-
-        struct ObjIndexKeyHash final
-        {
-            [[nodiscard]] size_t operator()(const ObjIndexKey& key) const noexcept
-            {
-                size_t hash = static_cast<size_t>(key.positionIndex);
-                hash ^= static_cast<size_t>(key.texcoordIndex) + 0x9e3779b9u + (hash << 6) + (hash >> 2);
-                hash ^= static_cast<size_t>(key.normalIndex) + 0x9e3779b9u + (hash << 6) + (hash >> 2);
-                return hash;
-            }
-        };
-
         static_assert(std::is_trivially_copyable_v<CueTextureHeader>);
         static_assert(std::is_trivially_copyable_v<CueTextureMipInfo>);
         static_assert(std::is_trivially_copyable_v<CueModelHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelHeaderV3>);
+        static_assert(std::is_trivially_copyable_v<CueModelLegacyHeader>);
+        static_assert(std::is_trivially_copyable_v<CueModelMeshInfoV2>);
         static_assert(std::is_trivially_copyable_v<CueModelMeshInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelMaterialInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelRenderPartInfoV3>);
+        static_assert(std::is_trivially_copyable_v<CueModelSkeletonJointInfo>);
+        static_assert(std::is_trivially_copyable_v<CueModelAnimationClipInfo>);
+        static_assert(
+            std::is_trivially_copyable_v<CueModelAnimationChannelInfo>);
 
-        [[nodiscard]] std::string_view trim_ascii(std::string_view text) noexcept
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
         {
-            while (!text.empty() &&
-                (text.front() == ' ' || text.front() == '\t' ||
-                    text.front() == '\r' || text.front() == '\n'))
+            for (char& character : a_text)
             {
-                text.remove_prefix(1);
+                character = static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(character)));
             }
-
-            while (!text.empty() &&
-                (text.back() == ' ' || text.back() == '\t' ||
-                    text.back() == '\r' || text.back() == '\n'))
-            {
-                text.remove_suffix(1);
-            }
-
-            return text;
-        }
-
-        [[nodiscard]] bool take_token(
-            std::string_view& text,
-            std::string_view& outToken) noexcept
-        {
-            text = trim_ascii(text);
-            if (text.empty())
-            {
-                outToken = {};
-                return false;
-            }
-
-            size_t tokenEnd = 0;
-            while (tokenEnd < text.size() &&
-                text[tokenEnd] != ' ' &&
-                text[tokenEnd] != '\t' &&
-                text[tokenEnd] != '\r' &&
-                text[tokenEnd] != '\n')
-            {
-                ++tokenEnd;
-            }
-
-            outToken = text.substr(0, tokenEnd);
-            text.remove_prefix(tokenEnd);
-            return true;
-        }
-
-        template <typename T>
-        [[nodiscard]] bool parse_number(
-            std::string_view token,
-            T& outValue) noexcept
-        {
-            const char* begin = token.data();
-            const char* end = token.data() + token.size();
-            const std::from_chars_result result =
-                std::from_chars(begin, end, outValue);
-            return result.ec == std::errc{} && result.ptr == end;
-        }
-
-        [[nodiscard]] bool parse_face_index_token(
-            std::string_view token,
-            ObjIndexKey& outKey) noexcept
-        {
-            outKey = {};
-
-            size_t firstSlash = token.find('/');
-            if (firstSlash == std::string_view::npos)
-            {
-                return parse_number(token, outKey.positionIndex);
-            }
-
-            if (!parse_number(token.substr(0, firstSlash), outKey.positionIndex))
-            {
-                return false;
-            }
-
-            size_t secondSlash = token.find('/', firstSlash + 1);
-            if (secondSlash == std::string_view::npos)
-            {
-                return parse_number(token.substr(firstSlash + 1), outKey.texcoordIndex);
-            }
-
-            const std::string_view texcoordToken =
-                token.substr(firstSlash + 1, secondSlash - firstSlash - 1);
-            if (!texcoordToken.empty() &&
-                !parse_number(texcoordToken, outKey.texcoordIndex))
-            {
-                return false;
-            }
-
-            const std::string_view normalToken = token.substr(secondSlash + 1);
-            if (!normalToken.empty() &&
-                !parse_number(normalToken, outKey.normalIndex))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        template <typename T>
-        [[nodiscard]] const T* get_obj_element(
-            const std::vector<T>& values,
-            int32_t index) noexcept
-        {
-            if (index <= 0)
-            {
-                return nullptr;
-            }
-
-            const size_t resolvedIndex = static_cast<size_t>(index - 1);
-            if (resolvedIndex >= values.size())
-            {
-                return nullptr;
-            }
-
-            return &values[resolvedIndex];
-        }
-
-        [[nodiscard]] Result load_obj_model_data(
-            Core::IO::IFileSystem& fileSystem,
-            const Core::IO::Path& filePath,
-            std::string_view modelName,
-            Core::Native::ModelData& outModelData)
-        {
-            std::vector<std::byte> fileData{};
-            Result result = fileSystem.read_all(filePath, &fileData);
-            if (!result)
-            {
-                return result;
-            }
-
-            const std::string text(
-                reinterpret_cast<const char*>(fileData.data()),
-                fileData.size());
-
-            std::vector<Math::float4> sourcePositions{};
-            std::vector<Math::float2> sourceUvs{};
-            std::vector<Math::float3> sourceNormals{};
-            std::unordered_map<ObjIndexKey, uint32_t, ObjIndexKeyHash> vertexMap{};
-
-            Core::Native::ModelData modelData{};
-            Core::Native::MeshData meshData{};
-            meshData.name = std::string(modelName);
-
-            size_t lineBegin = 0;
-            while (lineBegin < text.size())
-            {
-                size_t lineEnd = text.find('\n', lineBegin);
-                if (lineEnd == std::string::npos)
-                {
-                    lineEnd = text.size();
-                }
-
-                std::string_view line = trim_ascii(
-                    std::string_view(text).substr(lineBegin, lineEnd - lineBegin));
-                lineBegin = lineEnd + 1;
-
-                if (line.empty() || line.front() == '#')
-                {
-                    continue;
-                }
-
-                std::string_view keyword{};
-                if (!take_token(line, keyword))
-                {
-                    continue;
-                }
-
-                if (keyword == "v")
-                {
-                    std::string_view xToken{};
-                    std::string_view yToken{};
-                    std::string_view zToken{};
-                    float x = 0.0f;
-                    float y = 0.0f;
-                    float z = 0.0f;
-                    if (!take_token(line, xToken) ||
-                        !take_token(line, yToken) ||
-                        !take_token(line, zToken) ||
-                        !parse_number(xToken, x) ||
-                        !parse_number(yToken, y) ||
-                        !parse_number(zToken, z))
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ vertex position could not be parsed.");
-                    }
-
-                    sourcePositions.emplace_back(x, y, z, 1.0f);
-                    continue;
-                }
-
-                if (keyword == "vt")
-                {
-                    std::string_view uToken{};
-                    std::string_view vToken{};
-                    float u = 0.0f;
-                    float v = 0.0f;
-                    if (!take_token(line, uToken) ||
-                        !take_token(line, vToken) ||
-                        !parse_number(uToken, u) ||
-                        !parse_number(vToken, v))
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ uv could not be parsed.");
-                    }
-
-                    sourceUvs.emplace_back(u, v);
-                    continue;
-                }
-
-                if (keyword == "vn")
-                {
-                    std::string_view xToken{};
-                    std::string_view yToken{};
-                    std::string_view zToken{};
-                    float x = 0.0f;
-                    float y = 0.0f;
-                    float z = 0.0f;
-                    if (!take_token(line, xToken) ||
-                        !take_token(line, yToken) ||
-                        !take_token(line, zToken) ||
-                        !parse_number(xToken, x) ||
-                        !parse_number(yToken, y) ||
-                        !parse_number(zToken, z))
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ normal could not be parsed.");
-                    }
-
-                    sourceNormals.emplace_back(x, y, z);
-                    continue;
-                }
-
-                if (keyword != "f")
-                {
-                    continue;
-                }
-
-                std::vector<uint32_t> faceVertexIndices{};
-                std::string_view faceToken{};
-                while (take_token(line, faceToken))
-                {
-                    ObjIndexKey key{};
-                    if (!parse_face_index_token(faceToken, key))
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ face index could not be parsed.");
-                    }
-
-                    if (key.positionIndex <= 0)
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ face position index is invalid.");
-                    }
-
-                    const auto it = vertexMap.find(key);
-                    if (it != vertexMap.end())
-                    {
-                        faceVertexIndices.push_back(it->second);
-                        continue;
-                    }
-
-                    const Math::float4* position =
-                        get_obj_element(sourcePositions, key.positionIndex);
-                    if (position == nullptr)
-                    {
-                        return Result::fail(
-                            Code::InvalidArgument,
-                            Severity::Error,
-                            "OBJ face references an unknown position.");
-                    }
-
-                    const Math::float2* uv = get_obj_element(sourceUvs, key.texcoordIndex);
-                    const Math::float3* normal = get_obj_element(sourceNormals, key.normalIndex);
-
-                    const uint32_t vertexIndex = static_cast<uint32_t>(
-                        meshData.positions.size());
-                    meshData.positions.push_back(*position);
-                    meshData.uvs.push_back(uv != nullptr ? *uv : Math::float2::zero());
-                    meshData.normals.push_back(
-                        normal != nullptr ? *normal : Math::float3::zero());
-                    vertexMap.emplace(key, vertexIndex);
-                    faceVertexIndices.push_back(vertexIndex);
-                }
-
-                if (faceVertexIndices.size() < 3)
-                {
-                    return Result::fail(
-                        Code::InvalidArgument,
-                        Severity::Error,
-                        "OBJ face requires at least three vertices.");
-                }
-
-                for (size_t vertexIndex = 1;
-                    vertexIndex + 1 < faceVertexIndices.size();
-                    ++vertexIndex)
-                {
-                    meshData.indices.push_back(faceVertexIndices[0]);
-                    meshData.indices.push_back(faceVertexIndices[vertexIndex]);
-                    meshData.indices.push_back(faceVertexIndices[vertexIndex + 1]);
-                }
-            }
-
-            if (meshData.positions.empty() || meshData.indices.empty())
-            {
-                return Result::fail(
-                    Code::InvalidArgument,
-                    Severity::Error,
-                    "OBJ does not contain any renderable mesh data.");
-            }
-
-            modelData.meshes.push_back(std::move(meshData));
-            outModelData = std::move(modelData);
-            return Result::ok();
+            return a_text;
         }
 
         [[nodiscard]] Json serialize_float4(const Math::float4& value)
@@ -421,13 +92,42 @@ namespace Cue
         {
             if (a_loadedTextureData.width == 0 ||
                 a_loadedTextureData.height == 0 ||
-                a_loadedTextureData.arraySize != 1 ||
+                a_loadedTextureData.mipLevels == 0 ||
+                a_loadedTextureData.arraySize == 0 ||
                 a_loadedTextureData.mipData.empty())
             {
                 return Result::fail(
                     Code::InvalidArgument,
                     Severity::Error,
                     "Loaded texture data is invalid.");
+            }
+
+            const uint64_t expectedSubresourceCount =
+                static_cast<uint64_t>(a_loadedTextureData.mipLevels) *
+                static_cast<uint64_t>(a_loadedTextureData.arraySize);
+            if (a_loadedTextureData.mipData.size() != expectedSubresourceCount)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Loaded texture subresource count is invalid.");
+            }
+
+            const bool isCubeMap =
+                (a_loadedTextureData.flags & k_cueTextureFlagCubeMap) != 0;
+            if (isCubeMap && a_loadedTextureData.arraySize != 6)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "CubeMap texture must contain 6 array slices.");
+            }
+            if (!isCubeMap && a_loadedTextureData.arraySize != 1)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Only single 2D textures and CubeMap textures are supported.");
             }
 
             for (const LoadedTextureMipData& mipData : a_loadedTextureData.mipData)
@@ -462,10 +162,14 @@ namespace Cue
             outUpload = {};
             outUpload.desc.width = a_loadedTextureData.width;
             outUpload.desc.height = a_loadedTextureData.height;
-            outUpload.desc.mipLevels = static_cast<uint16_t>(
-                a_loadedTextureData.mipData.size());
+            outUpload.desc.mipLevels =
+                static_cast<uint16_t>(a_loadedTextureData.mipLevels);
             outUpload.desc.arraySize =
                 static_cast<uint16_t>(a_loadedTextureData.arraySize);
+            outUpload.desc.type =
+                (a_loadedTextureData.flags & k_cueTextureFlagCubeMap) != 0
+                ? RHI::TextureType::CubeMap
+                : RHI::TextureType::Texture2D;
             outUpload.desc.format = a_loadedTextureData.format;
             outUpload.subresources.reserve(a_loadedTextureData.mipData.size());
 
@@ -545,7 +249,7 @@ namespace Cue
             header.version = k_cueTextureVersion;
             header.width = a_loadedTextureData.width;
             header.height = a_loadedTextureData.height;
-            header.mipCount = static_cast<uint32_t>(a_loadedTextureData.mipData.size());
+            header.mipCount = a_loadedTextureData.mipLevels;
             header.arraySize = a_loadedTextureData.arraySize;
             header.format = static_cast<uint32_t>(a_loadedTextureData.format);
             header.flags = a_loadedTextureData.flags;
@@ -611,7 +315,7 @@ namespace Cue
             if (header.magic != k_cueTextureMagic ||
                 header.version != k_cueTextureVersion ||
                 header.mipCount == 0 ||
-                header.arraySize != 1)
+                header.arraySize == 0)
             {
                 return Result::fail(
                     Code::Unsupported,
@@ -619,8 +323,20 @@ namespace Cue
                     "Cooked texture format is not supported.");
             }
 
+            const uint64_t loadedSubresourceCount =
+                static_cast<uint64_t>(header.mipCount) *
+                static_cast<uint64_t>(header.arraySize);
+            if (loadedSubresourceCount > std::numeric_limits<uint32_t>::max())
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Cooked texture subresource count is too large.");
+            }
+
             const size_t mipInfoTableSize =
-                sizeof(CueTextureMipInfo) * static_cast<size_t>(header.mipCount);
+                sizeof(CueTextureMipInfo) *
+                static_cast<size_t>(loadedSubresourceCount);
             const size_t pixelDataBegin = sizeof(CueTextureHeader) + mipInfoTableSize;
             if (fileData.size() < pixelDataBegin + static_cast<size_t>(header.dataSize))
             {
@@ -633,18 +349,23 @@ namespace Cue
             outTextureData = {};
             outTextureData.width = header.width;
             outTextureData.height = header.height;
+            outTextureData.mipLevels = header.mipCount;
             outTextureData.arraySize = header.arraySize;
             outTextureData.format = static_cast<RHI::ColorFormat>(header.format);
             outTextureData.flags = header.flags;
-            outTextureData.mipData.reserve(header.mipCount);
+            outTextureData.mipData.reserve(
+                static_cast<size_t>(loadedSubresourceCount));
 
-            for (uint32_t mipIndex = 0; mipIndex < header.mipCount; ++mipIndex)
+            for (uint32_t subresourceIndex = 0;
+                 subresourceIndex < static_cast<uint32_t>(loadedSubresourceCount);
+                 ++subresourceIndex)
             {
                 CueTextureMipInfo mipInfo{};
                 std::memcpy(
                     &mipInfo,
                     fileData.data() + sizeof(CueTextureHeader) +
-                        sizeof(CueTextureMipInfo) * static_cast<size_t>(mipIndex),
+                        sizeof(CueTextureMipInfo) *
+                            static_cast<size_t>(subresourceIndex),
                     sizeof(CueTextureMipInfo));
 
                 const uint64_t pixelDataOffset = pixelDataBegin + mipInfo.offset;
@@ -733,7 +454,8 @@ namespace Cue
                 return result;
             }
 
-            if (fileData.size() < sizeof(CueModelHeader) + sizeof(CueModelMeshInfo))
+            if (fileData.size() <
+                sizeof(CueModelLegacyHeader) + sizeof(CueModelMeshInfoV2))
             {
                 return Result::fail(
                     Code::InvalidArgument,
@@ -741,11 +463,13 @@ namespace Cue
                     "Cooked model file is too small.");
             }
 
-            CueModelHeader header{};
-            std::memcpy(&header, fileData.data(), sizeof(CueModelHeader));
-            if (header.magic != k_cueModelMagic ||
-                header.version != k_cueModelVersion ||
-                header.meshCount == 0)
+            CueModelLegacyHeader legacyHeader{};
+            std::memcpy(
+                &legacyHeader,
+                fileData.data(),
+                sizeof(CueModelLegacyHeader));
+            if (legacyHeader.magic != k_cueModelMagic ||
+                legacyHeader.meshCount == 0)
             {
                 return Result::fail(
                     Code::Unsupported,
@@ -753,10 +477,132 @@ namespace Cue
                     "Cooked model format is not supported.");
             }
 
-            const size_t meshInfoTableSize =
-                sizeof(CueModelMeshInfo) * static_cast<size_t>(header.meshCount);
-            const size_t payloadBegin = sizeof(CueModelHeader) + meshInfoTableSize;
-            if (fileData.size() < payloadBegin + static_cast<size_t>(header.dataSize))
+            size_t meshInfoBegin = 0;
+            size_t materialInfoBegin = 0;
+            size_t renderPartInfoBegin = 0;
+            size_t jointInfoBegin = 0;
+            size_t animationClipInfoBegin = 0;
+            size_t payloadBegin = 0;
+            uint32_t materialCount = 0;
+            uint32_t renderPartCount = 0;
+            uint32_t jointCount = 0;
+            uint32_t animationClipCount = 0;
+            uint64_t dataSize = 0;
+            bool isVersion3 = false;
+            bool isVersion4 = false;
+
+            if (legacyHeader.version == k_cueModelLegacyVersion)
+            {
+                const size_t meshInfoTableSize =
+                    sizeof(CueModelMeshInfoV2) *
+                    static_cast<size_t>(legacyHeader.meshCount);
+                meshInfoBegin = sizeof(CueModelLegacyHeader);
+                payloadBegin = meshInfoBegin + meshInfoTableSize;
+                dataSize = legacyHeader.dataSize;
+            }
+            else if (legacyHeader.version == k_cueModelVersion2)
+            {
+                if (fileData.size() < sizeof(CueModelHeader))
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Cooked model file is too small.");
+                }
+
+                CueModelHeader header{};
+                std::memcpy(&header, fileData.data(), sizeof(CueModelHeader));
+                if (header.magic != k_cueModelMagic ||
+                    header.meshCount == 0 ||
+                    header.renderPartCount == 0)
+                {
+                    return Result::fail(
+                        Code::Unsupported,
+                        Severity::Error,
+                        "Cooked model format is not supported.");
+                }
+
+                const size_t meshInfoTableSize =
+                    sizeof(CueModelMeshInfoV2) *
+                    static_cast<size_t>(header.meshCount);
+                const size_t materialInfoTableSize =
+                    sizeof(CueModelMaterialInfo) *
+                    static_cast<size_t>(header.materialCount);
+                const size_t renderPartInfoTableSize =
+                    sizeof(CueModelRenderPartInfoV3) *
+                    static_cast<size_t>(header.renderPartCount);
+                meshInfoBegin = sizeof(CueModelHeader);
+                materialInfoBegin = meshInfoBegin + meshInfoTableSize;
+                renderPartInfoBegin = materialInfoBegin + materialInfoTableSize;
+                payloadBegin = renderPartInfoBegin + renderPartInfoTableSize;
+                materialCount = header.materialCount;
+                renderPartCount = header.renderPartCount;
+                dataSize = header.dataSize;
+            }
+            else if (legacyHeader.version == k_cueModelVersion3 ||
+                     legacyHeader.version == k_cueModelVersion)
+            {
+                if (fileData.size() < sizeof(CueModelHeaderV3))
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Cooked model file is too small.");
+                }
+
+                CueModelHeaderV3 header{};
+                std::memcpy(&header, fileData.data(), sizeof(CueModelHeaderV3));
+                if (header.magic != k_cueModelMagic ||
+                    header.meshCount == 0 ||
+                    header.renderPartCount == 0)
+                {
+                    return Result::fail(
+                        Code::Unsupported,
+                        Severity::Error,
+                        "Cooked model format is not supported.");
+                }
+
+                const size_t meshInfoTableSize =
+                    sizeof(CueModelMeshInfo) *
+                    static_cast<size_t>(header.meshCount);
+                const size_t materialInfoTableSize =
+                    sizeof(CueModelMaterialInfo) *
+                    static_cast<size_t>(header.materialCount);
+                const size_t renderPartInfoTableSize =
+                    (legacyHeader.version == k_cueModelVersion
+                            ? sizeof(CueModelRenderPartInfo)
+                            : sizeof(CueModelRenderPartInfoV3)) *
+                    static_cast<size_t>(header.renderPartCount);
+                const size_t jointInfoTableSize =
+                    sizeof(CueModelSkeletonJointInfo) *
+                    static_cast<size_t>(header.jointCount);
+                const size_t animationClipInfoTableSize =
+                    sizeof(CueModelAnimationClipInfo) *
+                    static_cast<size_t>(header.animationClipCount);
+                meshInfoBegin = sizeof(CueModelHeaderV3);
+                materialInfoBegin = meshInfoBegin + meshInfoTableSize;
+                renderPartInfoBegin = materialInfoBegin + materialInfoTableSize;
+                jointInfoBegin = renderPartInfoBegin + renderPartInfoTableSize;
+                animationClipInfoBegin = jointInfoBegin + jointInfoTableSize;
+                payloadBegin =
+                    animationClipInfoBegin + animationClipInfoTableSize;
+                materialCount = header.materialCount;
+                renderPartCount = header.renderPartCount;
+                jointCount = header.jointCount;
+                animationClipCount = header.animationClipCount;
+                dataSize = header.dataSize;
+                isVersion3 = true;
+                isVersion4 = legacyHeader.version == k_cueModelVersion;
+            }
+            else
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Cooked model format is not supported.");
+            }
+
+            if (fileData.size() < payloadBegin + static_cast<size_t>(dataSize))
             {
                 return Result::fail(
                     Code::InvalidArgument,
@@ -765,15 +611,40 @@ namespace Cue
             }
 
             outModelData = {};
-            outModelData.meshes.reserve(header.meshCount);
-            for (uint32_t meshIndex = 0; meshIndex < header.meshCount; ++meshIndex)
+            outModelData.meshes.reserve(legacyHeader.meshCount);
+            for (uint32_t meshIndex = 0;
+                 meshIndex < legacyHeader.meshCount;
+                 ++meshIndex)
             {
                 CueModelMeshInfo meshInfo{};
-                std::memcpy(
-                    &meshInfo,
-                    fileData.data() + sizeof(CueModelHeader) +
-                        sizeof(CueModelMeshInfo) * static_cast<size_t>(meshIndex),
-                    sizeof(CueModelMeshInfo));
+                if (isVersion3)
+                {
+                    std::memcpy(
+                        &meshInfo,
+                        fileData.data() + meshInfoBegin +
+                            sizeof(CueModelMeshInfo) *
+                                static_cast<size_t>(meshIndex),
+                        sizeof(CueModelMeshInfo));
+                }
+                else
+                {
+                    CueModelMeshInfoV2 meshInfoV2{};
+                    std::memcpy(
+                        &meshInfoV2,
+                        fileData.data() + meshInfoBegin +
+                            sizeof(CueModelMeshInfoV2) *
+                                static_cast<size_t>(meshIndex),
+                        sizeof(CueModelMeshInfoV2));
+                    meshInfo.nameSize = meshInfoV2.nameSize;
+                    meshInfo.vertexCount = meshInfoV2.vertexCount;
+                    meshInfo.indexCount = meshInfoV2.indexCount;
+                    meshInfo.flags = meshInfoV2.flags;
+                    meshInfo.nameOffset = meshInfoV2.nameOffset;
+                    meshInfo.positionsOffset = meshInfoV2.positionsOffset;
+                    meshInfo.uvsOffset = meshInfoV2.uvsOffset;
+                    meshInfo.normalsOffset = meshInfoV2.normalsOffset;
+                    meshInfo.indicesOffset = meshInfoV2.indicesOffset;
+                }
 
                 if (meshInfo.vertexCount == 0 || meshInfo.indexCount == 0)
                 {
@@ -785,11 +656,8 @@ namespace Cue
 
                 Core::Native::MeshData meshData{};
                 meshData.name.resize(meshInfo.nameSize);
-                result = copy_payload_bytes(
-                    fileData,
-                    payloadBegin,
-                    meshInfo.nameOffset,
-                    meshData.name.data(),
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    meshInfo.nameOffset, meshData.name.data(),
                     meshData.name.size());
                 if (!result)
                 {
@@ -797,11 +665,8 @@ namespace Cue
                 }
 
                 meshData.positions.resize(meshInfo.vertexCount);
-                result = copy_payload_bytes(
-                    fileData,
-                    payloadBegin,
-                    meshInfo.positionsOffset,
-                    meshData.positions.data(),
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    meshInfo.positionsOffset, meshData.positions.data(),
                     meshData.positions.size());
                 if (!result)
                 {
@@ -811,11 +676,8 @@ namespace Cue
                 if ((meshInfo.flags & k_cueModelMeshFlagHasUvs) != 0)
                 {
                     meshData.uvs.resize(meshInfo.vertexCount);
-                    result = copy_payload_bytes(
-                        fileData,
-                        payloadBegin,
-                        meshInfo.uvsOffset,
-                        meshData.uvs.data(),
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        meshInfo.uvsOffset, meshData.uvs.data(),
                         meshData.uvs.size());
                     if (!result)
                     {
@@ -826,11 +688,8 @@ namespace Cue
                 if ((meshInfo.flags & k_cueModelMeshFlagHasNormals) != 0)
                 {
                     meshData.normals.resize(meshInfo.vertexCount);
-                    result = copy_payload_bytes(
-                        fileData,
-                        payloadBegin,
-                        meshInfo.normalsOffset,
-                        meshData.normals.data(),
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        meshInfo.normalsOffset, meshData.normals.data(),
                         meshData.normals.size());
                     if (!result)
                     {
@@ -839,18 +698,274 @@ namespace Cue
                 }
 
                 meshData.indices.resize(meshInfo.indexCount);
-                result = copy_payload_bytes(
-                    fileData,
-                    payloadBegin,
-                    meshInfo.indicesOffset,
-                    meshData.indices.data(),
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    meshInfo.indicesOffset, meshData.indices.data(),
                     meshData.indices.size());
                 if (!result)
                 {
                     return result;
                 }
 
+                if ((meshInfo.flags & k_cueModelMeshFlagHasSkinInfluences) !=
+                    0)
+                {
+                    meshData.skinInfluences.resize(meshInfo.vertexCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        meshInfo.skinInfluencesOffset,
+                        meshData.skinInfluences.data(),
+                        meshData.skinInfluences.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+
                 outModelData.meshes.push_back(std::move(meshData));
+            }
+
+            outModelData.materials.reserve(materialCount);
+            for (uint32_t materialIndex = 0;
+                 materialIndex < materialCount;
+                 ++materialIndex)
+            {
+                CueModelMaterialInfo materialInfo{};
+                std::memcpy(
+                    &materialInfo,
+                    fileData.data() + materialInfoBegin +
+                        sizeof(CueModelMaterialInfo) *
+                            static_cast<size_t>(materialIndex),
+                    sizeof(CueModelMaterialInfo));
+
+                Core::Native::ImportedMaterialData materialData{};
+                materialData.name.resize(materialInfo.nameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    materialInfo.nameOffset, materialData.name.data(),
+                    materialData.name.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                materialData.textureName.resize(materialInfo.textureNameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    materialInfo.textureNameOffset,
+                    materialData.textureName.data(),
+                    materialData.textureName.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                materialData.color = materialInfo.color;
+                materialData.shininess = materialInfo.shininess;
+                materialData.isTextureUsed =
+                    (materialInfo.flags & k_cueModelMaterialFlagHasTexture) !=
+                    0;
+                materialData.usesReflectionSkybox =
+                    (materialInfo.flags &
+                        k_cueModelMaterialFlagUsesReflectionSkybox) != 0;
+                outModelData.materials.push_back(std::move(materialData));
+            }
+
+            if (renderPartCount == 0)
+            {
+                outModelData.renderParts.reserve(outModelData.meshes.size());
+                for (uint32_t meshIndex = 0;
+                     meshIndex < outModelData.meshes.size();
+                     ++meshIndex)
+                {
+                    Core::Native::ModelRenderPartData renderPart{};
+                    renderPart.name = outModelData.meshes[meshIndex].name;
+                    renderPart.meshIndex = meshIndex;
+                    outModelData.renderParts.push_back(std::move(renderPart));
+                }
+            }
+            else
+            {
+                outModelData.renderParts.reserve(renderPartCount);
+                for (uint32_t renderPartIndex = 0;
+                     renderPartIndex < renderPartCount;
+                     ++renderPartIndex)
+                {
+                    CueModelRenderPartInfo renderPartInfo{};
+                    const size_t renderPartInfoSize =
+                        isVersion4
+                        ? sizeof(CueModelRenderPartInfo)
+                        : sizeof(CueModelRenderPartInfoV3);
+                    if (isVersion4)
+                    {
+                        std::memcpy(
+                            &renderPartInfo,
+                            fileData.data() + renderPartInfoBegin +
+                                renderPartInfoSize *
+                                    static_cast<size_t>(renderPartIndex),
+                            sizeof(CueModelRenderPartInfo));
+                    }
+                    else
+                    {
+                        CueModelRenderPartInfoV3 renderPartInfoV3{};
+                        std::memcpy(
+                            &renderPartInfoV3,
+                            fileData.data() + renderPartInfoBegin +
+                                renderPartInfoSize *
+                                    static_cast<size_t>(renderPartIndex),
+                            sizeof(CueModelRenderPartInfoV3));
+                        renderPartInfo.nameSize = renderPartInfoV3.nameSize;
+                        renderPartInfo.meshIndex = renderPartInfoV3.meshIndex;
+                        renderPartInfo.materialIndex =
+                            renderPartInfoV3.materialIndex;
+                        renderPartInfo.jointIndex =
+                            Core::Native::k_invalidAnimationIndex;
+                        renderPartInfo.nameOffset = renderPartInfoV3.nameOffset;
+                        renderPartInfo.localTransform =
+                            renderPartInfoV3.localTransform;
+                    }
+
+                    if (renderPartInfo.meshIndex >= outModelData.meshes.size())
+                    {
+                        return Result::fail(
+                            Code::InvalidArgument,
+                            Severity::Error,
+                            "Cooked model render part mesh index is out of range.");
+                    }
+                    if (renderPartInfo.materialIndex !=
+                            Core::Native::k_invalidModelMaterialIndex &&
+                        renderPartInfo.materialIndex >=
+                            outModelData.materials.size())
+                    {
+                        return Result::fail(
+                            Code::InvalidArgument,
+                            Severity::Error,
+                            "Cooked model render part material index is out of range.");
+                    }
+
+                    Core::Native::ModelRenderPartData renderPart{};
+                    renderPart.name.resize(renderPartInfo.nameSize);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        renderPartInfo.nameOffset, renderPart.name.data(),
+                        renderPart.name.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+
+                    renderPart.meshIndex = renderPartInfo.meshIndex;
+                    renderPart.materialIndex = renderPartInfo.materialIndex;
+                    renderPart.jointIndex = renderPartInfo.jointIndex;
+                    renderPart.localTransform =
+                        renderPartInfo.localTransform;
+                    outModelData.renderParts.push_back(std::move(renderPart));
+                }
+            }
+
+            outModelData.skeletonJoints.reserve(jointCount);
+            for (uint32_t jointIndex = 0; jointIndex < jointCount; ++jointIndex)
+            {
+                CueModelSkeletonJointInfo jointInfo{};
+                std::memcpy(
+                    &jointInfo,
+                    fileData.data() + jointInfoBegin +
+                        sizeof(CueModelSkeletonJointInfo) *
+                            static_cast<size_t>(jointIndex),
+                    sizeof(CueModelSkeletonJointInfo));
+
+                Core::Native::SkeletonJointData jointData{};
+                jointData.name.resize(jointInfo.nameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    jointInfo.nameOffset, jointData.name.data(),
+                    jointData.name.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                jointData.parentIndex = jointInfo.parentIndex;
+                jointData.inverseBindMatrix = jointInfo.inverseBindMatrix;
+                jointData.localBindMatrix = jointInfo.localBindMatrix;
+                outModelData.skeletonJoints.push_back(std::move(jointData));
+            }
+
+            outModelData.animationClips.reserve(animationClipCount);
+            for (uint32_t clipIndex = 0; clipIndex < animationClipCount;
+                 ++clipIndex)
+            {
+                CueModelAnimationClipInfo clipInfo{};
+                std::memcpy(
+                    &clipInfo,
+                    fileData.data() + animationClipInfoBegin +
+                        sizeof(CueModelAnimationClipInfo) *
+                            static_cast<size_t>(clipIndex),
+                    sizeof(CueModelAnimationClipInfo));
+
+                Core::Native::AnimationClipData clipData{};
+                clipData.name.resize(clipInfo.nameSize);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    clipInfo.nameOffset, clipData.name.data(),
+                    clipData.name.size());
+                if (!result)
+                {
+                    return result;
+                }
+                clipData.duration = clipInfo.duration;
+                clipData.ticksPerSecond = clipInfo.ticksPerSecond;
+
+                std::vector<CueModelAnimationChannelInfo> channelInfos(
+                    clipInfo.channelCount);
+                result = copy_payload_bytes(fileData, payloadBegin,
+                    clipInfo.channelsOffset, channelInfos.data(),
+                    channelInfos.size());
+                if (!result)
+                {
+                    return result;
+                }
+
+                clipData.channels.reserve(channelInfos.size());
+                for (const CueModelAnimationChannelInfo& channelInfo :
+                     channelInfos)
+                {
+                    Core::Native::AnimationChannelData channelData{};
+                    channelData.targetName.resize(channelInfo.targetNameSize);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.targetNameOffset,
+                        channelData.targetName.data(),
+                        channelData.targetName.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.jointIndex = channelInfo.jointIndex;
+                    channelData.translations.resize(
+                        channelInfo.translationCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.translationsOffset,
+                        channelData.translations.data(),
+                        channelData.translations.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.rotations.resize(channelInfo.rotationCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.rotationsOffset,
+                        channelData.rotations.data(),
+                        channelData.rotations.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    channelData.scales.resize(channelInfo.scaleCount);
+                    result = copy_payload_bytes(fileData, payloadBegin,
+                        channelInfo.scalesOffset,
+                        channelData.scales.data(),
+                        channelData.scales.size());
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    clipData.channels.push_back(std::move(channelData));
+                }
+
+                outModelData.animationClips.push_back(std::move(clipData));
             }
 
             return Result::ok();
@@ -901,6 +1016,8 @@ namespace Cue
                 { "color", serialize_float4(record.desc.color) },
                 { "texture", record.desc.textureName },
                 { "useTexture", record.desc.isTextureUsed },
+                { "reflectionSkybox", record.desc.usesReflectionSkybox },
+                { "shininess", record.desc.shininess },
             };
 
             std::string text = root.dump(4);
@@ -948,7 +1065,7 @@ namespace Cue
             const Json root = Json::parse(text);
 
             const uint32_t version = root.at("version").get<uint32_t>();
-            if (version != 1 && version != 2 &&
+            if (version != 1 && version != 2 && version != 3 &&
                 version != k_materialAssetVersion)
             {
                 return Result::fail(
@@ -971,6 +1088,12 @@ namespace Cue
                 desc.isTextureUsed = version >= 3
                     ? root.value("useTexture", !desc.textureName.empty())
                     : !desc.textureName.empty();
+                if (version >= 4)
+                {
+                    desc.usesReflectionSkybox =
+                        root.value("reflectionSkybox", false);
+                    desc.shininess = root.value("shininess", 32.0f);
+                }
             }
             else
             {
@@ -1100,20 +1223,200 @@ namespace Cue
         return Result::ok();
     }
 
-    Result AssetManager::load_model_from_obj(
+    Result AssetManager::register_texture_from_file(
         Core::IO::IFileSystem& fileSystem,
         std::string_view name,
         const Core::IO::Path& filePath,
-        ModelHandle& outHandle)
+        uint32_t& outTextureId)
     {
-        Core::Native::ModelData modelData{};
-        Result result = load_obj_model_data(fileSystem, filePath, name, modelData);
+        outTextureId = k_errorTextureId;
+
+        const std::string extension =
+            to_lower_ascii(filePath.normalize().extension());
+        if (extension == ".cuetexture")
+        {
+            return register_texture_from_cuetexture(
+                fileSystem,
+                name,
+                filePath,
+                outTextureId);
+        }
+
+        if (extension != ".dds")
+        {
+            return Result::fail(
+                Code::Unsupported,
+                Severity::Error,
+                "Texture asset file extension is not supported.");
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        if (m_textureNameMap.contains(nameId))
+        {
+            outTextureId = m_textureNameMap.at(nameId);
+            return Result::ok();
+        }
+
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Texture manager is not initialized in AssetManager.");
+        }
+
+        RHI::TextureHandle textureHandle{};
+        Result result = m_textureManager->create_texture_from_file(
+            name,
+            filePath.normalize().utf8(),
+            textureHandle);
         if (!result)
         {
             return result;
         }
 
-        return add_model(name, modelData, outHandle);
+        result = m_textureManager->get_texture_descriptor_index(
+            textureHandle,
+            outTextureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (outTextureId >= m_textures.size())
+        {
+            m_textures.resize(static_cast<size_t>(outTextureId) + 1);
+        }
+
+        m_textures[outTextureId] = TextureAssetRecord{
+            std::string(name),
+            textureHandle
+        };
+        m_textureNameMap.emplace(nameId, outTextureId);
+        return Result::ok();
+    }
+
+    Result AssetManager::register_texture_from_rgba8(
+        std::string_view name,
+        uint32_t width,
+        uint32_t height,
+        std::span<const std::byte> pixels,
+        uint32_t& outTextureId)
+    {
+        outTextureId = k_errorTextureId;
+        if (name.empty() || width == 0 || height == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "RGBA texture name and size must be valid.");
+        }
+
+        const uint64_t expectedSize =
+            static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
+        if (pixels.size() != expectedSize)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "RGBA texture pixel data size is invalid.");
+        }
+
+        if (m_textureManager == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Texture manager is not initialized in AssetManager.");
+        }
+
+        RHI::TextureDesc textureDesc{};
+        textureDesc.name = std::string(name);
+        textureDesc.kind = RHI::TextureKind::Default;
+        textureDesc.type = RHI::TextureType::Texture2D;
+        textureDesc.width = width;
+        textureDesc.height = height;
+        textureDesc.format = RHI::ColorFormat::R8G8B8A8_UNORM;
+
+        RHI::TextureSubresourceData subresource{};
+        subresource.data = pixels.data();
+        subresource.dataSize = pixels.size();
+        subresource.rowPitch = width * 4u;
+        subresource.slicePitch = subresource.rowPitch * height;
+
+        RHI::TextureHandle textureHandle{};
+        Result result = m_textureManager->create_texture(
+            textureDesc,
+            std::span<const RHI::TextureSubresourceData>(&subresource, 1),
+            textureHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            m_textureManager->get_texture_descriptor_index(textureHandle, outTextureId);
+        if (!result)
+        {
+            (void)m_textureManager->destroy_texture(textureHandle);
+            return result;
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(name);
+        auto existingIt = m_textureNameMap.find(nameId);
+        if (existingIt != m_textureNameMap.end())
+        {
+            // フォントアトラスのように描画収集中に再生成されるテクスチャは、
+            // 同一フレーム内で古い descriptor id を参照する draw item が残り得る。
+            // 即破棄せず、新しい名前解決だけを最新 descriptor id に更新する。
+            existingIt->second = outTextureId;
+        }
+        else
+        {
+            m_textureNameMap.emplace(nameId, outTextureId);
+        }
+
+        if (outTextureId >= m_textures.size())
+        {
+            m_textures.resize(static_cast<size_t>(outTextureId) + 1);
+        }
+
+        m_textures[outTextureId] = TextureAssetRecord{
+            std::string(name),
+            textureHandle
+        };
+        return Result::ok();
+    }
+
+    Result AssetManager::register_error_texture_from_file(
+        Core::IO::IFileSystem& fileSystem,
+        const Core::IO::Path& filePath)
+    {
+        if (!m_textures.empty())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Error texture must be registered before any other texture.");
+        }
+
+        uint32_t textureId = k_errorTextureId;
+        Result result = register_texture_from_file(
+            fileSystem, "CueDummy", filePath, textureId);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (textureId != k_errorTextureId)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Error texture id must be zero.");
+        }
+
+        return Result::ok();
     }
 
     Result AssetManager::register_model_from_cuemodel(

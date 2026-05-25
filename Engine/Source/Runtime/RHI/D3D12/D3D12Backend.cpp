@@ -62,10 +62,6 @@ namespace Cue::RHI::DX12
             a_info.bufferCount,
             *static_cast<DX12GpuCommandQueue*>(presentQueueContext));
 
-        // 静的メッシュプールの初期化
-        StaticMeshPoolDesc meshPoolDesc{};
-        m_staticMeshPool = std::make_unique<DX12StaticMeshPool>(meshPoolDesc, *m_bufferManager, *m_viewManager, *m_commandPool, *m_queuePool);
-
         return Result::ok();
     }
 
@@ -83,7 +79,6 @@ namespace Cue::RHI::DX12
             m_swapChain.reset();
         }
 
-        m_staticMeshPool.reset();
         m_viewManager.reset();
         m_textureManager.reset();
         m_bufferManager.reset();
@@ -167,7 +162,6 @@ namespace Cue::RHI::DX12
         desc.textureManager = m_textureManager.get();
         desc.pipelineManager = m_pipelineManager.get();
         desc.viewManager = m_viewManager.get();
-        desc.staticMeshPool = m_staticMeshPool.get();
         desc.commandPool = m_commandPool.get();
         desc.queuePool = m_queuePool.get();
         desc.width = m_swapChain->width();

@@ -12,8 +12,15 @@
 #include "../GameCore/GameWorld.h"
 #include "ScriptModule.h"
 
+// === ThirdParty includes ===
+#include <nlohmann/json.hpp>
+
 // === C++ includes ===
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <limits>
 #include <unordered_set>
 #include <vector>
 
@@ -53,6 +60,210 @@ namespace Cue
                 a_value.data(),
                 static_cast<uint32_t>(a_value.size())
             };
+        }
+
+        [[nodiscard]] bool has_text(CueStringView a_value) noexcept
+        {
+            return a_value.data != nullptr && a_value.size > 0u;
+        }
+
+        [[nodiscard]] const nlohmann::json* find_json_value(
+            const nlohmann::json& a_root,
+            std::string_view a_keyPath) noexcept
+        {
+            if (a_keyPath.empty())
+            {
+                return &a_root;
+            }
+
+            const nlohmann::json* value = &a_root;
+            size_t offset = 0u;
+            while (offset < a_keyPath.size())
+            {
+                const size_t keyBegin = offset;
+                while (offset < a_keyPath.size() && a_keyPath[offset] != '.' &&
+                    a_keyPath[offset] != '[')
+                {
+                    ++offset;
+                }
+
+                if (offset > keyBegin)
+                {
+                    if (!value->is_object())
+                    {
+                        return nullptr;
+                    }
+
+                    const std::string key(a_keyPath.substr(keyBegin, offset - keyBegin));
+                    const auto iterator = value->find(key);
+                    if (iterator == value->end())
+                    {
+                        return nullptr;
+                    }
+                    value = &(*iterator);
+                }
+
+                while (offset < a_keyPath.size() && a_keyPath[offset] == '[')
+                {
+                    ++offset;
+                    if (offset >= a_keyPath.size() || !std::isdigit(
+                            static_cast<unsigned char>(a_keyPath[offset])))
+                    {
+                        return nullptr;
+                    }
+
+                    size_t index = 0u;
+                    while (offset < a_keyPath.size() &&
+                        std::isdigit(static_cast<unsigned char>(a_keyPath[offset])))
+                    {
+                        index = index * 10u +
+                            static_cast<size_t>(a_keyPath[offset] - '0');
+                        ++offset;
+                    }
+                    if (offset >= a_keyPath.size() || a_keyPath[offset] != ']' ||
+                        !value->is_array() || index >= value->size())
+                    {
+                        return nullptr;
+                    }
+                    ++offset;
+                    value = &((*value)[index]);
+                }
+
+                if (offset < a_keyPath.size())
+                {
+                    if (a_keyPath[offset] != '.')
+                    {
+                        return nullptr;
+                    }
+                    ++offset;
+                    if (offset >= a_keyPath.size())
+                    {
+                        return nullptr;
+                    }
+                }
+            }
+
+            return value;
+        }
+
+        [[nodiscard]] Math::float3 to_math_float3(const CueFloat3& a_value) noexcept
+        {
+            return Math::float3(a_value.x, a_value.y, a_value.z);
+        }
+
+        [[nodiscard]] Math::float2 to_math_float2(const CueFloat2& a_value) noexcept
+        {
+            return Math::float2(a_value.x, a_value.y);
+        }
+
+        [[nodiscard]] bool is_finite(const CueFloat2& a_value) noexcept
+        {
+            return std::isfinite(a_value.x) && std::isfinite(a_value.y);
+        }
+
+        [[nodiscard]] Math::float4 to_math_float4(const CueFloat4& a_value) noexcept
+        {
+            return Math::float4(a_value.x, a_value.y, a_value.z, a_value.w);
+        }
+
+        [[nodiscard]] CueFloat4 to_cue_float4(const Math::float4& a_value) noexcept
+        {
+            return CueFloat4{ a_value.x, a_value.y, a_value.z, a_value.w };
+        }
+
+        [[nodiscard]] bool is_finite(const CueFloat4& a_value) noexcept
+        {
+            return std::isfinite(a_value.x) &&
+                std::isfinite(a_value.y) &&
+                std::isfinite(a_value.z) &&
+                std::isfinite(a_value.w);
+        }
+
+        [[nodiscard]] uint32_t sanitize_material_override_mask(
+            uint32_t a_mask) noexcept
+        {
+            constexpr uint32_t k_allowedMask =
+                ECS::MaterialPropertyOverrideColor |
+                ECS::MaterialPropertyOverrideShininess |
+                ECS::MaterialPropertyOverrideReflectionSkybox;
+            return a_mask & k_allowedMask;
+        }
+
+        [[nodiscard]] ECS::MaterialPropertyBlock to_material_property_block(
+            const CueMaterialPropertyBlockData& a_data) noexcept
+        {
+            ECS::MaterialPropertyBlock propertyBlock{};
+            propertyBlock.color = to_math_float4(a_data.color);
+            propertyBlock.shininess = a_data.shininess;
+            propertyBlock.overrideMask =
+                sanitize_material_override_mask(a_data.overrideMask);
+            propertyBlock.usesReflectionSkybox =
+                a_data.usesReflectionSkybox != 0u;
+            return propertyBlock;
+        }
+
+        [[nodiscard]] CueMaterialPropertyBlockData to_cue_material_property_block(
+            const ECS::MaterialPropertyBlock& a_propertyBlock) noexcept
+        {
+            CueMaterialPropertyBlockData data{};
+            data.color = to_cue_float4(a_propertyBlock.color);
+            data.shininess = a_propertyBlock.shininess;
+            data.overrideMask =
+                sanitize_material_override_mask(a_propertyBlock.overrideMask);
+            data.usesReflectionSkybox =
+                a_propertyBlock.usesReflectionSkybox ? 1u : 0u;
+            return data;
+        }
+
+        [[nodiscard]] float length_squared(const Math::float3& a_value) noexcept
+        {
+            return a_value.x * a_value.x + a_value.y * a_value.y +
+                a_value.z * a_value.z;
+        }
+
+        [[nodiscard]] bool to_physics_shape_type(
+            CueColliderShapeType a_shapeType,
+            Physics::ShapeType& a_outShapeType) noexcept
+        {
+            switch (a_shapeType)
+            {
+            case CueColliderShapeType_Box:
+                a_outShapeType = Physics::ShapeType::Box;
+                return true;
+            case CueColliderShapeType_Sphere:
+                a_outShapeType = Physics::ShapeType::Sphere;
+                return true;
+            case CueColliderShapeType_Capsule:
+                a_outShapeType = Physics::ShapeType::Capsule;
+                return true;
+            case CueColliderShapeType_Mesh:
+                a_outShapeType = Physics::ShapeType::Mesh;
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        [[nodiscard]] float collider_bounding_radius(
+            const ECS::ColliderComponent& a_collider) noexcept
+        {
+            switch (a_collider.type)
+            {
+            case Physics::ShapeType::Sphere:
+                return a_collider.radius;
+            case Physics::ShapeType::Capsule:
+            {
+                const float verticalRadius =
+                    a_collider.halfHeight + a_collider.radius;
+                return std::sqrt(
+                    a_collider.radius * a_collider.radius +
+                    verticalRadius * verticalRadius);
+            }
+            case Physics::ShapeType::Box:
+            case Physics::ShapeType::Mesh:
+            default:
+                return std::sqrt(length_squared(a_collider.halfExtent));
+            }
         }
 
         [[nodiscard]] PAL::Key to_pal_key(CueKey a_key) noexcept
@@ -405,6 +616,12 @@ namespace Cue
         }
     }
 
+    struct ScriptRuntime::JsonConfigEntry final
+    {
+        nlohmann::json document{};
+        uint32_t generation = 0u;
+    };
+
     ScriptRuntime* ScriptRuntime::s_activeInstance = nullptr;
 
     ScriptRuntime::ScriptRuntime(
@@ -464,6 +681,57 @@ namespace Cue
         m_engineApi.debugDrawLine = &ScriptRuntime::debug_draw_line_bridge;
         m_engineApi.debugDrawSphere = &ScriptRuntime::debug_draw_sphere_bridge;
         m_engineApi.debugDrawBox = &ScriptRuntime::debug_draw_box_bridge;
+        m_engineApi.getTransformDegrees =
+            &ScriptRuntime::get_transform_degrees_bridge;
+        m_engineApi.setTransformDegrees =
+            &ScriptRuntime::set_transform_degrees_bridge;
+        m_engineApi.getTransformQuaternion =
+            &ScriptRuntime::get_transform_quaternion_bridge;
+        m_engineApi.setTransformQuaternion =
+            &ScriptRuntime::set_transform_quaternion_bridge;
+        m_engineApi.spawnObject = &ScriptRuntime::spawn_object_bridge;
+        m_engineApi.instantiateEntity = &ScriptRuntime::instantiate_entity_bridge;
+        m_engineApi.findEntitiesByTag = &ScriptRuntime::find_entities_by_tag_bridge;
+        m_engineApi.findEntitiesByName =
+            &ScriptRuntime::find_entities_by_name_bridge;
+        m_engineApi.triggerOverlaps = &ScriptRuntime::trigger_overlaps_bridge;
+        m_engineApi.sphereOverlap = &ScriptRuntime::sphere_overlap_bridge;
+        m_engineApi.destroyEntity = &ScriptRuntime::destroy_entity_bridge;
+        m_engineApi.getCameraFovY = &ScriptRuntime::get_camera_fov_y_bridge;
+        m_engineApi.setCameraFovY = &ScriptRuntime::set_camera_fov_y_bridge;
+        m_engineApi.addOrSetComponent =
+            &ScriptRuntime::add_or_set_component_bridge;
+        m_engineApi.getParent = &ScriptRuntime::get_parent_bridge;
+        m_engineApi.setParent = &ScriptRuntime::set_parent_bridge;
+        m_engineApi.detachParent = &ScriptRuntime::detach_parent_bridge;
+        m_engineApi.setMaterialPropertyBlock =
+            &ScriptRuntime::set_material_property_block_bridge;
+        m_engineApi.getMaterialPropertyBlock =
+            &ScriptRuntime::get_material_property_block_bridge;
+        m_engineApi.clearMaterialPropertyBlock =
+            &ScriptRuntime::clear_material_property_block_bridge;
+        m_engineApi.setMaterialColor =
+            &ScriptRuntime::set_material_color_bridge;
+        m_engineApi.setMaterialShininess =
+            &ScriptRuntime::set_material_shininess_bridge;
+        m_engineApi.loadJsonConfig = &ScriptRuntime::load_json_config_bridge;
+        m_engineApi.unloadJsonConfig = &ScriptRuntime::unload_json_config_bridge;
+        m_engineApi.getJsonConfigBool = &ScriptRuntime::get_json_config_bool_bridge;
+        m_engineApi.getJsonConfigInt = &ScriptRuntime::get_json_config_int_bridge;
+        m_engineApi.getJsonConfigFloat =
+            &ScriptRuntime::get_json_config_float_bridge;
+        m_engineApi.getJsonConfigString =
+            &ScriptRuntime::get_json_config_string_bridge;
+        m_engineApi.getUiButtonState =
+            &ScriptRuntime::get_ui_button_state_bridge;
+        m_engineApi.getUiCheckboxState =
+            &ScriptRuntime::get_ui_checkbox_state_bridge;
+        m_engineApi.setUiCheckboxChecked =
+            &ScriptRuntime::set_ui_checkbox_checked_bridge;
+        m_engineApi.getUiSliderState =
+            &ScriptRuntime::get_ui_slider_state_bridge;
+        m_engineApi.setUiSliderValue =
+            &ScriptRuntime::set_ui_slider_value_bridge;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -889,15 +1157,15 @@ namespace Cue
             return result;
         }
 
+        if (!ScriptModule::is_loaded(m_module))
+        {
+            return Result::ok();
+        }
+
         result = sync_instances();
         if (!result)
         {
             return result;
-        }
-
-        if (!ScriptModule::is_loaded(m_module))
-        {
-            return Result::ok();
         }
 
         const CueScriptExports* exports = m_module->exports();
@@ -912,8 +1180,10 @@ namespace Cue
 
         for (const auto& [entityId, binding] : m_bindings)
         {
+            m_executingEntityId = entityId;
             const CueResult updateResult =
                 exports->updateScriptInstance(binding.instanceHandle, a_deltaTimeSeconds);
+            m_executingEntityId = GameCore::k_invalidEntityId;
             if (updateResult == CueResult_Ok)
             {
                 continue;
@@ -940,8 +1210,105 @@ namespace Cue
         return Result::ok();
     }
 
+    Result ScriptRuntime::dispatch_collision_events() noexcept
+    {
+        if (m_gameWorld == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime game world is not initialized.");
+        }
+        if (!ScriptModule::is_loaded(m_module))
+        {
+            return Result::ok();
+        }
+
+        const CueScriptExports* exports = m_module->exports();
+        if (exports == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Script runtime module exports are invalid.");
+        }
+        if (exports->structSize <
+                offsetof(CueScriptExports, dispatchScriptCollisionEvent) +
+                    sizeof(CueDispatchScriptCollisionEventFn) ||
+            exports->dispatchScriptCollisionEvent == nullptr)
+        {
+            return Result::ok();
+        }
+
+        for (const auto& [entityId, binding] : m_bindings)
+        {
+            ECS::TriggerVolumeComponent* mutableTrigger = nullptr;
+            Result triggerResult =
+                m_gameWorld->get_component(entityId, mutableTrigger);
+            const ECS::TriggerVolumeComponent* trigger =
+                mutableTrigger;
+            if (!triggerResult || trigger == nullptr)
+            {
+                continue;
+            }
+
+            const auto dispatchEvent =
+                [&exports, &binding](
+                    CueScriptCollisionEventType a_eventType,
+                    GameCore::EntityId a_otherEntity) -> Result
+            {
+                if (a_otherEntity == GameCore::k_invalidEntityId)
+                {
+                    return Result::ok();
+                }
+
+                const CueResult scriptResult =
+                    exports->dispatchScriptCollisionEvent(
+                        binding.instanceHandle,
+                        a_eventType,
+                        to_entity_handle(a_otherEntity));
+                if (scriptResult == CueResult_Ok ||
+                    scriptResult == CueResult_NotFound)
+                {
+                    return Result::ok();
+                }
+
+                return convert_script_result(scriptResult);
+            };
+
+            for (const GameCore::EntityId otherEntity : trigger->enteredEntities)
+            {
+                Result eventResult = dispatchEvent(
+                    CueScriptCollisionEventType_Enter, otherEntity);
+                if (!eventResult)
+                {
+                    return eventResult;
+                }
+            }
+            for (const GameCore::EntityId otherEntity :
+                trigger->overlappingEntities)
+            {
+                Result eventResult = dispatchEvent(
+                    CueScriptCollisionEventType_Stay, otherEntity);
+                if (!eventResult)
+                {
+                    return eventResult;
+                }
+            }
+            for (const GameCore::EntityId otherEntity : trigger->exitedEntities)
+            {
+                Result eventResult = dispatchEvent(
+                    CueScriptCollisionEventType_Exit, otherEntity);
+                if (!eventResult)
+                {
+                    return eventResult;
+                }
+            }
+        }
+
+        return Result::ok();
+    }
+
     Result ScriptRuntime::reset() noexcept
     {
+        m_jsonConfigs.clear();
+        m_nextJsonConfigGeneration = 1u;
         return destroy_all_instances();
     }
 
@@ -1359,6 +1726,46 @@ namespace Cue
             : CueResult_InvalidState;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_transform_degrees_bridge(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_transform_degrees_internal(
+                a_entityHandle, a_outTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_transform_degrees_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_transform_degrees_internal(
+                a_entityHandle, a_transform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_transform_quaternion_bridge(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_transform_quaternion_internal(
+                a_entityHandle, a_outTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_transform_quaternion_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_transform_quaternion_internal(
+                a_entityHandle, a_transform)
+            : CueResult_InvalidState;
+    }
+
     CueSceneId CUE_SCRIPT_CALL ScriptRuntime::request_scene_load_bridge(
         CueStringView a_sceneName)
     {
@@ -1472,6 +1879,56 @@ namespace Cue
             : 0;
     }
 
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_button_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_button_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_checkbox_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_checkbox_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_ui_checkbox_checked_bridge(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_ui_checkbox_checked_internal(
+                a_entityHandle, a_isChecked)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_ui_slider_state_bridge(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_ui_slider_state_internal(
+                a_entityHandle, a_outState)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_ui_slider_value_bridge(
+        CueEntityHandle a_entityHandle,
+        float a_value)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_ui_slider_value_internal(
+                a_entityHandle, a_value)
+            : CueResult_InvalidState;
+    }
+
     CueResult CUE_SCRIPT_CALL ScriptRuntime::raycast_bridge(
         const CueRaycastDesc* a_desc,
         CueRaycastHit* a_outHit)
@@ -1514,6 +1971,264 @@ namespace Cue
         return s_activeInstance != nullptr
             ? s_activeInstance->debug_draw_box_internal(
                 a_center, a_halfExtent, a_color, a_durationSeconds)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::spawn_object_bridge(
+        const CueSpawnObjectDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->spawn_object_internal(a_desc, a_outEntityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::instantiate_entity_bridge(
+        const CueInstantiateEntityDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->instantiate_entity_internal(
+                a_desc, a_outEntityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::find_entities_by_tag_bridge(
+        CueStringView a_tag,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->find_entities_by_tag_internal(
+                a_tag, a_outEntityHandles, a_capacity, a_outCount)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::find_entities_by_name_bridge(
+        CueStringView a_name,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->find_entities_by_name_internal(
+                a_name, a_outEntityHandles, a_capacity, a_outCount)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::trigger_overlaps_bridge(
+        CueEntityHandle a_triggerEntity,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->trigger_overlaps_internal(
+                a_triggerEntity, a_outEntityHandles, a_capacity, a_outCount)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::sphere_overlap_bridge(
+        const CueSphereOverlapDesc* a_desc,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->sphere_overlap_internal(
+                a_desc, a_outEntityHandles, a_capacity, a_outCount)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::destroy_entity_bridge(
+        CueEntityHandle a_entityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->destroy_entity_internal(a_entityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_camera_fov_y_bridge(
+        CueEntityHandle a_entityHandle,
+        float* a_outFovY)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_camera_fov_y_internal(
+                a_entityHandle, a_outFovY)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_camera_fov_y_bridge(
+        CueEntityHandle a_entityHandle,
+        float a_fovY)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_camera_fov_y_internal(
+                a_entityHandle, a_fovY)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::add_or_set_component_bridge(
+        CueEntityHandle a_entityHandle,
+        CueComponentKind a_componentKind,
+        const void* a_componentData,
+        uint32_t a_componentDataSize)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->add_or_set_component_internal(
+                a_entityHandle,
+                a_componentKind,
+                a_componentData,
+                a_componentDataSize)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_parent_internal(
+                a_entityHandle, a_outParentEntity)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_parent_internal(
+                a_entityHandle, a_parentEntity, a_keepsWorldTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::detach_parent_bridge(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->detach_parent_internal(
+                a_entityHandle, a_keepsWorldTransform)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_property_block_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_property_block_internal(
+                a_entityHandle, a_propertyBlock)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_material_property_block_bridge(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_material_property_block_internal(
+                a_entityHandle, a_outPropertyBlock)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::clear_material_property_block_bridge(
+        CueEntityHandle a_entityHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->clear_material_property_block_internal(
+                a_entityHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_color_bridge(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_color_internal(
+                a_entityHandle, a_color)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::set_material_shininess_bridge(
+        CueEntityHandle a_entityHandle,
+        float a_shininess)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->set_material_shininess_internal(
+                a_entityHandle, a_shininess)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::load_json_config_bridge(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->load_json_config_internal(
+                a_assetPath, a_outConfigHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::unload_json_config_bridge(
+        CueJsonConfigHandle a_configHandle)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->unload_json_config_internal(a_configHandle)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_bool_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_bool_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_int_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_int_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_float_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_float_internal(
+                a_configHandle, a_keyPath, a_outValue)
+            : CueResult_InvalidState;
+    }
+
+    CueResult CUE_SCRIPT_CALL ScriptRuntime::get_json_config_string_bridge(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize)
+    {
+        return s_activeInstance != nullptr
+            ? s_activeInstance->get_json_config_string_internal(
+                a_configHandle,
+                a_keyPath,
+                a_outBuffer,
+                a_bufferSize,
+                a_outRequiredSize)
             : CueResult_InvalidState;
     }
 
@@ -1894,8 +2609,10 @@ namespace Cue
 
         a_outTransform->position =
             { transform->position.x, transform->position.y, transform->position.z };
+        const Math::float3 rotationRadians =
+            Math::quaternion_to_euler_xyz(transform->rotation);
         a_outTransform->rotation =
-            { transform->rotation.x, transform->rotation.y, transform->rotation.z };
+            { rotationRadians.x, rotationRadians.y, rotationRadians.z };
         a_outTransform->scale =
             { transform->scale.x, transform->scale.y, transform->scale.z };
         return CueResult_Ok;
@@ -1929,9 +2646,131 @@ namespace Cue
         transform->position =
             Math::float3(a_transform->position.x, a_transform->position.y,
                 a_transform->position.z);
-        transform->rotation =
-            Math::float3(a_transform->rotation.x, a_transform->rotation.y,
-                a_transform->rotation.z);
+        transform->rotation = Math::quaternion_from_euler_xyz(
+            Math::float3(
+                a_transform->rotation.x,
+                a_transform->rotation.y,
+                a_transform->rotation.z));
+        transform->scale =
+            Math::float3(a_transform->scale.x, a_transform->scale.y,
+                a_transform->scale.z);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_transform_degrees_internal(
+        CueEntityHandle a_entityHandle,
+        CueTransformData* a_outTransform) const noexcept
+    {
+        const CueResult result =
+            get_transform_internal(a_entityHandle, a_outTransform);
+        if (result != CueResult_Ok)
+        {
+            return result;
+        }
+
+        const Math::float3 rotationRadians(
+            a_outTransform->rotation.x,
+            a_outTransform->rotation.y,
+            a_outTransform->rotation.z);
+        const Math::float3 rotationDegrees =
+            Math::radians_to_degrees(rotationRadians);
+        a_outTransform->rotation =
+            { rotationDegrees.x, rotationDegrees.y, rotationDegrees.z };
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_transform_degrees_internal(
+        CueEntityHandle a_entityHandle,
+        const CueTransformData* a_transform) noexcept
+    {
+        if (a_transform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        CueTransformData transform = *a_transform;
+        const Math::float3 rotationDegrees(
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z);
+        const Math::float3 rotationRadians =
+            Math::degrees_to_radians(rotationDegrees);
+        transform.rotation =
+            { rotationRadians.x, rotationRadians.y, rotationRadians.z };
+        return set_transform_internal(a_entityHandle, &transform);
+    }
+
+    CueResult ScriptRuntime::get_transform_quaternion_internal(
+        CueEntityHandle a_entityHandle,
+        CueTransformQuaternionData* a_outTransform) const noexcept
+    {
+        if (a_outTransform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
+            to_entity_id(a_entityHandle), transform);
+        if (!result || transform == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outTransform->position =
+            { transform->position.x, transform->position.y, transform->position.z };
+        a_outTransform->rotation = {
+            transform->rotation.x,
+            transform->rotation.y,
+            transform->rotation.z,
+            transform->rotation.w
+        };
+        a_outTransform->scale =
+            { transform->scale.x, transform->scale.y, transform->scale.z };
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_transform_quaternion_internal(
+        CueEntityHandle a_entityHandle,
+        const CueTransformQuaternionData* a_transform) noexcept
+    {
+        if (a_transform == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::TransformComponent>(
+            to_entity_id(a_entityHandle), transform);
+        if (!result || transform == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        transform->position =
+            Math::float3(a_transform->position.x, a_transform->position.y,
+                a_transform->position.z);
+        transform->rotation = Math::Quaternion::normalize(Math::Quaternion(
+            a_transform->rotation.x,
+            a_transform->rotation.y,
+            a_transform->rotation.z,
+            a_transform->rotation.w));
         transform->scale =
             Math::float3(a_transform->scale.x, a_transform->scale.y,
                 a_transform->scale.z);
@@ -2217,6 +3056,157 @@ namespace Cue
         return m_platform->input_manager().push_mouse_button(button) ? 1 : 0;
     }
 
+    CueResult ScriptRuntime::get_ui_button_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiButtonStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiButtonComponent* button = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiButtonComponent>(
+            to_entity_id(a_entityHandle),
+            button);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->isHovered = button->isHovered ? 1u : 0u;
+        a_outState->isPressed = button->isPressed ? 1u : 0u;
+        a_outState->wasClicked = button->wasClicked ? 1u : 0u;
+        a_outState->hasFocus = button->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_ui_checkbox_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiCheckboxStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiCheckboxComponent* checkbox = nullptr;
+        const Result result =
+            m_gameWorld->get_component<ECS::UiCheckboxComponent>(
+                to_entity_id(a_entityHandle),
+                checkbox);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->isChecked = checkbox->isChecked ? 1u : 0u;
+        a_outState->isHovered = checkbox->isHovered ? 1u : 0u;
+        a_outState->isPressed = checkbox->isPressed ? 1u : 0u;
+        a_outState->wasChanged = checkbox->wasChanged ? 1u : 0u;
+        a_outState->hasFocus = checkbox->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_ui_checkbox_checked_internal(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_isChecked) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::UiCheckboxComponent* checkbox = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiCheckboxComponent>(
+            to_entity_id(a_entityHandle),
+            checkbox);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        checkbox->isChecked = a_isChecked != 0u;
+        checkbox->wasChanged = false;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_ui_slider_state_internal(
+        CueEntityHandle a_entityHandle,
+        CueUiSliderStateData* a_outState) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outState == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outState = {};
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const ECS::UiSliderComponent* slider = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiSliderComponent>(
+            to_entity_id(a_entityHandle),
+            slider);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        a_outState->value = slider->value;
+        a_outState->isHovered = slider->isHovered ? 1u : 0u;
+        a_outState->isDragging = slider->isDragging ? 1u : 0u;
+        a_outState->wasChanged = slider->wasChanged ? 1u : 0u;
+        a_outState->hasFocus = slider->hasFocus ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_ui_slider_value_internal(
+        CueEntityHandle a_entityHandle,
+        float a_value) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            !std::isfinite(a_value))
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::UiSliderComponent* slider = nullptr;
+        const Result result = m_gameWorld->get_component<ECS::UiSliderComponent>(
+            to_entity_id(a_entityHandle),
+            slider);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        slider->value = (std::clamp)(a_value, slider->minValue, slider->maxValue);
+        slider->wasChanged = false;
+        return CueResult_Ok;
+    }
+
     CueResult ScriptRuntime::raycast_internal(
         const CueRaycastDesc* a_desc,
         CueRaycastHit* a_outHit) const noexcept
@@ -2322,6 +3312,1440 @@ namespace Cue
             Math::float4(a_color->x, a_color->y, a_color->z, a_color->w),
             a_durationSeconds);
         return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::spawn_object_internal(
+        const CueSpawnObjectDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle) noexcept
+    {
+        if (a_desc == nullptr || a_outEntityHandle == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Math::float3 position = to_math_float3(a_desc->transform.position);
+        GameCore::GameObject object{};
+        Result result{};
+        GameCore::SceneId sceneId =
+            static_cast<GameCore::SceneId>(a_desc->sceneId);
+        if (sceneId == GameCore::k_invalidSceneId &&
+            m_executingEntityId != GameCore::k_invalidEntityId)
+        {
+            GameCore::SceneId executingSceneId = GameCore::k_invalidSceneId;
+            const Result sceneResult =
+                m_gameWorld->source_scene_id(m_executingEntityId, executingSceneId);
+            if (sceneResult && executingSceneId != GameCore::k_invalidSceneId)
+            {
+                sceneId = executingSceneId;
+            }
+        }
+        const bool isSceneObject = sceneId != GameCore::k_invalidSceneId;
+
+        switch (a_desc->kind)
+        {
+        case CueSpawnObjectKind_Empty:
+            result = isSceneObject
+                ? m_gameWorld->add_game_object_to_scene(sceneId, position, object)
+                : m_gameWorld->add_game_object(position, object);
+            break;
+        case CueSpawnObjectKind_StaticMesh:
+            result = isSceneObject
+                ? m_gameWorld->add_object_to_scene(sceneId, position, object)
+                : m_gameWorld->add_object(position, object);
+            break;
+        case CueSpawnObjectKind_Sprite:
+            result = isSceneObject
+                ? m_gameWorld->add_sprite_object_to_scene(sceneId, position, object)
+                : m_gameWorld->add_sprite_object(position, object);
+            break;
+        case CueSpawnObjectKind_Camera:
+            result = isSceneObject
+                ? m_gameWorld->add_camera_object_to_scene(sceneId, position, object)
+                : m_gameWorld->add_camera_object(position, object);
+            break;
+        case CueSpawnObjectKind_DirectionalLight:
+            result = isSceneObject
+                ? m_gameWorld->add_directional_light_object_to_scene(
+                    sceneId, position, object)
+                : m_gameWorld->add_directional_light_object(position, object);
+            break;
+        case CueSpawnObjectKind_PointLight:
+            result = isSceneObject
+                ? m_gameWorld->add_point_light_object_to_scene(
+                    sceneId, position, object)
+                : m_gameWorld->add_point_light_object(position, object);
+            break;
+        case CueSpawnObjectKind_SpotLight:
+            result = isSceneObject
+                ? m_gameWorld->add_spot_light_object_to_scene(
+                    sceneId, position, object)
+                : m_gameWorld->add_spot_light_object(position, object);
+            break;
+        default:
+            return CueResult_InvalidArgument;
+        }
+
+        if (!result || !object.is_valid())
+        {
+            return convert_result_code(result);
+        }
+
+        const auto cleanupOnFailure = [&object]() noexcept
+        {
+            if (object.is_valid())
+            {
+                (void)object.destroy();
+            }
+        };
+
+        if (has_text(a_desc->name))
+        {
+            result = object.set_name(to_string_view(a_desc->name));
+            if (!result)
+            {
+                cleanupOnFailure();
+                return convert_result_code(result);
+            }
+        }
+
+        if (has_text(a_desc->tag))
+        {
+            result = object.set_tag(to_string_view(a_desc->tag));
+            if (!result)
+            {
+                cleanupOnFailure();
+                return convert_result_code(result);
+            }
+        }
+
+        result = object.set_active(a_desc->isActive != 0u);
+        if (!result)
+        {
+            cleanupOnFailure();
+            return convert_result_code(result);
+        }
+
+        result = object.set_persistent(a_desc->isPersistent != 0u);
+        if (!result)
+        {
+            cleanupOnFailure();
+            return convert_result_code(result);
+        }
+
+        CueEntityHandle entityHandle = to_entity_handle(object.entity_id());
+        const CueResult transformResult =
+            set_transform_internal(entityHandle, &a_desc->transform);
+        if (transformResult != CueResult_Ok)
+        {
+            cleanupOnFailure();
+            return transformResult;
+        }
+
+        *a_outEntityHandle = entityHandle;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::instantiate_entity_internal(
+        const CueInstantiateEntityDesc* a_desc,
+        CueEntityHandle* a_outEntityHandle) noexcept
+    {
+        if (a_desc == nullptr || a_outEntityHandle == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outEntityHandle = CueEntityHandle{ k_cueInvalidHandleValue };
+        if (a_desc->sourceEntity.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        GameCore::DeletedObjectSnapshot snapshot{};
+        Result result = m_gameWorld->capture_deleted_object(
+            to_entity_id(a_desc->sourceEntity), snapshot);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        snapshot.definition.localObjectId = GameCore::k_invalidLocalObjectId;
+        snapshot.definition.parentLocalObjectId.reset();
+
+        GameCore::EntityId entityId = GameCore::k_invalidEntityId;
+        result = m_gameWorld->restore_deleted_object(snapshot, entityId);
+        if (!result || entityId == GameCore::k_invalidEntityId)
+        {
+            return convert_result_code(result);
+        }
+
+        const auto cleanupOnFailure = [this, entityId]() noexcept
+        {
+            if (m_gameWorld != nullptr)
+            {
+                (void)m_gameWorld->destroy_object(entityId);
+            }
+        };
+
+        if (a_desc->usesName != 0u)
+        {
+            result =
+                m_gameWorld->set_object_name(entityId, to_string_view(a_desc->name));
+            if (!result)
+            {
+                cleanupOnFailure();
+                return convert_result_code(result);
+            }
+        }
+
+        if (a_desc->usesTag != 0u)
+        {
+            result =
+                m_gameWorld->set_object_tag(entityId, to_string_view(a_desc->tag));
+            if (!result)
+            {
+                cleanupOnFailure();
+                return convert_result_code(result);
+            }
+        }
+
+        if (a_desc->usesActive != 0u)
+        {
+            result =
+                m_gameWorld->set_object_active(entityId, a_desc->isActive != 0u);
+            if (!result)
+            {
+                cleanupOnFailure();
+                return convert_result_code(result);
+            }
+        }
+
+        CueEntityHandle entityHandle = to_entity_handle(entityId);
+        if (a_desc->usesTransform != 0u)
+        {
+            const CueResult transformResult =
+                set_transform_internal(entityHandle, &a_desc->transform);
+            if (transformResult != CueResult_Ok)
+            {
+                cleanupOnFailure();
+                return transformResult;
+            }
+        }
+
+        *a_outEntityHandle = entityHandle;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::find_entities_by_tag_internal(
+        CueStringView a_tag,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount) noexcept
+    {
+        if (a_outCount == nullptr ||
+            (a_capacity > 0u && a_outEntityHandles == nullptr))
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outCount = 0u;
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        std::vector<GameCore::GameObject> objects{};
+        const Result result =
+            m_gameWorld->find_objects_by_tag(to_string_view(a_tag), objects);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outCount = static_cast<uint32_t>(objects.size());
+        const uint32_t writeCount =
+            (std::min)(a_capacity, static_cast<uint32_t>(objects.size()));
+        for (uint32_t index = 0u; index < writeCount; ++index)
+        {
+            a_outEntityHandles[index] =
+                to_entity_handle(objects[index].entity_id());
+        }
+
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::find_entities_by_name_internal(
+        CueStringView a_name,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount) noexcept
+    {
+        if (a_outCount == nullptr ||
+            (a_capacity > 0u && a_outEntityHandles == nullptr))
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outCount = 0u;
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        std::vector<GameCore::GameObject> objects{};
+        const Result result =
+            m_gameWorld->find_objects_by_name(to_string_view(a_name), objects);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outCount = static_cast<uint32_t>(objects.size());
+        const uint32_t writeCount =
+            (std::min)(a_capacity, static_cast<uint32_t>(objects.size()));
+        for (uint32_t index = 0u; index < writeCount; ++index)
+        {
+            a_outEntityHandles[index] =
+                to_entity_handle(objects[index].entity_id());
+        }
+
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::trigger_overlaps_internal(
+        CueEntityHandle a_triggerEntity,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount) noexcept
+    {
+        if (a_outCount == nullptr ||
+            (a_capacity > 0u && a_outEntityHandles == nullptr))
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outCount = 0u;
+        if (a_triggerEntity.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        std::vector<GameCore::EntityId> entities{};
+        const Result result =
+            m_gameWorld->trigger_overlaps(to_entity_id(a_triggerEntity), entities);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outCount = static_cast<uint32_t>(entities.size());
+        const uint32_t writeCount =
+            (std::min)(a_capacity, static_cast<uint32_t>(entities.size()));
+        for (uint32_t index = 0u; index < writeCount; ++index)
+        {
+            a_outEntityHandles[index] = to_entity_handle(entities[index]);
+        }
+
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::sphere_overlap_internal(
+        const CueSphereOverlapDesc* a_desc,
+        CueEntityHandle* a_outEntityHandles,
+        uint32_t a_capacity,
+        uint32_t* a_outCount) noexcept
+    {
+        if (a_desc == nullptr || a_outCount == nullptr ||
+            (a_capacity > 0u && a_outEntityHandles == nullptr))
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outCount = 0u;
+        if (a_desc->radius <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Math::float3 center = to_math_float3(a_desc->center);
+        const GameCore::EntityId ignoredEntity = to_entity_id(a_desc->ignoredEntity);
+        std::vector<GameCore::EntityId> entities{};
+
+        const Result result = m_gameWorld->for_each_object(
+            [this, &entities, center, ignoredEntity, a_desc](
+                GameCore::EntityId a_entityId,
+                GameCore::SceneId,
+                GameCore::GameObject)
+            {
+                if (a_entityId == ignoredEntity)
+                {
+                    return;
+                }
+
+                ECS::TransformComponent* transform = nullptr;
+                ECS::ColliderComponent* collider = nullptr;
+                if (!m_gameWorld->get_component<ECS::TransformComponent>(
+                        a_entityId, transform) ||
+                    !m_gameWorld->get_component<ECS::ColliderComponent>(
+                        a_entityId, collider) ||
+                    transform == nullptr ||
+                    collider == nullptr)
+                {
+                    return;
+                }
+                if (a_desc->includeTriggers == 0u && collider->isTrigger)
+                {
+                    return;
+                }
+
+                const Math::float3 candidateCenter =
+                    transform->position + collider->offset;
+                const float combinedRadius =
+                    a_desc->radius + collider_bounding_radius(*collider);
+                if (length_squared(candidateCenter - center) <=
+                    combinedRadius * combinedRadius)
+                {
+                    entities.push_back(a_entityId);
+                }
+            });
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outCount = static_cast<uint32_t>(entities.size());
+        const uint32_t writeCount =
+            (std::min)(a_capacity, static_cast<uint32_t>(entities.size()));
+        for (uint32_t index = 0u; index < writeCount; ++index)
+        {
+            a_outEntityHandles[index] = to_entity_handle(entities[index]);
+        }
+
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::destroy_entity_internal(
+        CueEntityHandle a_entityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result =
+            m_gameWorld->destroy_object(to_entity_id(a_entityHandle));
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::get_camera_fov_y_internal(
+        CueEntityHandle a_entityHandle,
+        float* a_outFovY) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outFovY == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outFovY = 0.0f;
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::CameraComponent* camera = nullptr;
+        const Result result =
+            m_gameWorld->get_component(to_entity_id(a_entityHandle), camera);
+        if (!result || camera == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outFovY = camera->fovY;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_camera_fov_y_internal(
+        CueEntityHandle a_entityHandle,
+        float a_fovY) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            !std::isfinite(a_fovY) ||
+            a_fovY <= 0.0f ||
+            a_fovY >= 179.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        ECS::CameraComponent* camera = nullptr;
+        const Result result =
+            m_gameWorld->get_component(to_entity_id(a_entityHandle), camera);
+        if (!result || camera == nullptr)
+        {
+            return convert_result_code(result);
+        }
+
+        camera->fovY = a_fovY;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_material_property_block_internal(
+        CueEntityHandle a_entityHandle,
+        const CueMaterialPropertyBlockData* a_propertyBlock) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_propertyBlock == nullptr ||
+            !is_finite(a_propertyBlock->color) ||
+            !std::isfinite(a_propertyBlock->shininess) ||
+            a_propertyBlock->shininess <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+        const ECS::MaterialPropertyBlock propertyBlock =
+            to_material_property_block(*a_propertyBlock);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock = propertyBlock;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock = propertyBlock;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::get_material_property_block_internal(
+        CueEntityHandle a_entityHandle,
+        CueMaterialPropertyBlockData* a_outPropertyBlock) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outPropertyBlock == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outPropertyBlock =
+            to_cue_material_property_block(ECS::MaterialPropertyBlock{});
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            *a_outPropertyBlock =
+                to_cue_material_property_block(staticRenderer->propertyBlock);
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            *a_outPropertyBlock =
+                to_cue_material_property_block(skinnedRenderer->propertyBlock);
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::clear_material_property_block_internal(
+        CueEntityHandle a_entityHandle) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock = ECS::MaterialPropertyBlock{};
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock = ECS::MaterialPropertyBlock{};
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::set_material_color_internal(
+        CueEntityHandle a_entityHandle,
+        const CueFloat4* a_color) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_color == nullptr ||
+            !is_finite(*a_color))
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+        const Math::float4 color = to_math_float4(*a_color);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock.color = color;
+            staticRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideColor;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock.color = color;
+            skinnedRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideColor;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::set_material_shininess_internal(
+        CueEntityHandle a_entityHandle,
+        float a_shininess) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            !std::isfinite(a_shininess) ||
+            a_shininess <= 0.0f)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+
+        ECS::StaticMeshRendererComponent* staticRenderer = nullptr;
+        Result result = m_gameWorld->get_component(entityId, staticRenderer);
+        if (result && staticRenderer != nullptr)
+        {
+            staticRenderer->propertyBlock.shininess = a_shininess;
+            staticRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideShininess;
+            return CueResult_Ok;
+        }
+
+        ECS::SkinnedMeshRendererComponent* skinnedRenderer = nullptr;
+        result = m_gameWorld->get_component(entityId, skinnedRenderer);
+        if (result && skinnedRenderer != nullptr)
+        {
+            skinnedRenderer->propertyBlock.shininess = a_shininess;
+            skinnedRenderer->propertyBlock.overrideMask |=
+                ECS::MaterialPropertyOverrideShininess;
+            return CueResult_Ok;
+        }
+
+        return CueResult_NotFound;
+    }
+
+    CueResult ScriptRuntime::load_json_config_internal(
+        CueStringView a_assetPath,
+        CueJsonConfigHandle* a_outConfigHandle) noexcept
+    {
+        if (a_outConfigHandle == nullptr || !has_text(a_assetPath))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outConfigHandle = k_cueInvalidJsonConfigHandle;
+        if (m_gameWorld == nullptr || m_gameWorld->file_system() == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        Core::IO::Path filePath(std::string(to_string_view(a_assetPath)));
+        if (!filePath.is_absolute())
+        {
+            const Core::IO::Path& assetRootPath = m_gameWorld->asset_root_path();
+            if (assetRootPath.is_empty())
+            {
+                return CueResult_InvalidState;
+            }
+            filePath = Core::IO::Path::join(assetRootPath, filePath);
+        }
+        filePath = filePath.normalize();
+
+        std::vector<std::byte> fileData{};
+        const Result readResult =
+            m_gameWorld->file_system()->read_all(filePath, &fileData);
+        if (!readResult)
+        {
+            return convert_result_code(readResult);
+        }
+        if (fileData.empty())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        try
+        {
+            const std::string text(
+                reinterpret_cast<const char*>(fileData.data()),
+                fileData.size());
+            auto entry = std::make_unique<JsonConfigEntry>();
+            entry->document = nlohmann::json::parse(text);
+            entry->generation = m_nextJsonConfigGeneration++;
+            if (m_nextJsonConfigGeneration == 0u)
+            {
+                m_nextJsonConfigGeneration = 1u;
+            }
+
+            for (uint32_t index = 0u;
+                index < static_cast<uint32_t>(m_jsonConfigs.size());
+                ++index)
+            {
+                if (m_jsonConfigs[index] == nullptr)
+                {
+                    *a_outConfigHandle =
+                        CueJsonConfigHandle{ index, entry->generation };
+                    m_jsonConfigs[index] = std::move(entry);
+                    return CueResult_Ok;
+                }
+            }
+
+            if (m_jsonConfigs.size() >=
+                static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+            {
+                return CueResult_InternalError;
+            }
+
+            const uint32_t index =
+                static_cast<uint32_t>(m_jsonConfigs.size());
+            *a_outConfigHandle = CueJsonConfigHandle{ index, entry->generation };
+            m_jsonConfigs.push_back(std::move(entry));
+            return CueResult_Ok;
+        }
+        catch (...)
+        {
+            return CueResult_InternalError;
+        }
+    }
+
+    CueResult ScriptRuntime::unload_json_config_internal(
+        CueJsonConfigHandle a_configHandle) noexcept
+    {
+        if (json_config_entry(a_configHandle) == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        m_jsonConfigs[a_configHandle.index].reset();
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_bool_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        uint8_t* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_boolean())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = value->get<bool>() ? 1u : 0u;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_int_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        int32_t* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_number_integer() && !value->is_number_unsigned())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        int64_t number = 0;
+        if (value->is_number_unsigned())
+        {
+            const uint64_t unsignedNumber = value->get<uint64_t>();
+            if (unsignedNumber >
+                static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
+            {
+                return CueResult_InvalidArgument;
+            }
+            number = static_cast<int64_t>(unsignedNumber);
+        }
+        else
+        {
+            number = value->get<int64_t>();
+        }
+
+        if (number < static_cast<int64_t>(std::numeric_limits<int32_t>::min()) ||
+            number > static_cast<int64_t>(std::numeric_limits<int32_t>::max()))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = static_cast<int32_t>(number);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_float_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        float* a_outValue) const noexcept
+    {
+        if (a_outValue == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_number())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const float number = value->get<float>();
+        if (!std::isfinite(number))
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        *a_outValue = number;
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::get_json_config_string_internal(
+        CueJsonConfigHandle a_configHandle,
+        CueStringView a_keyPath,
+        char* a_outBuffer,
+        uint32_t a_bufferSize,
+        uint32_t* a_outRequiredSize) const noexcept
+    {
+        const JsonConfigEntry* entry = json_config_entry(a_configHandle);
+        if (entry == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+
+        const nlohmann::json* value =
+            find_json_value(entry->document, to_string_view(a_keyPath));
+        if (value == nullptr)
+        {
+            return CueResult_NotFound;
+        }
+        if (!value->is_string())
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        const std::string& text = value->get_ref<const std::string&>();
+        if (text.size() >=
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+        {
+            return CueResult_InternalError;
+        }
+        const uint32_t requiredSize = static_cast<uint32_t>(text.size() + 1u);
+        if (a_outRequiredSize != nullptr)
+        {
+            *a_outRequiredSize = requiredSize;
+        }
+        if (a_outBuffer == nullptr || a_bufferSize == 0u)
+        {
+            return CueResult_Ok;
+        }
+        if (a_bufferSize < requiredSize)
+        {
+            return CueResult_InvalidArgument;
+        }
+
+        std::memcpy(a_outBuffer, text.data(), text.size());
+        a_outBuffer[text.size()] = '\0';
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::add_or_set_component_internal(
+        CueEntityHandle a_entityHandle,
+        CueComponentKind a_componentKind,
+        const void* a_componentData,
+        uint32_t a_componentDataSize) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_componentData == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const GameCore::EntityId entityId = to_entity_id(a_entityHandle);
+        bool containsObject = false;
+        Result result = m_gameWorld->contains_object(entityId, containsObject);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+        if (!containsObject)
+        {
+            return CueResult_NotFound;
+        }
+
+        const auto addOrSetComponent =
+            [this, entityId](const auto& a_component) -> CueResult
+        {
+            using Component = std::decay_t<decltype(a_component)>;
+
+            Component* target = nullptr;
+            Result getResult = m_gameWorld->get_component(entityId, target);
+            if (getResult && target != nullptr)
+            {
+                *target = a_component;
+                return CueResult_Ok;
+            }
+
+            Result addResult =
+                m_gameWorld->add_component<Component>(entityId, target);
+            if (!addResult || target == nullptr)
+            {
+                return convert_result_code(addResult);
+            }
+
+            *target = a_component;
+            return CueResult_Ok;
+        };
+
+        switch (a_componentKind)
+        {
+        case CueComponentKind_Camera:
+        {
+            if (a_componentDataSize < sizeof(CueCameraComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueCameraComponentData*>(a_componentData);
+            if (!std::isfinite(data.fovY) || data.fovY <= 0.0f ||
+                data.fovY >= 179.0f ||
+                !std::isfinite(data.aspectRatio) ||
+                data.aspectRatio <= 0.0f ||
+                !std::isfinite(data.nearZ) ||
+                !std::isfinite(data.farZ) ||
+                data.nearZ <= 0.0f ||
+                data.farZ <= data.nearZ)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::CameraComponent camera{};
+            camera.fovY = data.fovY;
+            camera.aspectRatio = data.aspectRatio;
+            camera.nearZ = data.nearZ;
+            camera.farZ = data.farZ;
+            camera.isMain = data.isMain != 0u;
+            return addOrSetComponent(camera);
+        }
+        case CueComponentKind_Collider:
+        {
+            if (a_componentDataSize < sizeof(CueColliderComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueColliderComponentData*>(a_componentData);
+
+            Physics::ShapeType shapeType{};
+            if (!to_physics_shape_type(data.shapeType, shapeType) ||
+                !std::isfinite(data.radius) ||
+                !std::isfinite(data.halfHeight) ||
+                !std::isfinite(data.friction) ||
+                !std::isfinite(data.restitution) ||
+                data.radius <= 0.0f ||
+                data.halfHeight <= 0.0f)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::ColliderComponent collider{};
+            collider.type = shapeType;
+            collider.meshModelName = std::string(to_string_view(data.meshModelName));
+            collider.offset = to_math_float3(data.offset);
+            collider.halfExtent = to_math_float3(data.halfExtent);
+            collider.radius = data.radius;
+            collider.halfHeight = data.halfHeight;
+            collider.friction = data.friction;
+            collider.restitution = data.restitution;
+            collider.layer = data.layer;
+            collider.mask = data.mask;
+            collider.isTrigger = data.isTrigger != 0u;
+            return addOrSetComponent(collider);
+        }
+        case CueComponentKind_Canvas:
+        {
+            if (a_componentDataSize < sizeof(CueCanvasComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueCanvasComponentData*>(a_componentData);
+            if (!is_finite(data.referenceSize) ||
+                !std::isfinite(data.scaleFactor) ||
+                data.referenceSize.x <= 0.0f ||
+                data.referenceSize.y <= 0.0f ||
+                data.scaleFactor <= 0.0f)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::CanvasComponent canvas{};
+            canvas.referenceSize = to_math_float2(data.referenceSize);
+            canvas.scaleFactor = data.scaleFactor;
+            canvas.sortOrder = data.sortOrder;
+            canvas.matchesScreen = data.matchesScreen != 0u;
+            return addOrSetComponent(canvas);
+        }
+        case CueComponentKind_UiRectTransform:
+        {
+            if (a_componentDataSize < sizeof(CueUiRectTransformComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiRectTransformComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.anchorMin) ||
+                !is_finite(data.anchorMax) ||
+                !is_finite(data.pivot) ||
+                !is_finite(data.anchoredPosition) ||
+                !is_finite(data.sizeDelta))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiRectTransformComponent rect{};
+            rect.anchorMin = to_math_float2(data.anchorMin);
+            rect.anchorMax = to_math_float2(data.anchorMax);
+            rect.pivot = to_math_float2(data.pivot);
+            rect.anchoredPosition = to_math_float2(data.anchoredPosition);
+            rect.sizeDelta = to_math_float2(data.sizeDelta);
+            rect.resolvedMin = Math::float2(0.0f, 0.0f);
+            rect.resolvedSize = Math::float2(0.0f, 0.0f);
+            rect.isResolved = false;
+            return addOrSetComponent(rect);
+        }
+        case CueComponentKind_UiLayoutGroup:
+        {
+            if (a_componentDataSize < sizeof(CueUiLayoutGroupComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiLayoutGroupComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.padding) ||
+                !std::isfinite(data.spacing) ||
+                data.spacing < 0.0f)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiLayoutGroupComponent layout{};
+            layout.padding = to_math_float4(data.padding);
+            layout.spacing = data.spacing;
+            layout.direction =
+                data.direction == CueUiLayoutDirection_Vertical
+                    ? ECS::UiLayoutDirection::Vertical
+                    : ECS::UiLayoutDirection::Horizontal;
+            layout.controlsChildSize = data.controlsChildSize != 0u;
+            return addOrSetComponent(layout);
+        }
+        case CueComponentKind_TextRenderer:
+        {
+            if (a_componentDataSize < sizeof(CueTextRendererComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueTextRendererComponentData*>(
+                    a_componentData);
+            if (!is_finite(data.color) || data.fontSize == 0u)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::TextRendererComponent text{};
+            text.text = std::string(to_string_view(data.text));
+            text.fontPath = std::string(to_string_view(data.fontPath));
+            text.color = to_math_float4(data.color);
+            text.fontSize = data.fontSize;
+            text.layer = data.layer;
+            text.order = data.order;
+            text.horizontalAlign =
+                data.horizontalAlign == CueTextHorizontalAlign_Center
+                    ? ECS::TextHorizontalAlign::Center
+                    : data.horizontalAlign == CueTextHorizontalAlign_Right
+                    ? ECS::TextHorizontalAlign::Right
+                    : ECS::TextHorizontalAlign::Left;
+            text.verticalAlign =
+                data.verticalAlign == CueTextVerticalAlign_Middle
+                    ? ECS::TextVerticalAlign::Middle
+                    : data.verticalAlign == CueTextVerticalAlign_Bottom
+                    ? ECS::TextVerticalAlign::Bottom
+                    : ECS::TextVerticalAlign::Top;
+            text.visible = data.visible != 0u;
+            return addOrSetComponent(text);
+        }
+        case CueComponentKind_UiImage:
+        {
+            if (a_componentDataSize < sizeof(CueUiImageComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiImageComponentData*>(a_componentData);
+            if (!is_finite(data.color) || !is_finite(data.uvRect))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiImageComponent image{};
+            image.color = to_math_float4(data.color);
+            image.uvRect = to_math_float4(data.uvRect);
+            image.layer = data.layer;
+            image.order = data.order;
+            image.visible = data.visible != 0u;
+            image.raycastTarget = data.raycastTarget != 0u;
+            return addOrSetComponent(image);
+        }
+        case CueComponentKind_UiButton:
+        {
+            if (a_componentDataSize < sizeof(CueUiButtonComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiButtonComponentData*>(a_componentData);
+            if (!is_finite(data.normalColor) ||
+                !is_finite(data.hoverColor) ||
+                !is_finite(data.pressedColor) ||
+                !is_finite(data.disabledColor))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiButtonComponent button{};
+            button.normalColor = to_math_float4(data.normalColor);
+            button.hoverColor = to_math_float4(data.hoverColor);
+            button.pressedColor = to_math_float4(data.pressedColor);
+            button.disabledColor = to_math_float4(data.disabledColor);
+            button.layer = data.layer;
+            button.order = data.order;
+            button.isInteractable = data.isInteractable != 0u;
+            return addOrSetComponent(button);
+        }
+        case CueComponentKind_UiCheckbox:
+        {
+            if (a_componentDataSize < sizeof(CueUiCheckboxComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiCheckboxComponentData*>(a_componentData);
+            if (!is_finite(data.normalColor) ||
+                !is_finite(data.hoverColor) ||
+                !is_finite(data.checkColor) ||
+                !is_finite(data.disabledColor))
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiCheckboxComponent checkbox{};
+            checkbox.normalColor = to_math_float4(data.normalColor);
+            checkbox.hoverColor = to_math_float4(data.hoverColor);
+            checkbox.checkColor = to_math_float4(data.checkColor);
+            checkbox.disabledColor = to_math_float4(data.disabledColor);
+            checkbox.layer = data.layer;
+            checkbox.order = data.order;
+            checkbox.isInteractable = data.isInteractable != 0u;
+            checkbox.isChecked = data.isChecked != 0u;
+            return addOrSetComponent(checkbox);
+        }
+        case CueComponentKind_UiSlider:
+        {
+            if (a_componentDataSize < sizeof(CueUiSliderComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueUiSliderComponentData*>(a_componentData);
+            if (!is_finite(data.trackColor) ||
+                !is_finite(data.fillColor) ||
+                !is_finite(data.handleColor) ||
+                !is_finite(data.disabledColor) ||
+                !std::isfinite(data.minValue) ||
+                !std::isfinite(data.maxValue) ||
+                !std::isfinite(data.value) ||
+                data.maxValue < data.minValue)
+            {
+                return CueResult_InvalidArgument;
+            }
+
+            ECS::UiSliderComponent slider{};
+            slider.trackColor = to_math_float4(data.trackColor);
+            slider.fillColor = to_math_float4(data.fillColor);
+            slider.handleColor = to_math_float4(data.handleColor);
+            slider.disabledColor = to_math_float4(data.disabledColor);
+            slider.minValue = data.minValue;
+            slider.maxValue = data.maxValue;
+            slider.value = (std::clamp)(data.value, data.minValue, data.maxValue);
+            slider.layer = data.layer;
+            slider.order = data.order;
+            slider.isInteractable = data.isInteractable != 0u;
+            return addOrSetComponent(slider);
+        }
+        case CueComponentKind_TriggerVolume:
+        {
+            if (a_componentDataSize < sizeof(CueTriggerVolumeComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueTriggerVolumeComponentData*>(
+                    a_componentData);
+
+            ECS::TriggerVolumeComponent trigger{};
+            trigger.includeTriggers = data.includeTriggers != 0u;
+            return addOrSetComponent(trigger);
+        }
+        case CueComponentKind_MeshFilter:
+        {
+            if (a_componentDataSize < sizeof(CueMeshFilterComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueMeshFilterComponentData*>(a_componentData);
+
+            ECS::MeshFilterComponent meshFilter{};
+            meshFilter.modelName = std::string(to_string_view(data.modelName));
+            meshFilter.meshId = data.meshId;
+            return addOrSetComponent(meshFilter);
+        }
+        case CueComponentKind_StaticMeshRenderer:
+        {
+            if (a_componentDataSize < sizeof(CueStaticMeshRendererComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueStaticMeshRendererComponentData*>(
+                    a_componentData);
+
+            ECS::StaticMeshRendererComponent renderer{};
+            renderer.visible = data.visible != 0u;
+            renderer.castsShadow = data.castsShadow != 0u;
+            renderer.receivesShadow = data.receivesShadow != 0u;
+            renderer.shadowCasterMode =
+                data.shadowCasterMode == CueShadowCasterMode_TwoSided
+                    ? ECS::ShadowCasterMode::TwoSided
+                    : ECS::ShadowCasterMode::Solid;
+            return addOrSetComponent(renderer);
+        }
+        case CueComponentKind_SpriteRenderer:
+        {
+            if (a_componentDataSize < sizeof(CueSpriteRendererComponentData))
+            {
+                return CueResult_InvalidArgument;
+            }
+            const auto& data =
+                *static_cast<const CueSpriteRendererComponentData*>(
+                    a_componentData);
+
+            ECS::SpriteRendererComponent renderer{};
+            renderer.color = Math::float4(
+                data.color.x, data.color.y, data.color.z, data.color.w);
+            renderer.uvRect = Math::float4(
+                data.uvRect.x, data.uvRect.y, data.uvRect.z, data.uvRect.w);
+            renderer.size = to_math_float2(data.size);
+            renderer.pivot = to_math_float2(data.pivot);
+            renderer.layer = data.layer;
+            renderer.order = data.order;
+            renderer.isVisible = data.isVisible != 0u;
+            return addOrSetComponent(renderer);
+        }
+        default:
+            return CueResult_InvalidArgument;
+        }
+    }
+
+    CueResult ScriptRuntime::get_parent_internal(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle* a_outParentEntity) const noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_outParentEntity == nullptr)
+        {
+            return CueResult_InvalidArgument;
+        }
+        *a_outParentEntity = CueEntityHandle{ k_cueInvalidHandleValue };
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        GameCore::EntityId parentEntity = GameCore::k_invalidEntityId;
+        const Result result =
+            m_gameWorld->get_parent(to_entity_id(a_entityHandle), parentEntity);
+        if (!result)
+        {
+            return convert_result_code(result);
+        }
+
+        *a_outParentEntity = to_entity_handle(parentEntity);
+        return CueResult_Ok;
+    }
+
+    CueResult ScriptRuntime::set_parent_internal(
+        CueEntityHandle a_entityHandle,
+        CueEntityHandle a_parentEntity,
+        uint8_t a_keepsWorldTransform) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue ||
+            a_parentEntity.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->set_parent(
+            to_entity_id(a_entityHandle),
+            to_entity_id(a_parentEntity),
+            a_keepsWorldTransform != 0u);
+        return convert_result_code(result);
+    }
+
+    CueResult ScriptRuntime::detach_parent_internal(
+        CueEntityHandle a_entityHandle,
+        uint8_t a_keepsWorldTransform) noexcept
+    {
+        if (a_entityHandle.value == k_cueInvalidHandleValue)
+        {
+            return CueResult_InvalidArgument;
+        }
+        if (m_gameWorld == nullptr)
+        {
+            return CueResult_InvalidState;
+        }
+
+        const Result result = m_gameWorld->detach_parent(
+            to_entity_id(a_entityHandle),
+            a_keepsWorldTransform != 0u);
+        return convert_result_code(result);
     }
 
     CueResult ScriptRuntime::find_script_instance_internal(
@@ -2643,5 +5067,24 @@ namespace Cue
         return a_entityId != GameCore::k_invalidEntityId
             ? CueEntityHandle{ static_cast<uint64_t>(a_entityId) }
             : CueEntityHandle{ k_cueInvalidHandleValue };
+    }
+
+    const ScriptRuntime::JsonConfigEntry* ScriptRuntime::json_config_entry(
+        CueJsonConfigHandle a_configHandle) const noexcept
+    {
+        if (a_configHandle.index >= m_jsonConfigs.size() ||
+            a_configHandle.generation == 0u)
+        {
+            return nullptr;
+        }
+
+        const std::unique_ptr<JsonConfigEntry>& entry =
+            m_jsonConfigs[a_configHandle.index];
+        if (entry == nullptr || entry->generation != a_configHandle.generation)
+        {
+            return nullptr;
+        }
+
+        return entry.get();
     }
 }

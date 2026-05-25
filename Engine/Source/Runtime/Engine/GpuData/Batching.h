@@ -18,6 +18,11 @@ namespace Cue::GpuData
         uint32_t meshId = 0;        // メッシュID
         uint32_t transformId = 0;   // 変換ID
         uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
     };
 
     // 描画オブジェクト
@@ -27,6 +32,11 @@ namespace Cue::GpuData
         uint32_t meshId = 0;        // メッシュID
         uint32_t transformId = 0;   // 変換ID
         uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
     };
 
     struct MaterialGpu
@@ -34,8 +44,8 @@ namespace Cue::GpuData
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
         uint32_t textureId = 0;
         uint32_t useTexture = 0;
-        uint32_t padding1 = 0;
-        uint32_t padding2 = 0;
+        uint32_t useReflectionSkybox = 0;
+        float shininess = 32.0f;
     };
 
     // インダイレクト描画コマンド
@@ -47,5 +57,16 @@ namespace Cue::GpuData
         uint32_t startIndexLocation = 0;
         int32_t baseVertexLocation = 0;
         uint32_t startInstanceLocation = 0;
+    };
+
+    struct SkinInfluenceGpu
+    {
+        uint32_t jointIndices[4] = {};
+        float weights[4] = {};
+    };
+
+    struct SkinPaletteGpu
+    {
+        Math::float4x4 matrix = Math::float4x4::identity();
     };
 }

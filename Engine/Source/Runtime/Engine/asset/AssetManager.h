@@ -13,8 +13,10 @@
 // === Math Includes ===
 #include <CueMath.h>
 
+// === DrawSystem Includes ===
+#include <DrawSystem/StaticMeshPoolTypes.h>
+
 // === RHI Includes ===
-#include <StaticMeshPool.h>
 #include <TextureManager.h>
 
 // === Engine Includes ===
@@ -23,6 +25,7 @@
 
 // === C++ Includes ===
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -41,7 +44,18 @@ namespace Cue
         Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
         std::string textureName{};
         uint32_t textureId = 0;
+        float shininess = 32.0f;
         bool isTextureUsed = false;
+        bool usesReflectionSkybox = false;
+    };
+
+    struct ModelRenderPartRecord final
+    {
+        std::string name{};
+        uint32_t meshId = 0;
+        uint32_t materialIndex = Core::Native::k_invalidModelMaterialIndex;
+        uint32_t jointIndex = Core::Native::k_invalidAnimationIndex;
+        Math::float4x4 localTransform = Math::float4x4::identity();
     };
 
     struct ModelAssetRecord final
@@ -49,6 +63,8 @@ namespace Cue
         std::string name{};
         Core::Native::ModelData modelData{};
         std::vector<RHI::StaticMeshHandle> staticMeshHandles{};
+        std::vector<MaterialDesc> importedMaterials{};
+        std::vector<ModelRenderPartRecord> renderParts{};
     };
 
     struct MaterialAssetRecord final
@@ -66,12 +82,12 @@ namespace Cue
     class AssetManager final
     {
     public:
-        static constexpr uint32_t k_materialAssetVersion = 3;
+        static constexpr uint32_t k_materialAssetVersion = 4;
         static constexpr uint32_t k_errorTextureId = 0;
 
         AssetManager() = default;
         ~AssetManager() = default;
-        void initialize(RHI::IStaticMeshPool* a_staticMeshPool,
+        void initialize(DrawSystem::IStaticMeshPool* a_staticMeshPool,
             RHI::ITextureManager* a_textureManager) noexcept
         {
             m_staticMeshPool = a_staticMeshPool;
@@ -85,11 +101,6 @@ namespace Cue
         {
             return add_model(name, data, outHandle);
         }
-        Result load_model_from_obj(
-            Core::IO::IFileSystem& fileSystem,
-            std::string_view name,
-            const Core::IO::Path& filePath,
-            ModelHandle& outHandle);
         Result register_model_from_cuemodel(
             Core::IO::IFileSystem& fileSystem,
             std::string_view name,
@@ -123,7 +134,21 @@ namespace Cue
             std::string_view name,
             const Core::IO::Path& filePath,
             uint32_t& outTextureId);
+        Result register_texture_from_file(
+            Core::IO::IFileSystem& fileSystem,
+            std::string_view name,
+            const Core::IO::Path& filePath,
+            uint32_t& outTextureId);
+        Result register_texture_from_rgba8(
+            std::string_view name,
+            uint32_t width,
+            uint32_t height,
+            std::span<const std::byte> pixels,
+            uint32_t& outTextureId);
         Result register_error_texture_from_cuetexture(
+            Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath);
+        Result register_error_texture_from_file(
             Core::IO::IFileSystem& fileSystem,
             const Core::IO::Path& filePath);
         Result get_texture_id(std::string_view name, uint32_t& outTextureId) const
@@ -217,6 +242,59 @@ namespace Cue
             outHandle = record.staticMeshHandles[meshIndex];
             return Result::ok();
         }
+        Result get_model_render_parts(
+            ModelHandle handle,
+            const std::vector<ModelRenderPartRecord>*& outRenderParts) const
+        {
+            outRenderParts = nullptr;
+            const ModelAssetRecord* record = m_modelRegistry.ref_get(handle);
+            if (record == nullptr)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Model not found for the given handle.");
+            }
+
+            outRenderParts = &record->renderParts;
+            return Result::ok();
+        }
+        Result get_model_imported_material(
+            ModelHandle handle,
+            uint32_t materialIndex,
+            MaterialDesc& outDesc) const
+        {
+            const ModelAssetRecord* record = m_modelRegistry.ref_get(handle);
+            if (record == nullptr)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Model not found for the given handle.");
+            }
+            if (materialIndex >= record->importedMaterials.size())
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Model imported material index is out of range.");
+            }
+
+            outDesc = record->importedMaterials[materialIndex];
+            if (!outDesc.textureName.empty())
+            {
+                uint32_t textureId = k_errorTextureId;
+                Result textureResult = get_texture_id(
+                    outDesc.textureName,
+                    textureId);
+                if (textureResult)
+                {
+                    outDesc.textureId = textureId;
+                    outDesc.isTextureUsed = true;
+                }
+            }
+            return Result::ok();
+        }
         Result get_material(MaterialHandle handle, MaterialDesc& outDesc) const
         {
             MaterialAssetRecord record{};
@@ -296,6 +374,35 @@ namespace Cue
             ModelAssetRecord record{};
             record.name = std::string(name);
             record.modelData = data;
+            record.importedMaterials.reserve(record.modelData.materials.size());
+            for (const Core::Native::ImportedMaterialData& importedMaterial :
+                record.modelData.materials)
+            {
+                MaterialDesc materialDesc{};
+                materialDesc.color = importedMaterial.color;
+                materialDesc.textureName = importedMaterial.textureName;
+                materialDesc.shininess = importedMaterial.shininess;
+                materialDesc.isTextureUsed = importedMaterial.isTextureUsed;
+                materialDesc.usesReflectionSkybox =
+                    importedMaterial.usesReflectionSkybox;
+                if (!materialDesc.textureName.empty())
+                {
+                    Result textureResult = get_texture_id(
+                        materialDesc.textureName,
+                        materialDesc.textureId);
+                    if (!textureResult)
+                    {
+                        materialDesc.textureId = k_errorTextureId;
+                    }
+                }
+                else
+                {
+                    materialDesc.textureId = k_errorTextureId;
+                }
+
+                record.importedMaterials.push_back(std::move(materialDesc));
+            }
+
             record.staticMeshHandles.reserve(record.modelData.meshes.size());
             for (const Core::Native::MeshData& meshData : record.modelData.meshes)
             {
@@ -311,6 +418,78 @@ namespace Cue
                 }
 
                 record.staticMeshHandles.push_back(staticMeshHandle);
+            }
+
+            const bool hasImportedRenderParts =
+                !record.modelData.renderParts.empty();
+            const uint32_t renderPartCount = hasImportedRenderParts
+                ? static_cast<uint32_t>(record.modelData.renderParts.size())
+                : static_cast<uint32_t>(record.staticMeshHandles.size());
+            record.renderParts.reserve(renderPartCount);
+            for (uint32_t renderPartIndex = 0;
+                 renderPartIndex < renderPartCount;
+                 ++renderPartIndex)
+            {
+                Core::Native::ModelRenderPartData sourcePart{};
+                if (hasImportedRenderParts)
+                {
+                    sourcePart = record.modelData.renderParts[renderPartIndex];
+                }
+                else
+                {
+                    sourcePart.meshIndex = renderPartIndex;
+                    sourcePart.name =
+                        record.modelData.meshes[renderPartIndex].name;
+                }
+
+                if (sourcePart.meshIndex >= record.staticMeshHandles.size())
+                {
+                    for (RHI::StaticMeshHandle allocatedHandle :
+                        record.staticMeshHandles)
+                    {
+                        m_staticMeshPool->free_mesh(allocatedHandle);
+                    }
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Model render part mesh index is out of range.");
+                }
+                if (sourcePart.materialIndex !=
+                        Core::Native::k_invalidModelMaterialIndex &&
+                    sourcePart.materialIndex >= record.importedMaterials.size())
+                {
+                    for (RHI::StaticMeshHandle allocatedHandle :
+                        record.staticMeshHandles)
+                    {
+                        m_staticMeshPool->free_mesh(allocatedHandle);
+                    }
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Model render part material index is out of range.");
+                }
+
+                uint32_t meshId = 0;
+                Result result = m_staticMeshPool->get_mesh_id(
+                    record.staticMeshHandles[sourcePart.meshIndex],
+                    meshId);
+                if (!result)
+                {
+                    for (RHI::StaticMeshHandle allocatedHandle :
+                        record.staticMeshHandles)
+                    {
+                        m_staticMeshPool->free_mesh(allocatedHandle);
+                    }
+                    return result;
+                }
+
+                ModelRenderPartRecord renderPart{};
+                renderPart.name = sourcePart.name;
+                renderPart.meshId = meshId;
+                renderPart.materialIndex = sourcePart.materialIndex;
+                renderPart.jointIndex = sourcePart.jointIndex;
+                renderPart.localTransform = sourcePart.localTransform;
+                record.renderParts.push_back(std::move(renderPart));
             }
 
             outHandle = m_modelRegistry.create(record);
@@ -338,7 +517,7 @@ namespace Cue
             return Result::ok();
         }
     private:
-        RHI::IStaticMeshPool* m_staticMeshPool = nullptr;
+        DrawSystem::IStaticMeshPool* m_staticMeshPool = nullptr;
         RHI::ITextureManager* m_textureManager = nullptr;
         Core::Registry<ModelTag, ModelAssetRecord> m_modelRegistry;
         std::vector<ModelHandle> m_modelHandles{};

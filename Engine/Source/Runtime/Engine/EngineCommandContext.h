@@ -29,6 +29,13 @@ namespace Cue
             GameCore::EntityId a_objectId, std::string& a_outName) override;
         Result rename_object(
             GameCore::EntityId a_objectId, std::string_view a_name) override;
+        Result get_parent(
+            GameCore::EntityId a_objectId,
+            GameCore::EntityId& a_outParentId) override;
+        Result set_parent(
+            GameCore::EntityId a_objectId,
+            GameCore::EntityId a_parentId,
+            bool a_keepsWorldTransform) override;
         Result capture_deleted_object(
             GameCore::EntityId a_objectId,
             GameCore::DeletedObjectSnapshot& a_outSnapshot) override;

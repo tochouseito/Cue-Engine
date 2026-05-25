@@ -1,23 +1,38 @@
 #include "Engine.h"
 #include "PlatformCommandContext.h"
-#include "Passes/DebugGridPass.h"
-#include "Passes/DebugDrawPass.h"
-#include "Passes/DebugObjectIdPass.h"
-#include "Passes/DebugOutlinePass.h"
-#include "Passes/DebugPickReadbackPass.h"
-#include "Passes/DebugSelectionPass.h"
-#include "Passes/GenerateVisibleList.h"
-#include "Passes/VisibleObjectBucketizePass.h"
-#include "Passes/MaterialBufferCopyPass.h"
-#include "Passes/RenderObjectCopyPass.h"
-#include "Passes/RenderableInfoCopyPass.h"
-#include "Passes/SpriteForwardPass.h"
-#include "Passes/SpriteInstanceCopyPass.h"
-#include "Passes/StaticMeshBatchingPass.h"
-#include "Passes/StaticMeshForwardPass.h"
-#include "Passes/TransformBufferCopyPass.h"
-#include "Passes/VisibleObjectCountCopyPass.h"
-#include "Passes/ViewProjectionCopyPass.h"
+#include "DrawSystem/Passes/DebugGridPass.h"
+#include "DrawSystem/Passes/DebugDrawPass.h"
+#include "DrawSystem/Passes/DebugObjectIdPass.h"
+#include "DrawSystem/Passes/DebugOutlinePass.h"
+#include "DrawSystem/Passes/DebugPickReadbackPass.h"
+#include "DrawSystem/Passes/DebugSelectionPass.h"
+#include "DrawSystem/Passes/GenerateVisibleList.h"
+#include "DrawSystem/Passes/VisibleObjectBucketizePass.h"
+#include "DrawSystem/Passes/MaterialBufferCopyPass.h"
+#include "DrawSystem/Passes/RenderObjectCopyPass.h"
+#include "DrawSystem/Passes/RenderableInfoCopyPass.h"
+#include "DrawSystem/Passes/SkinPaletteBufferCopyPass.h"
+#include "DrawSystem/Passes/SpriteForwardPass.h"
+#include "DrawSystem/Passes/SpriteInstanceCopyPass.h"
+#include "DrawSystem/Passes/StaticMeshBatchingPass.h"
+#include "DrawSystem/Passes/StaticMeshForwardPass.h"
+#include "DrawSystem/Passes/SkyboxPass.h"
+#include "DrawSystem/Passes/TransformBufferCopyPass.h"
+#include "DrawSystem/Passes/VisibleObjectCountCopyPass.h"
+#include "DrawSystem/Passes/ViewProjectionCopyPass.h"
+#include "LightingSystem/GpuData/LightData.h"
+#include "LightingSystem/Passes/LightBufferCopyPass.h"
+#include "ParticleSystem/Passes/ParticleBufferCopyPass.h"
+#include "ParticleSystem/Passes/ParticleInitializePass.h"
+#include "ParticleSystem/Passes/ParticleSpawnPass.h"
+#include "ParticleSystem/Passes/ParticleSpriteForwardPass.h"
+#include "ParticleSystem/Passes/ParticleUpdatePass.h"
+#include "ShadowSystem/GpuData/ShadowData.h"
+#include "ShadowSystem/Passes/DirectionalShadowMapPass.h"
+#include "ShadowSystem/Passes/PointShadowMapPass.h"
+#include "ShadowSystem/Passes/ShadowBufferCopyPass.h"
+#include "ShadowSystem/Passes/SpotShadowMapPass.h"
+#include "ShadowSystem/Passes/SpotShadowMapPreviewPass.h"
 #include "Script/ScriptRuntime.h"
 #include <IO/Logger.h>
 #include <PlatformCommands.h>
@@ -59,11 +74,26 @@ namespace Cue
             return result;
         }
 
-        auto* staticMeshPool = m_backend->get_static_mesh_pool();
-        if (staticMeshPool == nullptr)
+        auto* bufferManager = m_backend->get_buffer_manager();
+        if (bufferManager == nullptr)
         {
             return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get static mesh pool from backend.");
+                "Failed to get buffer manager from backend.");
+        }
+
+        auto* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        auto* commandPool = m_backend->get_command_pool();
+        auto* queuePool = m_backend->get_queue_pool();
+        if (commandPool == nullptr || queuePool == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get command or queue pool from backend.");
         }
 
         auto* textureManager = m_backend->get_texture_manager();
@@ -73,7 +103,11 @@ namespace Cue
                 "Failed to get texture manager from backend.");
         }
 
-        m_assetManager.initialize(staticMeshPool, textureManager);
+        DrawSystem::StaticMeshPoolDesc meshPoolDesc{};
+        m_staticMeshPool = std::make_unique<DrawSystem::StaticMeshPool>(
+            meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
+        m_assetManager.initialize(m_staticMeshPool.get(), textureManager);
 
         Core::IO::Path errorTexturePath = a_info.errorTexturePath;
         if (errorTexturePath.is_empty())
@@ -81,14 +115,14 @@ namespace Cue
 #ifdef CUE_PROJECT_ROOT_PATH
             errorTexturePath = Core::IO::Path::join(
                 Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
-                Core::IO::Path("Engine/Textures/CueDummy.cuetexture"));
+                Core::IO::Path("Engine/Textures/CueDummy.dds"));
 #else
             return Result::fail(Code::InvalidState, Severity::Fatal,
                 "Error texture path is not configured for Engine.");
 #endif
         }
 
-        result = m_assetManager.register_error_texture_from_cuetexture(
+        result = m_assetManager.register_error_texture_from_file(
             m_platform->file_system(),
             errorTexturePath);
         if (!result)
@@ -136,30 +170,15 @@ namespace Cue
         }
 
         result =
-            staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
+            m_staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
         if (!result)
         {
             return result;
         }
 
-        // GenerateVisibleObjectList 用バッファを作成
-        auto* bufferManager = m_backend->get_buffer_manager();
-        if (bufferManager == nullptr)
-        {
-            return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get buffer manager from backend.");
-        }
-
-        auto* viewManager = m_backend->get_view_manager();
-        if (viewManager == nullptr)
-        {
-            return Result::fail(Code::NotFound, Severity::Fatal,
-                "Failed to get view manager from backend.");
-        }
-
         m_editorWorld = std::make_unique<GameCore::GameWorld>();
         result = m_editorWorld->initialize(
-            bufferManager, viewManager, staticMeshPool, &m_assetManager,
+            bufferManager, viewManager, m_staticMeshPool.get(), &m_assetManager,
             &m_platform->file_system(), m_audioBackend, m_audioDevice,
             m_physicsSystem, &m_platform->input_manager(),
             m_backend->buffer_count(), m_backend->width(), m_backend->height(),
@@ -350,6 +369,7 @@ namespace Cue
         m_activeWorld = nullptr;
         m_playWorld.reset();
         m_editorWorld.reset();
+        m_staticMeshPool.reset();
 
         if (m_audioBackend != nullptr && m_audioDevice.valid())
         {
@@ -967,11 +987,36 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine active world is not initialized.");
         }
-        const WorldResources* worldResources = m_activeWorld->world_resources();
-        if (worldResources == nullptr)
+        const DrawSystem::DrawResources* drawResources = m_activeWorld->draw_resources();
+        if (drawResources == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Error,
                 "Engine world resources are not initialized.");
+        }
+        const LightingSystem::LightResources* lightResources =
+            m_activeWorld->light_resources();
+        if (lightResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine light resources are not initialized.");
+        }
+        const LightingSystem::LightingBindings lightingBindings =
+            lightResources->bindings();
+        const ShadowSystem::ShadowResources* shadowResources =
+            m_activeWorld->shadow_resources();
+        if (shadowResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine shadow resources are not initialized.");
+        }
+        const ShadowSystem::ShadowBindings shadowBindings =
+            shadowResources->bindings();
+        const ParticleSystem::ParticleResources* particleResources =
+            m_activeWorld->particle_resources();
+        if (particleResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Engine particle resources are not initialized.");
         }
         auto* bufferManager = m_backend->get_buffer_manager();
         if (bufferManager == nullptr)
@@ -993,76 +1038,198 @@ namespace Cue
                 "Failed to create render frame graph.");
         }
 
-        m_frameGraph->add_pass(std::make_unique<RenderableInfoCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->renderable_info_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<TransformBufferCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->transform_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
-            worldResources->view_projection_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderableInfoCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->renderable_info_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::TransformBufferCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->transform_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
+            drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
             m_debugViewProjectionBufferHandle,
             sizeof(GpuData::ViewProjectionGpu),
             "DebugViewProjectionCopy"));
-        m_frameGraph->add_pass(std::make_unique<ViewProjectionCopyPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
             m_debugSelectionBufferHandle,
             sizeof(GpuData::DebugSelectionGpu),
             "DebugSelectionCopy"));
-        m_frameGraph->add_pass(std::make_unique<MaterialBufferCopyPass>(
-            worldResources->material_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<SpriteInstanceCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<RenderObjectCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectCountCopyPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<GenerateVisibleListPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->renderable_info_buffer_handle(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->renderable_info_buffer_srv_handle(),
-            worldResources->render_object_buffer_uav_handle(),
-            worldResources->visible_object_count_buffer_uav_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketCountPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketPrefixPass>(
-            m_activeWorld->render_scene_state()));
-        m_frameGraph->add_pass(std::make_unique<VisibleObjectBucketScatterPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshBatchingPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            "GameStaticMeshForward",
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::MaterialBufferCopyPass>(
+            drawResources->material_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::SkinPaletteBufferCopyPass>(
+                drawResources->skin_palette_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteInstanceCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleBufferCopyPass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->emitter_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderObjectCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectCountCopyPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleInitializePass>(
+            particleResources->particle_buffer_handle(),
+            particleResources->max_particle_count()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleSpawnPass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->emitter_buffer_handle(),
+            particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleUpdatePass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "LightFrameBufferCopy",
+            lightingBindings.frameBuffer,
+            sizeof(GpuData::LightFrameGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "DirectionalLightBufferCopy",
+            lightingBindings.directionalLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxDirectionalLightCount) *
+                sizeof(GpuData::DirectionalLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "PointLightBufferCopy",
+            lightingBindings.pointLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxPointLightCount) *
+                sizeof(GpuData::PointLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
+            "SpotLightBufferCopy",
+            lightingBindings.spotLightBuffer,
+            static_cast<uint64_t>(GpuData::k_maxSpotLightCount) *
+                sizeof(GpuData::SpotLightGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "DirectionalShadowFrameBufferCopy",
+            shadowBindings.directionalShadowFrameBuffer,
+            sizeof(GpuData::DirectionalShadowFrameGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "PointShadowFaceBufferCopy",
+            shadowBindings.pointShadowFaceBuffer,
+            static_cast<uint64_t>(GpuData::k_pointShadowFaceCount) *
+                sizeof(GpuData::PointShadowFaceGpu)));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::ShadowBufferCopyPass>(
+            "SpotShadowFrameBufferCopy",
+            shadowBindings.spotShadowFrameBuffer,
+            static_cast<uint64_t>(GpuData::k_maxSpotShadowCount) *
+                sizeof(GpuData::SpotShadowFrameGpu)));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::GenerateVisibleListPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->renderable_info_buffer_handle(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->renderable_info_buffer_srv_handle(),
+            drawResources->render_object_buffer_uav_handle(),
+            drawResources->visible_object_count_buffer_uav_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketCountPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketPrefixPass>(
+            m_activeWorld->draw_frame_state()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibleObjectBucketScatterPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshBatchingPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ShadowSystem::DirectionalShadowMapPass>(
+                m_activeWorld->draw_frame_state(),
+                drawResources->render_object_buffer_handle(),
+                drawResources->transform_buffer_handle(),
+                drawResources->visible_object_count_buffer_handle(),
+                drawResources->skin_palette_buffer_handle(),
+                shadowBindings,
+                m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::PointShadowMapPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            shadowBindings,
+            m_cubeIndexCount));
+        m_frameGraph->add_pass(std::make_unique<ShadowSystem::SpotShadowMapPass>(
+            m_activeWorld->draw_frame_state(),
+            m_activeWorld->shadow_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            shadowBindings,
+            m_cubeIndexCount));
+        m_frameGraph->add_pass(
+            std::make_unique<ShadowSystem::SpotShadowMapPreviewPass>(
+                shadowBindings));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "GameOpaqueStaticMeshForward",
             "GameColor",
             "GameColorRTV",
             "GameSceneDepth",
             "GameSceneDepthDSV",
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
-            worldResources->view_projection_buffer_handle(),
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->material_buffer_handle(),
-            m_cubeIndexCount));
-        m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->view_projection_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SkyboxPass>(
+            "GameSkybox",
+            "GameColor",
+            "GameColorRTV",
+            "GameSceneDepth",
+            "GameSceneDepthDSV",
+            drawResources->view_projection_buffer_handle(),
+            m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "GameTransparentStaticMeshForward",
+            "GameColor",
+            "GameColorRTV",
+            "GameSceneDepth",
+            "GameSceneDepthDSV",
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            drawResources->view_projection_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
+            nullptr,
+            DrawSystem::StaticMeshForwardQueue::Transparent));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
+                "GameParticleSpriteForward",
+                "GameColor",
+                "GameColorRTV",
+                "GameSceneDepth",
+                "GameSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                drawResources->view_projection_buffer_handle(),
+                particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
             "GameColor",
             "GameColorRTV",
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugDrawPass>(
             "GameDebugDraw",
             "GameColor",
             "GameColorRTV",
@@ -1070,32 +1237,75 @@ namespace Cue
             "GameSceneDepthDSV",
             *m_activeWorld,
             *bufferManager,
-            worldResources->view_projection_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<StaticMeshForwardPass>(
-            "DebugStaticMeshForward",
+            drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "DebugOpaqueStaticMeshForward",
             "DebugColor",
             "DebugColorRTV",
             "DebugSceneDepth",
             "DebugSceneDepthDSV",
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
             m_debugViewProjectionBufferHandle,
-            worldResources->visible_object_count_buffer_handle(),
-            worldResources->material_buffer_handle(),
-            m_cubeIndexCount));
-        m_frameGraph->add_pass(std::make_unique<DebugObjectIdPass>(
-            m_activeWorld->render_scene_state(),
-            worldResources->render_object_buffer_handle(),
-            worldResources->transform_buffer_handle(),
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
+            &m_debugViewShadingMode));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SkyboxPass>(
+            "DebugSkybox",
+            "DebugColor",
+            "DebugColorRTV",
+            "DebugSceneDepth",
+            "DebugSceneDepthDSV",
             m_debugViewProjectionBufferHandle,
-            worldResources->visible_object_count_buffer_handle(),
+            m_skyboxTextureSrvHandle));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
+            "DebugTransparentStaticMeshForward",
+            "DebugColor",
+            "DebugColorRTV",
+            "DebugSceneDepth",
+            "DebugSceneDepthDSV",
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            m_debugViewProjectionBufferHandle,
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->material_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
+            lightingBindings,
+            shadowBindings,
+            m_cubeIndexCount,
+            m_skyboxTextureSrvHandle,
+            &m_debugViewShadingMode,
+            DrawSystem::StaticMeshForwardQueue::Transparent));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
+                "DebugParticleSpriteForward",
+                "DebugColor",
+                "DebugColorRTV",
+                "DebugSceneDepth",
+                "DebugSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                m_debugViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->render_object_buffer_handle(),
+            drawResources->transform_buffer_handle(),
+            m_debugViewProjectionBufferHandle,
+            drawResources->visible_object_count_buffer_handle(),
+            drawResources->skin_palette_buffer_handle(),
             m_cubeIndexCount,
             m_debugSelectedObjectId));
-        m_frameGraph->add_pass(std::make_unique<DebugGridPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugGridPass>(
             m_debugViewProjectionBufferHandle,
             m_isDebugGridVisible));
-        m_frameGraph->add_pass(std::make_unique<DebugDrawPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugDrawPass>(
             "DebugViewDebugDraw",
             "DebugColor",
             "DebugColorRTV",
@@ -1104,18 +1314,18 @@ namespace Cue
             *m_activeWorld,
             *bufferManager,
             m_debugViewProjectionBufferHandle));
-        m_frameGraph->add_pass(std::make_unique<DebugSelectionPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugSelectionPass>(
             m_debugViewProjectionBufferHandle,
             m_debugSelectionBufferHandle));
-        m_frameGraph->add_pass(std::make_unique<SpriteForwardPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "DebugSpriteForward",
             "DebugColor",
             "DebugColorRTV",
-            m_activeWorld->render_scene_state(),
-            worldResources->sprite_instance_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DebugOutlinePass>(
+            m_activeWorld->draw_frame_state(),
+            drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugOutlinePass>(
             m_debugSelectedObjectId));
-        m_frameGraph->add_pass(std::make_unique<DebugPickReadbackPass>(
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugPickReadbackPass>(
             m_debugPickState,
             m_debugPickReadbackBufferHandle,
             (std::max)(m_backend->buffer_count(), 1u)));
@@ -1312,6 +1522,7 @@ namespace Cue
                     m_frameController->frame_counter().delta_time())
                 : 0.0f;
             const float deltaTime = simulation_delta_time(rawDeltaTime);
+            const float editorDeltaTime = is_playing() ? deltaTime : rawDeltaTime;
 
             if (is_playing() &&
                 m_scriptModuleHost != nullptr &&
@@ -1336,10 +1547,24 @@ namespace Cue
                         simulateResult.message.data());
                     return;
                 }
+
+                if (m_scriptModuleHost != nullptr &&
+                    m_scriptModuleHost->runtime() != nullptr)
+                {
+                    Result collisionResult =
+                        m_scriptModuleHost->runtime()->dispatch_collision_events();
+                    if (!collisionResult)
+                    {
+                        CUE_ASSERTF(false,
+                            "Script collision event dispatch failed: %s",
+                            collisionResult.message.data());
+                        return;
+                    }
+                }
             }
 
             Result updateResult = m_activeWorld->editor_update(a_index,
-                m_backend->width(), m_backend->height());
+                m_backend->width(), m_backend->height(), editorDeltaTime);
             if (!updateResult)
             {
                 CUE_ASSERTF(false, "GameWorld editor update failed: %s",
@@ -1451,7 +1676,7 @@ namespace Cue
             }
 
             result = m_playWorld->initialize(
-                bufferManager, viewManager, m_backend->get_static_mesh_pool(),
+                bufferManager, viewManager, m_staticMeshPool.get(),
                 &m_assetManager,
                 &m_platform->file_system(), m_audioBackend, m_audioDevice,
                 m_physicsSystem, &m_platform->input_manager(),
@@ -1575,7 +1800,7 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::present()
     {
         return [this](uint64_t a_frameNo, uint32_t a_index) {
-            m_backend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
+            m_backend->present(a_frameNo, a_index, true, *m_presentFrameGraph);
             };
     }
 

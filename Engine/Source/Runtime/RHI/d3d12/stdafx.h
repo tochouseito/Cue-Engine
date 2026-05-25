@@ -130,10 +130,18 @@ namespace Cue::RHI::DX12
             return DXGI_FORMAT_R8G8B8A8_UNORM;
         case ColorFormat::R8G8B8A8_UNORM_SRGB:
             return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        case ColorFormat::BC6H_UF16:
+            return DXGI_FORMAT_BC6H_UF16;
+        case ColorFormat::BC7_UNORM:
+            return DXGI_FORMAT_BC7_UNORM;
+        case ColorFormat::BC7_UNORM_SRGB:
+            return DXGI_FORMAT_BC7_UNORM_SRGB;
         case ColorFormat::R32_UINT:
             return DXGI_FORMAT_R32_UINT;
         case ColorFormat::D24_UNorm_S8_UInt:
             return DXGI_FORMAT_D24_UNORM_S8_UINT;
+        case ColorFormat::R24_UNorm_X8_Typeless:
+            return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
         default:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
         }
@@ -147,10 +155,18 @@ namespace Cue::RHI::DX12
             return ColorFormat::R8G8B8A8_UNORM;
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
             return ColorFormat::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_BC6H_UF16:
+            return ColorFormat::BC6H_UF16;
+        case DXGI_FORMAT_BC7_UNORM:
+            return ColorFormat::BC7_UNORM;
+        case DXGI_FORMAT_BC7_UNORM_SRGB:
+            return ColorFormat::BC7_UNORM_SRGB;
         case DXGI_FORMAT_R32_UINT:
             return ColorFormat::R32_UINT;
         case DXGI_FORMAT_D24_UNORM_S8_UINT:
             return ColorFormat::D24_UNorm_S8_UInt;
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+            return ColorFormat::R24_UNorm_X8_Typeless;
         default:
             CUE_ASSERT_MSG(false, "Invalid DXGI format for color format conversion.");
             return ColorFormat::R8G8B8A8_UNORM;

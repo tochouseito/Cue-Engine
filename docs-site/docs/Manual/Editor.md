@@ -98,6 +98,11 @@ GameScript は常に `scriptBuildConfiguration` の構成から読み込み、�
 - `Scene NavMesh を Bake`: 現在の Scene から NavMesh を Bake します。Play 中は実行できません。
 - `Debug Window`: `Navigation Debug` Window の表示を切り替えます。
 
+### Skybox
+
+- `なし`: Skybox texture の選択を解除します。
+- `Textures/*.dds`: CubeMap として cook 済みの texture を Skybox に設定します。
+
 ### ビルド
 
 - `ゲーム配布ビルド構成`: 配布用ビルドの構成を `Debug`、`RelWithDebInfo`、`Release` から選択します。
@@ -144,12 +149,19 @@ GameObject 名は World 全体で一意です。別 Scene であっても同名�
 ### ビュー
 
 - `グリッドを表示`: DebugView の grid 表示を切り替えます。
+- `描画モード > ソリッド`: マテリアルとライティングを使わず、固定色で表示します。
+- `描画モード > マテリアル`: マテリアルだけを使い、ライティングなしで表示します。
+- `描画モード > ライティング`: 固定色にライティングだけを適用して表示します。
+- `描画モード > レンダー`: マテリアルとライティングの両方を使って表示します。
 
 ### シーン
 
 `読み込み済みシーン` には、現在 Editor World に読み込まれている Scene 名だけが表示されます。
+`新規 Scene` から `Assets/Scenes` 配下に空の `.cuescene` を作成して読み込めます。
 `読込` ボタンから `Assets/Scenes` 配下の `.cuescene` を追加読み込みできます。
 すでに読み込まれている Scene は一覧上で選べない状態になります。
+読み込み済み Scene ごとに `Current`、`保存`、`Unload` を実行できます。
+`Current` は追加読み込みした Scene を現在の編集対象 Scene に切り替えます。
 
 ## Asset Browser
 
@@ -157,7 +169,7 @@ Asset Browser は `Assets` 配下をフォルダ単位で表示します。
 ファイルはアイコン付きボタンとして表示されます。
 
 - `.cuematerial`: Material アイコンを表示します。
-- `.png` / `.cuetexture`: Image アイコン、または読み込み済み texture のプレビューを表示します。
+- `.png` / `.dds`: Image アイコン、または読み込み済み texture のプレビューを表示します。
 - その他のファイル: Unknown アイコンを表示します。
 
 Material asset を選択すると Inspector に Material の詳細が表示されます。
@@ -167,9 +179,13 @@ Editor Window へ外部ファイルをドロップすると、現在開いてい
 Asset Browser が `Assets` 以下のフォルダを開いていない場合は `Assets/` にコピーします。
 対応している外部ファイルは次の通りです。
 
-- `.png`: `.cuetexture` に cook して登録します。
+- `.png`: 2D texture の `.dds` に cook して登録します。
+- `.dds`: 2D texture または CubeMap としてそのまま登録します。
 - `.wav`: `.cuesound` に cook します。
 - `.obj`: `.cuemodel` に cook して登録します。
+
+Asset Browser のファイル一覧を右クリックして `Make Cube Texture` を選ぶと、現在開いているフォルダへ 6 枚画像から `.dds` CubeMap を作成できます。
+面の指定順は `+X / Right`、`-X / Left`、`+Y / Up`、`-Y / Down`、`+Z / Front`、`-Z / Back` です。
 
 ## Inspector
 
@@ -180,9 +196,25 @@ Material Inspector では現在次の項目を編集できます。
 
 - `color`: Material color を編集して保存します。
 - `Use Texture`: texture を使うかを切り替えます。
-- `Texture をここへドロップ`: `.cuetexture` を drag and drop して Material に設定します。
+- `Reflection Skybox`: 選択中 Skybox を環境反射として使うかを切り替えます。
+- `shininess`: 環境反射の鋭さを調整します。
+- `Texture をここへドロップ`: `.dds` を drag and drop して Material に設定します。
 
 RendererComponent の Material 欄には Asset Browser から `.cuematerial` を drag and drop できます。
+
+### Runtime UI
+
+GameObject に `CanvasComponent` と `UiRectTransformComponent` を組み合わせると画面座標ベースの UI として扱われます。
+Inspector の `Add Component` から次の Runtime UI Component を追加できます。
+
+- `UiImageComponent`: Material texture を矩形に描画します。Material 欄へ `.cuematerial` を drag and drop できます。
+- `UiButtonComponent`: hover / pressed / clicked / focus 状態を持つクリック可能な矩形です。
+- `UiCheckboxComponent`: click で checked を切り替え、changed / focus 状態を持ちます。
+- `UiSliderComponent`: drag で value を更新し、changed / focus 状態を持ちます。
+
+GameScript からは `ComponentKindUiImage`、`ComponentKindUiButton`、`ComponentKindUiCheckbox`、`ComponentKindUiSlider` を `add_or_set_component` に渡せます。
+Button / Checkbox / Slider の状態は `get_ui_button_state`、`get_ui_checkbox_state`、`get_ui_slider_state` で取得できます。
+Checkbox と Slider は `set_ui_checkbox_checked`、`set_ui_slider_value` で値を設定できます。
 
 ## ヒエラルキー
 
@@ -191,6 +223,8 @@ RendererComponent の Material 欄には Asset Browser から `.cuematerial` を
 
 - Scene をクリックすると Scene が選択されます。
 - GameObject をクリックすると GameObject と所属 Scene が選択されます。
+- GameObject を同じ Scene 内の別 GameObject へ drag and drop すると親を変更できます。
+- GameObject を所属 Scene へ drag and drop すると親を解除して Scene 直下へ戻せます。
 - GameObject のダブルクリック、または右クリックメニューから名前変更できます。
 - GameObject の右クリックメニューから削除できます。
 
@@ -213,4 +247,4 @@ Scene を複数読み込んでも、World は GameObject を一元管理しま�
 配布時の実行ファイル名、タイトルバー、アプリアイコンは `ゲーム配布アプリ設定` で変更できます。
 アイコンはプロジェクト内の `.ico`、`.png`、`.jpg`、`.jpeg`、`.bmp` を指定できます。
 
-Release asset としてコピーされるのは、cook 済みの `.cuetexture`、`.cuematerial`、`.cuescene`、`.cuemodel`、`.cuesound` です。
+Release asset としてコピーされるのは、cook 済みの `.dds`、`.cuematerial`、`.cuescene`、`.cuemodel`、`.cuesound` です。
