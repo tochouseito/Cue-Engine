@@ -1,7 +1,7 @@
 # Base モジュールの CMakeLists.txt
 
 # Static ライブラリを作成
-add_library(Base STATIC "Result.h" "CueAssert.h" "CueAssert.cpp")
+add_library(Base STATIC "CueResult.h" "CueAssert.h" "CueAssert.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Base PUBLIC

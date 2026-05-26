@@ -1,92 +1,41 @@
-# Editor モジュールの CMake 設定
+# Editor モジュールの CMakeLists.txt
 
+# パッケージを検索
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-# ターゲットの追加
+# ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc"
-    "Asset/TextureCooker.h"
-    "Asset/TextureCooker.cpp"
-    "Asset/ModelCooker.h"
-    "Asset/ModelCooker.cpp"
-    "Asset/SoundCooker.h"
-    "Asset/SoundCooker.cpp"
-    "Asset/ModelImporter.h"
-    "Asset/ModelImporter.cpp"
-    "ImGui/ImGuiManager.h"
-    "ImGui/ImGuiManager.cpp"
-    "Camera/DebugCamera.h"
-    "Views/Icon.h"
-    "Views/Statistics.h"
-    "Views/GameView.h"
-    "Views/DebugView.h"
-    "Ui/EditorManager.h"
-    "Ui/EditorManager.cpp"
-    "Ui/AssetDragDrop.h"
-    "Ui/Hierarchy.h"
-    "Ui/Inspector.h"
-    "Ui/ProjectHub.h"
-    "Ui/ProjectHub.cpp"
-    "Project/ProjectGenerator.h"
-    "Project/ProjectGenerator.cpp"
-    "Build/BuildSystem.h"
-    "Build/BuildSystem.cpp"
-    "Build/IBuildRunner.h"
-    "Build/CMakeBuildRunner.h"
-    "Build/CMakeBuildRunner.cpp"
-    "Build/VisualStudioBridge.h"
-    "Build/VisualStudioBridge.cpp"
-    "Build/VisualStudioBuildRunner.h"
-    "Build/VisualStudioBuildRunner.cpp"
 )
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
-    cue_warnings
-    cue_compile_options
-    Base
-    win_platform
-    d3d12_backend
-    xaudio2_backend
-    jolt_physics_backend
-    Engine
-    assimp::assimp
-    imgui::imgui
-    imguizmo::imguizmo
-    nlohmann_json::nlohmann_json
-    msacm32
+   cue_warnings
+   cue_compile_options
 )
 
-# インクルードディレクトリの追加
+# インクルードディレクトリの指定
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/App"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Asset"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Ui"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Project"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Build"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Camera"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ImGui"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Views"
 )
 
+# 定数定義
 target_compile_definitions(Editor PRIVATE
     CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
 )
 
+# コンパイルオプション
 target_compile_options(Editor PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
 )
 
+# 生成物の出力先（ターゲット固有）
 set_target_properties(Editor PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/generated/outputs/Editor/$<CONFIG>"
 )
-
-# サブディレクトリの追加
 
 # ビルド後のコマンドを追加して、必要な DLL をコピー
 add_custom_command(
