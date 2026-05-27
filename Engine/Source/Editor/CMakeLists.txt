@@ -15,6 +15,7 @@ add_executable(Editor WIN32
 target_link_libraries(Editor PRIVATE
    cue_warnings
    cue_compile_options
+   Base
 )
 
 # インクルードディレクトリの指定
