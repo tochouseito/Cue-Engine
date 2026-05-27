@@ -99,6 +99,12 @@ namespace Cue::Editor
             GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
         };
 
+        enum class Workspace : uint8_t
+        {
+            Scene,
+            EffectEditor,
+        };
+
         Result save_current_scene();
         Result save_scene(GameCore::SceneId a_sceneId);
         Result create_scene_asset(const std::string& a_sceneName);
@@ -153,6 +159,8 @@ namespace Cue::Editor
         void draw_create_script_popup();
         void draw_script_build_output();
         void draw_navigation_debug_window();
+        void draw_workspace_tabs();
+        void draw_effect_editor_workspace();
         void draw_status_bar();
         void draw_play_controls();
         void draw_script_build_configuration_combo();
@@ -248,6 +256,7 @@ namespace Cue::Editor
         BuildBackend m_gameReleaseBuildBackend = BuildBackend::CMake;
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
+        Workspace m_currentWorkspace = Workspace::Scene;
         uint32_t m_pendingScriptActionDelayFrames = 0;
         uint32_t m_autoScriptBuildScanDelayFrames = 0;
         uint32_t m_autoScriptBuildDebounceFrames = 0;

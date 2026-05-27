@@ -100,7 +100,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 
 void ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace)
 {
-    if (input.shadowCasterMode == k_shadowCasterModeSolid && isFrontFace)
+    if (input.shadowCasterMode == k_shadowCasterModeSolid && !isFrontFace)
     {
         discard;
     }

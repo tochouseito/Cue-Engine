@@ -6040,6 +6040,208 @@ namespace Cue::Editor
         ImGui::PopStyleVar();
     }
 
+    void EditorManager::draw_workspace_tabs()
+    {
+        const auto drawWorkspaceButton =
+            [this](Workspace a_workspace, const char* a_label)
+        {
+            const bool isSelected = m_currentWorkspace == a_workspace;
+            if (isSelected)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabActive));
+                ImGui::PushStyleColor(
+                    ImGuiCol_ButtonHovered,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabHovered));
+                ImGui::PushStyleColor(
+                    ImGuiCol_ButtonActive,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabActive));
+            }
+
+            if (ImGui::Button(a_label, ImVec2(104.0f, 0.0f)) && !isSelected)
+            {
+                m_currentWorkspace = a_workspace;
+            }
+
+            if (isSelected)
+            {
+                ImGui::PopStyleColor(3);
+            }
+        };
+
+        drawWorkspaceButton(Workspace::Scene, "Scene");
+        ImGui::SameLine();
+        drawWorkspaceButton(Workspace::EffectEditor, "EffectEditor");
+    }
+
+    void EditorManager::draw_effect_editor_workspace()
+    {
+        if (ImGui::Begin("Effect Preview"))
+        {
+            const ImVec2 buttonSize(
+                ImGui::GetFrameHeight(),
+                ImGui::GetFrameHeight());
+            ImGui::Button(CUE_ICON_PLAY "##EffectPreviewPlay", buttonSize);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Play");
+            }
+            ImGui::SameLine();
+            ImGui::Button(CUE_ICON_PAUSE "##EffectPreviewPause", buttonSize);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Pause");
+            }
+            ImGui::SameLine();
+            ImGui::Button(CUE_ICON_STOP "##EffectPreviewStop", buttonSize);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Stop");
+            }
+            ImGui::Separator();
+
+            const ImVec2 canvasMin = ImGui::GetCursorScreenPos();
+            ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+            canvasSize.x = (std::max)(canvasSize.x, 160.0f);
+            canvasSize.y = (std::max)(canvasSize.y, 180.0f);
+            const ImVec2 canvasMax(
+                canvasMin.x + canvasSize.x,
+                canvasMin.y + canvasSize.y);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                canvasMin,
+                canvasMax,
+                IM_COL32(26, 29, 34, 255));
+            drawList->AddRect(
+                canvasMin,
+                canvasMax,
+                IM_COL32(76, 84, 96, 255));
+
+            constexpr float k_gridStep = 32.0f;
+            for (float x = canvasMin.x; x < canvasMax.x; x += k_gridStep)
+            {
+                drawList->AddLine(
+                    ImVec2(x, canvasMin.y),
+                    ImVec2(x, canvasMax.y),
+                    IM_COL32(44, 50, 58, 255));
+            }
+            for (float y = canvasMin.y; y < canvasMax.y; y += k_gridStep)
+            {
+                drawList->AddLine(
+                    ImVec2(canvasMin.x, y),
+                    ImVec2(canvasMax.x, y),
+                    IM_COL32(44, 50, 58, 255));
+            }
+
+            const ImVec2 center(
+                canvasMin.x + canvasSize.x * 0.5f,
+                canvasMin.y + canvasSize.y * 0.58f);
+            drawList->AddCircleFilled(
+                center,
+                18.0f,
+                IM_COL32(255, 190, 80, 220));
+            drawList->AddCircle(
+                center,
+                48.0f,
+                IM_COL32(120, 190, 255, 180),
+                48,
+                2.0f);
+            drawList->AddLine(
+                ImVec2(center.x - 64.0f, center.y),
+                ImVec2(center.x + 64.0f, center.y),
+                IM_COL32(140, 150, 165, 160),
+                1.0f);
+            drawList->AddLine(
+                ImVec2(center.x, center.y - 64.0f),
+                ImVec2(center.x, center.y + 64.0f),
+                IM_COL32(140, 150, 165, 160),
+                1.0f);
+            ImGui::Dummy(canvasSize);
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Graph"))
+        {
+            const ImGuiTreeNodeFlags rootFlags =
+                ImGuiTreeNodeFlags_DefaultOpen |
+                ImGuiTreeNodeFlags_OpenOnArrow;
+            if (ImGui::TreeNodeEx("Effect", rootFlags))
+            {
+                ImGui::Selectable("Emitter", true);
+                ImGui::Selectable("Renderer");
+                ImGui::Selectable("Spawner");
+                ImGui::TreePop();
+            }
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Inspector"))
+        {
+            static float durationSeconds = 2.0f;
+            static float spawnRate = 80.0f;
+            static float lifeSeconds = 1.2f;
+            static bool isLooping = true;
+
+            ImGui::TextUnformatted("Effect");
+            ImGui::Separator();
+            ImGui::Checkbox("Loop", &isLooping);
+            ImGui::SliderFloat(
+                "Duration",
+                &durationSeconds,
+                0.1f,
+                10.0f,
+                "%.2f");
+            ImGui::SliderFloat("Spawn Rate", &spawnRate, 0.0f, 1000.0f, "%.0f");
+            ImGui::SliderFloat("Life", &lifeSeconds, 0.05f, 8.0f, "%.2f");
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Timeline"))
+        {
+            const ImVec2 timelineMin = ImGui::GetCursorScreenPos();
+            ImVec2 timelineSize = ImGui::GetContentRegionAvail();
+            timelineSize.x = (std::max)(timelineSize.x, 160.0f);
+            timelineSize.y = (std::max)(timelineSize.y, 96.0f);
+            const ImVec2 timelineMax(
+                timelineMin.x + timelineSize.x,
+                timelineMin.y + timelineSize.y);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                timelineMin,
+                timelineMax,
+                IM_COL32(32, 35, 40, 255));
+            drawList->AddRect(
+                timelineMin,
+                timelineMax,
+                IM_COL32(78, 86, 96, 255));
+
+            constexpr int k_tickCount = 12;
+            for (int tickIndex = 0; tickIndex <= k_tickCount; ++tickIndex)
+            {
+                const float t =
+                    static_cast<float>(tickIndex) /
+                    static_cast<float>(k_tickCount);
+                const float x =
+                    timelineMin.x + (timelineMax.x - timelineMin.x) * t;
+                const float tickHeight = tickIndex % 3 == 0 ? 28.0f : 14.0f;
+                drawList->AddLine(
+                    ImVec2(x, timelineMin.y),
+                    ImVec2(x, timelineMin.y + tickHeight),
+                    IM_COL32(140, 150, 165, 180));
+            }
+
+            const float playheadX = timelineMin.x + timelineSize.x * 0.25f;
+            drawList->AddLine(
+                ImVec2(playheadX, timelineMin.y),
+                ImVec2(playheadX, timelineMax.y),
+                IM_COL32(255, 210, 90, 255),
+                2.0f);
+            ImGui::Dummy(timelineSize);
+        }
+        ImGui::End();
+    }
+
     void EditorManager::draw_play_controls()
     {
         const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
@@ -7012,23 +7214,46 @@ namespace Cue::Editor
             }
         };
 
-        drawWindowItem("GameView", "GameView", nullptr, m_gameView != nullptr);
-        drawWindowItem("DebugView", "DebugView", nullptr, m_debugView != nullptr);
-        drawWindowItem(
-            "Asset Browser",
-            "Asset Browser",
-            nullptr,
-            m_assetBrowser != nullptr);
-        drawWindowItem(
-            "ヒエラルキー",
-            "ヒエラルキー",
-            nullptr,
-            m_hierarchy != nullptr);
-        drawWindowItem(
-            "インスペクター",
-            "インスペクター",
-            nullptr,
-            m_inspector != nullptr);
+        if (m_currentWorkspace == Workspace::Scene)
+        {
+            drawWindowItem(
+                "GameView",
+                "GameView",
+                nullptr,
+                m_gameView != nullptr);
+            drawWindowItem(
+                "DebugView",
+                "DebugView",
+                nullptr,
+                m_debugView != nullptr);
+            drawWindowItem(
+                "Asset Browser",
+                "Asset Browser",
+                nullptr,
+                m_assetBrowser != nullptr);
+            drawWindowItem(
+                "ヒエラルキー",
+                "ヒエラルキー",
+                nullptr,
+                m_hierarchy != nullptr);
+            drawWindowItem(
+                "インスペクター",
+                "インスペクター",
+                nullptr,
+                m_inspector != nullptr);
+        }
+        else
+        {
+            drawWindowItem("Effect Preview", "Effect Preview");
+            drawWindowItem("Effect Graph", "Effect Graph");
+            drawWindowItem("Effect Inspector", "Effect Inspector");
+            drawWindowItem("Effect Timeline", "Effect Timeline");
+            drawWindowItem(
+                "Asset Browser",
+                "Asset Browser",
+                nullptr,
+                m_assetBrowser != nullptr);
+        }
         drawWindowItem(
             "Frame Statistics",
             "Frame Statistics",
@@ -7044,7 +7269,7 @@ namespace Cue::Editor
             "Navigation Debug",
             "Navigation Debug",
             &m_showNavigationDebugWindow,
-            m_engine != nullptr);
+            m_currentWorkspace == Workspace::Scene && m_engine != nullptr);
     }
 
     void EditorManager::show_and_focus_window(
@@ -8589,6 +8814,9 @@ namespace Cue::Editor
             ImGui::PopStyleVar(2);
 
             ImGui::SameLine();
+            draw_workspace_tabs();
+
+            ImGui::SameLine();
             const bool isFileMenuOpen = ImGui::BeginMenu("ファイル");
             const bool isFileMenuLabelHovered =
                 ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
@@ -8633,7 +8861,8 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("ナビゲーション"))
+            if (m_currentWorkspace == Workspace::Scene &&
+                ImGui::BeginMenu("ナビゲーション"))
             {
                 const bool canBakeNavigation =
                     m_engine != nullptr && !m_projectPath.empty() &&
@@ -8660,7 +8889,10 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            draw_skybox_menu();
+            if (m_currentWorkspace == Workspace::Scene)
+            {
+                draw_skybox_menu();
+            }
 
             if (ImGui::BeginMenu("ビルド"))
             {
@@ -8929,7 +9161,10 @@ namespace Cue::Editor
         {
             ImGui::ShowStyleEditor();
         }
-        draw_navigation_debug_window();
+        if (m_currentWorkspace == Workspace::Scene)
+        {
+            draw_navigation_debug_window();
+        }
         optionalWindowsTimer.stop();
         m_currentUpdateMetrics.optionalWindowsMs =
             optionalWindowsTimer.elapsed_ticks().ms_f64();
@@ -8941,24 +9176,27 @@ namespace Cue::Editor
         m_currentUpdateMetrics.statisticsMs =
             statisticsTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer gameViewTimer(m_platform->clock());
-        gameViewTimer.start();
-        m_gameView->update();
-        gameViewTimer.stop();
-        m_currentUpdateMetrics.gameViewMs =
-            gameViewTimer.elapsed_ticks().ms_f64();
-
-        Core::Time::Timer debugViewTimer(m_platform->clock());
-        debugViewTimer.start();
-        m_debugView->update();
-        debugViewTimer.stop();
-        m_currentUpdateMetrics.debugViewMs =
-            debugViewTimer.elapsed_ticks().ms_f64();
-        process_debug_pick_request();
-        sync_debug_selection();
-        if (m_engine != nullptr)
+        if (m_currentWorkspace == Workspace::Scene)
         {
-            m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+            Core::Time::Timer gameViewTimer(m_platform->clock());
+            gameViewTimer.start();
+            m_gameView->update();
+            gameViewTimer.stop();
+            m_currentUpdateMetrics.gameViewMs =
+                gameViewTimer.elapsed_ticks().ms_f64();
+
+            Core::Time::Timer debugViewTimer(m_platform->clock());
+            debugViewTimer.start();
+            m_debugView->update();
+            debugViewTimer.stop();
+            m_currentUpdateMetrics.debugViewMs =
+                debugViewTimer.elapsed_ticks().ms_f64();
+            process_debug_pick_request();
+            sync_debug_selection();
+            if (m_engine != nullptr)
+            {
+                m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+            }
         }
         if (m_assetBrowser != nullptr)
         {
@@ -8974,6 +9212,11 @@ namespace Cue::Editor
             assetBrowserTimer.stop();
             m_currentUpdateMetrics.assetBrowserMs =
                 assetBrowserTimer.elapsed_ticks().ms_f64();
+        }
+
+        if (m_currentWorkspace == Workspace::EffectEditor)
+        {
+            draw_effect_editor_workspace();
         }
 
         Core::Time::Timer createScriptPopupTimer(m_platform->clock());
@@ -9000,41 +9243,44 @@ namespace Cue::Editor
         m_currentUpdateMetrics.scriptBuildOutputMs =
             scriptBuildOutputTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer hierarchyTimer(m_platform->clock());
-        hierarchyTimer.start();
-        const GameCore::EntityId selectedEntityBeforeHierarchy =
-            m_selectedEntityId;
-        const GameCore::SceneId selectedSceneBeforeHierarchy =
-            m_selectedSceneId;
-        if (m_hierarchy != nullptr)
+        if (m_currentWorkspace == Workspace::Scene)
         {
-            m_hierarchy->set_game_world(
-                m_engine != nullptr ? m_engine->active_world() : nullptr);
-            m_hierarchy->set_read_only(
-                m_engine != nullptr && m_engine->is_playing());
-            m_hierarchy->set_scenes(collect_hierarchy_scenes());
-            m_hierarchy->update();
-        }
-        if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
-            m_selectedEntityId != GameCore::k_invalidEntityId)
-        {
-            m_selectedAssetPath = {};
-        }
-        if (m_selectedSceneId != selectedSceneBeforeHierarchy &&
-            m_selectedSceneId != GameCore::k_invalidSceneId)
-        {
-            m_selectedAssetPath = {};
-        }
-        hierarchyTimer.stop();
-        m_currentUpdateMetrics.hierarchyMs =
-            hierarchyTimer.elapsed_ticks().ms_f64();
+            Core::Time::Timer hierarchyTimer(m_platform->clock());
+            hierarchyTimer.start();
+            const GameCore::EntityId selectedEntityBeforeHierarchy =
+                m_selectedEntityId;
+            const GameCore::SceneId selectedSceneBeforeHierarchy =
+                m_selectedSceneId;
+            if (m_hierarchy != nullptr)
+            {
+                m_hierarchy->set_game_world(
+                    m_engine != nullptr ? m_engine->active_world() : nullptr);
+                m_hierarchy->set_read_only(
+                    m_engine != nullptr && m_engine->is_playing());
+                m_hierarchy->set_scenes(collect_hierarchy_scenes());
+                m_hierarchy->update();
+            }
+            if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
+                m_selectedEntityId != GameCore::k_invalidEntityId)
+            {
+                m_selectedAssetPath = {};
+            }
+            if (m_selectedSceneId != selectedSceneBeforeHierarchy &&
+                m_selectedSceneId != GameCore::k_invalidSceneId)
+            {
+                m_selectedAssetPath = {};
+            }
+            hierarchyTimer.stop();
+            m_currentUpdateMetrics.hierarchyMs =
+                hierarchyTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer inspectorTimer(m_platform->clock());
-        inspectorTimer.start();
-        m_inspector->update();
-        inspectorTimer.stop();
-        m_currentUpdateMetrics.inspectorMs =
-            inspectorTimer.elapsed_ticks().ms_f64();
+            Core::Time::Timer inspectorTimer(m_platform->clock());
+            inspectorTimer.start();
+            m_inspector->update();
+            inspectorTimer.stop();
+            m_currentUpdateMetrics.inspectorMs =
+                inspectorTimer.elapsed_ticks().ms_f64();
+        }
 
         focus_pending_window();
 
