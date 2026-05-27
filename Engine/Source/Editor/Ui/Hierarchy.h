@@ -141,6 +141,10 @@ namespace Cue::Editor
                             GameCore::k_invalidEntityId;
                         if (a_object.get_component(base) && base != nullptr)
                         {
+                            if (base->tag == "EditorPreview")
+                            {
+                                return;
+                            }
                             parent = base->parent;
                         }
 

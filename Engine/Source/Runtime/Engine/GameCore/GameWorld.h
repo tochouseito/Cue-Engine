@@ -41,9 +41,11 @@
 #include <ShadowSystem/ShadowScene.h>
 #include <ShadowSystem/Systems/ShadowSystem.h>
 #include <ParticleSystem/ParticleFrameState.h>
+#include <ParticleSystem/ParticleRangeAllocator.h>
 #include <ParticleSystem/ParticleResources.h>
 #include <ParticleSystem/ParticleScene.h>
 #include <ParticleSystem/Systems/ParticleEmitterSystem.h>
+#include <EffectSystem/Systems/EffectEmitterSystem.h>
 
 // === PAL includes ===
 #include <Input/InputManager.h>
@@ -2940,6 +2942,16 @@ namespace Cue::GameCore
                 prototype.add_component(copiedParticleEmitter);
             }
 
+            if (const ECS::EffectEmitterComponent* effectEmitter =
+                get_component<ECS::EffectEmitterComponent>(a_entityId);
+                effectEmitter != nullptr)
+            {
+                ECS::EffectEmitterComponent copiedEffectEmitter =
+                    *effectEmitter;
+                copiedEffectEmitter.runtimeEmitters.clear();
+                prototype.add_component(copiedEffectEmitter);
+            }
+
             if (const ECS::AudioSourceComponent* audioSource =
                 get_component<ECS::AudioSourceComponent>(a_entityId);
                 audioSource != nullptr)
@@ -3783,6 +3795,8 @@ namespace Cue::GameCore
         DrawSystem::DrawFrameState m_drawFrameState{};
         ParticleSystem::ParticleScene m_particleScene{};
         ParticleSystem::ParticleFrameState m_particleFrameState{};
+        ParticleSystem::ParticleRangeAllocator m_particleRangeAllocator{};
+        uint32_t m_particleTrailFrameIndex = 0;
         LightingSystem::LightScene m_lightScene{};
         LightingSystem::LightFrameState m_lightFrameState{};
         ShadowSystem::ShadowScene m_shadowScene{};

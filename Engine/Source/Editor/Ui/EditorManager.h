@@ -12,6 +12,7 @@
 
 // === Engine includes ===
 #include <Engine.h>
+#include <EffectSystem/EffectAsset.h>
 
 // === Editor includes ===
 #include "DebugCamera.h"
@@ -20,6 +21,7 @@
 #include "Statistics.h"
 #include "GameView.h"
 #include "DebugView.h"
+#include "EffectPreviewView.h"
 #include "Hierarchy.h"
 #include "Icon.h"
 #include "Inspector.h"
@@ -58,6 +60,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> texturePaths{};
             std::vector<Core::IO::Path> modelPaths{};
             std::vector<Core::IO::Path> materialPaths{};
+            std::vector<Core::IO::Path> effectPaths{};
             Code resultCode = Code::OK;
             Severity resultSeverity = Severity::Info;
             bool succeeded = false;
@@ -140,6 +143,13 @@ namespace Cue::Editor
         Result attach_editor_debugger_in_visual_studio();
         Result open_game_release_build_directory();
         Result create_material_asset();
+        Result create_effect_editor_asset();
+        Result load_effect_editor_asset(const Core::IO::Path& a_effectPath);
+        Result save_effect_editor_asset();
+        Result sync_effect_editor_preview();
+        Result place_effect_editor_in_scene();
+        void destroy_effect_editor_preview();
+        void refresh_effect_editor_buffers() noexcept;
         Result handle_dropped_asset_files();
         Result import_external_asset_file(
             const Core::IO::Path& a_sourcePath,
@@ -221,6 +231,10 @@ namespace Cue::Editor
         [[nodiscard]] std::string make_asset_relative_name(
             const Core::IO::Path& a_assetPath) const;
         void sync_debug_selection();
+        [[nodiscard]] EffectSystem::EffectEmitterDesc*
+            selected_effect_emitter() noexcept;
+        [[nodiscard]] const EffectSystem::EffectEmitterDesc*
+            selected_effect_emitter() const noexcept;
 
         Core::CQRS::Bridge* m_bridge = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
@@ -234,6 +248,7 @@ namespace Cue::Editor
         std::unique_ptr<Statistics> m_statistics = nullptr;
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
+        std::unique_ptr<EffectPreviewView> m_effectPreviewView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
@@ -243,6 +258,7 @@ namespace Cue::Editor
         std::vector<LoadedSceneEntry> m_loadedEditorScenes{};
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_selectedAssetPath{};
+        Core::IO::Path m_effectEditorPath{};
         std::string m_projectPath{};
         std::string m_currentScenePath{};
         std::string m_statusMessage{};
@@ -257,9 +273,16 @@ namespace Cue::Editor
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         Workspace m_currentWorkspace = Workspace::Scene;
+        EffectSystem::EffectAsset m_effectEditorAsset{};
+        EffectHandle m_effectEditorHandle{};
+        GameCore::EntityId m_effectPreviewEntityId =
+            GameCore::k_invalidEntityId;
+        uint32_t m_selectedEffectEmitterIndex = 0;
         uint32_t m_pendingScriptActionDelayFrames = 0;
         uint32_t m_autoScriptBuildScanDelayFrames = 0;
         uint32_t m_autoScriptBuildDebounceFrames = 0;
+        float m_effectPreviewSpeed = 1.0f;
+        float m_effectPreviewScrubTime = 0.0f;
         std::string m_scriptBuildNotificationTitle{};
         std::string m_scriptBuildNotificationMessage{};
         bool m_showScriptBuildOutput = true;
@@ -277,8 +300,15 @@ namespace Cue::Editor
         bool m_focusCreateScriptNameInput = false;
         bool m_hasScriptSourceSnapshot = false;
         bool m_hasPendingAutoScriptBuild = false;
+        bool m_hasEffectEditorAsset = false;
+        bool m_effectEditorDirty = false;
+        bool m_effectPreviewPlaying = true;
         std::array<char, 128> m_createSceneNameBuffer{};
         std::array<char, 128> m_createScriptNameBuffer{};
+        std::array<char, 128> m_effectNameBuffer{};
+        std::array<char, 128> m_effectEmitterNameBuffer{};
+        std::array<char, 128> m_effectMaterialNameBuffer{};
+        std::array<char, 128> m_effectMeshNameBuffer{};
         std::array<char, 128> m_gameReleaseExecutableNameBuffer{};
         std::array<char, 128> m_gameReleaseWindowTitleBuffer{};
         std::array<char, 260> m_gameReleaseIconPathBuffer{};

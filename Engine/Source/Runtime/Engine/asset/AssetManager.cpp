@@ -1,5 +1,8 @@
 #include "AssetManager.h"
 
+// === Engine includes ===
+#include <GpuData/Particle.h>
+
 // === C++ includes ===
 #include <algorithm>
 #include <cctype>
@@ -85,6 +88,143 @@ namespace Cue
             outValue.y = json.at("y").get<float>();
             outValue.z = json.at("z").get<float>();
             outValue.w = json.at("w").get<float>();
+        }
+
+        void deserialize_float3_or_keep(const Json& json, Math::float3& outValue)
+        {
+            if (json.is_array() && json.size() >= 3)
+            {
+                outValue.x = json.at(0).get<float>();
+                outValue.y = json.at(1).get<float>();
+                outValue.z = json.at(2).get<float>();
+                return;
+            }
+
+            outValue.x = json.value("x", outValue.x);
+            outValue.y = json.value("y", outValue.y);
+            outValue.z = json.value("z", outValue.z);
+        }
+
+        void deserialize_float2_or_keep(const Json& json, Math::float2& outValue)
+        {
+            if (json.is_array() && json.size() >= 2)
+            {
+                outValue.x = json.at(0).get<float>();
+                outValue.y = json.at(1).get<float>();
+                return;
+            }
+
+            outValue.x = json.value("x", outValue.x);
+            outValue.y = json.value("y", outValue.y);
+        }
+
+        void deserialize_float4_or_keep(const Json& json, Math::float4& outValue)
+        {
+            if (json.is_array() && json.size() >= 4)
+            {
+                outValue.x = json.at(0).get<float>();
+                outValue.y = json.at(1).get<float>();
+                outValue.z = json.at(2).get<float>();
+                outValue.w = json.at(3).get<float>();
+                return;
+            }
+
+            outValue.x = json.value("x", outValue.x);
+            outValue.y = json.value("y", outValue.y);
+            outValue.z = json.value("z", outValue.z);
+            outValue.w = json.value("w", outValue.w);
+        }
+
+        [[nodiscard]] EffectSystem::EffectBillboardMode
+            parse_effect_billboard_mode(std::string_view a_text) noexcept
+        {
+            const std::string mode = to_lower_ascii(std::string(a_text));
+            if (mode == "view")
+            {
+                return EffectSystem::EffectBillboardMode::View;
+            }
+
+            return EffectSystem::EffectBillboardMode::View;
+        }
+
+        [[nodiscard]] EffectSystem::EffectRendererType
+            parse_effect_renderer_type(std::string_view a_text) noexcept
+        {
+            const std::string type = to_lower_ascii(std::string(a_text));
+            if (type == "trail")
+            {
+                return EffectSystem::EffectRendererType::Trail;
+            }
+            if (type == "ribbon")
+            {
+                return EffectSystem::EffectRendererType::Ribbon;
+            }
+            if (type == "mesh")
+            {
+                return EffectSystem::EffectRendererType::Mesh;
+            }
+
+            return EffectSystem::EffectRendererType::Billboard;
+        }
+
+        [[nodiscard]] EffectSystem::EffectEmitterShape parse_effect_shape(
+            std::string_view a_text) noexcept
+        {
+            const std::string shape = to_lower_ascii(std::string(a_text));
+            if (shape == "sphere")
+            {
+                return EffectSystem::EffectEmitterShape::Sphere;
+            }
+            if (shape == "box")
+            {
+                return EffectSystem::EffectEmitterShape::Box;
+            }
+            if (shape == "cone")
+            {
+                return EffectSystem::EffectEmitterShape::Cone;
+            }
+
+            return EffectSystem::EffectEmitterShape::Point;
+        }
+
+        void clamp_effect_emitter(EffectSystem::EffectEmitterDesc& a_emitter)
+        {
+            a_emitter.startSize = (std::max)(a_emitter.startSize, 0.0f);
+            a_emitter.midSize = (std::max)(a_emitter.midSize, 0.0f);
+            a_emitter.endSize = (std::max)(a_emitter.endSize, 0.0f);
+            a_emitter.curveMidTime =
+                (std::clamp)(a_emitter.curveMidTime, 0.001f, 0.999f);
+            a_emitter.startDelay = (std::max)(a_emitter.startDelay, 0.0f);
+            a_emitter.duration = (std::max)(a_emitter.duration, 0.0f);
+            a_emitter.shapeRadius = (std::max)(a_emitter.shapeRadius, 0.0f);
+            a_emitter.shapeAngleDegrees =
+                (std::clamp)(a_emitter.shapeAngleDegrees, 0.0f, 89.0f);
+            a_emitter.trailWidth = (std::max)(a_emitter.trailWidth, 0.0f);
+            a_emitter.trailLength = (std::max)(a_emitter.trailLength, 0.0f);
+            a_emitter.meshScale = (std::max)(a_emitter.meshScale, 0.0f);
+            a_emitter.drag = (std::max)(a_emitter.drag, 0.0f);
+            a_emitter.noiseStrength =
+                (std::max)(a_emitter.noiseStrength, 0.0f);
+            a_emitter.noiseFrequency =
+                (std::max)(a_emitter.noiseFrequency, 0.001f);
+            a_emitter.trailSegmentCount = (std::clamp)(
+                a_emitter.trailSegmentCount,
+                1u,
+                64u);
+            a_emitter.shapeBoxExtents.x =
+                (std::max)(a_emitter.shapeBoxExtents.x, 0.0f);
+            a_emitter.shapeBoxExtents.y =
+                (std::max)(a_emitter.shapeBoxExtents.y, 0.0f);
+            a_emitter.shapeBoxExtents.z =
+                (std::max)(a_emitter.shapeBoxExtents.z, 0.0f);
+            a_emitter.minLifetime = (std::max)(a_emitter.minLifetime, 0.001f);
+            a_emitter.maxLifetime =
+                (std::max)(a_emitter.maxLifetime, a_emitter.minLifetime);
+            a_emitter.emitRate = (std::max)(a_emitter.emitRate, 0.0f);
+            a_emitter.maxParticleCount = (std::clamp)(
+                a_emitter.maxParticleCount,
+                1u,
+                GpuData::k_maxParticleCount);
         }
 
         [[nodiscard]] Result validate_loaded_texture_data(
@@ -1130,6 +1270,271 @@ namespace Cue
                 Code::GetFailed,
                 Severity::Error,
                 "Material asset could not be parsed.");
+        }
+    }
+
+    Result AssetManager::create_effect(std::string_view name,
+        const EffectSystem::EffectAsset& asset,
+        EffectHandle& outHandle)
+    {
+        return add_effect(name, asset, outHandle);
+    }
+
+    Result AssetManager::load_effect(Core::IO::IFileSystem& fileSystem,
+        const Core::IO::Path& filePath,
+        EffectHandle& outHandle)
+    {
+        outHandle = {};
+
+        const Core::IO::Path normalizedPath = filePath.normalize();
+        if (normalizedPath.extension() != ".cuefx")
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Effect asset file extension must be .cuefx.");
+        }
+
+        std::vector<std::byte> fileData{};
+        Result result = fileSystem.read_all(normalizedPath, &fileData);
+        if (!result)
+        {
+            return result;
+        }
+
+        try
+        {
+            const std::string text(
+                reinterpret_cast<const char*>(fileData.data()),
+                fileData.size());
+            const Json root = Json::parse(text);
+            const uint32_t version = root.value("version", 1u);
+            if (version > k_effectAssetVersion)
+            {
+                return Result::fail(
+                    Code::Unsupported,
+                    Severity::Error,
+                    "Effect asset version is not supported.");
+            }
+
+            EffectSystem::EffectAsset asset{};
+            asset.name = root.value("name", normalizedPath.stem());
+            const Json* emittersJson = root.contains("emitters")
+                ? &root.at("emitters")
+                : nullptr;
+            if (emittersJson != nullptr && emittersJson->is_array())
+            {
+                for (const Json& emitterJson : *emittersJson)
+                {
+                    EffectSystem::EffectEmitterDesc emitter{};
+                    emitter.name = emitterJson.value("name", emitter.name);
+                    emitter.materialName = emitterJson.value(
+                        "materialName",
+                        emitterJson.value("material", std::string{}));
+                    emitter.meshName =
+                        emitterJson.value("meshName", emitter.meshName);
+                    if (emitterJson.contains("positionOffset"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("positionOffset"),
+                            emitter.positionOffset);
+                    }
+                    if (emitterJson.contains("linearForce"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("linearForce"),
+                            emitter.linearForce);
+                    }
+                    if (emitterJson.contains("attractorPosition"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("attractorPosition"),
+                            emitter.attractorPosition);
+                    }
+                    if (emitterJson.contains("shapeBoxExtents"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("shapeBoxExtents"),
+                            emitter.shapeBoxExtents);
+                    }
+                    if (emitterJson.contains("velocityMin"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("velocityMin"),
+                            emitter.velocityMin);
+                    }
+                    if (emitterJson.contains("velocityMax"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("velocityMax"),
+                            emitter.velocityMax);
+                    }
+                    if (emitterJson.contains("acceleration"))
+                    {
+                        deserialize_float3_or_keep(
+                            emitterJson.at("acceleration"),
+                            emitter.acceleration);
+                    }
+                    if (emitterJson.contains("startColor"))
+                    {
+                        deserialize_float4_or_keep(
+                            emitterJson.at("startColor"),
+                            emitter.startColor);
+                    }
+                    if (emitterJson.contains("midColor"))
+                    {
+                        deserialize_float4_or_keep(
+                            emitterJson.at("midColor"),
+                            emitter.midColor);
+                    }
+                    if (emitterJson.contains("endColor"))
+                    {
+                        deserialize_float4_or_keep(
+                            emitterJson.at("endColor"),
+                            emitter.endColor);
+                    }
+                    emitter.startSize =
+                        emitterJson.value("startSize", emitter.startSize);
+                    emitter.midSize =
+                        emitterJson.value("midSize", emitter.midSize);
+                    emitter.endSize =
+                        emitterJson.value("endSize", emitter.endSize);
+                    emitter.curveMidTime = emitterJson.value(
+                        "curveMidTime",
+                        emitter.curveMidTime);
+                    emitter.startDelay =
+                        emitterJson.value("startDelay", emitter.startDelay);
+                    emitter.duration =
+                        emitterJson.value("duration", emitter.duration);
+                    emitter.shapeRadius =
+                        emitterJson.value("shapeRadius", emitter.shapeRadius);
+                    emitter.shapeAngleDegrees = emitterJson.value(
+                        "shapeAngleDegrees",
+                        emitter.shapeAngleDegrees);
+                    emitter.trailWidth =
+                        emitterJson.value("trailWidth", emitter.trailWidth);
+                    emitter.trailLength =
+                        emitterJson.value("trailLength", emitter.trailLength);
+                    emitter.meshScale =
+                        emitterJson.value("meshScale", emitter.meshScale);
+                    emitter.drag = emitterJson.value("drag", emitter.drag);
+                    emitter.noiseStrength = emitterJson.value(
+                        "noiseStrength",
+                        emitter.noiseStrength);
+                    emitter.noiseFrequency = emitterJson.value(
+                        "noiseFrequency",
+                        emitter.noiseFrequency);
+                    emitter.attractorStrength = emitterJson.value(
+                        "attractorStrength",
+                        emitter.attractorStrength);
+                    emitter.vortexStrength = emitterJson.value(
+                        "vortexStrength",
+                        emitter.vortexStrength);
+                    emitter.minLifetime =
+                        emitterJson.value("minLifetime", emitter.minLifetime);
+                    emitter.maxLifetime =
+                        emitterJson.value("maxLifetime", emitter.maxLifetime);
+                    emitter.emitRate =
+                        emitterJson.value("emitRate", emitter.emitRate);
+                    emitter.burstCount =
+                        emitterJson.value("burstCount", emitter.burstCount);
+                    emitter.trailSegmentCount = emitterJson.value(
+                        "trailSegmentCount",
+                        emitter.trailSegmentCount);
+                    emitter.maxParticleCount = emitterJson.value(
+                        "maxParticleCount",
+                        emitter.maxParticleCount);
+                    emitter.randomSeed =
+                        emitterJson.value("randomSeed", emitter.randomSeed);
+                    emitter.rendererType = parse_effect_renderer_type(
+                        emitterJson.value(
+                            "rendererType",
+                            std::string("Billboard")));
+                    emitter.shape = parse_effect_shape(
+                        emitterJson.value("shape", std::string("Point")));
+                    emitter.billboardMode = parse_effect_billboard_mode(
+                        emitterJson.value("billboardMode", std::string("View")));
+                    emitter.isLooping =
+                        emitterJson.value("loop", emitter.isLooping);
+                    emitter.isVisible =
+                        emitterJson.value("visible", emitter.isVisible);
+                    clamp_effect_emitter(emitter);
+                    asset.emitters.push_back(std::move(emitter));
+                }
+            }
+            if (asset.emitters.empty())
+            {
+                EffectSystem::EffectEmitterDesc emitter{};
+                clamp_effect_emitter(emitter);
+                asset.emitters.push_back(std::move(emitter));
+            }
+
+            const Json* graphNodesJson = root.contains("graphNodes")
+                ? &root.at("graphNodes")
+                : nullptr;
+            if (graphNodesJson != nullptr && graphNodesJson->is_array())
+            {
+                for (const Json& nodeJson : *graphNodesJson)
+                {
+                    EffectSystem::EffectGraphNodeDesc node{};
+                    node.name = nodeJson.value("name", node.name);
+                    node.emitterIndex =
+                        nodeJson.value("emitterIndex", node.emitterIndex);
+                    if (nodeJson.contains("position"))
+                    {
+                        deserialize_float2_or_keep(
+                            nodeJson.at("position"),
+                            node.position);
+                    }
+                    if (node.emitterIndex < asset.emitters.size())
+                    {
+                        asset.graphNodes.push_back(std::move(node));
+                    }
+                }
+            }
+
+            if (asset.graphNodes.empty())
+            {
+                asset.graphNodes.reserve(asset.emitters.size());
+                for (uint32_t emitterIndex = 0;
+                     emitterIndex < static_cast<uint32_t>(asset.emitters.size());
+                     ++emitterIndex)
+                {
+                    EffectSystem::EffectGraphNodeDesc node{};
+                    node.name = asset.emitters[emitterIndex].name;
+                    node.emitterIndex = emitterIndex;
+                    node.position = Math::float2(
+                        24.0f + static_cast<float>(emitterIndex) * 180.0f,
+                        32.0f);
+                    asset.graphNodes.push_back(std::move(node));
+                }
+            }
+
+            Result existingResult = get_effect(asset.name, outHandle);
+            if (existingResult)
+            {
+                EffectAssetRecord* record = m_effectRegistry.ref_get(outHandle);
+                if (record == nullptr)
+                {
+                    return Result::fail(
+                        Code::InternalError,
+                        Severity::Error,
+                        "Loaded effect handle could not be resolved.");
+                }
+
+                record->name = asset.name;
+                record->asset = std::move(asset);
+                return Result::ok();
+            }
+
+            return add_effect(asset.name, asset, outHandle);
+        }
+        catch (...)
+        {
+            return Result::fail(
+                Code::GetFailed,
+                Severity::Error,
+                "Effect asset could not be parsed.");
         }
     }
 

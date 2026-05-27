@@ -17,6 +17,7 @@ namespace Cue::ParticleSystem
         FrameBuffer = 0,
         EmitterBuffer,
         ParticleBuffer,
+        TrailBuffer,
         Count
     };
 
@@ -34,6 +35,9 @@ namespace Cue::ParticleSystem
         Result create_frame_buffer();
         Result create_emitter_buffer(uint32_t a_maxEmitterCount);
         Result create_particle_buffer(uint32_t a_maxParticleCount);
+        Result create_trail_buffer(
+            uint32_t a_maxParticleCount,
+            uint32_t a_maxTrailSegmentCount);
 
         std::vector<RHI::SlotUploader<GpuData::ParticleFrameGpu>>&
             frame_uploaders() noexcept
@@ -65,6 +69,12 @@ namespace Cue::ParticleSystem
                 ParticleResourceType::ParticleBuffer)];
         }
 
+        [[nodiscard]] RHI::BufferHandle trail_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                ParticleResourceType::TrailBuffer)];
+        }
+
         [[nodiscard]] RHI::ViewHandle particle_buffer_uav_handle() const noexcept
         {
             return m_viewHandles[static_cast<size_t>(
@@ -81,6 +91,7 @@ namespace Cue::ParticleSystem
         RHI::IViewManager* m_viewManager = nullptr;
         uint32_t m_bufferCount = 1;
         uint32_t m_maxParticleCount = 0;
+        uint32_t m_maxTrailSegmentCount = 0;
 
         std::array<RHI::BufferHandle, static_cast<size_t>(ParticleResourceType::Count)> m_bufferHandles{};
         std::array<RHI::ViewHandle, static_cast<size_t>(ParticleResourceType::Count)> m_viewHandles{};

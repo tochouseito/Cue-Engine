@@ -1521,6 +1521,111 @@ namespace Cue::GameCore
             a_outComponent.runtimeEmitAccumulator = 0.0f;
         }
 
+        [[nodiscard]] Json serialize_effect_emitter(
+            const ECS::EffectEmitterComponent& a_component,
+            const SceneSerializer::SaveOptions& a_options)
+        {
+            Json effectJson = {
+                { "effectName", a_component.effectName },
+                { "playbackSpeed", a_component.playbackSpeed },
+                { "randomSeed", a_component.randomSeed },
+                { "isPlaying", a_component.isPlaying },
+                { "isVisible", a_component.isVisible },
+            };
+
+            if (effectJson["effectName"].get<std::string>().empty() &&
+                a_component.effectHandle.valid() &&
+                a_options.assetManager != nullptr)
+            {
+                std::string effectName{};
+                if (a_options.assetManager->get_effect_name(
+                        a_component.effectHandle,
+                        effectName))
+                {
+                    effectJson["effectName"] = effectName;
+                }
+            }
+
+            if (a_component.overrideMaterialHandle.valid())
+            {
+                if (a_options.assetManager != nullptr)
+                {
+                    std::string materialName{};
+                    if (a_options.assetManager->get_material_name(
+                            a_component.overrideMaterialHandle,
+                            materialName))
+                    {
+                        effectJson["overrideMaterialName"] = materialName;
+                        return effectJson;
+                    }
+                }
+
+                effectJson["overrideMaterialHandleIndex"] =
+                    a_component.overrideMaterialHandle.index;
+                effectJson["overrideMaterialHandleGeneration"] =
+                    a_component.overrideMaterialHandle.generation;
+            }
+
+            return effectJson;
+        }
+
+        void deserialize_effect_emitter(
+            const Json& a_json,
+            const SceneSerializer::LoadOptions& a_options,
+            ECS::EffectEmitterComponent& a_outComponent)
+        {
+            a_outComponent.effectHandle = {};
+            a_outComponent.overrideMaterialHandle = {};
+            a_outComponent.effectName =
+                a_json.value("effectName", a_outComponent.effectName);
+            a_outComponent.playbackSpeed =
+                a_json.value("playbackSpeed", a_outComponent.playbackSpeed);
+
+            if (!a_outComponent.effectName.empty() &&
+                a_options.assetManager != nullptr)
+            {
+                EffectHandle effectHandle{};
+                if (a_options.assetManager->get_effect(
+                        a_outComponent.effectName,
+                        effectHandle))
+                {
+                    a_outComponent.effectHandle = effectHandle;
+                }
+            }
+
+            const std::string materialName =
+                a_json.value("overrideMaterialName", std::string{});
+            if (!materialName.empty() && a_options.assetManager != nullptr)
+            {
+                MaterialHandle materialHandle{};
+                if (a_options.assetManager->get_material(
+                        materialName,
+                        materialHandle))
+                {
+                    a_outComponent.overrideMaterialHandle = materialHandle;
+                }
+            }
+            if (!a_outComponent.overrideMaterialHandle.valid())
+            {
+                a_outComponent.overrideMaterialHandle.index = a_json.value(
+                    "overrideMaterialHandleIndex",
+                    MaterialHandle::k_invalid);
+                a_outComponent.overrideMaterialHandle.generation = a_json.value(
+                    "overrideMaterialHandleGeneration",
+                    0u);
+            }
+
+            a_outComponent.randomSeed =
+                a_json.value("randomSeed", a_outComponent.randomSeed);
+            a_outComponent.isPlaying =
+                a_json.value("isPlaying", a_outComponent.isPlaying);
+            a_outComponent.isVisible =
+                a_json.value("isVisible", a_outComponent.isVisible);
+            a_outComponent.playbackSpeed =
+                (std::max)(a_outComponent.playbackSpeed, 0.0f);
+            a_outComponent.runtimeEmitters.clear();
+        }
+
         [[nodiscard]] Json serialize_animation(
             const ECS::AnimationComponent& a_component)
         {
@@ -2063,6 +2168,15 @@ namespace Cue::GameCore
                     serialize_particle_emitter(*emitter, a_options);
             }
 
+            if (const ECS::EffectEmitterComponent* effect =
+                a_definition.prototype.get_component_ptr<
+                    ECS::EffectEmitterComponent>();
+                effect != nullptr)
+            {
+                componentsJson["effectEmitter"] =
+                    serialize_effect_emitter(*effect, a_options);
+            }
+
             if (const ECS::AudioSourceComponent* audioSource =
                 a_definition.prototype.get_component_ptr<ECS::AudioSourceComponent>();
                 audioSource != nullptr)
@@ -2352,6 +2466,15 @@ namespace Cue::GameCore
                     ECS::ParticleEmitterComponent emitter{};
                     deserialize_particle_emitter(*emitterIt, a_options, emitter);
                     objectDefinition.prototype.add_component(emitter);
+                }
+
+                if (const Json::const_iterator effectIt =
+                    componentsJson.find("effectEmitter");
+                    effectIt != componentsJson.end())
+                {
+                    ECS::EffectEmitterComponent effect{};
+                    deserialize_effect_emitter(*effectIt, a_options, effect);
+                    objectDefinition.prototype.add_component(effect);
                 }
 
                 if (const Json::const_iterator audioSourceIt =

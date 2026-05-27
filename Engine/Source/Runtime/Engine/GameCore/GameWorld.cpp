@@ -325,6 +325,14 @@ namespace Cue::GameCore
             return result;
         }
 
+        result = m_particleResources->create_trail_buffer(
+            k_maxParticleCount,
+            GpuData::k_maxParticleTrailSegmentCount);
+        if (!result)
+        {
+            return result;
+        }
+
         m_lightResources =
             std::make_unique<LightingSystem::LightResources>(
                 a_bufferManager, a_viewManager, a_bufferCount);
@@ -410,6 +418,13 @@ namespace Cue::GameCore
             m_ecs.add_system<ECS::ParticleEmitterSystem>(
                 m_assetManager,
                 m_defaultMaterialHandle,
+                m_particleRangeAllocator,
+                m_particleScene);
+        auto& effectEmitterSystem =
+            m_ecs.add_system<ECS::EffectEmitterSystem>(
+                m_assetManager,
+                m_defaultMaterialHandle,
+                m_particleRangeAllocator,
                 m_particleScene);
         auto& uiLayoutSystem =
             m_ecs.add_system<ECS::UiLayoutSystem>(m_drawFrameState);
@@ -457,6 +472,7 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&uiWidgetSystem);
         m_editorPipeline.add_system(&textSystem);
         m_editorPipeline.add_system(&spriteSystem);
+        m_editorPipeline.add_system(&effectEmitterSystem);
         m_editorPipeline.add_system(&particleEmitterSystem);
         m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&lightSystem);
@@ -1623,6 +1639,13 @@ namespace Cue::GameCore
         }
         frameState.frame.particleCount =
             (std::min)(particleCount, k_maxParticleCount);
+        frameState.frame.trailFrameIndex = m_particleTrailFrameIndex %
+            GpuData::k_maxParticleTrailSegmentCount;
+        frameState.frame.maxTrailSegmentCount =
+            GpuData::k_maxParticleTrailSegmentCount;
+        m_particleTrailFrameIndex =
+            (m_particleTrailFrameIndex + 1u) %
+            GpuData::k_maxParticleTrailSegmentCount;
 
         auto& frameUploaders = m_particleResources->frame_uploaders();
         if (!frameUploaders.empty())

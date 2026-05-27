@@ -35,6 +35,7 @@ namespace Cue
         Animation,
         SpriteRenderer,
         ParticleEmitter,
+        EffectEmitter,
         AudioSource,
         RigidBody,
         Collider,

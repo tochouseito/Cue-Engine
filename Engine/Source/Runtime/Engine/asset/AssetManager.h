@@ -16,6 +16,9 @@
 // === DrawSystem Includes ===
 #include <DrawSystem/StaticMeshPoolTypes.h>
 
+// === EffectSystem includes ===
+#include <EffectSystem/EffectAsset.h>
+
 // === RHI Includes ===
 #include <TextureManager.h>
 
@@ -38,6 +41,9 @@ namespace Cue
 
     struct MaterialTag {};
     using MaterialHandle = Core::Handle<MaterialTag>;
+
+    struct EffectTag {};
+    using EffectHandle = Core::Handle<EffectTag>;
 
     struct MaterialDesc final
     {
@@ -79,10 +85,17 @@ namespace Cue
         RHI::TextureHandle textureHandle{};
     };
 
+    struct EffectAssetRecord final
+    {
+        std::string name{};
+        EffectSystem::EffectAsset asset{};
+    };
+
     class AssetManager final
     {
     public:
         static constexpr uint32_t k_materialAssetVersion = 4;
+        static constexpr uint32_t k_effectAssetVersion = 2;
         static constexpr uint32_t k_errorTextureId = 0;
 
         AssetManager() = default;
@@ -129,6 +142,28 @@ namespace Cue
             const Core::IO::Path& filePath) const;
         Result load_material(Core::IO::IFileSystem& fileSystem,
             const Core::IO::Path& filePath, MaterialHandle& outHandle);
+        Result create_effect(std::string_view name,
+            const EffectSystem::EffectAsset& asset,
+            EffectHandle& outHandle);
+        Result update_effect(EffectHandle handle,
+            const EffectSystem::EffectAsset& asset)
+        {
+            EffectAssetRecord* record = m_effectRegistry.ref_get(handle);
+            if (record == nullptr)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Effect not found for the given handle.");
+            }
+
+            record->asset = asset;
+            record->asset.name = record->name;
+            return Result::ok();
+        }
+        Result load_effect(Core::IO::IFileSystem& fileSystem,
+            const Core::IO::Path& filePath,
+            EffectHandle& outHandle);
         Result register_texture_from_cuetexture(
             Core::IO::IFileSystem& fileSystem,
             std::string_view name,
@@ -337,6 +372,50 @@ namespace Cue
             outName = record.name;
             return Result::ok();
         }
+        Result get_effect(EffectHandle handle,
+            const EffectSystem::EffectAsset*& outAsset) const
+        {
+            outAsset = nullptr;
+            const EffectAssetRecord* record = m_effectRegistry.ref_get(handle);
+            if (record == nullptr)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Effect not found for the given handle.");
+            }
+
+            outAsset = &record->asset;
+            return Result::ok();
+        }
+        Result get_effect(std::string_view name, EffectHandle& outHandle) const
+        {
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (!m_effectNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Effect not found for the given name.");
+            }
+
+            outHandle = m_effectNameMap.at(nameId);
+            return Result::ok();
+        }
+        Result get_effect_name(EffectHandle handle, std::string& outName) const
+        {
+            EffectAssetRecord record{};
+            if (!m_effectRegistry.try_copy_get(handle, record))
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Effect not found for the given handle.");
+            }
+
+            outName = record.name;
+            return Result::ok();
+        }
         Result get_texture_handle(uint32_t textureId,
             RHI::TextureHandle& outHandle) const
         {
@@ -516,6 +595,27 @@ namespace Cue
             m_materialNameMap.emplace(nameId, outHandle);
             return Result::ok();
         }
+        Result add_effect(std::string_view name,
+            const EffectSystem::EffectAsset& asset,
+            EffectHandle& outHandle)
+        {
+            const Core::ResourceNameId nameId = Core::fnv1a64(name);
+            if (m_effectNameMap.contains(nameId))
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Effect with the same name already exists.");
+            }
+
+            EffectAssetRecord record{};
+            record.name = std::string(name);
+            record.asset = asset;
+            record.asset.name = record.name;
+            outHandle = m_effectRegistry.create(record);
+            m_effectNameMap.emplace(nameId, outHandle);
+            return Result::ok();
+        }
     private:
         DrawSystem::IStaticMeshPool* m_staticMeshPool = nullptr;
         RHI::ITextureManager* m_textureManager = nullptr;
@@ -524,6 +624,8 @@ namespace Cue
         std::unordered_map<Core::ResourceNameId, ModelHandle> m_modelNameMap;
         Core::Registry<MaterialTag, MaterialAssetRecord> m_materialRegistry;
         std::unordered_map<Core::ResourceNameId, MaterialHandle> m_materialNameMap;
+        Core::Registry<EffectTag, EffectAssetRecord> m_effectRegistry;
+        std::unordered_map<Core::ResourceNameId, EffectHandle> m_effectNameMap;
         std::vector<TextureAssetRecord> m_textures{};
         std::unordered_map<Core::ResourceNameId, uint32_t> m_textureNameMap;
     };

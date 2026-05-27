@@ -18,14 +18,20 @@ struct VsOut
     nointerpolation uint useTexture : TEXCOORD2;
 };
 
-static const float2 k_corners[6] =
+static const float3 k_vertices[12] =
 {
-    float2(-0.5f, -0.5f),
-    float2(0.5f, -0.5f),
-    float2(-0.5f, 0.5f),
-    float2(-0.5f, 0.5f),
-    float2(0.5f, -0.5f),
-    float2(0.5f, 0.5f),
+    float3(-0.5f, -0.5f, 0.0f),
+    float3(0.5f, -0.5f, 0.0f),
+    float3(-0.5f, 0.5f, 0.0f),
+    float3(-0.5f, 0.5f, 0.0f),
+    float3(0.5f, -0.5f, 0.0f),
+    float3(0.5f, 0.5f, 0.0f),
+    float3(0.0f, -0.5f, -0.5f),
+    float3(0.0f, -0.5f, 0.5f),
+    float3(0.0f, 0.5f, -0.5f),
+    float3(0.0f, 0.5f, -0.5f),
+    float3(0.0f, -0.5f, 0.5f),
+    float3(0.0f, 0.5f, 0.5f),
 };
 
 static const float2 k_uvs[6] =
@@ -41,12 +47,12 @@ static const float2 k_uvs[6] =
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const Particle particle = g_particles[instanceId];
-    if (particle.rendererType != 0u)
+    if (particle.isAlive == 0u || particle.rendererType != 3u)
     {
-        VsOut output = (VsOut)0;
-        output.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        output.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        return output;
+        VsOut emptyOutput = (VsOut)0;
+        emptyOutput.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        emptyOutput.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        return emptyOutput;
     }
 
     const float lifeRate = particle.lifetime > 0.0f
@@ -57,24 +63,21 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         particle.midSize,
         particle.endSize,
         lifeRate,
-        particle.curveMidTime);
+        particle.curveMidTime) * particle.meshScale;
 
-    float4 viewPosition = mul(float4(particle.position, 1.0f), g_viewMatrix);
-    viewPosition.xy += k_corners[vertexId] * size;
+    float4 worldPosition =
+        float4(particle.position + k_vertices[vertexId] * size, 1.0f);
+    float4 viewPosition = mul(worldPosition, g_viewMatrix);
 
     VsOut output;
-    output.position = particle.isAlive == 0u
-        ? float4(0.0f, 0.0f, 0.0f, 1.0f)
-        : mul(viewPosition, g_projectionMatrix);
-    output.texcoord = k_uvs[vertexId];
-    output.color = particle.isAlive == 0u
-        ? float4(0.0f, 0.0f, 0.0f, 0.0f)
-        : evaluate_curve4(
-              particle.startColor,
-              particle.midColor,
-              particle.endColor,
-              lifeRate,
-              particle.curveMidTime);
+    output.position = mul(viewPosition, g_projectionMatrix);
+    output.texcoord = k_uvs[vertexId % 6u];
+    output.color = evaluate_curve4(
+        particle.startColor,
+        particle.midColor,
+        particle.endColor,
+        lifeRate,
+        particle.curveMidTime);
     output.textureId = particle.textureId;
     output.useTexture = particle.useTexture;
     return output;

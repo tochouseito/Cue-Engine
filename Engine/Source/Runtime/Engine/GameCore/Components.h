@@ -480,6 +480,36 @@ namespace Cue::ECS
         float runtimeEmitAccumulator = 0.0f;
     };
 
+    struct EffectEmitterRuntimeState final
+    {
+        uint32_t particleBase = (std::numeric_limits<uint32_t>::max)();
+        uint32_t particleCapacity = 0;
+        uint32_t spawnCursor = 0;
+        float emitAccumulator = 0.0f;
+        float timeSeconds = 0.0f;
+        bool hasSpawnedBurst = false;
+    };
+
+    struct EffectEmitterComponent : public IComponentTag
+    {
+        EffectEmitterComponent() = default;
+        EffectEmitterComponent(const EffectEmitterComponent&) = default;
+        EffectEmitterComponent& operator=(const EffectEmitterComponent&) =
+            default;
+        EffectEmitterComponent(EffectEmitterComponent&&) = default;
+        EffectEmitterComponent& operator=(EffectEmitterComponent&&) = default;
+
+        EffectHandle effectHandle{};
+        MaterialHandle overrideMaterialHandle{};
+        std::string effectName{};
+        float playbackSpeed = 1.0f;
+        uint32_t randomSeed = 1;
+        bool isPlaying = true;
+        bool isVisible = true;
+
+        std::vector<EffectEmitterRuntimeState> runtimeEmitters{};
+    };
+
     struct AudioSourceComponent : public IComponentTag
     {
         AudioSourceComponent() = default;
