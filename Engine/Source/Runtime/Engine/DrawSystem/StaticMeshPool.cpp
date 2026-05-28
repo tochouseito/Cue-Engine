@@ -110,6 +110,44 @@ namespace Cue::DrawSystem
         {
             return static_cast<uint64_t>(values.size()) * static_cast<uint64_t>(sizeof(T));
         }
+
+        [[nodiscard]] StaticMeshBounds calculate_bounds(
+            const std::vector<Math::float4>& positions) noexcept
+        {
+            StaticMeshBounds bounds{};
+            if (positions.empty())
+            {
+                return bounds;
+            }
+
+            Math::float3 minPosition(
+                positions[0].x,
+                positions[0].y,
+                positions[0].z);
+            Math::float3 maxPosition = minPosition;
+            for (const Math::float4& position : positions)
+            {
+                minPosition.x = (std::min)(minPosition.x, position.x);
+                minPosition.y = (std::min)(minPosition.y, position.y);
+                minPosition.z = (std::min)(minPosition.z, position.z);
+                maxPosition.x = (std::max)(maxPosition.x, position.x);
+                maxPosition.y = (std::max)(maxPosition.y, position.y);
+                maxPosition.z = (std::max)(maxPosition.z, position.z);
+            }
+
+            bounds.center = (minPosition + maxPosition) * 0.5f;
+            float radiusSq = 0.0f;
+            for (const Math::float4& position : positions)
+            {
+                const Math::float3 delta(
+                    position.x - bounds.center.x,
+                    position.y - bounds.center.y,
+                    position.z - bounds.center.z);
+                radiusSq = (std::max)(radiusSq, delta.dot(delta));
+            }
+            bounds.radius = std::sqrt(radiusSq);
+            return bounds;
+        }
     }
 
     StaticMeshPool::StaticMeshPool(
@@ -838,6 +876,7 @@ namespace Cue::DrawSystem
             static_cast<uint64_t>(vertexCount) *
             sizeof(Core::Native::SkinInfluenceData);
         record.indexByteSize = byte_size_of(meshData.indices);
+        record.bounds = calculate_bounds(meshData.positions);
         Result result = allocate_mesh_id(record.meshId);
         if (!result)
         {
@@ -1245,6 +1284,33 @@ namespace Cue::DrawSystem
             static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         outMeshRange.baseVertex =
             static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        return Result::ok();
+    }
+
+    Result StaticMeshPool::get_mesh_bounds(
+        uint32_t meshId, StaticMeshBounds& outBounds) const
+    {
+        outBounds = {};
+
+        const auto it = m_meshIdToHandlesMap.find(meshId);
+        if (it == m_meshIdToHandlesMap.end())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh id was not found.");
+        }
+
+        StaticMeshRecord record{};
+        if (!m_meshRegistry.try_copy_get(it->second, record))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "Static mesh record was not found.");
+        }
+
+        outBounds = record.bounds;
         return Result::ok();
     }
 

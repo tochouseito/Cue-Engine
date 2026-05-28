@@ -29,6 +29,7 @@ add_library(Engine STATIC
     "DrawSystem/DrawCollector.h"
     "DrawSystem/DrawScene.h"
     "DrawSystem/DrawFrameState.h"
+    "DrawSystem/FrustumCulling.h"
     "DrawSystem/DrawResources.h"
     "DrawSystem/DrawResources.cpp"
     "DrawSystem/DebugViewShadingMode.h"

@@ -468,6 +468,7 @@ namespace Cue::GameCore
             m_ecs.add_system<ECS::AnimationSystem>(m_assetManager);
 
         m_editorPipeline.add_system(&animationSystem);
+        m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&renderableObjectSystem);
         m_editorPipeline.add_system(&skinnedRenderableObjectSystem);
         m_editorPipeline.add_system(&uiLayoutSystem);
@@ -476,7 +477,6 @@ namespace Cue::GameCore
         m_editorPipeline.add_system(&spriteSystem);
         m_editorPipeline.add_system(&effectEmitterSystem);
         m_editorPipeline.add_system(&particleEmitterSystem);
-        m_editorPipeline.add_system(&cameraSystem);
         m_editorPipeline.add_system(&lightSystem);
         m_editorPipeline.add_system(&shadowSystem);
         m_editorPipeline.add_system(&audioSystem);
