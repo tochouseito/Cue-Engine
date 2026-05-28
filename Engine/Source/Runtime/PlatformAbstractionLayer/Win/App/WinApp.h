@@ -44,6 +44,9 @@ namespace Cue::PAL::Win
         /// @brief Win32 から呼ばれる静的ウィンドウプロシージャ
         static LRESULT CALLBACK window_proc(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam);
 
+        /// @brief ウィンドウメッセージを処理
+        LRESULT on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam);
+
         // --- ウィンドウ操作 ---
         /// @brief ウィンドウを作成
         Result create_window(uint32_t a_width, uint32_t a_height, const wchar_t* a_className, const wchar_t* a_titleName);

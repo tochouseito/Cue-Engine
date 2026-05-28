@@ -2,6 +2,9 @@
 #include <CueAssert.h>
 #include <CueResult.h>
 
+// === Core includes ===
+#include <IO/Logger.h>
+
 // === WinPlatform includes ===
 #include <win_platform.h>
 
@@ -32,6 +35,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize platform: %s", r.message.data());
         return -1;
     }
 
@@ -75,6 +79,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 終了処理
     r = platform->shutdown();
     platform.reset();
+
+    Core::IO::log(Core::IO::LogSink::console, "Editor shutdown");
 
     return 0;
 }

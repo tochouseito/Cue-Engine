@@ -98,26 +98,45 @@ namespace Cue::PAL::Win
 
     LRESULT WinApp::window_proc(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
-        //WinApp* self = nullptr;
+        WinApp* self = nullptr;
 
-        //if (a_message == WM_NCCREATE)
-        //{
-        //    auto cs = reinterpret_cast<CREATESTRUCTW*>(a_lParam);
-        //    self = static_cast<WinApp*>(cs->lpCreateParams);
+        if (a_message == WM_NCCREATE)
+        {
+            auto cs = reinterpret_cast<CREATESTRUCTW*>(a_lParam);
+            self = static_cast<WinApp*>(cs->lpCreateParams);
 
-        //    ::SetWindowLongPtrW(a_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-        //    self->m_hwnd = a_hwnd;
+            ::SetWindowLongPtrW(a_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            self->m_hwnd = a_hwnd;
 
-        //    // wm_nccreate は既定処理へ移譲
-        //    return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
-        //}
+            // wm_nccreate は既定処理へ移譲
+            return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
+        }
 
-        //self = reinterpret_cast<WinApp*>(::GetWindowLongPtrW(a_hwnd, GWLP_USERDATA));
-        //if (self)
-        //{
-        //    return self->on_message(a_hwnd, a_message, a_wParam, a_lParam);
-        //}
+        self = reinterpret_cast<WinApp*>(::GetWindowLongPtrW(a_hwnd, GWLP_USERDATA));
+        if (self)
+        {
+            return self->on_message(a_hwnd, a_message, a_wParam, a_lParam);
+        }
 
+        return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
+    }
+
+    LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
+    {
+        // 未処理メッセージを既定処理へ移譲
+        switch (a_message)
+        {
+        case WM_CLOSE:
+            // 破棄は engine 終了手順へ移譲
+            // メインループ終了フラグ設定
+            m_shouldClose = true;
+            return 0;
+
+        case WM_DESTROY:
+            // quit メッセージ送出
+            ::PostQuitMessage(0);
+            return 0;
+        }
         return ::DefWindowProcW(a_hwnd, a_message, a_wParam, a_lParam);
     }
 
