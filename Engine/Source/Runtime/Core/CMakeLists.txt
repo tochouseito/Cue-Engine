@@ -8,6 +8,7 @@ target_link_libraries(Core PUBLIC
     cue_warnings
     cue_compile_options
     Base
+    CueMath
 )
 
 # インクルードディレクトリの指定
