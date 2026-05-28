@@ -10,6 +10,11 @@
 // === win_platform includes ===
 #include "stdafx.h"
 #include "App/WinApp.h"
+#include "IO/WinFileSystem.h"
+#include "Threading/WinThread.h"
+#include "Threading/WinThreadFactory.h"
+#include "Time/WinQpcClock.h"
+#include "Time/WinWaiter.h"
 
 // === C++ includes ===
 #include <memory>
@@ -35,8 +40,30 @@ namespace Cue::PAL::Win
         Result end_frame() override;
         /// @brief Windows メッセージを 1 件取得します。
         PlatformMessage poll_message() override;
+    public:
+        // --- 取得 --- 
+        Core::Threading::IThreadFactory& thread_factory() override
+        {
+            return *m_threadFactory.get();
+        }
+        Core::Time::IClock& clock() override
+        {
+            return *m_clock.get();
+        }
+        Core::Time::IWaiter& waiter() override
+        {
+            return *m_waiter.get();
+        }
+        Core::IO::IFileSystem& file_system() override
+        {
+            return *m_fileSystem.get();
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // ウィンドウ管理
+        std::unique_ptr<WinFileSystem> m_fileSystem = nullptr; // ファイルシステム
+        std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ
+        std::unique_ptr<WinQpcClock> m_clock = nullptr; // クロック
+        std::unique_ptr<WinWaiter> m_waiter = nullptr; // ウェイタ
     };
 }

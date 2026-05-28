@@ -47,6 +47,10 @@ namespace Cue::PAL::Win
     WinPlatform::WinPlatform()
     {
         m_app = std::make_unique<WinApp>();
+        m_fileSystem = std::make_unique<WinFileSystem>();
+        m_threadFactory = std::make_unique<WinThreadFactory>();
+        m_clock = std::make_unique<WinQpcClock>();
+        m_waiter = std::make_unique<WinWaiter>(*m_clock.get());
     }
     WinPlatform::~WinPlatform()
     {
