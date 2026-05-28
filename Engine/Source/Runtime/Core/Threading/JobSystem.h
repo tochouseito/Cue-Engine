@@ -32,7 +32,7 @@
 
 namespace Cue::Core::Threading
 {
-    /// @brief 優先度付きのジョブ実行基盤です。
+    /// @brief 優先度付きのジョブ実行基盤
     class JobSystem final
     {
     public:
@@ -78,15 +78,20 @@ namespace Cue::Core::Threading
         };
 
     public:
+        /// @brief デフォルトコンストラクタ
         JobSystem() noexcept = default;
 
+        /// @brief デストラクタ、未停止ならシャットダウン
         ~JobSystem() noexcept
         {
             shutdown();
         }
 
+        // コピー禁止
         JobSystem(const JobSystem&) = delete;
         JobSystem& operator=(const JobSystem&) = delete;
+
+        // ムーブ禁止
         JobSystem(JobSystem&&) = delete;
         JobSystem& operator=(JobSystem&&) = delete;
 
@@ -208,7 +213,7 @@ namespace Cue::Core::Threading
         /// @brief ジョブのエンキュー
         /// @param a_jobName ジョブの名前（デバッグ用、UTF-8想定）
         /// @param a_job ジョブの実装関数
-        /// @param a_outFuture ジョブの完了を待つための future への参照。ジョブ完了時に ready になる。不要な場合は nullptr を渡す。
+        /// @param a_outFuture ジョブの完了を待つための future への参照、ジョブ完了時に ready、不要な場合は nullptr
         /// @param a_priority ジョブの優先度
         /// @param a_dependencies ジョブの依存関係
         /// @return CueResult::ok() ならエンキュー成功、そうでない場合は失敗
@@ -234,7 +239,7 @@ namespace Cue::Core::Threading
         /// @param a_job ジョブの実装関数
         /// @param a_priority ジョブの優先度
         /// @param a_dependencies ジョブの依存関係
-        /// @return 
+        /// @return CueResult::ok() ならエンキュー成功、そうでない場合は失敗
         Result enqueue_job(
             std::string a_jobName,
             std::function<void()> a_job,
@@ -251,11 +256,11 @@ namespace Cue::Core::Threading
                 a_dependencies);
         }
 
-        /// @brief 生のジョブ実装関数をエンキュー。完了通知は std::shared_future<void> で行う。依存関係も std::shared_future<void> で指定する。
+        /// @brief 生のジョブ実装関数をエンキュー、完了通知と依存関係は std::shared_future<void> で指定
         /// @param a_jobName ジョブの名前（デバッグ用、UTF-8想定）
         /// @param a_proc ジョブの実装関数
         /// @param a_context ジョブのコンテキスト
-        /// @param a_outFuture ジョブの完了を待つための future への参照。ジョブ完了時に ready になる。不要な場合は nullptr を渡す。
+        /// @param a_outFuture ジョブの完了を待つための future への参照、ジョブ完了時に ready、不要な場合は nullptr
         /// @param a_priority ジョブの優先度
         /// @param a_dependencies ジョブの依存関係
         /// @return CueResult::ok() ならエンキュー成功、そうでない場合は失敗
@@ -277,7 +282,7 @@ namespace Cue::Core::Threading
                 a_dependencies);
         }
 
-        /// @brief 生のジョブ実装関数をエンキュー（完了通知不要版）。依存関係も std::shared_future<void> で指定する。
+        /// @brief 生のジョブ実装関数をエンキュー（完了通知不要版）、依存関係は std::shared_future<void> で指定
         /// @param a_jobName ジョブの名前（デバッグ用、UTF-8想定）
         /// @param a_proc ジョブの実装関数
         /// @param a_context ジョブのコンテキスト
@@ -301,10 +306,10 @@ namespace Cue::Core::Threading
                 a_dependencies);
         }
 
-        /// @brief 複数のジョブをまとめてエンキュー。完了通知は std::shared_future<void> で行う。依存関係も std::shared_future<void> で指定する。
+        /// @brief 複数のジョブをまとめてエンキュー、完了通知と依存関係は std::shared_future<void> で指定
         /// @param a_batchName バッチの名前（デバッグ用、UTF-8想定）
         /// @param a_jobs ジョブの実装関数のリスト
-        /// @param a_outFuture ジョブの完了を待つための future への参照。ジョブ完了時に ready になる。不要な場合は nullptr を渡す。
+        /// @param a_outFuture ジョブの完了を待つための future への参照、ジョブ完了時に ready、不要な場合は nullptr
         /// @param a_priority ジョブの優先度
         /// @return CueResult::ok() ならエンキュー成功、そうでない場合は失敗
         Result enqueue_batch_job(
@@ -326,7 +331,7 @@ namespace Cue::Core::Threading
                 a_priority);
         }
 
-        /// @brief 複数のジョブをまとめてエンキュー（完了通知不要版）。依存関係も std::shared_future<void> で指定する。
+        /// @brief 複数のジョブをまとめてエンキュー（完了通知不要版）、依存関係は std::shared_future<void> で指定
         /// @param a_batchName バッチの名前（デバッグ用、UTF-8想定）
         /// @param a_jobs ジョブの実装関数のリスト
         /// @param a_priority ジョブの優先度 
@@ -348,8 +353,8 @@ namespace Cue::Core::Threading
                 a_priority);
         }
 
-        /// @brief ジョブの完了を待機します。
-        /// @param a_job 待機するジョブの future。ジョブ完了時に ready になります
+        /// @brief ジョブの完了を待機
+        /// @param a_job 待機するジョブの future、ジョブ完了時に ready
         void wait_for_job(const std::shared_future<void>& a_job) noexcept
         {
             if (a_job.valid())
@@ -358,7 +363,7 @@ namespace Cue::Core::Threading
             }
         }
 
-        /// @brief すべてのジョブの完了を待機。新規ジョブのエンキューもブロック。
+        /// @brief すべてのジョブの完了を待機、新規ジョブのエンキューもブロック
         void wait_for_all() noexcept
         {
             if (!m_isInitialized.load(std::memory_order_relaxed))
@@ -374,7 +379,7 @@ namespace Cue::Core::Threading
                 });
         }
 
-        /// @brief キューに存在するジョブの数を返します。実行中のジョブは含みません。
+        /// @brief キューに存在するジョブの数を返す、実行中のジョブは含めない
         /// @return キューに存在するジョブの数
         std::size_t queued_job_count() const noexcept
         {
@@ -384,14 +389,14 @@ namespace Cue::Core::Threading
                 + m_low.ready.size() + m_low.blocked.size();
         }
         
-        /// @brief ワーカーの数を返します。
+        /// @brief ワーカーの数を返す
         /// @return ワーカーの数
         std::size_t worker_count() const noexcept
         {
             return m_workers.size();
         }
 
-        /// @brief キューに存在するすべてのジョブをクリアします。実行中のジョブは停止させません。
+        /// @brief キューに存在するすべてのジョブをクリア、実行中のジョブは停止させない
         void clear_queued_jobs() noexcept
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -488,11 +493,11 @@ namespace Cue::Core::Threading
             m_freeDependencies.clear();
         }
 
-        /// @brief ジョブのエンキューの内部実装。完了通知と依存関係は std::shared_future<void> で行う
+        /// @brief ジョブのエンキューの内部実装、完了通知と依存関係は std::shared_future<void> で行う
         /// @param a_jobName ジョブの名前（デバッグ用、UTF-8想定）
-        /// @param a_job ジョブの実装関数。生のジョブ実装関数を使用する場合は無視
-        /// @param a_rawProc 生のジョブ実装関数。通常のジョブ実装関数を使用する場合は nullptr を渡す
-        /// @param a_rawContext 生のジョブ実装関数のコンテキスト。通常のジョブ実装関数を使用する場合は nullptr を渡す
+        /// @param a_job ジョブの実装関数、生のジョブ実装関数を使用する場合は無視
+        /// @param a_rawProc 生のジョブ実装関数、通常のジョブ実装関数を使用する場合は nullptr
+        /// @param a_rawContext 生のジョブ実装関数のコンテキスト、通常のジョブ実装関数を使用する場合は nullptr
         /// @param a_outFuture ジョブの完了通知を受け取るための std::shared_future<void>
         /// @param a_priority ジョブの優先度
         /// @param a_dependencies ジョブの依存関係
@@ -594,6 +599,8 @@ namespace Cue::Core::Threading
             return Result::ok();
         }
 
+        /// @brief JobSystem のシャットダウン内部処理
+        /// @param a_force 未初期化状態でも停止処理を進める場合は true
         void shutdown_internal(bool a_force) noexcept
         {
             if (!a_force && !m_isInitialized.load(std::memory_order_relaxed))
@@ -638,6 +645,10 @@ namespace Cue::Core::Threading
             m_isInitialized.store(false, std::memory_order_relaxed);
         }
 
+        /// @brief ワーカースレッドのエントリポイント
+        /// @param a_token 停止要求を監視するトークン
+        /// @param a_user JobSystem インスタンス
+        /// @return スレッドの終了コード
         static uint32_t worker_entry(StopToken a_token, void* a_user) noexcept
         {
             JobSystem* self = static_cast<JobSystem*>(a_user);
@@ -649,6 +660,9 @@ namespace Cue::Core::Threading
             return self->worker_loop(a_token);
         }
 
+        /// @brief ワーカースレッドのメインループ
+        /// @param a_token 停止要求を監視するトークン
+        /// @return スレッドの終了コード
         uint32_t worker_loop(StopToken a_token) noexcept
         {
             constexpr auto k_dependencyPollMin = std::chrono::milliseconds(1);
@@ -754,6 +768,9 @@ namespace Cue::Core::Threading
             return 0;
         }
 
+        /// @brief ジョブを優先度別キューへ追加
+        /// @param a_job 追加するジョブ
+        /// @param a_isReady 依存関係が解決済みなら true
         void push_job_no_lock(Job* a_job, bool a_isReady) noexcept
         {
             switch (a_job->priority)
@@ -771,6 +788,9 @@ namespace Cue::Core::Threading
             }
         }
 
+        /// @brief 実行可能なジョブを優先度順に取り出し
+        /// @param a_outJob 取り出したジョブの格納先
+        /// @return ジョブを取り出した場合は true
         bool try_pop_ready_job_no_lock(Job*& a_outJob) noexcept
         {
             return try_pop_from_ready_queue_no_lock(m_high.ready, a_outJob)
@@ -778,6 +798,10 @@ namespace Cue::Core::Threading
                 || try_pop_from_ready_queue_no_lock(m_low.ready, a_outJob);
         }
 
+        /// @brief 実行可能キューからジョブを 1 つ取り出し
+        /// @param a_queue 取り出し元の実行可能キュー
+        /// @param a_outJob 取り出したジョブの格納先
+        /// @return ジョブを取り出した場合は true
         static bool try_pop_from_ready_queue_no_lock(
             std::vector<Job*>& a_queue,
             Job*& a_outJob) noexcept
@@ -792,6 +816,7 @@ namespace Cue::Core::Threading
             return true;
         }
 
+        /// @brief 依存関係が解決済みのジョブを実行可能キューへ移動
         void promote_ready_jobs_no_lock() noexcept
         {
             promote_ready_from_queue_no_lock(m_high);
@@ -799,6 +824,8 @@ namespace Cue::Core::Threading
             promote_ready_from_queue_no_lock(m_low);
         }
 
+        /// @brief 指定キュー内の実行可能になったジョブを移動
+        /// @param a_queue 昇格対象のジョブキュー
         void promote_ready_from_queue_no_lock(JobQueue& a_queue) noexcept
         {
             for (std::size_t index = 0; index < a_queue.blocked.size();)
@@ -817,6 +844,8 @@ namespace Cue::Core::Threading
             }
         }
 
+        /// @brief 依存関係待ちのジョブが存在するかを返す
+        /// @return 依存関係待ちのジョブがある場合は true
         bool has_blocked_jobs_no_lock() const noexcept
         {
             return !m_high.blocked.empty()
@@ -824,6 +853,9 @@ namespace Cue::Core::Threading
                 || !m_low.blocked.empty();
         }
 
+        /// @brief ジョブの依存関係がすべて解決済みかを返す
+        /// @param a_job 判定するジョブ
+        /// @return すべての依存関係が解決済みなら true
         bool are_dependencies_ready_no_lock(Job& a_job) noexcept
         {
             if (a_job.dependencyHead == nullptr)
@@ -852,6 +884,9 @@ namespace Cue::Core::Threading
             return true;
         }
 
+        /// @brief 指定キュー内のジョブを解放
+        /// @param a_queue クリアするジョブキュー
+        /// @return 解放したジョブの数
         std::size_t drain_queue_no_lock(JobQueue& a_queue) noexcept
         {
             std::size_t cleared = 0;
@@ -885,6 +920,8 @@ namespace Cue::Core::Threading
             return cleared;
         }
 
+        /// @brief ジョブの再利用前に保持フィールドを初期化
+        /// @param a_job 初期化するジョブ
         void reset_job_fields(Job& a_job) noexcept
         {
             a_job.name.clear();
@@ -895,6 +932,8 @@ namespace Cue::Core::Threading
             a_job.promise.reset();
         }
 
+        /// @brief ジョブに紐づく依存関係ノードを解放
+        /// @param a_job 依存関係をクリアするジョブ
         void clear_dependencies(Job& a_job) noexcept
         {
             DependencyNode* node = a_job.dependencyHead;
@@ -911,6 +950,8 @@ namespace Cue::Core::Threading
             a_job.dependencyHead = nullptr;
         }
 
+        /// @brief promise に完了を通知、例外は握りつぶす
+        /// @param a_promise 完了通知先の promise
         static void set_promise_value_noexcept(std::promise<void>& a_promise) noexcept
         {
             try
@@ -922,6 +963,9 @@ namespace Cue::Core::Threading
             }
         }
 
+        /// @brief promise に例外を通知、例外は握りつぶす
+        /// @param a_promise 例外通知先の promise
+        /// @param a_exception 通知する例外
         static void set_promise_exception_noexcept(
             std::promise<void>& a_promise,
             std::exception_ptr a_exception) noexcept
@@ -935,6 +979,8 @@ namespace Cue::Core::Threading
             }
         }
 
+        /// @brief ジョブを実行し、完了または例外を通知
+        /// @param a_job 実行するジョブ
         static void execute_job(Job& a_job) noexcept
         {
             try
@@ -964,6 +1010,8 @@ namespace Cue::Core::Threading
             }
         }
 
+        /// @brief 空きジョブスロットを取得
+        /// @return 取得したジョブ、空きがない場合は nullptr
         Job* allocate_job_no_lock() noexcept
         {
             if (m_freeJobs.empty())
@@ -976,6 +1024,8 @@ namespace Cue::Core::Threading
             return job;
         }
 
+        /// @brief ジョブスロットを空きリストへ戻す
+        /// @param a_job 解放するジョブ
         void free_job_no_lock(Job* a_job) noexcept
         {
             if (a_job == nullptr)
@@ -986,6 +1036,8 @@ namespace Cue::Core::Threading
             m_freeJobs.push_back(a_job);
         }
 
+        /// @brief 空き依存関係ノードを取得
+        /// @return 取得した依存関係ノード、空きがない場合は nullptr
         DependencyNode* allocate_dependency_no_lock() noexcept
         {
             if (m_freeDependencies.empty())
@@ -998,6 +1050,8 @@ namespace Cue::Core::Threading
             return node;
         }
 
+        /// @brief 依存関係ノードを空きリストへ戻す
+        /// @param a_node 解放する依存関係ノード
         void free_dependency_no_lock(DependencyNode* a_node) noexcept
         {
             if (a_node == nullptr)
@@ -1008,29 +1062,32 @@ namespace Cue::Core::Threading
             m_freeDependencies.push_back(a_node);
         }
 
+        /// @brief ワーカースレッド名を生成
+        /// @param a_index ワーカーのインデックス
+        /// @return ワーカースレッド名
         static std::string make_worker_name(uint32_t a_index)
         {
             return "JobWorker_" + std::to_string(a_index);
         }
 
     private:
-        mutable std::mutex m_mutex{};
-        std::condition_variable m_cv{};
+        mutable std::mutex m_mutex{}; // ジョブキューとストレージを保護する mutex
+        std::condition_variable m_cv{}; // ワーカー待機と完了待機の通知
 
-        std::atomic<bool> m_isInitialized{ false };
-        std::atomic<bool> m_stopRequested{ false };
-        std::atomic<uint32_t> m_inFlight{ 0 };
-        std::atomic<uint64_t> m_dependencyEpoch{ 0 };
+        std::atomic<bool> m_isInitialized{ false }; // 初期化済みか
+        std::atomic<bool> m_stopRequested{ false }; // 停止要求が出ているか
+        std::atomic<uint32_t> m_inFlight{ 0 }; // 実行中またはキュー内のジョブ数
+        std::atomic<uint64_t> m_dependencyEpoch{ 0 }; // 依存関係解決確認用の世代
 
-        std::vector<std::unique_ptr<IThread>> m_workers{};
+        std::vector<std::unique_ptr<IThread>> m_workers{}; // ワーカースレッド
 
-        JobQueue m_high{};
-        JobQueue m_normal{};
-        JobQueue m_low{};
+        JobQueue m_high{}; // 高優先度ジョブキュー
+        JobQueue m_normal{}; // 通常優先度ジョブキュー
+        JobQueue m_low{}; // 低優先度ジョブキュー
 
-        std::vector<std::unique_ptr<Job>> m_jobStorage{};
-        std::vector<Job*> m_freeJobs{};
-        std::vector<std::unique_ptr<DependencyNode>> m_dependencyStorage{};
-        std::vector<DependencyNode*> m_freeDependencies{};
+        std::vector<std::unique_ptr<Job>> m_jobStorage{}; // ジョブスロットの所有ストレージ
+        std::vector<Job*> m_freeJobs{}; // 空きジョブスロット
+        std::vector<std::unique_ptr<DependencyNode>> m_dependencyStorage{}; // 依存関係ノードの所有ストレージ
+        std::vector<DependencyNode*> m_freeDependencies{}; // 空き依存関係ノード
     };
 }
