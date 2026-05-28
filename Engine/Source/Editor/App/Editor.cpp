@@ -4,6 +4,7 @@
 
 // === Core includes ===
 #include <IO/Logger.h>
+#include <Time/FrameCounter.h>
 
 // === WinPlatform includes ===
 #include <win_platform.h>
@@ -42,6 +43,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Logger にプラットフォームのファイルシステムをセット
     Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
 
+    // test
+    Core::Time::FrameCounter frameCounter(platform->clock(), platform->waiter());
+    frameCounter.set_max_fps(0);
+
     // ウィンドウ表示を開始
     r = platform->start();
 
@@ -67,6 +72,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // --- ここで Engine 側の更新と描画処理を呼び出す ---
+        Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
 
         // フレーム終了
         r = platform->end_frame();
@@ -77,6 +83,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
             return -1;
         }
+
+        frameCounter.tick();
     }
 
     Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Editor shutdown");

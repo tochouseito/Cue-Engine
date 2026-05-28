@@ -9,6 +9,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
+    "App/EditorResources.rc"
 )
 
 # リンクするライブラリの指定
