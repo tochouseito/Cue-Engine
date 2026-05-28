@@ -4,14 +4,22 @@
 add_library(win_platform STATIC
     "win_platform.h"
     "win_platform.cpp"
-)
+ "stdafx.h" "ConvertHresult.h" "ConvertUTF.h" "App/WinApp.h" "App/WinApp.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(win_platform PUBLIC
     cue_warnings
     cue_compile_options
     Base
+    Core
     PAL
+)
+#  固有リンク
+target_link_libraries(win_platform PUBLIC
+    winmm
+    ole32
+    shell32
+    uuid
 )
 
 # インクルードディレクトリの指定

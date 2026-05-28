@@ -16,6 +16,8 @@ target_link_libraries(Editor PRIVATE
    cue_warnings
    cue_compile_options
    Base
+   Core
+   win_platform
 )
 
 # インクルードディレクトリの指定

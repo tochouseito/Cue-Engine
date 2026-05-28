@@ -52,6 +52,14 @@ namespace Cue
         }
     }
 
+    /// @brief 結果コードが成功かを返します
+    /// @param a_code 判定対象の結果コード
+    /// @return 成功なら true
+    inline bool success(const Code& a_code) noexcept
+    {
+        return a_code == Code::OK;
+    }
+
     /// @brief Level
     enum class Severity : uint8_t
     {
