@@ -2,9 +2,26 @@
 
 # ターゲットソースの追加
 add_library(win_platform STATIC
-    "win_platform.h"
+    "App/WinApp.cpp"
+    "App/WinApp.h"
+    "ConvertHresult.h"
+    "ConvertUTF.h"
+    "IO/WinFile.cpp"
+    "IO/WinFile.h"
+    "IO/WinFileSystem.cpp"
+    "IO/WinFileSystem.h"
+    "stdafx.h"
+    "Threading/WinThread.cpp"
+    "Threading/WinThread.h"
+    "Threading/WinThreadFactory.cpp"
+    "Threading/WinThreadFactory.h"
+    "Time/WInWaiter.h"
+    "Time/WinQpcClock.cpp"
+    "Time/WinQpcClock.h"
+    "Time/WinWaiter.cpp"
     "win_platform.cpp"
- "stdafx.h" "ConvertHresult.h" "ConvertUTF.h" "App/WinApp.h" "App/WinApp.cpp")
+    "win_platform.h"
+)
 
 # リンクするライブラリの指定
 target_link_libraries(win_platform PUBLIC

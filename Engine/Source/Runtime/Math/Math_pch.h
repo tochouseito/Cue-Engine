@@ -10,5 +10,5 @@
 #include <limits>
 
 // === Base includes ===
-#include <Result.h>
+#include <CueResult.h>
 #include <CueAssert.h>
