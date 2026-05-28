@@ -39,6 +39,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // Logger にプラットフォームのファイルシステムをセット
+    Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
+
     // ウィンドウ表示を開始
     r = platform->start();
 
@@ -76,11 +79,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
     }
 
+    Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Editor shutdown");
+    Core::IO::clear_log_file();
+
     // 終了処理
     r = platform->shutdown();
     platform.reset();
-
-    Core::IO::log(Core::IO::LogSink::console, "Editor shutdown");
 
     return 0;
 }
