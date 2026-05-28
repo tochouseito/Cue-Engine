@@ -30,20 +30,20 @@ namespace
         const char* a_format,
         va_list a_args) noexcept
     {
-        // 1) 出力先を検証する
+        // - 出力先を検証する
         if (a_destination == nullptr || a_destinationSize == 0)
         {
             return;
         }
 
-        // 2) フォーマットが無ければ空文字にする
+        // - フォーマットが無ければ空文字にする
         if (a_format == nullptr)
         {
             a_destination[0] = '\0';
             return;
         }
 
-        // 3) 可変長引数を安全側で整形する
+        // - 可変長引数を安全側で整形する
         const int result = std::vsnprintf(a_destination, a_destinationSize, a_format, a_args);
         if (result < 0)
         {
@@ -51,7 +51,7 @@ namespace
             return;
         }
 
-        // 4) 念のため終端を保証する
+        // - 念のため終端を保証する
         a_destination[a_destinationSize - 1] = '\0';
     }
 }
@@ -60,7 +60,7 @@ namespace Cue
 {
     [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& a_context) noexcept
     {
-        // 1) 表示文の組み立て
+        // - 表示文の組み立て
         char messageBuffer[k_messageBufferSize];
         std::snprintf(
             messageBuffer,
@@ -80,17 +80,17 @@ namespace Cue
             a_context.line,
             a_context.function);
 
-        // 2) デバッガ出力
+        // - デバッガ出力
         ::OutputDebugStringA(messageBuffer);
 
-        // 3) メッセージボックスの表示
+        // - メッセージボックスの表示
         const int result = MessageBoxA(
             nullptr,
             messageBuffer,
             "Cue Assert Failed!",
             MB_ABORTRETRYIGNORE | MB_ICONERROR);
 
-        // 4) ユーザーの選択に応じた処理
+        // - ユーザーの選択に応じた処理
         if (result == IDRETRY)
         {
             if (::IsDebuggerPresent() != false)
@@ -103,7 +103,7 @@ namespace Cue
         {
         }
 
-        // 4) 強制終了
+        // - 強制終了
         std::abort();
     }
 
@@ -113,7 +113,7 @@ namespace Cue
         const char* a_format,
         ...) noexcept
     {
-        // 1) フォーマットされたメッセージの作成
+        // - フォーマットされたメッセージの作成
         char message[k_messageBufferSize];
 
         va_list args;
@@ -121,10 +121,10 @@ namespace Cue
         format_user_message(message, sizeof(message), a_format, args);
         va_end(args);
 
-        // 2) アサート失敗のコンテキストを作成する
+        // - アサート失敗のコンテキストを作成する
         const AssertContext context = make_assert_context(a_expression, message, a_location);
 
-        // 3) アサート失敗の処理関数を呼び出す
+        // - アサート失敗の処理関数を呼び出す
         assert_fail(context);
     }
 }

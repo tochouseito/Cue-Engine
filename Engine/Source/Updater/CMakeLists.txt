@@ -1,4 +1,4 @@
-# CueUpdater は壊れた Editor/Engine を更新するため、Runtime/Core/PAL へ依存させない。
+# CueUpdater は壊れた Editor/Engine を更新するため、Runtime/Core/PAL へ依存させない
 
 add_executable(CueUpdater WIN32
     "App/CueUpdater.cpp"

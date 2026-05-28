@@ -1,3 +1,5 @@
+// D3D12Backend の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -27,28 +29,28 @@ namespace Cue::RHI::DX12
         D3D12Backend() = default;
         ~D3D12Backend() override = default;
 
-        /// @brief D3D12 バックエンドを初期化します。
+        /// @brief D3D12 バックエンドを初期化する
         Result initialize(const BackendSetupInfo& a_info) override;
 
-        /// @brief D3D12 バックエンドを終了します。
+        /// @brief D3D12 バックエンドを終了し
         Result shutdown() override;
 
-        /// @brief バックエンドで進行中の GPU 作業完了を待機します。
+        /// @brief バックエンドで進行中の GPU 作業完了を待機する
         Result wait_for_idle() override;
 
-        /// @brief 指定フレームの描画処理を実行します。
+        /// @brief 指定フレームの描画処理を実行する
         Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
 
-        /// @brief 指定フレームの提示処理を実行します。
+        /// @brief 指定フレームの提示処理を実行する
         Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
 
-        /// @brief サイズ依存のバックエンド資源をリサイズします。
+        /// @brief サイズ依存のバックエンド資源をリサイズし
         Result resize(uint32_t a_width, uint32_t a_height) override;
 
-        /// @brief FrameGraph を生成します。
+        /// @brief FrameGraph を生成する
         Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
 
-        /// @brief 利用する Windows プラットフォームを設定します。
+        /// @brief 利用する Windows プラットフォームを設定する
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
 
         // --- バックエンドのシステムへのアクセス ---

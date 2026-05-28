@@ -1257,7 +1257,7 @@ namespace Cue
                 }
 
                 // 同名マテリアルの再読込ではハンドルを維持しつつ内容だけ更新し、
-                // Scene 側が保持している参照を壊さずに色変更を反映する。
+                // Scene 側が保持している参照を壊さずに色変更を反映する
                 record->name = materialName;
                 record->desc = desc;
                 return Result::ok();
@@ -1772,8 +1772,8 @@ namespace Cue
         if (existingIt != m_textureNameMap.end())
         {
             // フォントアトラスのように描画収集中に再生成されるテクスチャは、
-            // 同一フレーム内で古い descriptor id を参照する draw item が残り得る。
-            // 即破棄せず、新しい名前解決だけを最新 descriptor id に更新する。
+            // 同一フレーム内で古い descriptor id を参照する draw item が残り得る
+            // 即破棄せず、新しい名前解決だけを最新 descriptor id に更新する
             existingIt->second = outTextureId;
         }
         else

@@ -1,3 +1,5 @@
+// Engine の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -41,7 +43,7 @@ namespace Cue
 {
     struct MarionnetteClass;
 
-    /// @brief Engine 初期化時に必要な依存オブジェクトです。
+    /// @brief Engine 初期化時に必要な依存オブジェクト
     struct EngineSetupInfo final
     {
         PAL::IPlatform* platform = nullptr;
@@ -56,7 +58,7 @@ namespace Cue
         Core::CQRS::Bridge* platformBridge = nullptr;
     };
 
-    /// @brief Runtime 全体の統合窓口です。
+    /// @brief Runtime 全体の統合窓口
     class Engine final
     {
     public:

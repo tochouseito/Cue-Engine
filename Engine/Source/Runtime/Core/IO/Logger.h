@@ -1,3 +1,5 @@
+// Logger の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -15,7 +17,7 @@ namespace Cue::Core::IO
         file = 1u << 1,
     };
 
-    // 1) enum class 用のビット演算子
+    // - enum class 用のビット演算子
     constexpr LogSink operator|(LogSink a_left, LogSink a_right) noexcept
     {
         using U = std::underlying_type_t<LogSink>;
@@ -40,15 +42,15 @@ namespace Cue::Core::IO
         return (static_cast<U>(a_mask & a_bit) != 0);
     }
 
-    /// @brief デバッグコンソールへ文字列を出力します。
+    /// @brief デバッグコンソールへ文字列を出力し
     void out_debug_console(std::string_view a_message);
 
-    /// @brief 指定 sink へ整形済みログを出力します。
+    /// @brief 指定 sink へ整形済みログを出力し
     template <typename... Args>
     void log(LogSink a_sink, std::string_view a_format, Args&&... a_args)
     {
         std::string message = std::vformat(a_format, std::make_format_args(a_args...));
-        // 2) 末尾改行を保証（既に改行があるなら足さない）
+        // - 末尾改行を保証（既に改行があるなら足さない）
         if (message.empty() || message.back() != '\n')
         {
             message += "\n"; // Windowsでも大抵これでOK（気になるなら "\r\n"）

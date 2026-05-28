@@ -1,3 +1,5 @@
+// AssetManager の役割と公開要素を定義する
+
 #pragma once
 
 // === Base Includes ===
@@ -208,7 +210,7 @@ namespace Cue
         }
         Result get_model(ModelHandle handle, Core::Native::ModelData& outData) const
         {
-            // asset manager の registry を唯一の原本として扱い、呼び出し側にはコピーだけ返す。
+            // asset manager の registry を唯一の原本として扱い、呼び出し側にはコピーだけ返す
             ModelAssetRecord record{};
             if (!m_modelRegistry.try_copy_get(handle, record))
             {
@@ -433,7 +435,7 @@ namespace Cue
     private:
         Result add_model(std::string_view name, const Core::Native::ModelData& data, ModelHandle& outHandle)
         {
-            // 同名モデルの重複登録を防ぎ、呼び出し側が安定した handle を扱えるようにする。
+            // 同名モデルの重複登録を防ぎ、呼び出し側が安定した handle を扱えるようにする
             const Core::ResourceNameId nameId = Core::fnv1a64(name);
             if (m_modelNameMap.contains(nameId))
             {
@@ -449,7 +451,7 @@ namespace Cue
                     "Static mesh pool is not initialized in AssetManager.");
             }
 
-            // Core 側の SoA model data を原本として保持しつつ、GPU 側の静的メッシュ登録結果も対応付ける。
+            // Core 側の SoA model data を原本として保持しつつ、GPU 側の静的メッシュ登録結果も対応付ける
             ModelAssetRecord record{};
             record.name = std::string(name);
             record.modelData = data;

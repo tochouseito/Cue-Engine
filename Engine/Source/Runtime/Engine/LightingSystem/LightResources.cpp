@@ -1,3 +1,5 @@
+// LightResources の実装点を分け、ライト用 GPU バッファ管理を lighting system 内へ閉じる
+
 #include <LightingSystem/LightResources.h>
 
 namespace Cue::LightingSystem

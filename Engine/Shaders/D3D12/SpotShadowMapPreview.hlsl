@@ -1,3 +1,5 @@
+// Preview spot shadow atlas tiles without changing the runtime shadow data layout.
+
 #include "DrawCommon.hlsli"
 
 struct VsOut
@@ -9,6 +11,7 @@ struct VsOut
 Texture2D<float> g_spotShadowMap : register(t0);
 StructuredBuffer<SpotShadowFrame> g_spotShadowFrames : register(t1);
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID)
 {
     const float2 positions[3] =
@@ -31,6 +34,7 @@ VsOut vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+// Linearized preview depth makes atlas inspection readable in editor UI.
 float linearize_shadow_depth(float depth, SpotShadowFrame shadowFrame)
 {
     const float ndcDepth = depth * 2.0f - 1.0f;
@@ -44,6 +48,7 @@ float linearize_shadow_depth(float depth, SpotShadowFrame shadowFrame)
     return saturate((viewDepth - nearClip) / max(farClip - nearClip, 0.000001f));
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     const uint atlasColumnCount = 2;

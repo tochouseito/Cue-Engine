@@ -85,14 +85,14 @@ namespace Cue::RHI::DX12
         create_command_allocator(device, type);
         // コマンドリストの作成
         create_command_list(device, type);
-        // timestamp query の受け皿を作る。
+        // timestamp query の受け皿を作る
         create_timestamp_resources(device, type);
 
         m_type = convert_command_list_type(type);
     }
     Result DX12GpuCommandContext::setup(uint32_t frameIndex, uint32_t bufferCount)
     {
-        // copy command list は descriptor heap を扱えないため、setup は no-op で返す。
+        // copy command list は descriptor heap を扱えないため、setup は no-op で返す
         if (type() == CommandListType::Copy)
         {
             m_frameIndex = frameIndex;
@@ -307,32 +307,32 @@ namespace Cue::RHI::DX12
     }
     void DX12GpuCommandContext::begin_event(const char* name)
     {
-        // コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る。
+        // コマンドリスト未初期化時はイベント記録を行えないため、何もせず戻る
         if (m_commandList == nullptr)
         {
             return;
         }
 
-        // 空名はデバッグ時の識別性を落とすため、既定名に置き換える。
+        // 空名はデバッグ時の識別性を落とすため、既定名に置き換える
         const char* eventName = name;
         if (eventName == nullptr || eventName[0] == '\0')
         {
             eventName = "UnnamedEvent";
         }
 
-        // metadata と size を文字列形式に合わせて指定し、デバッグレイヤーの破損判定を回避する。
+        // metadata と size を文字列形式に合わせて指定し、デバッグレイヤーの破損判定を回避する
         const UINT eventNameBytes = static_cast<UINT>((std::char_traits<char>::length(eventName) + 1) * sizeof(eventName[0]));
         m_commandList->BeginEvent(k_eventMetadataAnsi, eventName, eventNameBytes);
     }
     void DX12GpuCommandContext::end_event()
     {
-        // コマンドリスト未初期化時は end marker を積めないため、何もせず戻る。
+        // コマンドリスト未初期化時は end marker を積めないため、何もせず戻る
         if (m_commandList == nullptr)
         {
             return;
         }
 
-        // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する。
+        // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する
         m_commandList->EndEvent();
     }
     Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
@@ -803,7 +803,7 @@ namespace Cue::RHI::DX12
         uint32_t width,
         uint32_t height)
     {
-        // queue 種別を検証して RS state を設定する。
+        // queue 種別を検証して RS state を設定する
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(
@@ -834,7 +834,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::set_primitive_topology(PrimitiveTopologyType topology)
     {
-        // queue 種別を検証して IA state を設定する。
+        // queue 種別を検証して IA state を設定する
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(
@@ -1232,7 +1232,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView)
     {
-        // queue 種別を検証して OM state を設定する。
+        // queue 種別を検証して OM state を設定する
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(
@@ -1241,7 +1241,7 @@ namespace Cue::RHI::DX12
                 "Render targets can only be set on graphics command lists.");
         }
 
-        // RTV ハンドルを CPU デスクリプタハンドルに変換する。
+        // RTV ハンドルを CPU デスクリプタハンドルに変換する
         std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvHandles;
         rtvHandles.reserve(renderTargetCount);
         rtvHandles.resize(renderTargetCount);
@@ -1274,7 +1274,7 @@ namespace Cue::RHI::DX12
             rtvHandles[i] = m_descriptorAllocator.get_cpu_handle(rtvRecord->defaultTableIds[descriptorIndex]);
         }
 
-        // DSV ハンドルを CPU デスクリプタハンドルに変換する。
+        // DSV ハンドルを CPU デスクリプタハンドルに変換する
         D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
         if (depthStencilView.valid())
         {
@@ -1305,7 +1305,7 @@ namespace Cue::RHI::DX12
             dsvHandle = m_descriptorAllocator.get_cpu_handle(dsvRecord->defaultTableIds[descriptorIndex]);
         }
 
-        // レンダーターゲットとデプスステンシルをセットする。
+        // レンダーターゲットとデプスステンシルをセットする
         m_commandList->OMSetRenderTargets(
             renderTargetCount,
             rtvHandles.data(),
@@ -1316,7 +1316,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation)
     {
-        // draw 呼び出しは graphics queue でのみ有効とし、compute/copy queue での誤発行を防ぐ。
+        // draw 呼び出しは graphics queue でのみ有効とし、compute/copy queue での誤発行を防ぐ
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(
@@ -1325,14 +1325,14 @@ namespace Cue::RHI::DX12
                 "Draw can only be issued on a graphics command context.");
         }
 
-        // 頂点/インスタンス範囲は呼び出し側の宣言どおりにそのまま発行し、pass 実装が draw パターンを選べるようにする。
+        // 頂点/インスタンス範囲は呼び出し側の宣言どおりにそのまま発行し、pass 実装が draw パターンを選べるようにする
         m_commandList->DrawInstanced(vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
         
         return Result::ok();
     }
     Result DX12GpuCommandContext::draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation)
     {
-        // indexed draw は graphics queue 以外で意味を持たない。
+        // indexed draw は graphics queue 以外で意味を持たない
         if (type() != CommandListType::Graphics)
         {
             return Result::fail(
@@ -1341,7 +1341,7 @@ namespace Cue::RHI::DX12
                 "Indexed draw can only be issued on a graphics command context.");
         }
 
-        // index 範囲と base vertex は呼び出し側の宣言どおりにそのまま流し、mesh slice 単位の描画を許可する。
+        // index 範囲と base vertex は呼び出し側の宣言どおりにそのまま流し、mesh slice 単位の描画を許可する
         m_commandList->DrawIndexedInstanced(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
         
         return Result::ok();
@@ -1523,16 +1523,16 @@ namespace Cue::RHI::DX12
                 "Slice count must be greater than 0.");
         }
 
-        // 単一実体のリソースは全フレームで index 0 を共有し、frame-local 実体だけ m_frameIndex で切り替える。
+        // 単一実体のリソースは全フレームで index 0 を共有し、frame-local 実体だけ m_frameIndex で切り替える
         if (sliceCount == 1)
         {
             outIndex = 0;
             return Result::ok();
         }
 
-        // スワップチェインのような外部リソースは、フレームリング数とは別の実体数を持つことがあります。
+        // スワップチェインのような外部リソースは、フレームリング数とは別の実体数を持つことがある
         // Present パスでは m_frameIndex に「現在の back buffer index」が渡されるため、
-        // その index が有効範囲内ならそのまま使います。
+        // その index が有効範囲内ならそのまま使いる
         if (m_frameIndex < sliceCount)
         {
             outIndex = m_frameIndex;
@@ -1752,7 +1752,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandQueue::signal(uint64_t* outFenceValue)
     {
-        // submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す。
+        // submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す
         if (!m_commandQueue || !m_fence)
         {
             return Result::fail(
@@ -1780,7 +1780,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandQueue::wait()
     {
-        // 自前 fence の完了だけを監視し、再利用前の CPU 同期待機に使う。
+        // 自前 fence の完了だけを監視し、再利用前の CPU 同期待機に使う
         if (!m_fence || !m_fenceEvent)
         {
             return Result::fail(
@@ -1790,7 +1790,7 @@ namespace Cue::RHI::DX12
         }
         if (m_fence->GetCompletedValue() < m_fenceValue)
         {
-            // 完了通知イベントを張り、指定値まで到達するまで待機する。
+            // 完了通知イベントを張り、指定値まで到達するまで待機する
             m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }

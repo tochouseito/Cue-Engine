@@ -1,3 +1,5 @@
+// DX12GpuCommand の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -270,7 +272,7 @@ namespace Cue::RHI::DX12
                     return std::make_unique<DX12GpuCommandQueue>(*d3d12Device, D3D12_COMMAND_LIST_TYPE_COPY);
                 })
         {
-            // present 用のグラフィックスキューを作成しておきます。
+            // present 用のグラフィックスキューを作成しておき
             m_presentGraphicsQueue = std::make_unique<DX12GpuCommandQueue>(*renderDevice.get_d3d12_device(), D3D12_COMMAND_LIST_TYPE_DIRECT);
         }
         ~DX12QueuePool() override = default;

@@ -1,3 +1,5 @@
+// Render trail segments as camera-facing ribbons using the simulation output buffer directly.
+
 #include "ParticleCommon.hlsli"
 
 cbuffer ViewProjection : register(b0)
@@ -31,6 +33,7 @@ static const float2 k_stripCorners[6] =
     float2(1.0f, 1.0f),
 };
 
+// Empty output moves invalid trail vertices off-screen without changing draw counts.
 VsOut make_empty_output()
 {
     VsOut output = (VsOut)0;
@@ -39,6 +42,7 @@ VsOut make_empty_output()
     return output;
 }
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const Particle particle = g_particles[instanceId];
@@ -113,6 +117,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     float4 color = input.color;

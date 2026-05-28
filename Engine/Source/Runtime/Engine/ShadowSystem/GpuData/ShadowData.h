@@ -1,3 +1,5 @@
+// ShadowData の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===

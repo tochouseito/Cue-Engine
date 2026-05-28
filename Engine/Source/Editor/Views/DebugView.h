@@ -1,3 +1,5 @@
+// DebugView の役割と公開要素を定義する
+
 #pragma once
 
 // === D3D12 includes ===

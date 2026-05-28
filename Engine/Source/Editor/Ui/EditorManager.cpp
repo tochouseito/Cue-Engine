@@ -1283,7 +1283,7 @@ namespace Cue::Editor
                 engine->find_marionnette_class(a_scriptClassName);
             if (marionnetteClass == nullptr)
             {
-                // 未解決 class は保存データを落とさない。
+                // 未解決 class は保存データを落とさない
                 return true;
             }
 

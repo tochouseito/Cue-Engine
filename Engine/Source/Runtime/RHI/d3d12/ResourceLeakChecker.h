@@ -1,3 +1,5 @@
+// ResourceLeakChecker の役割と公開要素を定義する
+
 #pragma once
 
 // === DirectX 12 includes ===

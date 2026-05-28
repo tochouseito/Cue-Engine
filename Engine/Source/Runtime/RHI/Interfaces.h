@@ -1,3 +1,5 @@
+// Interfaces の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -89,7 +91,7 @@ namespace Cue::RHI
         Triangle,
     };
 
-    /// @brief レンダーデバイスの共通インターフェースです。
+    /// @brief レンダーデバイスの共通インターフェース
     class IRenderDevice
     {
     public:
@@ -102,7 +104,7 @@ namespace Cue::RHI
         IRenderDevice& operator=(IRenderDevice&&) = default;
         virtual ~IRenderDevice() = default;
 
-        /// @brief レンダーデバイスを初期化します。
+        /// @brief レンダーデバイスを初期化する
         virtual Result initialize(bool a_enableDebugLayer = false) = 0;
     };
 
@@ -150,7 +152,7 @@ namespace Cue::RHI
         uint64_t dstByteOffset = 0;
     };
 
-    /// @brief コマンドコンテキストの共通インターフェースです。
+    /// @brief コマンドコンテキストの共通インターフェース
     class ICommandContext
     {
     public:
@@ -212,7 +214,7 @@ namespace Cue::RHI
         virtual Result execute_indexed_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) = 0;
     };
 
-    /// @brief キューコンテキストの共通インターフェースです。
+    /// @brief キューコンテキストの共通インターフェース
     class IQueueContext
     {
     public:
@@ -239,7 +241,7 @@ namespace Cue::RHI
     using queueContextLease = std::unique_ptr<IQueueContext, std::function<void(IQueueContext*)>>;
     using queueContextPtr = IQueueContext*;
 
-    /// @brief コマンドプールの共通インターフェースです。
+    /// @brief コマンドプールの共通インターフェース
     class ICommandPool
     {
     public:
@@ -252,13 +254,13 @@ namespace Cue::RHI
         ICommandPool& operator=(ICommandPool&&) = default;
         virtual ~ICommandPool() = default;
 
-        /// @brief コマンドコンテキストをプールから取得します。
+        /// @brief コマンドコンテキストをプールから取得する
         virtual Result get_command_context(CommandListType type, commandContextLease& outContext) = 0;
-        /// @brief コマンドコンテキストをプールへ返却します。
+        /// @brief コマンドコンテキストをプールへ返却し
         virtual Result return_command_context(commandContextLease& context) = 0;
     };
 
-    /// @brief キュープールの共通インターフェースです。
+    /// @brief キュープールの共通インターフェース
     class IQueuePool
     {
     public:
@@ -271,11 +273,11 @@ namespace Cue::RHI
         IQueuePool& operator=(IQueuePool&&) = default;
         virtual ~IQueuePool() = default;
 
-        /// @brief キューコンテキストをプールから取得します。
+        /// @brief キューコンテキストをプールから取得する
         virtual Result get_queue_context(CommandListType type, queueContextLease& outContext) = 0;
-        /// @brief キューコンテキストをプールへ返却します。
+        /// @brief キューコンテキストをプールへ返却し
         virtual Result return_queue_context(queueContextLease& context) = 0;
-        /// @brief graphics キューへ待機させます。
+        /// @brief graphics キューへ待機させ
         virtual Result wait_for_graphics_queue() = 0;
         /// @brief present キューの取得
         virtual queueContextPtr get_present_queue_context() = 0;

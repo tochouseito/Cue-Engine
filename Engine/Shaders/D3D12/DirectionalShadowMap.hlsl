@@ -1,3 +1,5 @@
+// Render directional-light depth with the same object payload as the forward mesh path.
+
 #include "DrawCommon.hlsli"
 
 struct VsIn
@@ -35,6 +37,7 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<SkinPalette> g_skinPalettes : register(t3);
 
+// Skinning is evaluated here so shadow passes use the same deformed positions as color passes.
 float4 apply_skinning(float4 position, VsIn input, RenderObject renderObject)
 {
     if (renderObject.skinPaletteCount == 0u)
@@ -62,6 +65,7 @@ float4 apply_skinning(float4 position, VsIn input, RenderObject renderObject)
     return mul(position, skinMatrix);
 }
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
@@ -98,6 +102,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point can discard unsupported faces while keeping depth writes hardware-driven.
 void ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace)
 {
     if (input.shadowCasterMode == k_shadowCasterModeSolid && !isFrontFace)

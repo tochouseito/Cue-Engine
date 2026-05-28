@@ -1,3 +1,5 @@
+// FrameGraph の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -263,7 +265,7 @@ namespace Cue::RHI
         uint32_t height = 0;
     };
 
-    /// @brief フレーム単位の描画依存関係を保持するプレースホルダーです。
+    /// @brief フレーム単位の描画依存関係を保持するプレースホルダー
     class FrameGraph final
     {
         friend class FrameGraphBuilder;
@@ -289,9 +291,9 @@ namespace Cue::RHI
 
             m_passes.push_back(CompiledPass{ std::move(pass) });
         }
-        /// @brief 描画依存関係を構築します。
+        /// @brief 描画依存関係を構築する
         Result build();
-        /// @brief サイズを更新して再構築します。
+        /// @brief サイズを更新して再構築する
         Result rebuild(uint32_t a_width, uint32_t a_height);
         /// @brief パスの実行
         Result execute(uint32_t frameIndex);

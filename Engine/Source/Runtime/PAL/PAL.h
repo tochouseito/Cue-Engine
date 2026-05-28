@@ -1,3 +1,5 @@
+// PAL の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -23,7 +25,7 @@
 
 namespace Cue::PAL
 {
-    /// @brief プラットフォーム初期化時の設定です。
+    /// @brief プラットフォーム初期化時の設定
     struct PlatformSetupInfo final
     {
         uint32_t width = 0; // ウィンドウ幅
@@ -32,32 +34,32 @@ namespace Cue::PAL
         const char* title = nullptr; // ウィンドウタイトル
     };
 
-    /// @brief プラットフォーム実装の共通インターフェースです。
+    /// @brief プラットフォーム実装の共通インターフェース
     class IPlatform
     {
     public:
         virtual ~IPlatform() = default;
 
-        /// @brief プラットフォーム実装を初期化します。
-        /// @param a_info 初期化設定です。
+        /// @brief プラットフォーム実装を初期化する
+        /// @param a_info 初期化設定
         virtual Result initialize(const PlatformSetupInfo& a_info) = 0;
-        /// @brief 実行開始処理を行います。
+        /// @brief 実行開始処理を行いる
         virtual Result start() = 0;
-        /// @brief 終了処理を行います。
+        /// @brief 終了処理を行いる
         virtual Result shutdown() = 0;
-        /// @brief フレーム開始処理を行います。
+        /// @brief フレーム開始処理を行いる
         virtual Result begin_frame() = 0;
-        /// @brief フレーム終了処理を行います。
+        /// @brief フレーム終了処理を行いる
         virtual Result end_frame() = 0;
-        /// @brief プラットフォームメッセージを 1 件取得します。
+        /// @brief プラットフォームメッセージを 1 件取得する
         virtual PlatformMessage poll_message() = 0;
-        /// @brief 管理中のアプリケーションウィンドウがフォーカスされているか返します。
+        /// @brief 管理中のアプリケーションウィンドウがフォーカスされているか返す
         [[nodiscard]] virtual bool is_window_focused() const noexcept = 0;
-        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替えます。
+        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替え
         virtual Result set_drag_drop_enabled(bool a_isEnabled) = 0;
-        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返します。
+        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返す
         [[nodiscard]] virtual bool is_drag_drop_enabled() const noexcept = 0;
-        /// @brief ドロップされたファイルパスを取り出します。
+        /// @brief ドロップされたファイルパスを取り出し
         [[nodiscard]] virtual bool consume_dropped_files(
             std::vector<std::string>& a_outPaths) noexcept = 0;
     public:

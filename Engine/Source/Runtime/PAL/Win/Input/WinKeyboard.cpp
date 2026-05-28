@@ -85,7 +85,7 @@ namespace Cue::PAL::Win
             hr = m_keyboardDevice->Acquire();
         }
 
-        // フォーカス喪失中は取得不能でも正常系として扱い、押下状態を空に保つ。
+        // フォーカス喪失中は取得不能でも正常系として扱い、押下状態を空に保つ
         if (FAILED(hr))
         {
             return Result::ok();

@@ -1,3 +1,5 @@
+// Spawn particles from emitter ranges on the GPU so bursts do not stall the main thread.
+
 #include "ParticleCommon.hlsli"
 
 ConstantBuffer<ParticleFrame> g_frame : register(b0);
@@ -5,6 +7,7 @@ StructuredBuffer<ParticleEmitter> g_emitters : register(t0);
 RWStructuredBuffer<Particle> g_particles : register(u0);
 
 [numthreads(64, 1, 1)]
+// Compute entry point runs one logical item per dispatch thread to avoid CPU-side iteration.
 void cs_main(uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID)
 {
     const uint emitterIndex = groupId.x;

@@ -1,3 +1,5 @@
+// BufferManager の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI Includes ===
@@ -65,7 +67,7 @@ namespace Cue::RHI
             uint32_t bufferCount,
             std::vector<SlotUploader<T>>& outUploaders)
         {
-            // 1) バッファの upload view を解決して、uploader 構築に必要な情報を集める。
+            // - バッファの upload view を解決して、uploader 構築に必要な情報を集める
             UploadBufferView view{};
             Result result = get_upload_buffer_view(handle, view);
             if (!result)
@@ -73,7 +75,7 @@ namespace Cue::RHI
                 return result;
             }
 
-            // 2) 要求数と型契約を検証して、フレームごとの uploader 数を固定する。
+            // - 要求数と型契約を検証して、フレームごとの uploader 数を固定する
             if (bufferCount == 0)
             {
                 return Result::fail(
@@ -103,7 +105,7 @@ namespace Cue::RHI
                     "Upload buffer view is not initialized.");
             }
 
-            // 3) 各 upload heap に対応する uploader を値で構築して返す。
+            // - 各 upload heap に対応する uploader を値で構築して返す
             outUploaders.clear();
             outUploaders.reserve(bufferCount);
             for (std::byte* mappedData : view.mappedDatas)

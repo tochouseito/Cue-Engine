@@ -1,9 +1,12 @@
+// Update particle simulation entirely on the GPU to keep emitter cost independent of CPU object count.
+
 #include "ParticleCommon.hlsli"
 
 ConstantBuffer<ParticleFrame> g_frame : register(b0);
 RWStructuredBuffer<Particle> g_particles : register(u0);
 
 [numthreads(64, 1, 1)]
+// Compute entry point runs one logical item per dispatch thread to avoid CPU-side iteration.
 void cs_main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint particleIndex = dispatchThreadId.x;

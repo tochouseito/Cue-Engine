@@ -439,7 +439,7 @@ namespace Cue
             }
         }
 
-        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
+        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
         if (m_platformBridge)
         {
             PlatformCommandContext platformCommandContext(

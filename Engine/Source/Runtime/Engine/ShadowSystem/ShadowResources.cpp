@@ -1,3 +1,5 @@
+// ShadowResources の実装点を分け、GPU リソース寿命管理を shadow system 内へ閉じる
+
 #include "ShadowResources.h"
 
 namespace Cue::ShadowSystem

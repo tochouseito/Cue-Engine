@@ -1,3 +1,5 @@
+// Marionette の役割と公開要素を定義する
+
 #pragma once
 
 #include <Native/ScriptAbi.h>
@@ -256,9 +258,9 @@ namespace Marionette
         return Cue::cue_cast<T>(a_object);
     }
 
-    // *** Cue Engine の script は owner Entity にぶら下がる component 的な振る舞いです。
+    // *** Cue Engine の script は owner Entity にぶら下がる component 的な振る舞い
     // *** UE の ActorComponent に近い使い方を正式系とし、Behaviour<T> は
-    // *** その owner Marionnette を get_owner()/owner()/self() で参照します。
+    // *** その owner Marionnette を get_owner()/owner()/self() で参照する
 
     template<typename... TFieldValues>
     [[nodiscard]] constexpr auto make_fields(

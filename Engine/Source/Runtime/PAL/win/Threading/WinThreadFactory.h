@@ -1,3 +1,5 @@
+// WinThreadFactory の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -15,7 +17,7 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows スレッド生成ファクトリです。
+    /// @brief Windows スレッド生成ファクトリ
     class WinThreadFactory final : public Core::Threading::IThreadFactory
     {
     public:

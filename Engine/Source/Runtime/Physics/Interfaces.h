@@ -1,3 +1,5 @@
+// Interfaces の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -110,7 +112,7 @@ namespace Cue::Physics
         float distance = 0.0f;
     };
 
-    /// @brief 物理シミュレーション backend の共通インターフェースです。
+    /// @brief 物理シミュレーション backend の共通インターフェース
     class IPhysicsSystem
     {
     public:
@@ -121,58 +123,58 @@ namespace Cue::Physics
         IPhysicsSystem& operator=(IPhysicsSystem&&) = delete;
         virtual ~IPhysicsSystem() = default;
 
-        /// @brief 物理 world を初期化します。
+        /// @brief 物理 world を初期化する
         virtual Result initialize(const PhysicsWorldDesc& a_desc) = 0;
 
-        /// @brief 物理 world を終了します。
+        /// @brief 物理 world を終了し
         virtual void shutdown() noexcept = 0;
 
-        /// @brief 物理 world を指定時間だけ進めます。
+        /// @brief 物理 world を指定時間だけ進める
         virtual Result step(const PhysicsStepDesc& a_desc) = 0;
 
-        /// @brief 剛体を作成します。
+        /// @brief 剛体を作成する
         virtual Result create_body(
             const RigidBodyDesc& a_desc,
             RigidBodyHandle& a_outBody) = 0;
 
-        /// @brief 剛体を破棄します。
+        /// @brief 剛体を破棄する
         virtual Result destroy_body(RigidBodyHandle a_body) = 0;
 
-        /// @brief 剛体の transform を設定します。
+        /// @brief 剛体の transform を設定する
         virtual Result set_body_transform(
             RigidBodyHandle a_body,
             const BodyTransform& a_transform,
             BodyActivation a_activation) = 0;
 
-        /// @brief 剛体の transform を取得します。
+        /// @brief 剛体の transform を取得する
         virtual Result get_body_transform(
             RigidBodyHandle a_body,
             BodyTransform& a_outTransform) const = 0;
 
-        /// @brief 剛体の線形速度を設定します。
+        /// @brief 剛体の線形速度を設定する
         virtual Result set_linear_velocity(
             RigidBodyHandle a_body,
             Math::float3 a_velocity,
             BodyActivation a_activation) = 0;
 
-        /// @brief 剛体の線形速度を取得します。
+        /// @brief 剛体の線形速度を取得する
         virtual Result get_linear_velocity(
             RigidBodyHandle a_body,
             Math::float3& a_outVelocity) const = 0;
 
-        /// @brief 剛体へ力を加えます。
+        /// @brief 剛体へ力を加える
         virtual Result add_force(
             RigidBodyHandle a_body,
             Math::float3 a_force,
             BodyActivation a_activation) = 0;
 
-        /// @brief 剛体へインパルスを加えます。
+        /// @brief 剛体へインパルスを加える
         virtual Result add_impulse(
             RigidBodyHandle a_body,
             Math::float3 a_impulse,
             BodyActivation a_activation) = 0;
 
-        /// @brief 最近傍の raycast 結果を取得します。
+        /// @brief 最近傍の raycast 結果を取得する
         virtual Result raycast(
             const RaycastDesc& a_desc,
             RaycastHit& a_outHit) const = 0;

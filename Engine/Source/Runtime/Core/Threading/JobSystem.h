@@ -1,3 +1,5 @@
+// JobSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -28,7 +30,7 @@
 
 namespace Cue::Core::Threading
 {
-    /// @brief 優先度付きのジョブ実行基盤です。
+    /// @brief 優先度付きのジョブ実行基盤
     class JobSystem final
     {
     public:

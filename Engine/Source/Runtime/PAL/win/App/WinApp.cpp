@@ -216,14 +216,14 @@ namespace Cue::PAL::Win
     {
         WindowSize size{};
 
-        // 1) RECT を取得
+        // - RECT を取得
         RECT rc{};
         if (::GetClientRect(m_hwnd, &rc) == FALSE)
         {
             return size;
         }
 
-        // 2) 幅と高さを計算
+        // - 幅と高さを計算
         size.width = static_cast<uint32_t>(rc.right - rc.left);
         size.height = static_cast<uint32_t>(rc.bottom - rc.top);
 
@@ -235,13 +235,13 @@ namespace Cue::PAL::Win
     WinApp::WindowSize WinApp::get_window_size() const noexcept
     {
         WindowSize size{};
-        // 1) RECT を取得
+        // - RECT を取得
         RECT rc{};
         if (::GetWindowRect(m_hwnd, &rc) == FALSE)
         {
             return size;
         }
-        // 2) 幅と高さを計算
+        // - 幅と高さを計算
         size.width = static_cast<uint32_t>(rc.right - rc.left);
         size.height = static_cast<uint32_t>(rc.bottom - rc.top);
         return size;
@@ -328,7 +328,7 @@ namespace Cue::PAL::Win
     // メッセージハンドラ
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
-        // Platform のサイズ変更は描画解像度の基準なので、外部ハンドラより先に確定する。
+        // Platform のサイズ変更は描画解像度の基準なので、外部ハンドラより先に確定する
         switch (a_message)
         {
         case WM_SIZE:

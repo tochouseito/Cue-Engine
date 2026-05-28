@@ -1,3 +1,5 @@
+// Render batched sprites from instance data so UI and world sprites share the same lightweight path.
+
 struct SpriteInstance
 {
     float4 positionSize;
@@ -33,6 +35,7 @@ static const float2 k_corners[6] =
     float2(1.0f, 1.0f),
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const SpriteInstance sprite = g_sprites[instanceId];
@@ -58,6 +61,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     if (input.useTexture == 0)

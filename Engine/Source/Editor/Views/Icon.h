@@ -1,7 +1,9 @@
+// Icon の役割と公開要素を定義する
+
 #pragma once
 
 // ImGui は Material Symbols の ligature を解釈しないため、
-// 文字列名ではなく code point 文字列をマクロで固定する。
+// 文字列名ではなく code point 文字列をマクロで固定する
 
 #define CUE_ICON_ADD "\uE145"
 #define CUE_ICON_BUG_REPORT "\uE868"

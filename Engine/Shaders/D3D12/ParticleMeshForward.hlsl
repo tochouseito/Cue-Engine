@@ -1,3 +1,5 @@
+// Render particle instances with mesh geometry while reusing the common particle payload.
+
 #include "ParticleCommon.hlsli"
 
 cbuffer ViewProjection : register(b0)
@@ -44,6 +46,7 @@ static const float2 k_uvs[6] =
     float2(1.0f, 0.0f),
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const Particle particle = g_particles[instanceId];
@@ -83,6 +86,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     float4 color = input.color;

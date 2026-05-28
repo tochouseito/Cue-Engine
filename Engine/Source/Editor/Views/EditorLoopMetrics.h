@@ -1,4 +1,8 @@
+// EditorLoopMetrics の役割と公開要素を定義する
+
 #pragma once
+
+// Editor ループ計測値をまとめ、表示側が個別タイマーの所有権へ触れないようにする
 
 namespace Cue::Editor
 {

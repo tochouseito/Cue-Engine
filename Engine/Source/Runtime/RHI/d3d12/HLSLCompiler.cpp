@@ -176,7 +176,7 @@ namespace Cue::RHI::DX12
         Result r{};
         comPtr<IDxcBlobEncoding> pSource = nullptr;
 
-        // 入力と出力先を検証し、失敗時は呼び出し側で扱える Result に正規化する。
+        // 入力と出力先を検証し、失敗時は呼び出し側で扱える Result に正規化する
         if (outBlob == nullptr)
         {
             return Result::fail(
@@ -195,7 +195,7 @@ namespace Cue::RHI::DX12
 
         outBlob->Reset();
 
-        // utf-8 からワイド文字列へ変換し、前段の入力不備を DXC 呼び出し前に止める。
+        // utf-8 からワイド文字列へ変換し、前段の入力不備を DXC 呼び出し前に止める
         std::wstring name = L"";
         r = PAL::Win::utf8_to_wide(desc.name, &name);
         if (!r)
@@ -222,7 +222,7 @@ namespace Cue::RHI::DX12
             return r;
         }
 
-        // シェーダーファイルの読込とコンパイルを行い、DXC の失敗を Result で返す。
+        // シェーダーファイルの読込とコンパイルを行い、DXC の失敗を Result で返す
         hr = m_dxcUtils.Get()->LoadFile(filePath.c_str(), nullptr, &pSource);
         if (FAILED(hr))
         {
@@ -282,7 +282,7 @@ namespace Cue::RHI::DX12
                 "Failed to compile shader.");
         }
 
-        // コンパイル結果を検証し、成功時のみブロブを返す。
+        // コンパイル結果を検証し、成功時のみブロブを返す
         comPtr<IDxcBlobUtf8> pErrors = nullptr;
         comPtr<IDxcBlobUtf16> pErrorsUtf16;
         hr = pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);

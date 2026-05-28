@@ -1,3 +1,5 @@
+// InputManager の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -13,7 +15,7 @@
 
 namespace Cue::PAL
 {
-    /// @brief 入力状態をフレーム単位で保持するマネージャです。
+    /// @brief 入力状態をフレーム単位で保持するマネージャ
     class InputManager final
     {
     public:
@@ -24,20 +26,20 @@ namespace Cue::PAL
         [[nodiscard]] Result begin_frame() noexcept;
         void shutdown() noexcept;
 
-        /// @brief 指定キーが押されていれば `true` を返します。
+        /// @brief 指定キーが押されていれば `true` を返す
         [[nodiscard]] bool push_key(Key a_key) const noexcept;
-        /// @brief 指定マウスボタンが押されていれば `true` を返します。
+        /// @brief 指定マウスボタンが押されていれば `true` を返す
         [[nodiscard]] bool push_mouse_button(MouseButton a_button) const noexcept;
-        /// @brief 指定マウスボタンがこのフレームで押されたら `true` を返します。
+        /// @brief 指定マウスボタンがこのフレームで押されたら `true` を返す
         [[nodiscard]] bool mouse_button_pressed(MouseButton a_button) const noexcept;
-        /// @brief 指定マウスボタンがこのフレームで離されたら `true` を返します。
+        /// @brief 指定マウスボタンがこのフレームで離されたら `true` を返す
         [[nodiscard]] bool mouse_button_released(MouseButton a_button) const noexcept;
-        /// @brief 前フレームからのマウス移動量を返します。
+        /// @brief 前フレームからのマウス移動量を返す
         [[nodiscard]] MouseDelta mouse_delta() const noexcept
         {
             return m_mouseDelta;
         }
-        /// @brief クライアント領域内のマウス座標を返します。
+        /// @brief クライアント領域内のマウス座標を返す
         [[nodiscard]] MousePosition mouse_position() const noexcept
         {
             return m_mousePosition;

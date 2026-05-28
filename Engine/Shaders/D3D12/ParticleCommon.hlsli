@@ -1,3 +1,5 @@
+// Share particle layouts and helpers across compute and draw passes to keep CPU/GPU contracts identical.
+
 struct ParticleFrame
 {
     float deltaTime;
@@ -79,6 +81,7 @@ struct ParticleTrailPoint
     float lifeRate;
 };
 
+// Hashing keeps particle randomization deterministic across GPU vendors.
 uint hash_u32(uint value)
 {
     value ^= value >> 16;
@@ -89,16 +92,19 @@ uint hash_u32(uint value)
     return value;
 }
 
+// Random helpers derive repeatable values from explicit seeds instead of hidden state.
 float random01(uint seed)
 {
     return (float)(hash_u32(seed) & 0x00ffffffu) / 16777215.0f;
 }
 
+// Range mapping keeps emitter parameters in authoring units while reusing normalized randomness.
 float random_range(uint seed, float minValue, float maxValue)
 {
     return lerp(minValue, maxValue, random01(seed));
 }
 
+// Vector range mapping keeps per-axis emitter variation compact in shader code.
 float3 random_range3(uint seed, float3 minValue, float3 maxValue)
 {
     return float3(
@@ -107,6 +113,7 @@ float3 random_range3(uint seed, float3 minValue, float3 maxValue)
         random_range(seed + 37u, minValue.z, maxValue.z));
 }
 
+// Unit-vector generation gives forces and spawn directions deterministic spread without lookup textures.
 float3 random_unit3(uint seed)
 {
     const float3 value = random_range3(
@@ -117,6 +124,7 @@ float3 random_unit3(uint seed)
     return value * rsqrt(lengthSq);
 }
 
+// Curve evaluation keeps particle lifetime shaping on the GPU.
 float evaluate_curve(
     float startValue,
     float midValue,
@@ -136,6 +144,7 @@ float evaluate_curve(
         saturate((time - clampedMidTime) / (1.0f - clampedMidTime)));
 }
 
+// Four-channel curve evaluation lets color and packed parameters share one interpolation path.
 float4 evaluate_curve4(
     float4 startValue,
     float4 midValue,

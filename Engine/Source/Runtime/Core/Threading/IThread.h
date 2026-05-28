@@ -1,3 +1,5 @@
+// IThread の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -13,25 +15,25 @@
 
 namespace Cue::Core::Threading
 {
-    /// @brief スレッド生成時の指定内容です。
+    /// @brief スレッド生成時の指定内容
     struct ThreadDesc final
     {
-        // 1) デバッグ用途の名前（UTF-8想定）
+        // - デバッグ用途の名前（UTF-8想定）
         std::string name{};
 
-        // 2) スタックサイズ（0ならOS/CRTデフォルト）
+        // - スタックサイズ（0ならOS/CRTデフォルト）
         std::size_t stackSizeBytes = 0;
 
-        // 3) 優先度（実装側で解釈。0はデフォルト）
+        // - 優先度（実装側で解釈0はデフォルト）
         int priority = 0;
 
-        // 4) アフィニティ（0なら未指定）
+        // - アフィニティ（0なら未指定）
         uint64_t affinityMask = 0;
     };
 
     using threadProc = uint32_t(*)(StopToken a_token, void* a_user) noexcept;
 
-    /// @brief スレッド実装を抽象化するインターフェースです。
+    /// @brief スレッド実装を抽象化するインターフェース
     class IThread
     {
     public:
@@ -44,19 +46,19 @@ namespace Cue::Core::Threading
         IThread(IThread&&) = delete;
         IThread& operator=(IThread&&) = delete;
 
-        /// @brief join 可能かを返します。
+        /// @brief join 可能かを返す
         virtual bool joinable() const noexcept = 0;
-        /// @brief スレッド終了を待機します。
+        /// @brief スレッド終了を待機する
         virtual Result join() noexcept = 0;
 
-        /// @brief 停止要求を通知します。
+        /// @brief 停止要求を通知する
         virtual void request_stop() noexcept = 0;
-        /// @brief 停止監視用トークンを取得します。
+        /// @brief 停止監視用トークンを取得する
         virtual StopToken stop_token() const noexcept = 0;
 
-        /// @brief スレッド ID を返します。
+        /// @brief スレッド ID を返す
         virtual uint32_t thread_id() const noexcept = 0;
-        /// @brief 終了コードを返します。
+        /// @brief 終了コードを返す
         virtual uint32_t exit_code() const noexcept = 0;
     };
 }

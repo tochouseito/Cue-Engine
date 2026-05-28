@@ -1,3 +1,5 @@
+// Expand particle motion history into trail segments so rendering can stay append-buffer based.
+
 #include "ParticleCommon.hlsli"
 
 ConstantBuffer<ParticleFrame> g_frame : register(b0);
@@ -5,6 +7,7 @@ StructuredBuffer<Particle> g_particles : register(t0);
 RWStructuredBuffer<ParticleTrailPoint> g_trails : register(u0);
 
 [numthreads(64, 1, 1)]
+// Compute entry point runs one logical item per dispatch thread to avoid CPU-side iteration.
 void cs_main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint particleIndex = dispatchThreadId.x;

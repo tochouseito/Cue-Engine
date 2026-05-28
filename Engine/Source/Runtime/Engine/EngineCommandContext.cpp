@@ -1,3 +1,5 @@
+// EngineCommandContext の実装点を分け、コマンド契約の変更範囲を Engine 内へ閉じる
+
 #include "EngineCommandContext.h"
 
 namespace Cue

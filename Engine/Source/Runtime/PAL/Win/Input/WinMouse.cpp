@@ -1,3 +1,5 @@
+// Win32 マウス入力の翻訳単位を分け、Runtime 上層へ Windows 型を漏らさないようにする
+
 #include "WinMouse.h"
 
 namespace Cue::PAL::Win

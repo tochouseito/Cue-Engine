@@ -1,3 +1,5 @@
+// Registry の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -12,9 +14,9 @@
 
 namespace Cue::Core
 {
-    /// @brief 世代付きハンドルで実体を管理するレジストリです。
-    /// @tparam Tag ハンドルを区別するタグ型です。
-    /// @tparam Record 格納する実体型です。
+    /// @brief 世代付きハンドルで実体を管理するレジストリ
+    /// @tparam Tag ハンドルを区別するタグ型
+    /// @tparam Record 格納する実体型
     template <class Tag, class Record>
     class Registry final
     {
@@ -28,12 +30,12 @@ namespace Cue::Core
         static_assert(std::is_move_assignable_v<Record>,
             "Registry<Record> requires move-assignable Record for slot reuse.");
 
-        /// @brief レコードを登録してハンドルを返します。
-        /// @param a_record 登録するレコードです。
-        /// @return 発行したハンドルです。
+        /// @brief レコードを登録してハンドルを返す
+        /// @param a_record 登録するレコード
+        /// @return 発行したハンドル
         [[nodiscard]] handle_type create(Record& a_record)
         {
-            // 1) 空きスロット再利用または末尾追加
+            // - 空きスロット再利用または末尾追加
             uint32_t index = 0;
 
             if (!m_freeList.empty())
@@ -54,16 +56,16 @@ namespace Cue::Core
                 m_generations.push_back(0);
             }
 
-            // 2) ハンドル発行
+            // - ハンドル発行
             return handle_type{ index, m_generations[index] };
         }
 
-        /// @brief ハンドルに対応するレコードを破棄します。
-        /// @param a_handle 破棄対象のハンドルです。
-        /// @return 破棄に成功した場合は `true` です。
+        /// @brief ハンドルに対応するレコードを破棄する
+        /// @param a_handle 破棄対象のハンドル
+        /// @return 破棄に成功した場合は `true` 
         bool destroy(handle_type a_handle)
         {
-            // 1) 妥当性チェック
+            // - 妥当性チェック
             if (!is_alive(a_handle))
             {
                 return false;
@@ -71,40 +73,40 @@ namespace Cue::Core
 
             const uint32_t index = a_handle.index;
 
-            // 2) レコード初期化
+            // - レコード初期化
             m_records[index] = Record{};
 
-            // 3) 世代更新で古いハンドルを殺す
+            // - 世代更新で古いハンドルを殺す
             m_generations[index] = m_generations[index] + 1u;
 
-            // 4) 空きに戻す
+            // - 空きに戻す
             m_freeList.push_back(index);
             return true;
         }
 
         template <class F>
-        /// @brief 生存しているレコードに関数を適用します。
-        /// @param a_handle 対象ハンドルです。
-        /// @param a_func 実体へ適用する関数です。
-        /// @return ハンドルが有効な場合は `true` です。
+        /// @brief 生存しているレコードに関数を適用し
+        /// @param a_handle 対象ハンドル
+        /// @param a_func 実体へ適用する関数
+        /// @return ハンドルが有効な場合は `true` 
         [[nodiscard]] bool with(handle_type a_handle, F&& a_func)
         {
-            // 1) 妥当性チェック
+            // - 妥当性チェック
             if (!is_alive(a_handle))
             {
                 return false;
             }
 
-            // 2) ハンドルで再検証した上で、その場でアクセスさせる（ポインタを外へ出さない）
+            // - ハンドルで再検証した上で、その場でアクセスさせる（ポインタを外へ出さない）
             std::forward<F>(a_func)(m_records[a_handle.index]);
             return true;
         }
 
         template <class F>
-        /// @brief 生存しているレコードに読み取り関数を適用します。
-        /// @param a_handle 対象ハンドルです。
-        /// @param a_func 実体へ適用する関数です。
-        /// @return ハンドルが有効な場合は `true` です。
+        /// @brief 生存しているレコードに読み取り関数を適用し
+        /// @param a_handle 対象ハンドル
+        /// @param a_func 実体へ適用する関数
+        /// @return ハンドルが有効な場合は `true` 
         [[nodiscard]] bool with(handle_type a_handle, F&& a_func) const
         {
             if (!is_alive(a_handle))
@@ -115,10 +117,10 @@ namespace Cue::Core
             return true;
         }
 
-        /// @brief レコードをコピー取得します。
-        /// @param a_handle 対象ハンドルです。
-        /// @param a_outRecord 取得先です。
-        /// @return ハンドルが有効な場合は `true` です。
+        /// @brief レコードをコピー取得する
+        /// @param a_handle 対象ハンドル
+        /// @param a_outRecord 取得先
+        /// @return ハンドルが有効な場合は `true` 
         [[nodiscard]] bool try_copy_get(handle_type a_handle, Record& a_outRecord) const
         {
             if (!is_alive(a_handle))
@@ -129,9 +131,9 @@ namespace Cue::Core
             return true;
         }
 
-        /// @brief レコードを参照取得します。
-        /// @param a_handle 対象ハンドルです。
-        /// @return ハンドルが有効な場合はレコードへの参照を返します。無効な場合は `nullptr` です。
+        /// @brief レコードを参照取得する
+        /// @param a_handle 対象ハンドル
+        /// @return ハンドルが有効な場合はレコードへの参照を返す無効な場合は `nullptr` 
         [[nodiscard]] Record* ref_get(handle_type a_handle)
         {
             if (!is_alive(a_handle))
@@ -151,19 +153,19 @@ namespace Cue::Core
     private:
         [[nodiscard]] bool is_alive(handle_type a_handle) const noexcept
         {
-            // 1) 無効ハンドル
+            // - 無効ハンドル
             if (!a_handle.valid())
             {
                 return false;
             }
 
-            // 2) 範囲
+            // - 範囲
             if (a_handle.index >= m_generations.size())
             {
                 return false;
             }
 
-            // 3) 世代一致
+            // - 世代一致
             return (m_generations[a_handle.index] == a_handle.generation);
         }
 

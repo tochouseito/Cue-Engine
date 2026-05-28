@@ -1,3 +1,5 @@
+// Keyboard の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -8,7 +10,7 @@
 
 namespace Cue::PAL
 {
-    /// @brief キーボードキーの識別子です。
+    /// @brief キーボードキーの識別子
     enum class Key : uint8_t
     {
         Unknown = 0,
@@ -85,16 +87,16 @@ namespace Cue::PAL
         Count,
     };
 
-    /// @brief キーボード入力の共通インターフェースです。
+    /// @brief キーボード入力の共通インターフェース
     class IKeyboard
     {
     public:
         virtual ~IKeyboard() = default;
 
-        /// @brief デバイス状態を更新します。
+        /// @brief デバイス状態を更新し
         [[nodiscard]] virtual Result update() noexcept = 0;
 
-        /// @brief 指定キーが押下中か返します。
+        /// @brief 指定キーが押下中か返す
         [[nodiscard]] virtual bool is_key_down(Key a_key) const noexcept = 0;
     };
 }

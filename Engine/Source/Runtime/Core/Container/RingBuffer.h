@@ -1,3 +1,5 @@
+// RingBuffer の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -8,7 +10,7 @@
 
 namespace Cue::Core
 {
-    /// @brief バイト単位のリング領域を順序どおりに再利用するアロケータです。
+    /// @brief バイト単位のリング領域を順序どおりに再利用するアロケータ
     class RingBuffer final
     {
     public:
@@ -21,7 +23,7 @@ namespace Cue::Core
 
             [[nodiscard]] bool valid() const noexcept
             {
-                // 1) 発行済み ID を持つ割り当てだけを有効として扱う。
+                // - 発行済み ID を持つ割り当てだけを有効として扱う
                 return id != 0;
             }
         };
@@ -35,14 +37,14 @@ namespace Cue::Core
 
         void initialize(size_t a_capacity) noexcept
         {
-            // 1) 新しい容量へ切り替えるときは、保持中の割り当て状態を全て破棄する。
+            // - 新しい容量へ切り替えるときは、保持中の割り当て状態を全て破棄する
             m_capacity = a_capacity;
             clear();
         }
 
         void clear() noexcept
         {
-            // 1) FIFO 解放待ちの履歴を捨てて、空バッファ状態へ戻す。
+            // - FIFO 解放待ちの履歴を捨てて、空バッファ状態へ戻す
             m_allocations.clear();
             m_tail = 0;
             m_used = 0;
@@ -50,7 +52,7 @@ namespace Cue::Core
 
         [[nodiscard]] bool allocate(size_t a_size, size_t a_alignment, Allocation& a_outAllocation) noexcept
         {
-            // 1) 無効な要求や容量超過を先に弾き、内部状態を壊さない。
+            // - 無効な要求や容量超過を先に弾き、内部状態を壊さない
             a_outAllocation = {};
             if (m_capacity == 0 || a_size == 0)
             {
@@ -65,7 +67,7 @@ namespace Cue::Core
 
             const size_t head = head_offset();
 
-            // 2) 末尾側へそのまま置けるなら、wrap を避けて連続領域を優先利用する。
+            // - 末尾側へそのまま置けるなら、wrap を避けて連続領域を優先利用する
             if (m_allocations.empty() || m_tail >= head)
             {
                 const size_t alignedTail = align_up(m_tail, alignment);
@@ -75,7 +77,7 @@ namespace Cue::Core
                     return commit_allocation(alignedTail, a_size, padding + a_size, a_outAllocation);
                 }
 
-                // 3) 末尾に入らない場合だけ先頭へ巻き戻し、末尾スラックごと予約済みとして扱う。
+                // - 末尾に入らない場合だけ先頭へ巻き戻し、末尾スラックごと予約済みとして扱う
                 if (a_size <= head && m_used + (m_capacity - m_tail) + a_size <= m_capacity)
                 {
                     return commit_allocation(0, a_size, (m_capacity - m_tail) + a_size, a_outAllocation);
@@ -84,7 +86,7 @@ namespace Cue::Core
                 return false;
             }
 
-            // 4) 既に wrap 済みなら head の手前だけが自由領域なので、その範囲に収まるかだけを見る。
+            // - 既に wrap 済みなら head の手前だけが自由領域なので、その範囲に収まるかだけを見る
             const size_t alignedTail = align_up(m_tail, alignment);
             const size_t padding = alignedTail - m_tail;
             if (alignedTail + a_size > head || m_used + padding + a_size > m_capacity)
@@ -97,7 +99,7 @@ namespace Cue::Core
 
         [[nodiscard]] bool release(const Allocation& a_allocation) noexcept
         {
-            // 1) FIFO の先頭以外を解放するとリングが壊れるので、順序違反は拒否する。
+            // - FIFO の先頭以外を解放するとリングが壊れるので、順序違反は拒否する
             if (m_allocations.empty() || !a_allocation.valid())
             {
                 return false;
@@ -109,7 +111,7 @@ namespace Cue::Core
                 return false;
             }
 
-            // 2) 予約時に消費したバイト数を戻し、次の先頭割り当てが head になる状態へ進める。
+            // - 予約時に消費したバイト数を戻し、次の先頭割り当てが head になる状態へ進める
             m_used -= front.reservedSize;
             m_allocations.pop_front();
             if (m_allocations.empty())
@@ -122,7 +124,7 @@ namespace Cue::Core
 
         [[nodiscard]] bool empty() const noexcept
         {
-            // 1) アクティブ割り当てが無いときだけ空とみなす。
+            // - アクティブ割り当てが無いときだけ空とみなす
             return m_allocations.empty();
         }
 
@@ -143,7 +145,7 @@ namespace Cue::Core
 
         [[nodiscard]] size_t head_offset() const noexcept
         {
-            // 1) 空のときは tail と同じ位置を head とみなし、分岐を増やさない。
+            // - 空のときは tail と同じ位置を head とみなし、分岐を増やさない
             if (m_allocations.empty())
             {
                 return m_tail;
@@ -159,7 +161,7 @@ namespace Cue::Core
     private:
         [[nodiscard]] static size_t align_up(size_t a_value, size_t a_alignment) noexcept
         {
-            // 1) 0 除算を避けつつ、要求アラインメント単位へ切り上げる。
+            // - 0 除算を避けつつ、要求アラインメント単位へ切り上げる
             if (a_alignment <= 1)
             {
                 return a_value;
@@ -175,7 +177,7 @@ namespace Cue::Core
             size_t a_reservedSize,
             Allocation& a_outAllocation) noexcept
         {
-            // 1) 予約情報を FIFO へ積み、解放時に wrap 分も含めて正しく戻せるようにする。
+            // - 予約情報を FIFO へ積み、解放時に wrap 分も含めて正しく戻せるようにする
             const Allocation allocation
             {
                 .offset = a_offset,
@@ -185,7 +187,7 @@ namespace Cue::Core
             };
             m_allocations.push_back(allocation);
 
-            // 2) 消費済みサイズと tail を更新して、次の割り当て開始位置を確定する。
+            // - 消費済みサイズと tail を更新して、次の割り当て開始位置を確定する
             m_used += a_reservedSize;
             m_tail = (a_offset + a_size) % m_capacity;
             a_outAllocation = allocation;

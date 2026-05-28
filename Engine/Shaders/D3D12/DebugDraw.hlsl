@@ -1,3 +1,5 @@
+// Render transient debug primitives from CPU-authored line and triangle buffers.
+
 cbuffer ViewProjection : register(b0)
 {
     row_major float4x4 g_viewMatrix;
@@ -16,6 +18,7 @@ struct VsOut
     float4 color : COLOR0;
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(VsIn input)
 {
     VsOut output;
@@ -25,6 +28,7 @@ VsOut vs_main(VsIn input)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     return input.color;

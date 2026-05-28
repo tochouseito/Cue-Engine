@@ -1,3 +1,5 @@
+// Share draw, material, light, and transform payloads across passes to keep register contracts consistent.
+
 struct RenderableInfo
 {
     uint id;

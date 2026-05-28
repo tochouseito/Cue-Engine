@@ -1,3 +1,5 @@
+// WinFileSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -12,7 +14,7 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows ファイルシステム実装です。
+    /// @brief Windows ファイルシステム実装
     class WinFileSystem final : public Core::IO::IFileSystem
     {
     public:

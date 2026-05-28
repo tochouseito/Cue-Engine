@@ -1,3 +1,5 @@
+// GameWorld の重いテンプレート外処理を分離し、シーン実行状態の所有範囲を明確にする
+
 #include "GameWorld.h"
 
 namespace Cue::GameCore

@@ -1,3 +1,5 @@
+// IThreadFactory の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -11,7 +13,7 @@
 
 namespace Cue::Core::Threading
 {
-    /// @brief スレッド生成を抽象化するファクトリです。
+    /// @brief スレッド生成を抽象化するファクトリ
     class IThreadFactory
     {
     public:
@@ -24,7 +26,7 @@ namespace Cue::Core::Threading
         IThreadFactory(IThreadFactory&&) = delete;
         IThreadFactory& operator=(IThreadFactory&&) = delete;
 
-        /// @brief 新しいスレッドを生成します。
+        /// @brief 新しいスレッドを生成する
         virtual Result create_thread(
             const ThreadDesc& a_desc,
             threadProc a_proc,

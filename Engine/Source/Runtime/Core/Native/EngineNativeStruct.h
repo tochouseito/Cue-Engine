@@ -1,3 +1,5 @@
+// EngineNativeStruct の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -61,7 +63,7 @@ namespace Cue::Core::Native
         std::vector<AnimationChannelData> channels;
     };
 
-    /// @brief 1 メッシュ分の頂点データです。
+    /// @brief 1 メッシュ分の頂点データ
     struct MeshData
     {
         std::string name;                         // メッシュ名
@@ -71,15 +73,15 @@ namespace Cue::Core::Native
         std::vector<SkinInfluenceData> skinInfluences; // スキニング用頂点影響
         std::vector<std::uint32_t> indices; // インデックスデータ配列
 
-        /// @brief 頂点数を返します。
-        /// @return 位置配列の要素数です。
+        /// @brief 頂点数を返す
+        /// @return 位置配列の要素数
         [[nodiscard]] uint32_t vertex_count() const noexcept
         {
             return static_cast<uint32_t>(positions.size());
         }
     };
 
-    /// @brief インポート元モデルに含まれるマテリアル情報です。
+    /// @brief インポート元モデルに含まれるマテリアル情報
     struct ImportedMaterialData
     {
         std::string name; // マテリアル名
@@ -91,7 +93,7 @@ namespace Cue::Core::Native
         bool usesReflectionSkybox = false;
     };
 
-    /// @brief モデル内の描画単位です。
+    /// @brief モデル内の描画単位
     struct ModelRenderPartData
     {
         std::string name; // 描画単位名
@@ -101,7 +103,7 @@ namespace Cue::Core::Native
         Math::float4x4 localTransform = Math::float4x4::identity();
     };
 
-    /// @brief モデル全体のメッシュ集合です。
+    /// @brief モデル全体のメッシュ集合
     struct ModelData
     {
         std::vector<MeshData> meshes; // メッシュデータ配列

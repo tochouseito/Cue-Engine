@@ -1,3 +1,5 @@
+// NavigationWorld の実装点を分け、経路探索状態の所有と Recast 依存を局所化する
+
 #include "NavigationWorld.h"
 
 namespace Cue::GameCore

@@ -1,3 +1,5 @@
+// Build indirect static mesh batches on the GPU to avoid per-object CPU draw submission.
+
 #include "DrawCommon.hlsli"
 
 struct IndirectCommand
@@ -18,6 +20,7 @@ ByteAddressBuffer g_renderObjectCount : register(t3);
 RWStructuredBuffer<IndirectCommand> g_indirectCommands : register(u0);
 RWByteAddressBuffer g_indirectCommandCount : register(u1);
 
+// Instance counting scans a sorted bucket so one indirect command can cover matching meshes.
 uint count_instances(uint startObjectIndex, uint objectCount, uint meshId)
 {
     uint instanceCount = 1;
@@ -36,6 +39,7 @@ uint count_instances(uint startObjectIndex, uint objectCount, uint meshId)
 }
 
 [numthreads(64, 1, 1)]
+// Compute entry point runs one logical item per dispatch thread to avoid CPU-side iteration.
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint objectCount = g_renderObjectCount.Load(0);

@@ -8,7 +8,7 @@ namespace Cue::PAL::Win
 
     WinFile::~WinFile()
     {
-        // 1) close を呼ばれていなくてもリークさせない
+        // - close を呼ばれていなくてもリークさせない
         if (m_handle != INVALID_HANDLE_VALUE)
         {
             (void)::CloseHandle(m_handle);
@@ -18,7 +18,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::read(std::span<std::byte> a_destination, uint64_t* a_outRead) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outRead == nullptr)
         {
             return Result::fail(
@@ -34,13 +34,13 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) 0バイト
+        // - 0バイト
         if (a_destination.size() == 0)
         {
             return Result::ok();
         }
 
-        // 3) ReadFile (最大DWORDずつ)
+        // - ReadFile (最大DWORDずつ)
         uint64_t total = 0;
         size_t offset = 0;
 
@@ -60,7 +60,7 @@ namespace Cue::PAL::Win
             total += static_cast<uint64_t>(readBytes);
             offset += static_cast<size_t>(readBytes);
 
-            // 4) EOF
+            // - EOF
             if (readBytes == 0)
             {
                 break;
@@ -73,7 +73,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::write(std::span<const std::byte> a_source, uint64_t* a_outWritten) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outWritten == nullptr)
         {
             return Result::fail(
@@ -89,13 +89,13 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) 0バイト
+        // - 0バイト
         if (a_source.size() == 0)
         {
             return Result::ok();
         }
 
-        // 3) WriteFile (最大DWORDずつ)
+        // - WriteFile (最大DWORDずつ)
         uint64_t total = 0;
         size_t offset = 0;
 
@@ -115,7 +115,7 @@ namespace Cue::PAL::Win
             total += static_cast<uint64_t>(written);
             offset += static_cast<size_t>(written);
 
-            // 4) 異常（書けない）
+            // - 異常（書けない）
             if (written == 0)
             {
                 return Result::fail(
@@ -130,7 +130,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::seek(int64_t a_offset, Cue::Core::IO::SeekOrigin a_origin) noexcept
     {
-        // 1) ハンドルチェック
+        // - ハンドルチェック
         if (m_handle == INVALID_HANDLE_VALUE)
         {
             return Result::fail(
@@ -138,7 +138,7 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) origin
+        // - origin
         DWORD moveMethod = FILE_BEGIN;
         switch (a_origin)
         {
@@ -157,7 +157,7 @@ namespace Cue::PAL::Win
                 "Invalid seek origin.");
         }
 
-        // 3) SetFilePointerEx
+        // - SetFilePointerEx
         LARGE_INTEGER li{};
         li.QuadPart = a_offset;
 
@@ -174,7 +174,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::tell(uint64_t* a_outPosition) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outPosition == nullptr)
         {
             return Result::fail(
@@ -190,7 +190,7 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) 現在位置 = seek(0, current)
+        // - 現在位置 = seek(0, current)
         LARGE_INTEGER zero{};
         zero.QuadPart = 0;
 
@@ -215,7 +215,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::size(uint64_t* a_outSize) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outSize == nullptr)
         {
             return Result::fail(
@@ -231,7 +231,7 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) GetFileSizeEx
+        // - GetFileSizeEx
         LARGE_INTEGER sz{};
         if (::GetFileSizeEx(m_handle, &sz) == FALSE)
         {
@@ -253,7 +253,7 @@ namespace Cue::PAL::Win
 
     Result WinFile::flush() noexcept
     {
-        // 1) ハンドルチェック
+        // - ハンドルチェック
         if (m_handle == INVALID_HANDLE_VALUE)
         {
             return Result::fail(
@@ -261,7 +261,7 @@ namespace Cue::PAL::Win
                 "Invalid file handle.");
         }
 
-        // 2) FlushFileBuffers
+        // - FlushFileBuffers
         if (::FlushFileBuffers(m_handle) == FALSE)
         {
             return Result::fail(
@@ -274,13 +274,13 @@ namespace Cue::PAL::Win
 
     Result WinFile::close() noexcept
     {
-        // 1) 既に閉じている
+        // - 既に閉じている
         if (m_handle == INVALID_HANDLE_VALUE)
         {
             return Result::ok();
         }
 
-        // 2) CloseHandle
+        // - CloseHandle
         if (::CloseHandle(m_handle) == FALSE)
         {
             return Result::fail(

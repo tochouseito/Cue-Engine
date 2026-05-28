@@ -1,3 +1,5 @@
+// WinPlatform の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -25,36 +27,36 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows 向けプラットフォーム実装です。
+    /// @brief Windows 向けプラットフォーム実装
     class WinPlatform final : public IPlatform
     {
     public:
         WinPlatform();
         ~WinPlatform() override;
 
-        /// @brief プラットフォーム実装を初期化します。
+        /// @brief プラットフォーム実装を初期化する
         Result initialize(const PlatformSetupInfo& a_info) override;
-        /// @brief ウィンドウ表示を開始します。
+        /// @brief ウィンドウ表示を開始し
         Result start() override;
-        /// @brief 終了処理を行います。
+        /// @brief 終了処理を行いる
         Result shutdown() override;
-        /// @brief フレーム開始処理を行います。
+        /// @brief フレーム開始処理を行いる
         Result begin_frame() override;
-        /// @brief フレーム終了処理を行います。
+        /// @brief フレーム終了処理を行いる
         Result end_frame() override;
-        /// @brief Windows メッセージを 1 件取得します。
+        /// @brief Windows メッセージを 1 件取得する
         PlatformMessage poll_message() override;
-        /// @brief Editor/App のメインウィンドウがフォーカスされているか返します。
+        /// @brief Editor/App のメインウィンドウがフォーカスされているか返す
         [[nodiscard]] bool is_window_focused() const noexcept override;
-        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替えます。
+        /// @brief ファイルのドラッグアンドドロップ受け付けを切り替え
         Result set_drag_drop_enabled(bool a_isEnabled) override;
-        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返します。
+        /// @brief ファイルのドラッグアンドドロップ受け付けが有効か返す
         [[nodiscard]] bool is_drag_drop_enabled() const noexcept override;
-        /// @brief ドロップされたファイルパスを取り出します。
+        /// @brief ドロップされたファイルパスを取り出し
         [[nodiscard]] bool consume_dropped_files(
             std::vector<std::string>& a_outPaths) noexcept override;
 
-        /// @brief 作成済みウィンドウハンドルを返します。
+        /// @brief 作成済みウィンドウハンドルを返す
         HWND get_window_handle() const noexcept
         {
             return m_app ? m_app->get_window_handle() : nullptr;
@@ -63,7 +65,7 @@ namespace Cue::PAL::Win
         [[nodiscard]] uint64_t register_message_handler(WinApp::messageHandler a_handler);
         /// @brief メッセージハンドラ解除
         bool unregister_message_handler(uint64_t handlerId);
-        /// @brief Platform 用 command bridge を設定します。
+        /// @brief Platform 用 command bridge を設定する
         void set_platform_bridge(Core::CQRS::Bridge* a_bridge) noexcept;
     public:
         // --- 取得 --- 

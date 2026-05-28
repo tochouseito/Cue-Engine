@@ -123,7 +123,7 @@ namespace Cue::DrawSystem
         , m_commandPool(commandPool)
         , m_queuePool(queuePool)
     {
-        // 1) コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh で検査できるようにする。
+        // - コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh で検査できるようにする
         m_initResult = initialize_streams(desc);
         if (m_initResult)
         {
@@ -133,7 +133,7 @@ namespace Cue::DrawSystem
 
     StaticMeshPool::~StaticMeshPool()
     {
-        // 1) 生成順の逆順で破棄し、staging/default の両方を BufferManager へ戻す。
+        // - 生成順の逆順で破棄し、staging/default の両方を BufferManager へ戻す
         if (m_meshRangeState.srvHandle.valid())
         {
             m_viewManager.destroy_view(m_meshRangeState.srvHandle);
@@ -164,7 +164,7 @@ namespace Cue::DrawSystem
 
     Result StaticMeshPool::initialize_streams(const StaticMeshPoolDesc& desc)
     {
-        // 1) 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る。
+        // - 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る
         Result result = create_stream_state(
             desc.positionName,
             BufferType::Vertex,
@@ -343,7 +343,7 @@ namespace Cue::DrawSystem
         uint32_t alignment,
         StreamState& outStreamState)
     {
-        // 1) 常駐先は default heap、通常のコピー元は小さい staging upload buffer とする。
+        // - 常駐先は default heap、通常のコピー元は小さい staging upload buffer とする
         BufferDesc defaultDesc{};
         defaultDesc.name = bufferName;
         defaultDesc.type = bufferType;
@@ -452,7 +452,7 @@ namespace Cue::DrawSystem
         uint32_t alignment,
         uint64_t& outOffset)
     {
-        // 1) 常駐先は free-list で管理し、任意順の解放後でも再利用できるようにする。
+        // - 常駐先は free-list で管理し、任意順の解放後でも再利用できるようにする
         if (!allocate_from_free_ranges(streamState.freeRanges, byteSize, alignment, outOffset))
         {
             return Result::fail(
@@ -469,7 +469,7 @@ namespace Cue::DrawSystem
         uint64_t byteOffset,
         uint64_t byteSize)
     {
-        // 1) 解放済み領域を free-list に戻し、隣接区間は即時マージして断片化を抑える。
+        // - 解放済み領域を free-list に戻し、隣接区間は即時マージして断片化を抑える
         release_to_free_ranges(streamState.freeRanges, byteOffset, byteSize);
     }
 
@@ -602,7 +602,7 @@ namespace Cue::DrawSystem
         const void* sourceData,
         uint64_t byteSize)
     {
-        // 1) upload staging へ直接書き込み、データ未指定の属性はゼロで埋める。
+        // - upload staging へ直接書き込み、データ未指定の属性はゼロで埋める
         std::byte* dst = allocation.mappedData + allocation.byteOffset;
         if (sourceData == nullptr)
         {
@@ -697,7 +697,7 @@ namespace Cue::DrawSystem
 
     void StaticMeshPool::destroy_stream_state(StreamState& streamState)
     {
-        // 1) staging/default の順に破棄し、BufferManager の所有実体を明示的に返す。
+        // - staging/default の順に破棄し、BufferManager の所有実体を明示的に返す
         if (streamState.stagingBufferHandle.valid())
         {
             m_bufferManager.destroy_buffer(streamState.stagingBufferHandle);
@@ -789,7 +789,7 @@ namespace Cue::DrawSystem
 
     Result StaticMeshPool::allocate_mesh(const Core::Native::MeshData& meshData, StaticMeshHandle& outHandle)
     {
-        // 1) 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ。
+        // - 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ
         outHandle = {};
         if (!m_initResult)
         {
@@ -826,7 +826,7 @@ namespace Cue::DrawSystem
                 "Skin influence count must match the position count.");
         }
 
-        // 2) 常駐先の空き領域を先に押さえ、どれか一つでも足りなければ全体を巻き戻す。
+        // - 常駐先の空き領域を先に押さえ、どれか一つでも足りなければ全体を巻き戻す
         StaticMeshRecord record{};
         record.vertexCount = vertexCount;
         record.indexCount = static_cast<uint32_t>(meshData.indices.size());
@@ -909,7 +909,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        // 3) 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす。
+        // - 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす
         UploadAllocation positionUpload{};
         UploadAllocation uvUpload{};
         UploadAllocation normalUpload{};
@@ -1126,7 +1126,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        // 4) 転送完了後にメッシュレコードを登録し、必要なら名前引きも更新する。
+        // - 転送完了後にメッシュレコードを登録し、必要なら名前引きも更新する
         if (!meshData.name.empty())
         {
             record.nameId = Core::fnv1a64(meshData.name);
@@ -1145,7 +1145,7 @@ namespace Cue::DrawSystem
 
     Result StaticMeshPool::free_mesh(StaticMeshHandle handle)
     {
-        // 1) レコードを解決して、常駐領域と名前引きをまとめて巻き戻す。
+        // - レコードを解決して、常駐領域と名前引きをまとめて巻き戻す
         StaticMeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))
         {
@@ -1178,7 +1178,7 @@ namespace Cue::DrawSystem
         }
         m_meshIdToHandlesMap.erase(record.meshId);
 
-        // 2) registry から外してハンドルを無効化し、次回の再利用に備える。
+        // - registry から外してハンドルを無効化し、次回の再利用に備える
         if (!m_meshRegistry.destroy(handle))
         {
             return Result::fail(
