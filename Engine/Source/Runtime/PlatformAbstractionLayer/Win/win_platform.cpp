@@ -105,6 +105,9 @@ namespace Cue::PAL::Win
                 "Failed to create window.");
         }
 
+        // コマンドブリッジをウィンドウにセット
+        m_app->set_command_bridge(m_commandBridge);
+
         return Result::ok();
     }
 

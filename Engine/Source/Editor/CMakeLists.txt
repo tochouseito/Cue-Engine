@@ -19,6 +19,7 @@ target_link_libraries(Editor PRIVATE
    Base
    Core
    win_platform
+   Engine
 )
 
 # インクルードディレクトリの指定

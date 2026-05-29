@@ -68,8 +68,16 @@ namespace Cue::PAL::Win
         {
             return m_hwnd;
         }
+
+        /// @brief コマンドブリッジをセット
+        /// @param a_bridge コマンドブリッジ
+        void set_command_bridge(Core::CQRS::Bridge* a_bridge) noexcept
+        {
+            m_commandBridge = a_bridge;
+        }
     private:
         HWND m_hwnd = nullptr; // ウィンドウハンドル
         bool m_shouldClose = false; // 終了フラグ
+        Core::CQRS::Bridge* m_commandBridge = nullptr; // コマンドブリッジ
     };
 }

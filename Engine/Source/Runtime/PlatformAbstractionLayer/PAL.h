@@ -17,6 +17,7 @@
 #include <Time/IClock.h>
 #include <Time/IWaiter.h>
 #include <Time/Timer.h>
+#include <CQRS/CQRS.h>
 
 /// === PAL includes ===
 #include "PlatformMessage.h"
@@ -57,7 +58,13 @@ namespace Cue::PAL
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
         virtual Core::IO::IFileSystem& file_system() = 0;
-    private:
 
+        // --- コマンドブリッジをセット ---
+        void set_command_bridge(Core::CQRS::Bridge* a_bridge) noexcept
+        {
+            m_commandBridge = a_bridge;
+        }
+    protected:
+        Core::CQRS::Bridge* m_commandBridge = nullptr; // コマンドブリッジの非所有ポインタ
     };
 }

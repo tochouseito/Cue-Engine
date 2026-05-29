@@ -1,5 +1,11 @@
 #include "WinApp.h"
 
+// === Base includes ===
+#include <CueAssert.h>
+
+// === PAL includes ===
+#include <PlatformCommands.h>
+
 // === C++ includes ===
 #include <cstdint>
 
@@ -126,13 +132,84 @@ namespace Cue::PAL::Win
         // 未処理メッセージを既定処理へ移譲
         switch (a_message)
         {
-        case WM_CLOSE:
+        case WM_SIZE: // ウィンドウサイズ変更通知
+        {
+            if (m_commandBridge == nullptr || a_wParam == SIZE_MINIMIZED)
+            {
+                return 0;
+            }
+
+            const uint32_t resizedWidth = static_cast<uint32_t>(LOWORD(a_lParam));
+            const uint32_t resizedHeight = static_cast<uint32_t>(HIWORD(a_lParam));
+            if (resizedWidth == 0 || resizedHeight == 0)
+            {
+                return 0;
+            }
+
+            Result result = m_commandBridge->submit_command(
+                std::make_unique<PAL::ResizeWindowCommand>(
+                    resizedWidth, resizedHeight));
+            if (!result)
+            {
+                CUE_ASSERT_FORMAT(false,
+                    "Failed to submit resize command: %s (code: %s, severity: %s) at "
+                    "%s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file, result.line,
+                    result.function);
+            }
+
+            return 0;
+        }
+        case WM_DPICHANGED: // DPI 変更通知
+        {
+            RECT* suggestedRect = reinterpret_cast<RECT*>(a_lParam);
+            if (suggestedRect != nullptr)
+            {
+                ::SetWindowPos(
+                    a_hwnd,
+                    nullptr,
+                    suggestedRect->left,
+                    suggestedRect->top,
+                    suggestedRect->right - suggestedRect->left,
+                    suggestedRect->bottom - suggestedRect->top,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+
+            if (m_commandBridge == nullptr)
+            {
+                return 0;
+            }
+
+            const WindowSize clientSize = get_client_size();
+            if (clientSize.width == 0 || clientSize.height == 0)
+            {
+                return 0;
+            }
+
+            Result result = m_commandBridge->submit_command(
+                std::make_unique<PAL::ResizeWindowCommand>(
+                    clientSize.width, clientSize.height));
+            if (!result)
+            {
+                CUE_ASSERT_FORMAT(false,
+                    "Failed to submit dpi resize command: %s (code: %s, severity: %s) at "
+                    "%s:%u in function %s",
+                    result.message.data(), Cue::to_string(result.code),
+                    Cue::to_string(result.severity), result.file, result.line,
+                    result.function);
+            }
+
+            return 0;
+        }
+
+        case WM_CLOSE: // 閉じる要求
             // 破棄は engine 終了手順へ移譲
             // メインループ終了フラグ設定
             m_shouldClose = true;
             return 0;
 
-        case WM_DESTROY:
+        case WM_DESTROY: // ウィンドウ破棄通知
             // quit メッセージ送出
             ::PostQuitMessage(0);
             return 0;

@@ -3,7 +3,7 @@
 # ヘッダー/設定のみのターゲット
 add_library(PAL STATIC
     "PAL.h"
- "PAL.cpp" "PlatformMessage.h")
+ "PAL.cpp" "PlatformMessage.h" "PlatformRuntimeState.h" "PlatformCommands.h")
 
 # リンクするライブラリの指定
 target_link_libraries(PAL PUBLIC

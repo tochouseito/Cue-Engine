@@ -5,9 +5,13 @@
 // === Core includes ===
 #include <IO/Logger.h>
 #include <Time/FrameCounter.h>
+#include <CQRS/CQRS.h>
 
 // === WinPlatform includes ===
 #include <win_platform.h>
+
+// === Engine includes ===
+#include <Engine.h>
 
 using namespace Cue;
 
@@ -25,6 +29,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // プラットフォーム実装を初期化
     std::unique_ptr<PAL::Win::WinPlatform> platform = std::make_unique<PAL::Win::WinPlatform>();
+    std::unique_ptr<Core::CQRS::Bridge> commandBridge = std::make_unique<Core::CQRS::Bridge>();
+    platform->set_command_bridge(commandBridge.get()); // コマンドブリッジをプラットフォームにセット
     PAL::PlatformSetupInfo setupInfo{};
     setupInfo.width = width;
     setupInfo.height = height;
@@ -43,9 +49,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Logger にプラットフォームのファイルシステムをセット
     Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
 
+    // Engine を初期化
+    std::unique_ptr<Engine> engine = std::make_unique<Engine>();
+    EngineSetupInfo engineSetupInfo{};
+    engine->initialize(engineSetupInfo);
+
     // test
     Core::Time::FrameCounter frameCounter(platform->clock(), platform->waiter());
-    frameCounter.set_max_fps(0);
+    frameCounter.set_max_fps(60);
 
     // ウィンドウ表示を開始
     r = platform->start();
@@ -71,8 +82,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
+        r = engine->begin_frame();
+
+        // 失敗したらエラーを表示して終了
+        if (!r)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s", r.message.data());
+            return -1;
+        }
+
         // --- ここで Engine 側の更新と描画処理を呼び出す ---
         Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
+
+        r = engine->end_frame();
+
+        // 失敗したらエラーを表示して終了
+        if (!r)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s", r.message.data());
+            return -1;
+        }
 
         // フレーム終了
         r = platform->end_frame();
