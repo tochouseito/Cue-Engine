@@ -4,10 +4,10 @@
 find_package(directxtk12 CONFIG REQUIRED)
 
 # ターゲットソースファイルの追加
-add_library(d3d12_backend STATIC "D3D12Backend.h" "D3D12Backend.cpp" "DX12Common.h")
+add_library(d3d12_backend STATIC "D3D12Backend.h" "D3D12Backend.cpp" "DX12Common.h" "DX12RenderDevice.h" "DX12RenderDevice.cpp" "ResourceLeakChecker.h")
 
 # リンクするライブラリの指定
-target_link_libraries(d3d12_backend
+target_link_libraries(d3d12_backend PUBLIC
   cue_warnings
   cue_compile_options
   Base
@@ -16,6 +16,13 @@ target_link_libraries(d3d12_backend
   RHI
   win_platform
   Microsoft::DirectXTK12
+)
+
+target_link_libraries(d3d12_backend PRIVATE
+    d3d12
+    dxgi
+    dxcompiler
+    dxguid
 )
 
 # ターゲットのインクルードディレクトリを設定

@@ -1,7 +1,7 @@
 # RHI モジュールの CMakeLists.txt
 
 # ターゲットソースファイルの追加
-add_library(RHI STATIC "RHI.h" "RHI.cpp" "RHICommon.h")
+add_library(RHI STATIC "RHI.h" "RHI.cpp" "RHICommon.h" "ShaderCompiler.h")
 
 # リンクするライブラリの指定
 target_link_libraries( RHI
