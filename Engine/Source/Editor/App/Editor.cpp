@@ -101,7 +101,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         profiler.begin("Test", "Update");
         platform->waiter().sleep_for({ 16, Math::TimeUnit::milliseconds }); // 16 ms スリープして約 60 fps を目指す
         profiler.end("Test", "Update");
-        Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms", profiler.get_snapshot("Test", "Update").timer.elapsed_seconds() * 1000.0);
+        if (const auto snapshot = profiler.get_snapshot("Test", "Update"))
+        {
+            Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms", snapshot->timer.elapsed_seconds() * 1000.0);
+        }
 
         r = engine->end_frame();
 
