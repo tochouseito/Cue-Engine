@@ -29,7 +29,7 @@ namespace Cue
 
         // フレームコントローラーの生成
         FrameControllerDesc desc(a_info.renderBackend->buffer_count());
-        desc.mode = ControllerMode::Fixed;
+        desc.mode = ControllerMode::Backpressure;
         desc.maxFps = a_info.maxFps;
         m_frameController = std::make_unique<FrameController>(
             desc, m_platform->thread_factory(), m_platform->clock(),

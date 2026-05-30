@@ -28,7 +28,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const char* className = "CueEditorWindowClass";
     const char* title = "Cue Editor";
     uint32_t maxFps = 0;
-    uint32_t bufferCount = 1;
+    uint32_t bufferCount = 3;
 
     // 処理結果
     Result r = Result::ok();

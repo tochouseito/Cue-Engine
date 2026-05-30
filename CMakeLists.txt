@@ -20,6 +20,8 @@ endif()
 # プロジェクトの名前とバージョンを定義
 project(CueEngine VERSION 0.0.1 LANGUAGES C CXX)
 
+option(CUE_BUILD_EDITOR "Build the editor application and editor-specific runtime code" OFF)
+
 # vcpkg のホストトリプレットを定義（環境変数 VCPKG_HOST_TRIPLET が定義されていない場合はデフォルト値を使用）
 if (NOT DEFINED VCPKG_HOST_TRIPLET OR VCPKG_HOST_TRIPLET STREQUAL "")
   set(VCPKG_HOST_TRIPLET "x64-windows")
@@ -88,11 +90,19 @@ target_compile_definitions(cue_compile_options INTERFACE
     $<$<CONFIG:Debug>:CUE_DEBUG=1>
 )
 
+if (CUE_BUILD_EDITOR)
+  target_compile_definitions(cue_compile_options INTERFACE
+      CUE_EDITOR=1
+  )
+endif()
+
 # 追加のインクルードディレクトリ
 target_include_directories(cue_compile_options INTERFACE
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty"
 )
 
 # サブディレクトリの追加
-add_subdirectory("Engine/Source/Editor")
 add_subdirectory("Engine/Source/Runtime")
+if (CUE_BUILD_EDITOR)
+  add_subdirectory("Engine/Source/Editor")
+endif()

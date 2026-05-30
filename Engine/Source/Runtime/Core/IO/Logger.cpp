@@ -8,7 +8,7 @@
 #include <span>
 #include <utility>
 
-#if defined(CUE_DEBUG) && defined(_WIN32)
+#if defined(CUE_EDITOR) && defined(_WIN32)
 // === Windows includes ===
 #include <Windows.h>
 #endif
@@ -43,10 +43,10 @@ namespace Cue::Core::IO
 
     void out_debug_console([[maybe_unused]] std::string_view a_message)
     {
-#ifdef CUE_DEBUG
-        // Debug + Windows では Visual Studio の出力ウィンドウへ出力
+#if defined(CUE_EDITOR) && defined(_WIN32)
+        // Editor Visual Studio の出力ウィンドウへ出力
         ::OutputDebugStringA(a_message.data());
-#endif // CUE_DEBUG
+#endif // defined(CUE_EDITOR) && defined(_WIN32)
     }
 
     Result set_log_file(IFileSystem& a_fileSystem, Path a_path, bool a_truncate) noexcept

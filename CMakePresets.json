@@ -25,6 +25,9 @@
       "name": "win-x64",
       "displayName": "Windows x64 (VS/MSBuild)",
       "inherits": "windows-base",
+      "cacheVariables": {
+        "CUE_BUILD_EDITOR": "ON"
+      },
       "architecture": {
         "value": "x64",
         "strategy": "set"
