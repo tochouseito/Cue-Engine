@@ -7,6 +7,9 @@
 // === Base includes ===
 #include <CueResult.h>
 
+// === Core includes ===
+#include <CQRS/CQRS.h>
+
 // === PAL includes ===
 #include <PlatformMessage.h>
 

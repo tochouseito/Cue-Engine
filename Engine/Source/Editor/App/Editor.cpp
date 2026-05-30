@@ -6,6 +6,7 @@
 #include <IO/Logger.h>
 #include <Time/FrameCounter.h>
 #include <CQRS/CQRS.h>
+#include <DebugTool/Profiler.h>
 
 // === WinPlatform includes ===
 #include <win_platform.h>
@@ -49,9 +50,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Logger にプラットフォームのファイルシステムをセット
     Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
 
+    // Profiler を初期化
+    Core::Profiler profiler(platform->clock());
+
     // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     EngineSetupInfo engineSetupInfo{};
+    engineSetupInfo.platformCommandBridge = commandBridge.get(); // コマンドブリッジを Engine にセット
     engine->initialize(engineSetupInfo);
 
     // test
@@ -92,7 +97,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // --- ここで Engine 側の更新と描画処理を呼び出す ---
-        Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
+        // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
+        profiler.begin("Test", "Update");
+        platform->waiter().sleep_for({ 16, Math::TimeUnit::milliseconds }); // 16 ms スリープして約 60 fps を目指す
+        profiler.end("Test", "Update");
+        Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms", profiler.get_snapshot("Test", "Update").timer.elapsed_seconds() * 1000.0);
 
         r = engine->end_frame();
 
