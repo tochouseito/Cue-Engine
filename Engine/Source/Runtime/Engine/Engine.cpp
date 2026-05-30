@@ -24,12 +24,32 @@ namespace Cue
 
         // 依存オブジェクトの保存
         m_platformCommandBridge = a_info.platformCommandBridge;
+        m_platform = a_info.platform;
+
+        // フレームコントローラーの生成
+        FrameControllerDesc desc(3);
+        desc.mode = ControllerMode::Fixed;
+        desc.maxFps = a_info.maxFps;
+        m_frameController = std::make_unique<FrameController>(
+            desc, m_platform->thread_factory(), m_platform->clock(),
+            m_platform->waiter(), update(), render(), present(),
+            [this]()
+            {
+                
+            });
 
         return Result::ok();
     }
 
     void Engine::shutdown()
     {
+        // フレームコントローラーの終了
+        if (m_frameController != nullptr)
+        {
+            m_frameController->synchronize();
+            m_frameController.reset();
+        }
+
         // 依存オブジェクトの解放
         m_platformCommandBridge = nullptr;
     }
@@ -61,6 +81,9 @@ namespace Cue
     Result Engine::tick()
     {
         // ティック処理
+
+        m_frameController->step();
+
         return Result::ok();
     }
 }

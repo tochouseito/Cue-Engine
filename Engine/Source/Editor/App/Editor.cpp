@@ -56,12 +56,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     EngineSetupInfo engineSetupInfo{};
+    engineSetupInfo.maxFps = 60; // 最大フレームレートを Engine にセット
+    engineSetupInfo.platform = platform.get(); // プラットフォームを Engine にセット
     engineSetupInfo.platformCommandBridge = commandBridge.get(); // コマンドブリッジを Engine にセット
     engine->initialize(engineSetupInfo);
-
-    // test
-    Core::Time::FrameCounter frameCounter(platform->clock(), platform->waiter());
-    frameCounter.set_max_fps(60);
 
     // ウィンドウ表示を開始
     r = platform->start();
@@ -99,7 +97,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // --- ここで Engine 側の更新と描画処理を呼び出す ---
         // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
         profiler.begin("Test", "Update");
-        platform->waiter().sleep_for({ 16, Math::TimeUnit::milliseconds }); // 16 ms スリープして約 60 fps を目指す
         profiler.end("Test", "Update");
         if (const auto snapshot = profiler.get_snapshot("Test", "Update"))
         {
@@ -124,8 +121,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
             return -1;
         }
-
-        frameCounter.tick();
     }
 
     Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Editor shutdown");
