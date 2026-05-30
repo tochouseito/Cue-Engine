@@ -14,6 +14,9 @@
 #include <PAL.h>
 #include <PlatformRuntimeState.h>
 
+// === RHI includes ===
+#include <RHI.h>
+
 // === Engine includes ===
 #include "FrameController.h"
 
@@ -26,6 +29,7 @@ namespace Cue
     struct EngineSetupInfo final
     {
         PAL::IPlatform* platform = nullptr; // プラットフォームインターフェース
+        RHI::IRenderBackend* renderBackend = nullptr; // レンダーバックエンド
         Core::CQRS::Bridge* platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
         uint32_t maxFps = 60; // 最大フレームレート
     };
@@ -57,6 +61,12 @@ namespace Cue
         /// @brief ティック処理
         Result tick();
 
+        //
+        FrameController& frame_controller() noexcept
+        {
+            return *m_frameController;
+        }
+
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update()
         {
@@ -86,5 +96,6 @@ namespace Cue
         PAL::IPlatform* m_platform = nullptr; // プラットフォームインターフェースの非所有ポインタ
         Core::CQRS::Bridge* m_platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
         PAL::PlatformRuntimeState m_platformRuntimeState; // プラットフォームランタイム状態
+        RHI::IRenderBackend* m_renderBackend = nullptr; // レンダーバックエンドの非所有ポインタ
     };
 }

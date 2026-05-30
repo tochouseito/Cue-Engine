@@ -4,7 +4,7 @@
 find_package(directxtk12 CONFIG REQUIRED)
 
 # ターゲットソースファイルの追加
-add_library(d3d12_backend STATIC "D3D12Backend.h" "D3D12Backend.cpp" "stdafx.h")
+add_library(d3d12_backend STATIC "D3D12Backend.h" "D3D12Backend.cpp" "DX12Common.h")
 
 # リンクするライブラリの指定
 target_link_libraries(d3d12_backend

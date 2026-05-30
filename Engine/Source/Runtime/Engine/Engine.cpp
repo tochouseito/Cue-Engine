@@ -25,9 +25,10 @@ namespace Cue
         // 依存オブジェクトの保存
         m_platformCommandBridge = a_info.platformCommandBridge;
         m_platform = a_info.platform;
+        m_renderBackend = a_info.renderBackend;
 
         // フレームコントローラーの生成
-        FrameControllerDesc desc(3);
+        FrameControllerDesc desc(a_info.renderBackend->buffer_count());
         desc.mode = ControllerMode::Fixed;
         desc.maxFps = a_info.maxFps;
         m_frameController = std::make_unique<FrameController>(

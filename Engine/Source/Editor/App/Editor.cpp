@@ -11,6 +11,9 @@
 // === WinPlatform includes ===
 #include <win_platform.h>
 
+// === D3D12Backend includes ===
+#include <D3D12Backend.h>
+
 // === Engine includes ===
 #include <Engine.h>
 
@@ -24,6 +27,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint32_t height = 720;
     const char* className = "CueEditorWindowClass";
     const char* title = "Cue Editor";
+    uint32_t maxFps = 0;
+    uint32_t bufferCount = 1;
 
     // 処理結果
     Result r = Result::ok();
@@ -53,12 +58,30 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Profiler を初期化
     Core::Profiler profiler(platform->clock());
 
+    // レンダーバックエンドを初期化
+    std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend = std::make_unique<RHI::DX12::D3D12Backend>();
+    RHI::RenderBackendSetupInfo renderBackendSetupInfo{};
+    renderBackendSetupInfo.enableDebugLayer = true;
+    renderBackendSetupInfo.width = width;
+    renderBackendSetupInfo.height = height;
+    renderBackendSetupInfo.bufferCount = bufferCount;
+    r = renderBackend->initialize(renderBackendSetupInfo);
+
+    // 失敗したらエラーを表示して終了
+    if (!r)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to initialize render backend: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize render backend: %s", r.message.data());
+        return -1;
+    }
+
     // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     EngineSetupInfo engineSetupInfo{};
-    engineSetupInfo.maxFps = 60; // 最大フレームレートを Engine にセット
+    engineSetupInfo.maxFps = maxFps; // 最大フレームレートを Engine にセット
     engineSetupInfo.platform = platform.get(); // プラットフォームを Engine にセット
     engineSetupInfo.platformCommandBridge = commandBridge.get(); // コマンドブリッジを Engine にセット
+    engineSetupInfo.renderBackend = renderBackend.get(); // レンダーバックエンドを Engine にセット
     engine->initialize(engineSetupInfo);
 
     // ウィンドウ表示を開始
@@ -95,13 +118,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // --- ここで Engine 側の更新と描画処理を呼び出す ---
-        // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
-        profiler.begin("Test", "Update");
+        r = engine->tick();
+
+        // 失敗したらエラーを表示して終了
+        if (!r)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to tick engine: %s", r.message.data());
+            return -1;
+        }
+
+        const Core::Time::FrameCounter& frameCounter = engine->frame_controller().frame_counter();
+        if (frameCounter.total_frames() > 0)
+        {
+            Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
+        }
+        /*profiler.begin("Test", "Update");
         profiler.end("Test", "Update");
         if (const auto snapshot = profiler.get_snapshot("Test", "Update"))
         {
             Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms", snapshot->timer.elapsed_seconds() * 1000.0);
-        }
+        }*/
 
         r = engine->end_frame();
 

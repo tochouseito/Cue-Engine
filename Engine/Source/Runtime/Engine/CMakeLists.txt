@@ -14,6 +14,7 @@ target_link_libraries(Engine PUBLIC
     CueMath
     Core
     PAL
+    RHI
 )
 
 # インクルードディレクトリの指定
