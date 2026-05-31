@@ -17,6 +17,9 @@
 
 namespace Cue::RHI::DX12
 {
+    /// @brief DXGI swap chain と back buffer の RHI handle を管理する。
+    /// @details DXGI から取得した back buffer resource を TextureManager に外部登録し、
+    ///          ViewManager で RTV を作ることで通常 texture と同じ handle 経由で扱えるようにする。
     class SwapChain final
     {
     public:
@@ -56,6 +59,8 @@ namespace Cue::RHI::DX12
         uint32_t width() const noexcept { return m_width; }
         uint32_t height() const noexcept { return m_height; }
     private:
+        // ResizeBuffers 後は native back buffer がすべて差し替わるため、
+        // texture/view handle を作り直して RHI 側の参照を最新 resource へ向ける。
         Result rebuild_back_buffer_resources();
         Result destroy_back_buffer_resources();
 

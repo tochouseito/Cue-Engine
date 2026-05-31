@@ -17,6 +17,8 @@
 
 namespace Cue::RHI::DX12
 {
+    // ViewHandle から参照される descriptor table 群。
+    // default/upload の両 resource に同じ ViewDesc から個別の descriptor を作るため配列で保持する。
     struct DX12ViewRecord final
     {
         ViewDesc desc{};
@@ -24,6 +26,8 @@ namespace Cue::RHI::DX12
         std::vector<TableID> uploadTableIds; // アップロード用ビューのテーブルID
     };
 
+    /// @brief Buffer/Texture に対する CBV/SRV/UAV/RTV/DSV 作成を集約する。
+    /// @details ViewDesc を D3D12 descriptor に変換し、DescriptorAllocator の table lifetime と結び付ける。
     class DX12ViewManager final : public IViewManager
     {
     public:

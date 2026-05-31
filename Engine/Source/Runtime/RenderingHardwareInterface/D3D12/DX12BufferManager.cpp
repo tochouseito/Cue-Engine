@@ -6,6 +6,7 @@ namespace Cue::RHI::DX12
     {
         [[nodiscard]] D3D12_RESOURCE_FLAGS get_default_buffer_resource_flags(const BufferDesc& desc) noexcept
         {
+            // UAV と raw buffer は resource 作成時点で unordered access 許可が必要になる。
             switch (desc.type)
             {
             case BufferType::UnorderedAccess:
@@ -19,6 +20,8 @@ namespace Cue::RHI::DX12
 
     Result DX12BufferManager::create_buffer(const BufferDesc& desc, BufferHandle& out)
     {
+        // 1 つの論理 buffer に対して、default/upload/readback の実 resource を必要数だけ作る。
+        // Frame ring 用の複数 resource は同じ BufferHandle の record 内にまとめて保持する。
         DX12BufferRecord record{};
 
         // --- 引数の検査 ---
@@ -178,6 +181,8 @@ namespace Cue::RHI::DX12
 
     Result DX12BufferManager::get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView)
     {
+        // CPU 書き込み用の view は upload heap を永続 map して返す。
+        // 呼び出し側は frame index ごとの slice を SlotUploader 経由で書き込む。
         // - ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む
         DX12BufferRecord* record = nullptr;
         outView = {};
@@ -292,6 +297,8 @@ namespace Cue::RHI::DX12
 
     Result DX12BufferManager::destroy_buffer(BufferHandle handle)
     {
+        // GPU 使用中の resource は即時破棄せず失敗として返す。
+        // 上位側は fence 完了後に再試行することで use-after-free を避ける。
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
         Result result = Result::ok();
 

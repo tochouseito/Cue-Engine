@@ -7,6 +7,9 @@ namespace Cue::RHI::DX12
         m_width = width;
         m_height = height;
         m_bufferCount = bufferCount;
+
+        // DXGI flip model は最低 2 枚の back buffer を要求する。
+        // Engine 側が single buffer 実行でも、swap chain の実バッファは 2 枚に丸める。
         m_swapChainBufferCount = (bufferCount > 1) ? bufferCount : 2;
         m_format = format;
         // SwapChainの設定
@@ -66,6 +69,8 @@ namespace Cue::RHI::DX12
     }
     Result SwapChain::resize(uint32_t a_width, uint32_t a_height)
     {
+        // ResizeBuffers は既存 back buffer への参照が残っていると失敗するため、
+        // RHI 側の texture/view handle を先に破棄して native resource を解放する。
         if (m_swapChain == nullptr)
         {
             return Result::fail(
@@ -140,6 +145,8 @@ namespace Cue::RHI::DX12
     }
     Result SwapChain::rebuild_back_buffer_resources()
     {
+        // DXGI が所有する back buffer を取得し、TextureManager へ外部 resource として登録する。
+        // これにより render pass 側は通常の TextureHandle と同じ経路で back buffer を参照できる。
         std::vector<DX12GpuResource> backBuffers;
         backBuffers.reserve(m_swapChainBufferCount);
         for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
@@ -188,6 +195,7 @@ namespace Cue::RHI::DX12
     }
     Result SwapChain::destroy_back_buffer_resources()
     {
+        // View は Texture に依存しているため、破棄順は View -> Texture に固定する。
         if (m_rtvViewHandle.valid())
         {
             Result result = m_viewManager.destroy_view(m_rtvViewHandle);

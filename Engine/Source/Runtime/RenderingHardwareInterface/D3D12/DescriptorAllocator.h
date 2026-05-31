@@ -17,6 +17,7 @@
 namespace Cue::RHI::DX12
 {
     // デスクリプタヒープの種類
+    // D3D12 の heap 種別に対応する抽象 enum。呼び出し側は API 定数を直接持たない。
     enum class HeapType : uint8_t
     {
         CBV_SRV_UAV,
@@ -27,6 +28,7 @@ namespace Cue::RHI::DX12
     };
 
     // ディスクリプタテーブルの種類
+    // engine 内の用途単位。CBV/SRV/UAV heap の中でも texture/buffer 領域を分けて扱う。
     enum class TableKind : uint8_t
     {
         Textures,
@@ -36,6 +38,8 @@ namespace Cue::RHI::DX12
     };
 
     // テーブルID
+    // Descriptor heap 内の固定幅テーブルを指す軽量 handle。
+    // kind で用途を、index でテーブル番号を示し、generation は将来の stale handle 検出用に予約する。
     struct TableID final
     {
         TableKind kind = TableKind::Buffers;
@@ -116,6 +120,8 @@ namespace Cue::RHI::DX12
         Result create_descriptor_heap(HeapType a_heapType, uint32_t a_size, bool a_shaderVisible);
 
         // テーブル内部情報
+        // 1 種類の descriptor table 領域を管理する。
+        // baseIndex は heap 全体に対する先頭、freeList は table 単位の空きを保持する。
         struct Table final
         {
             uint32_t baseIndex = 0;            ///< ヒープ内の先頭スロット

@@ -19,6 +19,8 @@
 namespace Cue::RHI::DX12
 {
     // 論理リソース
+    // 1 つの BufferHandle に対して、用途別 heap の実体をまとめて保持する。
+    // bufferCount 分の配列を持つことでフレームリングごとの upload/readback 領域を分離できる。
     struct DX12BufferRecord final
     {
         BufferDesc desc; // バッファの記述
@@ -27,6 +29,8 @@ namespace Cue::RHI::DX12
         std::vector<DX12GpuResource> readbackResources; // 読み戻し用バッファリソースの実体
     };
 
+    /// @brief RHI BufferHandle と D3D12 buffer resource の対応を管理する。
+    /// @details 名前引き、世代付き handle 検証、upload/readback view の解決を担当する。
     class DX12BufferManager final : public IBufferManager
     {
     public:

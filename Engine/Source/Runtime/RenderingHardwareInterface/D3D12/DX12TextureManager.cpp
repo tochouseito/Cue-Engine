@@ -16,6 +16,7 @@ namespace Cue::RHI::DX12
     {
         [[nodiscard]] std::string to_lower_ascii(std::string a_text) noexcept
         {
+            // 拡張子判定用。ロケールに依存しない ASCII 範囲だけを小文字化する。
             for (char& character : a_text)
             {
                 character = static_cast<char>(std::tolower(
@@ -28,6 +29,8 @@ namespace Cue::RHI::DX12
             DXGI_FORMAT a_format,
             ColorFormat& outFormat)
         {
+            // DirectXTK の DDS 読み込み結果を RHI の ColorFormat へ戻す。
+            // 未対応形式は明示的に Result で返し、後続の texture 作成へ流さない。
             switch (a_format)
             {
             case DXGI_FORMAT_R8G8B8A8_UNORM:
@@ -73,6 +76,8 @@ namespace Cue::RHI::DX12
 
     Result DX12TextureManager::validate_texture_desc(const TextureDesc& desc) const
     {
+        // D3D12 resource 作成前に RHI 側の記述不備を止める。
+        // typeless depth など API 固有の変換は create_default_resource 側で行う。
         switch (desc.kind)
         {
         case TextureKind::Default:
@@ -106,6 +111,8 @@ namespace Cue::RHI::DX12
         D3D12_RESOURCE_STATES initialState,
         DX12GpuResource& outResource) const
     {
+        // RHI の TextureDesc を committed texture resource 用の D3D12_RESOURCE_DESC へ変換する。
+        // render target/depth stencil は clear value と flag が一致している必要がある。
         D3D12_RESOURCE_DESC resourceDesc = {};
         resourceDesc.Width = desc.width;
         resourceDesc.Height = desc.height;
@@ -459,6 +466,7 @@ namespace Cue::RHI::DX12
 
     Result DX12TextureManager::create_texture(const TextureDesc& desc, TextureHandle& out)
     {
+        // 初期データなしの texture は COMMON 状態で作成し、利用側の command list が必要な状態へ遷移させる。
         DX12TextureRecord record{};
         Result result = validate_texture_desc(desc);
         if (!result)
@@ -497,6 +505,8 @@ namespace Cue::RHI::DX12
         std::span<const TextureSubresourceData> initialData,
         TextureHandle& out)
     {
+        // 初期データありの場合は一時 upload resource から default resource へ即時転送する。
+        // 呼び出し完了時点で shader resource として読める状態に揃える。
         DX12TextureRecord record{};
         Result result = validate_texture_desc(desc);
         if (!result)
@@ -797,6 +807,8 @@ namespace Cue::RHI::DX12
 
     Result DX12TextureManager::destroy_texture(TextureHandle handle)
     {
+        // Texture は descriptor table を持つことがあるため、resource 破棄と同時に allocator へ返却する。
+        // GPU 使用中の resource が残っている場合は破棄せず失敗として返す。
         // ハンドルの解決と、破棄前に全リソースが解放可能かを確認する
         Result result = Result::ok();
 

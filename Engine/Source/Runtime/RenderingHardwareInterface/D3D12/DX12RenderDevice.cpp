@@ -4,6 +4,8 @@ namespace Cue::RHI::DX12
 {
     Result DX12RenderDevice::initialize(bool a_enableDebugLayer)
     {
+        // DXGI factory を先に作り、同じ factory から adapter 列挙と swap chain 作成を行う。
+        // device だけを先に作ると、後続で factory/adapter の整合を取りにくくなる。
         // DXGI を先に作らないと、アダプタ列挙とデバイス生成の入口が用意できません
         Result r = create_dxgi_factory(a_enableDebugLayer);
         if (!r)
@@ -60,6 +62,8 @@ namespace Cue::RHI::DX12
 
     Result DX12RenderDevice::create_d3d12_device()
     {
+        // Windows が報告する高性能 GPU 順に試し、software adapter は候補から外す。
+        // 生成に成功した最初の feature level を採用する。
         // 高性能 GPU 優先で列挙し、意図しないソフトウェアデバイス選択を避ける
         HRESULT hr = S_OK;
         ComPtr<IDXGIAdapter4> adapter = nullptr;

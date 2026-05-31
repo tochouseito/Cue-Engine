@@ -14,30 +14,37 @@
 
 namespace Cue::RHI::DX12
 {
+    // PipelineStateHandle から参照される graphics PSO。
+    // 元の desc も保存し、後続の検証や再生成に使えるようにする。
     struct DX12GraphicsPipelineRecord final
     {
         GraphicsPipelineStateDesc desc; // グラフィックスパイプラインステートの記述
         ComPtr<ID3D12PipelineState> pipelineState; // グラフィックスパイプラインステートオブジェクトの実体
     };
 
+    // Compute 専用 PSO。graphics と root signature/shader blob の管理は共有する。
     struct DX12ComputePipelineRecord final
     {
         ComputePipelineStateDesc desc; // コンピュートパイプラインステートの記述
         ComPtr<ID3D12PipelineState> pipelineState; // コンピュートパイプラインステートオブジェクトの実体
     };
 
+    // Root signature は PSO と command signature の両方から参照されるため独立して管理する。
     struct RootSignatureRecord final
     {
         RootSignatureDesc desc; // ルートシグネチャの記述
         ComPtr<ID3D12RootSignature> rootSignature; // ルートシグネチャの実体
     };
 
+    // DXC が生成した shader bytecode。PSO 作成時に参照し、desc.name で再取得できるようにする。
     struct ShaderBlobRecord final
     {
         ShaderCompileDesc desc; // シェーダーブロブの記述
         ComPtr<IDxcBlob> shaderBlob; // シェーダーブロブの実体
     };
 
+    /// @brief D3D12 の root signature、shader blob、PSO を handle 化して管理する。
+    /// @details RHI の PipelineManager API から D3D12 固有の生成手順を隠し、名前検索と世代付き handle 解決を提供する。
     class DX12PipelineManager final : public IPipelineManager
     {
     public:

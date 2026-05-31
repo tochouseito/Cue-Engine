@@ -7,6 +7,9 @@
 
 namespace Cue::RHI::DX12
 {
+    /// @brief ID3D12Resource と現在の resource state をまとめて管理する RAII ラッパー。
+    /// @details RHI の抽象 GpuResource から D3D12 native resource へ橋渡しし、
+    ///          map 済みポインタや fence 参照など破棄時に揃えるべき状態も同時に持つ。
     class DX12GpuResource : public GpuResource
     {
     public:
@@ -61,6 +64,7 @@ namespace Cue::RHI::DX12
             std::wstring_view name)
         {
             // リソースの作成
+            // Committed resource に統一し、heap と resource lifetime を同じ単位で扱う。
             HRESULT hr = device.CreateCommittedResource(
                 &heapProperties,
                 heapFlags,
@@ -151,6 +155,7 @@ namespace Cue::RHI::DX12
 
         D3D12_GPU_VIRTUAL_ADDRESS get_gpu_virtual_address() const noexcept
         {
+            // Texture など GPU virtual address を持たない resource でも安全に呼べるよう null を返す。
             if (!m_resource)
             {
                 return D3D12_GPU_VIRTUAL_ADDRESS_NULL;
@@ -188,11 +193,17 @@ namespace Cue::RHI::DX12
             return m_mappedData;
         }
     private:
+        // native resource と、RHI 側で追跡する現在 state。
+        // 実際の GPU state 遷移は command list 側で発行し、この値は次回 barrier の基準に使う。
         ComPtr<ID3D12Resource> m_resource = nullptr;
         D3D12_RESOURCE_STATES m_currentState = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_DESC m_resourceDesc{};
+
+        // 遅延破棄用。設定されている場合は fence 完了まで destroy を拒否する。
         ComPtr<ID3D12Fence> m_fence = nullptr;
         uint64_t m_fenceValue = 0;
+
+        // Buffer 系 resource の利便情報。Texture では desc.Width が使われるだけなので用途に注意する。
         uint64_t m_bufferSize = 0;
         std::byte* m_mappedData = nullptr;
     };

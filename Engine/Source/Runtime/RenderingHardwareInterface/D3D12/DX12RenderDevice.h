@@ -12,6 +12,9 @@
 
 namespace Cue::RHI::DX12
 {
+    /// @brief DXGI factory と D3D12 device を所有する低レベルデバイス。
+    /// @details アダプタ選択、feature level 決定、debug layer 設定をここに集約し、
+    ///          他の manager はこのクラスから native object を借りてリソースを作成する。
     class DX12RenderDevice final : public IRenderDevice
     {
     public:
@@ -29,7 +32,10 @@ namespace Cue::RHI::DX12
 
     private:
         // --- 内部初期化 ---
+        // DXGI factory は swap chain 作成と GPU adapter 列挙の入口になる。
         Result create_dxgi_factory([[maybe_unused]] bool a_enableDebugLayer);
+
+        // 高性能 adapter を選び、利用可能な最大 feature level で ID3D12Device を作る。
         Result create_d3d12_device();
     private:
         ComPtr<IDXGIFactory7> m_dxgiFactory = nullptr; // dxgi ファクトリ

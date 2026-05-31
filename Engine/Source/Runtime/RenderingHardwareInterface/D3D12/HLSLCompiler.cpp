@@ -144,6 +144,7 @@ namespace Cue::RHI::DX12
 
     HLSLCompiler::HLSLCompiler()
     {
+        // DXC の COM object は compiler インスタンス単位で作成し、各 shader compile で再利用する。
         HRESULT hr = S_OK;
         // dxc utility 生成
         hr = DxcCreateInstance(
@@ -172,6 +173,8 @@ namespace Cue::RHI::DX12
     }
     Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc, ComPtr<IDxcBlob>* outBlob)
     {
+        // ShaderCompileDesc を DXC の UTF-16 引数列へ変換し、DXIL blob を返す。
+        // include 解決は DXC 標準 include handler に任せる。
         HRESULT hr = {};
         Result r{};
         ComPtr<IDxcBlobEncoding> pSource = nullptr;

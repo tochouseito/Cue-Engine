@@ -9,6 +9,9 @@
 
 namespace Cue::RHI::DX12
 {
+    /// @brief D3D12/DXGI の live object をプロセス終了前に出力する補助クラス。
+    /// @details D3D12Backend が最初に保持し最後に破棄することで、
+    ///          他の D3D12 object 破棄後に残存 object を確認できる。
     class ResourceLeakChecker final
     {
     public:

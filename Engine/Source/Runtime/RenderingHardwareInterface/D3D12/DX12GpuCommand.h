@@ -21,6 +21,9 @@
 
 namespace Cue::RHI::DX12
 {
+    /// @brief 1 本の D3D12 command list と allocator を所有する command context。
+    /// @details RHI command を D3D12 API 呼び出しへ変換し、frame ring の slice 解決、
+    ///          timestamp query、submit 後の fence 追跡をまとめて行う。
     class DX12GpuCommandContext final : public ICommandContext
     {
     public:
@@ -172,7 +175,11 @@ namespace Cue::RHI::DX12
         {}
         ~DX12CommandPool() override = default;
 
+        /// @brief 指定種別の command context を pool から借りる。
+        /// @details 完了済み fence を持つ pending context は再利用前に pool へ戻す。
         Result get_command_context(CommandListType type, commandContextLease& outContext) override;
+
+        /// @brief submit 後の context を即時再利用せず、fence 完了まで pending 側に退避する。
         Result return_command_context(commandContextLease& context) override;
     private:
         void recycle_completed_graphics_contexts_locked() noexcept;
@@ -213,7 +220,10 @@ namespace Cue::RHI::DX12
         ~DX12GpuCommandQueue() override = default;
 
         CommandListType type() const override;
+        /// @brief command list 群を queue へ投入し、必要なら fence 値を進める。
         Result submit(std::vector<ICommandContext*>& contexts) override;
+
+        /// @brief queue 内の全既存 work が完了したことを示す fence を発行する。
         Result signal(uint64_t* outFenceValue = nullptr) override;
         Result wait() override;
         Result wait_for_fence(uint64_t fenceValue) override;
@@ -276,7 +286,11 @@ namespace Cue::RHI::DX12
             m_presentGraphicsQueue = std::make_unique<DX12GpuCommandQueue>(*renderDevice.get_d3d12_device(), D3D12_COMMAND_LIST_TYPE_DIRECT);
         }
         ~DX12QueuePool() override = default;
+
+        /// @brief graphics/compute/copy queue を用途別 pool から借りる。
         Result get_queue_context(CommandListType type, queueContextLease& outContext) override;
+
+        /// @brief queue は長寿命なので、返却時は pool へ戻すだけで GPU 同期待ちは行わない。
         Result return_queue_context(queueContextLease& context) override;
         Result wait_for_graphics_queue() override;
         queueContextPtr get_present_queue_context() override

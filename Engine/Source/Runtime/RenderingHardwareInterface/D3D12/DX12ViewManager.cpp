@@ -7,6 +7,7 @@ namespace Cue::RHI::DX12
         void free_table_ids(DescriptorAllocator& a_descriptorAllocator,
             std::vector<TableID>& a_ids) noexcept
         {
+            // View 作成途中の失敗時も、確保済み descriptor table をまとめて返却する。
             for (const TableID& tableId : a_ids)
             {
                 a_descriptorAllocator.free_table(tableId);
@@ -16,6 +17,7 @@ namespace Cue::RHI::DX12
 
         TableKind convert_view_kind(ViewType type)
         {
+            // RHI の view 種別を DescriptorAllocator の固定 table 領域へ振り分ける。
             switch (type)
             {
             case ViewType::ConstantBuffer:
@@ -52,6 +54,8 @@ namespace Cue::RHI::DX12
 
     Result DX12ViewManager::create_view(const ViewDesc& desc, ViewHandle& out)
     {
+        // ViewDesc から対象 resource を解決し、resource 数に合わせて descriptor table を作る。
+        // default/upload の両方を持つ buffer では、同じ論理 view から複数 descriptor が生成される。
         DX12ViewRecord record{};
         record.desc = desc;
 
@@ -150,6 +154,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12ViewManager::destroy_view(ViewHandle handle)
     {
+        // ViewHandle の破棄は descriptor table の返却だけを行う。
+        // 元の buffer/texture resource の lifetime は各 manager が持つ。
         // ハンドルの有効性を検査する
         if (!handle.valid())
         {

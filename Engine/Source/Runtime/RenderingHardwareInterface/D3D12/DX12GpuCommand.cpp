@@ -19,6 +19,7 @@ namespace Cue::RHI::DX12
         [[nodiscard]] bool supports_draw_indexed_indirect_signature(
             const RootSignatureDesc& a_desc) noexcept
         {
+            // ExecuteIndirect で draw object index を root constant として渡す前提を満たすか確認する。
             if (a_desc.parameters.empty())
             {
                 return false;
@@ -29,6 +30,7 @@ namespace Cue::RHI::DX12
 
         [[nodiscard]] Result validate_root_binding_command_type(CommandListType type, const char* bindTarget)
         {
+            // Copy queue では root signature / descriptor bind が無効なので、呼び出し入口で止める。
             if (type == CommandListType::Copy)
             {
                 return Result::fail(
@@ -44,6 +46,7 @@ namespace Cue::RHI::DX12
             CommandListType commandListType,
             D3D12_RESOURCE_STATES state) noexcept
         {
+            // Queue 種別ごとに許可される resource state が違うため、barrier 発行前に安全側へ正規化する。
             if (commandListType == CommandListType::Copy)
             {
                 if (state != D3D12_RESOURCE_STATE_COMMON &&
@@ -108,6 +111,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::reset()
     {
+        // D3D12 の allocator は関連 command list の実行完了後でなければ reset できない。
+        // その完了管理は CommandPool の pending fence 側で担保する。
         if (!m_commandAllocator || !m_commandList)
         {
             return Result::fail(
@@ -249,6 +254,7 @@ namespace Cue::RHI::DX12
         IQueueContext* a_queue,
         uint64_t a_fenceValue)
     {
+        // submit 後に context を pool へ戻す前、対応する queue fence を保存して再利用可否を判定する。
         m_pendingFence.Reset();
         m_pendingFenceValue = a_fenceValue;
         if (a_queue == nullptr || a_fenceValue == 0)
@@ -1711,6 +1717,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandQueue::submit(std::vector<ICommandContext*>& contexts)
     {
+        // RHI の command context 群から native command list を取り出し、同じ queue へまとめて投入する。
         std::vector<ID3D12CommandList*> commandLists;
         for (ICommandContext* context : contexts)
         {
@@ -1917,6 +1924,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12CommandPool::get_command_context(CommandListType type, commandContextLease& outContext)
     {
+        // まず完了済み pending context を回収してから pool から借りる。
+        // これにより GPU 未完了の allocator を reset する事故を避ける。
         switch (type)
         {
         case Cue::RHI::CommandListType::Graphics:
@@ -1957,6 +1966,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12CommandPool::return_command_context(commandContextLease& context)
     {
+        // fence 未完了の context は pending 配列へ退避し、完了済みなら即 pool に戻す。
+        // lease はここで空にして、呼び出し側の二重返却を防ぐ。
         if (!context)
         {
             return Result::ok();

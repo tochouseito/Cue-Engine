@@ -9,11 +9,13 @@ namespace Cue::RHI::DX12
     {
         UINT align_constant_buffer_size(UINT a_size)
         {
+            // D3D12 の CBV は 256 byte 境界が必須なので、view 作成直前で丸める。
             return (a_size + 255u) & ~255u;
         }
 
         D3D12_DESCRIPTOR_HEAP_TYPE to_d3d12_heap_type(HeapType a_heapType)
         {
+            // Engine 内の heap enum を D3D12 API が要求する enum へ変換する。
             switch (a_heapType)
             {
             case HeapType::CBV_SRV_UAV:
@@ -51,6 +53,8 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap)
     {
+        // DescriptorAllocator は固定容量方式。
+        // 実行中の heap 再確保を避け、TableID から CPU/GPU handle を安定して計算できるようにする。
         // デスクリプタサイズを取得しておき
         Result result = compute_descriptor_sizes();
         if (!result)
@@ -367,6 +371,8 @@ namespace Cue::RHI::DX12
     }
     void DescriptorAllocator::copy_to_gpu_heap(TableID a_id)
     {
+        // Shader visible heap は CBV/SRV/UAV のみを GPU から直接参照する。
+        // CPU 専用 heap に作った descriptor を対応する GPU heap slot へコピーする。
         // - 無効 ID を早期に捨てて、ヒープ外アクセスの原因をここで止め
         if (!a_id.valid())
         {

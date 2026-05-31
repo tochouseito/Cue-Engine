@@ -20,6 +20,7 @@
 namespace Cue::RHI::DX12
 {
     // 論理リソース
+    // TextureHandle から参照される実体。SwapChain の back buffer など外部 resource も同じ形式で登録する。
     struct DX12TextureRecord final
     {
         TextureDesc desc; // テクスチャの記述
@@ -27,6 +28,8 @@ namespace Cue::RHI::DX12
         TableID descriptorTableId{};
     };
 
+    /// @brief RHI TextureHandle と D3D12 texture resource の対応を管理する。
+    /// @details テクスチャ生成、初期データ upload、shader visible descriptor の確保を担当する。
     class DX12TextureManager final : public ITextureManager
     {
     public:
@@ -52,6 +55,7 @@ namespace Cue::RHI::DX12
         bool try_get_record(TextureHandle handle, DX12TextureRecord** outRecord);
 
         // 外部テクスチャを登録
+        // SwapChain から取得した back buffer のように、この manager が生成していない resource を管理下へ入れる。
         Result register_external_texture(DX12TextureRecord& record, TextureHandle& out);
     private:
         Result validate_texture_desc(const TextureDesc& desc) const;

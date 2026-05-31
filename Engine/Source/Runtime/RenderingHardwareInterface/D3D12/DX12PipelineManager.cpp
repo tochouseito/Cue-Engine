@@ -6,6 +6,7 @@ namespace Cue::RHI::DX12
     {
         D3D12_INPUT_ELEMENT_DESC convert_input_element_desc(const InputElementDesc& desc)
         {
+            // RHI の vertex input 記述を D3D12 の PSO 入力レイアウトへ変換する。
             D3D12_INPUT_ELEMENT_DESC d3dDesc{};
             d3dDesc.SemanticName = desc.semanticName.c_str();
             d3dDesc.SemanticIndex = desc.semanticIndex;
@@ -39,6 +40,8 @@ namespace Cue::RHI::DX12
 
         D3D12_BLEND_DESC convert_blend_mode(const std::vector<BlendMode>& modes)
         {
+            // 先に全 render target を安全な無効 blend 状態で初期化し、
+            // 指定された slot だけを上書きする。
             D3D12_BLEND_DESC desc{};
             for (auto& rtDesc : desc.RenderTarget)
             {
@@ -134,6 +137,7 @@ namespace Cue::RHI::DX12
 
         D3D12_DESCRIPTOR_RANGE_TYPE convert_descriptor_range_type(RootParameterType type)
         {
+            // Descriptor table 系 root parameter は range type に落として root signature へ詰める。
             switch (type)
             {
             case RootParameterType::DescriptorTableCBV:
@@ -193,6 +197,8 @@ namespace Cue::RHI::DX12
 
     Result DX12PipelineManager::create_graphics_pipeline(const GraphicsPipelineStateDesc& desc, PipelineStateHandle& out)
     {
+        // Graphics PSO は root signature、shader blob、固定機能 state をまとめて不変 object として作る。
+        // 作成後は command list 側で handle から取得して SetPipelineState する。
         DX12GraphicsPipelineRecord record{};
 
         // 入力レイアウトをD3D12_INPUT_ELEMENT_DESCに変換する
@@ -425,6 +431,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
+        // RHI の root parameter 記述を D3D12_ROOT_SIGNATURE_DESC へ展開する。
+        // descriptor range の配列は serialize 完了まで生存している必要があるため、関数内 vector に保持する。
         // D3D12_ROOT_SIGNATURE_DESC を構築する
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -585,6 +593,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
+        // Shader blob は PSO と分離して cache し、同じ shader を複数 pipeline から再利用できるようにする。
         // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない
         ShaderBlobRecord blobRecord{};
         Result result = m_hlslCompiler.compile_shader_raw(desc, &blobRecord.shaderBlob);
