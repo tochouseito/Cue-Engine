@@ -13,7 +13,9 @@
 
 // === D3D12 includes ===
 #include "ResourceLeakChecker.h"
+#include "HLSLCompiler.h"
 #include "DX12RenderDevice.h"
+#include "DescriptorAllocator.h"
 
 namespace Cue::RHI::DX12
 {
@@ -33,6 +35,8 @@ namespace Cue::RHI::DX12
         uint32_t m_height{};
         uint32_t m_bufferCount{};
         std::unique_ptr<ResourceLeakChecker> m_resourceLeakChecker = std::make_unique<ResourceLeakChecker>();
+        std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>();
         std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr;
+        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr;
     };
 }

@@ -15,6 +15,8 @@
 #include <Native/Handle.h>
 #include <IO/Logger.h>
 #include <Container/Registry.h>
+#include <Container/RingBuffer.h>
+#include <Container/Pool.h>
 
 // === C++ includes ===
 #include <cstdint>
