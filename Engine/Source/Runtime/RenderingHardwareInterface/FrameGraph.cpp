@@ -10,9 +10,13 @@ namespace Cue::RHI
 {
     namespace
     {
+        // ResourceId ごとに、そのリソースへ過去にアクセスしたパス index を保持する。
+        // build_dependencies() が「現在のパスは過去のどのパスを待つべきか」を調べるために使う。
         using PassDependencyMap = std::unordered_map<ResourceId,
             std::vector<uint32_t>, ResourceIdHasher>;
 
+        // execute() 中に QueueContext と、その lease 所有権をまとめて扱うための状態。
+        // present queue は外部所有なので queueLease が空のままになる。
         struct QueueExecutionState final
         {
             IQueueContext* queue = nullptr;
@@ -20,6 +24,8 @@ namespace Cue::RHI
             bool submitted = false;
         };
 
+        // GPU timestamp は command context を submit / wait した後で読み戻すため、
+        // パス実行中には読み取りに必要な情報だけを積んでおく。
         struct PendingGpuTiming final
         {
             ICommandContext* commandContext = nullptr;
@@ -29,6 +35,9 @@ namespace Cue::RHI
             uint32_t endQueryIndex = 0;
         };
 
+        // 依存元パスがどの batch に入っているかを探す。
+        // executionPlan はトポロジカル順に増えていくため、build_execution_plan() では
+        // 既に作成済みの producer batch だけが見つかる想定。
         const QueueBatchInfo* find_batch_for_pass(
             const std::vector<QueueBatchInfo>& executionPlan,
             uint32_t passIndex,
@@ -51,6 +60,8 @@ namespace Cue::RHI
 
     Result FrameGraphBuilder::create_buffer(const BufferDesc& desc, BufferHandle& out)
     {
+        // Builder 経由で作ったリソースは FrameGraph が build lifetime として所有する。
+        // rebuild() や destructor では、このリストを逆順に破棄する。
         Result result = m_frameGraph.m_desc.bufferManager->create_buffer(desc, out);
         if (result)
         {
@@ -300,6 +311,8 @@ namespace Cue::RHI
         {
             if (existingAccess.resourceId == resourceId)
             {
+                // 同じパス内で同じ resource が複数回宣言された場合は 1 件へ集約する。
+                // Read と Write が混ざると後続の依存解析では ReadWrite として扱う。
                 existingAccess.accessType = FrameGraph::merge_access_type(
                     existingAccess.accessType,
                     accessType);
@@ -352,6 +365,8 @@ namespace Cue::RHI
         {
             if (existingAccess.resourceId == resourceId)
             {
+                // 同じパス内で同じ resource が複数回宣言された場合は 1 件へ集約する。
+                // requiredState / finalState は最後の宣言を採用する。
                 existingAccess.accessType = FrameGraph::merge_access_type(
                     existingAccess.accessType,
                     accessType);
@@ -376,6 +391,8 @@ namespace Cue::RHI
 
     Result FrameGraph::cleanup_build_resources()
     {
+        // 依存するオブジェクトから先に破棄できるよう、作成とは逆順に解放する。
+        // pipeline -> shader/root signature -> view -> texture/buffer の順で落とす。
         if (m_desc.pipelineManager != nullptr)
         {
             for (auto it = m_createdGraphicsPipelines.rbegin();
@@ -473,6 +490,9 @@ namespace Cue::RHI
 
     Result FrameGraph::build()
     {
+        // 各パスに setup() と describe_resources() を実行させる。
+        // setup() は RHI オブジェクトの用意、describe_resources() は依存解析に使う
+        // ResourceAccess の宣言を行うフェーズ。
         for (auto& compiledPass : m_passes)
         {
             compiledPass.buildInfo = {};
@@ -493,6 +513,7 @@ namespace Cue::RHI
             }
         }
 
+        // ResourceAccess から pass -> pass の依存を作り、その結果を queue batch へ変換する。
         Result dependencyResult = build_dependencies();
         if (!dependencyResult)
         {
@@ -505,6 +526,7 @@ namespace Cue::RHI
             return executionPlanResult;
         }
 
+        // 外部のデバッグ表示などが参照しやすいよう、公開用の build info snapshot を更新する。
         m_passBuildInfos.clear();
         m_passBuildInfos.reserve(m_passes.size());
         for (const CompiledPass& compiledPass : m_passes)
@@ -530,6 +552,7 @@ namespace Cue::RHI
     Result FrameGraph::execute(uint32_t frameIndex)
     {
         using Clock = std::chrono::steady_clock;
+        // 実行統計は execute() 中に逐次更新されるため、コピー取得と競合しないようにする。
         std::lock_guard statsLock(m_executionStatsMutex);
         const bool isProfilingEnabled = m_desc.enableProfiling;
         auto ms_since =
@@ -564,6 +587,8 @@ namespace Cue::RHI
         std::vector<commandContextLease> stagedCommandContexts{};
         stagedCommandContexts.reserve(m_passes.size());
 
+        // 実行計画に登場した queue だけを遅延取得する。
+        // Graphics は swapchain present と同じ queue を使えるように特別扱いしている。
         auto ensure_queue = [&](CommandListType queueType) -> Result
             {
                 if (queues.contains(queueType))
@@ -602,6 +627,8 @@ namespace Cue::RHI
                 return Result::ok();
             };
 
+        // submit 済み command context は fence 完了を待ってから pool へ戻す前提。
+        // waitForCompletion=false の場合は context 側に pending fence を持たせた状態で返す。
         auto return_all_command_contexts = [&]()
             {
                 for (commandContextLease& commandContext : stagedCommandContexts)
@@ -619,6 +646,8 @@ namespace Cue::RHI
                 }
             };
 
+        // Queue lease を持っているものだけ pool へ返す。
+        // present queue は lease ではないため返却対象外。
         auto return_all_queue_contexts = [&]()
             {
                 for (auto& [queueType, queueState] : queues)
@@ -633,6 +662,8 @@ namespace Cue::RHI
 
         for (const QueueBatchInfo& batch : m_executionPlan)
         {
+            // batch は同じ queue に投げられるパスのまとまり。
+            // batch 内の各パスは個別の command context に記録し、最後にまとめて submit する。
             Result queueResult = ensure_queue(batch.queueType);
             if (!queueResult)
             {
@@ -715,6 +746,8 @@ namespace Cue::RHI
                 }
 
                 const Clock::time_point preBarrierStartTime = Clock::now();
+                // パスが要求した state へ遷移してから execute() に渡す。
+                // ここでは before state を追跡せず、RHI 側の barrier 実装に委ねている。
                 for (const ResourceAccess& access :
                     compiledPass.buildInfo.resourceAccesses)
                 {
@@ -751,6 +784,8 @@ namespace Cue::RHI
                 FrameGraphContext context{ FrameGraphContextDesc{
                     m_desc.width, m_desc.height, frameIndex, commandContext.get(), passStats} };
                 const Clock::time_point passExecuteStartTime = Clock::now();
+                // GPU 時間は timestamp 対応かつ完了待ちを行う場合だけ取得できる。
+                // 完了待ちしないフレームでは、ここで読み戻しても値が確定しない。
                 const bool supportsTimestamps =
                     isProfilingEnabled &&
                     m_desc.waitForCompletion &&
@@ -793,6 +828,8 @@ namespace Cue::RHI
                 }
 
                 const Clock::time_point postBarrierStartTime = Clock::now();
+                // パス後に公開したい state が requiredState と違う場合だけ戻す。
+                // 後続パスの requiredState は、そのパス直前の barrier で改めて満たす。
                 for (const ResourceAccess& access :
                     compiledPass.buildInfo.resourceAccesses)
                 {
@@ -881,6 +918,8 @@ namespace Cue::RHI
             }
 
             QueueExecutionState& queueState = queues.at(batch.queueType);
+            // 別 queue の producer batch がある場合は、submit 前に queue 間 wait を入れる。
+            // 同一 queue 内の順序は submit 順で保証されるため waitBatchIndices には入らない。
             for (uint32_t waitBatchIndex : batch.waitBatchIndices)
             {
                 if (waitBatchIndex >= m_executionPlan.size())
@@ -926,6 +965,7 @@ namespace Cue::RHI
                 }
             }
 
+            // batch 内で有効だったパスの command list を同じ queue へまとめて submit する。
             const Clock::time_point submitStartTime = Clock::now();
             Result submitResult = queueState.queue->submit(commandContextPointers);
             if (!submitResult)
@@ -945,6 +985,7 @@ namespace Cue::RHI
 
             const Clock::time_point signalStartTime = Clock::now();
             uint64_t signaledFenceValue = 0;
+            // submit 後に queue を signal し、command context がいつ再利用可能かを記録する。
             Result signalResult = queueState.queue->signal(&signaledFenceValue);
             if (!signalResult)
             {
@@ -1021,6 +1062,8 @@ namespace Cue::RHI
 
         if (m_desc.waitForCompletion)
         {
+            // フレーム末尾で全 queue の完了を待つモード。
+            // プロファイルと GPU timestamp 読み戻しにはこの完了待ちが必要になる。
             for (auto& [queueType, queueState] : queues)
             {
                 (void)queueType;
@@ -1079,6 +1122,8 @@ namespace Cue::RHI
             }
         }
 
+        // timestamp query を GPU 時間へ変換する。
+        // queue ごとに frequency が違う可能性があるため、queue 種別単位でキャッシュする。
         std::unordered_map<CommandListType, uint64_t> queueFrequencies{};
         for (const PendingGpuTiming& gpuTiming : pendingGpuTimings)
         {
@@ -1132,6 +1177,7 @@ namespace Cue::RHI
         return_all_queue_contexts();
         if (isProfilingEnabled)
         {
+            // submitMs は CPU 上の execute() 時間から queue wait を除いた値として扱う。
             m_executionStats.totalExecuteMs =
                 ms_since(executeStartTime, Clock::now());
             m_executionStats.queueWaitMs = queueWaitMs;
@@ -1235,6 +1281,8 @@ namespace Cue::RHI
         return ResourceAccessType::ReadWrite;
     }
 
+    // 2 つのパスが同じ resource を読むだけなら順序依存は不要。
+    // どちらかが書く場合は producer -> consumer の依存を張る。
     bool FrameGraph::has_dependency(
         ResourceAccessType previous,
         ResourceAccessType next) noexcept
@@ -1245,6 +1293,8 @@ namespace Cue::RHI
 
     Result FrameGraph::build_dependencies()
     {
+        // パス登録順に resource access を走査し、同じ resource への過去アクセスを確認する。
+        // Read/Read 以外は順序が必要なので、現在パスに過去パスへの依存を追加する。
         for (CompiledPass& compiledPass : m_passes)
         {
             compiledPass.buildInfo.dependencyPassIndices.clear();
@@ -1304,6 +1354,8 @@ namespace Cue::RHI
 
     Result FrameGraph::validate_dependency_graph() const
     {
+        // Kahn のアルゴリズムで全パスを処理できるかを見る。
+        // 処理できないパスが残る場合、依存グラフに循環がある。
         std::vector<uint32_t> indegrees(m_passes.size(), 0);
         std::vector<std::vector<uint32_t>> forwardEdges(m_passes.size());
         for (uint32_t passIndex = 0; passIndex < m_passes.size(); ++passIndex)
@@ -1402,6 +1454,8 @@ namespace Cue::RHI
         uint32_t processedCount = 0;
         while (!readyPassIndices.empty())
         {
+            // 同じトポロジカル段階にあるパスを Queue 種別ごとにまとめる。
+            // これにより依存のない Graphics / Compute / Copy batch は並行 submit できる。
             std::unordered_map<CommandListType, std::vector<uint32_t>> stageBatches{};
             std::vector<uint32_t> currentReadyPassIndices = readyPassIndices;
             readyPassIndices.clear();
@@ -1434,6 +1488,8 @@ namespace Cue::RHI
 
             for (uint32_t batchIndex : stageBatchIndices)
             {
+                // batch の依存元が別 queue に属する場合だけ queue 間 wait を記録する。
+                // 同じ queue の依存は executionPlan の順序で満たす。
                 QueueBatchInfo& batch = m_executionPlan[batchIndex];
                 std::unordered_set<uint32_t> waitBatchSet{};
                 for (uint32_t passIndex : batch.passIndices)

@@ -18,12 +18,17 @@
 
 namespace Cue::RHI
 {
+    // FrameGraph 内で管理するリソースの種類。
+    // BufferHandle / TextureHandle は型が異なるため、依存解析用に共通の
+    // ResourceId へ変換するときに kind で区別する。
     enum class ResourceKind : uint8_t
     {
         Buffer,
         Texture
     };
 
+    // パスがリソースに対して行うアクセス種別。
+    // Read 同士は並列化可能だが、Write を含む組み合わせは順序依存を作る。
     enum class ResourceAccessType : uint8_t
     {
         Read,
@@ -31,6 +36,9 @@ namespace Cue::RHI
         ReadWrite
     };
 
+    // 依存解析で使う、Buffer / Texture 共通のリソース識別子。
+    // Handle の index と generation を保持し、破棄後に再利用された Handle を
+    // 別リソースとして扱えるようにしている。
     struct ResourceId final
     {
         ResourceKind kind = ResourceKind::Buffer;
@@ -62,8 +70,9 @@ namespace Cue::RHI
         }
     };
 
-    // setup() 後に記録する access 宣言
-    // build() で依存関係と state 遷移を導出
+    // describe_resources() で各パスが宣言するリソース利用情報。
+    // build() はこの宣言を使ってパス間依存を作り、execute() は
+    // requiredState / finalState から前後の resource barrier を発行する。
     struct ResourceAccess final
     {
         ResourceId resourceId{};
@@ -75,6 +84,9 @@ namespace Cue::RHI
     struct PassBuildInfo;
     class FrameGraph;
 
+    // FrameGraphPass::setup() / describe_resources() に渡す構築用 API。
+    // リソース作成は FrameGraph の所有リストへ記録され、rebuild() / 破棄時に
+    // まとめて解放される。アクセス宣言は現在ビルド中の PassBuildInfo に積まれる。
     class FrameGraphBuilder final
     {
     public:
@@ -112,20 +124,28 @@ namespace Cue::RHI
         /// @brief 宣言済みコンピュートパイプライン取得
         Result get_compute_pipeline(std::string_view name, PipelineStateHandle& out);
 
-        /// @brief render target 書き込み宣言
+        /// @brief render target 書き込み宣言。現状は保持のみで、依存解析は write_texture() / use_texture() の宣言を参照する。
         Result render(const TextureHandle* handles, size_t count);
 
+        /// @brief ShaderResource として buffer を読むことを宣言する。
         Result read_buffer(BufferHandle handle);
+        /// @brief UnorderedAccess として buffer へ書くことを宣言する。
         Result write_buffer(BufferHandle handle);
+        /// @brief UnorderedAccess として buffer を読み書きすることを宣言する。
         Result read_write_buffer(BufferHandle handle);
+        /// @brief ShaderResource として texture を読むことを宣言する。
         Result read_texture(TextureHandle handle);
+        /// @brief RenderTarget として texture へ書くことを宣言する。
         Result write_texture(TextureHandle handle);
+        /// @brief UnorderedAccess として texture を読み書きすることを宣言する。
         Result read_write_texture(TextureHandle handle);
+        /// @brief 任意の ResourceState で buffer のアクセスを宣言する。
         Result use_buffer(
             BufferHandle handle,
             ResourceAccessType accessType,
             ResourceState requiredState,
             ResourceState finalState);
+        /// @brief 任意の ResourceState で texture のアクセスを宣言する。
         Result use_texture(
             TextureHandle handle,
             ResourceAccessType accessType,
@@ -163,6 +183,8 @@ namespace Cue::RHI
         void* passStats = nullptr;
     };
 
+    // FrameGraphPass::execute() に渡す実行時コンテキスト。
+    // パスはここから現在のフレーム情報と記録先の ICommandContext を取得する。
     class FrameGraphContext final
     {
     public:
@@ -178,12 +200,17 @@ namespace Cue::RHI
         FrameGraphContextDesc m_desc{};
     };
 
+    // FrameGraph に登録する 1 つの処理単位。
+    // setup() で必要な RHI オブジェクトを用意し、describe_resources() で
+    // 読み書きするリソースを宣言し、execute() で実際のコマンドを記録する。
     class FrameGraphPass
     {
     public:
         virtual ~FrameGraphPass() = default;
         virtual const char* name() const noexcept = 0;
         virtual CommandListType type() const noexcept = 0;
+        // false を返したフレームでは execute() されない。
+        // 依存関係は build() 時点の宣言を維持するため、フレームごとに変わらない。
         virtual bool is_enabled(uint32_t a_frameIndex) const noexcept
         {
             a_frameIndex;
@@ -194,6 +221,8 @@ namespace Cue::RHI
         virtual void execute(FrameGraphContext& context) = 0;
     };
 
+    // build() 後に各パスへ残す解析結果。
+    // dependencyPassIndices は「このパスより先に完了している必要があるパス」の index。
     struct PassBuildInfo final
     {
         std::string_view name{};
@@ -202,6 +231,8 @@ namespace Cue::RHI
         std::vector<uint32_t> dependencyPassIndices{};
     };
 
+    // 同じ依存段階かつ同じ Queue 種別のパスをまとめた実行単位。
+    // waitBatchIndices は別 Queue の producer batch を待つために使う。
     struct QueueBatchInfo final
     {
         CommandListType queueType = CommandListType::Graphics;
@@ -209,6 +240,8 @@ namespace Cue::RHI
         std::vector<uint32_t> waitBatchIndices{};
     };
 
+    // execute() のプロファイル結果。
+    // enableProfiling が false の場合、時間系の値は 0 にリセットされる。
     struct FrameGraphExecutionStats final
     {
         struct PassExecutionStats final
@@ -252,6 +285,8 @@ namespace Cue::RHI
         std::vector<PassExecutionStats> passStats{};
     };
 
+    // FrameGraph が依存する RHI サービスと実行オプション。
+    // 各 Manager / Pool の実体は外部所有で、FrameGraph は参照して利用する。
     struct FrameGraphDesc final
     {
         IBufferManager* bufferManager = nullptr;
@@ -267,7 +302,12 @@ namespace Cue::RHI
         uint32_t height = 0;
     };
 
-    /// @brief フレーム単位の描画依存関係を保持するプレースホルダー
+    /// @brief フレーム単位のレンダリングパスを依存順に実行するグラフ。
+    ///
+    /// add_pass() で登録された順に setup() / describe_resources() を呼び、
+    /// リソースアクセス宣言から依存関係を構築する。依存のないパスは
+    /// Queue 種別ごとに batch 化され、Graphics / Compute / Copy Queue 間の
+    /// wait を含む実行計画として execute() で処理される。
     class FrameGraph final
     {
         friend class FrameGraphBuilder;
@@ -295,9 +335,9 @@ namespace Cue::RHI
         }
         /// @brief 描画依存関係を構築する
         Result build();
-        /// @brief サイズを更新して再構築する
+        /// @brief build() で作成したリソースを破棄し、サイズを更新して再構築する。
         Result rebuild(uint32_t a_width, uint32_t a_height);
-        /// @brief パスの実行
+        /// @brief build() 済みの実行計画に従って、指定フレームのパスを実行する。
         Result execute(uint32_t frameIndex);
 
         const std::vector<PassBuildInfo>& pass_build_infos() const noexcept
@@ -309,8 +349,11 @@ namespace Cue::RHI
         FrameGraphExecutionStats execution_stats_summary_copy() const noexcept;
     private:
         Result cleanup_build_resources();
+        // ResourceAccess の読み書き種別からパス間依存を導出する。
         Result build_dependencies();
+        // 依存グラフが循環していないことを確認する。
         Result validate_dependency_graph() const;
+        // トポロジカル順に QueueBatchInfo を作り、Queue 間 wait を解決する。
         Result build_execution_plan();
 
         struct CompiledPass final
