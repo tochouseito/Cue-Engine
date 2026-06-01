@@ -10,6 +10,7 @@
 // === RHI includes ===
 #include <RHI.h>
 #include <RHICommon.h>
+#include <FrameGraph.h>
 
 // === D3D12 includes ===
 #include "ResourceLeakChecker.h"
@@ -35,6 +36,23 @@ namespace Cue::RHI::DX12
         ~D3D12Backend() override = default;
         Result initialize(const RenderBackendSetupInfo& a_info) override;
         Result shutdown() override;
+        /// @brief バックエンドで進行中の GPU 作業完了を待機する
+        Result wait_for_idle() override;
+
+        /// @brief 指定フレームの描画処理を実行する
+        Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
+
+        /// @brief 指定フレームの提示処理を実行する
+        Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
+        Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
+
+        // --- バックエンドのシステムへのアクセス ---
+        IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
+        ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
+        IViewManager* get_view_manager() override { return m_viewManager.get(); }
+        ICommandPool* get_command_pool() override { return m_commandPool.get(); }
+        IQueuePool* get_queue_pool() override { return m_queuePool.get(); }
+
         uint32_t width() const noexcept override { return m_width; }
         uint32_t height() const noexcept override { return m_height; }
         const uint32_t& buffer_count() const noexcept override { return m_bufferCount; }

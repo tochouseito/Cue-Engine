@@ -16,6 +16,8 @@
 
 // === RHI includes ===
 #include <RHI.h>
+#include <RHIUtils.h>
+#include <FrameGraph.h>
 
 // === Engine includes ===
 #include "FrameController.h"
@@ -66,7 +68,7 @@ namespace Cue
         {
             return *m_frameController;
         }
-
+    private:
         /// @brief 更新
         std::function<void(uint64_t, uint32_t)> update()
         {
@@ -76,26 +78,21 @@ namespace Cue
                 };
         }
         /// @brief 描画
-        std::function<void(uint64_t, uint32_t)> render()
-        {
-            return [this](uint64_t frameNo, uint32_t renderIndex)
-                {
-                    frameNo; renderIndex; // 未使用パラメーターの警告回避
-                };
-        }
+        std::function<void(uint64_t, uint32_t)> render();
         /// @brief present
-        std::function<void(uint64_t, uint32_t)> present()
-        {
-            return [this](uint64_t frameNo, uint32_t presentIndex)
-                {
-                    frameNo; presentIndex; // 未使用パラメーターの警告回避
-                };
-        }
+        std::function<void(uint64_t, uint32_t)> present();
+        Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
     private:
         std::unique_ptr<FrameController> m_frameController = nullptr; // フレームコントローラー
         PAL::IPlatform* m_platform = nullptr; // プラットフォームインターフェースの非所有ポインタ
         Core::CQRS::Bridge* m_platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
         PAL::PlatformRuntimeState m_platformRuntimeState; // プラットフォームランタイム状態
         RHI::IRenderBackend* m_renderBackend = nullptr; // レンダーバックエンドの非所有ポインタ
+
+        std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
+        std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
+
+        // --- 全体共有リソース ---
+        RHI::RenderTargetResources m_gameRenderTarget{};
     };
 }

@@ -64,4 +64,68 @@ namespace Cue::RHI::DX12
     {
         return Result::ok();
     }
+    Result D3D12Backend::wait_for_idle()
+    {
+        if (!m_queuePool)
+        {
+            return Result::ok();
+        }
+
+        Result result = m_queuePool->wait_for_graphics_queue();
+        if (!result)
+        {
+            return result;
+        }
+
+        queueContextPtr presentQueueContext = m_queuePool->get_present_queue_context();
+        if (presentQueueContext != nullptr)
+        {
+            result = presentQueueContext->signal();
+            if (!result)
+            {
+                return result;
+            }
+
+            result = presentQueueContext->wait();
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        return Result::ok();
+    }
+
+    Result D3D12Backend::render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph)
+    {
+        a_frameNo;
+        return a_frameGraph.execute(a_index);
+    }
+
+    Result D3D12Backend::present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph)
+    {
+        a_frameNo;
+        a_index;
+        Result result = a_frameGraph.execute(m_swapChain->get_current_back_buffer_index());
+        if (!result)
+        {
+            return result;
+        }
+        return m_swapChain->present(vsync);
+    }
+    Result D3D12Backend::create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph)
+    {
+        FrameGraphDesc desc = a_desc;
+        desc.bufferManager = m_bufferManager.get();
+        desc.textureManager = m_textureManager.get();
+        desc.pipelineManager = m_pipelineManager.get();
+        desc.viewManager = m_viewManager.get();
+        desc.commandPool = m_commandPool.get();
+        desc.queuePool = m_queuePool.get();
+        desc.width = m_swapChain->width();
+        desc.height = m_swapChain->height();
+
+        a_outFrameGraph = std::make_unique<FrameGraph>(desc, m_bufferCount);
+        return Result::ok();
+    }
 }

@@ -83,10 +83,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineSetupInfo.platform = platform.get(); // プラットフォームを Engine にセット
     engineSetupInfo.platformCommandBridge = commandBridge.get(); // コマンドブリッジを Engine にセット
     engineSetupInfo.renderBackend = renderBackend.get(); // レンダーバックエンドを Engine にセット
-    engine->initialize(engineSetupInfo);
+    r = engine->initialize(engineSetupInfo);
+    if (!r)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize engine: %s", r.message.data());
+        return -1;
+    }
 
     // ウィンドウ表示を開始
     r = platform->start();
+    if (!r)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to start platform: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to start platform: %s", r.message.data());
+        return -1;
+    }
 
     // メインループ
     bool isRunning = true;
@@ -164,7 +176,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Core::IO::clear_log_file();
 
     // 終了処理
-    r = platform->shutdown();
+    engine->shutdown();
+    engine.reset();
+    renderBackend->shutdown();
+    renderBackend.reset();
+    platform->shutdown();
     platform.reset();
 
     return 0;
