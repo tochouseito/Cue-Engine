@@ -65,6 +65,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     renderBackendSetupInfo.width = width;
     renderBackendSetupInfo.height = height;
     renderBackendSetupInfo.bufferCount = bufferCount;
+    renderBackend->set_win_platform(platform.get()); // Windows プラットフォームをバックエンドにセット
     r = renderBackend->initialize(renderBackendSetupInfo);
 
     // 失敗したらエラーを表示して終了

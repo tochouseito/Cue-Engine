@@ -16,6 +16,12 @@
 #include "HLSLCompiler.h"
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
+#include "DX12GpuCommand.h"
+#include "SwapChain.h"
+#include "DX12BufferManager.h"
+#include "DX12TextureManager.h"
+#include "DX12ViewManager.h"
+#include "DX12PipelineManager.h"
 
 namespace Cue::RHI::DX12
 {
@@ -32,19 +38,29 @@ namespace Cue::RHI::DX12
         uint32_t width() const noexcept override { return m_width; }
         uint32_t height() const noexcept override { return m_height; }
         const uint32_t& buffer_count() const noexcept override { return m_bufferCount; }
+        /// @brief 利用する Windows プラットフォームを設定する
+        void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
     private:
         // RenderBackendSetupInfo 由来の基本設定。RHI 抽象層から参照されるため保持する。
         uint32_t m_width{};
         uint32_t m_height{};
         uint32_t m_bufferCount{};
+        PAL::Win::WinPlatform* m_platform = nullptr; // Windows プラットフォームへのポインタ。スワップチェイン作成に必要。
 
         // D3D12 debug layer の live object 出力はバックエンド破棄時に行う。
         // 他の D3D12 オブジェクトより後に破棄されるよう、最初に宣言している。
         std::unique_ptr<ResourceLeakChecker> m_resourceLeakChecker = std::make_unique<ResourceLeakChecker>();
 
         // バックエンド共有サービス。各 manager はこれらの実体を参照して RHI handle を D3D12 object へ解決する。
-        std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>();
-        std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr;
-        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr;
+        std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>(); // HLSLコンパイラ
+        std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
+        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
+        std::unique_ptr<DX12CommandPool> m_commandPool = nullptr; // コマンドプール
+        std::unique_ptr<DX12QueuePool> m_queuePool = nullptr; // コマンドキュープール 
+        std::unique_ptr<SwapChain> m_swapChain = nullptr; // スワップチェイン
+        std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
+        std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
+        std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
+        std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
     };
 }

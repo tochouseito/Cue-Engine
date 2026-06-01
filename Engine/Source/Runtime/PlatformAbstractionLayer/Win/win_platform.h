@@ -58,6 +58,11 @@ namespace Cue::PAL::Win
         {
             return *m_fileSystem.get();
         }
+        /// @brief 作成済みウィンドウハンドルを返す
+        HWND get_window_handle() const noexcept
+        {
+            return m_app ? m_app->get_window_handle() : nullptr;
+        }
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // ウィンドウ管理
