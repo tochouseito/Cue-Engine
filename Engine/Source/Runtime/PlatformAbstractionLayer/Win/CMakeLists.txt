@@ -10,7 +10,7 @@ add_library(win_platform STATIC
     "IO/WinFile.h"
     "IO/WinFileSystem.cpp"
     "IO/WinFileSystem.h"
-    "stdafx.h"
+    "WinCommon.h"
     "Threading/WinThread.cpp"
     "Threading/WinThread.h"
     "Threading/WinThreadFactory.cpp"
@@ -21,7 +21,7 @@ add_library(win_platform STATIC
     "Time/WinWaiter.cpp"
     "win_platform.cpp"
     "win_platform.h"
-)
+ "DebugTool/CPUProfiler.h")
 
 # リンクするライブラリの指定
 target_link_libraries(win_platform PUBLIC
@@ -37,6 +37,7 @@ target_link_libraries(win_platform PUBLIC
     ole32
     shell32
     uuid
+    Psapi
 )
 
 # インクルードディレクトリの指定

@@ -8,13 +8,14 @@
 #include <PAL.h>
 
 // === win_platform includes ===
-#include "stdafx.h"
+#include "WinCommon.h"
 #include "App/WinApp.h"
 #include "IO/WinFileSystem.h"
 #include "Threading/WinThread.h"
 #include "Threading/WinThreadFactory.h"
 #include "Time/WinQpcClock.h"
 #include "Time/WinWaiter.h"
+#include "DebugTool/CPUProfiler.h"
 
 // === C++ includes ===
 #include <memory>
@@ -63,6 +64,25 @@ namespace Cue::PAL::Win
         {
             return m_app ? m_app->get_window_handle() : nullptr;
         }
+        Result get_process_memory_usage(ProcessMemoryUsage& a_out) noexcept override
+        {
+            if (m_cpuProfiler)
+            {
+                return m_cpuProfiler->get_process_memory_usage(a_out);
+            }
+            return Result::fail(
+                Code::InitializeFailed, Severity::Error, "CPUProfiler is not initialized");
+        }
+        Result get_system_memory_usage(SystemMemoryUsage& a_out) noexcept override
+        {
+            if (m_cpuProfiler)
+            {
+                return m_cpuProfiler->get_system_memory_usage(a_out);
+            }
+            return Result::fail(
+                Code::InitializeFailed, Severity::Error, "CPUProfiler is not initialized");
+        }
+
     private:
         bool m_isComInitialized = false; // COM 初期化フラグ
         std::unique_ptr<WinApp> m_app = nullptr; // ウィンドウ管理
@@ -70,5 +90,6 @@ namespace Cue::PAL::Win
         std::unique_ptr<WinThreadFactory> m_threadFactory = nullptr; // スレッドファクトリ
         std::unique_ptr<WinQpcClock> m_clock = nullptr; // クロック
         std::unique_ptr<WinWaiter> m_waiter = nullptr; // ウェイタ
+        std::unique_ptr<CPUProfiler> m_cpuProfiler = nullptr; // CPU プロファイラ
     };
 }

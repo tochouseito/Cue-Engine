@@ -11,7 +11,7 @@
 #include <string>
 
 // === win_platform includes ===
-#include "stdafx.h"
+#include "WinCommon.h"
 #include "ConvertHresult.h"
 
 namespace Cue::PAL::Win

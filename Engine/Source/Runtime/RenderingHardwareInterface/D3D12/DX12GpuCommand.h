@@ -6,7 +6,7 @@
 #include <RHICommon.h>
 
 // === DirectX 12 includes ===
-#include "stdafx.h"
+#include "DX12Common.h"
 #include "DX12RenderDevice.h"
 #include "DescriptorAllocator.h"
 #include "DX12BufferManager.h"

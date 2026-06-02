@@ -51,6 +51,7 @@ namespace Cue::PAL::Win
         m_threadFactory = std::make_unique<WinThreadFactory>();
         m_clock = std::make_unique<WinQpcClock>();
         m_waiter = std::make_unique<WinWaiter>(*m_clock.get());
+        m_cpuProfiler = std::make_unique<CPUProfiler>();
     }
     WinPlatform::~WinPlatform()
     {

@@ -6,7 +6,7 @@
 #include <IO/Logger.h>
 #include <Time/FrameCounter.h>
 #include <CQRS/CQRS.h>
-#include <DebugTool/Profiler.h>
+#include <DebugTool/PerformanceCounter.h>
 
 // === WinPlatform includes ===
 #include <win_platform.h>
@@ -55,8 +55,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Logger にプラットフォームのファイルシステムをセット
     Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
 
-    // Profiler を初期化
-    Core::Profiler profiler(platform->clock());
+    // PerformanceCounter を初期化
+    Core::PerformanceCounter profiler(platform->clock());
 
     // レンダーバックエンドを初期化
     std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend = std::make_unique<RHI::DX12::D3D12Backend>();
@@ -98,6 +98,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         CUE_ASSERT_FORMAT(false, "Failed to start platform: %s", r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to start platform: %s", r.message.data());
         return -1;
+    }
+
+    // プロセスメモリ、システムメモリ使用量をログに出力
+    PAL::ProcessMemoryUsage processMemoryUsage{};
+    PAL::SystemMemoryUsage systemMemoryUsage{};
+    if (r = platform->get_process_memory_usage(processMemoryUsage); r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Process Memory Usage - Working Set: {} MB, Private Bytes: {} MB",
+            processMemoryUsage.workingSetBytes / (1024 * 1024),
+            processMemoryUsage.privateBytes / (1024 * 1024));
+    }
+    else
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to get process memory usage: {}", r.message);
+    }
+    if (r = platform->get_system_memory_usage(systemMemoryUsage); r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "System Memory Usage - Total Phys: {} MB, Avail Phys: {} MB, Memory Load: {}%",
+            systemMemoryUsage.totalPhysBytes / (1024 * 1024),
+            systemMemoryUsage.availPhysBytes / (1024 * 1024),
+            systemMemoryUsage.memoryLoadPercent);
+    }
+    else
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to get system memory usage: {}", r.message);
     }
 
     // メインループ
@@ -143,7 +172,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         const Core::Time::FrameCounter& frameCounter = engine->frame_controller().frame_counter();
         if (frameCounter.total_frames() > 0)
         {
-            Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
+            // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}", frameCounter.fps());
         }
         /*profiler.begin("Test", "Update");
         profiler.end("Test", "Update");

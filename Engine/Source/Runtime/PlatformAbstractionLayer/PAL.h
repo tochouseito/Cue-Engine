@@ -20,6 +20,7 @@
 #include <CQRS/CQRS.h>
 
 /// === PAL includes ===
+#include "PALCommon.h"
 #include "PlatformMessage.h"
 
 namespace Cue::PAL
@@ -58,6 +59,8 @@ namespace Cue::PAL
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
         virtual Core::IO::IFileSystem& file_system() = 0;
+        virtual Result get_process_memory_usage(ProcessMemoryUsage& a_out) noexcept = 0;
+        virtual Result get_system_memory_usage(SystemMemoryUsage& a_out) noexcept = 0;
 
         // --- コマンドブリッジをセット ---
         void set_command_bridge(Core::CQRS::Bridge* a_bridge) noexcept

@@ -1,7 +1,7 @@
 #pragma once
 
 /// ********************************************************************************
-/// CPU プロファイラー
+/// パフォーマンスカウンター
 /// ********************************************************************************
 
 // === Base includes ===
@@ -32,13 +32,13 @@ namespace Cue::Core
         uint64_t threadId = 0;
     };
 
-    /// @brief CPU プロファイラー
-    class Profiler final
+    /// @brief パフォーマンスカウンター
+    class PerformanceCounter final
     {
     public:
-        Profiler(const Time::IClock& a_clock) : m_clock(a_clock)
+        PerformanceCounter(const Time::IClock& a_clock) : m_clock(a_clock)
         {}
-        ~Profiler() = default;
+        ~PerformanceCounter() = default;
 
         /// @brief スナップショットの開始
         /// @param groupName グループ名

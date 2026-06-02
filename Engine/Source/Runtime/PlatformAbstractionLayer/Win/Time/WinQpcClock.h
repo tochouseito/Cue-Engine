@@ -11,7 +11,7 @@
 #include <Time/IClock.h>
 
 // === Windows API includes ===
-#include "stdafx.h"
+#include "WinCommon.h"
 
 namespace Cue::PAL::Win
 {

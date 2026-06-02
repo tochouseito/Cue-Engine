@@ -14,7 +14,7 @@
 #include <PlatformMessage.h>
 
 // === win_platform includes ===
-#include "stdafx.h"
+#include "WinCommon.h"
 
 // === C++ includes ===
 #include <cstdint>

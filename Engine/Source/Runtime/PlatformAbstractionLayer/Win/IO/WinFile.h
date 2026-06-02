@@ -15,7 +15,7 @@
 // === Windows API includes ===
 #include "ConvertHresult.h"
 #include "ConvertUTF.h"
-#include "stdafx.h"
+#include "WinCommon.h"
 
 namespace Cue::PAL::Win
 {

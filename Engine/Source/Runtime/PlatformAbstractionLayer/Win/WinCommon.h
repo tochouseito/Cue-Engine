@@ -3,6 +3,7 @@
 #define NOMINMAX                        // min と max マクロ抑止
 #include <Windows.h>
 #include <process.h>
+#include <psapi.h>
 #include <new>
 #include <timeapi.h>
 #include <wrl.h>
