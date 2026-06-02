@@ -176,16 +176,16 @@ namespace Cue::RHI
             commandContext->clear_render_target(
                 m_backBufferRtvHandle,
                 k_swapChainClearColor.data());
-            //commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
-            //commandContext->set_viewport_scissor(context.width(), context.height());
-            //commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
-            //commandContext->set_primitive_topology(PrimitiveTopologyType::Triangle);
-            //commandContext->set_graphics_descriptor_table(0, m_sourceColorSrvHandle);
-            //commandContext->draw_instanced(3, 1, 0, 0);
+            commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
+            commandContext->set_viewport_scissor(context.width(), context.height());
+            commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
+            commandContext->set_primitive_topology(PrimitiveTopologyType::Triangle);
+            commandContext->set_graphics_descriptor_table(0, m_sourceColorSrvHandle);
+            commandContext->draw_instanced(3, 1, 0, 0);
 
         }
     private:
-        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63);
+        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(0, 0, 0, 255);
 
         TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル

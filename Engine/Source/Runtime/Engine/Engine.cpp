@@ -10,6 +10,7 @@
 #include "Command/PlatformCommandContext.h"
 
 // === Frame Passes includes ===
+#include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 
 namespace Cue
@@ -124,7 +125,10 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::render()
     {
         return [this](uint64_t a_frameNo, uint32_t a_index) {
-            a_frameNo; a_index; // 未使用パラメーターの警告回避   
+            if (m_renderBackend != nullptr && m_frameGraph != nullptr)
+            {
+                (void)m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
+            }
             };
     }
 
@@ -138,6 +142,27 @@ namespace Cue
     Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
     {
         Result result = Result::ok();
+
+        RHI::FrameGraphDesc renderFrameGraphDesc{};
+        renderFrameGraphDesc.usePresentQueue = true;
+        renderFrameGraphDesc.enableProfiling = true;
+        renderFrameGraphDesc.waitForCompletion = false;
+        result =
+            m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
+        if (!result)
+        {
+            return Result::fail(result.code, Severity::Fatal,
+                "Failed to create render frame graph.");
+        }
+
+        m_frameGraph->add_pass(
+            std::make_unique<RHI::FinalColorClearPass>());
+
+        result = m_frameGraph->build();
+        if (!result)
+        {
+            return result;
+        }
 
         RHI::FrameGraphDesc presentFrameGraphDesc{};
         presentFrameGraphDesc.usePresentQueue = true;

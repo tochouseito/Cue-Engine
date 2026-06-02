@@ -1,7 +1,7 @@
 # Core モジュールの CMakeLists.txt
 
 # ターゲットソースの追加
-add_library(Core STATIC "CQRS/CQRS.h" "CQRS/CQRS.cpp" "IO/Logger.h" "IO/Logger.cpp" "IO/IFileSystem.h" "IO/Path.h" "IO/Path.cpp" "Threading/IThread.h" "Threading/IThreadFactory.h" "Threading/StopToken.h" "Threading/JobSystem.h" "Time/Timer.h" "Time/IClock.h" "Time/IWaiter.h" "Time/FrameCounter.h" "DebugTool/PerformanceCounter.h" "Native/Handle.h" "Container/RingBuffer.h" "Container/Registry.h" "Container/Pool.h")
+add_library(Core STATIC "CQRS/CQRS.h" "CQRS/CQRS.cpp" "IO/Logger.h" "IO/Logger.cpp" "IO/IFileSystem.h" "IO/Path.h" "IO/Path.cpp" "Threading/IThread.h" "Threading/IThreadFactory.h" "Threading/StopToken.h" "Threading/JobSystem.h" "Time/Timer.h" "Time/IClock.h" "Time/IWaiter.h" "Time/FrameCounter.h" "DebugTool/PerformanceCounter.h" "Native/Handle.h" "Container/RingBuffer.h" "Container/Registry.h" "Container/Pool.h" "Native/EngineNativeStruct.h")
 
 # リンクするライブラリの指定
 target_link_libraries(Core PUBLIC
