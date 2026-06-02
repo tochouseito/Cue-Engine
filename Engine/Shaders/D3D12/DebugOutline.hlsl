@@ -1,3 +1,5 @@
+// Build a screen-space outline around selected pixels so object shaders stay unchanged.
+
 struct VsOut
 {
     float4 position : SV_POSITION;
@@ -12,6 +14,7 @@ struct SelectedObjectConstants
 ConstantBuffer<SelectedObjectConstants> g_selectedObject : register(b0);
 Texture2D<uint> g_objectIds : register(t0);
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID)
 {
     const float2 positions[3] =
@@ -34,6 +37,7 @@ VsOut vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     if (g_selectedObject.objectId == 0)

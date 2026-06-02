@@ -1,3 +1,5 @@
+// Quaternion の役割と公開要素を定義する
+
 #pragma once
 
 // === Math includes === 
@@ -17,7 +19,7 @@ namespace Cue::Math
         float z;
         float w;
 
-        /*================ コンストラクタ/初期化 ================*/
+        // --- コンストラクタ/初期化 ---
         /// @brief デフォルトは単位（0,0,0,1）
         constexpr Quaternion(float a_x = 0.0f, float a_y = 0.0f, float a_z = 0.0f, float a_w = 1.0f) noexcept
             : x(a_x)
@@ -29,39 +31,39 @@ namespace Cue::Math
         /// @brief 単位に初期化
         void initialize() noexcept
         {
-            // 1) 単位クォータニオンに戻す
+            // - 単位クォータニオンに戻す
             x = 0.0f;
             y = 0.0f;
             z = 0.0f;
             w = 1.0f;
         }
 
-        /*================ 四則/積 ================*/
+        // --- 四則/積 ---
         /// @brief 和
         Quaternion operator+(const Quaternion& other) const noexcept
         {
-            // 1) 成分ごとの加算結果を返す
+            // - 成分ごとの加算結果を返す
             return { x + other.x, y + other.y, z + other.z, w + other.w };
         }
 
         /// @brief 差
         Quaternion operator-(const Quaternion& other) const noexcept
         {
-            // 1) 成分ごとの減算結果を返す
+            // - 成分ごとの減算結果を返す
             return { x - other.x, y - other.y, z - other.z, w - other.w };
         }
 
         /// @brief スカラー乗算
         Quaternion operator*(float scalar) const noexcept
         {
-            // 1) 成分ごとにスカラーを掛ける
+            // - 成分ごとにスカラーを掛ける
             return { x * scalar, y * scalar, z * scalar, w * scalar };
         }
 
         /// @brief スカラー除算（0割は単位を返す）
         Quaternion operator/(float scalar) const noexcept
         {
-            // 1) 0割は単位クォータニオンでフォールバックする
+            // - 0割は単位クォータニオンでフォールバックする
             if (scalar == 0.0f)
             {
                 return identity();
@@ -72,7 +74,7 @@ namespace Cue::Math
         /// @brief 積（this * other）
         Quaternion multiply(const Quaternion& other) const noexcept
         {
-            // 1) ハミルトン積で合成する
+            // - ハミルトン積で合成する
             return {
                 w * other.x + x * other.w + y * other.z - z * other.y,
                 w * other.y - x * other.z + y * other.w + z * other.x,
@@ -84,15 +86,15 @@ namespace Cue::Math
         /// @brief 積（演算子）
         Quaternion operator*(const Quaternion& other) const noexcept
         {
-            // 1) 積の実装を再利用する
+            // - 積の実装を再利用する
             return multiply(other);
         }
 
-        /*================ 基本演算 ================*/
+        // --- 基本演算 ---
         /// @brief 共役（その場で反転）
         void conjugate() noexcept
         {
-            // 1) ベクトル成分の符号を反転する
+            // - ベクトル成分の符号を反転する
             x = -x;
             y = -y;
             z = -z;
@@ -102,21 +104,21 @@ namespace Cue::Math
         /// @brief ノルム
         float norm() const noexcept
         {
-            // 1) 成分の二乗和からノルムを計算する
+            // - 成分の二乗和からノルムを計算する
             return std::sqrt(x * x + y * y + z * z + w * w);
         }
 
         /// @brief 内積
         float dot(const Quaternion& other) const noexcept
         {
-            // 1) 成分ごとの積和を計算する
+            // - 成分ごとの積和を計算する
             return x * other.x + y * other.y + z * other.z + w * other.w;
         }
 
         /// @brief 正規化（その場）
         Quaternion normalize() noexcept
         {
-            // 1) ノルムで割って単位化する
+            // - ノルムで割って単位化する
             const float n = norm();
             if (n == 0.0f)
             {
@@ -135,7 +137,7 @@ namespace Cue::Math
         /// @brief 逆（その場）
         void inverse() noexcept
         {
-            // 1) 共役とノルムから逆クォータニオンを求める
+            // - 共役とノルムから逆クォータニオンを求める
             const Quaternion conj = conjugate_copy(*this);
             const float n = norm();
             const float n2 = n * n;
@@ -153,11 +155,11 @@ namespace Cue::Math
         }
 
     public:
-        /*================ 静的ユーティリティ ================*/
+        // --- 静的ユーティリティ ---
         /// @brief 線形補間（正規化付き）
         static Quaternion lerp(const Quaternion& start, const Quaternion& end, float t) noexcept
         {
-            // 1) 線形補間して正規化する
+            // - 線形補間して正規化する
             Quaternion result = start * (1.0f - t) + end * t;
             return result.normalize();
         }
@@ -165,7 +167,7 @@ namespace Cue::Math
         /// @brief 球面線形補間（大角・小角に自動対応）
         static Quaternion slerp(const Quaternion& start, const Quaternion& end, float t) noexcept
         {
-            // 1) 内積と符号で最短経路を確保する
+            // - 内積と符号で最短経路を確保する
             float dot_value = start.dot(end);
             Quaternion end_adjusted = end;
             if (dot_value < 0.0f)
@@ -174,14 +176,14 @@ namespace Cue::Math
                 dot_value = -dot_value;
             }
 
-            // 2) ほぼ同方向なら線形補間で十分
+            // - ほぼ同方向なら線形補間で十分
             const float threshold = 0.9995f;
             if (dot_value > threshold)
             {
                 return lerp(start, end_adjusted, t);
             }
 
-            // 3) 角度を使って球面補間する
+            // - 角度を使って球面補間する
             const float theta0 = std::acos(dot_value);
             const float theta = theta0 * t;
             const float s0 = std::cos(theta) - dot_value * std::sin(theta) / std::sin(theta0);
@@ -198,21 +200,21 @@ namespace Cue::Math
         /// @brief 単位
         static Quaternion identity() noexcept
         {
-            // 1) 単位クォータニオンを返す
+            // - 単位クォータニオンを返す
             return { 0.0f, 0.0f, 0.0f, 1.0f };
         }
 
         /// @brief 共役（コピー版）
         static Quaternion conjugate_copy(const Quaternion& value) noexcept
         {
-            // 1) ベクトル成分だけ反転したコピーを返す
+            // - ベクトル成分だけ反転したコピーを返す
             return { -value.x, -value.y, -value.z, value.w };
         }
 
         /// @brief 正規化（コピー版）
         static Quaternion normalize(const Quaternion& value) noexcept
         {
-            // 1) ノルムが 0 のときは単位を返す
+            // - ノルムが 0 のときは単位を返す
             const float n = std::sqrt(value.x * value.x +
                 value.y * value.y +
                 value.z * value.z +
@@ -227,7 +229,7 @@ namespace Cue::Math
         /// @brief 逆（コピー版）
         static Quaternion inverse(const Quaternion& value) noexcept
         {
-            // 1) 共役とノルムから逆クォータニオンを求める
+            // - 共役とノルムから逆クォータニオンを求める
             const Quaternion conj = conjugate_copy(value);
             const float n = std::sqrt(value.x * value.x +
                 value.y * value.y +
@@ -241,11 +243,11 @@ namespace Cue::Math
             return { conj.x / n2, conj.y / n2, conj.z / n2, conj.w / n2 };
         }
 
-        /*================ Epsilon 比較 ================*/
+        // --- Epsilon 比較 ---
         /// @brief 既定Epsilonでの等価（|a-b|<=ε を全成分で）
         static bool equals_epsilon(const Quaternion& left, const Quaternion& right) noexcept
         {
-            // 1) 既定の許容誤差で比較する
+            // - 既定の許容誤差で比較する
             constexpr float epsilon = 10.0f * std::numeric_limits<float>::epsilon();
             auto abs_value = [](float value)
                 {
@@ -260,7 +262,7 @@ namespace Cue::Math
         /// @brief Epsilon指定の等価
         static bool equals_epsilon(const Quaternion& left, const Quaternion& right, float epsilon) noexcept
         {
-            // 1) 指定の許容誤差で比較する
+            // - 指定の許容誤差で比較する
             auto abs_value = [](float value)
                 {
                     return value >= 0.0f ? value : -value;

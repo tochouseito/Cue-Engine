@@ -1,3 +1,5 @@
+// ECSManager の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -95,9 +97,7 @@ namespace Cue::ECS
         class ISystem;
         class SystemPipeline;
 
-        /*---------------------------------------------------------------------
-                エンティティ管理
-            ---------------------------------------------------------------------*/
+        // --- エンティティ管理 ---
         ECSManager() = default;
         explicit ECSManager(Core::Time::IClock& a_clock) noexcept
             : m_clock(&a_clock)
@@ -121,7 +121,7 @@ namespace Cue::ECS
             }
         }
 
-        /*-------------------- Entity create / recycle ----------------------*/
+        // --- Entity create / recycle ---
         [[nodiscard]]
         inline const Entity generate_entity()
         {
@@ -191,7 +191,7 @@ namespace Cue::ECS
             return entity;
         }
 
-        /*-------------------- Clear all components ------------------------*/
+        // --- Clear all components ---
         inline void clear_entity(const Entity& a_e)
         {
             if (a_e >= m_entityToArchetype.size())
@@ -263,7 +263,7 @@ namespace Cue::ECS
             m_deferredCommands.push_back(std::move(a_cmd));
         }
 
-        /*-------------------- Disable entity ------------------------------*/
+        // --- Disable entity ---
         inline void remove_entity(const Entity& a_e)
         {
             if (m_isUpdating)
@@ -278,7 +278,7 @@ namespace Cue::ECS
             }
         }
 
-        /*-------------------- Copy whole entity ---------------------------*/
+        // --- Copy whole entity ---
         [[nodiscard]]
         Entity copy_entity(const Entity& a_src)
         {
@@ -447,11 +447,11 @@ namespace Cue::ECS
             }
         }
 
-        /// Entity e のステージングバッファ内インデックスを返す。
-        /// なければ追加して新しいインデックスを返す。
+        /// Entity e のステージングバッファ内インデックスを返す
+        /// なければ追加して新しいインデックスを返す
         size_t staging_index_for_entity(Entity a_e)
         {
-            // 1) 既存エントリがあればその位置を返す
+            // - 既存エントリがあればその位置を返す
             auto it =
                 std::find(m_stagingEntities.begin(), m_stagingEntities.end(), a_e);
             if (it != m_stagingEntities.end())
@@ -459,7 +459,7 @@ namespace Cue::ECS
                 return static_cast<size_t>(std::distance(m_stagingEntities.begin(), it));
             }
 
-            // 2) なければバッファ末尾に追加
+            // - なければバッファ末尾に追加
             size_t newIndex = m_stagingEntities.size();
             m_stagingEntities.push_back(a_e);
 
@@ -470,7 +470,7 @@ namespace Cue::ECS
             return newIndex;
         }
 
-        /*-------------------- Copy selected components --------------------*/
+        // --- Copy selected components ---
         void copy_components(Entity a_src, Entity a_dst, bool a_overwrite = true)
         {
             const Archetype& archSrc = get_archetype(a_src);
@@ -532,7 +532,7 @@ namespace Cue::ECS
             }
         }
 
-        /*-------------------- Add component -------------------------------*/
+        // --- Add component ---
         template <ComponentType T> T* add_component(const Entity& a_entity)
         {
             CompID type = ComponentPool<T>::get_id();
@@ -667,7 +667,7 @@ namespace Cue::ECS
             notify_component_restored_from_prefab(a_e, ComponentPool<T>::get_id());
         }
 
-        /*-------------------- Get component -------------------------------*/
+        // --- Get component ---
         template <ComponentType T> T* get_component(const Entity& a_entity)
         {
             CompID type = ComponentPool<T>::get_id();
@@ -711,7 +711,7 @@ namespace Cue::ECS
             return pool->get_component(a_entity);
         }
 
-        /*-------------------- Get all (multi) -----------------------------*/
+        // --- Get all (multi) ---
         template <ComponentType T>
         std::vector<T>* get_all_components(const Entity& a_entity)
             requires IsMultiComponent<T>::value
@@ -725,7 +725,7 @@ namespace Cue::ECS
             return pool->get_all_components(a_entity);
         }
 
-        /*-------------------- Remove component ----------------------------*/
+        // --- Remove component ---
         template <ComponentType T> void remove_component(const Entity& a_entity)
         {
             if (m_isUpdating)
@@ -767,7 +767,7 @@ namespace Cue::ECS
             m_archToEntities[arch].add(a_entity);
         }
 
-        /*-------------------- Remove ALL multi ----------------------------*/
+        // --- Remove ALL multi ---
         template <ComponentType T>
         void remove_all_components(const Entity& a_entity)
             requires IsMultiComponent<T>::value
@@ -855,7 +855,7 @@ namespace Cue::ECS
             m_copyPriority[ComponentPool<T>::get_id()] = a_priority;
         }
 
-        /*-------------------- Accessors ----------------------------------*/
+        // --- Accessors ---
         inline const Archetype& get_archetype(Entity a_e) const
         {
             static Archetype empty{};
@@ -1003,7 +1003,7 @@ namespace Cue::ECS
                 // Archetype バケットに登録
                 m_archToEntities[m_stagingEntityArchetypes[i]].add(e);
 
-                // 新規 Entity を各システムの初期化待ちへ積む。
+                // 新規 Entity を各システムの初期化待ちへ積む
                 for (auto& system : m_systems)
                 {
                     m_pendingInitBeforeUpdate[system.get()].push_back(e);
@@ -1023,9 +1023,7 @@ namespace Cue::ECS
             }
         }
 
-        /*---------------------------------------------------------------------
-            EntityContainer (archetype bucket)
-        ---------------------------------------------------------------------*/
+        // --- EntityContainer (archetype bucket) ---
         class EntityContainer
         {
         public:
@@ -1068,9 +1066,7 @@ namespace Cue::ECS
             std::vector<uint32_t> m_entityToIndex;
         };
 
-        /*---------------------------------------------------------------------
-            IComponentPool (interface)
-        ---------------------------------------------------------------------*/
+        // --- IComponentPool (interface) ---
         class IComponentPool
         {
         public:
@@ -1099,9 +1095,7 @@ namespace Cue::ECS
             return (it != m_typeToComponents.end()) ? it->second.get() : nullptr;
         }
 
-        /*---------------------------------------------------------------------
-            ComponentPool  (vector‑backed)
-        ---------------------------------------------------------------------*/
+        // --- ComponentPool (vector‑backed) ---
         template <ComponentType T> class ComponentPool : public IComponentPool
         {
             using Storage = std::vector<T>; // ★ vector 版
@@ -1119,7 +1113,7 @@ namespace Cue::ECS
                 return IsMultiComponent<T>::value;
             }
 
-            /*-------------------- add ---------------------*/
+            // --- add ---
             T* add_component(Entity a_e)
             {
                 if constexpr (IsMultiComponent<T>::value)
@@ -1169,7 +1163,7 @@ namespace Cue::ECS
                 }
             }
 
-            /*-------------------- get ---------------------*/
+            // --- get ---
             T* get_component(Entity a_e)
             {
                 if constexpr (IsMultiComponent<T>::value)
@@ -1206,7 +1200,7 @@ namespace Cue::ECS
                 }
             }
 
-            /*-------------------- remove ------------------*/
+            // --- remove ---
             void remove_component(Entity a_e) override
             {
                 if constexpr (IsMultiComponent<T>::value)
@@ -1238,7 +1232,7 @@ namespace Cue::ECS
                 }
             }
 
-            /*-------------------- multi helpers -----------*/
+            // --- multi helpers ---
             std::vector<T>* get_all_components(Entity a_e)
                 requires IsMultiComponent<T>::value
             {
@@ -1282,7 +1276,7 @@ namespace Cue::ECS
                 m_multi.erase(a_e);
             }
 
-            /*-------------------- copy --------------------*/
+            // --- copy ---
             void copy_component(Entity a_src, Entity a_dst) override
             {
                 if constexpr (IsMultiComponent<T>::value)
@@ -1488,14 +1482,14 @@ namespace Cue::ECS
                 }
             }
 
-            /*-------------------- static ID --------------*/
+            // --- static ID ---
             static CompID get_id()
             {
                 // static CompID id = ++ECSManager::m_NextCompTypeID; return id;
                 return ComponentID<T>();
             }
 
-            /*-------------------- expose map -------------*/
+            // --- expose map ---
             auto& map() { return m_multi; }
             const auto& map() const { return m_multi; }
 
@@ -1795,9 +1789,7 @@ namespace Cue::ECS
             bool m_requiresSort = false;
         };
 
-        /*---------------------------------------------------------------------
-            System & MultiSystem  (unchanged logic)
-        ---------------------------------------------------------------------*/
+        // --- System & MultiSystem (unchanged logic) ---
         template <ComponentType... T> class System : public ISystem
         {
             static constexpr bool kNoMulti = (!IsMultiComponent<T>::value && ...);
@@ -1885,25 +1877,25 @@ namespace Cue::ECS
 
                     for (Entity e : bucket.get_entities())
                     {
-                        // 1) エンティティが非アクティブならスキップ
+                        // - エンティティが非アクティブならスキップ
                         if (!m_pEcs->is_entity_active(e))
                         {
                             continue;
                         }
 
-                        // 2) 全コンポーネントが存在するかチェック
+                        // - 全コンポーネントが存在するかチェック
                         if (!((m_pEcs->get_component<T>(e) != nullptr) && ...))
                         {
                             continue;
                         }
 
-                        // 3) 全コンポーネントがアクティブかチェック
+                        // - 全コンポーネントがアクティブかチェック
                         if (!((m_pEcs->get_component<T>(e)->is_active()) && ...))
                         {
                             continue;
                         }
 
-                        // 4) 問題なければコールバック
+                        // - 問題なければコールバック
                         if (m_updateWithContext)
                         {
                             m_updateWithContext(e, *m_pEcs->get_component<T>(e)..., a_context);
@@ -2363,13 +2355,13 @@ namespace Cue::ECS
 
                 for (auto& [e, vec] : pool->map())
                 {
-                    // 1) エンティティがアクティブでない、またはインスタンスが空ならスキップ
+                    // - エンティティがアクティブでない、またはインスタンスが空ならスキップ
                     if (!m_pEcs->is_entity_active(e) || vec.empty())
                     {
                         continue;
                     }
 
-                    // 2) インスタンスごとに IsActive フラグを確認して、filteredVec を作る
+                    // - インスタンスごとに IsActive フラグを確認して、filteredVec を作る
                     std::vector<T> filtered;
                     filtered.reserve(vec.size());
                     for (auto& inst : vec)
@@ -2380,7 +2372,7 @@ namespace Cue::ECS
                         }
                     }
 
-                    // 3) 有効インスタンスがひとつでもあればコール
+                    // - 有効インスタンスがひとつでもあればコール
                     if (!filtered.empty())
                     {
                         a_func(e, filtered);
@@ -2669,13 +2661,13 @@ namespace Cue::ECS
         // ――――――――――――――――――
         void remove_entity_impl(Entity a_e)
         {
-            // 1) すべてのコンポーネントをクリア（イベント込み）
+            // - すべてのコンポーネントをクリア（イベント込み）
             clear_entity(a_e);
-            // 2) 非アクティブ化
+            // - 非アクティブ化
             m_entityToActive[a_e] = false;
-            // 3) リサイクル
+            // - リサイクル
             m_recycleEntities.push_back(a_e);
-            // 4) エンティティ破棄イベント
+            // - エンティティ破棄イベント
             for (auto& wp : m_entityListeners)
             {
                 if (auto sp = wp.lock())
@@ -2695,7 +2687,7 @@ namespace Cue::ECS
             m_deferredCommands.clear();
         }
 
-        /*-------------------- data members --------------------------------*/
+        // --- data members ---
 
         Core::Time::IClock* m_clock = nullptr;
         bool m_isUpdating = false;
@@ -3115,16 +3107,16 @@ namespace Cue::ECS
         // ――――――――――――――――――
         Entity instantiate(ECSManager& a_ecs) const
         {
-            // 1) エンティティ生成（派生で名前付けしたい場合はここをオーバーライド）
+            // - エンティティ生成（派生で名前付けしたい場合はここをオーバーライド）
             Entity e = create_entity(a_ecs);
 
-            // 2) コンポーネント復元（派生は基本的にそのまま使う）
+            // - コンポーネント復元（派生は基本的にそのまま使う）
             instantiate_components(e, a_ecs);
 
-            // 3) 子 Prefab 再帰生成＆親子リンク
+            // - 子 Prefab 再帰生成＆親子リンク
             instantiate_children(e, a_ecs);
 
-            // 4) 完了フック（後始末的な処理があれば派生で）
+            // - 完了フック（後始末的な処理があれば派生で）
             on_after_instantiate(e, a_ecs);
 
             return e;
@@ -3333,7 +3325,7 @@ namespace Cue::ECS
             }
         }
 
-        // (1) まずエンティティを作る。追加の初期化／名前付けは here を override。
+        // (1) まずエンティティを作る追加の初期化／名前付けは here を override
         virtual Entity create_entity(ECSManager& a_ecs) const
         {
             return a_ecs.generate_entity();

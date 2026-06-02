@@ -1,3 +1,5 @@
+// Matrix4 の役割と公開要素を定義する
+
 #pragma once
 
 // === Math includes ===
@@ -23,7 +25,7 @@ namespace Cue::Math
         /// @brief 単位行列で初期化
         constexpr void initialize_identity() noexcept
         {
-            // 1) 対角のみ 1、それ以外は 0 にする
+            // - 対角のみ 1、それ以外は 0 にする
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = 0; col < 4; ++col)
@@ -36,7 +38,7 @@ namespace Cue::Math
         /// @brief 単位行列生成
         [[nodiscard]] static constexpr Matrix4 identity() noexcept
         {
-            // 1) 単位行列で初期化した値を返す
+            // - 単位行列で初期化した値を返す
             Matrix4 result;
             result.initialize_identity();
             return result;
@@ -45,7 +47,7 @@ namespace Cue::Math
         /// @brief ゼロ行列で初期化
         constexpr void initialize_zero() noexcept
         {
-            // 1) 全要素を 0 にする
+            // - 全要素を 0 にする
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = 0; col < 4; ++col)
@@ -58,7 +60,7 @@ namespace Cue::Math
         /// @brief ゼロ行列生成
         [[nodiscard]] static constexpr Matrix4 zero() noexcept
         {
-            // 1) ゼロ行列で初期化した値を返す
+            // - ゼロ行列で初期化した値を返す
             Matrix4 result;
             result.initialize_zero();
             return result;
@@ -67,7 +69,7 @@ namespace Cue::Math
         /// @brief 行列の転置（破壊的）
         constexpr void transpose() noexcept
         {
-            // 1) 対角を跨ぐ要素を入れ替える
+            // - 対角を跨ぐ要素を入れ替える
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = row + 1; col < 4; ++col)
@@ -80,7 +82,7 @@ namespace Cue::Math
         /// @brief 転置（非破壊）
         [[nodiscard]] static constexpr Matrix4 transpose(const Matrix4& a_value) noexcept
         {
-            // 1) 転置した結果を新しい行列として作る
+            // - 転置した結果を新しい行列として作る
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -95,14 +97,14 @@ namespace Cue::Math
         /// @brief 行列積（result = this * a_other）
         [[nodiscard]] constexpr Matrix4 multiply(const Matrix4& a_other) const noexcept
         {
-            // 1) 行列積の行ごとの計算を行う
+            // - 行列積の行ごとの計算を行う
             Matrix4 result{};
             for (int row = 0; row < 4; ++row)
             {
                 for (int k = 0; k < 4; ++k)
                 {
                     const T aik = static_cast<T>(values[row][k]);
-                    // 2) 行の要素を列へ加算する
+                    // - 行の要素を列へ加算する
                     result.values[row][0] += aik * a_other.values[k][0];
                     result.values[row][1] += aik * a_other.values[k][1];
                     result.values[row][2] += aik * a_other.values[k][2];
@@ -114,7 +116,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr Matrix4 operator*(const Matrix4& a_other) const noexcept
         {
-            // 1) 行列積の実装を再利用する
+            // - 行列積の実装を再利用する
             return multiply(a_other);
         }
 
@@ -122,7 +124,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr Matrix4 operator+(const Matrix4& a_other) const noexcept
         {
-            // 1) 成分ごとの加算結果を返す
+            // - 成分ごとの加算結果を返す
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -136,7 +138,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr Matrix4 operator-(const Matrix4& a_other) const noexcept
         {
-            // 1) 成分ごとの減算結果を返す
+            // - 成分ごとの減算結果を返す
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -150,7 +152,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr Matrix4 operator*(T a_scalar) const noexcept
         {
-            // 1) 成分ごとにスカラーを掛ける
+            // - 成分ごとにスカラーを掛ける
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -164,7 +166,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr Matrix4 operator-() const noexcept
         {
-            // 1) 全成分の符号を反転する
+            // - 全成分の符号を反転する
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -182,7 +184,7 @@ namespace Cue::Math
             T a_absEps = T(1e-6),
             T a_relEps = T(1e-5)) const noexcept
         {
-            // 1) 各成分の誤差が許容範囲か判定する
+            // - 各成分の誤差が許容範囲か判定する
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = 0; col < 4; ++col)
@@ -202,7 +204,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr bool operator==(const Matrix4& a_other) const noexcept
         {
-            // 1) 型に応じた既定epsilonで近似比較する
+            // - 型に応じた既定epsilonで近似比較する
             return nearly_equal(a_other,
                 T(10) * std::numeric_limits<T>::epsilon(),
                 T(100) * std::numeric_limits<T>::epsilon());
@@ -210,7 +212,7 @@ namespace Cue::Math
 
         [[nodiscard]] constexpr bool operator!=(const Matrix4& a_other) const noexcept
         {
-            // 1) 等価判定の否定を返す
+            // - 等価判定の否定を返す
             return !(*this == a_other);
         }
 
@@ -219,7 +221,7 @@ namespace Cue::Math
         template <class U = T, std::enable_if_t<std::is_floating_point_v<U>, int> = 0>
         void inverse() noexcept
         {
-            // 1) 掃き出し法で逆行列を求める
+            // - 掃き出し法で逆行列を求める
             const int size = 4;
             U sweep[size][size * 2]{};
 
@@ -234,7 +236,7 @@ namespace Cue::Math
 
             for (int k = 0; k < size; ++k)
             {
-                // 2) ピボット選択（部分ピボット）
+                // - ピボット選択（部分ピボット）
                 U maxValue = std::abs(sweep[k][k]);
                 int maxIndex = k;
                 for (int row = k + 1; row < size; ++row)
@@ -294,7 +296,7 @@ namespace Cue::Math
         template <class U = T, std::enable_if_t<std::is_floating_point_v<U>, int> = 0>
         [[nodiscard]] static Matrix4 inverse(const Matrix4& a_value) noexcept
         {
-            // 1) コピーして破壊的な逆行列を避ける
+            // - コピーして破壊的な逆行列を避ける
             Matrix4 result = a_value;
             result.inverse();
             return result;
@@ -304,7 +306,7 @@ namespace Cue::Math
 
         constexpr void to_array16(T a_out[16]) const noexcept
         {
-            // 1) row-major で配列へ書き出す
+            // - row-major で配列へ書き出す
             for (int row = 0; row < 4; ++row)
             {
                 for (int col = 0; col < 4; ++col)
@@ -316,7 +318,7 @@ namespace Cue::Math
 
         [[nodiscard]] static constexpr Matrix4 from_array16(const T a_in[16]) noexcept
         {
-            // 1) row-major の配列から行列を構成する
+            // - row-major の配列から行列を構成する
             Matrix4 result;
             for (int row = 0; row < 4; ++row)
             {
@@ -334,7 +336,7 @@ namespace Cue::Math
             const Matrix4& a_inv,
             U a_tol = U(1e-9)) noexcept
         {
-            // 1) a_mat * a_inv が単位行列に近いかを評価する
+            // - a_mat * a_inv が単位行列に近いかを評価する
             U maxAbsErr = U{ 0 };
             for (int row = 0; row < 4; ++row)
             {

@@ -1,3 +1,5 @@
+// CueAssert の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -26,7 +28,7 @@
 
 namespace Cue
 {
-    /// @brief アサート失敗時に記録するコンテキストです。
+    /// @brief アサート失敗時に記録するコンテキスト
     struct AssertContext final
     {
         const char* expression = "";
@@ -36,17 +38,17 @@ namespace Cue
         uint_least32_t line = 0;
     };
 
-    /// @brief アサート失敗コンテキストを構築します。
-    /// @param a_expression 失敗した式文字列です。
-    /// @param a_message 追加メッセージです。
-    /// @param a_location 呼び出し位置です。
-    /// @return 構築したコンテキストです。
+    /// @brief アサート失敗コンテキストを構築する
+    /// @param a_expression 失敗した式文字列
+    /// @param a_message 追加メッセージ
+    /// @param a_location 呼び出し位置
+    /// @return 構築したコンテキスト
     [[nodiscard]] inline AssertContext make_assert_context(
         const char* a_expression,
         const char* a_message = "",
         const std::source_location& a_location = std::source_location::current()) noexcept
     {
-        // 1) null を空文字へ正規化
+        // - null を空文字へ正規化
         if (a_expression == nullptr)
         {
             a_expression = "";
@@ -57,7 +59,7 @@ namespace Cue
             a_message = "";
         }
 
-        // 2) 失敗情報を組み立てる
+        // - 失敗情報を組み立てる
         return AssertContext{
             a_expression,
             a_message,
@@ -67,14 +69,14 @@ namespace Cue
         };
     }
 
-    /// @brief アサート失敗時の共通処理です。
-    /// @param a_context 失敗コンテキストです。
+    /// @brief アサート失敗時の共通処理
+    /// @param a_context 失敗コンテキスト
     [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& a_context) noexcept;
 
-    /// @brief 整形メッセージ付きでアサート失敗処理を行います。
-    /// @param a_expression 失敗した式文字列です。
-    /// @param a_location 呼び出し位置です。
-    /// @param a_format 整形文字列です。
+    /// @brief 整形メッセージ付きでアサート失敗処理を行いる
+    /// @param a_expression 失敗した式文字列
+    /// @param a_location 呼び出し位置
+    /// @param a_format 整形文字列
     [[noreturn]] void assert_fail_format(
         const char* a_expression,
         const std::source_location& a_location,

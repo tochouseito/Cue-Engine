@@ -28,7 +28,7 @@ namespace
 
     [[nodiscard]] static Prefix parse_prefix_and_sanitize(std::string& a_text) noexcept
     {
-        // 1) 区切りを "/" に統一
+        // - 区切りを "/" に統一
         for (char& c : a_text)
         {
             if (c == '\\')
@@ -37,7 +37,7 @@ namespace
             }
         }
 
-        // 2) prefix 判定
+        // - prefix 判定
         Prefix p{};
         if (a_text.size() >= 2 && is_alpha_ascii(a_text[0]) && a_text[1] == ':')
         {
@@ -70,7 +70,7 @@ namespace
 
     [[nodiscard]] static std::string build_normalized(const Prefix& a_prefix, const std::vector<std::string_view>& a_parts) noexcept
     {
-        // 1) 先頭（prefix + root）
+        // - 先頭（prefix + root）
         std::string out{};
         out.reserve(64);
 
@@ -88,7 +88,7 @@ namespace
             out += "/";
         }
 
-        // 2) パーツ結合
+        // - パーツ結合
         for (size_t i = 0; i < a_parts.size(); ++i)
         {
             if (!out.empty() && out.back() != '/' && out.back() != ':')
@@ -98,13 +98,13 @@ namespace
             out.append(a_parts[i].data(), a_parts[i].size());
         }
 
-        // 3) 空なら "." ではなく "" を返す（VFSキーとして扱いやすい）
+        // - 空なら "." ではなく "" を返す（VFSキーとして扱いやすい）
         return out;
     }
 
     [[nodiscard]] static std::string_view skip_prefix_view(std::string_view a_text, const Prefix& a_prefix) noexcept
     {
-        // 1) "C:" をスキップ
+        // - "C:" をスキップ
         if (!a_prefix.text.empty())
         {
             if (a_text.size() >= 2)
@@ -113,7 +113,7 @@ namespace
             }
         }
 
-        // 2) UNC/絶対の "/" をスキップ（先頭の区切りは正規化で処理）
+        // - UNC/絶対の "/" をスキップ（先頭の区切りは正規化で処理）
         if (a_prefix.is_unc)
         {
             if (a_text.size() >= 2)
@@ -151,7 +151,7 @@ namespace Cue::Core::IO
 
     bool Path::is_absolute() const noexcept
     {
-        // 1) normalize 前提ではなく、生文字列から判定する（保守的）
+        // - normalize 前提ではなく、生文字列から判定する（保守的）
         if (m_utf8.size() >= 1 && (m_utf8[0] == '/' || m_utf8[0] == '\\'))
         {
             return true;
@@ -165,16 +165,16 @@ namespace Cue::Core::IO
 
     Path Path::normalize() const noexcept
     {
-        // 1) 入力コピー（sanitizeで書き換える）
+        // - 入力コピー（sanitizeで書き換える）
         std::string s = m_utf8;
 
-        // 2) prefix 解析 + 区切り統一
+        // - prefix 解析 + 区切り統一
         const Prefix p = parse_prefix_and_sanitize(s);
 
-        // 3) prefix 部分を除いた view を作成
+        // - prefix 部分を除いた view を作成
         std::string_view body = skip_prefix_view(std::string_view{ s }, p);
 
-        // 4) パーツを走査して '.' と '..' を字句的に解決
+        // - パーツを走査して '.' と '..' を字句的に解決
         std::vector<std::string_view> stack{};
         stack.reserve(16);
 
@@ -228,25 +228,25 @@ namespace Cue::Core::IO
             stack.push_back(token);
         }
 
-        // 5) 組み立て
+        // - 組み立て
         return Path{ build_normalized(p, stack) };
     }
 
     Path Path::join(const Path& a_left, const Path& a_right) noexcept
     {
-        // 1) a_right が絶対なら a_right を優先
+        // - a_right が絶対なら a_right を優先
         if (a_right.is_absolute())
         {
             return a_right.normalize();
         }
 
-        // 2) a_left が空なら a_right
+        // - a_left が空なら a_right
         if (a_left.m_utf8.empty())
         {
             return a_right.normalize();
         }
 
-        // 3) "/" を挟んで結合（normalize が整える）
+        // - "/" を挟んで結合（normalize が整える）
         std::string out = a_left.m_utf8;
         if (!out.empty() && !is_sep(out.back()))
         {
@@ -259,11 +259,11 @@ namespace Cue::Core::IO
 
     Path Path::parent() const noexcept
     {
-        // 1) normalize 済みにしてから処理（区切りと ".." を消す）
+        // - normalize 済みにしてから処理（区切りと ".." を消す）
         const Path n = normalize();
         const std::string& s = n.m_utf8;
 
-        // 2) 空またはルートはそのまま
+        // - 空またはルートはそのまま
         if (s.empty())
         {
             return Path{};
@@ -273,21 +273,21 @@ namespace Cue::Core::IO
             return n;
         }
 
-        // 3) 末尾 "/" は無視（ただしルートは除外）
+        // - 末尾 "/" は無視（ただしルートは除外）
         size_t end = s.size();
         while (end > 0 && s[end - 1] == '/')
         {
             --end;
         }
 
-        // 4) 最後の "/" を探す
+        // - 最後の "/" を探す
         const size_t pos = s.rfind('/', end - 1);
         if (pos == std::string::npos)
         {
             return Path{};
         }
 
-        // 5) "C:/" のような root を壊さない
+        // - "C:/" のような root を壊さない
         if (pos == 2 && s.size() >= 3 && is_alpha_ascii(s[0]) && s[1] == ':' && s[2] == '/')
         {
             return Path{ s.substr(0, 3) };
@@ -303,7 +303,7 @@ namespace Cue::Core::IO
 
     std::string Path::filename() const noexcept
     {
-        // 1) normalize 済みから取得
+        // - normalize 済みから取得
         const Path n = normalize();
         const std::string& s = n.m_utf8;
         if (s.empty() || s == "/")
@@ -311,7 +311,7 @@ namespace Cue::Core::IO
             return {};
         }
 
-        // 2) 末尾 "/" を除外
+        // - 末尾 "/" を除外
         size_t end = s.size();
         while (end > 0 && s[end - 1] == '/')
         {
@@ -322,7 +322,7 @@ namespace Cue::Core::IO
             return {};
         }
 
-        // 3) 最後の "/" の次
+        // - 最後の "/" の次
         const size_t pos = s.rfind('/', end - 1);
         if (pos == std::string::npos)
         {
@@ -333,14 +333,14 @@ namespace Cue::Core::IO
 
     std::string Path::extension() const noexcept
     {
-        // 1) filename から拡張子を取る（.bashrc みたいなのは拡張子なし扱い）
+        // - filename から拡張子を取る（.bashrc みたいなのは拡張子なし扱い）
         const std::string name = filename();
         if (name.empty())
         {
             return {};
         }
 
-        // 2) 最後の '.' を探す
+        // - 最後の '.' を探す
         const size_t dot = name.rfind('.');
         if (dot == std::string::npos || dot == 0 || dot == name.size() - 1)
         {
@@ -352,14 +352,14 @@ namespace Cue::Core::IO
 
     std::string Path::stem() const noexcept
     {
-        // 1) filename から拡張子を除く
+        // - filename から拡張子を除く
         const std::string name = filename();
         if (name.empty())
         {
             return {};
         }
 
-        // 2) 最後の '.' を探す
+        // - 最後の '.' を探す
         const size_t dot = name.rfind('.');
         if (dot == std::string::npos || dot == 0)
         {

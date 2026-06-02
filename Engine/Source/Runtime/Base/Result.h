@@ -1,3 +1,5 @@
+// Result の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -7,7 +9,7 @@
 
 namespace Cue
 {
-    /// @brief 処理結果の種別です。
+    /// @brief 処理結果の種別
     enum class Code : uint16_t
     {
         OK = 0,             // 成功
@@ -25,9 +27,9 @@ namespace Cue
         UnknownError,       // 不明なエラー
     };
 
-    /// @brief 結果コードを文字列へ変換します。
-    /// @param a_code 変換対象の結果コードです。
-    /// @return 結果コード名です。
+    /// @brief 結果コードを文字列へ変換する
+    /// @param a_code 変換対象の結果コード
+    /// @return 結果コード名
     [[nodiscard]] inline const char* to_string(Code a_code) noexcept
     {
         switch (a_code)
@@ -48,15 +50,15 @@ namespace Cue
         }
     }
 
-    /// @brief 結果コードが成功かを返します。
-    /// @param a_code 判定対象の結果コードです。
-    /// @return 成功なら `true` です。
+    /// @brief 結果コードが成功かを返す
+    /// @param a_code 判定対象の結果コード
+    /// @return 成功なら `true` 
     inline bool success(const Code& a_code) noexcept
     {
         return a_code == Code::OK;
     }
 
-    /// @brief 結果の重大度です。
+    /// @brief 結果の重大度
     enum class Severity : uint8_t
     {
         Info = 0,
@@ -65,9 +67,9 @@ namespace Cue
         Fatal,
     };
 
-    /// @brief 重大度を文字列へ変換します。
-    /// @param a_severity 変換対象の重大度です。
-    /// @return 重大度名です。
+    /// @brief 重大度を文字列へ変換する
+    /// @param a_severity 変換対象の重大度
+    /// @return 重大度名
     [[nodiscard]] inline const char* to_string(Severity a_severity) noexcept
     {
         switch (a_severity)
@@ -80,7 +82,7 @@ namespace Cue
         }
     }
 
-    /// @brief エラー情報を保持する結果構造体です。
+    /// @brief エラー情報を保持する結果構造体
     struct Result final
     {
         // 暗黙変換禁止
@@ -99,19 +101,19 @@ namespace Cue
         const char* function = "";
         uint32_t line = 0;
 
-        /// @brief 成功結果を返します。
-        /// @return 既定の成功結果です。
+        /// @brief 成功結果を返す
+        /// @return 既定の成功結果
         static Result ok() noexcept
         {
             return Result{};
         }
 
-        /// @brief 失敗結果を構築します。
-        /// @param a_code 結果コードです。
-        /// @param a_severity 重大度です。
-        /// @param a_message メッセージです。
-        /// @param a_location 呼び出し位置です。
-        /// @return 構築した失敗結果です。
+        /// @brief 失敗結果を構築する
+        /// @param a_code 結果コード
+        /// @param a_severity 重大度
+        /// @param a_message メッセージ
+        /// @param a_location 呼び出し位置
+        /// @return 構築した失敗結果
         static Result fail(
             Code a_code,
             Severity a_severity,
@@ -119,7 +121,7 @@ namespace Cue
             const std::source_location& a_location = std::source_location::current()
         ) noexcept
         {
-            // 1) 結果を組み立てる
+            // - 結果を組み立てる
             Result result{};
             result.code = a_code;
             result.severity = a_severity;
@@ -130,8 +132,8 @@ namespace Cue
             return result;
         }
 
-        /// @brief 成否を bool として返します。
-        /// @return `Code::OK` の場合のみ `true` です。
+        /// @brief 成否を bool として返す
+        /// @return `Code::OK` の場合のみ `true` 
         explicit operator bool() const noexcept
         {
             return code == Code::OK;

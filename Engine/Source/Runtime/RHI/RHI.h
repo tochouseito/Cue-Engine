@@ -1,3 +1,5 @@
+// RHI の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -9,7 +11,7 @@
 
 namespace Cue::RHI
 {
-    /// @brief バックエンド初期化時に必要な設定です。
+    /// @brief バックエンド初期化時に必要な設定
     struct BackendSetupInfo final
     {
         bool enableDebugLayer = false;
@@ -22,28 +24,28 @@ namespace Cue::RHI
         uint32_t depthStencilCapacity = 16;
     };
 
-    /// @brief レンダリングバックエンドの共通インターフェースです。
+    /// @brief レンダリングバックエンドの共通インターフェース
     class IBackend
     {
     public:
         virtual ~IBackend() = default;
 
-        /// @brief バックエンドを初期化します。
+        /// @brief バックエンドを初期化する
         virtual Result initialize(const BackendSetupInfo& a_info) = 0;
 
-        /// @brief バックエンドを終了します。
+        /// @brief バックエンドを終了し
         virtual Result shutdown() = 0;
 
-        /// @brief バックエンドで進行中の GPU 作業完了を待機します。
+        /// @brief バックエンドで進行中の GPU 作業完了を待機する
         virtual Result wait_for_idle() = 0;
 
-        /// @brief 指定フレームの描画を実行します。
+        /// @brief 指定フレームの描画を実行する
         virtual Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) = 0;
 
-        /// @brief 指定フレームの提示処理を実行します。
+        /// @brief 指定フレームの提示処理を実行する
         virtual Result present(uint64_t a_frameNo, uint32_t a_index,bool vsync, FrameGraph& a_frameGraph) = 0;
 
-        /// @brief サイズ依存のバックエンド資源をリサイズします。
+        /// @brief サイズ依存のバックエンド資源をリサイズし
         virtual Result resize(uint32_t a_width, uint32_t a_height) = 0;
 
         /// @brief FrameGraph の生成

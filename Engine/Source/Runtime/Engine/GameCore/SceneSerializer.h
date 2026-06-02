@@ -1,3 +1,5 @@
+// SceneSerializer の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -41,13 +43,13 @@ namespace Cue::GameCore
 
         static constexpr uint32_t k_currentVersion = 2;
 
-        /// @brief SceneAsset を `.cuescene` JSON へ保存します。
+        /// @brief SceneAsset を `.cuescene` JSON へ保存し
         [[nodiscard]] static Result save_scene_asset(const SceneAsset& a_sceneAsset,
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_filePath,
             const SaveOptions& a_options = {}) noexcept;
 
-        /// @brief `.cuescene` JSON から SceneAsset を復元します。
+        /// @brief `.cuescene` JSON から SceneAsset を復元し
         [[nodiscard]] static Result load_scene_asset(
             Core::IO::IFileSystem& a_fileSystem,
             const Core::IO::Path& a_filePath,

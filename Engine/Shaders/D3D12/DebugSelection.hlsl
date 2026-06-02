@@ -1,3 +1,5 @@
+// Draw editor selection highlights from object ids without modifying scene materials.
+
 cbuffer ViewProjection : register(b0)
 {
     row_major float4x4 g_viewMatrix;
@@ -53,6 +55,7 @@ static const uint kLineVertexToCorner[24] =
     0, 4, 1, 5, 2, 6, 3, 7,
 };
 
+// Procedural camera marker geometry avoids storing editor-only meshes.
 float3 make_camera_frustum_corner(uint cornerIndex, float4 camera)
 {
     const bool isFar = cornerIndex >= 4;
@@ -67,6 +70,7 @@ float3 make_camera_frustum_corner(uint cornerIndex, float4 camera)
     return float3(x, y, distance);
 }
 
+// Procedural up marker keeps camera orientation visible without an extra draw asset.
 float3 make_camera_up_marker_vertex(uint markerIndex, float4 camera)
 {
     const float distance = camera.w;
@@ -89,6 +93,7 @@ float3 make_camera_up_marker_vertex(uint markerIndex, float4 camera)
     return baseRight;
 }
 
+// Procedural light arrows keep editor gizmos independent of runtime mesh assets.
 float3 make_light_arrow_vertex(uint vertexIndex, float4 camera)
 {
     const float length = camera.x;
@@ -152,6 +157,7 @@ struct VsOut
     float4 color : COLOR0;
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const uint itemIndex = min(instanceId, kMaxDebugSelectionItemCount - 1);
@@ -199,6 +205,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     return input.color;

@@ -1,3 +1,5 @@
+// WinFile の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -15,11 +17,11 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows の `HANDLE` を使うファイル実装です。
+    /// @brief Windows の `HANDLE` を使うファイル実装
     class WinFile final : public Cue::Core::IO::IFile
     {
     public:
-        /// @brief ファイルハンドルからインスタンスを構築します。
+        /// @brief ファイルハンドルからインスタンスを構築する
         explicit WinFile(HANDLE a_handle) noexcept;
 
         ~WinFile() override;

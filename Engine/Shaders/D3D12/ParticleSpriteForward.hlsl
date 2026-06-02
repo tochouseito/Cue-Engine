@@ -1,3 +1,5 @@
+// Render live particles as billboards from GPU simulation data without CPU staging.
+
 #include "ParticleCommon.hlsli"
 
 cbuffer ViewProjection : register(b0)
@@ -38,13 +40,27 @@ static const float2 k_uvs[6] =
     float2(1.0f, 0.0f),
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     const Particle particle = g_particles[instanceId];
+    if (particle.rendererType != 0u)
+    {
+        VsOut output = (VsOut)0;
+        output.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        output.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        return output;
+    }
+
     const float lifeRate = particle.lifetime > 0.0f
         ? saturate(particle.age / particle.lifetime)
         : 0.0f;
-    const float size = lerp(particle.startSize, particle.endSize, lifeRate);
+    const float size = evaluate_curve(
+        particle.startSize,
+        particle.midSize,
+        particle.endSize,
+        lifeRate,
+        particle.curveMidTime);
 
     float4 viewPosition = mul(float4(particle.position, 1.0f), g_viewMatrix);
     viewPosition.xy += k_corners[vertexId] * size;
@@ -56,12 +72,18 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     output.texcoord = k_uvs[vertexId];
     output.color = particle.isAlive == 0u
         ? float4(0.0f, 0.0f, 0.0f, 0.0f)
-        : lerp(particle.startColor, particle.endColor, lifeRate);
+        : evaluate_curve4(
+              particle.startColor,
+              particle.midColor,
+              particle.endColor,
+              lifeRate,
+              particle.curveMidTime);
     output.textureId = particle.textureId;
     output.useTexture = particle.useTexture;
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     float4 color = input.color;

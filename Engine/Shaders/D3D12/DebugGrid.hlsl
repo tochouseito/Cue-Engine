@@ -1,3 +1,5 @@
+// Draw the editor grid procedurally so no mesh asset is required.
+
 static const uint kHalfGridLineCount = 50;
 static const uint kGridLineCount = kHalfGridLineCount * 2 + 1;
 static const float kGridExtent = 50.0f;
@@ -14,6 +16,7 @@ struct VsOut
     float4 color : COLOR0;
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID)
 {
     const uint lineIndex = vertexId / 2;
@@ -51,6 +54,7 @@ VsOut vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     return input.color;

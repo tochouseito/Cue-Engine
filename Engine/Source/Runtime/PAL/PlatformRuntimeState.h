@@ -1,3 +1,5 @@
+// PlatformRuntimeState の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -28,7 +30,7 @@ namespace Cue::PAL
                     "Window resize request must have non-zero width and height.");
             }
 
-            // 実リサイズは別タスクで扱うため、ここでは最新要求だけ保持する。
+            // 実リサイズは別タスクで扱うため、ここでは最新要求だけ保持する
             m_pendingResize.width = a_width;
             m_pendingResize.height = a_height;
             m_pendingResize.hasRequest = true;

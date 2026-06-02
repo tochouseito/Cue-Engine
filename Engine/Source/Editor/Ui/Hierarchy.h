@@ -1,3 +1,5 @@
+// Hierarchy の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -141,6 +143,10 @@ namespace Cue::Editor
                             GameCore::k_invalidEntityId;
                         if (a_object.get_component(base) && base != nullptr)
                         {
+                            if (base->tag == "EditorPreview")
+                            {
+                                return;
+                            }
                             parent = base->parent;
                         }
 

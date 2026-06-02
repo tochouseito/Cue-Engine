@@ -178,7 +178,7 @@ namespace Cue::RHI::DX12
 
     Result DX12BufferManager::get_upload_buffer_view(BufferHandle handle, UploadBufferView& outView)
     {
-        // 1) ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む。
+        // - ハンドルを解決して、upload heap 群と記述情報を同じ世代の record から読む
         DX12BufferRecord* record = nullptr;
         outView = {};
         if (!try_get_record(handle, &record) || record == nullptr)
@@ -189,7 +189,7 @@ namespace Cue::RHI::DX12
                 "Buffer record not found for the given handle.");
         }
 
-        // 2) SlotUploader の初期化に必要な容量・アラインメント・stride を検証する。
+        // - SlotUploader の初期化に必要な容量・アラインメント・stride を検証する
         if (record->desc.elementCount == 0 || record->desc.alignment == 0 || record->desc.stride == 0)
         {
             return Result::fail(
@@ -210,7 +210,7 @@ namespace Cue::RHI::DX12
             static_cast<uint64_t>(record->desc.alignment));
         const uint64_t requiredBytes = alignedStride * static_cast<uint64_t>(record->desc.elementCount);
 
-        // 3) 各 upload heap の map 済み CPU ポインタを集め、範囲不足をここで弾く。
+        // - 各 upload heap の map 済み CPU ポインタを集め、範囲不足をここで弾く
         outView.alignment = record->desc.alignment;
         outView.stride = record->desc.stride;
         outView.elementCount = record->desc.elementCount;

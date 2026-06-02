@@ -51,14 +51,14 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap)
     {
-        // デスクリプタサイズを取得しておきます。
+        // デスクリプタサイズを取得しておき
         Result result = compute_descriptor_sizes();
         if (!result)
         {
             return result;
         }
 
-        // 先にヒープを確保しておくことで、実行時の断片化や再確保コストを避けます。
+        // 先にヒープを確保しておくことで、実行時の断片化や再確保コストを避ける
         for (size_t i = 0; i < static_cast<size_t>(TableKind::DepthStencils) + 1; ++i)
         {
             HeapType heapType = static_cast<HeapType>(i);
@@ -68,7 +68,7 @@ namespace Cue::RHI::DX12
                 create_descriptor_heap(heapType, a_texCap + a_bufCap, false);
                 create_descriptor_heap(heapType, a_texCap + a_bufCap, true);
 
-                // テーブルごとに固定領域へ切ることで、GPU 可視ヒープとの対応関係を単純化します。
+                // テーブルごとに固定領域へ切ることで、GPU 可視ヒープとの対応関係を単純化し
                 m_textures.heapType = heapType;
                 m_textures.capacity = a_texCap;
                 m_textures.baseIndex = 0;
@@ -124,7 +124,7 @@ namespace Cue::RHI::DX12
     }
     TableID DescriptorAllocator::allocate(TableKind a_kind)
     {
-        // 1) 空きを先に確認しないと、テーブル枯渇を正常な失敗として返せません。
+        // - 空きを先に確認しないと、テーブル枯渇を正常な失敗として返せません
         Table& t = get_table(a_kind);
         if (t.freeList.empty())
         {
@@ -132,26 +132,26 @@ namespace Cue::RHI::DX12
             return TableID{ a_kind, t.generation, TableID::kInvalid };
         }
 
-        // 2) LIFO で返すと最近使った領域を再利用しやすく、管理も最小です。
+        // - LIFO で返すと最近使った領域を再利用しやすく、管理も最小
         uint32_t idx = t.freeList.back();
         t.freeList.pop_back();
         return TableID{ a_kind, t.generation, idx };
     }
     void DescriptorAllocator::free_table(TableID a_id)
     {
-        // 1) 無効 ID を弾いて、二重解放や未初期化値の混入を防ぎます。
+        // - 無効 ID を弾いて、二重解放や未初期化値の混入を防ぐ
         if (!a_id.valid())
         {
             return;
         }
 
-        // 2) 空きリストへ戻して、次回割り当て時に再利用可能にします。
+        // - 空きリストへ戻して、次回割り当て時に再利用可能にし
         Table& t = get_table(a_id.kind);
         t.freeList.push_back(a_id.index);
     }
     D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_table_base_gpu(TableKind a_kind)
     {
-        // 1) テーブル単位の基点を返すことで、呼び出し側が相対インデックスだけで扱えます。
+        // - テーブル単位の基点を返すことで、呼び出し側が相対インデックスだけで扱え
         Table& t = get_table(a_kind);
 
         D3D12_GPU_DESCRIPTOR_HANDLE baseHandle{};
@@ -170,13 +170,13 @@ namespace Cue::RHI::DX12
     }
     D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_gpu_handle(TableID a_id)
     {
-        // 1) 無効 ID をそのまま GPU へ流すとクラッシュ検知が遅れるため、ここで止めます。
+        // - 無効 ID をそのまま GPU へ流すとクラッシュ検知が遅れるため、ここで止め
         if (!a_id.valid())
         {
             return D3D12_GPU_DESCRIPTOR_HANDLE_NULL;
         }
 
-        // 2) CPU/GPU で同じスロット計算式を使うため、ここでテーブル情報へ正規化します。
+        // - CPU/GPU で同じスロット計算式を使うため、ここでテーブル情報へ正規化し
         Table& t = get_table(a_id.kind);
 
         D3D12_GPU_DESCRIPTOR_HANDLE handle{};
@@ -195,7 +195,7 @@ namespace Cue::RHI::DX12
     }
     D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle_gpu_visible(TableID a_id)
     {
-        // 1) GPU 可視ヒープでも、無効 ID を通すとコピー先計算を壊すため先に除外します。
+        // - GPU 可視ヒープでも、無効 ID を通すとコピー先計算を壊すため先に除外し
         if (!a_id.valid())
         {
             return D3D12_CPU_DESCRIPTOR_HANDLE_NULL;
@@ -210,7 +210,7 @@ namespace Cue::RHI::DX12
     }
     D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_cpu_handle(TableID a_id)
     {
-        // 1) CPU ヒープでも同じ ID 検証を揃えて、呼び出し側の前提を簡潔にします。
+        // - CPU ヒープでも同じ ID 検証を揃えて、呼び出し側の前提を簡潔にし
         if (!a_id.valid())
         {
             return D3D12_CPU_DESCRIPTOR_HANDLE_NULL;
@@ -300,7 +300,7 @@ namespace Cue::RHI::DX12
 
     ID3D12DescriptorHeap* DescriptorAllocator::get_descriptor_heap(HeapType a_type) const noexcept
     {
-        // 1) GPU 可視 heap を要求する種別だけ分岐させると、呼び出し側の条件分岐を減らせます。
+        // - GPU 可視 heap を要求する種別だけ分岐させると、呼び出し側の条件分岐を減らせ
         if (a_type == HeapType::CBV_SRV_UAV)
         {
             return m_gpuSrvUavDescriptorHeap.Get();
@@ -310,7 +310,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::compute_descriptor_sizes()
     {
-        // 1) ヒープごとの増分サイズを先に固定しておくと、後続のハンドル計算を整数演算だけで済ませられます。
+        // - ヒープごとの増分サイズを先に固定しておくと、後続のハンドル計算を整数演算だけで済ませられ
         for (size_t i = 0; i < static_cast<size_t>(HeapType::kCount); ++i)
         {
             HeapType heapType = static_cast<HeapType>(i);
@@ -324,7 +324,7 @@ namespace Cue::RHI::DX12
     }
     Result DescriptorAllocator::create_descriptor_heap(HeapType a_heapType, uint32_t a_size, bool a_shaderVisible)
     {
-        // 1) 抽象 enum をここで D3D12 型へ落とし込むと、呼び出し側を API 非依存に保てます。
+        // - 抽象 enum をここで D3D12 型へ落とし込むと、呼び出し側を API 非依存に保て
         D3D12_DESCRIPTOR_HEAP_TYPE d3dHeapType = to_d3d12_heap_type(a_heapType);
         D3D12_DESCRIPTOR_HEAP_DESC desc{};
 
@@ -347,7 +347,7 @@ namespace Cue::RHI::DX12
     }
     DescriptorAllocator::Table& DescriptorAllocator::get_table(TableKind a_kind)
     {
-        // 1) テーブル選択を集約しておくと、呼び出し側で分岐が散らばりません。
+        // - テーブル選択を集約しておくと、呼び出し側で分岐が散らばりません
         switch (a_kind)
         {
         case TableKind::Textures:
@@ -367,7 +367,7 @@ namespace Cue::RHI::DX12
     }
     void DescriptorAllocator::copy_to_gpu_heap(TableID a_id)
     {
-        // 1) 無効 ID を早期に捨てて、ヒープ外アクセスの原因をここで止めます。
+        // - 無効 ID を早期に捨てて、ヒープ外アクセスの原因をここで止め
         if (!a_id.valid())
         {
             return;
@@ -375,7 +375,7 @@ namespace Cue::RHI::DX12
 
         Table& t = get_table(a_id.kind);
 
-        // 2) GPU 可視ヒープに意味があるのは CBV/SRV/UAV だけなので、それ以外は処理しません。
+        // - GPU 可視ヒープに意味があるのは CBV/SRV/UAV だけなので、それ以外は処理しません
         if (t.heapType != HeapType::CBV_SRV_UAV)
         {
             return;
@@ -399,7 +399,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_cbv(TableID id, DX12GpuResource* resource, uint64_t byteOffset, uint32_t byteSize)
     {
-        // 定数バッファ view の範囲を実体サイズへ合わせる。
+        // 定数バッファ view の範囲を実体サイズへ合わせる
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -443,7 +443,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_srv_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride)
     {
-        // Structured SRV は element 単位の範囲指定を受け取り、同一 buffer から複数 view を切り出せるようにする。
+        // Structured SRV は element 単位の範囲指定を受け取り、同一 buffer から複数 view を切り出せるようにする
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -470,7 +470,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_srv_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements)
     {
-        // 1) Raw SRV は 32-bit 要素として切るので、byte size から有効範囲を導出する。
+        // - Raw SRV は 32-bit 要素として切るので、byte size から有効範囲を導出する
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -497,7 +497,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_uav_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements, uint32_t structureByteStride)
     {
-        // 1) Structured UAV も range 指定対応にして、同一 buffer の別領域へ独立した書き込み view を張れるようにする。
+        // - Structured UAV も range 指定対応にして、同一 buffer の別領域へ独立した書き込み view を張れるようにする
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -524,7 +524,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_uav_raw_buffer(TableID id, DX12GpuResource* resource, uint64_t firstElement, uint32_t numElements)
     {
-        // 1) Raw UAV も SRV と同じ 32-bit 要素単位で扱い、buffer 全体と部分 view の両方を許可する。
+        // - Raw UAV も SRV と同じ 32-bit 要素単位で扱い、buffer 全体と部分 view の両方を許可する
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -551,7 +551,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_srv_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice, uint32_t mipLevels)
     {
-        // 1) texture SRV は mip 単位で切れるようにし、1 リソースから複数の表示レベルを作れるようにする。
+        // - texture SRV は mip 単位で切れるようにし、1 リソースから複数の表示レベルを作れるようにする
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -601,7 +601,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_uav_texture_2d(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
     {
-        // 1) UAV texture は単一 mip に対してだけ張れるので、対象 slice のみを受け付ける。
+        // - UAV texture は単一 mip に対してだけ張れるので、対象 slice のみを受け付ける
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -624,7 +624,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_rtv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
     {
-        // 1) RTV も mip ごとに切れるようにして、将来の downsample pass でも再利用できるようにする。
+        // - RTV も mip ごとに切れるようにして、将来の downsample pass でも再利用できるようにする
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");
@@ -646,7 +646,7 @@ namespace Cue::RHI::DX12
 
     Result DescriptorAllocator::create_dsv(TableID id, DX12GpuResource* resource, DXGI_FORMAT format, uint32_t mipSlice)
     {
-        // 1) DSV の mip 指定範囲を検証する。
+        // - DSV の mip 指定範囲を検証する
         if (!id.valid())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "Invalid TableID.");

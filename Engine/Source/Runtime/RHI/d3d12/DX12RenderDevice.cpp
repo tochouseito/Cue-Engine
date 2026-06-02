@@ -4,14 +4,14 @@ namespace Cue::RHI::DX12
 {
     Result DX12RenderDevice::initialize(bool a_enableDebugLayer)
     {
-        // DXGI を先に作らないと、アダプタ列挙とデバイス生成の入口が用意できません。
+        // DXGI を先に作らないと、アダプタ列挙とデバイス生成の入口が用意できません
         Result r = create_dxgi_factory(a_enableDebugLayer);
         if (!r)
         {
             return r;
         }
 
-        // 選択済みファクトリを基準にデバイスを作って、後段が同じ実体を見るようにします。
+        // 選択済みファクトリを基準にデバイスを作って、後段が同じ実体を見るようにし
         r = create_d3d12_device();
         if (!r)
         {
@@ -23,7 +23,7 @@ namespace Cue::RHI::DX12
     Result DX12RenderDevice::create_dxgi_factory(bool a_enableDebugLayer)
     {
 #ifndef CUE_RELEASE
-        // 開発時だけデバッグレイヤーを噛ませて、実行時コストをリリースに持ち込みません。
+        // 開発時だけデバッグレイヤーを噛ませて、実行時コストをリリースに持ち込みません
         comPtr<ID3D12Debug6> debugController;
         if (a_enableDebugLayer)
         {
@@ -42,7 +42,7 @@ namespace Cue::RHI::DX12
         }
 #endif // CUE_RELEASE
 
-        // DXGI 側のデバッグフラグも揃えて、生成物と検証設定の不一致を避けます。
+        // DXGI 側のデバッグフラグも揃えて、生成物と検証設定の不一致を避ける
         HRESULT hr = CreateDXGIFactory2(
             a_enableDebugLayer ? DXGI_CREATE_FACTORY_DEBUG : 0,
             IID_PPV_ARGS(&m_dxgiFactory));
@@ -60,7 +60,7 @@ namespace Cue::RHI::DX12
 
     Result DX12RenderDevice::create_d3d12_device()
     {
-        // 高性能 GPU 優先で列挙し、意図しないソフトウェアデバイス選択を避けます。
+        // 高性能 GPU 優先で列挙し、意図しないソフトウェアデバイス選択を避ける
         HRESULT hr = S_OK;
         comPtr<IDXGIAdapter4> adapter = nullptr;
         for (UINT i = 0; m_dxgiFactory->EnumAdapterByGpuPreference(i,
@@ -109,7 +109,7 @@ namespace Cue::RHI::DX12
             "11.0",
         };
 
-        // 高い機能レベルから試して、利用可能な最大機能をそのまま採用します。
+        // 高い機能レベルから試して、利用可能な最大機能をそのまま採用し
         for (size_t i = 0; i < _countof(featureLevels); ++i)
         {
             hr = D3D12CreateDevice(adapter.Get(), featureLevels[i], IID_PPV_ARGS(&m_d3d12Device));
@@ -134,7 +134,7 @@ namespace Cue::RHI::DX12
 #ifndef CUE_RELEASE
         comPtr<ID3D12InfoQueue> infoQueue;
 
-        // 重大メッセージだけを残すと、通常ログに埋もれず原因特定が速くなります。
+        // 重大メッセージだけを残すと、通常ログに埋もれず原因特定が速くなる
         if (SUCCEEDED(m_d3d12Device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
         {
             infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);

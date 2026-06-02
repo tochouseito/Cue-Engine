@@ -24,6 +24,7 @@ add_executable(Editor WIN32
     "Views/Statistics.h"
     "Views/GameView.h"
     "Views/DebugView.h"
+    "Views/EffectPreviewView.h"
     "Ui/EditorManager.h"
     "Ui/EditorManager.cpp"
     "Ui/AssetDragDrop.h"

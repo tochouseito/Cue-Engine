@@ -1,3 +1,5 @@
+// Render point-light shadow faces into an atlas layout shared by the lighting pass.
+
 #include "DrawCommon.hlsli"
 
 struct VsIn
@@ -34,6 +36,7 @@ ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<PointShadowFace> g_pointShadowFaces : register(t3);
 StructuredBuffer<SkinPalette> g_skinPalettes : register(t4);
 
+// Skinning is evaluated here so shadow passes use the same deformed positions as color passes.
 float4 apply_skinning(float4 position, VsIn input, RenderObject renderObject)
 {
     if (renderObject.skinPaletteCount == 0u)
@@ -61,6 +64,7 @@ float4 apply_skinning(float4 position, VsIn input, RenderObject renderObject)
     return mul(position, skinMatrix);
 }
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
@@ -98,9 +102,10 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point can discard unsupported faces while keeping depth writes hardware-driven.
 void ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace)
 {
-    if (input.shadowCasterMode == k_shadowCasterModeSolid && isFrontFace)
+    if (input.shadowCasterMode == k_shadowCasterModeSolid && !isFrontFace)
     {
         discard;
     }

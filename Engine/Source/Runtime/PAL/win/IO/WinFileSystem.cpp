@@ -6,13 +6,13 @@ namespace Cue::PAL::Win
 {
     [[nodiscard]] static void to_native_seps(std::wstring* a_text) noexcept
     {
-        // 1) nullptr ガード
+        // - nullptr ガード
         if (a_text == nullptr)
         {
             return;
         }
 
-        // 2) '/' -> '\'
+        // - '/' -> '\'
         for (wchar_t& c : *a_text)
         {
             if (c == L'/')
@@ -21,7 +21,7 @@ namespace Cue::PAL::Win
             }
         }
 
-        // 3) UNC: 先頭が "//" なら "\\"
+        // - UNC: 先頭が "//" なら "\\"
         if (a_text->size() >= 2 && (*a_text)[0] == L'\\' && (*a_text)[1] == L'\\')
         {
             return;
@@ -35,12 +35,12 @@ namespace Cue::PAL::Win
 
     [[nodiscard]] static int64_t filetime_to_unix_ns(const FILETIME a_fileTime) noexcept
     {
-        // 1) FILETIME(100ns, 1601-01-01) -> uint64
+        // - FILETIME(100ns, 1601-01-01) -> uint64
         ULARGE_INTEGER u{};
         u.LowPart = a_fileTime.dwLowDateTime;
         u.HighPart = a_fileTime.dwHighDateTime;
 
-        // 2) 1970-01-01 までの差（100ns単位）
+        // - 1970-01-01 までの差（100ns単位）
         //    116444736000000000 = 1601->1970 の 100ns
         constexpr uint64_t kEpochDiff100ns = 116444736000000000ULL;
         if (u.QuadPart <= kEpochDiff100ns)
@@ -50,7 +50,7 @@ namespace Cue::PAL::Win
 
         const uint64_t unix100ns = u.QuadPart - kEpochDiff100ns;
 
-        // 3) 100ns -> ns
+        // - 100ns -> ns
         const uint64_t unixNs = unix100ns * 100ULL;
         if (unixNs > static_cast<uint64_t>(INT64_MAX))
         {
@@ -62,7 +62,7 @@ namespace Cue::PAL::Win
 
     [[nodiscard]] static Result get_attrs(const std::wstring& a_path, WIN32_FILE_ATTRIBUTE_DATA* a_outData) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outData == nullptr)
         {
             return Result::fail(
@@ -70,7 +70,7 @@ namespace Cue::PAL::Win
                 "Output parameter must not be null.");
         }
 
-        // 2) 取得
+        // - 取得
         if (::GetFileAttributesExW(a_path.c_str(), GetFileExInfoStandard, a_outData) == FALSE)
         {
             return Result::fail(
@@ -83,7 +83,7 @@ namespace Cue::PAL::Win
 
     [[nodiscard]] static Result build_find_pattern(const std::wstring& a_directory, std::wstring* a_outPattern) noexcept
     {
-        // 1) 引数チェック
+        // - 引数チェック
         if (a_outPattern == nullptr)
         {
             return Result::fail(
@@ -91,7 +91,7 @@ namespace Cue::PAL::Win
                 "Output parameter must not be null.");
         }
 
-        // 2) 末尾に "\*" を付ける
+        // - 末尾に "\*" を付ける
         *a_outPattern = a_directory;
 
         if (!a_outPattern->empty() && a_outPattern->back() != L'\\')
@@ -105,13 +105,13 @@ namespace Cue::PAL::Win
 
     [[nodiscard]] static Result create_dir_if_needed(const std::wstring& a_path) noexcept
     {
-        // 1) CreateDirectoryW
+        // - CreateDirectoryW
         if (::CreateDirectoryW(a_path.c_str(), nullptr) != FALSE)
         {
             return Result::ok();
         }
 
-        // 2) 既存は成功扱い
+        // - 既存は成功扱い
         const DWORD e = ::GetLastError();
         if (e == ERROR_ALREADY_EXISTS)
         {
@@ -125,7 +125,7 @@ namespace Cue::PAL::Win
 
     [[nodiscard]] static Result split_unc_root(std::wstring_view a_text, size_t* a_outRootLength) noexcept
     {
-        // 1) //server/share/...
+        // - //server/share/...
         if (a_outRootLength == nullptr)
         {
             return Result::fail(
@@ -134,7 +134,7 @@ namespace Cue::PAL::Win
         }
         *a_outRootLength = 0;
 
-        // 2) 先頭 "\\"
+        // - 先頭 "\\"
         if (a_text.size() < 2 || a_text[0] != L'\\' || a_text[1] != L'\\')
         {
             return Result::fail(
@@ -142,7 +142,7 @@ namespace Cue::PAL::Win
                 "Path is not a valid UNC path.");
         }
 
-        // 3) \\server\share\ までを root にする
+        // - \\server\share\ までを root にする
         size_t i = 2;
 
         // server

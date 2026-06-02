@@ -20,10 +20,10 @@ endif()
 # プロジェクトの名前とバージョンを定義
 project(CueEngine VERSION 0.0.1 LANGUAGES C CXX)
 
+# vcpkg のホストトリプレットを定義（環境変数 VCPKG_HOST_TRIPLET が定義されていない場合はデフォルト値を使用）
 if (NOT DEFINED VCPKG_HOST_TRIPLET OR VCPKG_HOST_TRIPLET STREQUAL "")
   set(VCPKG_HOST_TRIPLET "x64-windows")
 endif()
-
 set(CUE_VCPKG_HOST_BIN_DIR
   "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_HOST_TRIPLET}/bin")
 
@@ -79,6 +79,7 @@ target_compile_options(cue_compile_options INTERFACE
     /Zc:preprocessor # 標準準拠のプリプロセッサを使用
 )
 
+# 定数定義
 target_compile_definitions(cue_compile_options INTERFACE
     UNICODE
     _UNICODE

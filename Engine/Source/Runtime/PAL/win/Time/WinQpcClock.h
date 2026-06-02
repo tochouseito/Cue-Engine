@@ -1,3 +1,5 @@
+// WinQpcClock の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -11,14 +13,14 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Query Performance Counter ベースのクロックです。
+    /// @brief Query Performance Counter ベースのクロック
     class WinQpcClock : public Core::Time::IClock
     {
     public:
         WinQpcClock() noexcept = default;
         ~WinQpcClock() override = default;
 
-        /// @brief ナノ秒単位の現在時刻を返します。
+        /// @brief ナノ秒単位の現在時刻を返す
         [[nodiscard]] Math::TimeSpan now_ns() const noexcept override;
 
     private:

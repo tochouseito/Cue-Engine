@@ -1,3 +1,5 @@
+// Engine の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -41,7 +43,7 @@ namespace Cue
 {
     struct MarionnetteClass;
 
-    /// @brief Engine 初期化時に必要な依存オブジェクトです。
+    /// @brief Engine 初期化時に必要な依存オブジェクト
     struct EngineSetupInfo final
     {
         PAL::IPlatform* platform = nullptr;
@@ -56,7 +58,7 @@ namespace Cue
         Core::CQRS::Bridge* platformBridge = nullptr;
     };
 
-    /// @brief Runtime 全体の統合窓口です。
+    /// @brief Runtime 全体の統合窓口
     class Engine final
     {
     public:
@@ -352,7 +354,8 @@ namespace Cue
         Result create_render_target_resources(
             std::string_view a_name,
             RHI::ColorFormat a_format,
-            RenderTargetResources& a_outResources);
+            RenderTargetResources& a_outResources,
+            const float* a_clearColor = nullptr);
         Result destroy_render_target_resources(
             RenderTargetResources& a_resources);
         Result create_debug_pick_readback_buffer();
@@ -364,8 +367,10 @@ namespace Cue
                 a_outUploaders);
         Result create_debug_selection_buffer();
         Result destroy_debug_view_projection_buffer();
+        Result destroy_effect_preview_view_projection_buffer();
         Result destroy_debug_selection_buffer();
         Result upload_debug_view_projection(uint32_t a_bufferIndex);
+        Result upload_effect_preview_view_projection(uint32_t a_bufferIndex);
         Result upload_debug_selection(uint32_t a_bufferIndex);
         void resolve_debug_pick_readback() noexcept;
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
@@ -400,12 +405,17 @@ namespace Cue
         PAL::PlatformRuntimeState m_platformRuntimeState{};
         RenderTargetResources m_gameRenderTarget{};
         RenderTargetResources m_debugRenderTarget{};
+        RenderTargetResources m_effectPreviewRenderTarget{};
         RenderTargetResources m_debugObjectIdTarget{};
         RenderTargetResources m_debugOutlineObjectIdTarget{};
         RHI::BufferHandle m_debugViewProjectionBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
             m_debugViewProjectionUploaders{};
         GpuData::ViewProjectionGpu m_debugViewProjection{};
+        RHI::BufferHandle m_effectPreviewViewProjectionBufferHandle{};
+        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
+            m_effectPreviewViewProjectionUploaders{};
+        GpuData::ViewProjectionGpu m_effectPreviewViewProjection{};
         RHI::BufferHandle m_debugSelectionBufferHandle{};
         std::vector<RHI::SlotUploader<GpuData::DebugSelectionGpu>>
             m_debugSelectionUploaders{};

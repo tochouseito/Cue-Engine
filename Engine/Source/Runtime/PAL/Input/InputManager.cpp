@@ -1,3 +1,5 @@
+// 入力管理の翻訳単位を固定し、Platform 別入力実装との差し替え境界を残す
+
 #include "InputManager.h"
 
 namespace Cue::PAL

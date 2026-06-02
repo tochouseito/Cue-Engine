@@ -1,3 +1,5 @@
+// DescriptorAllocator の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -59,38 +61,38 @@ namespace Cue::RHI::DX12
         DescriptorAllocator& operator=(DescriptorAllocator&&) = delete;
         ~DescriptorAllocator() = default;
 
-        /// @brief デスクリプタヒープと各テーブルを初期化します。
+        /// @brief デスクリプタヒープと各テーブルを初期化する
         Result initialize(uint32_t a_texCap, uint32_t a_bufCap, uint32_t a_rtvCap, uint32_t a_dsvCap);
 
-        /// @brief 指定種類のテーブルスロットを割り当てます。
+        /// @brief 指定種類のテーブルスロットを割り当て
         [[nodiscard]] TableID allocate(TableKind a_kind);
 
-        /// @brief 割り当て済みテーブルスロットを解放します。
+        /// @brief 割り当て済みテーブルスロットを解放し
         void free_table(TableID a_id);
 
-        /// @brief テーブル先頭の GPU ハンドルを取得します。
+        /// @brief テーブル先頭の GPU ハンドルを取得する
         D3D12_GPU_DESCRIPTOR_HANDLE get_table_base_gpu(TableKind a_kind);
 
-        /// @brief 指定テーブル ID の GPU ハンドルを取得します。
+        /// @brief 指定テーブル ID の GPU ハンドルを取得する
         D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_handle(TableID a_id);
 
-        /// @brief GPU 可視ヒープ上の CPU ハンドルを取得します。
+        /// @brief GPU 可視ヒープ上の CPU ハンドルを取得する
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle_gpu_visible(TableID a_id);
 
-        /// @brief CPU ヒープ上のハンドルを取得します。
+        /// @brief CPU ヒープ上のハンドルを取得する
         D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_handle(TableID a_id);
 
-        /// @brief shader-visible な texture descriptor を 1 つ割り当てます。
+        /// @brief shader-visible な texture descriptor を 1 つ割り当て
         [[nodiscard]] Result allocate_shader_visible_texture_descriptor(
             D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
             D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle);
 
-        /// @brief shader-visible な texture descriptor を解放します。
+        /// @brief shader-visible な texture descriptor を解放し
         void free_shader_visible_texture_descriptor(
             D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
             D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle);
 
-        /// @brief 指定ヒープ種別に対応するヒープを取得します。
+        /// @brief 指定ヒープ種別に対応するヒープを取得する
         ID3D12DescriptorHeap* get_descriptor_heap(HeapType a_type) const noexcept;
 
         // --- View の作成 ---

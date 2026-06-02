@@ -7,6 +7,7 @@
 #include <IO/IFileSystem.h>
 #include <IO/Logger.h>
 #include <IO/Path.h>
+#include <Profiler/Profiler.h>
 #include <Threading/JobSystem.h>
 #include <Time/Timer.h>
 
@@ -17,6 +18,7 @@
 #include <TextureCooker.h>
 #include <GameCore/Navigation/Navigation.h>
 #include <GameCore/SceneSerializer.h>
+#include <GpuData/Particle.h>
 #include <Script/MarionnetteObject.h>
 #include <ShadowSystem/GpuData/ShadowData.h>
 
@@ -72,6 +74,7 @@ namespace Cue::Editor
             std::vector<Core::IO::Path> texturePaths{};
             std::vector<Core::IO::Path> modelPaths{};
             std::vector<Core::IO::Path> materialPaths{};
+            std::vector<Core::IO::Path> effectPaths{};
         };
 
         struct SceneCameraMenuEntry final
@@ -228,6 +231,164 @@ namespace Cue::Editor
             return a_text;
         }
 
+        [[nodiscard]] std::string sanitize_asset_stem(
+            std::string_view a_text)
+        {
+            std::string stem{};
+            stem.reserve(a_text.size());
+            for (const char character : a_text)
+            {
+                const unsigned char value =
+                    static_cast<unsigned char>(character);
+                if (std::isalnum(value) || character == '_' || character == '-')
+                {
+                    stem.push_back(character);
+                }
+                else if (!stem.empty() && stem.back() != '_')
+                {
+                    stem.push_back('_');
+                }
+            }
+
+            if (stem.empty())
+            {
+                return "Effect";
+            }
+            return stem;
+        }
+
+        [[nodiscard]] nlohmann::json make_json_float3(
+            const Math::float3& a_value)
+        {
+            return nlohmann::json::array(
+                { a_value.x, a_value.y, a_value.z });
+        }
+
+        [[nodiscard]] nlohmann::json make_json_float2(
+            const Math::float2& a_value)
+        {
+            return nlohmann::json::array({ a_value.x, a_value.y });
+        }
+
+        [[nodiscard]] nlohmann::json make_json_float4(
+            const Math::float4& a_value)
+        {
+            return nlohmann::json::array(
+                { a_value.x, a_value.y, a_value.z, a_value.w });
+        }
+
+        [[nodiscard]] const char* effect_renderer_type_name(
+            EffectSystem::EffectRendererType a_type) noexcept
+        {
+            switch (a_type)
+            {
+            case EffectSystem::EffectRendererType::Trail:
+                return "Trail";
+            case EffectSystem::EffectRendererType::Ribbon:
+                return "Ribbon";
+            case EffectSystem::EffectRendererType::Mesh:
+                return "Mesh";
+            case EffectSystem::EffectRendererType::Billboard:
+            default:
+                return "Billboard";
+            }
+        }
+
+        [[nodiscard]] const char* effect_shape_name(
+            EffectSystem::EffectEmitterShape a_shape) noexcept
+        {
+            switch (a_shape)
+            {
+            case EffectSystem::EffectEmitterShape::Sphere:
+                return "Sphere";
+            case EffectSystem::EffectEmitterShape::Box:
+                return "Box";
+            case EffectSystem::EffectEmitterShape::Cone:
+                return "Cone";
+            case EffectSystem::EffectEmitterShape::Point:
+            default:
+                return "Point";
+            }
+        }
+
+        [[nodiscard]] nlohmann::json make_effect_asset_json(
+            const EffectSystem::EffectAsset& a_asset)
+        {
+            nlohmann::json root = nlohmann::json::object();
+            root["version"] = AssetManager::k_effectAssetVersion;
+            root["name"] = a_asset.name;
+            root["emitters"] = nlohmann::json::array();
+            root["graphNodes"] = nlohmann::json::array();
+
+            for (const EffectSystem::EffectEmitterDesc& emitter :
+                a_asset.emitters)
+            {
+                nlohmann::json emitterJson = nlohmann::json::object();
+                emitterJson["name"] = emitter.name;
+                emitterJson["materialName"] = emitter.materialName;
+                emitterJson["meshName"] = emitter.meshName;
+                emitterJson["rendererType"] =
+                    effect_renderer_type_name(emitter.rendererType);
+                emitterJson["shape"] = effect_shape_name(emitter.shape);
+                emitterJson["positionOffset"] =
+                    make_json_float3(emitter.positionOffset);
+                emitterJson["linearForce"] = make_json_float3(emitter.linearForce);
+                emitterJson["attractorPosition"] =
+                    make_json_float3(emitter.attractorPosition);
+                emitterJson["shapeBoxExtents"] =
+                    make_json_float3(emitter.shapeBoxExtents);
+                emitterJson["velocityMin"] =
+                    make_json_float3(emitter.velocityMin);
+                emitterJson["velocityMax"] =
+                    make_json_float3(emitter.velocityMax);
+                emitterJson["acceleration"] =
+                    make_json_float3(emitter.acceleration);
+                emitterJson["startColor"] =
+                    make_json_float4(emitter.startColor);
+                emitterJson["midColor"] = make_json_float4(emitter.midColor);
+                emitterJson["endColor"] = make_json_float4(emitter.endColor);
+                emitterJson["startSize"] = emitter.startSize;
+                emitterJson["midSize"] = emitter.midSize;
+                emitterJson["endSize"] = emitter.endSize;
+                emitterJson["curveMidTime"] = emitter.curveMidTime;
+                emitterJson["startDelay"] = emitter.startDelay;
+                emitterJson["duration"] = emitter.duration;
+                emitterJson["shapeRadius"] = emitter.shapeRadius;
+                emitterJson["shapeAngleDegrees"] = emitter.shapeAngleDegrees;
+                emitterJson["trailWidth"] = emitter.trailWidth;
+                emitterJson["trailLength"] = emitter.trailLength;
+                emitterJson["meshScale"] = emitter.meshScale;
+                emitterJson["drag"] = emitter.drag;
+                emitterJson["noiseStrength"] = emitter.noiseStrength;
+                emitterJson["noiseFrequency"] = emitter.noiseFrequency;
+                emitterJson["attractorStrength"] = emitter.attractorStrength;
+                emitterJson["vortexStrength"] = emitter.vortexStrength;
+                emitterJson["minLifetime"] = emitter.minLifetime;
+                emitterJson["maxLifetime"] = emitter.maxLifetime;
+                emitterJson["emitRate"] = emitter.emitRate;
+                emitterJson["burstCount"] = emitter.burstCount;
+                emitterJson["trailSegmentCount"] = emitter.trailSegmentCount;
+                emitterJson["maxParticleCount"] = emitter.maxParticleCount;
+                emitterJson["randomSeed"] = emitter.randomSeed;
+                emitterJson["billboardMode"] = "View";
+                emitterJson["loop"] = emitter.isLooping;
+                emitterJson["visible"] = emitter.isVisible;
+                root["emitters"].push_back(std::move(emitterJson));
+            }
+
+            for (const EffectSystem::EffectGraphNodeDesc& node :
+                a_asset.graphNodes)
+            {
+                nlohmann::json nodeJson = nlohmann::json::object();
+                nodeJson["name"] = node.name;
+                nodeJson["emitterIndex"] = node.emitterIndex;
+                nodeJson["position"] = make_json_float2(node.position);
+                root["graphNodes"].push_back(std::move(nodeJson));
+            }
+
+            return root;
+        }
+
         [[nodiscard]] bool is_ignored_script_directory(
             const std::filesystem::path& a_path)
         {
@@ -265,7 +426,7 @@ namespace Cue::Editor
             return extension == ".png" || extension == ".dds" ||
                 extension == ".jpg" || extension == ".jpeg" ||
                 extension == ".tga" || extension == ".bmp" ||
-                extension == ".wav" ||
+                extension == ".wav" || extension == ".cuefx" ||
                 extension == ".obj" || extension == ".fbx" ||
                 extension == ".gltf" || extension == ".glb";
         }
@@ -1123,7 +1284,7 @@ namespace Cue::Editor
                 engine->find_marionnette_class(a_scriptClassName);
             if (marionnetteClass == nullptr)
             {
-                // 未解決 class は保存データを落とさない。
+                // 未解決 class は保存データを落とさない
                 return true;
             }
 
@@ -1279,6 +1440,7 @@ namespace Cue::Editor
             const std::string extension = a_filePath.extension();
             return extension == ".dds" ||
                 extension == ".cuematerial" ||
+                extension == ".cuefx" ||
                 extension == ".cuescene" ||
                 extension == ".cuemodel" ||
                 extension == ".cuesound";
@@ -1606,6 +1768,68 @@ namespace Cue::Editor
                 MaterialHandle materialHandle{};
                 result = a_engine.asset_manager().load_material(
                     a_fileSystem, materialPath, materialHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result load_project_effects(
+            Engine& a_engine,
+            Core::IO::IFileSystem& a_fileSystem,
+            const Core::IO::Path& a_projectRoot,
+            const ProjectSettings& a_settings) noexcept
+        {
+            Core::IO::Path assetRoot(a_settings.assetRoot);
+            if (!assetRoot.is_absolute())
+            {
+                assetRoot = Core::IO::Path::join(a_projectRoot, assetRoot);
+            }
+
+            const Core::IO::Path effectRoot = Core::IO::Path::join(
+                assetRoot,
+                Core::IO::Path("Effects"));
+            bool effectRootExists = false;
+            Result result = a_fileSystem.exists(effectRoot, &effectRootExists);
+            if (!result)
+            {
+                return result;
+            }
+            if (!effectRootExists)
+            {
+                return Result::ok();
+            }
+
+            std::vector<Core::IO::Path> effectPaths{};
+            result = a_fileSystem.list_directory(effectRoot, &effectPaths);
+            if (!result)
+            {
+                return result;
+            }
+
+            std::sort(
+                effectPaths.begin(),
+                effectPaths.end(),
+                [](const Core::IO::Path& a_left, const Core::IO::Path& a_right)
+                {
+                    return a_left.utf8() < a_right.utf8();
+                });
+
+            for (const Core::IO::Path& effectPath : effectPaths)
+            {
+                if (effectPath.extension() != ".cuefx")
+                {
+                    continue;
+                }
+
+                EffectHandle effectHandle{};
+                result = a_engine.asset_manager().load_effect(
+                    a_fileSystem,
+                    effectPath,
+                    effectHandle);
                 if (!result)
                 {
                     return result;
@@ -2251,12 +2475,15 @@ namespace Cue::Editor
                 assetRoot, Core::IO::Path("Models"));
             const Core::IO::Path materialRoot = Core::IO::Path::join(
                 assetRoot, Core::IO::Path("Materials"));
+            const Core::IO::Path effectRoot = Core::IO::Path::join(
+                assetRoot, Core::IO::Path("Effects"));
             const Core::IO::Path soundRoot = Core::IO::Path::join(
                 assetRoot, Core::IO::Path("Sounds"));
 
             std::vector<Core::IO::Path> textureEntries{};
             std::vector<Core::IO::Path> modelEntries{};
             std::vector<Core::IO::Path> materialEntries{};
+            std::vector<Core::IO::Path> effectEntries{};
             std::vector<Core::IO::Path> soundEntries{};
 
             result = list_directory_if_exists(
@@ -2275,6 +2502,13 @@ namespace Cue::Editor
             }
             result = list_directory_if_exists(
                 a_fileSystem, materialRoot, materialEntries);
+            if (!result)
+            {
+                finish_background_operation(a_operation, result);
+                return result;
+            }
+            result = list_directory_if_exists(
+                a_fileSystem, effectRoot, effectEntries);
             if (!result)
             {
                 finish_background_operation(a_operation, result);
@@ -2322,6 +2556,15 @@ namespace Cue::Editor
                 if (materialPath.extension() == ".cuematerial")
                 {
                     materialPaths.push_back(materialPath);
+                }
+            }
+
+            std::vector<Core::IO::Path> effectPaths{};
+            for (const Core::IO::Path& effectPath : effectEntries)
+            {
+                if (effectPath.extension() == ".cuefx")
+                {
+                    effectPaths.push_back(effectPath);
                 }
             }
 
@@ -2440,12 +2683,14 @@ namespace Cue::Editor
             unique_normalized_paths(cookedTexturePaths);
             unique_normalized_paths(cookedModelPaths);
             unique_normalized_paths(materialPaths);
+            unique_normalized_paths(effectPaths);
 
             {
                 std::lock_guard<std::mutex> lock(a_operation.mutex);
                 a_operation.texturePaths = std::move(cookedTexturePaths);
                 a_operation.modelPaths = std::move(cookedModelPaths);
                 a_operation.materialPaths = std::move(materialPaths);
+                a_operation.effectPaths = std::move(effectPaths);
             }
 
             finish_background_operation(a_operation, Result::ok());
@@ -2457,7 +2702,8 @@ namespace Cue::Editor
             Core::IO::IFileSystem& a_fileSystem,
             std::span<const Core::IO::Path> a_texturePaths,
             std::span<const Core::IO::Path> a_modelPaths,
-            std::span<const Core::IO::Path> a_materialPaths) noexcept
+            std::span<const Core::IO::Path> a_materialPaths,
+            std::span<const Core::IO::Path> a_effectPaths) noexcept
         {
             Result result = Result::ok();
 
@@ -2499,6 +2745,19 @@ namespace Cue::Editor
                     a_fileSystem,
                     materialPath,
                     materialHandle);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            for (const Core::IO::Path& effectPath : a_effectPaths)
+            {
+                EffectHandle effectHandle{};
+                result = a_engine.asset_manager().load_effect(
+                    a_fileSystem,
+                    effectPath,
+                    effectHandle);
                 if (!result)
                 {
                     return result;
@@ -2939,6 +3198,7 @@ namespace Cue::Editor
         m_statistics->set_update_metrics_source(&m_lastUpdateMetrics);
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend, &m_debugCamera);
+        m_effectPreviewView = std::make_unique<EffectPreviewView>(m_backend);
         m_debugView->set_add_menu_callback(
             this,
             [](void* a_context)
@@ -3786,6 +4046,445 @@ namespace Cue::Editor
             "作成可能な Material 名が見つかりません。");
     }
 
+    Result EditorManager::create_effect_editor_asset()
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Effect 作成に必要な依存が初期化されていません。");
+        }
+        if (m_assetRootPath.is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Assets フォルダが設定されていません。");
+        }
+
+        const Core::IO::Path effectRoot = Core::IO::Path::join(
+            m_assetRootPath, Core::IO::Path("Effects"));
+        Result result = m_fileSystem->create_directories(effectRoot);
+        if (!result)
+        {
+            return result;
+        }
+
+        for (uint32_t index = 0; index < 1000; ++index)
+        {
+            const std::string effectName =
+                index == 0 ? std::string("Effect")
+                           : "Effect" + std::to_string(index);
+            const Core::IO::Path effectPath = Core::IO::Path::join(
+                effectRoot, Core::IO::Path(effectName + ".cuefx"));
+
+            bool exists = false;
+            result = m_fileSystem->exists(effectPath, &exists);
+            if (!result)
+            {
+                return result;
+            }
+
+            EffectHandle existingHandle{};
+            if (exists ||
+                m_engine->asset_manager().get_effect(effectName, existingHandle))
+            {
+                continue;
+            }
+
+            EffectSystem::EffectAsset asset{};
+            asset.name = effectName;
+            EffectSystem::EffectEmitterDesc emitter{};
+            emitter.name = "Emitter";
+            asset.emitters.push_back(std::move(emitter));
+            EffectSystem::EffectGraphNodeDesc node{};
+            node.name = "Emitter";
+            node.emitterIndex = 0;
+            node.position = Math::float2(24.0f, 32.0f);
+            asset.graphNodes.push_back(std::move(node));
+
+            m_effectEditorAsset = std::move(asset);
+            m_effectEditorPath = effectPath.normalize();
+            m_effectEditorHandle = {};
+            m_selectedEffectEmitterIndex = 0;
+            m_hasEffectEditorAsset = true;
+            m_effectEditorDirty = true;
+            m_effectPreviewPlaying = true;
+            refresh_effect_editor_buffers();
+
+            result = save_effect_editor_asset();
+            if (!result)
+            {
+                return result;
+            }
+
+            m_selectedAssetPath = m_effectEditorPath;
+            m_selectedEntityId = GameCore::k_invalidEntityId;
+            m_selectedSceneId = GameCore::k_invalidSceneId;
+            m_currentWorkspace = Workspace::EffectEditor;
+            if (m_assetBrowser != nullptr)
+            {
+                m_assetBrowser->refresh();
+            }
+            return Result::ok();
+        }
+
+        return Result::fail(Code::CreateFailed, Severity::Error,
+            "作成可能な Effect 名が見つかりません。");
+    }
+
+    Result EditorManager::load_effect_editor_asset(
+        const Core::IO::Path& a_effectPath)
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Effect 読み込みに必要な依存が初期化されていません。");
+        }
+        if (to_lower_ascii(a_effectPath.extension()) != ".cuefx")
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "EffectEditor は .cuefx のみ読み込めます。");
+        }
+
+        EffectHandle effectHandle{};
+        Result result = m_engine->asset_manager().load_effect(
+            *m_fileSystem, a_effectPath, effectHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        const EffectSystem::EffectAsset* asset = nullptr;
+        result = m_engine->asset_manager().get_effect(effectHandle, asset);
+        if (!result || asset == nullptr)
+        {
+            return result ? Result::fail(Code::NotFound, Severity::Error,
+                         "Effect asset が AssetManager から取得できません。")
+                          : result;
+        }
+
+        m_effectEditorAsset = *asset;
+        m_effectEditorPath = a_effectPath.normalize();
+        m_effectEditorHandle = effectHandle;
+        m_selectedEffectEmitterIndex = 0;
+        m_hasEffectEditorAsset = true;
+        m_effectEditorDirty = false;
+        m_effectPreviewPlaying = true;
+        refresh_effect_editor_buffers();
+        return sync_effect_editor_preview();
+    }
+
+    Result EditorManager::save_effect_editor_asset()
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Effect 保存に必要な依存が初期化されていません。");
+        }
+        if (!m_hasEffectEditorAsset)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "保存する Effect がありません。");
+        }
+
+        if (m_effectEditorAsset.name.empty())
+        {
+            m_effectEditorAsset.name = "Effect";
+            set_text_buffer(m_effectNameBuffer, m_effectEditorAsset.name);
+        }
+        if (m_effectEditorAsset.emitters.empty())
+        {
+            EffectSystem::EffectEmitterDesc emitter{};
+            emitter.name = "Emitter";
+            m_effectEditorAsset.emitters.push_back(std::move(emitter));
+            m_selectedEffectEmitterIndex = 0;
+            refresh_effect_editor_buffers();
+        }
+
+        if (m_effectEditorPath.is_empty())
+        {
+            const Core::IO::Path effectRoot = Core::IO::Path::join(
+                m_assetRootPath, Core::IO::Path("Effects"));
+            Result result = m_fileSystem->create_directories(effectRoot);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_effectEditorPath = Core::IO::Path::join(
+                effectRoot,
+                Core::IO::Path(
+                    sanitize_asset_stem(m_effectEditorAsset.name) + ".cuefx"));
+        }
+
+        const nlohmann::json root = make_effect_asset_json(m_effectEditorAsset);
+        const std::string text = root.dump(4);
+        const std::span<const std::byte> byteSpan(
+            reinterpret_cast<const std::byte*>(text.data()),
+            text.size());
+        Result result = m_fileSystem->write_all(
+            m_effectEditorPath, byteSpan, true);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_engine->asset_manager().load_effect(
+            *m_fileSystem, m_effectEditorPath, m_effectEditorHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_effectEditorDirty = false;
+        m_selectedAssetPath = m_effectEditorPath.normalize();
+        if (m_assetBrowser != nullptr)
+        {
+            m_assetBrowser->refresh();
+        }
+        return sync_effect_editor_preview();
+    }
+
+    Result EditorManager::sync_effect_editor_preview()
+    {
+        if (!m_hasEffectEditorAsset || !m_effectPreviewPlaying)
+        {
+            destroy_effect_editor_preview();
+            return Result::ok();
+        }
+        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Effect preview 用の GameWorld がありません。");
+        }
+
+        if (m_effectEditorHandle.valid())
+        {
+            Result result = m_engine->asset_manager().update_effect(
+                m_effectEditorHandle, m_effectEditorAsset);
+            if (!result)
+            {
+                return result;
+            }
+        }
+        else
+        {
+            Result result = m_engine->asset_manager().create_effect(
+                "__EffectEditorPreview",
+                m_effectEditorAsset,
+                m_effectEditorHandle);
+            if (!result)
+            {
+                result = m_engine->asset_manager().get_effect(
+                    "__EffectEditorPreview", m_effectEditorHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                result = m_engine->asset_manager().update_effect(
+                    m_effectEditorHandle, m_effectEditorAsset);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+        }
+
+        GameCore::GameWorld* world = m_engine->game_world();
+        bool containsPreview = false;
+        (void)world->contains_object(m_effectPreviewEntityId, containsPreview);
+        if (!containsPreview)
+        {
+            GameCore::GameObject previewObject{};
+            Result result = world->create_object(
+                "EffectEditorPreview",
+                "EditorPreview",
+                true,
+                previewObject);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_effectPreviewEntityId = previewObject.entity_id();
+
+            ECS::TransformComponent transform{};
+            transform.position = Math::float3(0.0f, 0.5f, 0.0f);
+            ECS::TransformComponent* transformComponent = nullptr;
+            result = world->add_component<ECS::TransformComponent>(
+                m_effectPreviewEntityId, transformComponent, transform);
+            if (!result)
+            {
+                destroy_effect_editor_preview();
+                return result;
+            }
+
+            ECS::WorldTransformComponent worldTransform{};
+            worldTransform.position = transform.position;
+            ECS::WorldTransformComponent* worldTransformComponent = nullptr;
+            result = world->add_component<ECS::WorldTransformComponent>(
+                m_effectPreviewEntityId,
+                worldTransformComponent,
+                worldTransform);
+            if (!result)
+            {
+                destroy_effect_editor_preview();
+                return result;
+            }
+
+            ECS::EffectEmitterComponent effect{};
+            ECS::EffectEmitterComponent* effectComponent = nullptr;
+            result = world->add_component<ECS::EffectEmitterComponent>(
+                m_effectPreviewEntityId, effectComponent, effect);
+            if (!result)
+            {
+                destroy_effect_editor_preview();
+                return result;
+            }
+        }
+
+        ECS::EffectEmitterComponent* effectComponent = nullptr;
+        Result result = world->get_component<ECS::EffectEmitterComponent>(
+            m_effectPreviewEntityId, effectComponent);
+        if (!result || effectComponent == nullptr)
+        {
+            return result;
+        }
+
+        effectComponent->effectHandle = m_effectEditorHandle;
+        effectComponent->effectName = m_effectEditorAsset.name;
+        effectComponent->playbackSpeed = m_effectPreviewSpeed;
+        effectComponent->randomSeed = 1;
+        effectComponent->isPlaying = true;
+        effectComponent->isVisible = true;
+        return Result::ok();
+    }
+
+    Result EditorManager::place_effect_editor_in_scene()
+    {
+        if (!m_hasEffectEditorAsset)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "配置する Effect がありません。");
+        }
+        if (m_engine == nullptr || m_engine->game_world() == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "Effect を配置する GameWorld がありません。");
+        }
+
+        if (m_effectEditorDirty)
+        {
+            Result result = save_effect_editor_asset();
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        Result result = sync_effect_editor_preview();
+        if (!result)
+        {
+            return result;
+        }
+
+        const GameCore::SceneId sceneId = selected_add_scene_id();
+        if (sceneId == GameCore::k_invalidSceneId)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                "Effect を配置する Scene が選択されていません。");
+        }
+
+        GameCore::GameWorld* world = m_engine->game_world();
+        GameCore::GameObject object{};
+        result = world->add_game_object_to_scene(sceneId, object);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::EffectEmitterComponent effect{};
+        effect.effectHandle = m_effectEditorHandle;
+        effect.effectName = m_effectEditorAsset.name;
+        effect.playbackSpeed = m_effectPreviewSpeed;
+        effect.randomSeed = 1;
+        effect.isPlaying = true;
+        effect.isVisible = true;
+
+        ECS::EffectEmitterComponent* effectComponent = nullptr;
+        result = world->add_component<ECS::EffectEmitterComponent>(
+            object.entity_id(),
+            effectComponent,
+            effect);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_selectedEntityId = object.entity_id();
+        m_selectedSceneId = sceneId;
+        m_currentWorkspace = Workspace::Scene;
+        return Result::ok();
+    }
+
+    void EditorManager::destroy_effect_editor_preview()
+    {
+        if (m_engine == nullptr || m_engine->game_world() == nullptr ||
+            m_effectPreviewEntityId == GameCore::k_invalidEntityId)
+        {
+            m_effectPreviewEntityId = GameCore::k_invalidEntityId;
+            return;
+        }
+
+        bool containsPreview = false;
+        (void)m_engine->game_world()->contains_object(
+            m_effectPreviewEntityId,
+            containsPreview);
+        if (containsPreview)
+        {
+            (void)m_engine->game_world()->destroy_object(
+                m_effectPreviewEntityId);
+            (void)m_engine->game_world()->execute_deferred_deletions();
+        }
+        m_effectPreviewEntityId = GameCore::k_invalidEntityId;
+    }
+
+    void EditorManager::refresh_effect_editor_buffers() noexcept
+    {
+        set_text_buffer(m_effectNameBuffer, m_effectEditorAsset.name);
+        const EffectSystem::EffectEmitterDesc* emitter =
+            selected_effect_emitter();
+        set_text_buffer(
+            m_effectEmitterNameBuffer,
+            emitter != nullptr ? emitter->name : std::string_view{});
+        set_text_buffer(
+            m_effectMaterialNameBuffer,
+            emitter != nullptr ? emitter->materialName : std::string_view{});
+        set_text_buffer(
+            m_effectMeshNameBuffer,
+            emitter != nullptr ? emitter->meshName : std::string_view{});
+    }
+
+    EffectSystem::EffectEmitterDesc*
+        EditorManager::selected_effect_emitter() noexcept
+    {
+        if (!m_hasEffectEditorAsset || m_effectEditorAsset.emitters.empty())
+        {
+            return nullptr;
+        }
+
+        if (m_selectedEffectEmitterIndex >= m_effectEditorAsset.emitters.size())
+        {
+            m_selectedEffectEmitterIndex =
+                static_cast<uint32_t>(m_effectEditorAsset.emitters.size() - 1);
+        }
+        return &m_effectEditorAsset.emitters[m_selectedEffectEmitterIndex];
+    }
+
+    const EffectSystem::EffectEmitterDesc*
+        EditorManager::selected_effect_emitter() const noexcept
+    {
+        return const_cast<EditorManager*>(this)->selected_effect_emitter();
+    }
+
     Result EditorManager::handle_dropped_asset_files()
     {
         if (m_platform == nullptr || m_fileSystem == nullptr)
@@ -4016,6 +4715,15 @@ namespace Cue::Editor
                 Core::IO::Path(a_assetPath.stem() + ".cuesound"));
             return SoundCooker::ensure_cuesound_is_up_to_date(
                 *m_fileSystem, a_assetPath, cookedPath);
+        }
+
+        if (extension == ".cuefx")
+        {
+            EffectHandle effectHandle{};
+            return m_engine->asset_manager().load_effect(
+                *m_fileSystem,
+                a_assetPath,
+                effectHandle);
         }
 
         return Result::ok();
@@ -4884,6 +5592,16 @@ namespace Cue::Editor
             return result;
         }
 
+        result = load_project_effects(
+            *m_engine,
+            *m_fileSystem,
+            Core::IO::Path(m_projectPath),
+            projectSettings);
+        if (!result)
+        {
+            return result;
+        }
+
         result = cook_project_sounds(
             *m_fileSystem,
             Core::IO::Path(m_projectPath),
@@ -5052,11 +5770,13 @@ namespace Cue::Editor
         std::vector<Core::IO::Path> texturePaths{};
         std::vector<Core::IO::Path> modelPaths{};
         std::vector<Core::IO::Path> materialPaths{};
+        std::vector<Core::IO::Path> effectPaths{};
         {
             std::lock_guard<std::mutex> lock(a_operation.mutex);
             texturePaths = a_operation.texturePaths;
             modelPaths = a_operation.modelPaths;
             materialPaths = a_operation.materialPaths;
+            effectPaths = a_operation.effectPaths;
             a_operation.detail = "アセットを登録中...";
         }
 
@@ -5065,7 +5785,8 @@ namespace Cue::Editor
             *m_fileSystem,
             texturePaths,
             modelPaths,
-            materialPaths);
+            materialPaths,
+            effectPaths);
         if (!result)
         {
             return result;
@@ -6040,6 +6761,1127 @@ namespace Cue::Editor
         ImGui::PopStyleVar();
     }
 
+    void EditorManager::draw_workspace_tabs()
+    {
+        const auto drawWorkspaceButton =
+            [this](Workspace a_workspace, const char* a_label)
+        {
+            const bool isSelected = m_currentWorkspace == a_workspace;
+            if (isSelected)
+            {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabActive));
+                ImGui::PushStyleColor(
+                    ImGuiCol_ButtonHovered,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabHovered));
+                ImGui::PushStyleColor(
+                    ImGuiCol_ButtonActive,
+                    ImGui::GetStyleColorVec4(ImGuiCol_TabActive));
+            }
+
+            if (ImGui::Button(a_label, ImVec2(104.0f, 0.0f)) && !isSelected)
+            {
+                m_currentWorkspace = a_workspace;
+            }
+
+            if (isSelected)
+            {
+                ImGui::PopStyleColor(3);
+            }
+        };
+
+        drawWorkspaceButton(Workspace::Scene, "Scene");
+        ImGui::SameLine();
+        drawWorkspaceButton(Workspace::EffectEditor, "EffectEditor");
+    }
+
+    void EditorManager::draw_effect_editor_workspace()
+    {
+        bool shouldSyncPreview = false;
+
+        if (ImGui::Begin("Effect Preview"))
+        {
+            const ImVec2 buttonSize(
+                ImGui::GetFrameHeight(),
+                ImGui::GetFrameHeight());
+            if (ImGui::Button("New"))
+            {
+                const Result result = create_effect_editor_asset();
+                set_status_message(
+                    result ? std::string("Effect を作成しました。")
+                           : std::string(result.message),
+                    !result);
+            }
+            ImGui::SameLine();
+            const bool canLoadSelected =
+                !m_selectedAssetPath.is_empty() &&
+                to_lower_ascii(m_selectedAssetPath.extension()) == ".cuefx";
+            ImGui::BeginDisabled(!canLoadSelected);
+            if (ImGui::Button("Load Selected"))
+            {
+                const Result result =
+                    load_effect_editor_asset(m_selectedAssetPath);
+                set_status_message(
+                    result ? std::string("Effect を読み込みました。")
+                           : std::string(result.message),
+                    !result);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!m_hasEffectEditorAsset);
+            if (ImGui::Button("Save"))
+            {
+                const Result result = save_effect_editor_asset();
+                set_status_message(
+                    result ? std::string("Effect を保存しました。")
+                           : std::string(result.message),
+                    !result);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!m_hasEffectEditorAsset);
+            if (ImGui::Button("Place In Scene"))
+            {
+                const Result result = place_effect_editor_in_scene();
+                set_status_message(
+                    result ? std::string("Effect を Scene に配置しました。")
+                           : std::string(result.message),
+                    !result);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+
+            if (ImGui::Button(CUE_ICON_PLAY "##EffectPreviewPlay", buttonSize))
+            {
+                m_effectPreviewPlaying = true;
+                m_effectPreviewScrubTime = 0.0f;
+                destroy_effect_editor_preview();
+                shouldSyncPreview = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Play");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(CUE_ICON_PAUSE "##EffectPreviewPause", buttonSize))
+            {
+                m_effectPreviewPlaying = false;
+                destroy_effect_editor_preview();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Pause");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(CUE_ICON_STOP "##EffectPreviewStop", buttonSize))
+            {
+                m_effectPreviewPlaying = false;
+                m_effectPreviewScrubTime = 0.0f;
+                destroy_effect_editor_preview();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Preview Stop");
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            if (ImGui::SliderFloat(
+                    "Speed",
+                    &m_effectPreviewSpeed,
+                    0.0f,
+                    4.0f,
+                    "%.2fx"))
+            {
+                m_effectPreviewSpeed =
+                    (std::clamp)(m_effectPreviewSpeed, 0.0f, 4.0f);
+                shouldSyncPreview = true;
+            }
+            ImGui::Separator();
+            if (m_hasEffectEditorAsset)
+            {
+                const std::string pathText = m_effectEditorPath.is_empty()
+                    ? std::string("Unsaved")
+                    : m_effectEditorPath.normalize().utf8();
+                ImGui::Text(
+                    "%s%s  %s",
+                    m_effectEditorAsset.name.c_str(),
+                    m_effectEditorDirty ? " *" : "",
+                    pathText.c_str());
+            }
+            else
+            {
+                ImGui::TextUnformatted(
+                    ".cuefx を選択するか New で作成してください。");
+            }
+
+            const ImVec2 canvasMin = ImGui::GetCursorScreenPos();
+            ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+            canvasSize.x = (std::max)(canvasSize.x, 160.0f);
+            canvasSize.y = (std::max)(canvasSize.y, 180.0f);
+            const ImVec2 canvasMax(
+                canvasMin.x + canvasSize.x,
+                canvasMin.y + canvasSize.y);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                canvasMin,
+                canvasMax,
+                IM_COL32(26, 29, 34, 255));
+            drawList->AddRect(
+                canvasMin,
+                canvasMax,
+                IM_COL32(76, 84, 96, 255));
+
+            bool hasPreviewTexture = false;
+            if (m_effectPreviewView != nullptr)
+            {
+                hasPreviewTexture = m_effectPreviewView->draw(canvasSize);
+            }
+
+            if (!hasPreviewTexture)
+            {
+            constexpr float k_gridStep = 32.0f;
+            for (float x = canvasMin.x; x < canvasMax.x; x += k_gridStep)
+            {
+                drawList->AddLine(
+                    ImVec2(x, canvasMin.y),
+                    ImVec2(x, canvasMax.y),
+                    IM_COL32(44, 50, 58, 255));
+            }
+            for (float y = canvasMin.y; y < canvasMax.y; y += k_gridStep)
+            {
+                drawList->AddLine(
+                    ImVec2(canvasMin.x, y),
+                    ImVec2(canvasMax.x, y),
+                    IM_COL32(44, 50, 58, 255));
+            }
+
+            const ImVec2 center(
+                canvasMin.x + canvasSize.x * 0.5f,
+                canvasMin.y + canvasSize.y * 0.58f);
+            drawList->AddCircleFilled(
+                center,
+                18.0f,
+                IM_COL32(255, 190, 80, 220));
+            drawList->AddCircle(
+                center,
+                48.0f,
+                IM_COL32(120, 190, 255, 180),
+                48,
+                2.0f);
+            drawList->AddLine(
+                ImVec2(center.x - 64.0f, center.y),
+                ImVec2(center.x + 64.0f, center.y),
+                IM_COL32(140, 150, 165, 160),
+                1.0f);
+            drawList->AddLine(
+                ImVec2(center.x, center.y - 64.0f),
+                ImVec2(center.x, center.y + 64.0f),
+                IM_COL32(140, 150, 165, 160),
+                1.0f);
+            ImGui::Dummy(canvasSize);
+            }
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Graph"))
+        {
+            if (!m_hasEffectEditorAsset)
+            {
+                ImGui::TextUnformatted("Effect が読み込まれていません。");
+            }
+            else
+            {
+                if (ImGui::Button(CUE_ICON_ADD " Add Emitter"))
+                {
+                    EffectSystem::EffectEmitterDesc emitter{};
+                    emitter.name = "Emitter";
+                    m_effectEditorAsset.emitters.push_back(std::move(emitter));
+                    m_selectedEffectEmitterIndex = static_cast<uint32_t>(
+                        m_effectEditorAsset.emitters.size() - 1);
+                    EffectSystem::EffectGraphNodeDesc node{};
+                    node.name = "Emitter";
+                    node.emitterIndex = m_selectedEffectEmitterIndex;
+                    node.position = Math::float2(
+                        24.0f +
+                            static_cast<float>(m_selectedEffectEmitterIndex) *
+                                180.0f,
+                        32.0f);
+                    m_effectEditorAsset.graphNodes.push_back(std::move(node));
+                    m_effectEditorDirty = true;
+                    shouldSyncPreview = true;
+                    refresh_effect_editor_buffers();
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled(
+                    m_effectEditorAsset.emitters.size() <= 1);
+                if (ImGui::Button(CUE_ICON_DELETE " Remove"))
+                {
+                    const size_t removeIndex = m_selectedEffectEmitterIndex;
+                    if (removeIndex < m_effectEditorAsset.emitters.size())
+                    {
+                        m_effectEditorAsset.emitters.erase(
+                            m_effectEditorAsset.emitters.begin() +
+                            static_cast<std::ptrdiff_t>(removeIndex));
+                        const auto nodeRemoveIt = std::remove_if(
+                            m_effectEditorAsset.graphNodes.begin(),
+                            m_effectEditorAsset.graphNodes.end(),
+                            [removeIndex](const EffectSystem::EffectGraphNodeDesc&
+                                    a_node)
+                            {
+                                return a_node.emitterIndex ==
+                                    static_cast<uint32_t>(removeIndex);
+                            });
+                        m_effectEditorAsset.graphNodes.erase(
+                            nodeRemoveIt,
+                            m_effectEditorAsset.graphNodes.end());
+                        for (EffectSystem::EffectGraphNodeDesc& node :
+                            m_effectEditorAsset.graphNodes)
+                        {
+                            if (node.emitterIndex > removeIndex)
+                            {
+                                --node.emitterIndex;
+                            }
+                        }
+                        if (m_selectedEffectEmitterIndex >=
+                            m_effectEditorAsset.emitters.size())
+                        {
+                            m_selectedEffectEmitterIndex = static_cast<uint32_t>(
+                                m_effectEditorAsset.emitters.size() - 1);
+                        }
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                        refresh_effect_editor_buffers();
+                    }
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::Button("Rebuild Nodes"))
+                {
+                    m_effectEditorAsset.graphNodes.clear();
+                    m_effectEditorAsset.graphNodes.reserve(
+                        m_effectEditorAsset.emitters.size());
+                    for (uint32_t emitterIndex = 0;
+                         emitterIndex <
+                         static_cast<uint32_t>(
+                             m_effectEditorAsset.emitters.size());
+                         ++emitterIndex)
+                    {
+                        EffectSystem::EffectGraphNodeDesc node{};
+                        node.name =
+                            m_effectEditorAsset.emitters[emitterIndex].name;
+                        node.emitterIndex = emitterIndex;
+                        node.position = Math::float2(
+                            24.0f + static_cast<float>(emitterIndex) * 180.0f,
+                            32.0f);
+                        m_effectEditorAsset.graphNodes.push_back(
+                            std::move(node));
+                    }
+                    m_effectEditorDirty = true;
+                }
+                ImGui::Separator();
+
+                for (uint32_t emitterIndex = 0;
+                     emitterIndex <
+                     static_cast<uint32_t>(
+                         m_effectEditorAsset.emitters.size());
+                     ++emitterIndex)
+                {
+                    const EffectSystem::EffectEmitterDesc& emitter =
+                        m_effectEditorAsset.emitters[emitterIndex];
+                    const std::string label = emitter.name.empty()
+                        ? "Emitter"
+                        : emitter.name;
+                    if (ImGui::Selectable(
+                            label.c_str(),
+                            m_selectedEffectEmitterIndex == emitterIndex))
+                    {
+                        m_selectedEffectEmitterIndex = emitterIndex;
+                        refresh_effect_editor_buffers();
+                    }
+                }
+
+                ImGui::SeparatorText("Graph");
+                const ImVec2 graphMin = ImGui::GetCursorScreenPos();
+                ImVec2 graphSize = ImGui::GetContentRegionAvail();
+                graphSize.y = (std::max)(graphSize.y, 180.0f);
+                const ImVec2 graphMax(
+                    graphMin.x + graphSize.x,
+                    graphMin.y + graphSize.y);
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(
+                    graphMin,
+                    graphMax,
+                    IM_COL32(30, 33, 38, 255));
+                drawList->AddRect(
+                    graphMin,
+                    graphMax,
+                    IM_COL32(72, 80, 92, 255));
+
+                for (EffectSystem::EffectGraphNodeDesc& node :
+                    m_effectEditorAsset.graphNodes)
+                {
+                    if (node.emitterIndex >=
+                        m_effectEditorAsset.emitters.size())
+                    {
+                        continue;
+                    }
+
+                    const ImVec2 nodeMin(
+                        graphMin.x + node.position.x,
+                        graphMin.y + node.position.y);
+                    const ImVec2 nodeMax(nodeMin.x + 144.0f, nodeMin.y + 48.0f);
+                    const bool isSelected =
+                        node.emitterIndex == m_selectedEffectEmitterIndex;
+                    drawList->AddRectFilled(
+                        nodeMin,
+                        nodeMax,
+                        isSelected ? IM_COL32(72, 112, 170, 255)
+                                   : IM_COL32(50, 56, 66, 255),
+                        4.0f);
+                    drawList->AddRect(
+                        nodeMin,
+                        nodeMax,
+                        isSelected ? IM_COL32(140, 190, 255, 255)
+                                   : IM_COL32(100, 110, 126, 255),
+                        4.0f,
+                        0,
+                        2.0f);
+                    drawList->AddText(
+                        ImVec2(nodeMin.x + 10.0f, nodeMin.y + 8.0f),
+                        IM_COL32(235, 240, 248, 255),
+                        m_effectEditorAsset.emitters[node.emitterIndex]
+                            .name.c_str());
+                    drawList->AddText(
+                        ImVec2(nodeMin.x + 10.0f, nodeMin.y + 27.0f),
+                        IM_COL32(170, 180, 194, 255),
+                        effect_renderer_type_name(
+                            m_effectEditorAsset.emitters[node.emitterIndex]
+                                .rendererType));
+
+                    ImGui::SetCursorScreenPos(nodeMin);
+                    ImGui::PushID(static_cast<int>(node.emitterIndex));
+                    ImGui::InvisibleButton("GraphNode", ImVec2(144.0f, 48.0f));
+                    if (ImGui::IsItemClicked())
+                    {
+                        m_selectedEffectEmitterIndex = node.emitterIndex;
+                        refresh_effect_editor_buffers();
+                    }
+                    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0))
+                    {
+                        const ImVec2 delta = ImGui::GetIO().MouseDelta;
+                        node.position.x = (std::clamp)(
+                            node.position.x + delta.x,
+                            0.0f,
+                            (std::max)(0.0f, graphSize.x - 144.0f));
+                        node.position.y = (std::clamp)(
+                            node.position.y + delta.y,
+                            0.0f,
+                            (std::max)(0.0f, graphSize.y - 48.0f));
+                        m_effectEditorDirty = true;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::SetCursorScreenPos(graphMin);
+                ImGui::Dummy(graphSize);
+            }
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Inspector"))
+        {
+            if (!m_hasEffectEditorAsset)
+            {
+                ImGui::TextUnformatted("Effect が読み込まれていません。");
+            }
+            else
+            {
+                if (ImGui::InputText(
+                        "Effect Name",
+                        m_effectNameBuffer.data(),
+                        m_effectNameBuffer.size()))
+                {
+                    m_effectEditorAsset.name = m_effectNameBuffer.data();
+                    m_effectEditorDirty = true;
+                    shouldSyncPreview = true;
+                }
+
+                EffectSystem::EffectEmitterDesc* emitter =
+                    selected_effect_emitter();
+                if (emitter != nullptr)
+                {
+                    ImGui::SeparatorText("Emitter");
+                    if (ImGui::InputText(
+                            "Name",
+                            m_effectEmitterNameBuffer.data(),
+                            m_effectEmitterNameBuffer.size()))
+                    {
+                        emitter->name = m_effectEmitterNameBuffer.data();
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                    if (ImGui::InputText(
+                            "Material",
+                            m_effectMaterialNameBuffer.data(),
+                            m_effectMaterialNameBuffer.size()))
+                    {
+                        emitter->materialName =
+                            m_effectMaterialNameBuffer.data();
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                    ImGui::SameLine();
+                    const bool canAssignMaterial =
+                        !m_selectedAssetPath.is_empty() &&
+                        to_lower_ascii(m_selectedAssetPath.extension()) ==
+                            ".cuematerial";
+                    ImGui::BeginDisabled(!canAssignMaterial);
+                    if (ImGui::Button("Use Selected##EffectMaterial"))
+                    {
+                        emitter->materialName =
+                            make_asset_relative_name(m_selectedAssetPath);
+                        set_text_buffer(
+                            m_effectMaterialNameBuffer,
+                            emitter->materialName);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                    ImGui::EndDisabled();
+                    if (ImGui::InputText(
+                            "Mesh",
+                            m_effectMeshNameBuffer.data(),
+                            m_effectMeshNameBuffer.size()))
+                    {
+                        emitter->meshName = m_effectMeshNameBuffer.data();
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                    ImGui::SameLine();
+                    const bool canAssignMesh =
+                        !m_selectedAssetPath.is_empty() &&
+                        (to_lower_ascii(m_selectedAssetPath.extension()) ==
+                                ".cuemodel" ||
+                            to_lower_ascii(m_selectedAssetPath.extension()) ==
+                                ".obj" ||
+                            to_lower_ascii(m_selectedAssetPath.extension()) ==
+                                ".fbx" ||
+                            to_lower_ascii(m_selectedAssetPath.extension()) ==
+                                ".gltf" ||
+                            to_lower_ascii(m_selectedAssetPath.extension()) ==
+                                ".glb");
+                    ImGui::BeginDisabled(!canAssignMesh);
+                    if (ImGui::Button("Use Selected##EffectMesh"))
+                    {
+                        emitter->meshName =
+                            make_asset_relative_name(m_selectedAssetPath);
+                        set_text_buffer(m_effectMeshNameBuffer, emitter->meshName);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                    ImGui::EndDisabled();
+
+                    int rendererType =
+                        static_cast<int>(emitter->rendererType);
+                    const char* rendererItems[] = {
+                        "Billboard",
+                        "Trail",
+                        "Ribbon",
+                        "Mesh",
+                    };
+                    if (ImGui::Combo(
+                            "Renderer",
+                            &rendererType,
+                            rendererItems,
+                            4))
+                    {
+                        emitter->rendererType =
+                            static_cast<EffectSystem::EffectRendererType>(
+                                rendererType);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    int shapeType = static_cast<int>(emitter->shape);
+                    const char* shapeItems[] = {
+                        "Point",
+                        "Sphere",
+                        "Box",
+                        "Cone",
+                    };
+                    if (ImGui::Combo(
+                            "Shape",
+                            &shapeType,
+                            shapeItems,
+                            4))
+                    {
+                        emitter->shape =
+                            static_cast<EffectSystem::EffectEmitterShape>(
+                                shapeType);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float positionOffset[3] = {
+                        emitter->positionOffset.x,
+                        emitter->positionOffset.y,
+                        emitter->positionOffset.z
+                    };
+                    if (ImGui::DragFloat3(
+                            "Position Offset",
+                            positionOffset,
+                            0.01f))
+                    {
+                        emitter->positionOffset = Math::float3(
+                            positionOffset[0],
+                            positionOffset[1],
+                            positionOffset[2]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    bool changed = false;
+                    if (emitter->shape ==
+                        EffectSystem::EffectEmitterShape::Sphere)
+                    {
+                        changed |= ImGui::DragFloat(
+                            "Shape Radius",
+                            &emitter->shapeRadius,
+                            0.01f,
+                            0.0f,
+                            100.0f,
+                            "%.3f");
+                    }
+                    else if (emitter->shape ==
+                        EffectSystem::EffectEmitterShape::Box)
+                    {
+                        float shapeBoxExtents[3] = {
+                            emitter->shapeBoxExtents.x,
+                            emitter->shapeBoxExtents.y,
+                            emitter->shapeBoxExtents.z
+                        };
+                        if (ImGui::DragFloat3(
+                                "Shape Extents",
+                                shapeBoxExtents,
+                                0.01f,
+                                0.0f,
+                                100.0f))
+                        {
+                            emitter->shapeBoxExtents = Math::float3(
+                                shapeBoxExtents[0],
+                                shapeBoxExtents[1],
+                                shapeBoxExtents[2]);
+                            changed = true;
+                        }
+                    }
+                    else if (emitter->shape ==
+                        EffectSystem::EffectEmitterShape::Cone)
+                    {
+                        changed |= ImGui::DragFloat(
+                            "Shape Radius",
+                            &emitter->shapeRadius,
+                            0.01f,
+                            0.0f,
+                            100.0f,
+                            "%.3f");
+                        changed |= ImGui::DragFloat(
+                            "Shape Angle",
+                            &emitter->shapeAngleDegrees,
+                            0.1f,
+                            0.0f,
+                            89.0f,
+                            "%.1f");
+                    }
+
+                    float velocityMin[3] = {
+                        emitter->velocityMin.x,
+                        emitter->velocityMin.y,
+                        emitter->velocityMin.z
+                    };
+                    if (ImGui::DragFloat3("Velocity Min", velocityMin, 0.01f))
+                    {
+                        emitter->velocityMin = Math::float3(
+                            velocityMin[0],
+                            velocityMin[1],
+                            velocityMin[2]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float velocityMax[3] = {
+                        emitter->velocityMax.x,
+                        emitter->velocityMax.y,
+                        emitter->velocityMax.z
+                    };
+                    if (ImGui::DragFloat3("Velocity Max", velocityMax, 0.01f))
+                    {
+                        emitter->velocityMax = Math::float3(
+                            velocityMax[0],
+                            velocityMax[1],
+                            velocityMax[2]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float acceleration[3] = {
+                        emitter->acceleration.x,
+                        emitter->acceleration.y,
+                        emitter->acceleration.z
+                    };
+                    if (ImGui::DragFloat3(
+                            "Acceleration",
+                            acceleration,
+                            0.01f))
+                    {
+                        emitter->acceleration = Math::float3(
+                            acceleration[0],
+                            acceleration[1],
+                            acceleration[2]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float startColor[4] = {
+                        emitter->startColor.x,
+                        emitter->startColor.y,
+                        emitter->startColor.z,
+                        emitter->startColor.w
+                    };
+                    if (ImGui::ColorEdit4("Start Color", startColor))
+                    {
+                        emitter->startColor = Math::float4(
+                            startColor[0],
+                            startColor[1],
+                            startColor[2],
+                            startColor[3]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float midColor[4] = {
+                        emitter->midColor.x,
+                        emitter->midColor.y,
+                        emitter->midColor.z,
+                        emitter->midColor.w
+                    };
+                    if (ImGui::ColorEdit4("Mid Color", midColor))
+                    {
+                        emitter->midColor = Math::float4(
+                            midColor[0],
+                            midColor[1],
+                            midColor[2],
+                            midColor[3]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    float endColor[4] = {
+                        emitter->endColor.x,
+                        emitter->endColor.y,
+                        emitter->endColor.z,
+                        emitter->endColor.w
+                    };
+                    if (ImGui::ColorEdit4("End Color", endColor))
+                    {
+                        emitter->endColor = Math::float4(
+                            endColor[0],
+                            endColor[1],
+                            endColor[2],
+                            endColor[3]);
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+
+                    changed |= ImGui::DragFloat(
+                        "Start Size",
+                        &emitter->startSize,
+                        0.01f,
+                        0.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Mid Size",
+                        &emitter->midSize,
+                        0.01f,
+                        0.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "End Size",
+                        &emitter->endSize,
+                        0.01f,
+                        0.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::SliderFloat(
+                        "Curve Mid",
+                        &emitter->curveMidTime,
+                        0.001f,
+                        0.999f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Start Delay",
+                        &emitter->startDelay,
+                        0.01f,
+                        0.0f,
+                        60.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Duration",
+                        &emitter->duration,
+                        0.01f,
+                        0.0f,
+                        120.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Min Lifetime",
+                        &emitter->minLifetime,
+                        0.01f,
+                        0.01f,
+                        60.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Max Lifetime",
+                        &emitter->maxLifetime,
+                        0.01f,
+                        0.01f,
+                        60.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Emit Rate",
+                        &emitter->emitRate,
+                        0.5f,
+                        0.0f,
+                        10000.0f,
+                        "%.1f");
+
+                    if (emitter->rendererType ==
+                            EffectSystem::EffectRendererType::Trail ||
+                        emitter->rendererType ==
+                            EffectSystem::EffectRendererType::Ribbon)
+                    {
+                        ImGui::SeparatorText("Trail / Ribbon");
+                        changed |= ImGui::DragFloat(
+                            "Trail Width",
+                            &emitter->trailWidth,
+                            0.005f,
+                            0.0f,
+                            100.0f,
+                            "%.3f");
+                        changed |= ImGui::DragFloat(
+                            "Trail Length",
+                            &emitter->trailLength,
+                            0.01f,
+                            0.0f,
+                            100.0f,
+                            "%.3f");
+                        int trailSegmentCount =
+                            static_cast<int>(emitter->trailSegmentCount);
+                        if (ImGui::InputInt(
+                                "Trail Segments",
+                                &trailSegmentCount))
+                        {
+                            trailSegmentCount = (std::clamp)(
+                                trailSegmentCount,
+                                1,
+                                64);
+                            emitter->trailSegmentCount =
+                                static_cast<uint32_t>(trailSegmentCount);
+                            changed = true;
+                        }
+                    }
+
+                    if (emitter->rendererType ==
+                        EffectSystem::EffectRendererType::Mesh)
+                    {
+                        ImGui::SeparatorText("Mesh Particle");
+                        changed |= ImGui::DragFloat(
+                            "Mesh Scale",
+                            &emitter->meshScale,
+                            0.01f,
+                            0.0f,
+                            100.0f,
+                            "%.3f");
+                    }
+
+                    ImGui::SeparatorText("Force / Modifier");
+                    float linearForce[3] = {
+                        emitter->linearForce.x,
+                        emitter->linearForce.y,
+                        emitter->linearForce.z
+                    };
+                    if (ImGui::DragFloat3("Linear Force", linearForce, 0.01f))
+                    {
+                        emitter->linearForce = Math::float3(
+                            linearForce[0],
+                            linearForce[1],
+                            linearForce[2]);
+                        changed = true;
+                    }
+                    float attractorPosition[3] = {
+                        emitter->attractorPosition.x,
+                        emitter->attractorPosition.y,
+                        emitter->attractorPosition.z
+                    };
+                    if (ImGui::DragFloat3(
+                            "Attractor Position",
+                            attractorPosition,
+                            0.01f))
+                    {
+                        emitter->attractorPosition = Math::float3(
+                            attractorPosition[0],
+                            attractorPosition[1],
+                            attractorPosition[2]);
+                        changed = true;
+                    }
+                    changed |= ImGui::DragFloat(
+                        "Drag",
+                        &emitter->drag,
+                        0.01f,
+                        0.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Noise Strength",
+                        &emitter->noiseStrength,
+                        0.01f,
+                        0.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Noise Frequency",
+                        &emitter->noiseFrequency,
+                        0.01f,
+                        0.001f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Attractor Strength",
+                        &emitter->attractorStrength,
+                        0.01f,
+                        -100.0f,
+                        100.0f,
+                        "%.3f");
+                    changed |= ImGui::DragFloat(
+                        "Vortex Strength",
+                        &emitter->vortexStrength,
+                        0.01f,
+                        -100.0f,
+                        100.0f,
+                        "%.3f");
+
+                    bool isLooping = emitter->isLooping;
+                    if (ImGui::Checkbox("Loop", &isLooping))
+                    {
+                        emitter->isLooping = isLooping;
+                        changed = true;
+                    }
+
+                    int burstCount =
+                        static_cast<int>(emitter->burstCount);
+                    if (ImGui::InputInt("Burst Count", &burstCount))
+                    {
+                        emitter->burstCount = static_cast<uint32_t>(
+                            (std::max)(burstCount, 0));
+                        changed = true;
+                    }
+
+                    int maxParticleCount =
+                        static_cast<int>(emitter->maxParticleCount);
+                    if (ImGui::InputInt(
+                            "Max Particle Count",
+                            &maxParticleCount))
+                    {
+                        maxParticleCount = (std::clamp)(
+                            maxParticleCount,
+                            1,
+                            static_cast<int>(GpuData::k_maxParticleCount));
+                        emitter->maxParticleCount =
+                            static_cast<uint32_t>(maxParticleCount);
+                        changed = true;
+                    }
+
+                    bool isVisible = emitter->isVisible;
+                    if (ImGui::Checkbox("Visible", &isVisible))
+                    {
+                        emitter->isVisible = isVisible;
+                        changed = true;
+                    }
+
+                    if (emitter->maxLifetime < emitter->minLifetime)
+                    {
+                        emitter->maxLifetime = emitter->minLifetime;
+                        changed = true;
+                    }
+                    emitter->midSize = (std::max)(emitter->midSize, 0.0f);
+                    emitter->curveMidTime =
+                        (std::clamp)(emitter->curveMidTime, 0.001f, 0.999f);
+                    emitter->startDelay =
+                        (std::max)(emitter->startDelay, 0.0f);
+                    emitter->duration = (std::max)(emitter->duration, 0.0f);
+                    emitter->shapeRadius =
+                        (std::max)(emitter->shapeRadius, 0.0f);
+                    emitter->shapeAngleDegrees = (std::clamp)(
+                        emitter->shapeAngleDegrees,
+                        0.0f,
+                        89.0f);
+                    emitter->trailWidth =
+                        (std::max)(emitter->trailWidth, 0.0f);
+                    emitter->trailLength =
+                        (std::max)(emitter->trailLength, 0.0f);
+                    emitter->meshScale =
+                        (std::max)(emitter->meshScale, 0.0f);
+                    emitter->drag = (std::max)(emitter->drag, 0.0f);
+                    emitter->noiseStrength =
+                        (std::max)(emitter->noiseStrength, 0.0f);
+                    emitter->noiseFrequency =
+                        (std::max)(emitter->noiseFrequency, 0.001f);
+                    emitter->trailSegmentCount = (std::clamp)(
+                        emitter->trailSegmentCount,
+                        1u,
+                        64u);
+                    emitter->shapeBoxExtents.x =
+                        (std::max)(emitter->shapeBoxExtents.x, 0.0f);
+                    emitter->shapeBoxExtents.y =
+                        (std::max)(emitter->shapeBoxExtents.y, 0.0f);
+                    emitter->shapeBoxExtents.z =
+                        (std::max)(emitter->shapeBoxExtents.z, 0.0f);
+                    if (changed)
+                    {
+                        m_effectEditorDirty = true;
+                        shouldSyncPreview = true;
+                    }
+                }
+            }
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Effect Timeline"))
+        {
+            float timelineSeconds = 5.0f;
+            if (m_hasEffectEditorAsset)
+            {
+                for (const EffectSystem::EffectEmitterDesc& emitter :
+                    m_effectEditorAsset.emitters)
+                {
+                    timelineSeconds = (std::max)(
+                        timelineSeconds,
+                        emitter.startDelay + (std::max)(emitter.duration, 0.01f));
+                }
+                if (ImGui::SliderFloat(
+                        "Time",
+                        &m_effectPreviewScrubTime,
+                        0.0f,
+                        timelineSeconds,
+                        "%.2fs"))
+                {
+                    m_effectPreviewScrubTime = (std::clamp)(
+                        m_effectPreviewScrubTime,
+                        0.0f,
+                        timelineSeconds);
+                }
+            }
+
+            const ImVec2 timelineMin = ImGui::GetCursorScreenPos();
+            ImVec2 timelineSize = ImGui::GetContentRegionAvail();
+            timelineSize.x = (std::max)(timelineSize.x, 160.0f);
+            timelineSize.y = (std::max)(timelineSize.y, 96.0f);
+            const ImVec2 timelineMax(
+                timelineMin.x + timelineSize.x,
+                timelineMin.y + timelineSize.y);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                timelineMin,
+                timelineMax,
+                IM_COL32(32, 35, 40, 255));
+            drawList->AddRect(
+                timelineMin,
+                timelineMax,
+                IM_COL32(78, 86, 96, 255));
+
+            constexpr int k_tickCount = 12;
+            for (int tickIndex = 0; tickIndex <= k_tickCount; ++tickIndex)
+            {
+                const float t =
+                    static_cast<float>(tickIndex) /
+                    static_cast<float>(k_tickCount);
+                const float x =
+                    timelineMin.x + (timelineMax.x - timelineMin.x) * t;
+                const float tickHeight = tickIndex % 3 == 0 ? 28.0f : 14.0f;
+                drawList->AddLine(
+                    ImVec2(x, timelineMin.y),
+                    ImVec2(x, timelineMin.y + tickHeight),
+                    IM_COL32(140, 150, 165, 180));
+            }
+
+            const float playheadX =
+                timelineMin.x +
+                timelineSize.x *
+                    (std::clamp)(
+                        m_effectPreviewScrubTime / timelineSeconds,
+                        0.0f,
+                        1.0f);
+            drawList->AddLine(
+                ImVec2(playheadX, timelineMin.y),
+                ImVec2(playheadX, timelineMax.y),
+                IM_COL32(255, 210, 90, 255),
+                2.0f);
+
+            if (m_hasEffectEditorAsset)
+            {
+                const EffectSystem::EffectEmitterDesc* emitter =
+                    selected_effect_emitter();
+                if (emitter != nullptr)
+                {
+                    const float duration =
+                        (std::max)(emitter->duration, 0.01f);
+                    const float startX =
+                        timelineMin.x +
+                        timelineSize.x *
+                            (emitter->startDelay / timelineSeconds);
+                    const float durationWidth = (std::min)(
+                        timelineSize.x,
+                        timelineSize.x * duration / timelineSeconds);
+                    drawList->AddRectFilled(
+                        ImVec2(startX + 8.0f, timelineMin.y + 46.0f),
+                        ImVec2(
+                            startX + 8.0f + durationWidth,
+                            timelineMin.y + 70.0f),
+                        IM_COL32(90, 160, 255, 180),
+                        3.0f);
+                    const float midX =
+                        startX + 8.0f + durationWidth * emitter->curveMidTime;
+                    drawList->AddLine(
+                        ImVec2(midX, timelineMin.y + 40.0f),
+                        ImVec2(midX, timelineMin.y + 76.0f),
+                        IM_COL32(255, 220, 120, 220),
+                        2.0f);
+                    ImGui::SetCursorScreenPos(
+                        ImVec2(timelineMin.x + 8.0f, timelineMin.y + 74.0f));
+                    ImGui::Text(
+                        "%s / %s / rate %.1f / delay %.2f / duration %.2f / life %.2f-%.2f",
+                        effect_renderer_type_name(emitter->rendererType),
+                        effect_shape_name(emitter->shape),
+                        emitter->emitRate,
+                        emitter->startDelay,
+                        emitter->duration,
+                        emitter->minLifetime,
+                        emitter->maxLifetime);
+                }
+            }
+            ImGui::Dummy(timelineSize);
+        }
+        ImGui::End();
+
+        if (shouldSyncPreview && m_effectPreviewPlaying)
+        {
+            const Result result = sync_effect_editor_preview();
+            if (!result)
+            {
+                set_status_message(std::string(result.message), true);
+            }
+        }
+    }
+
     void EditorManager::draw_play_controls()
     {
         const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
@@ -6792,6 +8634,22 @@ namespace Cue::Editor
         }
 
         if (ImGui::MenuItem(
+                "Effect を追加", nullptr, false,
+                !m_assetRootPath.is_empty() && !m_isScriptActionActive))
+        {
+            const Result result = create_effect_editor_asset();
+            if (!result)
+            {
+                log_result("Failed to create effect asset", result);
+                set_status_message("Effect の追加に失敗しました。", true);
+            }
+            else
+            {
+                set_status_message("Effect を追加しました。", false);
+            }
+        }
+
+        if (ImGui::MenuItem(
                 "GameScript を追加", nullptr, false,
                 !m_projectPath.empty() && !m_isScriptActionActive))
         {
@@ -7012,23 +8870,46 @@ namespace Cue::Editor
             }
         };
 
-        drawWindowItem("GameView", "GameView", nullptr, m_gameView != nullptr);
-        drawWindowItem("DebugView", "DebugView", nullptr, m_debugView != nullptr);
-        drawWindowItem(
-            "Asset Browser",
-            "Asset Browser",
-            nullptr,
-            m_assetBrowser != nullptr);
-        drawWindowItem(
-            "ヒエラルキー",
-            "ヒエラルキー",
-            nullptr,
-            m_hierarchy != nullptr);
-        drawWindowItem(
-            "インスペクター",
-            "インスペクター",
-            nullptr,
-            m_inspector != nullptr);
+        if (m_currentWorkspace == Workspace::Scene)
+        {
+            drawWindowItem(
+                "GameView",
+                "GameView",
+                nullptr,
+                m_gameView != nullptr);
+            drawWindowItem(
+                "DebugView",
+                "DebugView",
+                nullptr,
+                m_debugView != nullptr);
+            drawWindowItem(
+                "Asset Browser",
+                "Asset Browser",
+                nullptr,
+                m_assetBrowser != nullptr);
+            drawWindowItem(
+                "ヒエラルキー",
+                "ヒエラルキー",
+                nullptr,
+                m_hierarchy != nullptr);
+            drawWindowItem(
+                "インスペクター",
+                "インスペクター",
+                nullptr,
+                m_inspector != nullptr);
+        }
+        else
+        {
+            drawWindowItem("Effect Preview", "Effect Preview");
+            drawWindowItem("Effect Graph", "Effect Graph");
+            drawWindowItem("Effect Inspector", "Effect Inspector");
+            drawWindowItem("Effect Timeline", "Effect Timeline");
+            drawWindowItem(
+                "Asset Browser",
+                "Asset Browser",
+                nullptr,
+                m_assetBrowser != nullptr);
+        }
         drawWindowItem(
             "Frame Statistics",
             "Frame Statistics",
@@ -7044,7 +8925,7 @@ namespace Cue::Editor
             "Navigation Debug",
             "Navigation Debug",
             &m_showNavigationDebugWindow,
-            m_engine != nullptr);
+            m_currentWorkspace == Workspace::Scene && m_engine != nullptr);
     }
 
     void EditorManager::show_and_focus_window(
@@ -8498,6 +10379,8 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
+        CUE_PROFILE_FUNCTION("Editor");
+
         m_currentUpdateMetrics = EditorUpdateMetrics{};
         Core::Time::Timer updateTimer(m_platform->clock());
         updateTimer.start();
@@ -8589,6 +10472,9 @@ namespace Cue::Editor
             ImGui::PopStyleVar(2);
 
             ImGui::SameLine();
+            draw_workspace_tabs();
+
+            ImGui::SameLine();
             const bool isFileMenuOpen = ImGui::BeginMenu("ファイル");
             const bool isFileMenuLabelHovered =
                 ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
@@ -8633,7 +10519,8 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("ナビゲーション"))
+            if (m_currentWorkspace == Workspace::Scene &&
+                ImGui::BeginMenu("ナビゲーション"))
             {
                 const bool canBakeNavigation =
                     m_engine != nullptr && !m_projectPath.empty() &&
@@ -8660,7 +10547,10 @@ namespace Cue::Editor
                 ImGui::EndMenu();
             }
 
-            draw_skybox_menu();
+            if (m_currentWorkspace == Workspace::Scene)
+            {
+                draw_skybox_menu();
+            }
 
             if (ImGui::BeginMenu("ビルド"))
             {
@@ -8929,7 +10819,10 @@ namespace Cue::Editor
         {
             ImGui::ShowStyleEditor();
         }
-        draw_navigation_debug_window();
+        if (m_currentWorkspace == Workspace::Scene)
+        {
+            draw_navigation_debug_window();
+        }
         optionalWindowsTimer.stop();
         m_currentUpdateMetrics.optionalWindowsMs =
             optionalWindowsTimer.elapsed_ticks().ms_f64();
@@ -8941,39 +10834,71 @@ namespace Cue::Editor
         m_currentUpdateMetrics.statisticsMs =
             statisticsTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer gameViewTimer(m_platform->clock());
-        gameViewTimer.start();
-        m_gameView->update();
-        gameViewTimer.stop();
-        m_currentUpdateMetrics.gameViewMs =
-            gameViewTimer.elapsed_ticks().ms_f64();
-
-        Core::Time::Timer debugViewTimer(m_platform->clock());
-        debugViewTimer.start();
-        m_debugView->update();
-        debugViewTimer.stop();
-        m_currentUpdateMetrics.debugViewMs =
-            debugViewTimer.elapsed_ticks().ms_f64();
-        process_debug_pick_request();
-        sync_debug_selection();
-        if (m_engine != nullptr)
+        if (m_currentWorkspace != Workspace::EffectEditor)
         {
-            m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+            destroy_effect_editor_preview();
+        }
+
+        if (m_currentWorkspace == Workspace::Scene)
+        {
+            Core::Time::Timer gameViewTimer(m_platform->clock());
+            gameViewTimer.start();
+            m_gameView->update();
+            gameViewTimer.stop();
+            m_currentUpdateMetrics.gameViewMs =
+                gameViewTimer.elapsed_ticks().ms_f64();
+
+            Core::Time::Timer debugViewTimer(m_platform->clock());
+            debugViewTimer.start();
+            m_debugView->update();
+            debugViewTimer.stop();
+            m_currentUpdateMetrics.debugViewMs =
+                debugViewTimer.elapsed_ticks().ms_f64();
+            process_debug_pick_request();
+            sync_debug_selection();
+            if (m_engine != nullptr)
+            {
+                m_engine->set_debug_view_camera(m_debugCamera.view_projection());
+            }
         }
         if (m_assetBrowser != nullptr)
         {
             Core::Time::Timer assetBrowserTimer(m_platform->clock());
             assetBrowserTimer.start();
             m_assetBrowser->update();
-            if (m_assetBrowser->was_asset_selected() &&
-                to_lower_ascii(m_selectedAssetPath.extension()) == ".cuematerial")
+            if (m_assetBrowser->was_asset_selected())
             {
-                m_selectedEntityId = GameCore::k_invalidEntityId;
-                m_selectedSceneId = GameCore::k_invalidSceneId;
+                const std::string selectedExtension =
+                    to_lower_ascii(m_selectedAssetPath.extension());
+                if (selectedExtension == ".cuematerial")
+                {
+                    m_selectedEntityId = GameCore::k_invalidEntityId;
+                    m_selectedSceneId = GameCore::k_invalidSceneId;
+                }
+                else if (selectedExtension == ".cuefx")
+                {
+                    const Result result =
+                        load_effect_editor_asset(m_selectedAssetPath);
+                    set_status_message(
+                        result ? std::string("Effect を読み込みました。")
+                               : std::string(result.message),
+                        !result);
+                    if (result)
+                    {
+                        m_selectedEntityId = GameCore::k_invalidEntityId;
+                        m_selectedSceneId = GameCore::k_invalidSceneId;
+                        m_currentWorkspace = Workspace::EffectEditor;
+                    }
+                }
             }
             assetBrowserTimer.stop();
             m_currentUpdateMetrics.assetBrowserMs =
                 assetBrowserTimer.elapsed_ticks().ms_f64();
+        }
+
+        if (m_currentWorkspace == Workspace::EffectEditor)
+        {
+            draw_effect_editor_workspace();
         }
 
         Core::Time::Timer createScriptPopupTimer(m_platform->clock());
@@ -9000,41 +10925,44 @@ namespace Cue::Editor
         m_currentUpdateMetrics.scriptBuildOutputMs =
             scriptBuildOutputTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer hierarchyTimer(m_platform->clock());
-        hierarchyTimer.start();
-        const GameCore::EntityId selectedEntityBeforeHierarchy =
-            m_selectedEntityId;
-        const GameCore::SceneId selectedSceneBeforeHierarchy =
-            m_selectedSceneId;
-        if (m_hierarchy != nullptr)
+        if (m_currentWorkspace == Workspace::Scene)
         {
-            m_hierarchy->set_game_world(
-                m_engine != nullptr ? m_engine->active_world() : nullptr);
-            m_hierarchy->set_read_only(
-                m_engine != nullptr && m_engine->is_playing());
-            m_hierarchy->set_scenes(collect_hierarchy_scenes());
-            m_hierarchy->update();
-        }
-        if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
-            m_selectedEntityId != GameCore::k_invalidEntityId)
-        {
-            m_selectedAssetPath = {};
-        }
-        if (m_selectedSceneId != selectedSceneBeforeHierarchy &&
-            m_selectedSceneId != GameCore::k_invalidSceneId)
-        {
-            m_selectedAssetPath = {};
-        }
-        hierarchyTimer.stop();
-        m_currentUpdateMetrics.hierarchyMs =
-            hierarchyTimer.elapsed_ticks().ms_f64();
+            Core::Time::Timer hierarchyTimer(m_platform->clock());
+            hierarchyTimer.start();
+            const GameCore::EntityId selectedEntityBeforeHierarchy =
+                m_selectedEntityId;
+            const GameCore::SceneId selectedSceneBeforeHierarchy =
+                m_selectedSceneId;
+            if (m_hierarchy != nullptr)
+            {
+                m_hierarchy->set_game_world(
+                    m_engine != nullptr ? m_engine->active_world() : nullptr);
+                m_hierarchy->set_read_only(
+                    m_engine != nullptr && m_engine->is_playing());
+                m_hierarchy->set_scenes(collect_hierarchy_scenes());
+                m_hierarchy->update();
+            }
+            if (m_selectedEntityId != selectedEntityBeforeHierarchy &&
+                m_selectedEntityId != GameCore::k_invalidEntityId)
+            {
+                m_selectedAssetPath = {};
+            }
+            if (m_selectedSceneId != selectedSceneBeforeHierarchy &&
+                m_selectedSceneId != GameCore::k_invalidSceneId)
+            {
+                m_selectedAssetPath = {};
+            }
+            hierarchyTimer.stop();
+            m_currentUpdateMetrics.hierarchyMs =
+                hierarchyTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer inspectorTimer(m_platform->clock());
-        inspectorTimer.start();
-        m_inspector->update();
-        inspectorTimer.stop();
-        m_currentUpdateMetrics.inspectorMs =
-            inspectorTimer.elapsed_ticks().ms_f64();
+            Core::Time::Timer inspectorTimer(m_platform->clock());
+            inspectorTimer.start();
+            m_inspector->update();
+            inspectorTimer.stop();
+            m_currentUpdateMetrics.inspectorMs =
+                inspectorTimer.elapsed_ticks().ms_f64();
+        }
 
         focus_pending_window();
 

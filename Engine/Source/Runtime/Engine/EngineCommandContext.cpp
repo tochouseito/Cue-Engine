@@ -1,3 +1,5 @@
+// EngineCommandContext の実装点を分け、コマンド契約の変更範囲を Engine 内へ閉じる
+
 #include "EngineCommandContext.h"
 
 namespace Cue
@@ -254,6 +256,10 @@ namespace Cue
             return add_component_internal<ECS::ParticleEmitterComponent>(
                 a_objectId, "ParticleEmitterComponent already exists.");
 
+        case AddableComponentType::EffectEmitter:
+            return add_component_internal<ECS::EffectEmitterComponent>(
+                a_objectId, "EffectEmitterComponent already exists.");
+
         case AddableComponentType::AudioSource:
             return add_component_internal<ECS::AudioSourceComponent>(
                 a_objectId, "AudioSourceComponent already exists.");
@@ -356,6 +362,10 @@ namespace Cue
         case AddableComponentType::ParticleEmitter:
             return remove_component_internal<ECS::ParticleEmitterComponent>(
                 a_objectId, "ParticleEmitterComponent was not found.");
+
+        case AddableComponentType::EffectEmitter:
+            return remove_component_internal<ECS::EffectEmitterComponent>(
+                a_objectId, "EffectEmitterComponent was not found.");
 
         case AddableComponentType::AudioSource:
             return remove_component_internal<ECS::AudioSourceComponent>(

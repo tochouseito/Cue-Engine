@@ -1,3 +1,5 @@
+// JoltPhysicsSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === Physics includes ===
@@ -18,7 +20,7 @@ namespace JPH
 
 namespace Cue::Physics::Jolt
 {
-    /// @brief Jolt Physics を利用する物理 backend です。
+    /// @brief Jolt Physics を利用する物理 backend 
     class JoltPhysicsSystem final : public IPhysicsSystem
     {
     public:

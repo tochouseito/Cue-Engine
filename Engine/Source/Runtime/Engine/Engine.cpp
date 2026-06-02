@@ -6,6 +6,7 @@
 #include "DrawSystem/Passes/DebugOutlinePass.h"
 #include "DrawSystem/Passes/DebugPickReadbackPass.h"
 #include "DrawSystem/Passes/DebugSelectionPass.h"
+#include "DrawSystem/Passes/EffectPreviewClearPass.h"
 #include "DrawSystem/Passes/GenerateVisibleList.h"
 #include "DrawSystem/Passes/VisibleObjectBucketizePass.h"
 #include "DrawSystem/Passes/MaterialBufferCopyPass.h"
@@ -24,8 +25,11 @@
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
 #include "ParticleSystem/Passes/ParticleBufferCopyPass.h"
 #include "ParticleSystem/Passes/ParticleInitializePass.h"
+#include "ParticleSystem/Passes/ParticleMeshForwardPass.h"
 #include "ParticleSystem/Passes/ParticleSpawnPass.h"
 #include "ParticleSystem/Passes/ParticleSpriteForwardPass.h"
+#include "ParticleSystem/Passes/ParticleTrailForwardPass.h"
+#include "ParticleSystem/Passes/ParticleTrailUpdatePass.h"
 #include "ParticleSystem/Passes/ParticleUpdatePass.h"
 #include "ShadowSystem/GpuData/ShadowData.h"
 #include "ShadowSystem/Passes/DirectionalShadowMapPass.h"
@@ -218,6 +222,16 @@ namespace Cue
         }
 
         result = create_render_target_resources(
+            "EffectPreviewColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_effectPreviewRenderTarget,
+            DrawSystem::EffectPreviewClearPass::k_clearColor.data());
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
             "DebugObjectId",
             RHI::ColorFormat::R32_UINT,
             m_debugObjectIdTarget);
@@ -264,6 +278,27 @@ namespace Cue
             debugAspectRatio,
             0.1f,
             1000.0f);
+
+        result = create_view_projection_buffer(
+            "EffectPreviewViewProjectionBuffer",
+            m_effectPreviewViewProjectionBufferHandle,
+            m_effectPreviewViewProjectionUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        const Math::float4x4 effectPreviewWorldMatrix =
+            Math::make_affine_matrix(
+                Math::float3(1.0f, 1.0f, 1.0f),
+                Math::float3::zero(),
+                Math::float3(0.0f, 1.2f, -4.0f));
+        m_effectPreviewViewProjection.view =
+            Math::float4x4::inverse(effectPreviewWorldMatrix);
+        m_effectPreviewViewProjection.projection = Math::perspective_fov_matrix(
+            40.0f * Math::k_pi / 180.0f,
+            debugAspectRatio,
+            0.05f,
+            100.0f);
 
         result = create_debug_selection_buffer();
         if (!result)
@@ -339,6 +374,13 @@ namespace Cue
                 "Failed to destroy debug view projection buffer: %s",
                 result.message.data());
         }
+        result = destroy_effect_preview_view_projection_buffer();
+        if (!result)
+        {
+            CUE_ASSERTF(false,
+                "Failed to destroy effect preview view projection buffer: %s",
+                result.message.data());
+        }
         result = destroy_debug_selection_buffer();
         if (!result)
         {
@@ -397,7 +439,7 @@ namespace Cue
             }
         }
 
-        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める。
+        // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
         if (m_platformBridge)
         {
             PlatformCommandContext platformCommandContext(
@@ -443,7 +485,8 @@ namespace Cue
     Result Engine::create_render_target_resources(
         std::string_view a_name,
         RHI::ColorFormat a_format,
-        RenderTargetResources& a_outResources)
+        RenderTargetResources& a_outResources,
+        const float* a_clearColor)
     {
         auto* textureManager = m_backend->get_texture_manager();
         auto* viewManager = m_backend->get_view_manager();
@@ -464,10 +507,20 @@ namespace Cue
         colorDesc.height = m_backend->height();
         colorDesc.format = a_format;
         Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
-        colorDesc.clearColor[0] = clearColor.r;
-        colorDesc.clearColor[1] = clearColor.g;
-        colorDesc.clearColor[2] = clearColor.b;
-        colorDesc.clearColor[3] = clearColor.a;
+        if (a_clearColor != nullptr)
+        {
+            colorDesc.clearColor[0] = a_clearColor[0];
+            colorDesc.clearColor[1] = a_clearColor[1];
+            colorDesc.clearColor[2] = a_clearColor[2];
+            colorDesc.clearColor[3] = a_clearColor[3];
+        }
+        else
+        {
+            colorDesc.clearColor[0] = clearColor.r;
+            colorDesc.clearColor[1] = clearColor.g;
+            colorDesc.clearColor[2] = clearColor.b;
+            colorDesc.clearColor[3] = clearColor.a;
+        }
         if (a_format == RHI::ColorFormat::R32_UINT)
         {
             colorDesc.clearColor[0] = 0.0f;
@@ -687,6 +740,25 @@ namespace Cue
         return Result::ok();
     }
 
+    Result Engine::destroy_effect_preview_view_projection_buffer()
+    {
+        auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
+        m_effectPreviewViewProjectionUploaders.clear();
+        if (bufferManager != nullptr &&
+            m_effectPreviewViewProjectionBufferHandle.valid())
+        {
+            Result result = bufferManager->destroy_buffer(
+                m_effectPreviewViewProjectionBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+            m_effectPreviewViewProjectionBufferHandle = {};
+        }
+
+        return Result::ok();
+    }
+
     Result Engine::create_debug_selection_buffer()
     {
         auto* bufferManager = m_backend ? m_backend->get_buffer_manager() : nullptr;
@@ -786,6 +858,52 @@ namespace Cue
                 Code::InternalError,
                 Severity::Error,
                 "Failed to commit debug view projection upload.");
+        }
+
+        return Result::ok();
+    }
+
+    Result Engine::upload_effect_preview_view_projection(uint32_t a_bufferIndex)
+    {
+        if (!m_effectPreviewViewProjectionBufferHandle.valid())
+        {
+            return Result::ok();
+        }
+        if (a_bufferIndex >= m_effectPreviewViewProjectionUploaders.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Effect preview view projection upload buffer index is out of range.");
+        }
+
+        const float aspectRatio =
+            m_backend != nullptr && m_backend->height() > 0
+            ? static_cast<float>(m_backend->width()) /
+                static_cast<float>(m_backend->height())
+            : 1.0f;
+        m_effectPreviewViewProjection.projection = Math::perspective_fov_matrix(
+            40.0f * Math::k_pi / 180.0f,
+            aspectRatio,
+            0.05f,
+            100.0f);
+
+        RHI::SlotUploader<GpuData::ViewProjectionGpu>& uploader =
+            m_effectPreviewViewProjectionUploaders[a_bufferIndex];
+        uploader.begin_frame();
+        if (!uploader.push(0, m_effectPreviewViewProjection))
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to queue effect preview view projection upload.");
+        }
+        if (!uploader.commit())
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Error,
+                "Failed to commit effect preview view projection upload.");
         }
 
         return Result::ok();
@@ -1051,6 +1169,10 @@ namespace Cue
             sizeof(GpuData::ViewProjectionGpu),
             "DebugViewProjectionCopy"));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
+            m_effectPreviewViewProjectionBufferHandle,
+            sizeof(GpuData::ViewProjectionGpu),
+            "EffectPreviewViewProjectionCopy"));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
             m_debugSelectionBufferHandle,
             sizeof(GpuData::DebugSelectionGpu),
             "DebugSelectionCopy"));
@@ -1074,7 +1196,9 @@ namespace Cue
             drawResources->visible_object_count_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleInitializePass>(
             particleResources->particle_buffer_handle(),
-            particleResources->max_particle_count()));
+            particleResources->trail_buffer_handle(),
+            particleResources->max_particle_count(),
+            GpuData::k_maxParticleTrailSegmentCount));
         m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleSpawnPass>(
             m_activeWorld->particle_frame_state(),
             particleResources->frame_buffer_handle(),
@@ -1084,6 +1208,11 @@ namespace Cue
             m_activeWorld->particle_frame_state(),
             particleResources->frame_buffer_handle(),
             particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<ParticleSystem::ParticleTrailUpdatePass>(
+            m_activeWorld->particle_frame_state(),
+            particleResources->frame_buffer_handle(),
+            particleResources->particle_buffer_handle(),
+            particleResources->trail_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<LightingSystem::LightBufferCopyPass>(
             "LightFrameBufferCopy",
             lightingBindings.frameBuffer,
@@ -1223,6 +1352,28 @@ namespace Cue
                 m_activeWorld->particle_frame_state(),
                 drawResources->view_projection_buffer_handle(),
                 particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleTrailForwardPass>(
+                "GameParticleTrailForward",
+                "GameColor",
+                "GameColorRTV",
+                "GameSceneDepth",
+                "GameSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                particleResources->frame_buffer_handle(),
+                drawResources->view_projection_buffer_handle(),
+                particleResources->particle_buffer_handle(),
+                particleResources->trail_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleMeshForwardPass>(
+                "GameParticleMeshForward",
+                "GameColor",
+                "GameColorRTV",
+                "GameSceneDepth",
+                "GameSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                drawResources->view_projection_buffer_handle(),
+                particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::SpriteForwardPass>(
             "GameSpriteForward",
             "GameColor",
@@ -1293,6 +1444,28 @@ namespace Cue
                 m_activeWorld->particle_frame_state(),
                 m_debugViewProjectionBufferHandle,
                 particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleTrailForwardPass>(
+                "DebugParticleTrailForward",
+                "DebugColor",
+                "DebugColorRTV",
+                "DebugSceneDepth",
+                "DebugSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                particleResources->frame_buffer_handle(),
+                m_debugViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle(),
+                particleResources->trail_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleMeshForwardPass>(
+                "DebugParticleMeshForward",
+                "DebugColor",
+                "DebugColorRTV",
+                "DebugSceneDepth",
+                "DebugSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                m_debugViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugObjectIdPass>(
             m_activeWorld->draw_frame_state(),
             drawResources->render_object_buffer_handle(),
@@ -1323,6 +1496,43 @@ namespace Cue
             "DebugColorRTV",
             m_activeWorld->draw_frame_state(),
             drawResources->sprite_instance_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::EffectPreviewClearPass>(
+            "EffectPreviewColor",
+            "EffectPreviewColorRTV",
+            "EffectPreviewSceneDepth",
+            "EffectPreviewSceneDepthDSV"));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
+                "EffectPreviewParticleSpriteForward",
+                "EffectPreviewColor",
+                "EffectPreviewColorRTV",
+                "EffectPreviewSceneDepth",
+                "EffectPreviewSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                m_effectPreviewViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleTrailForwardPass>(
+                "EffectPreviewParticleTrailForward",
+                "EffectPreviewColor",
+                "EffectPreviewColorRTV",
+                "EffectPreviewSceneDepth",
+                "EffectPreviewSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                particleResources->frame_buffer_handle(),
+                m_effectPreviewViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle(),
+                particleResources->trail_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<ParticleSystem::ParticleMeshForwardPass>(
+                "EffectPreviewParticleMeshForward",
+                "EffectPreviewColor",
+                "EffectPreviewColorRTV",
+                "EffectPreviewSceneDepth",
+                "EffectPreviewSceneDepthDSV",
+                m_activeWorld->particle_frame_state(),
+                m_effectPreviewViewProjectionBufferHandle,
+                particleResources->particle_buffer_handle()));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugOutlinePass>(
             m_debugSelectedObjectId));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugPickReadbackPass>(
@@ -1406,6 +1616,12 @@ namespace Cue
             return result;
         }
 
+        result = destroy_render_target_resources(m_effectPreviewRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
         result = destroy_render_target_resources(m_debugRenderTarget);
         if (!result)
         {
@@ -1446,6 +1662,12 @@ namespace Cue
             return result;
         }
 
+        result = destroy_render_target_resources(m_effectPreviewRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
         result = destroy_render_target_resources(m_debugRenderTarget);
         if (!result)
         {
@@ -1477,6 +1699,16 @@ namespace Cue
             "DebugColor",
             RHI::ColorFormat::R8G8B8A8_UNORM,
             m_debugRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "EffectPreviewColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_effectPreviewRenderTarget,
+            DrawSystem::EffectPreviewClearPass::k_clearColor.data());
         if (!result)
         {
             return result;
@@ -1577,6 +1809,14 @@ namespace Cue
             {
                 CUE_ASSERTF(false, "Debug camera upload failed: %s",
                     debugCameraResult.message.data());
+                return;
+            }
+            Result effectPreviewCameraResult =
+                upload_effect_preview_view_projection(a_index);
+            if (!effectPreviewCameraResult)
+            {
+                CUE_ASSERTF(false, "Effect preview camera upload failed: %s",
+                    effectPreviewCameraResult.message.data());
                 return;
             }
             Result debugSelectionResult = upload_debug_selection(a_index);

@@ -1,3 +1,5 @@
+// WinKeyboard の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -14,7 +16,7 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief DirectInput を使った Windows キーボード入力実装です。
+    /// @brief DirectInput を使った Windows キーボード入力実装
     class WinKeyboard final : public IKeyboard
     {
     public:

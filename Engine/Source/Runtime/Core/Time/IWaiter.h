@@ -1,3 +1,5 @@
+// IWaiter の役割と公開要素を定義する
+
 #pragma once
 
 // === Math includes ===
@@ -5,17 +7,17 @@
 
 namespace Cue::Core::Time
 {
-    /// @brief 待機処理を抽象化するインターフェースです。
+    /// @brief 待機処理を抽象化するインターフェース
     class IWaiter
     {
     public:
         virtual ~IWaiter() noexcept = default;
 
-        /// @brief 指定時間だけ待機します。
+        /// @brief 指定時間だけ待機する
         virtual void sleep_for(Math::TimeSpan a_duration) noexcept = 0;
-        /// @brief 指定時刻まで待機します。
+        /// @brief 指定時刻まで待機する
         virtual void sleep_until(Math::TimeSpan a_targetTick) noexcept = 0;
-        /// @brief 短時間の待機緩和処理を行います。
+        /// @brief 短時間の待機緩和処理を行いる
         virtual void relax() noexcept = 0;
     };
 }

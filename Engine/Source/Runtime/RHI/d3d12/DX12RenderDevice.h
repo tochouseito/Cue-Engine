@@ -1,3 +1,5 @@
+// DX12RenderDevice の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
@@ -14,13 +16,13 @@ namespace Cue::RHI::DX12
         DX12RenderDevice() = default;
         ~DX12RenderDevice() = default;
 
-        /// @brief D3D12 レンダーデバイスを初期化します。
+        /// @brief D3D12 レンダーデバイスを初期化する
         Result initialize(bool a_enableDebugLayer = false) override;
 
-        /// @brief D3D12 デバイスを取得します。
+        /// @brief D3D12 デバイスを取得する
         ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
 
-        /// @brief DXGI ファクトリを取得します。
+        /// @brief DXGI ファクトリを取得する
         IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
 
     private:

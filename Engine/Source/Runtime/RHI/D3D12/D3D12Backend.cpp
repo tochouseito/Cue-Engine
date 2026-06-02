@@ -15,7 +15,7 @@ namespace Cue::RHI::DX12
         // バッファ数を保存
         m_bufferCount = a_info.bufferCount;
 
-        // バックエンドが使うデバイスを先に確定しないと後続リソースを構築できません。
+        // バックエンドが使うデバイスを先に確定しないと後続リソースを構築できません
         m_renderDevice = std::make_unique<DX12::DX12RenderDevice>();
         Result r = m_renderDevice->initialize(a_info.enableDebugLayer);
         if (!r)
@@ -25,7 +25,7 @@ namespace Cue::RHI::DX12
                 "Failed to initialize D3D12 render device.");
         }
 
-        // デバイス確立後にヒープ容量を固定して、後段の割り当て責務を一箇所へ寄せます。
+        // デバイス確立後にヒープ容量を固定して、後段の割り当て責務を一箇所へ寄せ
         m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_renderDevice->get_d3d12_device());
         m_descriptorAllocator->initialize(
             a_info.textureCapacity,

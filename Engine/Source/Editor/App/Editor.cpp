@@ -4,6 +4,7 @@
 
 // === Core includes ===
 #include <IO/Logger.h>
+#include <Profiler/Profiler.h>
 #include <Time/Timer.h>
 
 // === Windows includes ===
@@ -13,7 +14,7 @@
 #include <D3D12Backend.h>
 
 // === Audio includes ===
-#include <AudioBackendFactory.h>
+#include <XAudio2Backend.h>
 
 // === Physics includes ===
 #include <JoltPhysicsSystem.h>
@@ -43,21 +44,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint32_t maxFps = 60;
 
     // 宣言
-    Result r = Result::ok();
-    std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr;
-    std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr;
-    std::unique_ptr<Audio::IBackend> audioBackend = nullptr;
-    std::unique_ptr<Physics::Jolt::JoltPhysicsSystem> physicsSystem = nullptr;
-    std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
-    Core::CQRS::Bridge editorBridge{};
-    Core::CQRS::Bridge platformBridge{};
-    uint64_t imguiMessageHandlerId = 0;
-    std::unique_ptr<Engine> engine = nullptr;
-    std::unique_ptr<Editor::EditorManager> editorManager = nullptr;
-    std::unique_ptr<Editor::ProjectHub> projectHub = nullptr;
-    Editor::EditorLoopMetrics currentLoopMetrics{};
-    Editor::EditorLoopMetrics lastCompletedLoopMetrics{};
-    std::string projectPath = "";
+    Result r = Result::ok();// 結果コード
+    std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr; // Windows プラットフォーム
+    std::unique_ptr<RHI::DX12::D3D12Backend> backend = nullptr; // D3D12 バックエンド
+    std::unique_ptr<Audio::XAudio2Backend> audioBackend = nullptr; // XAudio2 バックエンド
+    std::unique_ptr<Physics::Jolt::JoltPhysicsSystem> physicsSystem = nullptr; // Jolt 物理システム
+    std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr; // ImGui マネージャー
+    Core::CQRS::Bridge editorBridge{}; // Editor と Engine 間のコマンドブリッジ
+    Core::CQRS::Bridge platformBridge{}; // Platform と Engine 間のコマンドブリッジ
+    uint64_t imguiMessageHandlerId = 0; // ImGui メッセージハンドラの ID
+    std::unique_ptr<Engine> engine = nullptr; // エンジン
+    std::unique_ptr<Editor::EditorManager> editorManager = nullptr; // エディタマネージャー
+    std::unique_ptr<Editor::ProjectHub> projectHub = nullptr; // プロジェクトハブ
+    Editor::EditorLoopMetrics currentLoopMetrics{}; // 現在のループメトリクス
+    Editor::EditorLoopMetrics lastCompletedLoopMetrics{}; // 最後に完了したループメトリクス
+    std::string projectPath = ""; // プロジェクトパス
 
     // プラットフォームの生成
     platform = std::make_unique<Cue::PAL::Win::WinPlatform>();
@@ -114,7 +115,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // レンダリングバックエンドの生成
     backend = std::make_unique<Cue::RHI::DX12::D3D12Backend>();
     backend->set_win_platform(platform.get());
-    audioBackend = Audio::create_backend();
+    audioBackend = std::make_unique<Cue::Audio::XAudio2Backend>();
     if (audioBackend == nullptr)
     {
         return -1;
@@ -290,6 +291,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     bool showProjectHub = projectPath.empty();
     while (isRunning)
     {
+        Core::Profiler::begin_frame();
+        CUE_PROFILE_SCOPE("Editor", "MainLoop");
+
         currentLoopMetrics = Editor::EditorLoopMetrics{};
         Core::Time::Timer loopTimer(platform->clock());
         loopTimer.start();
@@ -349,6 +353,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             }
             else
             {
+                CUE_PROFILE_SCOPE("Editor", "EditorUpdate");
                 Core::Time::Timer editorUpdateTimer(platform->clock());
                 editorUpdateTimer.start();
                 editorManager->update();
@@ -365,28 +370,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // エンジンのフレーム開始処理
-        Core::Time::Timer engineBeginTimer(platform->clock());
-        engineBeginTimer.start();
-        r = engine->begin_frame();
-        engineBeginTimer.stop();
-        currentLoopMetrics.engineBeginMs =
-            engineBeginTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "BeginFrame");
+            Core::Time::Timer engineBeginTimer(platform->clock());
+            engineBeginTimer.start();
+            r = engine->begin_frame();
+            engineBeginTimer.stop();
+            currentLoopMetrics.engineBeginMs =
+                engineBeginTimer.elapsed_ticks().ms_f64();
+        }
 
         // エンジンのティック処理
-        Core::Time::Timer engineTickTimer(platform->clock());
-        engineTickTimer.start();
-        r = engine->tick();
-        engineTickTimer.stop();
-        currentLoopMetrics.engineTickMs =
-            engineTickTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "Tick");
+            Core::Time::Timer engineTickTimer(platform->clock());
+            engineTickTimer.start();
+            r = engine->tick();
+            engineTickTimer.stop();
+            currentLoopMetrics.engineTickMs =
+                engineTickTimer.elapsed_ticks().ms_f64();
+        }
 
         // エンジンのフレーム終了処理
-        Core::Time::Timer engineEndTimer(platform->clock());
-        engineEndTimer.start();
-        r = engine->end_frame();
-        engineEndTimer.stop();
-        currentLoopMetrics.engineEndMs =
-            engineEndTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "EndFrame");
+            Core::Time::Timer engineEndTimer(platform->clock());
+            engineEndTimer.start();
+            r = engine->end_frame();
+            engineEndTimer.stop();
+            currentLoopMetrics.engineEndMs =
+                engineEndTimer.elapsed_ticks().ms_f64();
+        }
 
         loopTimer.stop();
         currentLoopMetrics.loopTotalMs =

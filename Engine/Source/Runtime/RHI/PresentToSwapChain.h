@@ -1,3 +1,5 @@
+// PresentToSwapChain の役割と公開要素を定義する
+
 #pragma once
 
 // === 
@@ -25,7 +27,7 @@ namespace Cue::RHI
 
         Result setup(FrameGraphBuilder& builder) override
         {
-            // スワップチェインのバックバッファをフレームグラフに宣言する。
+            // スワップチェインのバックバッファをフレームグラフに宣言する
             Result result = builder.get_texture("BackBuffer", m_backBufferHandle);
             if (!result)
             {
@@ -170,7 +172,7 @@ namespace Cue::RHI
         {
             ICommandContext* commandContext = context.commandContext();
 
-            // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする。
+            // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする
             commandContext->clear_render_target(
                 m_backBufferRtvHandle,
                 k_swapChainClearColor.data());

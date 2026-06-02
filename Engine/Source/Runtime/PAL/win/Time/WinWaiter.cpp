@@ -70,7 +70,7 @@ namespace Cue::PAL::Win
         }
 
         // WaitableTimer があるなら ns を直接（100ns単位へ切り上げ）
-        // ※ここがキモ：1ms未満でもブロックできる。スピン不要。
+        // ※ここがキモ：1ms未満でもブロックできるスピン不要
         if (m_timer != nullptr)
         {
             const int64_t hundredNs = ns_to_100ns_ceil(a_duration.nano());
@@ -128,7 +128,7 @@ namespace Cue::PAL::Win
 
         // ARM (Androidなど)
 #elif defined(__aarch64__) || defined(__arm__)
-        // ARM の "yield" 相当。コンパイラ/環境で差があるので asm で固定。
+        // ARM の "yield" 相当コンパイラ/環境で差があるので asm で固定
         __asm__ __volatile__("yield");
 
         // フォールバック

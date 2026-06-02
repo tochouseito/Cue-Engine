@@ -1,3 +1,5 @@
+// Marionnette の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -18,10 +20,10 @@ namespace Cue
     class ScriptRuntime;
     class MarionnetteComponent;
 
-    /// @brief Scene 上の 1 Entity に対応する script runtime 側の owner です。
-    /// Script から見た Marionnette は UE の Actor に近い責務を持ちます。
+    /// @brief Scene 上の 1 Entity に対応する script runtime 側の owner 
+    /// Script から見た Marionnette は UE の Actor に近い責務を持つ
     /// 1 つの owner が 1 つの Entity を表し、その Entity 上の
-    /// MarionnetteComponent 群を束ねます。
+    /// MarionnetteComponent 群を束ねる
     class Marionnette : public MarionnetteObject
     {
     public:
@@ -80,9 +82,9 @@ namespace Cue
         GameCore::Generation m_generation = 0;
     };
 
-    /// @brief Marionnette に所属する script runtime 側の component です。
+    /// @brief Marionnette に所属する script runtime 側の component 
     /// MarionnetteComponent は単独では存在せず、常に owner Marionnette と
-    /// 同じ Entity に結び付きます。
+    /// 同じ Entity に結び付き
     class MarionnetteComponent : public MarionnetteObject
     {
     public:

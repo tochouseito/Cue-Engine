@@ -1,3 +1,5 @@
+// Components の役割と公開要素を定義する
+
 #pragma once
 
 // === Math includes ===
@@ -27,20 +29,20 @@
 
 namespace Cue::GameCore
 {
-    // GameWorld が全 GameObject に共通で持たせる基本情報。
+    // GameWorld が全 GameObject に共通で持たせる基本情報
     struct BaseComponent final : public ECS::IComponentTag
     {
-        // GameWorld 内で一意になるよう管理される表示名。
+        // GameWorld 内で一意になるよう管理される表示名
         std::string name{};
-        // 検索用の分類ラベル。
+        // 検索用の分類ラベル
         std::string tag{ "Default" };
-        // 所属 Scene。永続 Object の場合は無効 SceneId を持つ。
+        // 所属 Scene永続 Object の場合は無効 SceneId を持つ
         SceneId owningSceneId = k_invalidSceneId;
-        // 親子関係を表す親 Entity。
+        // 親子関係を表す親 Entity
         EntityId parent = k_invalidEntityId;
-        // 自身のアクティブ状態。
+        // 自身のアクティブ状態
         bool isActiveSelf = true;
-        // Scene アンロード時に削除せず残すかどうか。
+        // Scene アンロード時に削除せず残すかどうか
         bool isPersistent = false;
     };
 }
@@ -478,6 +480,36 @@ namespace Cue::ECS
         uint32_t runtimeParticleCapacity = 0;
         uint32_t runtimeSpawnCursor = 0;
         float runtimeEmitAccumulator = 0.0f;
+    };
+
+    struct EffectEmitterRuntimeState final
+    {
+        uint32_t particleBase = (std::numeric_limits<uint32_t>::max)();
+        uint32_t particleCapacity = 0;
+        uint32_t spawnCursor = 0;
+        float emitAccumulator = 0.0f;
+        float timeSeconds = 0.0f;
+        bool hasSpawnedBurst = false;
+    };
+
+    struct EffectEmitterComponent : public IComponentTag
+    {
+        EffectEmitterComponent() = default;
+        EffectEmitterComponent(const EffectEmitterComponent&) = default;
+        EffectEmitterComponent& operator=(const EffectEmitterComponent&) =
+            default;
+        EffectEmitterComponent(EffectEmitterComponent&&) = default;
+        EffectEmitterComponent& operator=(EffectEmitterComponent&&) = default;
+
+        EffectHandle effectHandle{};
+        MaterialHandle overrideMaterialHandle{};
+        std::string effectName{};
+        float playbackSpeed = 1.0f;
+        uint32_t randomSeed = 1;
+        bool isPlaying = true;
+        bool isVisible = true;
+
+        std::vector<EffectEmitterRuntimeState> runtimeEmitters{};
     };
 
     struct AudioSourceComponent : public IComponentTag

@@ -1,3 +1,5 @@
+// WInWaiter の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -12,11 +14,11 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows の待機プリミティブを使う待機実装です。
+    /// @brief Windows の待機プリミティブを使う待機実装
     class WinWaiter : public Core::Time::IWaiter
     {
     public:
-        /// @brief クロック参照で待機実装を初期化します。
+        /// @brief クロック参照で待機実装を初期化する
         explicit WinWaiter(Core::Time::IClock& a_clock) noexcept;
         ~WinWaiter() noexcept override;
 

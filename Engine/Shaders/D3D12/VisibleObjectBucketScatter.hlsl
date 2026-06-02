@@ -1,3 +1,5 @@
+// Scatter visible object indices into per-bucket ranges so indirect batching can stay GPU-driven.
+
 #include "DrawCommon.hlsli"
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
@@ -7,6 +9,7 @@ RWByteAddressBuffer g_bucketCursor : register(u0);
 RWStructuredBuffer<RenderObject> g_sortedRenderObjects : register(u1);
 
 [numthreads(64, 1, 1)]
+// Compute entry point runs one logical item per dispatch thread to avoid CPU-side iteration.
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint objectCount = g_renderObjectCount.Load(0);

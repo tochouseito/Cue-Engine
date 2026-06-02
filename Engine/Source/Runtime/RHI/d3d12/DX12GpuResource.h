@@ -1,3 +1,5 @@
+// DX12GpuResource の役割と公開要素を定義する
+
 #pragma once
 
 // === DirectX 12 includes ===
@@ -87,7 +89,7 @@ namespace Cue::RHI::DX12
 
         Result map_persistent()
         {
-            // 未生成リソースへの Map を防ぎ、呼び出し順の破綻を早期に止める。
+            // 未生成リソースへの Map を防ぎ、呼び出し順の破綻を早期に止める
             if (!m_resource)
             {
                 return Result::fail(
@@ -96,13 +98,13 @@ namespace Cue::RHI::DX12
                     "Cannot map a null D3D12 resource.");
             }
 
-            // 既に Map 済みなら同じ CPU ポインタを再利用して多重 Map を避ける。
+            // 既に Map 済みなら同じ CPU ポインタを再利用して多重 Map を避ける
             if (m_mappedData != nullptr)
             {
                 return Result::ok();
             }
 
-            // CPU 書き込み専用として永続 Map し、以後の uploader 初期化に使う。
+            // CPU 書き込み専用として永続 Map し、以後の uploader 初期化に使う
             D3D12_RANGE readRange{};
             void* mappedData = nullptr;
             const HRESULT hr = m_resource->Map(0, &readRange, &mappedData);
@@ -120,13 +122,13 @@ namespace Cue::RHI::DX12
 
         void unmap_if_needed() noexcept
         {
-            // 永続 Map を破棄前に閉じて、外部に残った CPU ポインタを無効化する。
+            // 永続 Map を破棄前に閉じて、外部に残った CPU ポインタを無効化する
             if (!m_resource || m_mappedData == nullptr)
             {
                 return;
             }
 
-            // 書き込み専用運用なので書き戻し範囲は nullptr で十分。
+            // 書き込み専用運用なので書き戻し範囲は nullptr で十分
             m_resource->Unmap(0, nullptr);
             m_mappedData = nullptr;
         }

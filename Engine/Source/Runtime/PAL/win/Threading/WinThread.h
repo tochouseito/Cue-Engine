@@ -1,3 +1,5 @@
+// WinThread の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -17,7 +19,7 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows スレッド実装です。
+    /// @brief Windows スレッド実装
     class WinThread final : public Core::Threading::IThread
     {
     public:

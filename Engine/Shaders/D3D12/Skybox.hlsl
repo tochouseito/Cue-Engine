@@ -1,3 +1,5 @@
+// Draw the skybox as a depth-stable background while preserving the camera rotation only.
+
 #include "DrawCommon.hlsli"
 
 struct VsOut
@@ -31,6 +33,7 @@ static const float3 k_cubeVertices[36] =
     float3(-1.0f, -1.0f, -1.0f), float3(1.0f, -1.0f, 1.0f), float3(-1.0f, -1.0f, 1.0f),
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID)
 {
     const float3 localPosition = k_cubeVertices[vertexId];
@@ -48,6 +51,7 @@ VsOut vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     const float3 direction = normalize(input.direction);

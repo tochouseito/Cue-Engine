@@ -1,3 +1,5 @@
+// ParticleEmitterSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === ECS includes ===
@@ -7,6 +9,7 @@
 #include <Asset/AssetManager.h>
 #include <GameCore/Components.h>
 #include <GpuData/Particle.h>
+#include <ParticleSystem/ParticleRangeAllocator.h>
 #include <ParticleSystem/ParticleScene.h>
 
 // === C++ includes ===
@@ -22,6 +25,7 @@ namespace Cue::ECS
         explicit ParticleEmitterSystem(
             AssetManager* a_assetManager,
             MaterialHandle a_defaultMaterialHandle,
+            ParticleSystem::ParticleRangeAllocator& a_particleAllocator,
             ParticleSystem::ParticleScene& a_scene)
             : ECSManager::System<WorldTransformComponent, ParticleEmitterComponent>(
                   [this](Entity a_entity,
@@ -34,6 +38,7 @@ namespace Cue::ECS
                   })
             , m_assetManager(a_assetManager)
             , m_defaultMaterialHandle(a_defaultMaterialHandle)
+            , m_particleAllocator(a_particleAllocator)
             , m_scene(a_scene)
         {}
 
@@ -56,21 +61,51 @@ namespace Cue::ECS
             if (a_emitter.runtimeParticleBase != k_invalidParticleBase &&
                 a_emitter.runtimeParticleCapacity > 0)
             {
-                return a_emitter.runtimeParticleCapacity;
+                if (a_emitter.runtimeParticleCapacity >=
+                    a_emitter.maxParticleCount)
+                {
+                    return a_emitter.runtimeParticleCapacity;
+                }
+
+                m_particleAllocator.release(
+                    a_emitter.runtimeParticleBase,
+                    a_emitter.runtimeParticleCapacity);
+                a_emitter.runtimeParticleBase = k_invalidParticleBase;
+                a_emitter.runtimeParticleCapacity = 0;
+                a_emitter.runtimeSpawnCursor = 0;
+                a_emitter.runtimeEmitAccumulator = 0.0f;
             }
 
-            const uint32_t requestedCapacity = (std::min)(
-                (std::max)(a_emitter.maxParticleCount, 1u),
-                GpuData::k_defaultEmitterParticleCapacity);
-            if (m_nextParticleBase + requestedCapacity > GpuData::k_maxParticleCount)
+            uint32_t particleBase = k_invalidParticleBase;
+            uint32_t capacity = 0;
+            if (!m_particleAllocator.allocate(
+                    a_emitter.maxParticleCount,
+                    particleBase,
+                    capacity))
             {
                 return 0;
             }
 
-            a_emitter.runtimeParticleBase = m_nextParticleBase;
-            a_emitter.runtimeParticleCapacity = requestedCapacity;
-            m_nextParticleBase += requestedCapacity;
-            return requestedCapacity;
+            a_emitter.runtimeParticleBase = particleBase;
+            a_emitter.runtimeParticleCapacity = capacity;
+            return capacity;
+        }
+
+        void release_particle_range(ParticleEmitterComponent& a_emitter)
+        {
+            if (a_emitter.runtimeParticleBase == k_invalidParticleBase ||
+                a_emitter.runtimeParticleCapacity == 0)
+            {
+                return;
+            }
+
+            m_particleAllocator.release(
+                a_emitter.runtimeParticleBase,
+                a_emitter.runtimeParticleCapacity);
+            a_emitter.runtimeParticleBase = k_invalidParticleBase;
+            a_emitter.runtimeParticleCapacity = 0;
+            a_emitter.runtimeSpawnCursor = 0;
+            a_emitter.runtimeEmitAccumulator = 0.0f;
         }
 
         [[nodiscard]] uint32_t calculate_spawn_count(
@@ -110,6 +145,7 @@ namespace Cue::ECS
             a_entity;
             if (!a_emitter.isVisible)
             {
+                release_particle_range(a_emitter);
                 return;
             }
 
@@ -154,6 +190,15 @@ namespace Cue::ECS
                 a_emitter.startColor.g * materialColor.g,
                 a_emitter.startColor.b * materialColor.b,
                 a_emitter.startColor.a * materialColor.a);
+            item.emitter.midColor = Math::float4(
+                (a_emitter.startColor.r + a_emitter.endColor.r) * 0.5f *
+                    materialColor.r,
+                (a_emitter.startColor.g + a_emitter.endColor.g) * 0.5f *
+                    materialColor.g,
+                (a_emitter.startColor.b + a_emitter.endColor.b) * 0.5f *
+                    materialColor.b,
+                (a_emitter.startColor.a + a_emitter.endColor.a) * 0.5f *
+                    materialColor.a);
             item.emitter.endColor = Math::float4(
                 a_emitter.endColor.r * materialColor.r,
                 a_emitter.endColor.g * materialColor.g,
@@ -164,8 +209,20 @@ namespace Cue::ECS
                 a_emitter.endSize,
                 a_emitter.minLifetime,
                 a_emitter.maxLifetime);
+            item.emitter.curveParams = Math::float4(
+                (a_emitter.startSize + a_emitter.endSize) * 0.5f,
+                0.5f,
+                0.0f,
+                0.0f);
+            item.emitter.shapeParams = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+            item.emitter.trailParams = Math::float4(0.0f, 0.0f, 1.0f, 0.0f);
+            item.emitter.forceParams = Math::float4(0.0f, 0.0f, 1.0f, 0.0f);
+            item.emitter.attractorParams = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+            item.emitter.linearForce = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
             item.emitter.textureId = textureId;
             item.emitter.useTexture = useTexture;
+            item.emitter.rendererType = 0;
+            item.emitter.shapeType = 0;
             item.emitter.randomSeed = a_emitter.randomSeed;
             item.emitter.billboardMode =
                 static_cast<uint32_t>(a_emitter.billboardMode);
@@ -180,8 +237,8 @@ namespace Cue::ECS
 
         AssetManager* m_assetManager = nullptr;
         MaterialHandle m_defaultMaterialHandle{};
+        ParticleSystem::ParticleRangeAllocator& m_particleAllocator;
         ParticleSystem::ParticleScene& m_scene;
         uint32_t m_currentBufferIndex = 0;
-        uint32_t m_nextParticleBase = 0;
     };
 } // namespace Cue::ECS

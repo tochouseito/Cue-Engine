@@ -1,7 +1,12 @@
+// ParticleInitializePass の役割と公開要素を定義する
+
 #pragma once
 
 // === RHI includes ===
 #include <FrameGraph.h>
+
+// === C++ includes ===
+#include <algorithm>
 
 namespace Cue::ParticleSystem
 {
@@ -10,9 +15,13 @@ namespace Cue::ParticleSystem
     public:
         ParticleInitializePass(
             RHI::BufferHandle a_particleBufferHandle,
-            uint32_t a_maxParticleCount)
+            RHI::BufferHandle a_trailBufferHandle,
+            uint32_t a_maxParticleCount,
+            uint32_t a_maxTrailSegmentCount)
             : m_particleBufferHandle(a_particleBufferHandle)
+            , m_trailBufferHandle(a_trailBufferHandle)
             , m_maxParticleCount(a_maxParticleCount)
+            , m_maxTrailSegmentCount(a_maxTrailSegmentCount)
         {}
 
         const char* name() const noexcept override { return "ParticleInitialize"; }
@@ -36,13 +45,24 @@ namespace Cue::ParticleSystem
                 return result;
             }
 
+            result = builder.read_buffer(m_trailBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "ParticleInitializeRootSignature";
             rootSignatureDesc.parameters.push_back(
                 RHI::RootParameterDesc{ RHI::RootParameterType::_32BitConstants,
                                        RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                RHI::RootParameterDesc{ RHI::RootParameterType::_32BitConstants,
+                                       RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back({
                 RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back({
+                RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
             result = builder.create_root_signature(
                 rootSignatureDesc, m_rootSignatureHandle);
             if (!result)
@@ -70,8 +90,18 @@ namespace Cue::ParticleSystem
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
-            return builder.use_buffer(
+            Result result = builder.use_buffer(
                 m_particleBufferHandle,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+
+            return builder.use_buffer(
+                m_trailBufferHandle,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::ShaderResource);
@@ -92,14 +122,23 @@ namespace Cue::ParticleSystem
 
             commandContext->set_compute_pipeline(m_pipelineHandle);
             commandContext->set_32bit_constant(0, m_maxParticleCount);
-            commandContext->set_uav(1, m_particleBufferHandle);
-            commandContext->dispatch((m_maxParticleCount + 63u) / 64u, 1, 1);
+            commandContext->set_32bit_constant(
+                1,
+                m_maxParticleCount * m_maxTrailSegmentCount);
+            commandContext->set_uav(2, m_particleBufferHandle);
+            commandContext->set_uav(3, m_trailBufferHandle);
+            const uint32_t dispatchCount = (std::max)(
+                m_maxParticleCount,
+                m_maxParticleCount * m_maxTrailSegmentCount);
+            commandContext->dispatch((dispatchCount + 63u) / 64u, 1, 1);
             m_hasInitialized = true;
         }
 
     private:
         RHI::BufferHandle m_particleBufferHandle{};
+        RHI::BufferHandle m_trailBufferHandle{};
         uint32_t m_maxParticleCount = 0;
+        uint32_t m_maxTrailSegmentCount = 0;
         RHI::RootSignatureHandle m_rootSignatureHandle{};
         RHI::ShaderBlobHandle m_computeShaderHandle{};
         RHI::PipelineStateHandle m_pipelineHandle{};

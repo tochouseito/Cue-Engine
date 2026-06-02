@@ -1,3 +1,5 @@
+// stdafx の役割と公開要素を定義する
+
 #pragma once
 #define WIN32_LEAN_AND_MEAN             // windows ヘッダー軽量化
 #define NOMINMAX                        // min と max マクロ抑止

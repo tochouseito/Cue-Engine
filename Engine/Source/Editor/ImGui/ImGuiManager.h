@@ -1,3 +1,5 @@
+// ImGuiManager の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -82,7 +84,7 @@ namespace Cue::Editor
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            // スワップチェインのバックバッファをフレームグラフに宣言する。
+            // スワップチェインのバックバッファをフレームグラフに宣言する
             Result result = builder.get_texture("BackBuffer", m_backBufferHandle);
             if (!result)
             {
@@ -108,7 +110,7 @@ namespace Cue::Editor
                     "Failed to get back buffer RTV view handle for present pass.");
             }
 
-            // GameView が参照する SRV の存在を確認する。
+            // GameView が参照する SRV の存在を確認する
             result = builder.get_view("GameColorSRV", m_gameColorSrvHandle);
             if (!result)
             {
@@ -170,12 +172,12 @@ namespace Cue::Editor
         {
             RHI::ICommandContext* commandContext = context.commandContext();
 
-            // バックバッファをクリアしておく。これがないと imgui の一部が描画されないことがある。
+            // バックバッファをクリアしておくこれがないと imgui の一部が描画されないことがある
             commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
             commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
 
-            // 3) native command list へ imgui 描画を流す
+            // - native command list へ imgui 描画を流す
             void* nativeCommandList = commandContext->native_command_list();
             ID3D12GraphicsCommandList* dxCommandList = reinterpret_cast<ID3D12GraphicsCommandList*>(nativeCommandList);
             m_imguiManager.render(dxCommandList); // imgui 描画コマンド発行

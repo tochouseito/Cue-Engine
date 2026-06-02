@@ -1,3 +1,5 @@
+// Encode object ids into a readback-friendly target for editor picking.
+
 #include "DrawCommon.hlsli"
 
 struct VsIn
@@ -37,6 +39,7 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<SkinPalette> g_skinPalettes : register(t3);
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
@@ -87,6 +90,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Pixel entry point writes a picking id that can be copied back as an integer.
 uint ps_main(VsOut input) : SV_Target0
 {
     if (g_selectedObject.objectId != 0 &&

@@ -18,6 +18,7 @@ struct VsOut
     float2 texcoord : TEXCOORD0;
 };
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(uint vertexId : SV_VertexID)
 {
     VsOut output;
@@ -28,6 +29,7 @@ VsOut vs_main(uint vertexId : SV_VertexID)
 
 Texture2D<float4> gTexture : register(t0);
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input) : SV_Target0
 {
     const uint2 pixel = uint2(input.position.xy);

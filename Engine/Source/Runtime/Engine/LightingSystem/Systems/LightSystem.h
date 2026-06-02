@@ -1,3 +1,5 @@
+// LightSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === LightingSystem includes ===

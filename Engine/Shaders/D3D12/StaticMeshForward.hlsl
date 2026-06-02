@@ -1,3 +1,5 @@
+// Render static and skinned meshes with material, lighting, and shadow sampling in one forward pass.
+
 #include "DrawCommon.hlsli"
 
 struct VsOut
@@ -60,6 +62,7 @@ StructuredBuffer<SkinPalette> g_skinPalettes : register(t13);
 Texture2D<float4> g_textures[] : register(t0, space1);
 SamplerState g_sampler : register(s0);
 
+// Bias combines slope and screen-space depth gradient to reduce acne without over-detaching shadows.
 float shadow_receiver_bias(
     float3 worldNormal,
     float3 surfaceToLight,
@@ -92,6 +95,7 @@ struct ReflectionConstants
 
 ConstantBuffer<ReflectionConstants> g_reflection : register(b5);
 
+// Vertex entry point keeps per-pass object expansion on the GPU.
 VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectCount = g_renderObjectCount.Load(0);
@@ -154,6 +158,7 @@ VsOut vs_main(VsIn input, uint instanceId : SV_InstanceID)
     return output;
 }
 
+// Spot shadow sampling stays local to the lighting shader so atlas layout remains a GPU contract.
 float evaluate_spot_shadow(
     uint lightIndex,
     float3 worldPosition,
@@ -241,6 +246,7 @@ float evaluate_spot_shadow(
     return lerp(1.0f, rawVisibility, saturate(shadowFrame.tuning.y));
 }
 
+// Directional shadow sampling uses the shared frame constants so cascade-free paths stay simple.
 float evaluate_directional_shadow(
     uint lightIndex,
     float3 worldPosition,
@@ -314,6 +320,7 @@ float evaluate_directional_shadow(
         saturate(g_directionalShadowFrame.tuning.y));
 }
 
+// Select the cube face in shader code so point-shadow sampling matches atlas face generation.
 uint select_point_shadow_face(float3 fromLight)
 {
     const float3 absDirection = abs(fromLight);
@@ -328,6 +335,7 @@ uint select_point_shadow_face(float3 fromLight)
     return fromLight.z >= 0.0f ? 4u : 5u;
 }
 
+// Point shadow sampling maps the chosen cube face into atlas coordinates before depth comparison.
 float evaluate_point_shadow(
     uint lightIndex,
     float3 worldPosition,
@@ -416,12 +424,14 @@ float evaluate_point_shadow(
     return lerp(1.0f, rawVisibility, saturate(shadowFace.tuning.y));
 }
 
+// Diffuse lighting is isolated so debug shading modes can reuse the same normal response.
 float evaluate_diffuse(float3 worldNormal, float3 lightDirection)
 {
     const float ndotl = dot(worldNormal, lightDirection);
     return pow(saturate(ndotl * 0.5f + 0.5f), 2.0f);
 }
 
+// Specular lighting is isolated to keep material shininess handling consistent per light type.
 float evaluate_specular(
     float3 worldNormal,
     float3 lightDirection,
@@ -433,6 +443,7 @@ float evaluate_specular(
     return pow(ndoth, max(shininess, 1.0f));
 }
 
+// Spot falloff is kept as a helper so inner and outer cone tuning stays centralized.
 float evaluate_spot_factor(float spotCos, float outerCos)
 {
     const float innerCos = lerp(outerCos, 1.0f, 0.2f);
@@ -441,6 +452,7 @@ float evaluate_spot_factor(float spotCos, float outerCos)
     return factor * factor * (3.0f - 2.0f * factor);
 }
 
+// Lighting aggregation stays in one helper so debug modes can switch outputs without duplicating loops.
 float3 evaluate_lighting(
     Material material,
     float3 worldPosition,
@@ -542,6 +554,7 @@ float3 evaluate_lighting(
     return lighting;
 }
 
+// Camera position is reconstructed from the view matrix to avoid an extra constant buffer field.
 float3 camera_position()
 {
     const float3 viewTranslation =
@@ -553,6 +566,7 @@ float3 camera_position()
     return mul(-viewTranslation, transpose(viewRotation));
 }
 
+// Skybox reflection is optional so materials can opt in without branching on the CPU.
 float3 evaluate_skybox_reflection(
     Material material,
     float3 worldPosition,
@@ -573,6 +587,7 @@ float3 evaluate_skybox_reflection(
         mipLevel).rgb * reflectionSharpness;
 }
 
+// Pixel entry point resolves the pass output without changing upstream buffers.
 float4 ps_main(VsOut input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
     float3 worldNormal = normalize(input.worldNormal);

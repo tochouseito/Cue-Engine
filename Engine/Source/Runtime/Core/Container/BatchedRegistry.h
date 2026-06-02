@@ -1,3 +1,5 @@
+// BatchedRegistry の役割と公開要素を定義する
+
 #pragma once
 
 // === C++ includes ===
@@ -45,19 +47,19 @@ namespace Cue::Core
     public:
         [[nodiscard]] InsertGroupResult insert_group(std::span<const item_type> a_group)
         {
-            // 1) batchId を発行
+            // - batchId を発行
             const batch_id_type batchId = generate_batch_id();
 
-            // 2) バッチ情報を作成
+            // - バッチ情報を作成
             BatchInfo batchInfo{};
             batchInfo.itemIds.reserve(a_group.size());
 
-            // 3) 戻り値を準備
+            // - 戻り値を準備
             InsertGroupResult result{};
             result.batchId = batchId;
             append_items_to_batch(batchId, batchInfo, a_group, result.itemIds);
 
-            // 5) バッチ登録
+            // - バッチ登録
             m_batches.emplace(batchId, std::move(batchInfo));
 
             return result;
@@ -65,19 +67,19 @@ namespace Cue::Core
 
         [[nodiscard]] InsertGroupResult insert_group(std::vector<item_type>&& a_group)
         {
-            // 1) batchId を発行
+            // - batchId を発行
             const batch_id_type batchId = generate_batch_id();
 
-            // 2) バッチ情報を作成
+            // - バッチ情報を作成
             BatchInfo batchInfo{};
             batchInfo.itemIds.reserve(a_group.size());
 
-            // 3) 戻り値を準備
+            // - 戻り値を準備
             InsertGroupResult result{};
             result.batchId = batchId;
             append_items_to_batch_move(batchId, batchInfo, std::move(a_group), result.itemIds);
 
-            // 4) バッチ登録
+            // - バッチ登録
             m_batches.emplace(batchId, std::move(batchInfo));
 
             return result;
@@ -85,14 +87,14 @@ namespace Cue::Core
 
         [[nodiscard]] InsertGroupResult append_to_group(batch_id_type a_batchId, std::span<const item_type> a_group)
         {
-            // 1) 既存 batch を探す
+            // - 既存 batch を探す
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return {};
             }
 
-            // 2) 戻り値を準備して追記
+            // - 戻り値を準備して追記
             InsertGroupResult result{};
             result.batchId = a_batchId;
             append_items_to_batch(a_batchId, batchIt->second, a_group, result.itemIds);
@@ -101,14 +103,14 @@ namespace Cue::Core
 
         [[nodiscard]] InsertGroupResult append_to_group(batch_id_type a_batchId, std::vector<item_type>&& a_group)
         {
-            // 1) 既存 batch を探す
+            // - 既存 batch を探す
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return {};
             }
 
-            // 2) 戻り値を準備して追記
+            // - 戻り値を準備して追記
             InsertGroupResult result{};
             result.batchId = a_batchId;
             append_items_to_batch_move(a_batchId, batchIt->second, std::move(a_group), result.itemIds);
@@ -117,33 +119,33 @@ namespace Cue::Core
 
         [[nodiscard]] item_id_type append_item_to_group(batch_id_type a_batchId, const item_type& a_value)
         {
-            // 1) 既存 batch を探す
+            // - 既存 batch を探す
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return k_invalidItemId;
             }
 
-            // 2) 1 要素だけ追記
+            // - 1 要素だけ追記
             return append_item_to_batch(a_batchId, batchIt->second, a_value);
         }
 
         [[nodiscard]] item_id_type append_item_to_group(batch_id_type a_batchId, item_type&& a_value)
         {
-            // 1) 既存 batch を探す
+            // - 既存 batch を探す
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return k_invalidItemId;
             }
 
-            // 2) 1 要素だけ追記
+            // - 1 要素だけ追記
             return append_item_to_batch(a_batchId, batchIt->second, std::move(a_value));
         }
 
         [[nodiscard]] bool erase_item(item_id_type a_itemId)
         {
-            // 1) itemId からインデックス取得
+            // - itemId からインデックス取得
             auto itemIt = m_itemToIndex.find(a_itemId);
             if (itemIt == m_itemToIndex.end())
             {
@@ -156,7 +158,7 @@ namespace Cue::Core
             const batch_id_type batchId = removeItem.batchId;
             const size_t batchPosition = removeItem.batchPosition;
 
-            // 2) バッチ側からこの itemId を swap-erase で除去
+            // - バッチ側からこの itemId を swap-erase で除去
             auto batchIt = m_batches.find(batchId);
             if (batchIt == m_batches.end())
             {
@@ -182,13 +184,13 @@ namespace Cue::Core
 
             batchInfo.itemIds.pop_back();
 
-            // 3) バッチが空なら消す
+            // - バッチが空なら消す
             if (batchInfo.itemIds.empty())
             {
                 m_batches.erase(batchIt);
             }
 
-            // 4) 本体配列からこの要素を swap-erase で除去
+            // - 本体配列からこの要素を swap-erase で除去
             const size_t lastIndex = m_items.size() - 1;
             const item_id_type movedItemId = m_items[lastIndex].itemId;
 
@@ -206,14 +208,14 @@ namespace Cue::Core
 
         [[nodiscard]] bool erase_group(batch_id_type a_batchId)
         {
-            // 1) バッチ存在確認
+            // - バッチ存在確認
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return false;
             }
 
-            // 2) 対象 batch の全 item を後ろから個別削除
+            // - 対象 batch の全 item を後ろから個別削除
             //    erase_item() の中で batch 自体が消えるので、
             //    毎回 find し直して末尾を取る
             while (true)
@@ -245,14 +247,14 @@ namespace Cue::Core
         template <class F>
         [[nodiscard]] bool visit_item(item_id_type a_itemId, F&& a_func) const
         {
-            // 1) itemId からインデックス取得
+            // - itemId からインデックス取得
             auto itemIt = m_itemToIndex.find(a_itemId);
             if (itemIt == m_itemToIndex.end())
             {
                 return false;
             }
 
-            // 2) 対象 item を 1 件だけ渡す
+            // - 対象 item を 1 件だけ渡す
             const StoredItem& item = m_items[itemIt->second];
             a_func(item.itemId, item.batchId, item.value);
             return true;
@@ -261,14 +263,14 @@ namespace Cue::Core
         template <class F>
         [[nodiscard]] bool for_each_item_in_group(batch_id_type a_batchId, F&& a_func) const
         {
-            // 1) batch の存在確認
+            // - batch の存在確認
             auto batchIt = m_batches.find(a_batchId);
             if (batchIt == m_batches.end())
             {
                 return false;
             }
 
-            // 2) batch に属する item を列挙
+            // - batch に属する item を列挙
             const BatchInfo& batchInfo = batchIt->second;
             for (const item_id_type itemId : batchInfo.itemIds)
             {
@@ -288,7 +290,7 @@ namespace Cue::Core
         template <class F>
         void for_each_item(F&& a_func) const
         {
-            // 1) 全要素を列挙
+            // - 全要素を列挙
             for (const StoredItem& item : m_items)
             {
                 a_func(item.itemId, item.batchId, item.value);
@@ -298,7 +300,7 @@ namespace Cue::Core
         template <class F>
         void for_each_value(F&& a_func) const
         {
-            // 1) 値だけ列挙
+            // - 値だけ列挙
             for (const StoredItem& item : m_items)
             {
                 a_func(item.value);
@@ -307,36 +309,36 @@ namespace Cue::Core
 
         [[nodiscard]] bool contains_item(item_id_type a_itemId) const
         {
-            // 1) item の存在確認
+            // - item の存在確認
             return m_itemToIndex.find(a_itemId) != m_itemToIndex.end();
         }
 
         [[nodiscard]] bool contains_batch(batch_id_type a_batchId) const
         {
-            // 1) batch の存在確認
+            // - batch の存在確認
             return m_batches.find(a_batchId) != m_batches.end();
         }
 
         [[nodiscard]] size_t item_count() const noexcept
         {
-            // 1) 生存要素数を返す
+            // - 生存要素数を返す
             return m_items.size();
         }
 
         [[nodiscard]] size_t batch_count() const noexcept
         {
-            // 1) 生存 batch 数を返す
+            // - 生存 batch 数を返す
             return m_batches.size();
         }
 
         void clear() noexcept
         {
-            // 1) 全データを破棄
+            // - 全データを破棄
             m_items.clear();
             m_itemToIndex.clear();
             m_batches.clear();
 
-            // 2) ID カウンタはリセットしない
+            // - ID カウンタはリセットしない
             //    過去に返した ID と衝突させないため
         }
 
@@ -398,13 +400,13 @@ namespace Cue::Core
 
         [[nodiscard]] batch_id_type generate_batch_id()
         {
-            // 1) オーバーフロー防止
+            // - オーバーフロー防止
             if (m_nextBatchId == (std::numeric_limits<batch_id_type>::max)())
             {
                 throw std::overflow_error("NumberContainer batch id overflow");
             }
 
-            // 2) ID 発行
+            // - ID 発行
             const batch_id_type batchId = m_nextBatchId;
             ++m_nextBatchId;
             return batchId;
@@ -412,13 +414,13 @@ namespace Cue::Core
 
         [[nodiscard]] item_id_type generate_item_id()
         {
-            // 1) オーバーフロー防止
+            // - オーバーフロー防止
             if (m_nextItemId == (std::numeric_limits<item_id_type>::max)())
             {
                 throw std::overflow_error("NumberContainer item id overflow");
             }
 
-            // 2) ID 発行
+            // - ID 発行
             const item_id_type itemId = m_nextItemId;
             ++m_nextItemId;
             return itemId;

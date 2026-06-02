@@ -1,0 +1,102 @@
+{
+    "emitters": [
+        {
+            "acceleration": [
+                0.0,
+                -0.4000000059604645,
+                0.0
+            ],
+            "attractorPosition": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "attractorStrength": 0.0,
+            "billboardMode": "View",
+            "burstCount": 0,
+            "curveMidTime": 0.5,
+            "drag": 0.0,
+            "duration": 2.0,
+            "emitRate": 32.0,
+            "endColor": [
+                1.0,
+                1.0,
+                1.0,
+                0.0
+            ],
+            "endSize": 0.0,
+            "linearForce": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "loop": true,
+            "materialName": "",
+            "maxLifetime": 1.25,
+            "maxParticleCount": 256,
+            "meshName": "",
+            "meshScale": 1.0,
+            "midColor": [
+                1.0,
+                0.8999999761581421,
+                0.6000000238418579,
+                0.75
+            ],
+            "midSize": 0.25,
+            "minLifetime": 0.75,
+            "name": "Emitter",
+            "noiseFrequency": 1.0,
+            "noiseStrength": 0.0,
+            "positionOffset": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "randomSeed": 1,
+            "rendererType": "Billboard",
+            "shape": "Point",
+            "shapeAngleDegrees": 30.0,
+            "shapeBoxExtents": [
+                0.5,
+                0.5,
+                0.5
+            ],
+            "shapeRadius": 0.0,
+            "startColor": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "startDelay": 0.0,
+            "startSize": 0.15000000596046448,
+            "trailLength": 0.44999998807907104,
+            "trailSegmentCount": 4,
+            "trailWidth": 0.07999999821186066,
+            "velocityMax": [
+                0.20000000298023224,
+                1.600000023841858,
+                0.20000000298023224
+            ],
+            "velocityMin": [
+                -0.20000000298023224,
+                0.800000011920929,
+                -0.20000000298023224
+            ],
+            "visible": true,
+            "vortexStrength": 0.0
+        }
+    ],
+    "graphNodes": [
+        {
+            "emitterIndex": 0,
+            "name": "Emitter",
+            "position": [
+                24.0,
+                32.0
+            ]
+        }
+    ],
+    "name": "Effect",
+    "version": 2
+}

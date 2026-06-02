@@ -1,3 +1,5 @@
+// SkinnedRenderableObjectSystem の役割と公開要素を定義する
+
 #pragma once
 
 // === Base includes ===
@@ -7,6 +9,7 @@
 #include <DrawSystem/DrawCollector.h>
 #include <DrawSystem/DrawFrameState.h>
 #include <DrawSystem/DrawScene.h>
+#include <DrawSystem/FrustumCulling.h>
 #include <DrawSystem/StaticMeshPoolTypes.h>
 
 // === ECS includes ===
@@ -95,6 +98,40 @@ namespace Cue::ECS
                     &m_drawFrameState.frame_state(a_context.bufferIndex);
                 m_isCpuBatchingEnabled = m_currentFrameState->useCpuBatching;
             }
+            resolve_main_frustum(a_context.bufferIndex);
+        }
+
+        void resolve_main_frustum(uint32_t a_bufferIndex)
+        {
+            m_hasMainFrustum = false;
+            if (a_bufferIndex >= m_drawScene.frame_count())
+            {
+                return;
+            }
+
+            const DrawSystem::DrawSceneFrame& frame =
+                m_drawScene.frame(a_bufferIndex);
+            const DrawSystem::CameraDrawItem* selectedCamera = nullptr;
+            for (const DrawSystem::CameraDrawItem& item : frame.cameraItems)
+            {
+                if (item.isMain)
+                {
+                    selectedCamera = &item;
+                    break;
+                }
+                if (selectedCamera == nullptr)
+                {
+                    selectedCamera = &item;
+                }
+            }
+            if (selectedCamera == nullptr)
+            {
+                return;
+            }
+
+            m_mainFrustum =
+                DrawSystem::make_frustum(selectedCamera->viewProjection);
+            m_hasMainFrustum = true;
         }
 
         void update_component(Entity a_entity,
@@ -311,6 +348,29 @@ namespace Cue::ECS
                 : DrawSystem::StaticMeshRenderQueue::Opaque;
         }
 
+        [[nodiscard]] bool is_mesh_in_main_frustum(
+            uint32_t a_meshId,
+            const Math::float4x4& a_worldMatrix) const noexcept
+        {
+            if (!m_hasMainFrustum || m_staticMeshPool == nullptr)
+            {
+                return true;
+            }
+
+            DrawSystem::StaticMeshBounds bounds{};
+            Result boundsResult =
+                m_staticMeshPool->get_mesh_bounds(a_meshId, bounds);
+            if (!boundsResult)
+            {
+                return true;
+            }
+
+            return DrawSystem::intersects_frustum(
+                m_mainFrustum,
+                bounds,
+                a_worldMatrix);
+        }
+
         void submit_mesh_part(
             uint32_t a_pickObjectId,
             uint32_t a_meshId,
@@ -321,6 +381,11 @@ namespace Cue::ECS
             const std::vector<Math::float4x4>* a_skinPalette)
         {
             const uint32_t drawObjectIndex = m_renderableObjectCount;
+            if (!is_mesh_in_main_frustum(a_meshId, a_worldMatrix))
+            {
+                return;
+            }
+
             const uint32_t skinPaletteOffset =
                 a_skinPalette != nullptr && !a_skinPalette->empty()
                 ? m_skinPaletteCount
@@ -417,8 +482,10 @@ namespace Cue::ECS
         DrawSystem::DrawScene& m_drawScene;
         DrawSystem::DrawCollector* m_currentCollector = nullptr;
         const DrawSystem::DrawFrameData* m_currentFrameState = nullptr;
+        DrawSystem::Frustum m_mainFrustum{};
         uint32_t m_renderableObjectCount = 0;
         uint32_t m_skinPaletteCount = 0;
         bool m_isCpuBatchingEnabled = false;
+        bool m_hasMainFrustum = false;
     };
 } // namespace Cue::ECS

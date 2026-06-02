@@ -1,3 +1,5 @@
+// ScriptShadowCopyService の実装点を残し、ホットリロード用コピー処理を独立して拡張できるようにする
+
 #include "ScriptShadowCopyService.h"
 
 namespace Cue

@@ -42,7 +42,7 @@ namespace Cue::RHI::DX12
             D3D12_BLEND_DESC desc{};
             for (auto& rtDesc : desc.RenderTarget)
             {
-                // 色書き込みマスクを既定で有効化し、BlendMode::None でも出力が消えないようにする。
+                // 色書き込みマスクを既定で有効化し、BlendMode::None でも出力が消えないようにする
                 rtDesc.BlendEnable = FALSE;
                 rtDesc.LogicOpEnable = FALSE;
                 rtDesc.SrcBlend = D3D12_BLEND_ONE;
@@ -195,7 +195,7 @@ namespace Cue::RHI::DX12
     {
         DX12GraphicsPipelineRecord record{};
 
-        // 入力レイアウトをD3D12_INPUT_ELEMENT_DESCに変換する。
+        // 入力レイアウトをD3D12_INPUT_ELEMENT_DESCに変換する
         std::vector<D3D12_INPUT_ELEMENT_DESC> inputElementDescs;
         for (const auto& elem : desc.inputElements)
         {
@@ -205,12 +205,12 @@ namespace Cue::RHI::DX12
         inputLayoutDesc.pInputElementDescs = inputElementDescs.data();
         inputLayoutDesc.NumElements = static_cast<UINT>(inputElementDescs.size());
 
-        // ブレンドステート、ラスタライザーステート、デプスステンシルステートをD3D12の構造体に変換する。
+        // ブレンドステート、ラスタライザーステート、デプスステンシルステートをD3D12の構造体に変換する
         D3D12_BLEND_DESC blendDesc = convert_blend_mode(desc.blendMode);
         D3D12_RASTERIZER_DESC rasterizerDesc = convert_rasterizer_state(desc.rasterizerState);
         D3D12_DEPTH_STENCIL_DESC depthStencilDesc = convert_depth_stencil_state(desc.depthStencilState);
 
-        // ルートシグネチャをRegistryから取得する。
+        // ルートシグネチャをRegistryから取得する
         RootSignatureRecord* rootSignatureRecord = m_rootSignatureRegistry.ref_get(desc.rootSignatureHandle);
         if (!rootSignatureRecord)
         {
@@ -220,7 +220,7 @@ namespace Cue::RHI::DX12
                 "Root signature not found for the given handle.");
         }
 
-        // シェーダーブロブをRegistryから取得する。
+        // シェーダーブロブをRegistryから取得する
         ShaderBlobRecord* vsBlobRecord = m_shaderBlobRegistry.ref_get(desc.vsHandle);
         if (!vsBlobRecord)
         {
@@ -238,7 +238,7 @@ namespace Cue::RHI::DX12
                 "Pixel shader blob not found for the given handle.");
         }
 
-        // D3D12_GRAPHICS_PIPELINE_STATE_DESC を構築する。
+        // D3D12_GRAPHICS_PIPELINE_STATE_DESC を構築する
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
         psoDesc.pRootSignature = rootSignatureRecord->rootSignature.Get();
         psoDesc.VS.pShaderBytecode = vsBlobRecord->shaderBlob->GetBufferPointer();
@@ -259,7 +259,7 @@ namespace Cue::RHI::DX12
         psoDesc.SampleDesc.Count = 1;
         psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
-        // ID3D12PipelineState を作成する。
+        // ID3D12PipelineState を作成する
         comPtr<ID3D12PipelineState> pipelineState;
         HRESULT hr = m_renderDevice.get_d3d12_device()->CreateGraphicsPipelineState(
             &psoDesc,
@@ -273,24 +273,24 @@ namespace Cue::RHI::DX12
                 "Failed to create graphics pipeline state.");
         }
 
-        // 作成したパイプラインステートをRegistryに登録する。
+        // 作成したパイプラインステートをRegistryに登録する
         record.pipelineState = pipelineState;
         record.desc = desc;
         PipelineStateHandle handle = m_pipelineRegistry.create(record);
 
-        // 名前が指定されていれば名前マップに登録する。
+        // 名前が指定されていれば名前マップに登録する
         if (!desc.name.empty())
         {
             m_pipelineNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
-        // 成功結果を返す。
+        // 成功結果を返す
         out = handle;
         return Result::ok();
     }
     Result DX12PipelineManager::destroy_graphics_pipeline(PipelineStateHandle handle)
     {
-        // ハンドルが有効かをチェックする。
+        // ハンドルが有効かをチェックする
         if (!handle.valid())
         {
             return Result::fail(
@@ -299,7 +299,7 @@ namespace Cue::RHI::DX12
                 "Invalid pipeline state handle.");
         }
 
-        // 名前マップから削除する。
+        // 名前マップから削除する
         for (auto it = m_pipelineNameMap.begin(); it != m_pipelineNameMap.end(); ++it)
         {
             if (it->second == handle)
@@ -309,7 +309,7 @@ namespace Cue::RHI::DX12
             }
         }
 
-        // レジストリから削除する。
+        // レジストリから削除する
         if (!m_pipelineRegistry.destroy(handle))
         {
             return Result::fail(
@@ -425,11 +425,11 @@ namespace Cue::RHI::DX12
     }
     Result DX12PipelineManager::create_root_signature(const RootSignatureDesc& desc, RootSignatureHandle& out)
     {
-        // D3D12_ROOT_SIGNATURE_DESC を構築する。
+        // D3D12_ROOT_SIGNATURE_DESC を構築する
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        // RootParameterDesc を descriptor table / constants に変換し、FrameGraph の descriptor 解決結果をそのまま bind できる形にする。
+        // RootParameterDesc を descriptor table / constants に変換し、FrameGraph の descriptor 解決結果をそのまま bind できる形にする
         std::vector<D3D12_ROOT_PARAMETER> d3dParameters;
         std::vector<D3D12_DESCRIPTOR_RANGE> d3dDescriptorRanges;
         d3dParameters.reserve(desc.parameters.size());
@@ -475,7 +475,7 @@ namespace Cue::RHI::DX12
             d3dParameters.push_back(d3dParam);
         }
 
-        // D3D12_ROOT_SIGNATURE_DESC にパラメータをセットする。
+        // D3D12_ROOT_SIGNATURE_DESC にパラメータをセットする
         rootSignatureDesc.NumParameters = static_cast<UINT>(d3dParameters.size());
         rootSignatureDesc.pParameters = d3dParameters.data();
 
@@ -496,7 +496,7 @@ namespace Cue::RHI::DX12
         rootSignatureDesc.NumStaticSamplers = 1;
         rootSignatureDesc.pStaticSamplers = &staticSampler;
 
-        // D3D12_ROOT_SIGNATURE_DESC をシリアライズしてバイナリ化する。
+        // D3D12_ROOT_SIGNATURE_DESC をシリアライズしてバイナリ化する
         comPtr<ID3DBlob> serializedRootSig;
         comPtr<ID3DBlob> errorBlob;
         HRESULT hr = D3D12SerializeRootSignature(
@@ -527,22 +527,22 @@ namespace Cue::RHI::DX12
 
         rootSigRecord.desc = desc;
 
-        // 作成したルートシグネチャをRegistryに登録する。
+        // 作成したルートシグネチャをRegistryに登録する
         RootSignatureHandle handle = m_rootSignatureRegistry.create(rootSigRecord);
 
-        // 名前が指定されていれば名前マップに登録する。
+        // 名前が指定されていれば名前マップに登録する
         if (!desc.name.empty())
         {
             m_rootSignatureNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
-        // 成功結果を返す。
+        // 成功結果を返す
         out = handle;
         return Result::ok();
     }
     Result DX12PipelineManager::destroy_root_signature(RootSignatureHandle handle)
     {
-        // ハンドルが有効かをチェックする。
+        // ハンドルが有効かをチェックする
         if (!handle.valid())
         {
             return Result::fail(
@@ -551,7 +551,7 @@ namespace Cue::RHI::DX12
                 "Invalid root signature handle.");
         }
 
-        // 名前マップから削除する。
+        // 名前マップから削除する
         for (auto it = m_rootSignatureNameMap.begin(); it != m_rootSignatureNameMap.end(); ++it)
         {
             if (it->second == handle)
@@ -561,7 +561,7 @@ namespace Cue::RHI::DX12
             }
         }
 
-        // レジストリから削除する。
+        // レジストリから削除する
         if (!m_rootSignatureRegistry.destroy(handle))
         {
             return Result::fail(
@@ -585,7 +585,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12PipelineManager::create_shader_blob(const ShaderCompileDesc& desc, ShaderBlobHandle& out)
     {
-        // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない。
+        // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない
         ShaderBlobRecord blobRecord{};
         Result result = m_hlslCompiler.compile_shader_raw(desc, &blobRecord.shaderBlob);
         if (!result)
@@ -593,22 +593,22 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        // コンパイル成功時だけレジストリと名前引きを更新する。
+        // コンパイル成功時だけレジストリと名前引きを更新する
         ShaderBlobHandle handle = m_shaderBlobRegistry.create(blobRecord);
 
-        // 名前が指定されていれば名前マップに登録する。
+        // 名前が指定されていれば名前マップに登録する
         if (!desc.name.empty())
         {
             m_shaderBlobNameMap[Core::fnv1a64(desc.name)] = handle;
         }
 
-        // 成功結果を返す。
+        // 成功結果を返す
         out = std::move(handle);
         return Result::ok();
     }
     Result DX12PipelineManager::destroy_shader_blob(ShaderBlobHandle handle)
     {
-        // ハンドルが有効かをチェックする。
+        // ハンドルが有効かをチェックする
         if (!handle.valid())
         {
             return Result::fail(
@@ -617,7 +617,7 @@ namespace Cue::RHI::DX12
                 "Invalid shader blob handle.");
         }
 
-        // 名前マップから削除する。
+        // 名前マップから削除する
         for (auto it = m_shaderBlobNameMap.begin(); it != m_shaderBlobNameMap.end(); ++it)
         {
             if (it->second == handle)
@@ -627,7 +627,7 @@ namespace Cue::RHI::DX12
             }
         }
 
-        // レジストリから削除する。
+        // レジストリから削除する
         if (!m_shaderBlobRegistry.destroy(handle))
         {
             return Result::fail(

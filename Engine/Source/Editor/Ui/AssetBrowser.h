@@ -1,3 +1,5 @@
+// AssetBrowser の役割と公開要素を定義する
+
 #pragma once
 
 // === Core includes ===
@@ -335,7 +337,9 @@ namespace Cue::Editor
             const ImVec2 buttonMin = ImGui::GetItemRectMin();
             const ImVec2 buttonMax = ImGui::GetItemRectMax();
             const bool isMaterial = is_material_file(a_filePath);
-            if (isPressed && isMaterial && m_selectedAssetPath != nullptr)
+            const bool isEffect = is_effect_file(a_filePath);
+            if (isPressed && (isMaterial || isEffect) &&
+                m_selectedAssetPath != nullptr)
             {
                 *m_selectedAssetPath = a_filePath.normalize();
                 m_wasAssetSelected = true;
@@ -369,8 +373,10 @@ namespace Cue::Editor
                 constexpr float k_iconFontSize = k_buttonSize;
                 const char* icon = isMaterial
                     ? CUE_ICON_MATERIAL
-                    : (is_texture_file(a_filePath) ? CUE_ICON_IMAGE
-                                                   : CUE_ICON_Unknown);
+                    : (isEffect ? CUE_ICON_SHADER
+                                : (is_texture_file(a_filePath)
+                                          ? CUE_ICON_IMAGE
+                                          : CUE_ICON_Unknown));
                 ImFont* font = ImGui::GetFont();
                 const ImVec2 iconSize = font->CalcTextSizeA(
                     k_iconFontSize,
@@ -719,6 +725,12 @@ namespace Cue::Editor
             const Core::IO::Path& a_filePath) noexcept
         {
             return to_lower_ascii(a_filePath.extension()) == ".cuematerial";
+        }
+
+        [[nodiscard]] static bool is_effect_file(
+            const Core::IO::Path& a_filePath) noexcept
+        {
+            return to_lower_ascii(a_filePath.extension()) == ".cuefx";
         }
 
         [[nodiscard]] static bool is_texture_file(
