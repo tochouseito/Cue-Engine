@@ -14,13 +14,13 @@
 #include <Time/IClock.h>
 
 // === C++ includes ===
-#include <cstdint>
-#include <memory>
 #include <atomic>
-#include <mutex>
 #include <condition_variable>
-#include <functional>
+#include <cstdint>
 #include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
 
 namespace Cue
 {
@@ -38,8 +38,7 @@ namespace Cue
 
     struct FrameControllerDesc final
     {
-        FrameControllerDesc(const uint32_t& a_bufferCount)
-            : bufferCount(a_bufferCount)
+        FrameControllerDesc(const uint32_t& a_bufferCount) : bufferCount(a_bufferCount)
         {}
         const uint32_t& bufferCount;
         uint32_t maxFps = 60;
@@ -52,7 +51,8 @@ namespace Cue
         using jobFunc = std::function<void(uint64_t, uint32_t)>;
 
         /// @brief スレッド開始
-        bool start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name, jobFunc a_func);
+        bool start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name,
+            jobFunc a_func);
 
         /// @brief 実行要求投入
         void kick(uint64_t frameNo, uint32_t index);
@@ -96,23 +96,13 @@ namespace Cue
     {
     public:
         /// @brief 生成
-        FrameController(const FrameControllerDesc& config,
-            Core::Threading::IThreadFactory& a_threadFactory,
-            const Core::Time::IClock& a_clock,
-            Core::Time::IWaiter& a_waiter,
-            const updateFunc& a_updateFunc,
-            const renderFunc& a_renderFunc,
-            const presentFunc& a_presentFunc,
-            const safePointFunc& a_safePointFunc)
-            : m_desc(config)
-            , m_threadFactory(a_threadFactory)
-            , m_clock(a_clock)
-            , m_waiter(a_waiter)
-            , m_frameCounter(a_clock, a_waiter)
-            , m_updateFunc(a_updateFunc)
-            , m_renderFunc(a_renderFunc)
-            , m_presentFunc(a_presentFunc)
-            , m_safePointFunc(a_safePointFunc)
+        FrameController(const FrameControllerDesc& config, Core::Threading::IThreadFactory& a_threadFactory,
+            const Core::Time::IClock& a_clock, Core::Time::IWaiter& a_waiter,
+            const updateFunc& a_updateFunc, const renderFunc& a_renderFunc,
+            const presentFunc& a_presentFunc, const safePointFunc& a_safePointFunc)
+            : m_desc(config), m_threadFactory(a_threadFactory), m_clock(a_clock), m_waiter(a_waiter),
+            m_frameCounter(a_clock, a_waiter), m_updateFunc(a_updateFunc), m_renderFunc(a_renderFunc),
+            m_presentFunc(a_presentFunc), m_safePointFunc(a_safePointFunc)
         {
             // 初期化はメンバ初期化リストで完結させる
         }
@@ -167,29 +157,57 @@ namespace Cue
         uint32_t steps_per_present() const noexcept;
 
     private:
-        struct FixedState final
+        class ControllerState
         {
-            uint64_t produceFrame = 0;
-            uint64_t renderFrame = 0;
-            uint64_t totalFrame = 0;
+        public:
+            virtual ~ControllerState() = default;
+            virtual void reset() noexcept = 0;
+            virtual bool step(FrameController& a_controller) = 0;
         };
 
-        struct MailboxState final
+        class FixedState final : public ControllerState
         {
-            uint64_t produceFrame = 0;
-            uint64_t lastPresentedFrame = 0;
-            bool hasPresented = false;
+        public:
+            void reset() noexcept override;
+            bool step(FrameController& a_controller) override;
+
+        private:
+            uint64_t m_produceFrame = 0;
+            uint64_t m_renderFrame = 0;
+            uint64_t m_totalFrame = 0;
         };
 
-        struct BackpressureState final
+        class MailboxState final : public ControllerState
         {
-            uint64_t currentFrame = 0;
-            bool inFlight = false;
+        public:
+            void reset() noexcept override;
+            bool step(FrameController& a_controller) override;
+
+        private:
+            uint64_t m_produceFrame = 0;
+            uint64_t m_lastPresentedFrame = 0;
+            bool m_hasPresented = false;
         };
 
-        struct SingleBufferState final
+        class BackpressureState final : public ControllerState
         {
-            uint64_t currentFrame = 0;
+        public:
+            void reset() noexcept override;
+            bool step(FrameController& a_controller) override;
+
+        private:
+            uint64_t m_currentFrame = 0;
+            bool m_isInFlight = false;
+        };
+
+        class SingleBufferState final : public ControllerState
+        {
+        public:
+            void reset() noexcept override;
+            bool step(FrameController& a_controller) override;
+
+        private:
+            uint64_t m_currentFrame = 0;
         };
 
         /// @brief パイプライン起動
@@ -199,8 +217,8 @@ namespace Cue
         void stop_jobs();
 
         /// @brief 各段 index 計算
-        void compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex,
-            uint32_t& renderIndex, uint32_t& presentIndex);
+        void compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex,
+            uint32_t& presentIndex);
 
         /// @brief present 実行
         void present_frame(uint64_t frameNo);
@@ -214,21 +232,11 @@ namespace Cue
         /// @brief バッファ初期充填
         void fill_buffers(uint64_t frameNo);
 
-        /// @brief single buffer 進行
-        bool step_single_buffer();
-
-        /// @brief fixed 進行
-        bool step_fixed();
-
-        /// @brief mailbox 進行
-        bool step_mailbox();
-
-        /// @brief backpressure 進行
-        bool step_backpressure();
+        /// @brief 設定から使用する状態を選ぶ
+        ControllerState& select_state() noexcept;
 
         /// @brief 指定フレームのジョブが完了済みかを返す
-        static bool is_frame_finished(uint64_t a_finishedFrame,
-            uint64_t a_frameNo) noexcept;
+        static bool is_frame_finished(uint64_t a_finishedFrame, uint64_t a_frameNo) noexcept;
 
         FrameControllerDesc m_desc;
         Core::Threading::IThreadFactory& m_threadFactory;
@@ -247,6 +255,7 @@ namespace Cue
         MailboxState m_mailboxState{};
         BackpressureState m_backpressureState{};
         SingleBufferState m_singleState{};
+        ControllerState* m_activeState = nullptr;
         uint64_t m_maxLead = 0;
         bool m_started = false;
         bool m_finished = false;
@@ -261,4 +270,5 @@ namespace Cue
         uint32_t m_renderIndex = 0;
         uint32_t m_presentIndex = 0;
     };
-}
+} // namespace Cue
+

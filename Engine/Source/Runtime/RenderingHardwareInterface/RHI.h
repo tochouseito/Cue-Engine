@@ -67,5 +67,6 @@ namespace Cue::RHI
         virtual uint32_t width() const noexcept = 0;
         virtual uint32_t height() const noexcept = 0;
         virtual const uint32_t& buffer_count() const noexcept = 0;
+        virtual Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const = 0;
     };
 }

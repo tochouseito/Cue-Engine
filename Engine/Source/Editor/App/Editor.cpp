@@ -128,6 +128,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
             "Failed to get system memory usage: {}", r.message);
     }
+    // GPU
+    RHI::GpuMemoryUsage gpuMemoryUsage{};
+    if (r = renderBackend->get_gpu_memory_usage(gpuMemoryUsage); r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "GPU Memory Usage - Budget: {} MB, Current Usage: {} MB, Available for Reservation: {} MB, Current Reservation: {} MB",
+            gpuMemoryUsage.budgetBytes / (1024 * 1024),
+            gpuMemoryUsage.currentUsageBytes / (1024 * 1024),
+            gpuMemoryUsage.availableForReservationBytes / (1024 * 1024),
+            gpuMemoryUsage.currentReservationBytes / (1024 * 1024));
+    }
+    else
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to get GPU memory usage: {}", r.message);
+    }
 
     // メインループ
     bool isRunning = true;

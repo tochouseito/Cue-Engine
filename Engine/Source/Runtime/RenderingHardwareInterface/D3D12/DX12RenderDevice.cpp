@@ -66,13 +66,12 @@ namespace Cue::RHI::DX12
         // 生成に成功した最初の feature level を採用する。
         // 高性能 GPU 優先で列挙し、意図しないソフトウェアデバイス選択を避ける
         HRESULT hr = S_OK;
-        ComPtr<IDXGIAdapter4> adapter = nullptr;
         for (UINT i = 0; m_dxgiFactory->EnumAdapterByGpuPreference(i,
-            DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) !=
+            DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&m_adapter)) !=
             DXGI_ERROR_NOT_FOUND; ++i)
         {
             // 条件判定用アダプタ情報取得
-            hr = adapter->GetDesc3(&m_adapterDesc);
+            hr = m_adapter->GetDesc3(&m_adapterDesc);
             if (FAILED(hr))
             {
                 return Result::fail(
@@ -85,10 +84,10 @@ namespace Cue::RHI::DX12
                 break;
             }
 
-            adapter = nullptr;
+            m_adapter = nullptr;
         }
 
-        if (adapter == nullptr)
+        if (m_adapter == nullptr)
         {
             return Result::fail(
                 Code::NotFound, Severity::Fatal,
@@ -116,7 +115,7 @@ namespace Cue::RHI::DX12
         // 高い機能レベルから試して、利用可能な最大機能をそのまま採用し
         for (size_t i = 0; i < _countof(featureLevels); ++i)
         {
-            hr = D3D12CreateDevice(adapter.Get(), featureLevels[i], IID_PPV_ARGS(&m_d3d12Device));
+            hr = D3D12CreateDevice(m_adapter.Get(), featureLevels[i], IID_PPV_ARGS(&m_d3d12Device));
 
             if (SUCCEEDED(hr))
             {

@@ -20,6 +20,9 @@ namespace Cue::RHI::DX12
         m_renderDevice = std::make_unique<DX12RenderDevice>();
         m_renderDevice->initialize(a_info.enableDebugLayer);
 
+        // GPU Profiler の初期化
+        m_gpuProfiler = std::make_unique<DX12GpuProfiler>(*m_renderDevice);
+
         // デスクリプタアロケータの初期化
         // View/Texture/Buffer manager が使う CPU/GPU descriptor heap をまとめて確保する。
         m_descriptorAllocator = std::make_unique<DescriptorAllocator>(*m_renderDevice->get_d3d12_device());

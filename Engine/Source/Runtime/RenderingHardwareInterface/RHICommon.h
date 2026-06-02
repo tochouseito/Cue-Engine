@@ -49,6 +49,14 @@ namespace Cue::RHI
     using ShaderBlobHandle = Core::Handle<ShaderBlobTag>;
     using StaticMeshHandle = Core::Handle<StaticMeshTag>;
 
+    struct GpuMemoryUsage
+    {
+        uint64_t budgetBytes = 0;
+        uint64_t currentUsageBytes = 0;
+        uint64_t availableForReservationBytes = 0;
+        uint64_t currentReservationBytes = 0;
+    };
+
     enum class CommandListType : uint8_t
     {
         Graphics,

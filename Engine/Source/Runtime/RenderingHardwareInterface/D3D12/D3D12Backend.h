@@ -23,6 +23,7 @@
 #include "DX12TextureManager.h"
 #include "DX12ViewManager.h"
 #include "DX12PipelineManager.h"
+#include "DX12GpuProfiler.h"
 
 namespace Cue::RHI::DX12
 {
@@ -56,6 +57,7 @@ namespace Cue::RHI::DX12
         uint32_t width() const noexcept override { return m_width; }
         uint32_t height() const noexcept override { return m_height; }
         const uint32_t& buffer_count() const noexcept override { return m_bufferCount; }
+        Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const override { return m_gpuProfiler->get_gpu_memory_usage(outUsage); }
         /// @brief 利用する Windows プラットフォームを設定する
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
     private:
@@ -80,5 +82,6 @@ namespace Cue::RHI::DX12
         std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
         std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
         std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
+        std::unique_ptr<DX12GpuProfiler> m_gpuProfiler = nullptr; // GPUプロファイラ
     };
 }

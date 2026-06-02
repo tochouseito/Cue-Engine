@@ -27,6 +27,9 @@ namespace Cue::RHI::DX12
         /// @brief D3D12 デバイスを取得する
         ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
 
+        /// @brief 選択された GPU アダプタのを取得する
+        IDXGIAdapter4* get_adapter() const noexcept { return m_adapter.Get(); }
+
         /// @brief DXGI ファクトリを取得する
         IDXGIFactory7* get_dxgi_factory() const noexcept { return m_dxgiFactory.Get(); }
 
@@ -39,6 +42,7 @@ namespace Cue::RHI::DX12
         Result create_d3d12_device();
     private:
         ComPtr<IDXGIFactory7> m_dxgiFactory = nullptr; // dxgi ファクトリ
+        ComPtr<IDXGIAdapter4> m_adapter = nullptr; // 選択されたアダプタ
         ComPtr<ID3D12Device> m_d3d12Device = nullptr; // d3d12 デバイス
         DXGI_ADAPTER_DESC3 m_adapterDesc = {}; // アダプタ情報
         D3D_FEATURE_LEVEL m_featureLevel = {}; // 機能レベル
