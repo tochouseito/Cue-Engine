@@ -63,6 +63,33 @@ namespace Cue
             return r;
         }
 
+        auto* bufferManager = m_renderBackend->get_buffer_manager();
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get buffer manager from backend.");
+        }
+
+        auto* viewManager = m_renderBackend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        auto* commandPool = m_renderBackend->get_command_pool();
+        auto* queuePool = m_renderBackend->get_queue_pool();
+        if (commandPool == nullptr || queuePool == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get command or queue pool from backend.");
+        }
+
+        // MeshPool の生成
+        DrawSystem::MeshPoolDesc meshPoolDesc{};
+        m_meshPool = std::make_unique<DrawSystem::MeshPool>(
+            meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
         return Result::ok();
     }
 

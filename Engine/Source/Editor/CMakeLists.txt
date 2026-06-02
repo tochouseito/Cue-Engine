@@ -10,7 +10,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(Editor WIN32
     "App/Editor.cpp"
     "App/EditorResources.rc"
-)
+ "Asset/ModelImporter.h" "Asset/ModelImporter.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -21,6 +21,14 @@ target_link_libraries(Editor PRIVATE
    win_platform
    d3d12_backend
    Engine
+)
+
+target_link_libraries(Editor PRIVATE
+    assimp::assimp
+    imgui::imgui
+    imguizmo::imguizmo
+    nlohmann_json::nlohmann_json
+    msacm32
 )
 
 # インクルードディレクトリの指定

@@ -39,7 +39,7 @@ namespace Cue::RHI
     struct PipelineTag {};
     struct RootSignatureTag {};
     struct ShaderBlobTag {};
-    struct StaticMeshTag {};
+    struct MeshTag {};
 
     using BufferHandle = Core::Handle<BufferTag>;
     using TextureHandle = Core::Handle<TextureTag>;
@@ -47,7 +47,7 @@ namespace Cue::RHI
     using PipelineStateHandle = Core::Handle<PipelineTag>;
     using RootSignatureHandle = Core::Handle<RootSignatureTag>;
     using ShaderBlobHandle = Core::Handle<ShaderBlobTag>;
-    using StaticMeshHandle = Core::Handle<StaticMeshTag>;
+    using MeshHandle = Core::Handle<MeshTag>;
 
     struct GpuMemoryUsage
     {

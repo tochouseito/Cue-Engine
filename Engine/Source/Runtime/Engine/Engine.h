@@ -21,6 +21,7 @@
 
 // === Engine includes ===
 #include "FrameController.h"
+#include "DrawSystem/MeshPool.h"
 
 // === C++ includes ===
 #include <cstdint>
@@ -94,5 +95,8 @@ namespace Cue
 
         // --- 全体共有リソース ---
         RHI::RenderTargetResources m_gameRenderTarget{};
+
+        // --- サブシステム ---
+        std::unique_ptr<MeshPool> m_meshPool = nullptr;
     };
 }
