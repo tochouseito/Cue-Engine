@@ -43,8 +43,8 @@ namespace Cue::DrawSystem
     /// @brief MeshPool の初期化パラメータ
     struct MeshPoolDesc final
     {
-        uint32_t maxVertexCount = 256u * 1024u; // プール内の最大頂点数
-        uint32_t maxIndexCount = 768u * 1024u; // プール内の最大インデックス数
+        uint32_t maxVertexCount = 4u * 1024u * 1024u; // プール内の最大頂点数
+        uint32_t maxIndexCount = 4u * 1024u * 1024u; // プール内の最大インデックス数
         uint32_t maxMeshCount = 4u * 1024u; // プール内の最大メッシュ数
         uint32_t positionStagingSize = 1u * 1024u * 1024u; // Position stream 用の常設 staging サイズ
         uint32_t uvStagingSize = 512u * 1024u; // UV stream 用の常設 staging サイズ

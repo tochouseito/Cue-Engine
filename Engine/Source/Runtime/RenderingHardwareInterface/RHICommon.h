@@ -72,6 +72,8 @@ namespace Cue::RHI
         RenderTarget,
         UnorderedAccess,
         ShaderResource,
+        VertexBuffer,
+        IndexBuffer,
         IndirectArgument,
         DepthWrite,
         Present
@@ -87,6 +89,8 @@ namespace Cue::RHI
         case ResourceState::RenderTarget: return "RenderTarget";
         case ResourceState::UnorderedAccess: return "UnorderedAccess";
         case ResourceState::ShaderResource: return "ShaderResource";
+        case ResourceState::VertexBuffer: return "VertexBuffer";
+        case ResourceState::IndexBuffer: return "IndexBuffer";
         case ResourceState::IndirectArgument: return "IndirectArgument";
         case ResourceState::DepthWrite: return "DepthWrite";
         case ResourceState::Present: return "Present";

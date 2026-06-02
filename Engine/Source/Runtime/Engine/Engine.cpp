@@ -11,6 +11,7 @@
 
 // === Frame Passes includes ===
 #include "DrawSystem/passes/FinalColorClearPass.h"
+#include "DrawSystem/passes/MeshForwardPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 
 namespace Cue
@@ -56,13 +57,6 @@ namespace Cue
             return r;
         }
 
-        // FrameGraph の生成
-        r = create_frame_graphs(nullptr);
-        if (!r)
-        {
-            return r;
-        }
-
         auto* bufferManager = m_renderBackend->get_buffer_manager();
         if (bufferManager == nullptr)
         {
@@ -89,6 +83,13 @@ namespace Cue
         DrawSystem::MeshPoolDesc meshPoolDesc{};
         m_meshPool = std::make_unique<DrawSystem::MeshPool>(
             meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
+        // FrameGraph の生成
+        r = create_frame_graphs(nullptr);
+        if (!r)
+        {
+            return r;
+        }
 
         return Result::ok();
     }
@@ -184,6 +185,13 @@ namespace Cue
 
         m_frameGraph->add_pass(
             std::make_unique<RHI::FinalColorClearPass>());
+        if (m_meshPool != nullptr)
+        {
+            m_frameGraph->add_pass(
+                std::make_unique<DrawSystem::MeshForwardPass>(
+                    *m_meshPool,
+                    m_drawMeshId));
+        }
 
         result = m_frameGraph->build();
         if (!result)

@@ -98,5 +98,6 @@ namespace Cue
 
         // --- サブシステム ---
         std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+        uint32_t m_drawMeshId = UINT32_MAX;
     };
 }
