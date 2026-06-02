@@ -34,6 +34,7 @@ target_link_libraries(Editor PRIVATE
 # インクルードディレクトリの指定
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 # 定数定義

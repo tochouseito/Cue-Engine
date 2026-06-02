@@ -84,6 +84,45 @@ namespace Cue
         m_meshPool = std::make_unique<DrawSystem::MeshPool>(
             meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
 
+        m_drawResources = std::make_unique<DrawSystem::DrawResources>(bufferManager, viewManager, a_info.renderBackend->buffer_count());
+        constexpr uint32_t maxObjectCount = 1000;
+
+        r = m_drawResources->create_renderable_info_buffer(maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+        
+        r = m_drawResources->create_transform_buffer(maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_view_projection_buffer();
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_material_buffer(maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_render_object_buffer(maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_object_count_buffer();
+        if (!r)
+        {
+            return r;
+        }
+
         // FrameGraph の生成
         r = create_frame_graphs(nullptr);
         if (!r)
@@ -148,6 +187,55 @@ namespace Cue
         m_frameController->step();
 
         return Result::ok();
+    }
+
+    Result Engine::register_model(const Core::Native::ModelData& a_modelData)
+    {
+        if (m_meshPool == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "MeshPool is not initialized.");
+        }
+        if (a_modelData.meshes.empty())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "ModelData does not contain any mesh.");
+        }
+
+        const size_t firstHandleIndex = m_meshHandles.size();
+        m_meshHandles.reserve(m_meshHandles.size() + a_modelData.meshes.size());
+        for (const Core::Native::MeshData& meshData : a_modelData.meshes)
+        {
+            RHI::MeshHandle meshHandle{};
+            Result result = m_meshPool->allocate_mesh(meshData, meshHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            m_meshHandles.push_back(meshHandle);
+        }
+
+        uint32_t drawMeshIndex = 0;
+        if (!a_modelData.renderParts.empty())
+        {
+            drawMeshIndex = a_modelData.renderParts[0].meshIndex;
+        }
+        if (drawMeshIndex >= a_modelData.meshes.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Model render part mesh index is out of range.");
+        }
+
+        RHI::MeshHandle drawMeshHandle =
+            m_meshHandles[firstHandleIndex + drawMeshIndex];
+        return m_meshPool->get_mesh_id(drawMeshHandle, m_drawMeshId);
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::render()

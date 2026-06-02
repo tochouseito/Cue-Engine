@@ -14,6 +14,9 @@
 // === D3D12Backend includes ===
 #include <D3D12Backend.h>
 
+// === Editor includes ===
+#include <Asset/ModelImporter.h>
+
 // === Engine includes ===
 #include <Engine.h>
 
@@ -88,6 +91,28 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s", r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize engine: %s", r.message.data());
+        return -1;
+    }
+
+    Core::Native::ModelData dragonModelData{};
+    const Core::IO::Path dragonPath(
+        std::string(CUE_PROJECT_ROOT_PATH) + "/TestProject/Assets/Models/dragon.obj");
+    r = Editor::ModelImporter::import_model(
+        dragonPath,
+        "dragon",
+        dragonModelData);
+    if (!r)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to import dragon model: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to import dragon model: %s", r.message.data());
+        return -1;
+    }
+
+    r = engine->register_model(dragonModelData);
+    if (!r)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to register dragon model: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to register dragon model: %s", r.message.data());
         return -1;
     }
 

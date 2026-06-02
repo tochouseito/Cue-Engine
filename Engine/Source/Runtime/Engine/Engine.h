@@ -22,10 +22,12 @@
 // === Engine includes ===
 #include "FrameController.h"
 #include "DrawSystem/MeshPool.h"
+#include "DrawSystem/DrawResources.h"
 
 // === C++ includes ===
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace Cue
 {
@@ -64,6 +66,9 @@ namespace Cue
         /// @brief ティック処理
         Result tick();
 
+        /// @brief インポート済みモデルを描画用 MeshPool に登録する
+        Result register_model(const Core::Native::ModelData& a_modelData);
+
         //
         FrameController& frame_controller() noexcept
         {
@@ -98,6 +103,8 @@ namespace Cue
 
         // --- サブシステム ---
         std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+        std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
         uint32_t m_drawMeshId = UINT32_MAX;
+        std::vector<RHI::MeshHandle> m_meshHandles{};
     };
 }

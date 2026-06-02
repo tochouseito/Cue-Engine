@@ -1,0 +1,65 @@
+#pragma once
+
+/// ************************************************************************************
+/// バッチングに関連するGPUデータ構造の定義
+/// ************************************************************************************
+
+// === C++ includes ===
+#include <cstdint>
+#include <string>
+#include <vector>
+
+// === Math includes ===
+#include <CueMath.h>
+
+namespace Cue::GpuData
+{
+    // 描画可能オブジェクト
+    struct RenderableInfo
+    {
+        uint32_t objectId = 0;      // オブジェクトID
+        uint32_t visible = 1;       // 可視フラグ（0: 非表示、1: 表示）
+        uint32_t meshId = 0;        // メッシュID
+        uint32_t transformId = 0;   // 変換ID
+        uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
+    };
+
+    // 描画オブジェクト
+    struct RenderObject
+    {
+        uint32_t objectId = 0;      // オブジェクトID
+        uint32_t meshId = 0;        // メッシュID
+        uint32_t transformId = 0;   // 変換ID
+        uint32_t materialId = 0;    // マテリアルID
+        uint32_t castsShadow = 1;   // 影を落とすか
+        uint32_t receivesShadow = 1; // 影を受けるか
+        uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
+        uint32_t skinPaletteOffset = UINT32_MAX;
+        uint32_t skinPaletteCount = 0;
+    };
+
+    struct MaterialGpu
+    {
+        Math::float4 color = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        uint32_t textureId = 0;
+        uint32_t useTexture = 0;
+        uint32_t useReflectionSkybox = 0;
+        float shininess = 32.0f;
+    };
+
+    // インダイレクト描画コマンド
+    struct IndirectCommand
+    {
+        uint32_t drawObjectStartIndex = 0;
+        uint32_t indexCountPerInstance = 0;
+        uint32_t instanceCount = 0;
+        uint32_t startIndexLocation = 0;
+        int32_t baseVertexLocation = 0;
+        uint32_t startInstanceLocation = 0;
+    };
+}
