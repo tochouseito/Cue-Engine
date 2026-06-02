@@ -97,6 +97,6 @@ namespace Cue
         RHI::RenderTargetResources m_gameRenderTarget{};
 
         // --- サブシステム ---
-        std::unique_ptr<MeshPool> m_meshPool = nullptr;
+        std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
     };
 }
