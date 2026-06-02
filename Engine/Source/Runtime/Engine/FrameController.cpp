@@ -5,7 +5,8 @@
 
 namespace Cue
 {
-    bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name, jobFunc a_func)
+    bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock,
+                         const char* a_name, jobFunc a_func)
     {
         // 実行関数をメンバへ保持する
         // 要求受付ループのスレッドを開始する
@@ -39,7 +40,7 @@ namespace Cue
         // 待機中スレッドを起こして遅延を抑える
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_queue.push_back(Request{ frameNo, index });
+            m_queue.push_back(Request{frameNo, index});
         }
         m_cv.notify_one();
     }
@@ -100,10 +101,7 @@ namespace Cue
         while (!a_token.stop_requested())
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [&]()
-                {
-                    return m_exit || !m_queue.empty() || a_token.stop_requested();
-                });
+            m_cv.wait(lock, [&]() { return m_exit || !m_queue.empty() || a_token.stop_requested(); });
 
             if (m_exit || a_token.stop_requested())
             {
@@ -173,26 +171,8 @@ namespace Cue
 
         ++m_stepsSincePresent;
 
-        bool isRunning = true;
-        if (m_desc.bufferCount == 1)
-        {
-            isRunning = step_single_buffer();
-        }
-        else
-        {
-            switch (m_desc.mode)
-            {
-            case ControllerMode::Fixed:
-                isRunning = step_fixed();
-                break;
-            case ControllerMode::Mailbox:
-                isRunning = step_mailbox();
-                break;
-            case ControllerMode::Backpressure:
-                isRunning = step_backpressure();
-                break;
-            }
-        }
+        CUE_ASSERT_MSG(m_activeState != nullptr, "FrameController state is null.");
+        const bool isRunning = m_activeState->step(*this);
 
         if (!isRunning)
         {
@@ -238,10 +218,11 @@ namespace Cue
         m_frameCounter.set_max_lead(m_desc.bufferCount - 1);
         m_maxLead = static_cast<uint64_t>(m_desc.bufferCount - 1);
         m_backBufferBase = 0;
-        m_fixedState = FixedState{};
-        m_mailboxState = MailboxState{};
-        m_backpressureState = BackpressureState{};
-        m_singleState = SingleBufferState{};
+        m_fixedState.reset();
+        m_mailboxState.reset();
+        m_backpressureState.reset();
+        m_singleState.reset();
+        m_activeState = &select_state();
         m_updateElapsedMs = 0.0;
         m_renderElapsedMs = 0.0;
         m_stepElapsedMs = 0.0;
@@ -260,19 +241,15 @@ namespace Cue
             return true;
         }
 
-        if (!m_updateJob.start(m_threadFactory, m_clock, "UpdateJob", [this](uint64_t frameNo, uint32_t index)
-            {
-                m_updateFunc(frameNo, index);
-            }))
+        if (!m_updateJob.start(m_threadFactory, m_clock, "UpdateJob",
+                               [this](uint64_t frameNo, uint32_t index) { m_updateFunc(frameNo, index); }))
         {
             CUE_ASSERT_MSG(false, "UpdateJob の開始に失敗しました。");
             return false;
         }
 
-        if (!m_renderJob.start(m_threadFactory, m_clock, "RenderJob", [this](uint64_t frameNo, uint32_t index)
-            {
-                m_renderFunc(frameNo, index);
-            }))
+        if (!m_renderJob.start(m_threadFactory, m_clock, "RenderJob",
+                               [this](uint64_t frameNo, uint32_t index) { m_renderFunc(frameNo, index); }))
         {
             CUE_ASSERT_MSG(false, "RenderJob の開始に失敗しました。");
             m_updateJob.stop();
@@ -324,7 +301,8 @@ namespace Cue
     {
         return m_stepsPerPresent;
     }
-    void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex, uint32_t& renderIndex, uint32_t& presentIndex)
+    void FrameController::compute_indices(uint64_t frameNo, uint32_t bufferCount, uint32_t& updateIndex,
+                                          uint32_t& renderIndex, uint32_t& presentIndex)
     {
         if (bufferCount == 1)
         {
@@ -401,211 +379,244 @@ namespace Cue
             m_updateFunc(frameNo, i);
         }
     }
-    bool FrameController::step_single_buffer()
+    FrameController::ControllerState& FrameController::select_state() noexcept
+    {
+        if (m_desc.bufferCount == 1)
+        {
+            return m_singleState;
+        }
+
+        switch (m_desc.mode)
+        {
+        case ControllerMode::Fixed:
+            return m_fixedState;
+        case ControllerMode::Mailbox:
+            return m_mailboxState;
+        case ControllerMode::Backpressure:
+            return m_backpressureState;
+        }
+
+        return m_fixedState;
+    }
+    void FrameController::SingleBufferState::reset() noexcept
+    {
+        m_currentFrame = 0;
+    }
+    bool FrameController::SingleBufferState::step(FrameController& a_controller)
     {
         // リサイズ要求があれば次フレームの基準だけ合わせる
         // Update -> Render -> Present を順番に処理する
-        if (m_resizePending.load(std::memory_order_relaxed))
+        if (a_controller.m_resizePending.load(std::memory_order_relaxed))
         {
-            apply_pending_resize(m_singleState.currentFrame, false);
+            a_controller.apply_pending_resize(m_currentFrame, false);
         }
 
         uint32_t updateIndex = 0;
         uint32_t renderIndex = 0;
         uint32_t presentIndex = 0;
-        compute_indices(m_singleState.currentFrame, m_desc.bufferCount, updateIndex, renderIndex, presentIndex);
+        a_controller.compute_indices(m_currentFrame, a_controller.m_desc.bufferCount, updateIndex, renderIndex,
+                                     presentIndex);
         (void)presentIndex;
 
-        Core::Time::Timer updateTimer(m_clock);
+        Core::Time::Timer updateTimer(a_controller.m_clock);
         updateTimer.start();
-        m_updateFunc(m_singleState.currentFrame, updateIndex);
+        a_controller.m_updateFunc(m_currentFrame, updateIndex);
         updateTimer.stop();
-        m_updateElapsedMs = updateTimer.elapsed_ticks().ms_f64();
+        a_controller.m_updateElapsedMs = updateTimer.elapsed_ticks().ms_f64();
 
-        Core::Time::Timer renderTimer(m_clock);
+        Core::Time::Timer renderTimer(a_controller.m_clock);
         renderTimer.start();
-        m_renderFunc(m_singleState.currentFrame, renderIndex);
+        a_controller.m_renderFunc(m_currentFrame, renderIndex);
         renderTimer.stop();
-        m_renderElapsedMs = renderTimer.elapsed_ticks().ms_f64();
-        present_frame(m_singleState.currentFrame);
-        ++m_singleState.currentFrame;
+        a_controller.m_renderElapsedMs = renderTimer.elapsed_ticks().ms_f64();
+        a_controller.present_frame(m_currentFrame);
+        ++m_currentFrame;
 
         return true;
     }
-    bool FrameController::step_fixed()
+    void FrameController::FixedState::reset() noexcept
+    {
+        m_produceFrame = 0;
+        m_renderFrame = 0;
+        m_totalFrame = 0;
+    }
+    bool FrameController::FixedState::step(FrameController& a_controller)
     {
         // 安全にリサイズできるかを先に確認する
         // 先行上限内なら Update/Render をキックする
         // 完了済みなら Present して進める
-        if (m_resizePending.load(std::memory_order_relaxed) &&
-            m_fixedState.produceFrame == m_fixedState.totalFrame &&
-            m_fixedState.renderFrame == m_fixedState.totalFrame)
+        if (a_controller.m_resizePending.load(std::memory_order_relaxed) && m_produceFrame == m_totalFrame &&
+            m_renderFrame == m_totalFrame)
         {
-            apply_pending_resize(m_fixedState.totalFrame, true);
+            a_controller.apply_pending_resize(m_totalFrame, true);
         }
 
-        const bool canProduce = !m_resizePending.load(std::memory_order_relaxed);
-        if (canProduce && (m_fixedState.produceFrame - m_fixedState.totalFrame) < m_maxLead)
+        const bool canProduce = !a_controller.m_resizePending.load(std::memory_order_relaxed);
+        if (canProduce && (m_produceFrame - m_totalFrame) < a_controller.m_maxLead)
         {
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_fixedState.produceFrame, m_desc.bufferCount, updateIndex, renderIndex, presentIndex);
+            a_controller.compute_indices(m_produceFrame, a_controller.m_desc.bufferCount, updateIndex, renderIndex,
+                                         presentIndex);
             (void)presentIndex;
 
-            m_updateJob.kick(m_fixedState.produceFrame, updateIndex);
-            ++m_fixedState.produceFrame;
+            a_controller.m_updateJob.kick(m_produceFrame, updateIndex);
+            ++m_produceFrame;
         }
 
-        const uint64_t updateFinished = m_updateJob.get_finished_frame();
-        if (m_fixedState.renderFrame == m_fixedState.totalFrame &&
-            m_fixedState.renderFrame < m_fixedState.produceFrame &&
-            is_frame_finished(updateFinished, m_fixedState.renderFrame))
+        const uint64_t updateFinished = a_controller.m_updateJob.get_finished_frame();
+        if (m_renderFrame == m_totalFrame && m_renderFrame < m_produceFrame &&
+            FrameController::is_frame_finished(updateFinished, m_renderFrame))
         {
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_fixedState.renderFrame, m_desc.bufferCount,
-                updateIndex, renderIndex, presentIndex);
+            a_controller.compute_indices(m_renderFrame, a_controller.m_desc.bufferCount, updateIndex, renderIndex,
+                                         presentIndex);
             (void)updateIndex;
             (void)presentIndex;
 
-            m_renderJob.kick(m_fixedState.renderFrame, renderIndex);
-            ++m_fixedState.renderFrame;
+            a_controller.m_renderJob.kick(m_renderFrame, renderIndex);
+            ++m_renderFrame;
         }
 
         const bool canPresent =
-            is_frame_finished(m_renderJob.get_finished_frame(),
-                m_fixedState.totalFrame);
+            FrameController::is_frame_finished(a_controller.m_renderJob.get_finished_frame(), m_totalFrame);
         if (canPresent)
         {
-            present_frame(m_fixedState.totalFrame);
-            ++m_fixedState.totalFrame;
+            a_controller.present_frame(m_totalFrame);
+            ++m_totalFrame;
 
-            if (m_resizePending.load(std::memory_order_relaxed) &&
-                m_fixedState.produceFrame == m_fixedState.totalFrame &&
-                m_fixedState.renderFrame == m_fixedState.totalFrame)
+            if (a_controller.m_resizePending.load(std::memory_order_relaxed) && m_produceFrame == m_totalFrame &&
+                m_renderFrame == m_totalFrame)
             {
-                apply_pending_resize(m_fixedState.totalFrame, true);
+                a_controller.apply_pending_resize(m_totalFrame, true);
             }
         }
         else
         {
-            m_waiter.relax();
+            a_controller.m_waiter.relax();
         }
 
         return true;
     }
-    bool FrameController::step_mailbox()
+    void FrameController::MailboxState::reset() noexcept
+    {
+        m_produceFrame = 0;
+        m_lastPresentedFrame = 0;
+        m_hasPresented = false;
+    }
+    bool FrameController::MailboxState::step(FrameController& a_controller)
     {
         // 初回のリサイズ適用タイミングを安全側に寄せる
         // 先行上限内で Update/Render をキックする
         // Present とリサイズ反映を進める
-        if (m_resizePending.load(std::memory_order_relaxed) && !m_mailboxState.hasPresented &&
-            m_mailboxState.produceFrame == 0)
+        if (a_controller.m_resizePending.load(std::memory_order_relaxed) && !m_hasPresented && m_produceFrame == 0)
         {
-            apply_pending_resize(0, true);
+            a_controller.apply_pending_resize(0, true);
         }
 
-        const uint64_t presentBase = m_mailboxState.hasPresented ? m_mailboxState.lastPresentedFrame : 0;
-        const bool canProduce = !m_resizePending.load(std::memory_order_relaxed);
-        if (canProduce && (m_mailboxState.produceFrame - presentBase) < m_maxLead)
+        const uint64_t presentBase = m_hasPresented ? m_lastPresentedFrame : 0;
+        const bool canProduce = !a_controller.m_resizePending.load(std::memory_order_relaxed);
+        if (canProduce && (m_produceFrame - presentBase) < a_controller.m_maxLead)
         {
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_mailboxState.produceFrame, m_desc.bufferCount, updateIndex, renderIndex, presentIndex);
+            a_controller.compute_indices(m_produceFrame, a_controller.m_desc.bufferCount, updateIndex, renderIndex,
+                                         presentIndex);
             (void)presentIndex;
 
-            m_updateJob.kick(m_mailboxState.produceFrame, updateIndex);
-            m_renderJob.kick(m_mailboxState.produceFrame, renderIndex);
-            ++m_mailboxState.produceFrame;
+            a_controller.m_updateJob.kick(m_produceFrame, updateIndex);
+            a_controller.m_renderJob.kick(m_produceFrame, renderIndex);
+            ++m_produceFrame;
         }
 
-        const uint64_t updateFinished = m_updateJob.get_finished_frame();
-        const uint64_t renderFinished = m_renderJob.get_finished_frame();
+        const uint64_t updateFinished = a_controller.m_updateJob.get_finished_frame();
+        const uint64_t renderFinished = a_controller.m_renderJob.get_finished_frame();
         if (updateFinished == std::numeric_limits<uint64_t>::max() ||
             renderFinished == std::numeric_limits<uint64_t>::max())
         {
-            m_waiter.relax();
+            a_controller.m_waiter.relax();
             return true;
         }
         const uint64_t readyFrame = (updateFinished < renderFinished) ? updateFinished : renderFinished;
 
         bool didPresent = false;
-        if (!m_mailboxState.hasPresented || readyFrame > m_mailboxState.lastPresentedFrame)
+        if (!m_hasPresented || readyFrame > m_lastPresentedFrame)
         {
-            present_frame(readyFrame);
-            m_mailboxState.lastPresentedFrame = readyFrame;
-            m_mailboxState.hasPresented = true;
+            a_controller.present_frame(readyFrame);
+            m_lastPresentedFrame = readyFrame;
+            m_hasPresented = true;
             didPresent = true;
         }
 
         bool didResize = false;
-        if (m_resizePending.load(std::memory_order_relaxed) && m_mailboxState.hasPresented)
+        if (a_controller.m_resizePending.load(std::memory_order_relaxed) && m_hasPresented)
         {
-            const bool noInFlight = (m_mailboxState.lastPresentedFrame + 1) == m_mailboxState.produceFrame;
-            const bool workersDone = updateFinished >= m_mailboxState.lastPresentedFrame &&
-                renderFinished >= m_mailboxState.lastPresentedFrame;
+            const bool noInFlight = (m_lastPresentedFrame + 1) == m_produceFrame;
+            const bool workersDone = updateFinished >= m_lastPresentedFrame && renderFinished >= m_lastPresentedFrame;
             if (noInFlight && workersDone)
             {
-                apply_pending_resize(m_mailboxState.lastPresentedFrame + 1, true);
+                a_controller.apply_pending_resize(m_lastPresentedFrame + 1, true);
                 didResize = true;
             }
         }
 
         if (!didPresent && !didResize)
         {
-            m_waiter.relax();
+            a_controller.m_waiter.relax();
         }
 
         return true;
     }
-    bool FrameController::step_backpressure()
+    void FrameController::BackpressureState::reset() noexcept
+    {
+        m_currentFrame = 0;
+        m_isInFlight = false;
+    }
+    bool FrameController::BackpressureState::step(FrameController& a_controller)
     {
         // キック条件を確認する
         // 完了済みなら Present して次へ進む
-        if (!m_backpressureState.inFlight)
+        if (!m_isInFlight)
         {
-            if (m_resizePending.load(std::memory_order_relaxed))
+            if (a_controller.m_resizePending.load(std::memory_order_relaxed))
             {
-                apply_pending_resize(m_backpressureState.currentFrame, true);
+                a_controller.apply_pending_resize(m_currentFrame, true);
             }
 
             uint32_t updateIndex = 0;
             uint32_t renderIndex = 0;
             uint32_t presentIndex = 0;
-            compute_indices(m_backpressureState.currentFrame, m_desc.bufferCount,
-                updateIndex, renderIndex, presentIndex);
+            a_controller.compute_indices(m_currentFrame, a_controller.m_desc.bufferCount, updateIndex, renderIndex,
+                                         presentIndex);
             (void)presentIndex;
 
-            m_updateJob.kick(m_backpressureState.currentFrame, updateIndex);
-            m_renderJob.kick(m_backpressureState.currentFrame, renderIndex);
-            m_backpressureState.inFlight = true;
+            a_controller.m_updateJob.kick(m_currentFrame, updateIndex);
+            a_controller.m_renderJob.kick(m_currentFrame, renderIndex);
+            m_isInFlight = true;
         }
 
         const bool canPresent =
-            is_frame_finished(m_updateJob.get_finished_frame(),
-                m_backpressureState.currentFrame) &&
-            is_frame_finished(m_renderJob.get_finished_frame(),
-                m_backpressureState.currentFrame);
+            FrameController::is_frame_finished(a_controller.m_updateJob.get_finished_frame(), m_currentFrame) &&
+            FrameController::is_frame_finished(a_controller.m_renderJob.get_finished_frame(), m_currentFrame);
         if (canPresent)
         {
-            present_frame(m_backpressureState.currentFrame);
-            ++m_backpressureState.currentFrame;
-            m_backpressureState.inFlight = false;
+            a_controller.present_frame(m_currentFrame);
+            ++m_currentFrame;
+            m_isInFlight = false;
         }
         else
         {
-            m_waiter.relax();
+            a_controller.m_waiter.relax();
         }
 
         return true;
     }
-    bool FrameController::is_frame_finished(uint64_t a_finishedFrame,
-        uint64_t a_frameNo) noexcept
+    bool FrameController::is_frame_finished(uint64_t a_finishedFrame, uint64_t a_frameNo) noexcept
     {
-        return a_finishedFrame != std::numeric_limits<uint64_t>::max() &&
-            a_finishedFrame >= a_frameNo;
+        return a_finishedFrame != std::numeric_limits<uint64_t>::max() && a_finishedFrame >= a_frameNo;
     }
-}
+} // namespace Cue

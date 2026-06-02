@@ -3,6 +3,42 @@
 # CMake の最小バージョンを指定
 cmake_minimum_required(VERSION 4.2.0)
 
+# vcpkg toolchain は project() より前に確定する必要がある
+if (NOT DEFINED CMAKE_TOOLCHAIN_FILE OR
+    CMAKE_TOOLCHAIN_FILE STREQUAL "" OR
+    NOT EXISTS "${CMAKE_TOOLCHAIN_FILE}")
+  set(CUE_VCPKG_ROOT_CANDIDATES)
+
+  if (DEFINED ENV{VCPKG_ROOT} AND NOT "$ENV{VCPKG_ROOT}" STREQUAL "")
+    list(APPEND CUE_VCPKG_ROOT_CANDIDATES "$ENV{VCPKG_ROOT}")
+  endif()
+
+  list(APPEND CUE_VCPKG_ROOT_CANDIDATES
+    "C:/Program Files/Microsoft Visual Studio/18/Community/VC/vcpkg"
+    "C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/vcpkg"
+    "C:/Program Files/Microsoft Visual Studio/17/Community/VC/vcpkg"
+    "C:/Program Files/Microsoft Visual Studio/17/Professional/VC/vcpkg"
+    "C:/Program Files/Microsoft Visual Studio/17/Enterprise/VC/vcpkg"
+  )
+
+  foreach (CUE_VCPKG_ROOT IN LISTS CUE_VCPKG_ROOT_CANDIDATES)
+    set(CUE_VCPKG_TOOLCHAIN
+      "${CUE_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+    if (EXISTS "${CUE_VCPKG_TOOLCHAIN}")
+      set(CMAKE_TOOLCHAIN_FILE "${CUE_VCPKG_TOOLCHAIN}"
+        CACHE FILEPATH "vcpkg toolchain file" FORCE)
+      break()
+    endif()
+  endforeach()
+endif()
+
+if (NOT DEFINED CMAKE_TOOLCHAIN_FILE OR
+    CMAKE_TOOLCHAIN_FILE STREQUAL "" OR
+    NOT EXISTS "${CMAKE_TOOLCHAIN_FILE}")
+  message(FATAL_ERROR
+    "vcpkg toolchain file が見つかりません。VCPKG_ROOT を設定してください。")
+endif()
+
 # サポートされている場合は、MSVC コンパイラのホットリロードを有効にします
 if (POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
