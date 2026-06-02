@@ -4,6 +4,7 @@
 
 // === Core includes ===
 #include <IO/Logger.h>
+#include <Profiler/Profiler.h>
 #include <Time/Timer.h>
 
 // === Windows includes ===
@@ -290,6 +291,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     bool showProjectHub = projectPath.empty();
     while (isRunning)
     {
+        Core::Profiler::begin_frame();
+        CUE_PROFILE_SCOPE("Editor", "MainLoop");
+
         currentLoopMetrics = Editor::EditorLoopMetrics{};
         Core::Time::Timer loopTimer(platform->clock());
         loopTimer.start();
@@ -349,6 +353,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             }
             else
             {
+                CUE_PROFILE_SCOPE("Editor", "EditorUpdate");
                 Core::Time::Timer editorUpdateTimer(platform->clock());
                 editorUpdateTimer.start();
                 editorManager->update();
@@ -365,28 +370,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
 
         // エンジンのフレーム開始処理
-        Core::Time::Timer engineBeginTimer(platform->clock());
-        engineBeginTimer.start();
-        r = engine->begin_frame();
-        engineBeginTimer.stop();
-        currentLoopMetrics.engineBeginMs =
-            engineBeginTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "BeginFrame");
+            Core::Time::Timer engineBeginTimer(platform->clock());
+            engineBeginTimer.start();
+            r = engine->begin_frame();
+            engineBeginTimer.stop();
+            currentLoopMetrics.engineBeginMs =
+                engineBeginTimer.elapsed_ticks().ms_f64();
+        }
 
         // エンジンのティック処理
-        Core::Time::Timer engineTickTimer(platform->clock());
-        engineTickTimer.start();
-        r = engine->tick();
-        engineTickTimer.stop();
-        currentLoopMetrics.engineTickMs =
-            engineTickTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "Tick");
+            Core::Time::Timer engineTickTimer(platform->clock());
+            engineTickTimer.start();
+            r = engine->tick();
+            engineTickTimer.stop();
+            currentLoopMetrics.engineTickMs =
+                engineTickTimer.elapsed_ticks().ms_f64();
+        }
 
         // エンジンのフレーム終了処理
-        Core::Time::Timer engineEndTimer(platform->clock());
-        engineEndTimer.start();
-        r = engine->end_frame();
-        engineEndTimer.stop();
-        currentLoopMetrics.engineEndMs =
-            engineEndTimer.elapsed_ticks().ms_f64();
+        {
+            CUE_PROFILE_SCOPE("Engine", "EndFrame");
+            Core::Time::Timer engineEndTimer(platform->clock());
+            engineEndTimer.start();
+            r = engine->end_frame();
+            engineEndTimer.stop();
+            currentLoopMetrics.engineEndMs =
+                engineEndTimer.elapsed_ticks().ms_f64();
+        }
 
         loopTimer.stop();
         currentLoopMetrics.loopTotalMs =

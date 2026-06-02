@@ -7,6 +7,7 @@
 #include <IO/IFileSystem.h>
 #include <IO/Logger.h>
 #include <IO/Path.h>
+#include <Profiler/Profiler.h>
 #include <Threading/JobSystem.h>
 #include <Time/Timer.h>
 
@@ -10378,6 +10379,8 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
+        CUE_PROFILE_FUNCTION("Editor");
+
         m_currentUpdateMetrics = EditorUpdateMetrics{};
         Core::Time::Timer updateTimer(m_platform->clock());
         updateTimer.start();

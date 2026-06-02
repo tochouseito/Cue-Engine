@@ -6,6 +6,9 @@
 #include <Engine.h>
 #include <FrameController.h>
 
+// === Core includes ===
+#include <Profiler/Profiler.h>
+
 // === Editor includes ===
 #include "EditorLoopMetrics.h"
 
@@ -14,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <deque>
+#include <vector>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -134,6 +138,75 @@ namespace Cue::Editor
                     "  Hierarchy: %.3f ms / Inspector: %.3f ms",
                     updateMetrics->hierarchyMs,
                     updateMetrics->inspectorMs);
+            }
+
+            std::vector<Core::Profiler::EntrySnapshot> profilerSnapshots =
+                Core::Profiler::collect_frame_snapshots();
+            profilerSnapshots.erase(
+                std::remove_if(
+                    profilerSnapshots.begin(),
+                    profilerSnapshots.end(),
+                    [](const Core::Profiler::EntrySnapshot& a_snapshot)
+                    {
+                        return a_snapshot.callCount == 0;
+                    }),
+                profilerSnapshots.end());
+            std::sort(
+                profilerSnapshots.begin(),
+                profilerSnapshots.end(),
+                [](const Core::Profiler::EntrySnapshot& a_left,
+                    const Core::Profiler::EntrySnapshot& a_right)
+                {
+                    return a_left.totalMs > a_right.totalMs;
+                });
+            if (ImGui::CollapsingHeader("Registered CPU Profiler"))
+            {
+                if (profilerSnapshots.empty())
+                {
+                    ImGui::TextUnformatted("No profiler samples.");
+                }
+                else if (ImGui::BeginTable(
+                             "RegisteredCpuProfilerTable",
+                             6,
+                             ImGuiTableFlags_Borders |
+                                 ImGuiTableFlags_RowBg |
+                                 ImGuiTableFlags_Resizable))
+                {
+                    ImGui::TableSetupColumn("Category");
+                    ImGui::TableSetupColumn("Name");
+                    ImGui::TableSetupColumn("Calls");
+                    ImGui::TableSetupColumn("Total ms");
+                    ImGui::TableSetupColumn("Avg ms");
+                    ImGui::TableSetupColumn("Max ms");
+                    ImGui::TableHeadersRow();
+
+                    const size_t visibleCount = (std::min)(
+                        profilerSnapshots.size(),
+                        static_cast<size_t>(32));
+                    for (size_t i = 0; i < visibleCount; ++i)
+                    {
+                        const Core::Profiler::EntrySnapshot& snapshot =
+                            profilerSnapshots[i];
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextUnformatted(snapshot.category);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::TextUnformatted(snapshot.name);
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text(
+                            "%llu",
+                            static_cast<unsigned long long>(
+                                snapshot.callCount));
+                        ImGui::TableSetColumnIndex(3);
+                        ImGui::Text("%.3f", snapshot.totalMs);
+                        ImGui::TableSetColumnIndex(4);
+                        ImGui::Text("%.3f", snapshot.averageMs);
+                        ImGui::TableSetColumnIndex(5);
+                        ImGui::Text("%.3f", snapshot.maxMs);
+                    }
+
+                    ImGui::EndTable();
+                }
             }
             ImGui::Text("FrameController Step: %.3f ms", stepElapsedMs);
             ImGui::Text("Present Total: %.3f ms", presentElapsedMs);
