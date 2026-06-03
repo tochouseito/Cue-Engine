@@ -746,19 +746,13 @@ Result Engine::create_frame_graphs(
                             sizeof(GpuData::PointLightGpu)));
             }
             m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::ObjectOcclusionDepthPass>(
-                    m_drawFrameState,
-                    m_drawResources->renderable_info_buffer_handle(),
-                    m_drawResources->view_projection_buffer_handle()));
-            m_frameGraph->add_pass(
                 std::make_unique<DrawSystem::GenerateVisibleListPass>(
                     m_drawFrameState,
                     m_drawResources->renderable_info_buffer_handle(),
                     m_drawResources->view_projection_buffer_handle(),
                     m_drawResources->render_object_buffer_handle(),
                     m_drawResources->visible_object_count_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_uav_handle(),
-                    m_maxObjectCount));
+                    m_drawResources->visible_object_count_buffer_uav_handle()));
         m_frameGraph->add_pass(
                 std::make_unique<DrawSystem::StaticMeshBatchingPass>(
                     m_drawFrameState,

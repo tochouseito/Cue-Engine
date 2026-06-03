@@ -102,6 +102,58 @@ namespace Cue::DrawSystem
                 return result;
             }
 
+            RHI::BufferDesc objectIndexBufferDesc{};
+            objectIndexBufferDesc.name = "RenderObjectIndexBuffer";
+            objectIndexBufferDesc.type = RHI::BufferType::UnorderedAccess;
+            objectIndexBufferDesc.defaultHeapCount = 1;
+            objectIndexBufferDesc.uploadHeapCount = 0;
+            objectIndexBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            objectIndexBufferDesc.stride = sizeof(uint32_t);
+            objectIndexBufferDesc.elementCount = m_maxObjectCount;
+            objectIndexBufferDesc.size =
+                objectIndexBufferDesc.stride *
+                objectIndexBufferDesc.elementCount;
+            objectIndexBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(
+                objectIndexBufferDesc, m_renderObjectIndexBuffer);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::BufferDesc objectIndexCountBufferDesc{};
+            objectIndexCountBufferDesc.name = "RenderObjectIndexCountBuffer";
+            objectIndexCountBufferDesc.type = RHI::BufferType::Raw;
+            objectIndexCountBufferDesc.defaultHeapCount = 1;
+            objectIndexCountBufferDesc.uploadHeapCount = 0;
+            objectIndexCountBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            objectIndexCountBufferDesc.stride = sizeof(uint32_t);
+            objectIndexCountBufferDesc.elementCount = 1;
+            objectIndexCountBufferDesc.size = sizeof(uint32_t);
+            objectIndexCountBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(
+                objectIndexCountBufferDesc, m_renderObjectIndexCountBuffer);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ViewDesc objectIndexCountUavDesc{};
+            objectIndexCountUavDesc.name = "RenderObjectIndexCountBufferUAV";
+            objectIndexCountUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+            objectIndexCountUavDesc.bufferKind = RHI::BufferKind::Buffer;
+            objectIndexCountUavDesc.bufferHandle = m_renderObjectIndexCountBuffer;
+            objectIndexCountUavDesc.numElements =
+                objectIndexCountBufferDesc.size / sizeof(uint32_t);
+            result = builder.create_view(
+                objectIndexCountUavDesc, m_renderObjectIndexCountUav);
+            if (!result)
+            {
+                return result;
+            }
+
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshBatchingRootSignature";
             rootSignatureDesc.parameters.push_back(
@@ -119,6 +171,10 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 3 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -191,11 +247,29 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            return builder.use_buffer(
+            result = builder.use_buffer(
                 m_indirectCommandCountBuffer,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::IndirectArgument);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_renderObjectIndexBuffer,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            return builder.use_buffer(
+                m_renderObjectIndexCountBuffer,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::Common);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -209,6 +283,8 @@ namespace Cue::DrawSystem
             const uint32_t clearValues[4] = { 0, 0, 0, 0 };
             commandContext->clear_unordered_access_uint(
                 m_indirectCommandCountUav, clearValues);
+            commandContext->clear_unordered_access_uint(
+                m_renderObjectIndexCountUav, clearValues);
 
             const DrawFrameData& frameState =
                 m_drawFrameState.frame_state(context.frame_index());
@@ -225,7 +301,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(4, m_visibleObjectCountBuffer);
             commandContext->set_uav(5, m_indirectCommandBuffer);
             commandContext->set_uav(6, m_indirectCommandCountBuffer);
-            commandContext->dispatch(1, 1, 1);
+            commandContext->set_uav(7, m_renderObjectIndexBuffer);
+            commandContext->set_uav(8, m_renderObjectIndexCountBuffer);
+            commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
     private:
@@ -237,7 +315,10 @@ namespace Cue::DrawSystem
         uint32_t m_maxObjectCount = 0;
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
+        RHI::BufferHandle m_renderObjectIndexBuffer{};
+        RHI::BufferHandle m_renderObjectIndexCountBuffer{};
         RHI::ViewHandle m_indirectCommandCountUav{};
+        RHI::ViewHandle m_renderObjectIndexCountUav{};
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

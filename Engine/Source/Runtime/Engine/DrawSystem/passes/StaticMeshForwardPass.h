@@ -154,6 +154,12 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer(
+                "RenderObjectIndexBuffer", m_renderObjectIndexBuffer);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshForwardRootSignature";
@@ -174,6 +180,8 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -353,10 +361,19 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            return builder.use_buffer(
+            result = builder.use_buffer(
                 m_indirectCommandCountBuffer,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::IndirectArgument,
+                RHI::ResourceState::Common);
+            if (!result)
+            {
+                return result;
+            }
+            return builder.use_buffer(
+                m_renderObjectIndexBuffer,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::Common);
         }
 
@@ -385,6 +402,7 @@ namespace Cue::DrawSystem
             commandContext->set_srv(5, m_materialBuffer);
             commandContext->set_cbv(6, m_lightFrameBuffer);
             commandContext->set_srv(7, m_pointLightBuffer);
+            commandContext->set_srv(8, m_renderObjectIndexBuffer);
             commandContext->set_vertex_buffer(0, m_positionBuffer);
             commandContext->set_vertex_buffer(1, m_uvBuffer);
             commandContext->set_vertex_buffer(2, m_normalBuffer);
@@ -423,6 +441,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_indexBuffer{};
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
+        RHI::BufferHandle m_renderObjectIndexBuffer{};
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_vertexShader{};
         RHI::ShaderBlobHandle m_pixelShader{};

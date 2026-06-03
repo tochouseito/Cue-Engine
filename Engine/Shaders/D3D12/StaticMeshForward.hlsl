@@ -76,12 +76,12 @@ ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<Material> g_materials : register(t3);
 ConstantBuffer<LightFrame> g_lightFrame : register(b2);
 StructuredBuffer<PointLight> g_pointLights : register(t4);
+StructuredBuffer<uint> g_renderObjectIndices : register(t5);
 
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
-    // ExecuteIndirect 側の instanceCount を信用する
     const uint renderObjectIndex =
-        g_drawObjectIndex.drawObjectIndex + instanceId;
+        g_renderObjectIndices[g_drawObjectIndex.drawObjectIndex + instanceId];
 
     // 描画対象情報を取得する
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];

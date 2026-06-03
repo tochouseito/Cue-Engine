@@ -42,39 +42,87 @@ ByteAddressBuffer g_renderObjectCount : register(t3);
 
 RWStructuredBuffer<IndirectCommand> g_indirectCommands : register(u0);
 RWByteAddressBuffer g_indirectCommandCount : register(u1);
+RWStructuredBuffer<uint> g_renderObjectIndices : register(u2);
+RWByteAddressBuffer g_renderObjectIndexCount : register(u3);
 
 cbuffer BatchingParam : register(b0)
 {
-    uint g_bucketCapacity;
+    uint g_maxObjectCount;
 };
+
+bool has_previous_same_batch_key(uint objectIndex, uint meshId)
+{
+    for (uint previousIndex = 0; previousIndex < objectIndex; ++previousIndex)
+    {
+        if (g_renderObjects[previousIndex].meshId == meshId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 [numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    const uint bucketIndex = dispatchThreadId.x;
-    if (bucketIndex >= 4u)
+    const uint objectIndex = dispatchThreadId.x;
+    const uint visibleObjectCount = min(g_renderObjectCount.Load(0), g_maxObjectCount);
+    if (objectIndex >= visibleObjectCount)
     {
         return;
     }
 
-    const uint visibleCount = g_renderObjectCount.Load(bucketIndex * 4u);
-    const uint instanceCount = min(visibleCount, g_bucketCapacity);
+    const RenderObject objectInfo = g_renderObjects[objectIndex];
+    if (has_previous_same_batch_key(objectIndex, objectInfo.meshId))
+    {
+        return;
+    }
+
+    uint instanceCount = 0;
+    for (uint sourceIndex = 0; sourceIndex < visibleObjectCount; ++sourceIndex)
+    {
+        if (g_renderObjects[sourceIndex].meshId == objectInfo.meshId)
+        {
+            ++instanceCount;
+        }
+    }
+
     if (instanceCount == 0u)
     {
         return;
     }
 
-    const uint objectIndex = bucketIndex * g_bucketCapacity;
-    const RenderObject objectInfo = g_renderObjects[objectIndex];
+    uint indexStart = 0;
+    g_renderObjectIndexCount.InterlockedAdd(0, instanceCount, indexStart);
+    if (indexStart >= g_maxObjectCount)
+    {
+        return;
+    }
+
+    const uint writableInstanceCount =
+        min(instanceCount, g_maxObjectCount - indexStart);
+    uint localIndex = 0;
+    for (uint writeSourceIndex = 0;
+         writeSourceIndex < visibleObjectCount && localIndex < writableInstanceCount;
+         ++writeSourceIndex)
+    {
+        if (g_renderObjects[writeSourceIndex].meshId == objectInfo.meshId)
+        {
+            g_renderObjectIndices[indexStart + localIndex] = writeSourceIndex;
+            ++localIndex;
+        }
+    }
+
     const MeshRange meshRange = g_meshRanges[objectInfo.meshId];
 
     uint dstIndex = 0;
     g_indirectCommandCount.InterlockedAdd(0, 1, dstIndex);
 
     IndirectCommand indirectCommand;
-    indirectCommand.drawObjectStartIndex = objectIndex;
+    indirectCommand.drawObjectStartIndex = indexStart;
     indirectCommand.indexCountPerInstance = meshRange.indexCount;
-    indirectCommand.instanceCount = instanceCount;
+    indirectCommand.instanceCount = writableInstanceCount;
     indirectCommand.startIndexLocation = meshRange.startIndex;
     indirectCommand.baseVertexLocation = meshRange.baseVertex;
     indirectCommand.startInstanceLocation = 0;
