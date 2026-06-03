@@ -12,6 +12,7 @@
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <meshoptimizer.h>
 
 namespace Cue::Editor
 {
@@ -230,6 +231,278 @@ namespace Cue::Editor
             return "Part_" + std::to_string(partIndex);
         }
 
+        struct MeshoptVertex final
+        {
+            float px = 0.0f;
+            float py = 0.0f;
+            float pz = 0.0f;
+            float pw = 1.0f;
+            float u = 0.0f;
+            float v = 0.0f;
+            float nx = 0.0f;
+            float ny = 1.0f;
+            float nz = 0.0f;
+        };
+
+        [[nodiscard]] std::vector<MeshoptVertex> pack_vertices(
+            const Core::Native::MeshData& meshData)
+        {
+            std::vector<MeshoptVertex> vertices(meshData.positions.size());
+            for (size_t vertexIndex = 0; vertexIndex < vertices.size();
+                 ++vertexIndex)
+            {
+                const Math::float4& position = meshData.positions[vertexIndex];
+                MeshoptVertex& vertex = vertices[vertexIndex];
+                vertex.px = position.x;
+                vertex.py = position.y;
+                vertex.pz = position.z;
+                vertex.pw = position.w;
+
+                if (vertexIndex < meshData.uvs.size())
+                {
+                    vertex.u = meshData.uvs[vertexIndex].x;
+                    vertex.v = meshData.uvs[vertexIndex].y;
+                }
+                if (vertexIndex < meshData.normals.size())
+                {
+                    vertex.nx = meshData.normals[vertexIndex].x;
+                    vertex.ny = meshData.normals[vertexIndex].y;
+                    vertex.nz = meshData.normals[vertexIndex].z;
+                }
+            }
+            return vertices;
+        }
+
+        void unpack_vertices(
+            const std::vector<MeshoptVertex>& vertices,
+            Core::Native::MeshData& meshData)
+        {
+            meshData.positions.resize(vertices.size());
+            meshData.uvs.resize(vertices.size());
+            meshData.normals.resize(vertices.size());
+            for (size_t vertexIndex = 0; vertexIndex < vertices.size();
+                 ++vertexIndex)
+            {
+                const MeshoptVertex& vertex = vertices[vertexIndex];
+                meshData.positions[vertexIndex] =
+                    Math::float4(vertex.px, vertex.py, vertex.pz, vertex.pw);
+                meshData.uvs[vertexIndex] = Math::float2(vertex.u, vertex.v);
+                meshData.normals[vertexIndex] =
+                    Math::float3(vertex.nx, vertex.ny, vertex.nz);
+            }
+        }
+
+        [[nodiscard]] Core::Native::MeshData optimize_mesh(
+            const Core::Native::MeshData& sourceMesh)
+        {
+            Core::Native::MeshData result = sourceMesh;
+            if (sourceMesh.positions.empty() || sourceMesh.indices.empty())
+            {
+                return result;
+            }
+
+            std::vector<MeshoptVertex> sourceVertices =
+                pack_vertices(sourceMesh);
+            std::vector<unsigned int> remap(sourceVertices.size());
+            const size_t uniqueVertexCount = meshopt_generateVertexRemap(
+                remap.data(),
+                sourceMesh.indices.data(),
+                sourceMesh.indices.size(),
+                sourceVertices.data(),
+                sourceVertices.size(),
+                sizeof(MeshoptVertex));
+
+            std::vector<uint32_t> remappedIndices(sourceMesh.indices.size());
+            std::vector<MeshoptVertex> remappedVertices(uniqueVertexCount);
+            meshopt_remapIndexBuffer(
+                remappedIndices.data(),
+                sourceMesh.indices.data(),
+                sourceMesh.indices.size(),
+                remap.data());
+            meshopt_remapVertexBuffer(
+                remappedVertices.data(),
+                sourceVertices.data(),
+                sourceVertices.size(),
+                sizeof(MeshoptVertex),
+                remap.data());
+
+            std::vector<uint32_t> vertexCacheIndices(remappedIndices.size());
+            meshopt_optimizeVertexCache(
+                vertexCacheIndices.data(),
+                remappedIndices.data(),
+                remappedIndices.size(),
+                remappedVertices.size());
+
+            std::vector<uint32_t> overdrawIndices(vertexCacheIndices.size());
+            meshopt_optimizeOverdraw(
+                overdrawIndices.data(),
+                vertexCacheIndices.data(),
+                vertexCacheIndices.size(),
+                &remappedVertices[0].px,
+                remappedVertices.size(),
+                sizeof(MeshoptVertex),
+                1.05f);
+
+            std::vector<MeshoptVertex> fetchVertices(remappedVertices.size());
+            const size_t fetchedVertexCount = meshopt_optimizeVertexFetch(
+                fetchVertices.data(),
+                overdrawIndices.data(),
+                overdrawIndices.size(),
+                remappedVertices.data(),
+                remappedVertices.size(),
+                sizeof(MeshoptVertex));
+            fetchVertices.resize(fetchedVertexCount);
+
+            result.indices = std::move(overdrawIndices);
+            unpack_vertices(fetchVertices, result);
+            return result;
+        }
+
+        void build_meshlets(Core::Native::MeshData& meshData)
+        {
+            meshData.meshlets.clear();
+            if (meshData.indices.size() < 3 || meshData.positions.empty())
+            {
+                return;
+            }
+
+            constexpr size_t k_maxMeshletVertices = 64;
+            constexpr size_t k_maxMeshletTriangles = 64;
+            constexpr float k_coneWeight = 0.25f;
+
+            const size_t meshletBound = meshopt_buildMeshletsBound(
+                meshData.indices.size(),
+                k_maxMeshletVertices,
+                k_maxMeshletTriangles);
+            if (meshletBound == 0)
+            {
+                return;
+            }
+
+            std::vector<meshopt_Meshlet> meshlets(meshletBound);
+            std::vector<unsigned int> meshletVertices(meshletBound * k_maxMeshletVertices);
+            std::vector<unsigned char> meshletTriangles(meshletBound * k_maxMeshletTriangles * 3);
+
+            const size_t meshletCount = meshopt_buildMeshlets(
+                meshlets.data(),
+                meshletVertices.data(),
+                meshletTriangles.data(),
+                meshData.indices.data(),
+                meshData.indices.size(),
+                &meshData.positions[0].x,
+                meshData.positions.size(),
+                sizeof(Math::float4),
+                k_maxMeshletVertices,
+                k_maxMeshletTriangles,
+                k_coneWeight);
+            meshlets.resize(meshletCount);
+
+            std::vector<uint32_t> meshletOrderedIndices;
+            meshletOrderedIndices.reserve(meshData.indices.size());
+            meshData.meshlets.reserve(meshletCount);
+
+            for (const meshopt_Meshlet& meshlet : meshlets)
+            {
+                Core::Native::MeshletData meshletData{};
+                meshletData.startIndex =
+                    static_cast<uint32_t>(meshletOrderedIndices.size());
+                meshletData.indexCount = meshlet.triangle_count * 3u;
+
+                for (uint32_t triangleIndex = 0;
+                     triangleIndex < meshlet.triangle_count;
+                     ++triangleIndex)
+                {
+                    for (uint32_t corner = 0; corner < 3u; ++corner)
+                    {
+                        const uint32_t localVertexIndex =
+                            meshletTriangles[
+                                meshlet.triangle_offset +
+                                triangleIndex * 3u + corner];
+                        const uint32_t vertexIndex =
+                            meshletVertices[
+                                meshlet.vertex_offset + localVertexIndex];
+                        meshletOrderedIndices.push_back(vertexIndex);
+                    }
+                }
+
+                const meshopt_Bounds bounds = meshopt_computeMeshletBounds(
+                    &meshletVertices[meshlet.vertex_offset],
+                    &meshletTriangles[meshlet.triangle_offset],
+                    meshlet.triangle_count,
+                    &meshData.positions[0].x,
+                    meshData.positions.size(),
+                    sizeof(Math::float4));
+
+                meshletData.boundsCenterRadius = Math::float4(
+                    bounds.center[0],
+                    bounds.center[1],
+                    bounds.center[2],
+                    bounds.radius);
+                meshletData.coneApex = Math::float4(
+                    bounds.cone_apex[0],
+                    bounds.cone_apex[1],
+                    bounds.cone_apex[2],
+                    1.0f);
+                meshletData.coneAxisCutoff = Math::float4(
+                    bounds.cone_axis[0],
+                    bounds.cone_axis[1],
+                    bounds.cone_axis[2],
+                    bounds.cone_cutoff);
+                meshData.meshlets.push_back(meshletData);
+            }
+
+            if (!meshletOrderedIndices.empty())
+            {
+                meshData.indices = std::move(meshletOrderedIndices);
+            }
+        }
+
+        [[nodiscard]] Core::Native::MeshData generate_lod_mesh(
+            const Core::Native::MeshData& baseMesh,
+            float indexRatio,
+            uint32_t lodIndex)
+        {
+            Core::Native::MeshData lodMesh = baseMesh;
+            if (baseMesh.indices.size() < 3 || baseMesh.positions.empty())
+            {
+                return lodMesh;
+            }
+
+            size_t targetIndexCount =
+                static_cast<size_t>(
+                    static_cast<double>(baseMesh.indices.size()) *
+                    static_cast<double>(indexRatio));
+            targetIndexCount = (std::max<size_t>)(3, targetIndexCount);
+            targetIndexCount = (targetIndexCount / 3) * 3;
+
+            std::vector<uint32_t> simplified(baseMesh.indices.size());
+            float lodError = 0.0f;
+            const size_t simplifiedIndexCount = meshopt_simplify(
+                simplified.data(),
+                baseMesh.indices.data(),
+                baseMesh.indices.size(),
+                &baseMesh.positions[0].x,
+                baseMesh.positions.size(),
+                sizeof(Math::float4),
+                targetIndexCount,
+                0.02f,
+                0,
+                &lodError);
+
+            if (simplifiedIndexCount < 3 ||
+                simplifiedIndexCount >= baseMesh.indices.size())
+            {
+                return lodMesh;
+            }
+
+            simplified.resize(simplifiedIndexCount);
+            lodMesh.indices = std::move(simplified);
+            lodMesh.name = baseMesh.name + "_lod" + std::to_string(lodIndex);
+            lodMesh = optimize_mesh(lodMesh);
+            build_meshlets(lodMesh);
+            return lodMesh;
+        }
+
         void append_render_parts_from_node(const aiScene& scene,
             const aiNode& node,
             const Math::float4x4& parentTransform,
@@ -346,11 +619,18 @@ namespace Cue::Editor
             }
         }
 
+        std::vector<std::vector<uint32_t>> sourceMeshLodIndices(
+            scene->mNumMeshes);
+
         // メッシュ解析
         for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
         {
             Core::Native::MeshData meshData;
             aiMesh* mesh = scene->mMeshes[meshIndex];
+            if (mesh == nullptr)
+            {
+                continue;
+            }
             meshData.name = make_mesh_name(*mesh, modelName, meshIndex);
             // 頂点数とインデックス数を取得
             uint32_t vertexCount = mesh->mNumVertices;// 頂点数
@@ -415,7 +695,34 @@ namespace Cue::Editor
                     "MeshData IndexCount mismatch: " + std::to_string(idx) + " != " + std::to_string(indexCount));
             }
 
-            outModelData.meshes.push_back(std::move(meshData));
+            Core::Native::MeshData optimizedMesh = optimize_mesh(meshData);
+            build_meshlets(optimizedMesh);
+            const uint32_t baseMeshIndex =
+                static_cast<uint32_t>(outModelData.meshes.size());
+            sourceMeshLodIndices[meshIndex].push_back(baseMeshIndex);
+            outModelData.meshes.push_back(std::move(optimizedMesh));
+
+            constexpr float k_lodIndexRatios[] = { 0.5f, 0.25f, 0.125f };
+            for (uint32_t lodArrayIndex = 0;
+                 lodArrayIndex < static_cast<uint32_t>(std::size(k_lodIndexRatios));
+                 ++lodArrayIndex)
+            {
+                const uint32_t lodIndex = lodArrayIndex + 1u;
+                Core::Native::MeshData lodMesh = generate_lod_mesh(
+                    outModelData.meshes[baseMeshIndex],
+                    k_lodIndexRatios[lodArrayIndex],
+                    lodIndex);
+                if (lodMesh.indices.size() >=
+                    outModelData.meshes[baseMeshIndex].indices.size())
+                {
+                    continue;
+                }
+
+                const uint32_t lodMeshIndex =
+                    static_cast<uint32_t>(outModelData.meshes.size());
+                sourceMeshLodIndices[meshIndex].push_back(lodMeshIndex);
+                outModelData.meshes.push_back(std::move(lodMesh));
+            }
         }
 
         if (outModelData.meshes.empty())
@@ -455,21 +762,28 @@ namespace Cue::Editor
 
         if (outModelData.renderParts.empty())
         {
-            outModelData.renderParts.reserve(outModelData.meshes.size());
-            for (uint32_t meshIndex = 0;
-                meshIndex < outModelData.meshes.size();
-                ++meshIndex)
+            outModelData.renderParts.reserve(scene->mNumMeshes);
+            for (uint32_t sourceMeshIndex = 0;
+                sourceMeshIndex < scene->mNumMeshes;
+                ++sourceMeshIndex)
             {
+                if (sourceMeshLodIndices[sourceMeshIndex].empty())
+                {
+                    continue;
+                }
+
+                const uint32_t baseMeshIndex =
+                    sourceMeshLodIndices[sourceMeshIndex][0];
                 Core::Native::ModelRenderPartData renderPart{};
-                renderPart.name = outModelData.meshes[meshIndex].name;
-                renderPart.meshIndex = meshIndex;
-                if (meshIndex < scene->mNumMeshes &&
-                    scene->mMeshes[meshIndex] != nullptr &&
-                    scene->mMeshes[meshIndex]->mMaterialIndex <
+                renderPart.name = outModelData.meshes[baseMeshIndex].name;
+                renderPart.meshIndex = baseMeshIndex;
+                renderPart.lodMeshIndices = sourceMeshLodIndices[sourceMeshIndex];
+                if (scene->mMeshes[sourceMeshIndex] != nullptr &&
+                    scene->mMeshes[sourceMeshIndex]->mMaterialIndex <
                     outModelData.materials.size())
                 {
                     renderPart.materialIndex =
-                        scene->mMeshes[meshIndex]->mMaterialIndex;
+                        scene->mMeshes[sourceMeshIndex]->mMaterialIndex;
                 }
                 outModelData.renderParts.push_back(std::move(renderPart));
             }

@@ -17,6 +17,7 @@
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/passes/StaticMeshForwardPass.h"
+#include "DrawSystem/passes/StaticMeshMeshletCullingPass.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
 
 // === C++ includes ===
@@ -30,6 +31,7 @@ namespace
 {
 constexpr float k_pi = 3.14159265358979323846f;
 constexpr uint32_t k_maxObjectCount = 50000;
+constexpr uint32_t k_maxIndirectCommandCount = 2000000;
 
 [[nodiscard]] uint64_t instance_count(Math::uint3 a_instanceCounts) noexcept
 {
@@ -134,6 +136,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_drawResources = std::make_unique<DrawSystem::DrawResources>(
         bufferManager, viewManager, m_bufferCount);
     m_maxObjectCount = k_maxObjectCount;
+    m_maxIndirectCommandCount = k_maxIndirectCommandCount;
 
     r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
     if (!r)
@@ -190,6 +193,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_viewProjection.view = Math::float4x4::identity();
     m_viewProjection.projection = Math::perspective_fov_matrix(
         60.0f * k_pi / 180.0f, 1280.0f / 720.0f, 0.01f, 100.0f);
+    m_viewProjection.cameraPosition = Math::float4(0.0f, 0.0f, -5.0f, 1.0f);
     r = commit_static_draw_data_to_uploaders();
     if (!r)
     {
@@ -330,9 +334,15 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
     }
 
     uint32_t drawMeshIndex = 0;
+    std::vector<uint32_t> drawLodMeshIndices{};
     if (!a_modelData.renderParts.empty())
     {
         drawMeshIndex = a_modelData.renderParts[0].meshIndex;
+        drawLodMeshIndices = a_modelData.renderParts[0].lodMeshIndices;
+    }
+    if (drawLodMeshIndices.empty())
+    {
+        drawLodMeshIndices.push_back(drawMeshIndex);
     }
     if (drawMeshIndex >= a_modelData.meshes.size())
     {
@@ -340,13 +350,30 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
                             "Model render part mesh index is out of range.");
     }
 
-    RHI::MeshHandle drawMeshHandle =
-        m_meshHandles[firstHandleIndex + drawMeshIndex];
-    Result meshIdResult = m_meshPool->get_mesh_id(drawMeshHandle, m_drawMeshId);
-    if (!meshIdResult)
+    m_drawLodMeshIds = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
+    m_drawLodCount = std::min<uint32_t>(
+        4u, static_cast<uint32_t>(drawLodMeshIndices.size()));
+    for (uint32_t lodIndex = 0; lodIndex < m_drawLodCount; ++lodIndex)
     {
-        return meshIdResult;
+        const uint32_t lodMeshIndex = drawLodMeshIndices[lodIndex];
+        if (lodMeshIndex >= a_modelData.meshes.size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Model render part LOD mesh index is out of range.");
+        }
+
+        RHI::MeshHandle lodMeshHandle =
+            m_meshHandles[firstHandleIndex + lodMeshIndex];
+        Result meshIdResult =
+            m_meshPool->get_mesh_id(lodMeshHandle, m_drawLodMeshIds[lodIndex]);
+        if (!meshIdResult)
+        {
+            return meshIdResult;
+        }
     }
+    m_drawMeshId = m_drawLodMeshIds[0];
 
     uint32_t materialIndex = Core::Native::k_invalidModelMaterialIndex;
     if (!a_modelData.renderParts.empty())
@@ -407,6 +434,11 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
                 renderableInfo.meshId = m_drawMeshId;
                 renderableInfo.transformId = objectId;
                 renderableInfo.materialId = 0u;
+                renderableInfo.lodMeshId0 = m_drawLodMeshIds[0];
+                renderableInfo.lodMeshId1 = m_drawLodMeshIds[1];
+                renderableInfo.lodMeshId2 = m_drawLodMeshIds[2];
+                renderableInfo.lodMeshId3 = m_drawLodMeshIds[3];
+                renderableInfo.lodCount = m_drawLodCount;
 
                 const Math::float3 position(
                     gridOrigin.x + spacing * static_cast<float>(x),
@@ -724,12 +756,14 @@ Result Engine::create_frame_graphs(
                     m_drawResources->visible_object_count_buffer_handle(),
                     m_drawResources->visible_object_count_buffer_uav_handle()));
         m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::StaticMeshBatchingPass>(
+                std::make_unique<DrawSystem::StaticMeshMeshletCullingPass>(
                     m_drawFrameState,
                     m_drawResources->render_object_buffer_handle(),
                     m_drawResources->transform_buffer_handle(),
+                    m_drawResources->view_projection_buffer_handle(),
                     m_drawResources->visible_object_count_buffer_handle(),
-                    m_maxObjectCount));
+                    m_maxObjectCount,
+                    m_maxIndirectCommandCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshForwardPass>(
                 m_drawFrameState,
@@ -739,7 +773,8 @@ Result Engine::create_frame_graphs(
                     m_drawResources->visible_object_count_buffer_handle(),
                     m_drawResources->material_buffer_handle(),
                     m_lightResources->frame_buffer_handle(),
-                    m_lightResources->point_light_buffer_handle()));
+                    m_lightResources->point_light_buffer_handle(),
+                    m_maxIndirectCommandCount));
         }
 
     result = m_frameGraph->build();

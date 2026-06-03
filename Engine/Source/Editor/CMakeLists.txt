@@ -4,6 +4,7 @@
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # ターゲットソースの追加
@@ -29,6 +30,7 @@ target_link_libraries(Editor PRIVATE
     assimp::assimp
     imgui::imgui
     imguizmo::imguizmo
+    meshoptimizer::meshoptimizer
     nlohmann_json::nlohmann_json
     msacm32
 )

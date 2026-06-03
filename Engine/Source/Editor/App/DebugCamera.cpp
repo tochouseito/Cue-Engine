@@ -115,6 +115,11 @@ namespace Cue::Editor
             aspectRatio,
             m_nearZ,
             m_farZ);
+        viewProjection.cameraPosition = Math::float4(
+            m_position.x,
+            m_position.y,
+            m_position.z,
+            1.0f);
         return viewProjection;
     }
 }

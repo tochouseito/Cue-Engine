@@ -18,5 +18,6 @@ namespace Cue::GpuData
     {
         Math::float4x4 view;       // ビュー行列
         Math::float4x4 projection; // プロジェクション行列
+        Math::float4 cameraPosition = Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
     };
 }

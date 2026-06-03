@@ -31,6 +31,7 @@
 #include "LightingSystem/LightResources.h"
 
 // === C++ includes ===
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -140,9 +141,14 @@ class Engine final
     GpuData::LightFrameGpu m_lightFrame{};
     uint32_t m_bufferCount = 1;
     uint32_t m_maxObjectCount = 0;
+    uint32_t m_maxIndirectCommandCount = 0;
     uint32_t m_maxPointLightCount = 0;
     uint32_t m_pointLightBufferCapacity = 1;
     uint32_t m_drawMeshId = UINT32_MAX;
+    std::array<uint32_t, 4> m_drawLodMeshIds{
+        UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX
+    };
+    uint32_t m_drawLodCount = 0;
     uint32_t m_drawObjectCount = 0;
     bool m_hasDrawableObject = false;
     std::vector<RHI::MeshHandle> m_meshHandles{};

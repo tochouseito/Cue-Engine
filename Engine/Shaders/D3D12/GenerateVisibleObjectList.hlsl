@@ -10,6 +10,11 @@ struct RenderableInfo
     uint shadowCasterMode;
     uint skinPaletteOffset;
     uint skinPaletteCount;
+    uint lodMeshId0;
+    uint lodMeshId1;
+    uint lodMeshId2;
+    uint lodMeshId3;
+    uint lodCount;
     float4 boundsCenterRadius;
 };
 
@@ -83,6 +88,56 @@ bool is_sphere_inside_frustum(float4 boundsCenterRadius)
     return true;
 }
 
+uint get_lod_mesh_id(RenderableInfo renderableInfo, uint lodIndex)
+{
+    if (lodIndex == 1)
+    {
+        return renderableInfo.lodMeshId1;
+    }
+    if (lodIndex == 2)
+    {
+        return renderableInfo.lodMeshId2;
+    }
+    if (lodIndex == 3)
+    {
+        return renderableInfo.lodMeshId3;
+    }
+    return renderableInfo.lodMeshId0;
+}
+
+uint select_lod(RenderableInfo renderableInfo)
+{
+    const uint lodCount = max(renderableInfo.lodCount, 1u);
+    if (lodCount <= 1u)
+    {
+        return 0u;
+    }
+
+    const float4 viewCenter =
+        mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float viewZ = max(viewCenter.z, 0.001f);
+    const float projectedRadius =
+        renderableInfo.boundsCenterRadius.w *
+        abs(g_projectionMatrix[1][1]) /
+        viewZ;
+
+    uint lodIndex = 0u;
+    if (projectedRadius < 0.015f)
+    {
+        lodIndex = 3u;
+    }
+    else if (projectedRadius < 0.035f)
+    {
+        lodIndex = 2u;
+    }
+    else if (projectedRadius < 0.075f)
+    {
+        lodIndex = 1u;
+    }
+
+    return min(lodIndex, lodCount - 1u);
+}
+
 [numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -116,8 +171,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     RenderObject renderObject;
+    const uint lodIndex = select_lod(renderableInfo);
     renderObject.objectId = renderableInfo.objectId;
-    renderObject.meshId = renderableInfo.meshId;
+    renderObject.meshId = get_lod_mesh_id(renderableInfo, lodIndex);
     renderObject.transformId = renderableInfo.transformId;
     renderObject.materialId = renderableInfo.materialId;
     renderObject.castsShadow = renderableInfo.castsShadow;

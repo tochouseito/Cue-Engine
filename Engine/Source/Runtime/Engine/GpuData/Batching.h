@@ -27,6 +27,11 @@ namespace Cue::GpuData
         uint32_t shadowCasterMode = 0; // シャドウマップへの書き込み方式
         uint32_t skinPaletteOffset = UINT32_MAX;
         uint32_t skinPaletteCount = 0;
+        uint32_t lodMeshId0 = 0;
+        uint32_t lodMeshId1 = 0;
+        uint32_t lodMeshId2 = 0;
+        uint32_t lodMeshId3 = 0;
+        uint32_t lodCount = 1;
         Math::float4 boundsCenterRadius =
             Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
     };

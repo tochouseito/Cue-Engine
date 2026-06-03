@@ -79,33 +79,26 @@ StructuredBuffer<PointLight> g_pointLights : register(t4);
 
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
-    const uint renderObjectCount = g_renderObjectCount.Load(0);
+    // ExecuteIndirect 側の instanceCount を信用する
     const uint renderObjectIndex =
         g_drawObjectIndex.drawObjectIndex + instanceId;
 
-    VsOutput output;
-    if (renderObjectIndex >= renderObjectCount)
-    {
-        output.position = float4(-2.0f, -2.0f, -2.0f, 1.0f);
-        output.worldPosition = float3(0.0f, 0.0f, 0.0f);
-        output.worldNormal = float3(0.0f, 1.0f, 0.0f);
-        output.texcoord = float2(0.0f, 0.0f);
-        output.materialId = 0;
-        return output;
-    }
-
+    // 描画対象情報を取得する
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
+
+    // 頂点変換
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
     const float3 worldNormal =
         normalize(mul(float4(input.normal, 0.0f), transform.normalMatrix).xyz);
 
-    output.position =
-        mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
+    VsOutput output;
+    output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
     output.worldPosition = worldPosition.xyz;
     output.worldNormal = worldNormal;
     output.texcoord = input.texcoord;
     output.materialId = renderObject.materialId;
+
     return output;
 }
 

@@ -37,6 +37,9 @@
       "name": "joltphysics"
     },
     {
+      "name": "meshoptimizer"
+    },
+    {
       "name": "nlohmann-json"
     },
     {

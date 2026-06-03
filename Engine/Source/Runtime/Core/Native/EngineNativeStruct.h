@@ -23,6 +23,15 @@ namespace Cue::Core::Native
         (std::numeric_limits<uint32_t>::max)();
     inline constexpr int32_t k_invalidJointIndex = -1;
 
+    struct MeshletData
+    {
+        uint32_t startIndex = 0;
+        uint32_t indexCount = 0;
+        Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        Math::float4 coneApex = Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
+        Math::float4 coneAxisCutoff = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+    };
+
     /// @brief 1 メッシュ分の頂点データ
     struct MeshData
     {
@@ -31,6 +40,7 @@ namespace Cue::Core::Native
         std::vector<Math::float2> uvs;           // UV座標配列
         std::vector<Math::float3> normals;       // 法線配列
         std::vector<std::uint32_t> indices; // インデックスデータ配列
+        std::vector<MeshletData> meshlets;       // meshlet ごとの index range と bounds
 
         /// @brief 頂点数を返す
         /// @return 位置配列の要素数
@@ -57,6 +67,7 @@ namespace Cue::Core::Native
     {
         std::string name; // 描画単位名
         uint32_t meshIndex = 0;
+        std::vector<uint32_t> lodMeshIndices{};
         uint32_t materialIndex = k_invalidModelMaterialIndex;
         uint32_t jointIndex = k_invalidAnimationIndex;
         Math::float4x4 localTransform = Math::float4x4::identity();

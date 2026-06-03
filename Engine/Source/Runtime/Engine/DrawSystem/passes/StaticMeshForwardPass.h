@@ -23,7 +23,8 @@ namespace Cue::DrawSystem
             RHI::BufferHandle visibleObjectCountBuffer,
             RHI::BufferHandle materialBuffer,
             RHI::BufferHandle lightFrameBuffer,
-            RHI::BufferHandle pointLightBuffer)
+            RHI::BufferHandle pointLightBuffer,
+            uint32_t maxIndirectCommandCount)
             : m_drawFrameState(drawFrameState)
             , m_renderObjectBuffer(renderObjectBuffer)
             , m_transformBuffer(transformBuffer)
@@ -32,6 +33,7 @@ namespace Cue::DrawSystem
             , m_materialBuffer(materialBuffer)
             , m_lightFrameBuffer(lightFrameBuffer)
             , m_pointLightBuffer(pointLightBuffer)
+            , m_maxIndirectCommandCount(maxIndirectCommandCount)
         {}
 
         const char* name() const noexcept override { return "StaticMeshForward"; }
@@ -211,7 +213,7 @@ namespace Cue::DrawSystem
                 { "TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0 },
                 { "NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0 },
             };
-            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
+            pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Back;
             pipelineDesc.depthStencilState.depthEnable = true;
             pipelineDesc.depthStencilState.depthWriteMask =
                 RHI::DepthWriteMask::All;
@@ -398,7 +400,7 @@ namespace Cue::DrawSystem
             commandContext->execute_indexed_indirect(
                 m_indirectCommandBuffer,
                 m_indirectCommandCountBuffer,
-                frameState.objectCount);
+                m_maxIndirectCommandCount);
         }
 
     private:
@@ -414,6 +416,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_materialBuffer{};
         RHI::BufferHandle m_lightFrameBuffer{};
         RHI::BufferHandle m_pointLightBuffer{};
+        uint32_t m_maxIndirectCommandCount = 0;
         RHI::BufferHandle m_positionBuffer{};
         RHI::BufferHandle m_uvBuffer{};
         RHI::BufferHandle m_normalBuffer{};
