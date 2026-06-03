@@ -230,6 +230,66 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
+    Result DrawResources::create_render_cell_buffer(const uint32_t a_maxCellCount)
+    {
+        RHI::BufferDesc renderCellBufferDesc{};
+        renderCellBufferDesc.name = "RenderCellBuffer";
+        renderCellBufferDesc.type = RHI::BufferType::Structured;
+        renderCellBufferDesc.defaultHeapCount = 1;
+        renderCellBufferDesc.uploadHeapCount = m_bufferCount;
+        renderCellBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        renderCellBufferDesc.stride = sizeof(GpuData::RenderCellGpu);
+        renderCellBufferDesc.elementCount = a_maxCellCount;
+        renderCellBufferDesc.size =
+            renderCellBufferDesc.stride * renderCellBufferDesc.elementCount;
+        renderCellBufferDesc.alignment = alignof(GpuData::RenderCellGpu);
+
+        RHI::BufferHandle& renderCellBufferHandle =
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderCellBuffer)];
+        Result result = m_bufferManager->create_buffer(
+            renderCellBufferDesc, renderCellBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            renderCellBufferHandle, m_bufferCount, m_renderCellUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_renderCellUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "RenderCellBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc renderCellBufferSrvDesc{};
+        renderCellBufferSrvDesc.name = "RenderCellBufferSRV";
+        renderCellBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        renderCellBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        renderCellBufferSrvDesc.bufferHandle = renderCellBufferHandle;
+        renderCellBufferSrvDesc.firstElement = 0;
+        renderCellBufferSrvDesc.numElements =
+            renderCellBufferDesc.elementCount;
+        renderCellBufferSrvDesc.structureByteStride =
+            renderCellBufferDesc.stride;
+
+        RHI::ViewHandle& renderCellBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(DrawResourceType::RenderCellBuffer)];
+        result = m_viewManager->create_view(
+            renderCellBufferSrvDesc, renderCellBufferSrvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return Result::ok();
+    }
+
     Result DrawResources::create_render_object_buffer(const uint32_t a_maxObjectCount)
     {
         // RenderObjectBuffer の設定

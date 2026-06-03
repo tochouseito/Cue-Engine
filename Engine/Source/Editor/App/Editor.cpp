@@ -23,8 +23,11 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 using namespace Cue;
 
@@ -102,12 +105,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // パラメーター
     uint32_t width = 1280;
     uint32_t height = 720;
-    const char* className = "CueEditorWindowClass";
-    const char* title = "Cue Editor";
+    const char *className = "CueEditorWindowClass";
+    const char *title = "Cue Editor";
     uint32_t maxFps = 0;
     uint32_t bufferCount = 3;
-    const Math::uint3 dragonGridCount(100u, 10u, 20u);
-    const float dragonTargetRadius = 0.6f;
+    const Math::uint3 modelGridCount(100u, 10u, 20u);
+    const float modelTargetRadius = 0.6f;
     const uint32_t maxPointLightCount = 10;
 
     // 処理結果
@@ -148,10 +151,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend =
         std::make_unique<RHI::DX12::D3D12Backend>();
     RHI::RenderBackendSetupInfo renderBackendSetupInfo{};
-    #ifdef CUE_DEBUG
-        bool enableDebugLayer = true;
-    #else
-        bool enableDebugLayer = false;
+#ifdef CUE_DEBUG
+    bool enableDebugLayer = true;
+#else
+    bool enableDebugLayer = false;
 #endif
     renderBackendSetupInfo.enableDebugLayer = enableDebugLayer;
     renderBackendSetupInfo.width = width;
@@ -205,30 +208,70 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
-    Core::Native::ModelData dragonModelData{};
-    const Core::IO::Path dragonPath(std::string(CUE_PROJECT_ROOT_PATH) +
-                                    "/TestProject/Assets/Models/dragon.obj");
-    r = Editor::ModelImporter::import_model(dragonPath, "dragon",
-                                            dragonModelData);
-    if (!r)
+    struct TestModelDesc final
     {
-        CUE_ASSERT_FORMAT(false, "Failed to import dragon model: %s",
-                          r.message.data());
-        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                      "Failed to import dragon model: %s", r.message.data());
-        return -1;
+        const char *fileName = nullptr;
+        const char *modelName = nullptr;
+        uint32_t lodGroupIndex = 0;
+    };
+
+    constexpr std::array<Editor::ModelImporter::LodGroupSettings, 4>
+        k_lodGroups = {
+            Editor::ModelImporter::LodGroupSettings{
+                "Dragon", {0.50f, 0.15f, 0.01f}, true},
+            Editor::ModelImporter::LodGroupSettings{
+                "DragonHighPoly", {0.25f, 0.05f, 0.005f}, true},
+            Editor::ModelImporter::LodGroupSettings{
+                "Bunny", {0.50f, 0.15f, 0.01f}, true},
+            Editor::ModelImporter::LodGroupSettings{
+                "Buddha", {0.20f, 0.03f, 0.003f}, true},
+        };
+
+    constexpr std::array<TestModelDesc, 4> k_testModels = {
+        TestModelDesc{"dragon.obj", "dragon", 0u},
+        TestModelDesc{"dragon-highpoly.obj", "dragon-highpoly", 1u},
+        TestModelDesc{"bunny.obj", "bunny", 2u},
+        TestModelDesc{"buddha.obj", "buddha", 3u},
+    };
+
+    std::vector<Core::Native::ModelData> modelDataList{};
+    modelDataList.reserve(k_testModels.size());
+    for (const TestModelDesc &modelDesc : k_testModels)
+    {
+        Core::Native::ModelData modelData{};
+        const Core::IO::Path modelPath(std::string(CUE_PROJECT_ROOT_PATH) +
+                                       "/TestProject/Assets/Models/" +
+                                       modelDesc.fileName);
+        if (modelDesc.lodGroupIndex >= k_lodGroups.size())
+        {
+            CUE_ASSERT_FORMAT(false, "Invalid LOD group index for model '%s'.",
+                              modelDesc.modelName);
+            return -1;
+        }
+
+        r = Editor::ModelImporter::import_model(
+            modelPath, modelDesc.modelName,
+            k_lodGroups[modelDesc.lodGroupIndex], modelData);
+        if (!r)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to import model '%s': %s",
+                              modelDesc.modelName, r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                          "Failed to import model '{}': {}",
+                          modelDesc.modelName, r.message);
+            return -1;
+        }
+        modelDataList.push_back(std::move(modelData));
     }
 
-    r = engine->register_model(
-        dragonModelData,
-        dragonGridCount,
-        dragonTargetRadius);
+    r = engine->register_models(modelDataList, modelGridCount,
+                                modelTargetRadius);
     if (!r)
     {
-        CUE_ASSERT_FORMAT(false, "Failed to register dragon model: %s",
+        CUE_ASSERT_FORMAT(false, "Failed to register test models: %s",
                           r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                      "Failed to register dragon model: %s", r.message.data());
+                      "Failed to register test models: %s", r.message.data());
         return -1;
     }
 
@@ -356,7 +399,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
-        const Core::Time::FrameCounter& frameCounter =
+        const Core::Time::FrameCounter &frameCounter =
             engine->frame_controller().frame_counter();
         if (frameCounter.total_frames() > 0)
         {

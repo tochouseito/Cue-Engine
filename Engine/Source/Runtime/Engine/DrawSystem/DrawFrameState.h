@@ -24,6 +24,7 @@ namespace Cue::DrawSystem
     struct DrawFrameData final
     {
         uint32_t objectCount = 0;
+        uint32_t cellCount = 0;
         uint32_t renderWidth = 1;
         uint32_t renderHeight = 1;
         bool useCpuBatching = false;

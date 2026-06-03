@@ -10,12 +10,15 @@
 #include "Command/PlatformCommandContext.h"
 
 // === Frame Passes includes ===
-#include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/BuildHiZDepthPass.h"
+#include "DrawSystem/passes/CellCullingPass.h"
+#include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
 #include "DrawSystem/passes/MeshForwardPass.h"
+#include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/ObjectOcclusionDepthPass.h"
+#include "DrawSystem/passes/OccluderDepthOnlyIndirectPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/passes/StaticMeshForwardPass.h"
@@ -25,6 +28,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 
 namespace Cue
 {
@@ -32,6 +36,17 @@ namespace
 {
 constexpr float k_pi = 3.14159265358979323846f;
 constexpr uint32_t k_maxObjectCount = 50000;
+constexpr uint32_t k_cellObjectCapacity = 256;
+
+struct DrawModelSetup final
+{
+    std::array<uint32_t, 5> lodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
+                                       UINT32_MAX, UINT32_MAX};
+    uint32_t lodCount = 0;
+    float modelScale = 1.0f;
+    float scaledRadius = 0.0f;
+    Math::float3 scaledBoundsCenter = Math::float3::zero();
+};
 
 [[nodiscard]] uint64_t instance_count(Math::uint3 a_instanceCounts) noexcept
 {
@@ -40,8 +55,8 @@ constexpr uint32_t k_maxObjectCount = 50000;
            static_cast<uint64_t>(a_instanceCounts.z);
 }
 
-[[nodiscard]] uint32_t grid_index(
-    Math::uint3 instanceCounts, uint32_t x, uint32_t y, uint32_t z) noexcept
+[[nodiscard]] uint32_t grid_index(Math::uint3 instanceCounts, uint32_t x,
+                                  uint32_t y, uint32_t z) noexcept
 {
     return (z * instanceCounts.y + y) * instanceCounts.x + x;
 }
@@ -58,7 +73,7 @@ constexpr uint32_t k_maxObjectCount = 50000;
 }
 } // namespace
 
-Result Engine::initialize(EngineSetupInfo& a_info)
+Result Engine::initialize(EngineSetupInfo &a_info)
 {
     Result r = Result::ok();
 
@@ -79,7 +94,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_drawFrameState.resize(m_bufferCount);
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
-        DrawSystem::DrawFrameData& frameState =
+        DrawSystem::DrawFrameData &frameState =
             m_drawFrameState.frame_state(frameIndex);
         frameState.renderWidth = 1280;
         frameState.renderHeight = 720;
@@ -105,22 +120,22 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
-    auto* bufferManager = m_renderBackend->get_buffer_manager();
+    auto *bufferManager = m_renderBackend->get_buffer_manager();
     if (bufferManager == nullptr)
     {
         return Result::fail(Code::NotFound, Severity::Fatal,
                             "Failed to get buffer manager from backend.");
     }
 
-    auto* viewManager = m_renderBackend->get_view_manager();
+    auto *viewManager = m_renderBackend->get_view_manager();
     if (viewManager == nullptr)
     {
         return Result::fail(Code::NotFound, Severity::Fatal,
                             "Failed to get view manager from backend.");
     }
 
-    auto* commandPool = m_renderBackend->get_command_pool();
-    auto* queuePool = m_renderBackend->get_queue_pool();
+    auto *commandPool = m_renderBackend->get_command_pool();
+    auto *queuePool = m_renderBackend->get_queue_pool();
     if (commandPool == nullptr || queuePool == nullptr)
     {
         return Result::fail(
@@ -130,12 +145,16 @@ Result Engine::initialize(EngineSetupInfo& a_info)
 
     // MeshPool の生成
     DrawSystem::MeshPoolDesc meshPoolDesc{};
+    meshPoolDesc.maxVertexCount = 8u * 1024u * 1024u;
+    meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
     m_meshPool = std::make_unique<DrawSystem::MeshPool>(
         meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
 
     m_drawResources = std::make_unique<DrawSystem::DrawResources>(
         bufferManager, viewManager, m_bufferCount);
     m_maxObjectCount = k_maxObjectCount;
+    m_maxCellCount =
+        (m_maxObjectCount + k_cellObjectCapacity - 1u) / k_cellObjectCapacity;
 
     r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
     if (!r)
@@ -156,6 +175,12 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     }
 
     r = m_drawResources->create_material_buffer(m_maxObjectCount);
+    if (!r)
+    {
+        return r;
+    }
+
+    r = m_drawResources->create_render_cell_buffer(m_maxCellCount);
     if (!r)
     {
         return r;
@@ -277,37 +302,57 @@ Result Engine::tick()
     return Result::ok();
 }
 
-Result Engine::register_model(const Core::Native::ModelData& a_modelData)
+Result Engine::register_model(const Core::Native::ModelData &a_modelData)
 {
     return register_model(a_modelData, Math::uint3(1u, 1u, 1u), 0.0f);
 }
 
-Result Engine::register_model(const Core::Native::ModelData& a_modelData,
+Result Engine::register_model(const Core::Native::ModelData &a_modelData,
                               Math::uint3 a_instanceCounts)
 {
     return register_model(a_modelData, a_instanceCounts, 0.0f);
 }
 
-Result Engine::register_model(const Core::Native::ModelData& a_modelData,
+Result Engine::register_model(const Core::Native::ModelData &a_modelData,
                               Math::uint3 a_instanceCounts,
                               float a_targetRadius)
+{
+    std::vector<const Core::Native::ModelData *> modelDataList{&a_modelData};
+    return register_model_set(modelDataList, a_instanceCounts, a_targetRadius);
+}
+
+Result Engine::register_models(
+    const std::vector<Core::Native::ModelData> &a_modelDataList,
+    Math::uint3 a_instanceCounts, float a_targetRadius)
+{
+    std::vector<const Core::Native::ModelData *> modelDataList{};
+    modelDataList.reserve(a_modelDataList.size());
+    for (const Core::Native::ModelData &modelData : a_modelDataList)
+    {
+        modelDataList.push_back(&modelData);
+    }
+    return register_model_set(modelDataList, a_instanceCounts, a_targetRadius);
+}
+
+Result Engine::register_model_set(
+    const std::vector<const Core::Native::ModelData *> &a_modelDataList,
+    Math::uint3 a_instanceCounts, float a_targetRadius)
 {
     if (m_meshPool == nullptr)
     {
         return Result::fail(Code::InvalidState, Severity::Error,
                             "MeshPool is not initialized.");
     }
-    if (a_modelData.meshes.empty())
+    if (a_modelDataList.empty())
     {
         return Result::fail(Code::InvalidArgument, Severity::Error,
-                            "ModelData does not contain any mesh.");
+                            "ModelData list must not be empty.");
     }
     if (a_instanceCounts.x == 0 || a_instanceCounts.y == 0 ||
         a_instanceCounts.z == 0)
     {
-        return Result::fail(
-            Code::InvalidArgument, Severity::Error,
-            "Dragon instance counts must be greater than zero.");
+        return Result::fail(Code::InvalidArgument, Severity::Error,
+                            "Model instance counts must be greater than zero.");
     }
 
     const uint64_t totalInstanceCount = instance_count(a_instanceCounts);
@@ -315,104 +360,133 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
     {
         return Result::fail(
             Code::InvalidArgument, Severity::Error,
-            "Dragon instance count exceeds DrawResources capacity.");
+            "Model instance count exceeds DrawResources capacity.");
     }
 
-    const size_t firstHandleIndex = m_meshHandles.size();
-    m_meshHandles.reserve(m_meshHandles.size() + a_modelData.meshes.size());
-    for (const Core::Native::MeshData& meshData : a_modelData.meshes)
+    std::vector<DrawModelSetup> drawModels{};
+    drawModels.reserve(a_modelDataList.size());
+    float maxScaledRadius = 0.0f;
+    float maxScaledBoundsCenterY = 0.0f;
+    bool materialInitialized = false;
+
+    for (const Core::Native::ModelData *modelData : a_modelDataList)
     {
-        RHI::MeshHandle meshHandle{};
-        Result result = m_meshPool->allocate_mesh(meshData, meshHandle);
-        if (!result)
+        if (modelData == nullptr || modelData->meshes.empty())
         {
-            return result;
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "ModelData does not contain any mesh.");
         }
 
-        m_meshHandles.push_back(meshHandle);
-    }
+        const size_t firstHandleIndex = m_meshHandles.size();
+        m_meshHandles.reserve(m_meshHandles.size() + modelData->meshes.size());
+        for (const Core::Native::MeshData &meshData : modelData->meshes)
+        {
+            RHI::MeshHandle meshHandle{};
+            Result result = m_meshPool->allocate_mesh(meshData, meshHandle);
+            if (!result)
+            {
+                return result;
+            }
 
-    uint32_t drawMeshIndex = 0;
-    std::vector<uint32_t> drawLodMeshIndices{};
-    if (!a_modelData.renderParts.empty())
-    {
-        drawMeshIndex = a_modelData.renderParts[0].meshIndex;
-        drawLodMeshIndices = a_modelData.renderParts[0].lodMeshIndices;
-    }
-    if (drawLodMeshIndices.empty())
-    {
-        drawLodMeshIndices.push_back(drawMeshIndex);
-    }
-    if (drawMeshIndex >= a_modelData.meshes.size())
-    {
-        return Result::fail(Code::InvalidArgument, Severity::Error,
-                            "Model render part mesh index is out of range.");
-    }
+            m_meshHandles.push_back(meshHandle);
+        }
 
-    m_drawLodMeshIds = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
-    m_drawLodCount = std::min<uint32_t>(
-        4u, static_cast<uint32_t>(drawLodMeshIndices.size()));
-    for (uint32_t lodIndex = 0; lodIndex < m_drawLodCount; ++lodIndex)
-    {
-        const uint32_t lodMeshIndex = drawLodMeshIndices[lodIndex];
-        if (lodMeshIndex >= a_modelData.meshes.size())
+        uint32_t drawMeshIndex = 0;
+        std::vector<uint32_t> drawLodMeshIndices{};
+        if (!modelData->renderParts.empty())
+        {
+            drawMeshIndex = modelData->renderParts[0].meshIndex;
+            drawLodMeshIndices = modelData->renderParts[0].lodMeshIndices;
+        }
+        if (drawLodMeshIndices.empty())
+        {
+            drawLodMeshIndices.push_back(drawMeshIndex);
+        }
+        if (drawMeshIndex >= modelData->meshes.size())
         {
             return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Model render part LOD mesh index is out of range.");
+                Code::InvalidArgument, Severity::Error,
+                "Model render part mesh index is out of range.");
         }
 
-        RHI::MeshHandle lodMeshHandle =
-            m_meshHandles[firstHandleIndex + lodMeshIndex];
-        Result meshIdResult =
-            m_meshPool->get_mesh_id(lodMeshHandle, m_drawLodMeshIds[lodIndex]);
-        if (!meshIdResult)
+        uint32_t materialIndex = Core::Native::k_invalidModelMaterialIndex;
+        if (!modelData->renderParts.empty())
         {
-            return meshIdResult;
+            materialIndex = modelData->renderParts[0].materialIndex;
         }
-    }
-    m_drawMeshId = m_drawLodMeshIds[0];
+        if (!materialInitialized && materialIndex < modelData->materials.size())
+        {
+            const Core::Native::ImportedMaterialData &importedMaterial =
+                modelData->materials[materialIndex];
+            m_material.color = importedMaterial.color;
+            m_material.shininess = importedMaterial.shininess;
+            m_material.useTexture = 0;
+            m_material.textureId = 0;
+            m_material.useReflectionSkybox = 0;
+            materialInitialized = true;
+        }
 
-    uint32_t materialIndex = Core::Native::k_invalidModelMaterialIndex;
-    if (!a_modelData.renderParts.empty())
-    {
-        materialIndex = a_modelData.renderParts[0].materialIndex;
-    }
-    if (materialIndex < a_modelData.materials.size())
-    {
-        const Core::Native::ImportedMaterialData& importedMaterial =
-            a_modelData.materials[materialIndex];
-        m_material.color = importedMaterial.color;
-        m_material.shininess = importedMaterial.shininess;
-        m_material.useTexture = 0;
-        m_material.textureId = 0;
-        m_material.useReflectionSkybox = 0;
+        DrawModelSetup drawModel{};
+        drawModel.lodCount = std::min<uint32_t>(
+            5u, static_cast<uint32_t>(drawLodMeshIndices.size()));
+        for (uint32_t lodIndex = 0; lodIndex < drawModel.lodCount; ++lodIndex)
+        {
+            const uint32_t lodMeshIndex = drawLodMeshIndices[lodIndex];
+            if (lodMeshIndex >= modelData->meshes.size())
+            {
+                return Result::fail(
+                    Code::InvalidArgument, Severity::Error,
+                    "Model render part LOD mesh index is out of range.");
+            }
+
+            RHI::MeshHandle lodMeshHandle =
+                m_meshHandles[firstHandleIndex + lodMeshIndex];
+            Result meshIdResult = m_meshPool->get_mesh_id(
+                lodMeshHandle, drawModel.lodMeshIds[lodIndex]);
+            if (!meshIdResult)
+            {
+                return meshIdResult;
+            }
+        }
+
+        DrawSystem::MeshBounds bounds{};
+        Result boundsResult =
+            m_meshPool->get_mesh_bounds(drawModel.lodMeshIds[0], bounds);
+        if (!boundsResult)
+        {
+            return boundsResult;
+        }
+
+        drawModel.modelScale = a_targetRadius > 0.0f && bounds.radius > 0.0f
+                                   ? a_targetRadius / bounds.radius
+                                   : 1.0f;
+        drawModel.scaledRadius = bounds.radius * drawModel.modelScale;
+        drawModel.scaledBoundsCenter = bounds.center * drawModel.modelScale;
+        maxScaledRadius = (std::max)(maxScaledRadius, drawModel.scaledRadius);
+        maxScaledBoundsCenterY =
+            (std::max)(maxScaledBoundsCenterY, drawModel.scaledBoundsCenter.y);
+        drawModels.push_back(drawModel);
     }
 
-    DrawSystem::MeshBounds bounds{};
-    Result boundsResult = m_meshPool->get_mesh_bounds(m_drawMeshId, bounds);
-    if (!boundsResult)
+    if (!drawModels.empty())
     {
-        return boundsResult;
+        m_drawLodMeshIds = drawModels[0].lodMeshIds;
+        m_drawLodCount = drawModels[0].lodCount;
+        m_drawMeshId = drawModels[0].lodMeshIds[0];
     }
-
-    const float modelScale =
-        a_targetRadius > 0.0f && bounds.radius > 0.0f
-        ? a_targetRadius / bounds.radius
-        : 1.0f;
-    const float scaledRadius = bounds.radius * modelScale;
-    const Math::float3 scaledBoundsCenter =
-        bounds.center * modelScale;
 
     m_renderableInfos.clear();
+    m_renderCells.clear();
     m_objectTransforms.clear();
     m_renderableInfos.reserve(static_cast<size_t>(totalInstanceCount));
+    m_renderCells.reserve(
+        (static_cast<size_t>(totalInstanceCount) + k_cellObjectCapacity - 1u) /
+        k_cellObjectCapacity);
     m_objectTransforms.reserve(static_cast<size_t>(totalInstanceCount));
     std::vector<Math::float3> objectPositions{};
     objectPositions.reserve(static_cast<size_t>(totalInstanceCount));
 
-    const float spacing = std::max(scaledRadius * 2.5f, 0.75f);
+    const float spacing = std::max(maxScaledRadius * 2.5f, 0.75f);
     const Math::float3 gridOrigin(
         -0.5f * spacing * static_cast<float>(a_instanceCounts.x - 1u),
         -0.5f * spacing * static_cast<float>(a_instanceCounts.y - 1u),
@@ -426,36 +500,39 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
             {
                 const uint32_t objectId =
                     static_cast<uint32_t>(m_renderableInfos.size());
+                const DrawModelSetup &drawModel =
+                    drawModels[objectId %
+                               static_cast<uint32_t>(drawModels.size())];
 
                 GpuData::RenderableInfo renderableInfo{};
                 renderableInfo.objectId = objectId;
                 renderableInfo.visible = 1u;
-                renderableInfo.meshId = m_drawMeshId;
+                renderableInfo.meshId = drawModel.lodMeshIds[0];
                 renderableInfo.transformId = objectId;
                 renderableInfo.materialId = 0u;
-                renderableInfo.lodMeshId0 = m_drawLodMeshIds[0];
-                renderableInfo.lodMeshId1 = m_drawLodMeshIds[1];
-                renderableInfo.lodMeshId2 = m_drawLodMeshIds[2];
-                renderableInfo.lodMeshId3 = m_drawLodMeshIds[3];
-                renderableInfo.lodCount = m_drawLodCount;
+                renderableInfo.lodMeshId0 = drawModel.lodMeshIds[0];
+                renderableInfo.lodMeshId1 = drawModel.lodMeshIds[1];
+                renderableInfo.lodMeshId2 = drawModel.lodMeshIds[2];
+                renderableInfo.lodMeshId3 = drawModel.lodMeshIds[3];
+                renderableInfo.lodMeshId4 = drawModel.lodMeshIds[4];
+                renderableInfo.lodCount = drawModel.lodCount;
 
                 const Math::float3 position(
                     gridOrigin.x + spacing * static_cast<float>(x),
                     gridOrigin.y + spacing * static_cast<float>(y),
                     gridOrigin.z + spacing * static_cast<float>(z));
-                renderableInfo.boundsCenterRadius = Math::float4(
-                    position.x + scaledBoundsCenter.x,
-                    position.y + scaledBoundsCenter.y,
-                    position.z + scaledBoundsCenter.z,
-                    scaledRadius);
+                renderableInfo.boundsCenterRadius =
+                    Math::float4(position.x + drawModel.scaledBoundsCenter.x,
+                                 position.y + drawModel.scaledBoundsCenter.y,
+                                 position.z + drawModel.scaledBoundsCenter.z,
+                                 drawModel.scaledRadius);
                 m_renderableInfos.push_back(renderableInfo);
 
                 GpuData::ObjectTransformGpu transform{};
                 transform.worldMatrix =
-                    Math::scale_matrix(Math::float3(
-                        modelScale,
-                        modelScale,
-                        modelScale)) *
+                    Math::scale_matrix(Math::float3(drawModel.modelScale,
+                                                    drawModel.modelScale,
+                                                    drawModel.modelScale)) *
                     Math::translate_matrix(position);
                 transform.normalMatrix = Math::float4x4::identity();
                 m_objectTransforms.push_back(transform);
@@ -464,16 +541,60 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
         }
     }
 
+    for (uint32_t objectStart = 0;
+         objectStart < static_cast<uint32_t>(m_renderableInfos.size());
+         objectStart += k_cellObjectCapacity)
+    {
+        const uint32_t objectCount = std::min<uint32_t>(
+            k_cellObjectCapacity,
+            static_cast<uint32_t>(m_renderableInfos.size()) - objectStart);
+
+        Math::float3 minBounds(std::numeric_limits<float>::max(),
+                               std::numeric_limits<float>::max(),
+                               std::numeric_limits<float>::max());
+        Math::float3 maxBounds(-std::numeric_limits<float>::max(),
+                               -std::numeric_limits<float>::max(),
+                               -std::numeric_limits<float>::max());
+
+        for (uint32_t objectOffset = 0; objectOffset < objectCount;
+             ++objectOffset)
+        {
+            const Math::float4 objectBounds =
+                m_renderableInfos[objectStart + objectOffset]
+                    .boundsCenterRadius;
+            const Math::float3 center(objectBounds.x, objectBounds.y,
+                                      objectBounds.z);
+            const float radius = objectBounds.w;
+            minBounds.x = (std::min)(minBounds.x, center.x - radius);
+            minBounds.y = (std::min)(minBounds.y, center.y - radius);
+            minBounds.z = (std::min)(minBounds.z, center.z - radius);
+            maxBounds.x = (std::max)(maxBounds.x, center.x + radius);
+            maxBounds.y = (std::max)(maxBounds.y, center.y + radius);
+            maxBounds.z = (std::max)(maxBounds.z, center.z + radius);
+        }
+
+        const Math::float3 cellCenter = (minBounds + maxBounds) * 0.5f;
+        const Math::float3 halfExtent = maxBounds - cellCenter;
+
+        GpuData::RenderCellGpu cell{};
+        cell.boundsCenterRadius = Math::float4(
+            cellCenter.x, cellCenter.y, cellCenter.z, halfExtent.length());
+        cell.objectStart = objectStart;
+        cell.objectCount = objectCount;
+        cell.lodBias = 0;
+        cell.flags = 1u;
+        m_renderCells.push_back(cell);
+    }
+
     std::vector<Math::float3> pointLightCandidates{};
     pointLightCandidates.reserve(m_objectTransforms.size() * 3u);
     const auto add_midpoint = [&](uint32_t a, uint32_t b)
     {
-        const Math::float3& first = objectPositions[a];
-        const Math::float3& second = objectPositions[b];
-        pointLightCandidates.emplace_back(
-            (first.x + second.x) * 0.5f,
-            (first.y + second.y) * 0.5f,
-            (first.z + second.z) * 0.5f);
+        const Math::float3 &first = objectPositions[a];
+        const Math::float3 &second = objectPositions[b];
+        pointLightCandidates.emplace_back((first.x + second.x) * 0.5f,
+                                          (first.y + second.y) * 0.5f,
+                                          (first.z + second.z) * 0.5f);
     };
 
     for (uint32_t z = 0; z < a_instanceCounts.z; ++z)
@@ -482,41 +603,38 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
         {
             for (uint32_t x = 0; x < a_instanceCounts.x; ++x)
             {
-                const uint32_t current =
-                    grid_index(a_instanceCounts, x, y, z);
+                const uint32_t current = grid_index(a_instanceCounts, x, y, z);
                 if (x + 1u < a_instanceCounts.x)
                 {
-                    add_midpoint(
-                        current, grid_index(a_instanceCounts, x + 1u, y, z));
+                    add_midpoint(current,
+                                 grid_index(a_instanceCounts, x + 1u, y, z));
                 }
                 if (y + 1u < a_instanceCounts.y)
                 {
-                    add_midpoint(
-                        current, grid_index(a_instanceCounts, x, y + 1u, z));
+                    add_midpoint(current,
+                                 grid_index(a_instanceCounts, x, y + 1u, z));
                 }
                 if (z + 1u < a_instanceCounts.z)
                 {
-                    add_midpoint(
-                        current, grid_index(a_instanceCounts, x, y, z + 1u));
+                    add_midpoint(current,
+                                 grid_index(a_instanceCounts, x, y, z + 1u));
                 }
             }
         }
     }
 
     m_pointLights.clear();
-    const uint32_t pointLightCount = std::min(
-        m_maxPointLightCount,
-        static_cast<uint32_t>(pointLightCandidates.size()));
+    const uint32_t pointLightCount =
+        std::min(m_maxPointLightCount,
+                 static_cast<uint32_t>(pointLightCandidates.size()));
     m_pointLights.reserve(pointLightCount);
     for (uint32_t lightIndex = 0; lightIndex < pointLightCount; ++lightIndex)
     {
-        const uint32_t candidateIndex =
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(lightIndex) *
-                 pointLightCandidates.size()) /
-                pointLightCount);
+        const uint32_t candidateIndex = static_cast<uint32_t>(
+            (static_cast<uint64_t>(lightIndex) * pointLightCandidates.size()) /
+            pointLightCount);
         Math::float3 position = pointLightCandidates[candidateIndex];
-        position.y += scaledBoundsCenter.y + scaledRadius * 0.55f;
+        position.y += maxScaledBoundsCenterY + maxScaledRadius * 0.55f;
 
         GpuData::PointLightGpu pointLight{};
         pointLight.positionRange =
@@ -530,11 +648,13 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
     m_lightFrame.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
 
     m_drawObjectCount = static_cast<uint32_t>(m_renderableInfos.size());
+    m_drawCellCount = static_cast<uint32_t>(m_renderCells.size());
     m_hasDrawableObject = true;
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         m_drawFrameState.frame_state(frameIndex).objectCount =
             m_drawObjectCount;
+        m_drawFrameState.frame_state(frameIndex).cellCount = m_drawCellCount;
     }
 
     Result commitResult = commit_static_draw_data_to_uploaders();
@@ -546,7 +666,7 @@ Result Engine::register_model(const Core::Native::ModelData& a_modelData,
 }
 
 Result Engine::set_view_projection(
-    const GpuData::ViewProjectionGpu& a_viewProjection)
+    const GpuData::ViewProjectionGpu &a_viewProjection)
 {
     m_viewProjection = a_viewProjection;
     return commit_view_projection_to_uploaders();
@@ -561,7 +681,7 @@ Result Engine::commit_static_draw_data_to_uploaders()
 
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
-        auto& renderableUploader =
+        auto &renderableUploader =
             m_drawResources->renderable_info_uploaders()[frameIndex];
         renderableUploader.begin_frame();
         for (uint32_t objectIndex = 0; objectIndex < m_drawObjectCount;
@@ -580,7 +700,7 @@ Result Engine::commit_static_draw_data_to_uploaders()
                                 "Failed to commit RenderableInfo uploader.");
         }
 
-        auto& transformUploader =
+        auto &transformUploader =
             m_drawResources->transform_uploaders()[frameIndex];
         transformUploader.begin_frame();
         for (uint32_t objectIndex = 0; objectIndex < m_drawObjectCount;
@@ -599,13 +719,30 @@ Result Engine::commit_static_draw_data_to_uploaders()
                                 "Failed to commit Transform uploader.");
         }
 
-        auto& materialUploader =
+        auto &materialUploader =
             m_drawResources->material_uploaders()[frameIndex];
         materialUploader.begin_frame();
         if (!materialUploader.push(0, m_material) || !materialUploader.commit())
         {
             return Result::fail(Code::InternalError, Severity::Error,
                                 "Failed to commit Material uploader.");
+        }
+
+        auto &renderCellUploader =
+            m_drawResources->render_cell_uploaders()[frameIndex];
+        renderCellUploader.begin_frame();
+        for (uint32_t cellIndex = 0; cellIndex < m_drawCellCount; ++cellIndex)
+        {
+            if (!renderCellUploader.push(cellIndex, m_renderCells[cellIndex]))
+            {
+                return Result::fail(Code::InternalError, Severity::Error,
+                                    "Failed to push RenderCell uploader.");
+            }
+        }
+        if (!renderCellUploader.commit())
+        {
+            return Result::fail(Code::InternalError, Severity::Error,
+                                "Failed to commit RenderCell uploader.");
         }
     }
 
@@ -621,7 +758,7 @@ Result Engine::commit_view_projection_to_uploaders()
 
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
-        auto& uploader =
+        auto &uploader =
             m_drawResources->view_projection_uploaders()[frameIndex];
         uploader.begin_frame();
         if (!uploader.push(0, m_viewProjection) || !uploader.commit())
@@ -644,17 +781,15 @@ Result Engine::commit_light_data_to_uploaders()
     m_lightFrame.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
-        auto& frameUploader = m_lightResources->frame_uploaders()[frameIndex];
+        auto &frameUploader = m_lightResources->frame_uploaders()[frameIndex];
         frameUploader.begin_frame();
         if (!frameUploader.push(0, m_lightFrame) || !frameUploader.commit())
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Error,
-                "Failed to commit LightFrame uploader.");
+            return Result::fail(Code::InternalError, Severity::Error,
+                                "Failed to commit LightFrame uploader.");
         }
 
-        auto& pointLightUploader =
+        auto &pointLightUploader =
             m_lightResources->point_light_uploaders()[frameIndex];
         pointLightUploader.begin_frame();
         for (uint32_t lightIndex = 0; lightIndex < m_pointLights.size();
@@ -662,18 +797,14 @@ Result Engine::commit_light_data_to_uploaders()
         {
             if (!pointLightUploader.push(lightIndex, m_pointLights[lightIndex]))
             {
-                return Result::fail(
-                    Code::InternalError,
-                    Severity::Error,
-                    "Failed to push PointLight uploader.");
+                return Result::fail(Code::InternalError, Severity::Error,
+                                    "Failed to push PointLight uploader.");
             }
         }
         if (!pointLightUploader.commit())
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Error,
-                "Failed to commit PointLight uploader.");
+            return Result::fail(Code::InternalError, Severity::Error,
+                                "Failed to commit PointLight uploader.");
         }
     }
 
@@ -726,57 +857,96 @@ Result Engine::create_frame_graphs(
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::TransformBufferCopyPass>(
                 m_drawFrameState, m_drawResources->transform_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderCellCopyPass>(
+            m_drawFrameState, m_drawResources->render_cell_buffer_handle()));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ViewProjectionCopyPass>(
                 m_drawResources->view_projection_buffer_handle()));
-            m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::MaterialBufferCopyPass>(
-                    m_drawResources->material_buffer_handle()));
-            if (m_lightResources != nullptr)
-            {
-                m_frameGraph->add_pass(
-                    std::make_unique<LightingSystem::LightBufferCopyPass>(
-                        "LightFrameBufferCopy",
-                        m_lightResources->frame_buffer_handle(),
-                        sizeof(GpuData::LightFrameGpu)));
-                m_frameGraph->add_pass(
-                    std::make_unique<LightingSystem::LightBufferCopyPass>(
-                        "PointLightBufferCopy",
-                        m_lightResources->point_light_buffer_handle(),
-                        static_cast<uint64_t>(m_pointLightBufferCapacity) *
-                            sizeof(GpuData::PointLightGpu)));
-            }
-            m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::InitializeHiZDepthPass>());
-            m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::GenerateVisibleListPass>(
-                    m_drawFrameState,
-                    m_drawResources->renderable_info_buffer_handle(),
-                    m_drawResources->view_projection_buffer_handle(),
-                    m_drawResources->render_object_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_uav_handle()));
         m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::StaticMeshBatchingPass>(
-                    m_drawFrameState,
-                    m_drawResources->render_object_buffer_handle(),
-                    m_drawResources->transform_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_handle(),
-                    m_maxObjectCount));
+            std::make_unique<DrawSystem::MaterialBufferCopyPass>(
+                m_drawResources->material_buffer_handle()));
+        if (m_lightResources != nullptr)
+        {
+            m_frameGraph->add_pass(
+                std::make_unique<LightingSystem::LightBufferCopyPass>(
+                    "LightFrameBufferCopy",
+                    m_lightResources->frame_buffer_handle(),
+                    sizeof(GpuData::LightFrameGpu)));
+            m_frameGraph->add_pass(
+                std::make_unique<LightingSystem::LightBufferCopyPass>(
+                    "PointLightBufferCopy",
+                    m_lightResources->point_light_buffer_handle(),
+                    static_cast<uint64_t>(m_pointLightBufferCapacity) *
+                        sizeof(GpuData::PointLightGpu)));
+        }
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::InitializeHiZDepthPass>());
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ObjectCullAndLodPass>(
+                m_drawFrameState,
+                m_drawResources->renderable_info_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_uav_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ResetBatchCountersPass>(
+                m_maxObjectCount));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::OccluderDepthOnlyIndirectPass>(
+                m_drawFrameState,
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::BuildHiZDepthPass>());
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::CellCullingPass>(
+            m_drawFrameState, m_drawResources->render_cell_buffer_handle(),
+            m_drawResources->view_projection_buffer_handle(), m_maxCellCount));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullingPass>(
+            m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
+            m_drawResources->render_cell_buffer_handle(),
+            m_drawResources->view_projection_buffer_handle(),
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_uav_handle(),
+            m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ResetBatchCountersPass>(
+                m_maxObjectCount, false));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshForwardPass>(
                 m_drawFrameState,
                 m_drawResources->render_object_buffer_handle(),
-                    m_drawResources->transform_buffer_handle(),
-                    m_drawResources->view_projection_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_handle(),
-                    m_drawResources->material_buffer_handle(),
-                    m_lightResources->frame_buffer_handle(),
-                    m_lightResources->point_light_buffer_handle(),
-                    m_maxObjectCount));
-        m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::BuildHiZDepthPass>());
-        }
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                m_drawResources->material_buffer_handle(),
+                m_lightResources->frame_buffer_handle(),
+                m_lightResources->point_light_buffer_handle(),
+                m_maxObjectCount));
+    }
 
     result = m_frameGraph->build();
     if (!result)

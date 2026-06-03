@@ -14,6 +14,7 @@ struct RenderableInfo
     uint lodMeshId1;
     uint lodMeshId2;
     uint lodMeshId3;
+    uint lodMeshId4;
     uint lodCount;
     float4 boundsCenterRadius;
 };
@@ -29,6 +30,10 @@ struct RenderObject
     uint shadowCasterMode;
     uint skinPaletteOffset;
     uint skinPaletteCount;
+    uint drawFlags;
+    uint depthBin;
+    uint padding;
+    float4 boundsCenterRadius;
 };
 
 cbuffer DispatchParam : register(b0)
@@ -118,6 +123,10 @@ uint get_lod_mesh_id(RenderableInfo renderableInfo, uint lodIndex)
     {
         return renderableInfo.lodMeshId3;
     }
+    if (lodIndex == 4)
+    {
+        return renderableInfo.lodMeshId4;
+    }
     return renderableInfo.lodMeshId0;
 }
 
@@ -138,7 +147,11 @@ uint select_lod(RenderableInfo renderableInfo)
         viewZ;
 
     uint lodIndex = 0u;
-    if (projectedRadius < 0.08f)
+    if (projectedRadius < 0.012f)
+    {
+        lodIndex = 4u;
+    }
+    else if (projectedRadius < 0.08f)
     {
         lodIndex = 3u;
     }
@@ -168,6 +181,14 @@ float project_device_depth(float viewZ)
     }
 
     return saturate(clipPosition.z / clipPosition.w);
+}
+
+uint select_depth_bin(float4 boundsCenterRadius)
+{
+    const float4 viewCenter =
+        mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float deviceDepth = project_device_depth(max(viewCenter.z, 0.001f));
+    return min((uint)floor(saturate(deviceDepth) * 8.0f), 7u);
 }
 
 bool project_bounds_to_hiz_tiles(
@@ -293,5 +314,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     renderObject.shadowCasterMode = renderableInfo.shadowCasterMode;
     renderObject.skinPaletteOffset = renderableInfo.skinPaletteOffset;
     renderObject.skinPaletteCount = renderableInfo.skinPaletteCount;
+    renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+    renderObject.depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
+    renderObject.padding = 0u;
+    renderObject.boundsCenterRadius = renderableInfo.boundsCenterRadius;
     g_renderObjects[objectOffset] = renderObject;
 }

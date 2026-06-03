@@ -14,6 +14,7 @@ struct RenderableInfo
     uint lodMeshId1;
     uint lodMeshId2;
     uint lodMeshId3;
+    uint lodMeshId4;
     uint lodCount;
     float4 boundsCenterRadius;
 };

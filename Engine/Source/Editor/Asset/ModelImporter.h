@@ -11,14 +11,29 @@
 #include <IO/Path.h>
 #include <Native/EngineNativeStruct.h>
 
+// === C++ includes ===
+#include <array>
+#include <string_view>
+
 namespace Cue::Editor
 {
-    class ModelImporter final
+class ModelImporter final
+{
+  public:
+    struct LodGroupSettings final
     {
-    public:
-        [[nodiscard]] static Result import_model(
-            const Core::IO::Path& filePath,
-            std::string_view modelName,
-            Core::Native::ModelData& outModelData) noexcept;
+        std::string_view name = "Default";
+        std::array<float, 3> indexRatios{0.5f, 0.15f, 0.01f};
+        bool generateBillboardLod = true;
     };
-}
+
+    [[nodiscard]] static Result import_model(
+        const Core::IO::Path &filePath, std::string_view modelName,
+        Core::Native::ModelData &outModelData) noexcept;
+
+    [[nodiscard]] static Result import_model(
+        const Core::IO::Path &filePath, std::string_view modelName,
+        const LodGroupSettings &lodGroupSettings,
+        Core::Native::ModelData &outModelData) noexcept;
+};
+} // namespace Cue::Editor

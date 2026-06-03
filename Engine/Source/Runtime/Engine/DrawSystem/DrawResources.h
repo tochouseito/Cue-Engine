@@ -24,6 +24,7 @@ namespace Cue::DrawSystem
         TransformBuffer,
         ViewProjectionBuffer,
         MaterialBuffer,
+        RenderCellBuffer,
         RenderObjectBuffer,
         VisibleObjectCountBuffer,
         Count
@@ -50,6 +51,7 @@ namespace Cue::DrawSystem
         Result create_transform_buffer(const uint32_t a_maxObjectCount);
         Result create_view_projection_buffer();
         Result create_material_buffer(const uint32_t a_maxMaterialCount);
+        Result create_render_cell_buffer(const uint32_t a_maxCellCount);
         Result create_render_object_buffer(const uint32_t a_maxObjectCount);
         Result create_object_count_buffer();
 
@@ -71,6 +73,11 @@ namespace Cue::DrawSystem
             material_uploaders() noexcept
         {
             return m_materialUploaders;
+        }
+        std::vector<RHI::SlotUploader<GpuData::RenderCellGpu>>&
+            render_cell_uploaders() noexcept
+        {
+            return m_renderCellUploaders;
         }
         std::vector<RHI::SlotUploader<uint32_t>>&
             visible_object_count_uploaders() noexcept
@@ -107,6 +114,12 @@ namespace Cue::DrawSystem
                 DrawResourceType::MaterialBuffer)];
         }
 
+        [[nodiscard]] RHI::BufferHandle render_cell_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                DrawResourceType::RenderCellBuffer)];
+        }
+
         [[nodiscard]] RHI::BufferHandle render_object_buffer_handle() const noexcept
         {
             return m_bufferHandles[static_cast<size_t>(
@@ -137,6 +150,12 @@ namespace Cue::DrawSystem
                 DrawResourceType::MaterialBuffer)];
         }
 
+        [[nodiscard]] RHI::ViewHandle render_cell_buffer_srv_handle() const noexcept
+        {
+            return m_viewHandles[static_cast<size_t>(
+                DrawResourceType::RenderCellBuffer)];
+        }
+
         [[nodiscard]] RHI::ViewHandle render_object_buffer_uav_handle() const noexcept
         {
             return m_viewHandles[static_cast<size_t>(
@@ -159,6 +178,7 @@ namespace Cue::DrawSystem
             m_renderableInfoUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ObjectTransformGpu>> m_transformUploaders{};
         std::vector<RHI::SlotUploader<GpuData::MaterialGpu>> m_materialUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::RenderCellGpu>> m_renderCellUploaders{};
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{};
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{};
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{};

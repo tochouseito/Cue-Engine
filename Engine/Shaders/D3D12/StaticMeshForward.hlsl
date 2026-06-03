@@ -9,6 +9,10 @@ struct RenderObject
     uint shadowCasterMode;
     uint skinPaletteOffset;
     uint skinPaletteCount;
+    uint drawFlags;
+    uint depthBin;
+    uint padding;
+    float4 boundsCenterRadius;
 };
 
 struct Transform
@@ -87,18 +91,32 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
 
+    VsOutput output;
+    output.texcoord = input.texcoord;
+    output.materialId = renderObject.materialId;
+
+    if ((renderObject.drawFlags & 1u) != 0u)
+    {
+        const float4 worldCenter =
+            float4(renderObject.boundsCenterRadius.xyz, 1.0f);
+        const float objectScale = length(transform.worldMatrix[0].xyz);
+        float4 viewPosition = mul(worldCenter, g_viewMatrix);
+        viewPosition.xy += input.position.xy * objectScale;
+
+        output.position = mul(viewPosition, g_projectionMatrix);
+        output.worldPosition = worldCenter.xyz;
+        output.worldNormal = float3(0.0f, 0.0f, 1.0f);
+        return output;
+    }
+
     // 頂点変換
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
     const float3 worldNormal =
         normalize(mul(float4(input.normal, 0.0f), transform.normalMatrix).xyz);
 
-    VsOutput output;
     output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
     output.worldPosition = worldPosition.xyz;
     output.worldNormal = worldNormal;
-    output.texcoord = input.texcoord;
-    output.materialId = renderObject.materialId;
-
     return output;
 }
 
