@@ -2,6 +2,11 @@
 
 namespace Cue::DrawSystem
 {
+    namespace
+    {
+        constexpr uint32_t k_lodBucketCount = 4u;
+    }
+
     Result DrawResources::create_renderable_info_buffer(
         const uint32_t a_maxObjectCount)
     {
@@ -240,7 +245,7 @@ namespace Cue::DrawSystem
         renderObjectBufferDesc.uploadHeapCount = m_bufferCount;
         renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
         renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
-        renderObjectBufferDesc.elementCount = a_maxObjectCount;
+        renderObjectBufferDesc.elementCount = a_maxObjectCount * k_lodBucketCount;
         renderObjectBufferDesc.size =
             renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
         renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
@@ -303,8 +308,8 @@ namespace Cue::DrawSystem
         renderObjectCountBufferDesc.initialState =
             RHI::ResourceState::UnorderedAccess;
         renderObjectCountBufferDesc.stride = sizeof(uint32_t);
-        renderObjectCountBufferDesc.elementCount = 1;
-        renderObjectCountBufferDesc.size = sizeof(uint32_t);
+        renderObjectCountBufferDesc.elementCount = k_lodBucketCount;
+        renderObjectCountBufferDesc.size = sizeof(uint32_t) * k_lodBucketCount;
         renderObjectCountBufferDesc.alignment = alignof(uint32_t);
 
         // ObjectCountBuffer の作成

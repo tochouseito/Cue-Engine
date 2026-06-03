@@ -193,7 +193,6 @@ namespace Cue::DrawSystem
         m_meshRangeState.stagingCapacityInBytes = 0;
         m_meshRangeState.capacity = 0;
         m_meshRangeState.freeMeshIds.clear();
-        destroy_stream_state(m_meshletStream);
         destroy_stream_state(m_indexStream);
         destroy_stream_state(m_influenceStream);
         destroy_stream_state(m_normalStream);
@@ -260,15 +259,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        return create_stream_state(
-            desc.meshletName,
-            BufferType::Structured,
-            static_cast<uint64_t>(desc.maxMeshletCount) * sizeof(MeshletGpu),
-            desc.meshletStagingSize,
-            sizeof(MeshletGpu),
-            desc.maxMeshletCount,
-            alignof(MeshletGpu),
-            m_meshletStream);
+        return Result::ok();
     }
 
     Result MeshPool::initialize_mesh_range_state(const MeshPoolDesc& desc)
@@ -859,11 +850,6 @@ namespace Cue::DrawSystem
         record.uvByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float2);
         record.normalByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float3);
         record.indexByteSize = byte_size_of(meshData.indices);
-        record.meshletCount = meshData.meshlets.empty()
-            ? 1u
-            : static_cast<uint32_t>(meshData.meshlets.size());
-        record.meshletByteSize =
-            static_cast<uint64_t>(record.meshletCount) * sizeof(MeshletGpu);
         record.bounds = calculate_bounds(meshData.positions);
         Result result = allocate_mesh_id(record.meshId);
         if (!result)
@@ -921,33 +907,16 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        result = allocate_stream_range(
-            m_meshletStream,
-            record.meshletByteSize,
-            alignof(MeshletGpu),
-            record.meshletByteOffset);
-        if (!result)
-        {
-            release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
-            release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
-            release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
-            release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
-            release_mesh_id(record.meshId);
-            return result;
-        }
-
         // - 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす
         UploadAllocation positionUpload{};
         UploadAllocation uvUpload{};
         UploadAllocation normalUpload{};
         UploadAllocation indexUpload{};
-        UploadAllocation meshletUpload{};
 
         result = allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
         if (!result)
         {
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
@@ -959,7 +928,6 @@ namespace Cue::DrawSystem
         if (!result)
         {
             release_upload_range(m_positionStream, positionUpload);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -973,7 +941,6 @@ namespace Cue::DrawSystem
         {
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -988,27 +955,6 @@ namespace Cue::DrawSystem
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
-            release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
-            release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
-            release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
-            release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
-            release_mesh_id(record.meshId);
-            return result;
-        }
-
-        result = allocate_upload_range(
-            m_meshletStream,
-            record.meshletByteSize,
-            alignof(MeshletGpu),
-            meshletUpload);
-        if (!result)
-        {
-            release_upload_range(m_indexStream, indexUpload);
-            release_upload_range(m_normalStream, normalUpload);
-            release_upload_range(m_uvStream, uvUpload);
-            release_upload_range(m_positionStream, positionUpload);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1022,43 +968,6 @@ namespace Cue::DrawSystem
         meshRange.indexCount = record.indexCount;
         meshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         meshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
-        meshRange.meshletOffset =
-            static_cast<uint32_t>(record.meshletByteOffset / sizeof(MeshletGpu));
-        meshRange.meshletCount = record.meshletCount;
-        std::vector<MeshletGpu> meshlets(record.meshletCount);
-        const uint32_t indexBase =
-            static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
-        const int32_t baseVertex =
-            static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
-        if (meshData.meshlets.empty())
-        {
-            meshlets[0].startIndex = indexBase;
-            meshlets[0].indexCount = record.indexCount;
-            meshlets[0].baseVertex = baseVertex;
-            meshlets[0].boundsCenterRadius = Math::float4(
-                record.bounds.center.x,
-                record.bounds.center.y,
-                record.bounds.center.z,
-                record.bounds.radius);
-            meshlets[0].coneApex = Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
-            meshlets[0].coneAxisCutoff = Math::float4(0.0f, 0.0f, 0.0f, -2.0f);
-        }
-        else
-        {
-            for (uint32_t meshletIndex = 0; meshletIndex < record.meshletCount;
-                 ++meshletIndex)
-            {
-                const Core::Native::MeshletData& sourceMeshlet =
-                    meshData.meshlets[meshletIndex];
-                MeshletGpu& gpuMeshlet = meshlets[meshletIndex];
-                gpuMeshlet.startIndex = indexBase + sourceMeshlet.startIndex;
-                gpuMeshlet.indexCount = sourceMeshlet.indexCount;
-                gpuMeshlet.baseVertex = baseVertex;
-                gpuMeshlet.boundsCenterRadius = sourceMeshlet.boundsCenterRadius;
-                gpuMeshlet.coneApex = sourceMeshlet.coneApex;
-                gpuMeshlet.coneAxisCutoff = sourceMeshlet.coneAxisCutoff;
-            }
-        }
 
         result = allocate_upload_range(
             m_meshRangeState,
@@ -1067,12 +976,10 @@ namespace Cue::DrawSystem
             meshRangeUpload);
         if (!result)
         {
-            release_upload_range(m_meshletStream, meshletUpload);
             release_upload_range(m_indexStream, indexUpload);
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1091,7 +998,6 @@ namespace Cue::DrawSystem
             meshData.normals.empty() ? nullptr : meshData.normals.data(),
             record.normalByteSize);
         write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
-        write_upload_bytes(meshletUpload, meshlets.data(), record.meshletByteSize);
         write_upload_bytes(meshRangeUpload, &meshRange, sizeof(MeshRange));
 
         std::vector<BufferCopyRegion> uploadRegions
@@ -1138,16 +1044,6 @@ namespace Cue::DrawSystem
             },
             BufferCopyRegion
             {
-                .srcBufferHandle = meshletUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = meshletUpload.byteOffset,
-                .dstBufferHandle = m_meshletStream.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = record.meshletByteOffset,
-                .byteSize = record.meshletByteSize
-            },
-            BufferCopyRegion
-            {
                 .srcBufferHandle = meshRangeUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
                 .srcByteOffset = meshRangeUpload.byteOffset,
@@ -1161,7 +1057,6 @@ namespace Cue::DrawSystem
         result = copy_upload_regions(uploadRegions);
 
         release_upload_range(m_meshRangeState, meshRangeUpload);
-        release_upload_range(m_meshletStream, meshletUpload);
         release_upload_range(m_indexStream, indexUpload);
         release_upload_range(m_normalStream, normalUpload);
         release_upload_range(m_uvStream, uvUpload);
@@ -1169,7 +1064,6 @@ namespace Cue::DrawSystem
 
         if (!result)
         {
-            release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1211,7 +1105,6 @@ namespace Cue::DrawSystem
         release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
         release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
         release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
-        release_stream_range(m_meshletStream, record.meshletByteOffset, record.meshletByteSize);
         release_mesh_id(record.meshId);
 
         Result result = upload_mesh_range(record.meshId, MeshRange{});
@@ -1263,7 +1156,6 @@ namespace Cue::DrawSystem
         outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
         outBindings.normalBuffer = m_normalStream.defaultBufferHandle;
         outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
-        outBindings.meshletBuffer = m_meshletStream.defaultBufferHandle;
         outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
         outBindings.meshRangeSrv = m_meshRangeState.srvHandle;
         return Result::ok();
@@ -1297,9 +1189,6 @@ namespace Cue::DrawSystem
             static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         outMeshRange.baseVertex =
             static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
-        outMeshRange.meshletOffset =
-            static_cast<uint32_t>(record.meshletByteOffset / sizeof(MeshletGpu));
-        outMeshRange.meshletCount = record.meshletCount;
         return Result::ok();
     }
 

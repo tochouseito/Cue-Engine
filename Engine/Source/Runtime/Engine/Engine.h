@@ -141,7 +141,6 @@ class Engine final
     GpuData::LightFrameGpu m_lightFrame{};
     uint32_t m_bufferCount = 1;
     uint32_t m_maxObjectCount = 0;
-    uint32_t m_maxIndirectCommandCount = 0;
     uint32_t m_maxPointLightCount = 0;
     uint32_t m_pointLightBufferCapacity = 1;
     uint32_t m_drawMeshId = UINT32_MAX;

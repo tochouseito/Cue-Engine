@@ -14,10 +14,10 @@
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
 #include "DrawSystem/passes/MeshForwardPass.h"
+#include "DrawSystem/passes/ObjectOcclusionDepthPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/passes/StaticMeshForwardPass.h"
-#include "DrawSystem/passes/StaticMeshMeshletCullingPass.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
 
 // === C++ includes ===
@@ -31,7 +31,6 @@ namespace
 {
 constexpr float k_pi = 3.14159265358979323846f;
 constexpr uint32_t k_maxObjectCount = 50000;
-constexpr uint32_t k_maxIndirectCommandCount = 2000000;
 
 [[nodiscard]] uint64_t instance_count(Math::uint3 a_instanceCounts) noexcept
 {
@@ -136,7 +135,6 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_drawResources = std::make_unique<DrawSystem::DrawResources>(
         bufferManager, viewManager, m_bufferCount);
     m_maxObjectCount = k_maxObjectCount;
-    m_maxIndirectCommandCount = k_maxIndirectCommandCount;
 
     r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
     if (!r)
@@ -748,22 +746,26 @@ Result Engine::create_frame_graphs(
                             sizeof(GpuData::PointLightGpu)));
             }
             m_frameGraph->add_pass(
+                std::make_unique<DrawSystem::ObjectOcclusionDepthPass>(
+                    m_drawFrameState,
+                    m_drawResources->renderable_info_buffer_handle(),
+                    m_drawResources->view_projection_buffer_handle()));
+            m_frameGraph->add_pass(
                 std::make_unique<DrawSystem::GenerateVisibleListPass>(
                     m_drawFrameState,
                     m_drawResources->renderable_info_buffer_handle(),
                     m_drawResources->view_projection_buffer_handle(),
                     m_drawResources->render_object_buffer_handle(),
                     m_drawResources->visible_object_count_buffer_handle(),
-                    m_drawResources->visible_object_count_buffer_uav_handle()));
+                    m_drawResources->visible_object_count_buffer_uav_handle(),
+                    m_maxObjectCount));
         m_frameGraph->add_pass(
-                std::make_unique<DrawSystem::StaticMeshMeshletCullingPass>(
+                std::make_unique<DrawSystem::StaticMeshBatchingPass>(
                     m_drawFrameState,
                     m_drawResources->render_object_buffer_handle(),
                     m_drawResources->transform_buffer_handle(),
-                    m_drawResources->view_projection_buffer_handle(),
                     m_drawResources->visible_object_count_buffer_handle(),
-                    m_maxObjectCount,
-                    m_maxIndirectCommandCount));
+                    m_maxObjectCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshForwardPass>(
                 m_drawFrameState,
@@ -774,7 +776,7 @@ Result Engine::create_frame_graphs(
                     m_drawResources->material_buffer_handle(),
                     m_lightResources->frame_buffer_handle(),
                     m_lightResources->point_light_buffer_handle(),
-                    m_maxIndirectCommandCount));
+                    m_maxObjectCount));
         }
 
     result = m_frameGraph->build();

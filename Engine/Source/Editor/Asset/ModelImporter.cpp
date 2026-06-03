@@ -358,105 +358,6 @@ namespace Cue::Editor
             return result;
         }
 
-        void build_meshlets(Core::Native::MeshData& meshData)
-        {
-            meshData.meshlets.clear();
-            if (meshData.indices.size() < 3 || meshData.positions.empty())
-            {
-                return;
-            }
-
-            constexpr size_t k_maxMeshletVertices = 64;
-            constexpr size_t k_maxMeshletTriangles = 64;
-            constexpr float k_coneWeight = 0.25f;
-
-            const size_t meshletBound = meshopt_buildMeshletsBound(
-                meshData.indices.size(),
-                k_maxMeshletVertices,
-                k_maxMeshletTriangles);
-            if (meshletBound == 0)
-            {
-                return;
-            }
-
-            std::vector<meshopt_Meshlet> meshlets(meshletBound);
-            std::vector<unsigned int> meshletVertices(meshletBound * k_maxMeshletVertices);
-            std::vector<unsigned char> meshletTriangles(meshletBound * k_maxMeshletTriangles * 3);
-
-            const size_t meshletCount = meshopt_buildMeshlets(
-                meshlets.data(),
-                meshletVertices.data(),
-                meshletTriangles.data(),
-                meshData.indices.data(),
-                meshData.indices.size(),
-                &meshData.positions[0].x,
-                meshData.positions.size(),
-                sizeof(Math::float4),
-                k_maxMeshletVertices,
-                k_maxMeshletTriangles,
-                k_coneWeight);
-            meshlets.resize(meshletCount);
-
-            std::vector<uint32_t> meshletOrderedIndices;
-            meshletOrderedIndices.reserve(meshData.indices.size());
-            meshData.meshlets.reserve(meshletCount);
-
-            for (const meshopt_Meshlet& meshlet : meshlets)
-            {
-                Core::Native::MeshletData meshletData{};
-                meshletData.startIndex =
-                    static_cast<uint32_t>(meshletOrderedIndices.size());
-                meshletData.indexCount = meshlet.triangle_count * 3u;
-
-                for (uint32_t triangleIndex = 0;
-                     triangleIndex < meshlet.triangle_count;
-                     ++triangleIndex)
-                {
-                    for (uint32_t corner = 0; corner < 3u; ++corner)
-                    {
-                        const uint32_t localVertexIndex =
-                            meshletTriangles[
-                                meshlet.triangle_offset +
-                                triangleIndex * 3u + corner];
-                        const uint32_t vertexIndex =
-                            meshletVertices[
-                                meshlet.vertex_offset + localVertexIndex];
-                        meshletOrderedIndices.push_back(vertexIndex);
-                    }
-                }
-
-                const meshopt_Bounds bounds = meshopt_computeMeshletBounds(
-                    &meshletVertices[meshlet.vertex_offset],
-                    &meshletTriangles[meshlet.triangle_offset],
-                    meshlet.triangle_count,
-                    &meshData.positions[0].x,
-                    meshData.positions.size(),
-                    sizeof(Math::float4));
-
-                meshletData.boundsCenterRadius = Math::float4(
-                    bounds.center[0],
-                    bounds.center[1],
-                    bounds.center[2],
-                    bounds.radius);
-                meshletData.coneApex = Math::float4(
-                    bounds.cone_apex[0],
-                    bounds.cone_apex[1],
-                    bounds.cone_apex[2],
-                    1.0f);
-                meshletData.coneAxisCutoff = Math::float4(
-                    bounds.cone_axis[0],
-                    bounds.cone_axis[1],
-                    bounds.cone_axis[2],
-                    bounds.cone_cutoff);
-                meshData.meshlets.push_back(meshletData);
-            }
-
-            if (!meshletOrderedIndices.empty())
-            {
-                meshData.indices = std::move(meshletOrderedIndices);
-            }
-        }
-
         [[nodiscard]] Core::Native::MeshData generate_lod_mesh(
             const Core::Native::MeshData& baseMesh,
             float indexRatio,
@@ -499,7 +400,6 @@ namespace Cue::Editor
             lodMesh.indices = std::move(simplified);
             lodMesh.name = baseMesh.name + "_lod" + std::to_string(lodIndex);
             lodMesh = optimize_mesh(lodMesh);
-            build_meshlets(lodMesh);
             return lodMesh;
         }
 
@@ -696,7 +596,6 @@ namespace Cue::Editor
             }
 
             Core::Native::MeshData optimizedMesh = optimize_mesh(meshData);
-            build_meshlets(optimizedMesh);
             const uint32_t baseMeshIndex =
                 static_cast<uint32_t>(outModelData.meshes.size());
             sourceMeshLodIndices[meshIndex].push_back(baseMeshIndex);

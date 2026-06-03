@@ -43,43 +43,30 @@ ByteAddressBuffer g_renderObjectCount : register(t3);
 RWStructuredBuffer<IndirectCommand> g_indirectCommands : register(u0);
 RWByteAddressBuffer g_indirectCommandCount : register(u1);
 
-uint count_instances(uint startObjectIndex, uint objectCount, uint meshId)
+cbuffer BatchingParam : register(b0)
 {
-    uint instanceCount = 1;
-    for (uint objectIndex = startObjectIndex + 1;
-        objectIndex < objectCount;
-        ++objectIndex)
-    {
-        if (g_renderObjects[objectIndex].meshId != meshId)
-        {
-            break;
-        }
-        ++instanceCount;
-    }
-
-    return instanceCount;
-}
+    uint g_bucketCapacity;
+};
 
 [numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    const uint objectCount = g_renderObjectCount.Load(0);
-    const uint objectIndex = dispatchThreadId.x;
-    if (objectIndex >= objectCount)
+    const uint bucketIndex = dispatchThreadId.x;
+    if (bucketIndex >= 4u)
     {
         return;
     }
 
+    const uint visibleCount = g_renderObjectCount.Load(bucketIndex * 4u);
+    const uint instanceCount = min(visibleCount, g_bucketCapacity);
+    if (instanceCount == 0u)
+    {
+        return;
+    }
+
+    const uint objectIndex = bucketIndex * g_bucketCapacity;
     const RenderObject objectInfo = g_renderObjects[objectIndex];
-    if (objectIndex > 0 &&
-        g_renderObjects[objectIndex - 1].meshId == objectInfo.meshId)
-    {
-        return;
-    }
-
     const MeshRange meshRange = g_meshRanges[objectInfo.meshId];
-    const uint instanceCount =
-        count_instances(objectIndex, objectCount, objectInfo.meshId);
 
     uint dstIndex = 0;
     g_indirectCommandCount.InterlockedAdd(0, 1, dstIndex);

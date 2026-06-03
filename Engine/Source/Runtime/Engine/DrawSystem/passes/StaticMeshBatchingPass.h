@@ -105,6 +105,9 @@ namespace Cue::DrawSystem
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "StaticMeshBatchingRootSignature";
             rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
@@ -215,13 +218,14 @@ namespace Cue::DrawSystem
             }
 
             commandContext->set_compute_pipeline(m_pipeline);
-            commandContext->set_srv(0, m_renderObjectBuffer);
-            commandContext->set_srv(1, m_transformBuffer);
-            commandContext->set_srv(2, m_meshRangeBuffer);
-            commandContext->set_srv(3, m_visibleObjectCountBuffer);
-            commandContext->set_uav(4, m_indirectCommandBuffer);
-            commandContext->set_uav(5, m_indirectCommandCountBuffer);
-            commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
+            commandContext->set_32bit_constant(0, m_maxObjectCount);
+            commandContext->set_srv(1, m_renderObjectBuffer);
+            commandContext->set_srv(2, m_transformBuffer);
+            commandContext->set_srv(3, m_meshRangeBuffer);
+            commandContext->set_srv(4, m_visibleObjectCountBuffer);
+            commandContext->set_uav(5, m_indirectCommandBuffer);
+            commandContext->set_uav(6, m_indirectCommandCountBuffer);
+            commandContext->dispatch(1, 1, 1);
         }
 
     private:

@@ -46,18 +46,15 @@ namespace Cue::DrawSystem
         uint32_t maxVertexCount = 4u * 1024u * 1024u; // プール内の最大頂点数
         uint32_t maxIndexCount = 4u * 1024u * 1024u; // プール内の最大インデックス数
         uint32_t maxMeshCount = 4u * 1024u; // プール内の最大メッシュ数
-        uint32_t maxMeshletCount = 256u * 1024u; // プール内の最大 meshlet 数
         uint32_t positionStagingSize = 1u * 1024u * 1024u; // Position stream 用の常設 staging サイズ
         uint32_t uvStagingSize = 512u * 1024u; // UV stream 用の常設 staging サイズ
         uint32_t normalStagingSize = 1u * 1024u * 1024u; // Normal stream 用の常設 staging サイズ
         uint32_t indexStagingSize = 1u * 1024u * 1024u; // Index stream 用の常設 staging サイズ
-        uint32_t meshletStagingSize = 512u * 1024u; // Meshlet metadata 用の常設 staging サイズ
         uint32_t meshRangeStagingCount = 256u; // MeshRange 用の常設 staging 要素数
         std::string_view positionName = "MeshPool.Position";
         std::string_view uvName = "MeshPool.Uv";
         std::string_view normalName = "MeshPool.Normal";
         std::string_view indexName = "MeshPool.Index";
-        std::string_view meshletName = "MeshPool.Meshlet";
         std::string_view meshRangeName = "MeshPool.MeshRange";
         std::string_view meshRangeSrvName = "MeshPool.MeshRangeSRV";
     };
@@ -68,22 +65,7 @@ namespace Cue::DrawSystem
         uint32_t indexCount = 0;
         uint32_t startIndex = 0;
         int32_t baseVertex = 0;
-        uint32_t meshletOffset = 0;
-        uint32_t meshletCount = 0;
-        uint32_t padding0 = 0;
-        uint32_t padding1 = 0;
-        uint32_t padding2 = 0;
-    };
-
-    struct MeshletGpu final
-    {
-        uint32_t startIndex = 0;
-        uint32_t indexCount = 0;
-        int32_t baseVertex = 0;
         uint32_t padding = 0;
-        Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
-        Math::float4 coneApex = Math::float4(0.0f, 0.0f, 0.0f, 1.0f);
-        Math::float4 coneAxisCutoff = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
     };
 
     /// @brief メッシュのバウンディング情報を表す構造体
@@ -100,7 +82,6 @@ namespace Cue::DrawSystem
         BufferHandle uvBuffer = {};
         BufferHandle normalBuffer = {};
         BufferHandle indexBuffer = {};
-        BufferHandle meshletBuffer = {};
         BufferHandle meshRangeBuffer = {};
         ViewHandle meshRangeSrv = {};
     };
@@ -119,9 +100,6 @@ namespace Cue::DrawSystem
         uint64_t normalByteSize = 0;
         uint64_t indexByteOffset = 0;
         uint64_t indexByteSize = 0;
-        uint64_t meshletByteOffset = 0;
-        uint64_t meshletByteSize = 0;
-        uint32_t meshletCount = 0;
         MeshBounds bounds{};
         bool hasSkinInfluence = false;
     };
@@ -264,7 +242,6 @@ namespace Cue::DrawSystem
         StreamState m_normalStream{};
         StreamState m_influenceStream{};
         StreamState m_indexStream{};
-        StreamState m_meshletStream{};
         MeshRangeState m_meshRangeState{};
         Result m_initResult = Result::ok();
     };

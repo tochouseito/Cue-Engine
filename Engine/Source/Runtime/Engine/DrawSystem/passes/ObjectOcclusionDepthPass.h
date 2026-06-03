@@ -1,7 +1,7 @@
 #pragma once
 
 /// ****************************************************************************
-/// Generate visible render object list
+/// Object-space occlusion depth prepass
 /// ****************************************************************************
 
 // === RHI includes ===
@@ -12,26 +12,23 @@
 
 namespace Cue::DrawSystem
 {
-    class GenerateVisibleListPass final : public RHI::FrameGraphPass
+    class ObjectOcclusionDepthPass final : public RHI::FrameGraphPass
     {
     public:
-        GenerateVisibleListPass(const DrawFrameState& drawFrameState,
+        ObjectOcclusionDepthPass(
+            const DrawFrameState& drawFrameState,
             RHI::BufferHandle renderableInfoBuffer,
-            RHI::BufferHandle viewProjectionBuffer,
-            RHI::BufferHandle renderObjectBuffer,
-            RHI::BufferHandle visibleObjectCountBuffer,
-            RHI::ViewHandle visibleObjectCountUav,
-            uint32_t bucketCapacity)
+            RHI::BufferHandle viewProjectionBuffer)
             : m_drawFrameState(drawFrameState)
             , m_renderableInfoBuffer(renderableInfoBuffer)
             , m_viewProjectionBuffer(viewProjectionBuffer)
-            , m_renderObjectBuffer(renderObjectBuffer)
-            , m_visibleObjectCountBuffer(visibleObjectCountBuffer)
-            , m_visibleObjectCountUav(visibleObjectCountUav)
-            , m_bucketCapacity(bucketCapacity)
         {}
 
-        const char* name() const noexcept override { return "GenerateVisibleList"; }
+        const char* name() const noexcept override
+        {
+            return "ObjectOcclusionDepth";
+        }
+
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
@@ -46,7 +43,7 @@ namespace Cue::DrawSystem
                 return Result::fail(
                     Code::InvalidArgument,
                     Severity::Error,
-                    "Generate visible list tile count must not be zero.");
+                    "Object occlusion tile count must not be zero.");
             }
 
             Result result = builder.read_buffer(m_renderableInfoBuffer);
@@ -59,31 +56,44 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.read_buffer(m_renderObjectBuffer);
+
+            RHI::BufferDesc depthBufferDesc{};
+            depthBufferDesc.name = "ObjectOcclusionDepthBuffer";
+            depthBufferDesc.type = RHI::BufferType::Raw;
+            depthBufferDesc.defaultHeapCount = 1;
+            depthBufferDesc.uploadHeapCount = 0;
+            depthBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
+            depthBufferDesc.stride = sizeof(uint32_t);
+            depthBufferDesc.elementCount = m_tileCountX * m_tileCountY;
+            depthBufferDesc.size =
+                depthBufferDesc.stride * depthBufferDesc.elementCount;
+            depthBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(depthBufferDesc, m_occlusionDepthBuffer);
             if (!result)
             {
                 return result;
             }
-            result = builder.read_buffer(m_visibleObjectCountBuffer);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_buffer(
-                "ObjectOcclusionDepthBuffer",
-                m_occlusionDepthBuffer);
+
+            RHI::ViewDesc depthUavDesc{};
+            depthUavDesc.name = "ObjectOcclusionDepthBufferUAV";
+            depthUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+            depthUavDesc.bufferKind = RHI::BufferKind::Buffer;
+            depthUavDesc.bufferHandle = m_occlusionDepthBuffer;
+            depthUavDesc.numElements = depthBufferDesc.elementCount;
+            result = builder.create_view(depthUavDesc, m_occlusionDepthUav);
             if (!result)
             {
                 return result;
             }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
-            rootSignatureDesc.name = "GenerateVisibleListRootSignature";
+            rootSignatureDesc.name = "ObjectOcclusionDepthRootSignature";
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 1 });
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 2 });
@@ -91,19 +101,11 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 3 });
             rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::_32BitConstants,
-                    RHI::ShaderVisibility::All, 4 });
-            rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::_32BitConstants,
-                    RHI::ShaderVisibility::All, 5 });
+                { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 4 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
-            rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -112,8 +114,8 @@ namespace Cue::DrawSystem
             }
 
             RHI::ShaderCompileDesc shaderDesc{};
-            shaderDesc.name = "GenerateVisibleObjectListCS";
-            shaderDesc.filePath = "Shaders/D3D12/GenerateVisibleObjectList.hlsl";
+            shaderDesc.name = "ObjectOcclusionDepthCS";
+            shaderDesc.filePath = "Shaders/D3D12/ObjectOcclusionDepthPrepass.hlsl";
             shaderDesc.entryPoint = "CSMain";
             shaderDesc.targetProfile = "cs_6_0";
             result = builder.create_shader_blob(shaderDesc, m_computeShader);
@@ -123,7 +125,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::ComputePipelineStateDesc pipelineDesc{};
-            pipelineDesc.name = "GenerateVisibleListPipeline";
+            pipelineDesc.name = "ObjectOcclusionDepthPipeline";
             pipelineDesc.rootSignatureHandle = m_rootSignature;
             pipelineDesc.csHandle = m_computeShader;
             return builder.create_compute_pipeline(pipelineDesc, m_pipeline);
@@ -140,7 +142,6 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-
             result = builder.use_buffer(
                 m_viewProjectionBuffer,
                 RHI::ResourceAccessType::Read,
@@ -150,31 +151,10 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-
-            result = builder.use_buffer(
-                m_renderObjectBuffer,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
-
-            result = builder.use_buffer(
-                m_visibleObjectCountBuffer,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
-
             return builder.use_buffer(
                 m_occlusionDepthBuffer,
-                RHI::ResourceAccessType::Read,
-                RHI::ResourceState::ShaderResource,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::ShaderResource);
         }
 
@@ -186,9 +166,12 @@ namespace Cue::DrawSystem
                 return;
             }
 
-            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
+            const uint32_t clearValues[4] = {
+                0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu
+            };
             commandContext->clear_unordered_access_uint(
-                m_visibleObjectCountUav, clearValues);
+                m_occlusionDepthUav,
+                clearValues);
 
             const DrawFrameData& frameState =
                 m_drawFrameState.frame_state(context.frame_index());
@@ -199,15 +182,12 @@ namespace Cue::DrawSystem
 
             commandContext->set_compute_pipeline(m_pipeline);
             commandContext->set_32bit_constant(0, frameState.objectCount);
-            commandContext->set_cbv(1, m_viewProjectionBuffer);
-            commandContext->set_32bit_constant(2, m_bucketCapacity);
-            commandContext->set_32bit_constant(3, m_tileCountX);
-            commandContext->set_32bit_constant(4, m_tileCountY);
-            commandContext->set_32bit_constant(5, m_tileSize);
-            commandContext->set_srv(6, m_renderableInfoBuffer);
-            commandContext->set_srv(7, m_occlusionDepthBuffer);
-            commandContext->set_uav(8, m_renderObjectBuffer);
-            commandContext->set_uav(9, m_visibleObjectCountBuffer);
+            commandContext->set_32bit_constant(1, m_tileCountX);
+            commandContext->set_32bit_constant(2, m_tileCountY);
+            commandContext->set_32bit_constant(3, m_tileSize);
+            commandContext->set_cbv(4, m_viewProjectionBuffer);
+            commandContext->set_srv(5, m_renderableInfoBuffer);
+            commandContext->set_uav(6, m_occlusionDepthBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
@@ -215,11 +195,8 @@ namespace Cue::DrawSystem
         const DrawFrameState& m_drawFrameState;
         RHI::BufferHandle m_renderableInfoBuffer{};
         RHI::BufferHandle m_viewProjectionBuffer{};
-        RHI::BufferHandle m_renderObjectBuffer{};
-        RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::BufferHandle m_occlusionDepthBuffer{};
-        RHI::ViewHandle m_visibleObjectCountUav{};
-        uint32_t m_bucketCapacity = 0;
+        RHI::ViewHandle m_occlusionDepthUav{};
         uint32_t m_tileSize = 16u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
