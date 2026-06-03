@@ -172,10 +172,6 @@ namespace Cue::RHI
         {
             ICommandContext* commandContext = context.commandContext();
 
-            // スワップチェイン側も別色でクリアし、コピーが失敗すると色差で分かるようにする
-            commandContext->clear_render_target(
-                m_backBufferRtvHandle,
-                k_swapChainClearColor.data());
             commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
@@ -185,8 +181,6 @@ namespace Cue::RHI
 
         }
     private:
-        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(0, 0, 0, 255);
-
         TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
         TextureHandle m_sourceColorHandle; // コピー元となる color のハンドル

@@ -10,6 +10,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(Editor WIN32
     "App/Editor.cpp"
     "App/EditorResources.rc"
+    "App/DebugCamera.h"
+    "App/DebugCamera.cpp"
  "Asset/ModelImporter.h" "Asset/ModelImporter.cpp")
 
 # リンクするライブラリの指定
