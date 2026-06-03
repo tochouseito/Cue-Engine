@@ -108,7 +108,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint32_t bufferCount = 3;
     const Math::uint3 dragonGridCount(100u, 10u, 20u);
     const float dragonTargetRadius = 0.6f;
-    const uint32_t maxPointLightCount = 0;
+    const uint32_t maxPointLightCount = 10;
 
     // 処理結果
     Result r = Result::ok();

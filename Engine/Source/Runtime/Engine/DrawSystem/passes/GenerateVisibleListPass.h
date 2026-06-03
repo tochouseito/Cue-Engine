@@ -37,6 +37,16 @@ namespace Cue::DrawSystem
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
+            m_tileCountX = (builder.width() + m_tileSize - 1u) / m_tileSize;
+            m_tileCountY = (builder.height() + m_tileSize - 1u) / m_tileSize;
+            if (m_tileCountX == 0u || m_tileCountY == 0u)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Hi-Z tile count must not be zero.");
+            }
+
             Result result = builder.read_buffer(m_renderableInfoBuffer);
             if (!result)
             {
@@ -58,6 +68,12 @@ namespace Cue::DrawSystem
                 return result;
             }
 
+            result = builder.get_buffer("HiZDepthBuffer", m_hizDepthBuffer);
+            if (!result)
+            {
+                return result;
+            }
+
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "GenerateVisibleListRootSignature";
             rootSignatureDesc.parameters.push_back(
@@ -66,7 +82,18 @@ namespace Cue::DrawSystem
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
@@ -138,7 +165,11 @@ namespace Cue::DrawSystem
                 return result;
             }
 
-            return Result::ok();
+            return builder.use_buffer(
+                m_hizDepthBuffer,
+                RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -163,9 +194,13 @@ namespace Cue::DrawSystem
             commandContext->set_compute_pipeline(m_pipeline);
             commandContext->set_32bit_constant(0, frameState.objectCount);
             commandContext->set_cbv(1, m_viewProjectionBuffer);
-            commandContext->set_srv(2, m_renderableInfoBuffer);
-            commandContext->set_uav(3, m_renderObjectBuffer);
-            commandContext->set_uav(4, m_visibleObjectCountBuffer);
+            commandContext->set_32bit_constant(2, m_tileCountX);
+            commandContext->set_32bit_constant(3, m_tileCountY);
+            commandContext->set_32bit_constant(4, m_tileSize);
+            commandContext->set_srv(5, m_renderableInfoBuffer);
+            commandContext->set_srv(6, m_hizDepthBuffer);
+            commandContext->set_uav(7, m_renderObjectBuffer);
+            commandContext->set_uav(8, m_visibleObjectCountBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
@@ -175,7 +210,11 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_viewProjectionBuffer{};
         RHI::BufferHandle m_renderObjectBuffer{};
         RHI::BufferHandle m_visibleObjectCountBuffer{};
+        RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
+        uint32_t m_tileSize = 16u;
+        uint32_t m_tileCountX = 0;
+        uint32_t m_tileCountY = 0;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

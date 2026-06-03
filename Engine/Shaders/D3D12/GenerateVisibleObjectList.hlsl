@@ -42,7 +42,23 @@ cbuffer ViewProjection : register(b1)
     row_major float4x4 g_projectionMatrix;
 };
 
+cbuffer TileCountXParam : register(b2)
+{
+    uint g_tileCountX;
+};
+
+cbuffer TileCountYParam : register(b3)
+{
+    uint g_tileCountY;
+};
+
+cbuffer TileSizeParam : register(b4)
+{
+    uint g_tileSize;
+};
+
 StructuredBuffer<RenderableInfo> g_renderableInfos : register(t0);
+ByteAddressBuffer g_hizDepth : register(t1);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
 RWByteAddressBuffer g_renderObjectCount : register(u1);
 
@@ -122,20 +138,120 @@ uint select_lod(RenderableInfo renderableInfo)
         viewZ;
 
     uint lodIndex = 0u;
-    if (projectedRadius < 0.015f)
+    if (projectedRadius < 0.08f)
     {
         lodIndex = 3u;
     }
-    else if (projectedRadius < 0.035f)
+    else if (projectedRadius < 0.18f)
     {
         lodIndex = 2u;
     }
-    else if (projectedRadius < 0.075f)
+    else if (projectedRadius < 0.35f)
     {
         lodIndex = 1u;
     }
 
     return min(lodIndex, lodCount - 1u);
+}
+
+uint quantize_depth(float depth)
+{
+    return (uint)min(max(depth, 0.0f) * 4294967295.0f, 4294967295.0f);
+}
+
+float project_device_depth(float viewZ)
+{
+    const float4 clipPosition = mul(float4(0.0f, 0.0f, viewZ, 1.0f), g_projectionMatrix);
+    if (abs(clipPosition.w) <= 0.000001f)
+    {
+        return 1.0f;
+    }
+
+    return saturate(clipPosition.z / clipPosition.w);
+}
+
+bool project_bounds_to_hiz_tiles(
+    float4 boundsCenterRadius,
+    out uint2 minTile,
+    out uint2 maxTile,
+    out uint nearDepth)
+{
+    minTile = uint2(0u, 0u);
+    maxTile = uint2(0u, 0u);
+    nearDepth = 0u;
+
+    if (g_tileCountX == 0u || g_tileCountY == 0u || g_tileSize == 0u)
+    {
+        return false;
+    }
+
+    const float radius = boundsCenterRadius.w;
+    const float4 viewCenter =
+        mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float viewZ = viewCenter.z;
+    const float4 clipCenter = mul(viewCenter, g_projectionMatrix);
+    if (radius <= 0.0f || abs(clipCenter.w) <= 0.000001f)
+    {
+        return false;
+    }
+
+    const float projection00 = max(abs(g_projectionMatrix[0][0]), 0.000001f);
+    const float projection11 = max(abs(g_projectionMatrix[1][1]), 0.000001f);
+    const float2 ndcCenter = clipCenter.xy / clipCenter.w;
+    const float projectedRadiusX = radius * projection00 / max(viewZ, 0.000001f);
+    const float projectedRadiusY = radius * projection11 / max(viewZ, 0.000001f);
+
+    const float2 minNdc =
+        max(ndcCenter - float2(projectedRadiusX, projectedRadiusY), float2(-1.0f, -1.0f));
+    const float2 maxNdc =
+        min(ndcCenter + float2(projectedRadiusX, projectedRadiusY), float2(1.0f, 1.0f));
+    const float2 screenSize = float2(
+        (float)(g_tileCountX * g_tileSize),
+        (float)(g_tileCountY * g_tileSize));
+    const float2 minPixel =
+        (minNdc * float2(0.5f, -0.5f) + 0.5f) * screenSize;
+    const float2 maxPixel =
+        (maxNdc * float2(0.5f, -0.5f) + 0.5f) * screenSize;
+    const float2 rectMin = min(minPixel, maxPixel);
+    const float2 rectMax = max(minPixel, maxPixel);
+
+    minTile = min(
+        (uint2)floor(rectMin / (float)g_tileSize),
+        uint2(g_tileCountX - 1u, g_tileCountY - 1u));
+    maxTile = min(
+        (uint2)floor(rectMax / (float)g_tileSize),
+        uint2(g_tileCountX - 1u, g_tileCountY - 1u));
+    nearDepth = quantize_depth(project_device_depth(max(viewZ - radius, 0.001f)));
+    return true;
+}
+
+bool is_occluded_by_hiz(float4 boundsCenterRadius)
+{
+    uint2 minTile;
+    uint2 maxTile;
+    uint nearDepth;
+    if (!project_bounds_to_hiz_tiles(boundsCenterRadius, minTile, maxTile, nearDepth))
+    {
+        return false;
+    }
+
+    const uint depthBias = 8589934u;
+    for (uint tileY = minTile.y; tileY <= maxTile.y; ++tileY)
+    {
+        for (uint tileX = minTile.x; tileX <= maxTile.x; ++tileX)
+        {
+            const uint tileIndex = tileY * g_tileCountX + tileX;
+            const uint tileMaxDepth = g_hizDepth.Load(tileIndex * 4u);
+            if (tileMaxDepth == 0u ||
+                nearDepth <= tileMaxDepth ||
+                nearDepth - tileMaxDepth <= depthBias)
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 [numthreads(64, 1, 1)]
@@ -150,7 +266,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         renderableInfo = g_renderableInfos[objectId];
         visible =
             renderableInfo.visible != 0 &&
-            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius);
+            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
+            !is_occluded_by_hiz(renderableInfo.boundsCenterRadius);
     }
 
     if (!visible)

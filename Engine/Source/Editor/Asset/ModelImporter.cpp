@@ -1,8 +1,12 @@
 #include "ModelImporter.h"
 
+// === Core includes ===
+#include <IO/Logger.h>
+
 // === C++ includes ===
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -244,6 +248,22 @@ namespace Cue::Editor
             float nz = 0.0f;
         };
 
+        struct MeshoptPosition final
+        {
+            float x = 0.0f;
+            float y = 0.0f;
+            float z = 0.0f;
+        };
+
+        struct LodGenerationStats final
+        {
+            size_t sourceVertexCount = 0;
+            size_t weldedVertexCount = 0;
+            size_t targetIndexCount = 0;
+            float lodError = 0.0f;
+            bool usedSloppy = false;
+        };
+
         [[nodiscard]] std::vector<MeshoptVertex> pack_vertices(
             const Core::Native::MeshData& meshData)
         {
@@ -358,16 +378,111 @@ namespace Cue::Editor
             return result;
         }
 
+        [[nodiscard]] Core::Native::MeshData make_position_welded_mesh(
+            const Core::Native::MeshData& sourceMesh,
+            size_t& outUniqueVertexCount)
+        {
+            Core::Native::MeshData result = sourceMesh;
+            outUniqueVertexCount = sourceMesh.positions.size();
+            if (sourceMesh.positions.empty() || sourceMesh.indices.empty())
+            {
+                return result;
+            }
+
+            std::vector<MeshoptPosition> positions(sourceMesh.positions.size());
+            for (size_t vertexIndex = 0; vertexIndex < positions.size();
+                 ++vertexIndex)
+            {
+                positions[vertexIndex].x = sourceMesh.positions[vertexIndex].x;
+                positions[vertexIndex].y = sourceMesh.positions[vertexIndex].y;
+                positions[vertexIndex].z = sourceMesh.positions[vertexIndex].z;
+            }
+
+            std::vector<unsigned int> remap(positions.size());
+            const size_t uniqueVertexCount = meshopt_generateVertexRemap(
+                remap.data(),
+                sourceMesh.indices.data(),
+                sourceMesh.indices.size(),
+                positions.data(),
+                positions.size(),
+                sizeof(MeshoptPosition));
+            outUniqueVertexCount = uniqueVertexCount;
+
+            std::vector<uint32_t> remappedIndices(sourceMesh.indices.size());
+            meshopt_remapIndexBuffer(
+                remappedIndices.data(),
+                sourceMesh.indices.data(),
+                sourceMesh.indices.size(),
+                remap.data());
+
+            result.positions.assign(
+                uniqueVertexCount,
+                Math::float4(0.0f, 0.0f, 0.0f, 1.0f));
+            result.uvs.assign(uniqueVertexCount, Math::float2(0.0f, 0.0f));
+            result.normals.assign(uniqueVertexCount, Math::float3(0.0f, 1.0f, 0.0f));
+
+            std::vector<uint8_t> filled(uniqueVertexCount, 0u);
+            for (size_t sourceVertexIndex = 0;
+                 sourceVertexIndex < sourceMesh.positions.size();
+                 ++sourceVertexIndex)
+            {
+                const uint32_t remappedVertexIndex = remap[sourceVertexIndex];
+                if (remappedVertexIndex >= uniqueVertexCount ||
+                    filled[remappedVertexIndex] != 0u)
+                {
+                    continue;
+                }
+
+                result.positions[remappedVertexIndex] =
+                    sourceMesh.positions[sourceVertexIndex];
+                if (sourceVertexIndex < sourceMesh.uvs.size())
+                {
+                    result.uvs[remappedVertexIndex] =
+                        sourceMesh.uvs[sourceVertexIndex];
+                }
+                if (sourceVertexIndex < sourceMesh.normals.size())
+                {
+                    result.normals[remappedVertexIndex] =
+                        sourceMesh.normals[sourceVertexIndex];
+                }
+                filled[remappedVertexIndex] = 1u;
+            }
+
+            result.indices = std::move(remappedIndices);
+            return result;
+        }
+
+        [[nodiscard]] float lod_target_error(uint32_t lodIndex) noexcept
+        {
+            if (lodIndex >= 3u)
+            {
+                return 0.30f;
+            }
+            if (lodIndex == 2u)
+            {
+                return 0.15f;
+            }
+            return 0.05f;
+        }
+
         [[nodiscard]] Core::Native::MeshData generate_lod_mesh(
             const Core::Native::MeshData& baseMesh,
             float indexRatio,
-            uint32_t lodIndex)
+            uint32_t lodIndex,
+            LodGenerationStats& outStats)
         {
             Core::Native::MeshData lodMesh = baseMesh;
+            outStats = {};
+            outStats.sourceVertexCount = baseMesh.positions.size();
             if (baseMesh.indices.size() < 3 || baseMesh.positions.empty())
             {
                 return lodMesh;
             }
+
+            size_t weldedVertexCount = 0;
+            Core::Native::MeshData weldedMesh =
+                make_position_welded_mesh(baseMesh, weldedVertexCount);
+            outStats.weldedVertexCount = weldedVertexCount;
 
             size_t targetIndexCount =
                 static_cast<size_t>(
@@ -375,32 +490,101 @@ namespace Cue::Editor
                     static_cast<double>(indexRatio));
             targetIndexCount = (std::max<size_t>)(3, targetIndexCount);
             targetIndexCount = (targetIndexCount / 3) * 3;
+            outStats.targetIndexCount = targetIndexCount;
 
-            std::vector<uint32_t> simplified(baseMesh.indices.size());
+            std::vector<uint32_t> simplified(weldedMesh.indices.size());
             float lodError = 0.0f;
             const size_t simplifiedIndexCount = meshopt_simplify(
                 simplified.data(),
-                baseMesh.indices.data(),
-                baseMesh.indices.size(),
-                &baseMesh.positions[0].x,
-                baseMesh.positions.size(),
+                weldedMesh.indices.data(),
+                weldedMesh.indices.size(),
+                &weldedMesh.positions[0].x,
+                weldedMesh.positions.size(),
                 sizeof(Math::float4),
                 targetIndexCount,
-                0.02f,
+                lod_target_error(lodIndex),
                 0,
                 &lodError);
+            outStats.lodError = lodError;
 
-            if (simplifiedIndexCount < 3 ||
-                simplifiedIndexCount >= baseMesh.indices.size())
+            size_t finalIndexCount = simplifiedIndexCount;
+            if (finalIndexCount > targetIndexCount + (targetIndexCount / 5u))
+            {
+                float sloppyError = 0.0f;
+                const size_t sloppyIndexCount = meshopt_simplifySloppy(
+                    simplified.data(),
+                    weldedMesh.indices.data(),
+                    weldedMesh.indices.size(),
+                    &weldedMesh.positions[0].x,
+                    weldedMesh.positions.size(),
+                    sizeof(Math::float4),
+                    targetIndexCount,
+                    1.0f,
+                    &sloppyError);
+                if (sloppyIndexCount >= 3u && sloppyIndexCount < finalIndexCount)
+                {
+                    finalIndexCount = sloppyIndexCount;
+                    outStats.lodError = sloppyError;
+                    outStats.usedSloppy = true;
+                }
+            }
+
+            if (finalIndexCount < 3 ||
+                finalIndexCount >= baseMesh.indices.size() ||
+                finalIndexCount > targetIndexCount + (targetIndexCount / 5u))
             {
                 return lodMesh;
             }
 
-            simplified.resize(simplifiedIndexCount);
+            simplified.resize(finalIndexCount);
+            lodMesh = std::move(weldedMesh);
             lodMesh.indices = std::move(simplified);
             lodMesh.name = baseMesh.name + "_lod" + std::to_string(lodIndex);
             lodMesh = optimize_mesh(lodMesh);
             return lodMesh;
+        }
+
+        void log_mesh_lod_result(
+            std::string_view meshName,
+            uint32_t lodIndex,
+            size_t baseIndexCount,
+            size_t targetIndexCount,
+            size_t resultIndexCount,
+            bool accepted,
+            const LodGenerationStats* stats)
+        {
+            const double baseTriangleCount =
+                static_cast<double>(baseIndexCount) / 3.0;
+            const double resultTriangleCount =
+                static_cast<double>(resultIndexCount) / 3.0;
+            const double remainingRatio =
+                baseIndexCount > 0
+                ? static_cast<double>(resultIndexCount) /
+                    static_cast<double>(baseIndexCount)
+                : 0.0;
+            const double reductionRatio = 1.0 - remainingRatio;
+
+            Core::IO::log(
+                Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "[ModelImporter][LOD] mesh='{}' lod={} baseIndices={} "
+                "baseTriangles={:.0f} targetIndices={} resultIndices={} "
+                "resultTriangles={:.0f} remaining={:.2f}% reduction={:.2f}% "
+                "sourceVertices={} weldedVertices={} error={:.6f} method={} "
+                "accepted={}",
+                meshName,
+                lodIndex,
+                baseIndexCount,
+                baseTriangleCount,
+                targetIndexCount,
+                resultIndexCount,
+                resultTriangleCount,
+                remainingRatio * 100.0,
+                reductionRatio * 100.0,
+                stats != nullptr ? stats->sourceVertexCount : 0u,
+                stats != nullptr ? stats->weldedVertexCount : 0u,
+                stats != nullptr ? stats->lodError : 0.0f,
+                stats != nullptr && stats->usedSloppy ? "sloppy" : "regular",
+                accepted ? "true" : "false");
         }
 
         void append_render_parts_from_node(const aiScene& scene,
@@ -601,16 +785,46 @@ namespace Cue::Editor
             sourceMeshLodIndices[meshIndex].push_back(baseMeshIndex);
             outModelData.meshes.push_back(std::move(optimizedMesh));
 
-            constexpr float k_lodIndexRatios[] = { 0.5f, 0.25f, 0.125f };
+            const size_t baseIndexCount =
+                outModelData.meshes[baseMeshIndex].indices.size();
+            log_mesh_lod_result(
+                outModelData.meshes[baseMeshIndex].name,
+                0u,
+                baseIndexCount,
+                baseIndexCount,
+                baseIndexCount,
+                true,
+                nullptr);
+
+            constexpr float k_lodIndexRatios[] = { 0.5f, 0.15f, 0.01f };
             for (uint32_t lodArrayIndex = 0;
                  lodArrayIndex < static_cast<uint32_t>(std::size(k_lodIndexRatios));
                  ++lodArrayIndex)
             {
                 const uint32_t lodIndex = lodArrayIndex + 1u;
+                LodGenerationStats lodStats{};
                 Core::Native::MeshData lodMesh = generate_lod_mesh(
                     outModelData.meshes[baseMeshIndex],
                     k_lodIndexRatios[lodArrayIndex],
-                    lodIndex);
+                    lodIndex,
+                    lodStats);
+                size_t targetIndexCount =
+                    static_cast<size_t>(
+                        static_cast<double>(baseIndexCount) *
+                        static_cast<double>(k_lodIndexRatios[lodArrayIndex]));
+                targetIndexCount = (std::max<size_t>)(3, targetIndexCount);
+                targetIndexCount = (targetIndexCount / 3) * 3;
+                const bool accepted =
+                    lodMesh.indices.size() <
+                    outModelData.meshes[baseMeshIndex].indices.size();
+                log_mesh_lod_result(
+                    outModelData.meshes[baseMeshIndex].name,
+                    lodIndex,
+                    baseIndexCount,
+                    targetIndexCount,
+                    lodMesh.indices.size(),
+                    accepted,
+                    &lodStats);
                 if (lodMesh.indices.size() >=
                     outModelData.meshes[baseMeshIndex].indices.size())
                 {

@@ -1208,6 +1208,41 @@ namespace Cue::RHI::DX12
         m_commandList->SetGraphicsRootDescriptorTable(rootParameterIndex, gpuHandle);
         return Result::ok();
     }
+    Result DX12GpuCommandContext::set_compute_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle)
+    {
+        if (type() != CommandListType::Compute)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Compute descriptor tables can only be set on compute command lists.");
+        }
+
+        DX12ViewRecord* viewRecord = nullptr;
+        if (!m_viewManager.try_get_record(handle, &viewRecord))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Error,
+                "View record was not found for the given handle.");
+        }
+        uint32_t descriptorIndex = 0;
+        Result result =
+            resolve_slice_index(viewRecord->defaultTableIds.size(), descriptorIndex);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to resolve descriptor table index for the current frame.");
+        }
+
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle =
+            m_descriptorAllocator.get_gpu_handle(
+                viewRecord->defaultTableIds[descriptorIndex]);
+        m_commandList->SetComputeRootDescriptorTable(rootParameterIndex, gpuHandle);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::set_graphics_texture_table(uint32_t rootParameterIndex)
     {
         if (type() != CommandListType::Graphics)

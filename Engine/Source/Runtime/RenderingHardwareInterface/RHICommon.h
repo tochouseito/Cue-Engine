@@ -220,6 +220,7 @@ namespace Cue::RHI
         virtual Result set_srv(uint32_t rootParameterIndex, BufferHandle handle) = 0;
         virtual Result set_uav(uint32_t rootParameterIndex, BufferHandle handle) = 0;
         virtual Result set_graphics_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) = 0;
+        virtual Result set_compute_descriptor_table(uint32_t rootParameterIndex, ViewHandle handle) = 0;
         virtual Result set_graphics_texture_table(uint32_t rootParameterIndex) = 0;
         virtual Result dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
         virtual Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) = 0;

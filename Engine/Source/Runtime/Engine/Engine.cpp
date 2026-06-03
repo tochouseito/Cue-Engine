@@ -11,6 +11,7 @@
 
 // === Frame Passes includes ===
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
+#include "DrawSystem/passes/BuildHiZDepthPass.h"
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
 #include "DrawSystem/passes/MeshForwardPass.h"
@@ -746,6 +747,8 @@ Result Engine::create_frame_graphs(
                             sizeof(GpuData::PointLightGpu)));
             }
             m_frameGraph->add_pass(
+                std::make_unique<DrawSystem::InitializeHiZDepthPass>());
+            m_frameGraph->add_pass(
                 std::make_unique<DrawSystem::GenerateVisibleListPass>(
                     m_drawFrameState,
                     m_drawResources->renderable_info_buffer_handle(),
@@ -771,6 +774,8 @@ Result Engine::create_frame_graphs(
                     m_lightResources->frame_buffer_handle(),
                     m_lightResources->point_light_buffer_handle(),
                     m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::BuildHiZDepthPass>());
         }
 
     result = m_frameGraph->build();
