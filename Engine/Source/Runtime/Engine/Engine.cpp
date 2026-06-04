@@ -12,6 +12,7 @@
 // === Frame Passes includes ===
 #include "DrawSystem/passes/BuildHiZDepthPass.h"
 #include "DrawSystem/passes/CellCullingPass.h"
+#include "DrawSystem/passes/ClusteredLightingPass.h"
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
@@ -205,6 +206,12 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     {
         return r;
     }
+    r = m_lightResources->create_directional_light_buffer(
+        GpuData::k_maxDirectionalLightCount);
+    if (!r)
+    {
+        return r;
+    }
     r = m_lightResources->create_point_light_buffer(m_pointLightBufferCapacity);
     if (!r)
     {
@@ -214,6 +221,10 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_material.color = Math::float4(0.72f, 0.68f, 0.58f, 1.0f);
     m_material.shininess = 32.0f;
     m_lightFrame.ambientColorIntensity = Math::float4(1.0f, 1.0f, 1.0f, 0.16f);
+    m_lightFrame.directionalLightCount = 1u;
+    m_directionalLight.directionIntensity =
+        Math::float4(0.35f, -0.85f, 0.35f, 0.85f);
+    m_directionalLight.color = Math::float4(1.0f, 0.96f, 0.9f, 1.0f);
     m_viewProjection.view = Math::float4x4::identity();
     m_viewProjection.projection = Math::perspective_fov_matrix(
         60.0f * k_pi / 180.0f, 1280.0f / 720.0f, 0.01f, 100.0f);
@@ -779,6 +790,7 @@ Result Engine::commit_light_data_to_uploaders()
     }
 
     m_lightFrame.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
+    m_lightFrame.directionalLightCount = 1u;
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         auto &frameUploader = m_lightResources->frame_uploaders()[frameIndex];
@@ -787,6 +799,17 @@ Result Engine::commit_light_data_to_uploaders()
         {
             return Result::fail(Code::InternalError, Severity::Error,
                                 "Failed to commit LightFrame uploader.");
+        }
+
+        auto &directionalLightUploader =
+            m_lightResources->directional_light_uploaders()[frameIndex];
+        directionalLightUploader.begin_frame();
+        if (!directionalLightUploader.push(0, m_directionalLight) ||
+            !directionalLightUploader.commit())
+        {
+            return Result::fail(
+                Code::InternalError, Severity::Error,
+                "Failed to commit DirectionalLight uploader.");
         }
 
         auto &pointLightUploader =
@@ -874,11 +897,27 @@ Result Engine::create_frame_graphs(
                     sizeof(GpuData::LightFrameGpu)));
             m_frameGraph->add_pass(
                 std::make_unique<LightingSystem::LightBufferCopyPass>(
+                    "DirectionalLightBufferCopy",
+                    m_lightResources->directional_light_buffer_handle(),
+                    static_cast<uint64_t>(
+                        GpuData::k_maxDirectionalLightCount) *
+                        sizeof(GpuData::DirectionalLightGpu)));
+            m_frameGraph->add_pass(
+                std::make_unique<LightingSystem::LightBufferCopyPass>(
                     "PointLightBufferCopy",
                     m_lightResources->point_light_buffer_handle(),
                     static_cast<uint64_t>(m_pointLightBufferCapacity) *
                         sizeof(GpuData::PointLightGpu)));
         }
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::BuildClusterGridPass>(
+                m_drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ClusterLightCullingPass>(
+                m_drawResources->view_projection_buffer_handle(),
+                m_lightResources->frame_buffer_handle(),
+                m_lightResources->point_light_buffer_handle(),
+                m_pointLightBufferCapacity));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::InitializeHiZDepthPass>());
         m_frameGraph->add_pass(
@@ -944,6 +983,7 @@ Result Engine::create_frame_graphs(
                 m_drawResources->visible_object_count_buffer_handle(),
                 m_drawResources->material_buffer_handle(),
                 m_lightResources->frame_buffer_handle(),
+                m_lightResources->directional_light_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
                 m_maxObjectCount));
     }

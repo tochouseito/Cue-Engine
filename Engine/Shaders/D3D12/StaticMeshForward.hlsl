@@ -39,10 +39,24 @@ struct LightFrame
     uint padding;
 };
 
+struct DirectionalLight
+{
+    float4 directionIntensity;
+    float4 color;
+};
+
 struct PointLight
 {
     float4 positionRange;
     float4 colorIntensity;
+};
+
+struct ClusterLightRange
+{
+    uint offset;
+    uint count;
+    uint padding0;
+    uint padding1;
 };
 
 struct VsInput
@@ -79,8 +93,31 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<Material> g_materials : register(t3);
 ConstantBuffer<LightFrame> g_lightFrame : register(b2);
-StructuredBuffer<PointLight> g_pointLights : register(t4);
-StructuredBuffer<uint> g_renderObjectIndices : register(t5);
+StructuredBuffer<DirectionalLight> g_directionalLights : register(t4);
+StructuredBuffer<PointLight> g_pointLights : register(t5);
+StructuredBuffer<uint> g_renderObjectIndices : register(t6);
+StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t7);
+StructuredBuffer<uint> g_clusterLightIndices : register(t8);
+
+cbuffer ClusterTileSizeParam : register(b3)
+{
+    uint g_clusterTileSize;
+};
+
+cbuffer ClusterTileCountXParam : register(b4)
+{
+    uint g_clusterTileCountX;
+};
+
+cbuffer ClusterTileCountYParam : register(b5)
+{
+    uint g_clusterTileCountY;
+};
+
+cbuffer ClusterDepthSliceCountParam : register(b6)
+{
+    uint g_clusterDepthSliceCount;
+};
 
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
@@ -120,15 +157,65 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
     return output;
 }
 
-float3 evaluate_point_lighting(float3 worldPosition, float3 worldNormal)
+void projection_near_far(out float nearZ, out float farZ)
+{
+    const float a = g_projectionMatrix[2][2];
+    const float b = g_projectionMatrix[3][2];
+    nearZ = max(b / (-1.0f - a), 0.0001f);
+    farZ = max(b / (1.0f - a), nearZ + 0.0001f);
+}
+
+uint compute_cluster_index(float4 screenPosition, float3 worldPosition)
+{
+    const uint tileCountX = max(g_clusterTileCountX, 1u);
+    const uint tileCountY = max(g_clusterTileCountY, 1u);
+    const uint depthSliceCount = max(g_clusterDepthSliceCount, 1u);
+    const uint tileSize = max(g_clusterTileSize, 1u);
+
+    const uint tileX = min((uint)(screenPosition.x / (float)tileSize),
+                           tileCountX - 1u);
+    const uint tileY = min((uint)(screenPosition.y / (float)tileSize),
+                           tileCountY - 1u);
+
+    float nearZ = 0.0f;
+    float farZ = 0.0f;
+    projection_near_far(nearZ, farZ);
+    const float viewZ = mul(float4(worldPosition, 1.0f), g_viewMatrix).z;
+    const float normalizedDepth =
+        saturate((viewZ - nearZ) / max(farZ - nearZ, 0.0001f));
+    const uint sliceZ =
+        min((uint)(normalizedDepth * (float)depthSliceCount),
+            depthSliceCount - 1u);
+
+    return (sliceZ * tileCountY + tileY) * tileCountX + tileX;
+}
+
+float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
+                         float3 worldNormal)
 {
     float3 lighting =
         g_lightFrame.ambientColorIntensity.rgb *
         g_lightFrame.ambientColorIntensity.a;
 
-    const uint pointCount = g_lightFrame.pointLightCount;
-    for (uint lightIndex = 0; lightIndex < pointCount; ++lightIndex)
+    const uint directionalCount = min(g_lightFrame.directionalLightCount, 1u);
+    for (uint lightIndex = 0; lightIndex < directionalCount; ++lightIndex)
     {
+        const DirectionalLight light = g_directionalLights[lightIndex];
+        const float3 lightDirection = -normalize(light.directionIntensity.xyz);
+        const float diffuse = saturate(dot(worldNormal, lightDirection));
+        lighting +=
+            light.color.rgb *
+            light.directionIntensity.w *
+            diffuse;
+    }
+
+    const uint clusterIndex = compute_cluster_index(screenPosition,
+                                                    worldPosition);
+    const ClusterLightRange range = g_clusterLightRanges[clusterIndex];
+    for (uint rangeIndex = 0; rangeIndex < range.count; ++rangeIndex)
+    {
+        const uint lightIndex =
+            g_clusterLightIndices[range.offset + rangeIndex];
         const PointLight light = g_pointLights[lightIndex];
         const float3 toLight = light.positionRange.xyz - worldPosition;
         const float distance = length(toLight);
@@ -153,6 +240,7 @@ float4 ps_main(VsOutput input) : SV_Target0
     const Material material = g_materials[input.materialId];
     const float3 normal = normalize(input.worldNormal);
     const float3 lighting =
-        max(evaluate_point_lighting(input.worldPosition, normal), 0.0f);
+        max(evaluate_lighting(input.position, input.worldPosition, normal),
+            0.0f);
     return float4(material.color.rgb * lighting, material.color.a);
 }

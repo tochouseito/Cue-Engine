@@ -144,6 +144,7 @@ class Engine final
     GpuData::ViewProjectionGpu m_viewProjection{};
     GpuData::MaterialGpu m_material{};
     GpuData::LightFrameGpu m_lightFrame{};
+    GpuData::DirectionalLightGpu m_directionalLight{};
     uint32_t m_bufferCount = 1;
     uint32_t m_maxObjectCount = 0;
     uint32_t m_maxCellCount = 0;

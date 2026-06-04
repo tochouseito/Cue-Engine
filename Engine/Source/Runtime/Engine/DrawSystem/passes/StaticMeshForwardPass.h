@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/passes/ClusteredLightingPass.h"
 
 namespace Cue::DrawSystem
 {
@@ -22,6 +23,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
                           RHI::BufferHandle visibleObjectCountBuffer,
                           RHI::BufferHandle materialBuffer,
                           RHI::BufferHandle lightFrameBuffer,
+                          RHI::BufferHandle directionalLightBuffer,
                           RHI::BufferHandle pointLightBuffer,
                           uint32_t maxIndirectCommandCount)
         : m_drawFrameState(drawFrameState),
@@ -31,6 +33,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
           m_visibleObjectCountBuffer(visibleObjectCountBuffer),
           m_materialBuffer(materialBuffer),
           m_lightFrameBuffer(lightFrameBuffer),
+          m_directionalLightBuffer(directionalLightBuffer),
           m_pointLightBuffer(pointLightBuffer),
           m_maxIndirectCommandCount(maxIndirectCommandCount)
     {
@@ -104,6 +107,11 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
+        result = builder.read_buffer(m_directionalLightBuffer);
+        if (!result)
+        {
+            return result;
+        }
         result = builder.read_buffer(m_pointLightBuffer);
         if (!result)
         {
@@ -148,6 +156,26 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
+        result = builder.get_buffer("ClusterLightRangeBuffer",
+                                    m_clusterLightRangeBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.get_buffer("ClusterLightIndexBuffer",
+                                    m_clusterLightIndexBuffer);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_clusterTileCountX =
+            (builder.width() + ClusteredLighting::k_tileSize - 1u) /
+            ClusteredLighting::k_tileSize;
+        m_clusterTileCountY =
+            (builder.height() + ClusteredLighting::k_tileSize - 1u) /
+            ClusteredLighting::k_tileSize;
+        m_clusterDepthSliceCount = ClusteredLighting::k_depthSliceCount;
 
         RHI::RootSignatureDesc rootSignatureDesc{};
         rootSignatureDesc.name = "StaticMeshForwardRootSignature";
@@ -170,6 +198,24 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4});
         rootSignatureDesc.parameters.push_back(
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 3});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 4});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 5});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 6});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8});
         result =
             builder.create_root_signature(rootSignatureDesc, m_rootSignature);
         if (!result)
@@ -281,6 +327,13 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             return result;
         }
         result = builder.use_buffer(
+            m_directionalLightBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
             m_pointLightBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
         if (!result)
@@ -329,9 +382,25 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
-        return builder.use_buffer(
+        result = builder.use_buffer(
             m_renderObjectIndexBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_clusterLightRangeBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+        return builder.use_buffer(
+            m_clusterLightIndexBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
     }
 
     void execute(RHI::FrameGraphContext &context) override
@@ -358,8 +427,16 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         commandContext->set_srv(4, m_visibleObjectCountBuffer);
         commandContext->set_srv(5, m_materialBuffer);
         commandContext->set_cbv(6, m_lightFrameBuffer);
-        commandContext->set_srv(7, m_pointLightBuffer);
-        commandContext->set_srv(8, m_renderObjectIndexBuffer);
+        commandContext->set_srv(7, m_directionalLightBuffer);
+        commandContext->set_srv(8, m_pointLightBuffer);
+        commandContext->set_srv(9, m_renderObjectIndexBuffer);
+        commandContext->set_32bit_constant(10,
+                                           ClusteredLighting::k_tileSize);
+        commandContext->set_32bit_constant(11, m_clusterTileCountX);
+        commandContext->set_32bit_constant(12, m_clusterTileCountY);
+        commandContext->set_32bit_constant(13, m_clusterDepthSliceCount);
+        commandContext->set_srv(14, m_clusterLightRangeBuffer);
+        commandContext->set_srv(15, m_clusterLightIndexBuffer);
         commandContext->set_vertex_buffer(0, m_positionBuffer);
         commandContext->set_vertex_buffer(1, m_uvBuffer);
         commandContext->set_vertex_buffer(2, m_normalBuffer);
@@ -390,6 +467,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_visibleObjectCountBuffer{};
     RHI::BufferHandle m_materialBuffer{};
     RHI::BufferHandle m_lightFrameBuffer{};
+    RHI::BufferHandle m_directionalLightBuffer{};
     RHI::BufferHandle m_pointLightBuffer{};
     uint32_t m_maxIndirectCommandCount = 0;
     RHI::BufferHandle m_positionBuffer{};
@@ -399,6 +477,11 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_indirectCommandBuffer{};
     RHI::BufferHandle m_indirectCommandCountBuffer{};
     RHI::BufferHandle m_renderObjectIndexBuffer{};
+    RHI::BufferHandle m_clusterLightRangeBuffer{};
+    RHI::BufferHandle m_clusterLightIndexBuffer{};
+    uint32_t m_clusterTileCountX = 0;
+    uint32_t m_clusterTileCountY = 0;
+    uint32_t m_clusterDepthSliceCount = 0;
     RHI::RootSignatureHandle m_rootSignature{};
     RHI::ShaderBlobHandle m_vertexShader{};
     RHI::ShaderBlobHandle m_pixelShader{};

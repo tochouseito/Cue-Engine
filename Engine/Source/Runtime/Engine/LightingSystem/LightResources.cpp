@@ -90,6 +90,24 @@ namespace Cue::LightingSystem
         return Result::ok();
     }
 
+    Result LightResources::create_directional_light_buffer(uint32_t maxLightCount)
+    {
+        if (m_bufferManager == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                "LightResources buffer manager is not initialized.");
+        }
+
+        return create_structured_light_buffer(
+            *m_bufferManager,
+            "DirectionalLightBuffer",
+            maxLightCount,
+            m_bufferCount,
+            m_bufferHandles[static_cast<size_t>(
+                LightResourceType::DirectionalLightBuffer)],
+            m_directionalLightUploaders);
+    }
+
     Result LightResources::create_point_light_buffer(uint32_t maxLightCount)
     {
         if (m_bufferManager == nullptr)

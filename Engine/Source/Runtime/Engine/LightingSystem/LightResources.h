@@ -20,6 +20,7 @@ namespace Cue::LightingSystem
     enum class LightResourceType : uint32_t
     {
         FrameBuffer = 0,
+        DirectionalLightBuffer,
         PointLightBuffer,
         Count
     };
@@ -41,12 +42,14 @@ namespace Cue::LightingSystem
         LightResources& operator=(LightResources&&) = default;
 
         Result create_frame_buffer();
+        Result create_directional_light_buffer(uint32_t maxLightCount);
         Result create_point_light_buffer(uint32_t maxLightCount);
 
         [[nodiscard]] LightingBindings bindings() const noexcept
         {
             LightingBindings bindings{};
             bindings.frameBuffer = frame_buffer_handle();
+            bindings.directionalLightBuffer = directional_light_buffer_handle();
             bindings.pointLightBuffer = point_light_buffer_handle();
             return bindings;
         }
@@ -55,6 +58,12 @@ namespace Cue::LightingSystem
             frame_uploaders() noexcept
         {
             return m_frameUploaders;
+        }
+
+        std::vector<RHI::SlotUploader<GpuData::DirectionalLightGpu>>&
+            directional_light_uploaders() noexcept
+        {
+            return m_directionalLightUploaders;
         }
 
         std::vector<RHI::SlotUploader<GpuData::PointLightGpu>>&
@@ -67,6 +76,13 @@ namespace Cue::LightingSystem
         {
             return m_bufferHandles[static_cast<size_t>(
                 LightResourceType::FrameBuffer)];
+        }
+
+        [[nodiscard]] RHI::BufferHandle directional_light_buffer_handle()
+            const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                LightResourceType::DirectionalLightBuffer)];
         }
 
         [[nodiscard]] RHI::BufferHandle point_light_buffer_handle() const noexcept
@@ -82,6 +98,8 @@ namespace Cue::LightingSystem
         std::array<RHI::BufferHandle, static_cast<size_t>(LightResourceType::Count)>
             m_bufferHandles{};
         std::vector<RHI::SlotUploader<GpuData::LightFrameGpu>> m_frameUploaders{};
+        std::vector<RHI::SlotUploader<GpuData::DirectionalLightGpu>>
+            m_directionalLightUploaders{};
         std::vector<RHI::SlotUploader<GpuData::PointLightGpu>>
             m_pointLightUploaders{};
     };

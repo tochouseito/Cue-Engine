@@ -111,7 +111,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     uint32_t bufferCount = 3;
     const Math::uint3 modelGridCount(100u, 10u, 20u);
     const float modelTargetRadius = 0.6f;
-    const uint32_t maxPointLightCount = 10;
+    const uint32_t maxPointLightCount = 1000;
 
     // 処理結果
     Result r = Result::ok();
