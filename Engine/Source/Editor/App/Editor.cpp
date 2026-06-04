@@ -103,8 +103,8 @@ namespace
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     // パラメーター
-    uint32_t width = 1280;
-    uint32_t height = 720;
+    uint32_t width = 1920;
+    uint32_t height = 1080;
     const char *className = "CueEditorWindowClass";
     const char *title = "Cue Editor";
     uint32_t maxFps = 0;

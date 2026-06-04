@@ -92,13 +92,15 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_bufferCount = a_info.renderBackend->buffer_count();
     m_maxPointLightCount = a_info.maxPointLightCount;
     m_pointLightBufferCapacity = std::max(1u, m_maxPointLightCount);
+    const uint32_t initialRenderWidth = m_renderBackend->width();
+    const uint32_t initialRenderHeight = m_renderBackend->height();
     m_drawFrameState.resize(m_bufferCount);
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         DrawSystem::DrawFrameData &frameState =
             m_drawFrameState.frame_state(frameIndex);
-        frameState.renderWidth = 1280;
-        frameState.renderHeight = 720;
+        frameState.renderWidth = initialRenderWidth;
+        frameState.renderHeight = initialRenderHeight;
         frameState.objectCount = 0;
     }
 
@@ -227,7 +229,9 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_directionalLight.color = Math::float4(1.0f, 0.96f, 0.9f, 1.0f);
     m_viewProjection.view = Math::float4x4::identity();
     m_viewProjection.projection = Math::perspective_fov_matrix(
-        60.0f * k_pi / 180.0f, 1280.0f / 720.0f, 0.01f, 100.0f);
+        60.0f * k_pi / 180.0f,
+        static_cast<float>(initialRenderWidth) / static_cast<float>(initialRenderHeight),
+        0.01f, 100.0f);
     m_viewProjection.cameraPosition = Math::float4(0.0f, 0.0f, -5.0f, 1.0f);
     r = commit_static_draw_data_to_uploaders();
     if (!r)
