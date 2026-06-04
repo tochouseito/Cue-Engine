@@ -643,14 +643,19 @@ Result ModelImporter::import_model(
     Core::Native::ModelData &outModelData) noexcept
 {
     outModelData = {};
+    const float effectiveOccluderIndexRatio =
+        lodGroupSettings.occluderIndexRatio > 0.0f
+            ? lodGroupSettings.occluderIndexRatio
+            : lodGroupSettings.indexRatios.back() * 0.5f;
     Core::IO::log(
         Core::IO::LogSink::console | Core::IO::LogSink::file,
         "[ModelImporter][LODGroup] model='{}' group='{}' lod1={:.2f}% "
-        "lod2={:.2f}% lod3={:.2f}% billboard={}",
+        "lod2={:.2f}% lod3={:.2f}% occluder={:.2f}% billboard={}",
         modelName, lodGroupSettings.name,
         lodGroupSettings.indexRatios[0] * 100.0f,
         lodGroupSettings.indexRatios[1] * 100.0f,
         lodGroupSettings.indexRatios[2] * 100.0f,
+        effectiveOccluderIndexRatio * 100.0f,
         lodGroupSettings.generateBillboardLod ? "true" : "false");
 
     Assimp::Importer importer{};
@@ -693,6 +698,8 @@ Result ModelImporter::import_model(
     }
 
     std::vector<std::vector<uint32_t>> sourceMeshLodIndices(scene->mNumMeshes);
+    std::vector<uint32_t> sourceMeshOccluderMeshIndices(
+        scene->mNumMeshes, Core::Native::k_invalidModelMaterialIndex);
 
     // メッシュ解析
     for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
@@ -811,6 +818,37 @@ Result ModelImporter::import_model(
             outModelData.meshes.push_back(std::move(optimizedLodMesh));
         }
 
+        uint32_t occluderMeshIndex = sourceMeshLodIndices[meshIndex].back();
+        LodGenerationStats occluderStats{};
+        Core::Native::MeshData occluderMesh = generate_lod_mesh(
+            remappedMesh, effectiveOccluderIndexRatio, 5u, occluderStats);
+        size_t occluderTargetIndexCount =
+            static_cast<size_t>(static_cast<double>(baseIndexCount) *
+                                static_cast<double>(
+                                    effectiveOccluderIndexRatio));
+        occluderTargetIndexCount =
+            (std::max<size_t>)(3u, occluderTargetIndexCount);
+        occluderTargetIndexCount = (occluderTargetIndexCount / 3u) * 3u;
+        const bool occluderAccepted =
+            occluderMesh.indices.size() >= 3u &&
+            occluderMesh.indices.size() <
+                outModelData.meshes[occluderMeshIndex].indices.size();
+        log_mesh_lod_result(outModelData.meshes[baseMeshIndex].name, 5u,
+                            baseIndexCount, occluderTargetIndexCount,
+                            occluderMesh.indices.size(), occluderAccepted,
+                            &occluderStats);
+        if (occluderAccepted)
+        {
+            occluderMesh.name =
+                outModelData.meshes[baseMeshIndex].name + "_occluder";
+            Core::Native::MeshData optimizedOccluderMesh =
+                optimize_mesh_for_render(occluderMesh);
+            occluderMeshIndex =
+                static_cast<uint32_t>(outModelData.meshes.size());
+            outModelData.meshes.push_back(std::move(optimizedOccluderMesh));
+        }
+        sourceMeshOccluderMeshIndices[meshIndex] = occluderMeshIndex;
+
         if (lodGroupSettings.generateBillboardLod)
         {
             Core::Native::MeshData billboardMesh =
@@ -882,6 +920,8 @@ Result ModelImporter::import_model(
             renderPart.name = outModelData.meshes[baseMeshIndex].name;
             renderPart.meshIndex = baseMeshIndex;
             renderPart.lodMeshIndices = sourceMeshLodIndices[sourceMeshIndex];
+            renderPart.occluderMeshIndex =
+                sourceMeshOccluderMeshIndices[sourceMeshIndex];
             if (scene->mMeshes[sourceMeshIndex] != nullptr &&
                 scene->mMeshes[sourceMeshIndex]->mMaterialIndex <
                     outModelData.materials.size())

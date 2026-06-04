@@ -16,6 +16,10 @@ struct RenderableInfo
     uint lodMeshId3;
     uint lodMeshId4;
     uint lodCount;
+    uint occluderMeshId;
+    uint occluderFlags;
+    uint padding0;
+    uint padding1;
     float4 boundsCenterRadius;
 };
 
@@ -158,22 +162,6 @@ bool is_valuable_occluder(RenderableInfo renderableInfo)
     return largeOnScreen || nearEnough;
 }
 
-uint select_occluder_lod(RenderableInfo renderableInfo)
-{
-    const uint lodCount = max(renderableInfo.lodCount, 1u);
-    const float4 viewCenter =
-        mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
-    const float viewZ = max(viewCenter.z, 0.001f);
-    const float screenRadius = projected_radius(renderableInfo, viewZ);
-
-    if (screenRadius >= 0.35f)
-    {
-        return min(2u, lodCount - 1u);
-    }
-
-    return min(3u, lodCount - 1u);
-}
-
 float project_device_depth(float viewZ)
 {
     const float4 clipPosition =
@@ -234,10 +222,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint lodIndex = select_occluder_lod(renderableInfo);
     RenderObject renderObject;
     renderObject.objectId = renderableInfo.objectId;
-    renderObject.meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+    renderObject.meshId = renderableInfo.occluderMeshId;
     renderObject.transformId = renderableInfo.transformId;
     renderObject.materialId = renderableInfo.materialId;
     renderObject.castsShadow = renderableInfo.castsShadow;

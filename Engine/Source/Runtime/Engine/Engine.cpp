@@ -44,6 +44,7 @@ struct DrawModelSetup final
     std::array<uint32_t, 5> lodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
                                        UINT32_MAX, UINT32_MAX};
     uint32_t lodCount = 0;
+    uint32_t occluderMeshId = UINT32_MAX;
     float modelScale = 1.0f;
     float scaledRadius = 0.0f;
     Math::float3 scaledBoundsCenter = Math::float3::zero();
@@ -465,6 +466,27 @@ Result Engine::register_model_set(
                 return meshIdResult;
             }
         }
+        const uint32_t fallbackOccluderLod =
+            drawModel.lodCount > 0u
+                ? std::min<uint32_t>(3u, drawModel.lodCount - 1u)
+                : 0u;
+        drawModel.occluderMeshId = drawModel.lodMeshIds[fallbackOccluderLod];
+        if (!modelData->renderParts.empty())
+        {
+            const uint32_t occluderMeshIndex =
+                modelData->renderParts[0].occluderMeshIndex;
+            if (occluderMeshIndex < modelData->meshes.size())
+            {
+                RHI::MeshHandle occluderMeshHandle =
+                    m_meshHandles[firstHandleIndex + occluderMeshIndex];
+                Result meshIdResult = m_meshPool->get_mesh_id(
+                    occluderMeshHandle, drawModel.occluderMeshId);
+                if (!meshIdResult)
+                {
+                    return meshIdResult;
+                }
+            }
+        }
 
         DrawSystem::MeshBounds bounds{};
         Result boundsResult =
@@ -533,6 +555,8 @@ Result Engine::register_model_set(
                 renderableInfo.lodMeshId3 = drawModel.lodMeshIds[3];
                 renderableInfo.lodMeshId4 = drawModel.lodMeshIds[4];
                 renderableInfo.lodCount = drawModel.lodCount;
+                renderableInfo.occluderMeshId = drawModel.occluderMeshId;
+                renderableInfo.occluderFlags = 1u;
 
                 const Math::float3 position(
                     gridOrigin.x + spacing * static_cast<float>(x),

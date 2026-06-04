@@ -25,6 +25,7 @@ class ModelImporter final
         std::string_view name = "Default";
         std::array<float, 3> indexRatios{0.5f, 0.15f, 0.01f};
         bool generateBillboardLod = true;
+        float occluderIndexRatio = 0.0f;
     };
 
     [[nodiscard]] static Result import_model(

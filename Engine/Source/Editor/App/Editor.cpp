@@ -112,7 +112,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const Math::uint3 modelGridCount(100u, 10u, 20u);
     const float modelTargetRadius = 0.6f;
     const uint32_t maxPointLightCount = 1000;
-    const bool enableDirectionalLight = false;
+    const bool enableDirectionalLight = true;
 
     // 処理結果
     Result r = Result::ok();

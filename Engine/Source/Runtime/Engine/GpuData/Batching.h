@@ -33,6 +33,10 @@ struct RenderableInfo
     uint32_t lodMeshId3 = 0;
     uint32_t lodMeshId4 = 0;
     uint32_t lodCount = 1;
+    uint32_t occluderMeshId = 0;
+    uint32_t occluderFlags = 0;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
     Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
 };
 

@@ -58,6 +58,7 @@ namespace Cue::Core::Native
         std::string name; // 描画単位名
         uint32_t meshIndex = 0;
         std::vector<uint32_t> lodMeshIndices{};
+        uint32_t occluderMeshIndex = k_invalidModelMaterialIndex;
         uint32_t materialIndex = k_invalidModelMaterialIndex;
         uint32_t jointIndex = k_invalidAnimationIndex;
         Math::float4x4 localTransform = Math::float4x4::identity();
