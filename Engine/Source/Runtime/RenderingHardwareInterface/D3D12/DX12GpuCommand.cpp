@@ -1,10 +1,17 @@
 #include "DX12GpuCommand.h"
 
+// === DirectX includes ===
+#include <pix.h>
+
+// === C++ includes ===
+#include <array>
+
 namespace Cue::RHI::DX12
 {
     namespace
     {
-        constexpr UINT k_eventMetadataAnsi = 1u;
+        constexpr UINT64 k_pixEventColor = 0xff66ccffull;
+        constexpr size_t k_eventNameCapacity = 256;
 
         struct IndirectDrawIndexedCommand final
         {
@@ -67,6 +74,26 @@ namespace Cue::RHI::DX12
             }
 
             return state;
+        }
+
+        [[nodiscard]] std::array<wchar_t, k_eventNameCapacity> make_pix_event_name(
+            const char* name) noexcept
+        {
+            const char* source = name;
+            if (source == nullptr || source[0] == '\0')
+            {
+                source = "UnnamedEvent";
+            }
+
+            std::array<wchar_t, k_eventNameCapacity> eventName{};
+            size_t index = 0;
+            for (; index + 1 < eventName.size() && source[index] != '\0'; ++index)
+            {
+                eventName[index] =
+                    static_cast<wchar_t>(static_cast<unsigned char>(source[index]));
+            }
+            eventName[index] = L'\0';
+            return eventName;
         }
     }
 
@@ -319,16 +346,9 @@ namespace Cue::RHI::DX12
             return;
         }
 
-        // 空名はデバッグ時の識別性を落とすため、既定名に置き換える
-        const char* eventName = name;
-        if (eventName == nullptr || eventName[0] == '\0')
-        {
-            eventName = "UnnamedEvent";
-        }
-
-        // metadata と size を文字列形式に合わせて指定し、デバッグレイヤーの破損判定を回避する
-        const UINT eventNameBytes = static_cast<UINT>((std::char_traits<char>::length(eventName) + 1) * sizeof(eventName[0]));
-        m_commandList->BeginEvent(k_eventMetadataAnsi, eventName, eventNameBytes);
+        const std::array<wchar_t, k_eventNameCapacity> eventName =
+            make_pix_event_name(name);
+        PIXBeginEvent(m_commandList.Get(), k_pixEventColor, eventName.data());
     }
     void DX12GpuCommandContext::end_event()
     {
@@ -339,7 +359,7 @@ namespace Cue::RHI::DX12
         }
 
         // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する
-        m_commandList->EndEvent();
+        PIXEndEvent(m_commandList.Get());
     }
     Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
     {
