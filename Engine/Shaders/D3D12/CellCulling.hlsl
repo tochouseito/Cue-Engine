@@ -38,6 +38,15 @@ ByteAddressBuffer g_hizDepth : register(t1);
 RWStructuredBuffer<uint> g_visibleCellIndices : register(u0);
 RWByteAddressBuffer g_visibleCellCount : register(u1);
 
+bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
+{
+    const float invPlaneLength =
+        rsqrt(max(dot(plane.xyz, plane.xyz), 0.000000000001f));
+    const float signedDistance =
+        (dot(plane.xyz, center) + plane.w) * invPlaneLength;
+    return signedDistance >= -radius;
+}
+
 bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 {
     const float radius = boundsCenterRadius.w;
@@ -48,28 +57,47 @@ bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 
     const float4 viewCenter =
         mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
-    const float viewZ = viewCenter.z;
 
-    const float projection00 = max(abs(g_projectionMatrix[0][0]), 0.000001f);
-    const float projection11 = max(abs(g_projectionMatrix[1][1]), 0.000001f);
-    const float tanHalfFovX = 1.0f / projection00;
-    const float tanHalfFovY = 1.0f / projection11;
+    const float4 projectionColumn0 =
+        float4(g_projectionMatrix[0][0], g_projectionMatrix[1][0],
+               g_projectionMatrix[2][0], g_projectionMatrix[3][0]);
+    const float4 projectionColumn1 =
+        float4(g_projectionMatrix[0][1], g_projectionMatrix[1][1],
+               g_projectionMatrix[2][1], g_projectionMatrix[3][1]);
+    const float4 projectionColumn2 =
+        float4(g_projectionMatrix[0][2], g_projectionMatrix[1][2],
+               g_projectionMatrix[2][2], g_projectionMatrix[3][2]);
+    const float4 projectionColumn3 =
+        float4(g_projectionMatrix[0][3], g_projectionMatrix[1][3],
+               g_projectionMatrix[2][3], g_projectionMatrix[3][3]);
 
-    const float projection22 = g_projectionMatrix[2][2];
-    const float projection32 = g_projectionMatrix[3][2];
-    const float nearClip = -projection32 / max(projection22 + 1.0f, 0.000001f);
-    const float farClip = projection32 / min(1.0f - projection22, -0.000001f);
-
-    if (viewZ + radius < nearClip || viewZ - radius > farClip)
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn0, viewCenter.xyz, radius))
     {
         return false;
     }
-
-    if (abs(viewCenter.x) > abs(viewZ) * tanHalfFovX + radius)
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn0, viewCenter.xyz, radius))
     {
         return false;
     }
-    if (abs(viewCenter.y) > abs(viewZ) * tanHalfFovY + radius)
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn1, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn1, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn2, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn2, viewCenter.xyz, radius))
     {
         return false;
     }
