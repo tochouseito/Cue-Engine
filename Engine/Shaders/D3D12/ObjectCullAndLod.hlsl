@@ -128,15 +128,25 @@ bool is_valuable_occluder(RenderableInfo renderableInfo)
     const float viewZ = max(viewCenter.z, 0.001f);
     const float screenRadius = projected_radius(renderableInfo, viewZ);
 
-    const bool largeOnScreen = screenRadius >= 0.08f;
-    const bool nearEnough = viewZ <= 24.0f && screenRadius >= 0.025f;
+    const bool largeOnScreen = screenRadius >= 0.15f;
+    const bool nearEnough = viewZ <= 12.0f && screenRadius >= 0.06f;
     return largeOnScreen || nearEnough;
 }
 
 uint select_occluder_lod(RenderableInfo renderableInfo)
 {
     const uint lodCount = max(renderableInfo.lodCount, 1u);
-    return min(2u, lodCount - 1u);
+    const float4 viewCenter =
+        mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float viewZ = max(viewCenter.z, 0.001f);
+    const float screenRadius = projected_radius(renderableInfo, viewZ);
+
+    if (screenRadius >= 0.35f)
+    {
+        return min(2u, lodCount - 1u);
+    }
+
+    return min(3u, lodCount - 1u);
 }
 
 float project_device_depth(float viewZ)
@@ -163,21 +173,37 @@ uint select_depth_bin(float4 boundsCenterRadius)
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint objectId = dispatchThreadId.x;
-    if (objectId >= g_objectCount)
+    bool visible = objectId < g_objectCount;
+    RenderableInfo renderableInfo;
+    if (visible)
+    {
+        renderableInfo = g_renderableInfos[objectId];
+        visible =
+            renderableInfo.visible != 0u &&
+            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
+            is_valuable_occluder(renderableInfo);
+    }
+
+    const uint waveVisibleCount = WaveActiveCountBits(visible);
+    if (waveVisibleCount == 0u)
     {
         return;
     }
 
-    const RenderableInfo renderableInfo = g_renderableInfos[objectId];
-    if (renderableInfo.visible == 0u ||
-        !is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) ||
-        !is_valuable_occluder(renderableInfo))
+    uint waveBaseOffset = 0u;
+    if (WaveIsFirstLane())
+    {
+        g_renderObjectCount.InterlockedAdd(
+            0, waveVisibleCount, waveBaseOffset);
+    }
+    waveBaseOffset = WaveReadLaneFirst(waveBaseOffset);
+
+    if (!visible)
     {
         return;
     }
 
-    uint objectOffset = 0u;
-    g_renderObjectCount.InterlockedAdd(0, 1u, objectOffset);
+    const uint objectOffset = waveBaseOffset + WavePrefixCountBits(visible);
     if (objectOffset >= g_objectCount)
     {
         return;

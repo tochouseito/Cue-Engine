@@ -84,6 +84,25 @@ ByteAddressBuffer g_hizDepth : register(t4);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
 RWByteAddressBuffer g_renderObjectCount : register(u1);
 
+static const uint k_invalidSortKey = 0xffffffffu;
+
+uint first_active_lane(uint4 mask)
+{
+    if (mask.x != 0u)
+    {
+        return (uint)firstbitlow(mask.x);
+    }
+    if (mask.y != 0u)
+    {
+        return 32u + (uint)firstbitlow(mask.y);
+    }
+    if (mask.z != 0u)
+    {
+        return 64u + (uint)firstbitlow(mask.z);
+    }
+    return 96u + (uint)firstbitlow(mask.w);
+}
+
 bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 {
     const float radius = boundsCenterRadius.w;
@@ -235,48 +254,89 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint visibleCellOrdinal = dispatchThreadId.x / g_cellObjectCapacity;
     const uint objectOffsetInCell = dispatchThreadId.x % g_cellObjectCapacity;
-    if (visibleCellOrdinal >= g_visibleCellCount.Load(0))
+    bool visible = visibleCellOrdinal < g_visibleCellCount.Load(0);
+    RenderCell cell;
+    RenderableInfo renderableInfo;
+    if (visible)
     {
-        return;
+        const uint cellIndex = g_visibleCellIndices[visibleCellOrdinal];
+        cell = g_cells[cellIndex];
+        visible = objectOffsetInCell < cell.objectCount;
+
+        if (visible)
+        {
+            const uint objectId = cell.objectStart + objectOffsetInCell;
+            renderableInfo = g_renderableInfos[objectId];
+            visible =
+                renderableInfo.visible != 0u &&
+                is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
+                !is_occluded_by_hiz(renderableInfo.boundsCenterRadius);
+        }
     }
 
-    const uint cellIndex = g_visibleCellIndices[visibleCellOrdinal];
-    const RenderCell cell = g_cells[cellIndex];
-    if (objectOffsetInCell >= cell.objectCount)
+    uint lodIndex = 0u;
+    uint meshId = 0u;
+    uint depthBin = 0u;
+    uint sortKey = k_invalidSortKey;
+    if (visible)
     {
-        return;
+        lodIndex = select_lod(renderableInfo, cell.lodBias);
+        meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+        depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
+        sortKey = meshId * 8u + depthBin;
     }
 
-    const uint objectId = cell.objectStart + objectOffsetInCell;
-    const RenderableInfo renderableInfo = g_renderableInfos[objectId];
-    if (renderableInfo.visible == 0u ||
-        !is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) ||
-        is_occluded_by_hiz(renderableInfo.boundsCenterRadius))
+    bool remaining = visible;
+    for (;;)
     {
-        return;
-    }
+        const uint currentSortKey =
+            WaveActiveMin(remaining ? sortKey : k_invalidSortKey);
+        if (currentSortKey == k_invalidSortKey)
+        {
+            return;
+        }
 
-    const uint lodIndex = select_lod(renderableInfo, cell.lodBias);
-    uint objectOffset = 0u;
-    g_renderObjectCount.InterlockedAdd(0, 1u, objectOffset);
-    if (objectOffset >= g_maxObjectCount)
-    {
-        return;
-    }
+        const bool matching = remaining && sortKey == currentSortKey;
+        const uint matchingCount = WaveActiveCountBits(matching);
+        const uint4 matchingMask = WaveActiveBallot(matching);
+        const uint leaderLane = first_active_lane(matchingMask);
 
-    RenderObject renderObject;
-    renderObject.objectId = renderableInfo.objectId;
-    renderObject.meshId = get_lod_mesh_id(renderableInfo, lodIndex);
-    renderObject.transformId = renderableInfo.transformId;
-    renderObject.materialId = renderableInfo.materialId;
-    renderObject.castsShadow = renderableInfo.castsShadow;
-    renderObject.receivesShadow = renderableInfo.receivesShadow;
-    renderObject.shadowCasterMode = renderableInfo.shadowCasterMode;
-    renderObject.skinPaletteOffset = renderableInfo.skinPaletteOffset;
-    renderObject.skinPaletteCount = renderableInfo.skinPaletteCount;
-    renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
-    renderObject.depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
-    renderObject.padding = 0u;
-    renderObject.boundsCenterRadius = renderableInfo.boundsCenterRadius;
-    g_renderObjects[objectOffset] = renderObject;
+        uint waveBaseOffset = 0u;
+        if (WaveGetLaneIndex() == leaderLane)
+        {
+            g_renderObjectCount.InterlockedAdd(
+                0, matchingCount, waveBaseOffset);
+        }
+        waveBaseOffset = WaveReadLaneAt(waveBaseOffset, leaderLane);
+
+        if (matching)
+        {
+            const uint objectOffset =
+                waveBaseOffset + WavePrefixCountBits(matching);
+            if (objectOffset < g_maxObjectCount)
+            {
+                RenderObject renderObject;
+                renderObject.objectId = renderableInfo.objectId;
+                renderObject.meshId = meshId;
+                renderObject.transformId = renderableInfo.transformId;
+                renderObject.materialId = renderableInfo.materialId;
+                renderObject.castsShadow = renderableInfo.castsShadow;
+                renderObject.receivesShadow = renderableInfo.receivesShadow;
+                renderObject.shadowCasterMode =
+                    renderableInfo.shadowCasterMode;
+                renderObject.skinPaletteOffset =
+                    renderableInfo.skinPaletteOffset;
+                renderObject.skinPaletteCount =
+                    renderableInfo.skinPaletteCount;
+                renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+                renderObject.depthBin = depthBin;
+                renderObject.padding = 0u;
+                renderObject.boundsCenterRadius =
+                    renderableInfo.boundsCenterRadius;
+                g_renderObjects[objectOffset] = renderObject;
+            }
+        }
+
+        remaining = remaining && !matching;
+    }
 }

@@ -1,7 +1,7 @@
 #include "DX12GpuCommand.h"
 
 // === DirectX includes ===
-#include <pix.h>
+#include <pix3.h>
 
 // === C++ includes ===
 #include <array>
@@ -348,6 +348,7 @@ namespace Cue::RHI::DX12
 
         const std::array<wchar_t, k_eventNameCapacity> eventName =
             make_pix_event_name(name);
+        PIXBeginEvent(k_pixEventColor, eventName.data());
         PIXBeginEvent(m_commandList.Get(), k_pixEventColor, eventName.data());
     }
     void DX12GpuCommandContext::end_event()
@@ -358,8 +359,9 @@ namespace Cue::RHI::DX12
             return;
         }
 
-        // begin_event で積んだスコープを閉じ、GPU キャプチャ上のパス範囲を確定する
+        // begin_event で積んだスコープを閉じ、GPU/Timing capture 上のパス範囲を確定する
         PIXEndEvent(m_commandList.Get());
+        PIXEndEvent();
     }
     Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
     {

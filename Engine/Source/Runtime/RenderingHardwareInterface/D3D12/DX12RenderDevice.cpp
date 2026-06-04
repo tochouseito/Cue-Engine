@@ -32,7 +32,7 @@ namespace Cue::RHI::DX12
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
             {
                 debugController->EnableDebugLayer();
-                debugController->SetEnableGPUBasedValidation(true);
+                debugController->SetEnableGPUBasedValidation(::IsDebuggerPresent());
             }
         }
 
@@ -137,13 +137,18 @@ namespace Cue::RHI::DX12
 #ifndef CUE_RELEASE
         ComPtr<ID3D12InfoQueue> infoQueue;
 
-        // 重大メッセージだけを残すと、通常ログに埋もれず原因特定が速くなる
+        // D3D12 InfoQueue の break はデバッガが受けないとプロセス終了に見える。
+        // PIX 起動時はデバッグレイヤーの警告が出やすいため、VS デバッガ接続時だけ有効にする。
         if (SUCCEEDED(m_d3d12Device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
         {
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-            infoQueue->SetBreakOnID(D3D12_MESSAGE_ID_FENCE_ZERO_WAIT, TRUE);
+            const BOOL isDebuggerPresent = ::IsDebuggerPresent();
+            infoQueue->SetBreakOnSeverity(
+                D3D12_MESSAGE_SEVERITY_CORRUPTION, isDebuggerPresent);
+            infoQueue->SetBreakOnSeverity(
+                D3D12_MESSAGE_SEVERITY_ERROR, isDebuggerPresent);
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, false);
+            infoQueue->SetBreakOnID(
+                D3D12_MESSAGE_ID_FENCE_ZERO_WAIT, isDebuggerPresent);
 
             D3D12_MESSAGE_ID hide[] =
             {

@@ -20,6 +20,9 @@
       "default-features": false
     },
     {
+      "name": "winpixevent"
+    },
+    {
       "name": "freetype"
     },
     {

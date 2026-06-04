@@ -171,21 +171,37 @@ bool is_occluded_by_hiz(float4 boundsCenterRadius)
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint cellIndex = dispatchThreadId.x;
-    if (cellIndex >= g_cellCount)
+    bool visible = cellIndex < g_cellCount;
+    RenderCell cell;
+    if (visible)
+    {
+        cell = g_cells[cellIndex];
+        visible =
+            cell.flags != 0u &&
+            is_sphere_inside_frustum(cell.boundsCenterRadius) &&
+            !is_occluded_by_hiz(cell.boundsCenterRadius);
+    }
+
+    const uint waveVisibleCount = WaveActiveCountBits(visible);
+    if (waveVisibleCount == 0u)
     {
         return;
     }
 
-    const RenderCell cell = g_cells[cellIndex];
-    if (cell.flags == 0u ||
-        !is_sphere_inside_frustum(cell.boundsCenterRadius) ||
-        is_occluded_by_hiz(cell.boundsCenterRadius))
+    uint waveBaseOffset = 0u;
+    if (WaveIsFirstLane())
+    {
+        g_visibleCellCount.InterlockedAdd(0, waveVisibleCount, waveBaseOffset);
+    }
+    waveBaseOffset = WaveReadLaneFirst(waveBaseOffset);
+
+    if (!visible)
     {
         return;
     }
 
-    uint visibleCellOffset = 0u;
-    g_visibleCellCount.InterlockedAdd(0, 1u, visibleCellOffset);
+    const uint visibleCellOffset =
+        waveBaseOffset + WavePrefixCountBits(visible);
     if (visibleCellOffset < g_cellCount)
     {
         g_visibleCellIndices[visibleCellOffset] = cellIndex;

@@ -249,7 +249,8 @@ Invoke-Step -Message "Editor 実行物を staging します。" -Action {
 
     $editorDlls = @(
         "dxcompiler.dll",
-        "dxil.dll"
+        "dxil.dll",
+        "WinPixEventRuntime.dll"
     )
     foreach ($dllName in $editorDlls)
     {

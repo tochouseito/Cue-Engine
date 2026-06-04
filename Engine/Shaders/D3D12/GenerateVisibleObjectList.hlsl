@@ -291,14 +291,27 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             !is_occluded_by_hiz(renderableInfo.boundsCenterRadius);
     }
 
+    const uint waveVisibleCount = WaveActiveCountBits(visible);
+    if (waveVisibleCount == 0u)
+    {
+        return;
+    }
+
+    uint waveBaseOffset = 0u;
+    if (WaveIsFirstLane())
+    {
+        g_renderObjectCount.InterlockedAdd(
+            0, waveVisibleCount, waveBaseOffset);
+    }
+    waveBaseOffset = WaveReadLaneFirst(waveBaseOffset);
+
     if (!visible)
     {
         return;
     }
 
     const uint lodIndex = select_lod(renderableInfo);
-    uint objectOffset = 0;
-    g_renderObjectCount.InterlockedAdd(0, 1u, objectOffset);
+    const uint objectOffset = waveBaseOffset + WavePrefixCountBits(visible);
     if (objectOffset >= g_objectCount)
     {
         return;

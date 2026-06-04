@@ -6,6 +6,7 @@ find_package(imgui CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(winpixevent CONFIG REQUIRED)
 
 # ターゲットソースの追加
 add_executable(Editor WIN32
@@ -72,6 +73,7 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CUE_VCPKG_HOST_BIN_DIR}/dxcompiler.dll"
             "${CUE_VCPKG_HOST_BIN_DIR}/dxil.dll"
+            "$<TARGET_FILE:Microsoft::WinPixEventRuntime>"
             "$<TARGET_FILE_DIR:Editor>"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/Engine/Shaders"
