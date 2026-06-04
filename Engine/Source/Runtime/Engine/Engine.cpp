@@ -92,6 +92,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_bufferCount = a_info.renderBackend->buffer_count();
     m_maxPointLightCount = a_info.maxPointLightCount;
     m_pointLightBufferCapacity = std::max(1u, m_maxPointLightCount);
+    m_enableDirectionalLight = a_info.enableDirectionalLight;
     const uint32_t initialRenderWidth = m_renderBackend->width();
     const uint32_t initialRenderHeight = m_renderBackend->height();
     m_drawFrameState.resize(m_bufferCount);
@@ -115,9 +116,10 @@ Result Engine::initialize(EngineSetupInfo &a_info)
       });
 
     // 共有リソースの作成
-    r = RHI::create_render_target_resources(*m_renderBackend, "FinalColor",
-                                            RHI::ColorFormat::R8G8B8A8_UNORM,
-                                            m_gameRenderTarget);
+    constexpr float k_finalColorClearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    r = RHI::create_render_target_resources(
+        *m_renderBackend, "FinalColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+        m_gameRenderTarget, k_finalColorClearColor);
     if (!r)
     {
         return r;
@@ -223,7 +225,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_material.color = Math::float4(0.72f, 0.68f, 0.58f, 1.0f);
     m_material.shininess = 32.0f;
     m_lightFrame.ambientColorIntensity = Math::float4(1.0f, 1.0f, 1.0f, 0.16f);
-    m_lightFrame.directionalLightCount = 1u;
+    m_lightFrame.directionalLightCount = m_enableDirectionalLight ? 1u : 0u;
     m_directionalLight.directionIntensity =
         Math::float4(0.35f, -0.85f, 0.35f, 0.85f);
     m_directionalLight.color = Math::float4(1.0f, 0.96f, 0.9f, 1.0f);
@@ -794,7 +796,7 @@ Result Engine::commit_light_data_to_uploaders()
     }
 
     m_lightFrame.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
-    m_lightFrame.directionalLightCount = 1u;
+    m_lightFrame.directionalLightCount = m_enableDirectionalLight ? 1u : 0u;
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         auto &frameUploader = m_lightResources->frame_uploaders()[frameIndex];
@@ -978,6 +980,8 @@ Result Engine::create_frame_graphs(
             m_maxObjectCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::SceneDepthClearPass>());
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshForwardPass>(
                 m_drawFrameState,

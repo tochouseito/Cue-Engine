@@ -122,10 +122,13 @@ namespace Cue::DrawSystem
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            m_depthWidth = builder.width();
-            m_depthHeight = builder.height();
-            m_tileCountX = (m_depthWidth + m_tileSize - 1u) / m_tileSize;
-            m_tileCountY = (m_depthHeight + m_tileSize - 1u) / m_tileSize;
+            m_fullWidth = builder.width();
+            m_fullHeight = builder.height();
+            m_depthWidth = (m_fullWidth + m_depthScale - 1u) / m_depthScale;
+            m_depthHeight =
+                (m_fullHeight + m_depthScale - 1u) / m_depthScale;
+            m_tileCountX = (m_fullWidth + m_tileSize - 1u) / m_tileSize;
+            m_tileCountY = (m_fullHeight + m_tileSize - 1u) / m_tileSize;
             if (m_depthWidth == 0u || m_depthHeight == 0u ||
                 m_tileCountX == 0u || m_tileCountY == 0u)
             {
@@ -135,7 +138,7 @@ namespace Cue::DrawSystem
                     "Hi-Z depth pass dimensions must not be zero.");
             }
 
-            Result result = builder.get_texture("SceneDepth", m_sceneDepth);
+            Result result = builder.get_texture("OccluderDepth", m_sceneDepth);
             if (!result)
             {
                 return result;
@@ -147,7 +150,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::ViewDesc depthSrvDesc{};
-            depthSrvDesc.name = "SceneDepthSRV";
+            depthSrvDesc.name = "OccluderDepthSRV";
             depthSrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
             depthSrvDesc.bufferKind = RHI::BufferKind::Texture;
             depthSrvDesc.textureHandle = m_sceneDepth;
@@ -183,6 +186,9 @@ namespace Cue::DrawSystem
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::DescriptorTableSRV,
                     RHI::ShaderVisibility::All, 0 });
@@ -246,8 +252,9 @@ namespace Cue::DrawSystem
             commandContext->set_32bit_constant(2, m_tileCountX);
             commandContext->set_32bit_constant(3, m_tileCountY);
             commandContext->set_32bit_constant(4, m_tileSize);
-            commandContext->set_compute_descriptor_table(5, m_sceneDepthSrv);
-            commandContext->set_uav(6, m_hizDepthBuffer);
+            commandContext->set_32bit_constant(5, m_depthScale);
+            commandContext->set_compute_descriptor_table(6, m_sceneDepthSrv);
+            commandContext->set_uav(7, m_hizDepthBuffer);
             commandContext->dispatch(
                 (m_tileCountX + 7u) / 8u,
                 (m_tileCountY + 7u) / 8u,
@@ -259,9 +266,12 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_sceneDepthSrv{};
         RHI::ViewHandle m_hizDepthUav{};
+        uint32_t m_fullWidth = 0;
+        uint32_t m_fullHeight = 0;
         uint32_t m_depthWidth = 0;
         uint32_t m_depthHeight = 0;
         uint32_t m_tileSize = 16u;
+        uint32_t m_depthScale = 2u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
         RHI::RootSignatureHandle m_rootSignature{};

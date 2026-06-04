@@ -12,6 +12,69 @@
 
 namespace Cue::DrawSystem
 {
+class SceneDepthClearPass final : public RHI::FrameGraphPass
+{
+  public:
+    SceneDepthClearPass() = default;
+
+    const char *name() const noexcept override
+    {
+        return "SceneDepthClear";
+    }
+    RHI::CommandListType type() const noexcept override
+    {
+        return RHI::CommandListType::Graphics;
+    }
+
+    Result setup(RHI::FrameGraphBuilder &builder) override
+    {
+        RHI::TextureDesc depthDesc{};
+        depthDesc.name = "SceneDepth";
+        depthDesc.bufferCount = 1;
+        depthDesc.kind = RHI::TextureKind::DepthStencil;
+        depthDesc.width = builder.width();
+        depthDesc.height = builder.height();
+        depthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        depthDesc.clearDepth = 1.0f;
+        depthDesc.clearStencil = 0;
+        Result result = builder.create_texture(depthDesc, m_depth);
+        if (!result)
+        {
+            return result;
+        }
+
+        RHI::ViewDesc depthDsvDesc{};
+        depthDsvDesc.name = "SceneDepthDSV";
+        depthDsvDesc.type = RHI::ViewType::DepthStencil;
+        depthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+        depthDsvDesc.textureHandle = m_depth;
+        depthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        return builder.create_view(depthDsvDesc, m_depthDsv);
+    }
+
+    Result describe_resources(RHI::FrameGraphBuilder &builder) override
+    {
+        return builder.use_texture(
+            m_depth, RHI::ResourceAccessType::Write,
+            RHI::ResourceState::DepthWrite, RHI::ResourceState::DepthWrite);
+    }
+
+    void execute(RHI::FrameGraphContext &context) override
+    {
+        RHI::ICommandContext *commandContext = context.commandContext();
+        if (commandContext == nullptr)
+        {
+            return;
+        }
+
+        commandContext->clear_depth_stencil(m_depthDsv, 1.0f, 0);
+    }
+
+  private:
+    RHI::TextureHandle m_depth{};
+    RHI::ViewHandle m_depthDsv{};
+};
+
 class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
 {
   public:
@@ -39,12 +102,20 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
 
     Result setup(RHI::FrameGraphBuilder &builder) override
     {
+        m_depthWidth = (builder.width() + k_depthScale - 1u) / k_depthScale;
+        m_depthHeight = (builder.height() + k_depthScale - 1u) / k_depthScale;
+        if (m_depthWidth == 0u || m_depthHeight == 0u)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Occluder depth dimensions must not be zero.");
+        }
+
         RHI::TextureDesc depthDesc{};
-        depthDesc.name = "SceneDepth";
+        depthDesc.name = "OccluderDepth";
         depthDesc.bufferCount = 1;
         depthDesc.kind = RHI::TextureKind::DepthStencil;
-        depthDesc.width = builder.width();
-        depthDesc.height = builder.height();
+        depthDesc.width = m_depthWidth;
+        depthDesc.height = m_depthHeight;
         depthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
         depthDesc.clearDepth = 1.0f;
         depthDesc.clearStencil = 0;
@@ -55,7 +126,7 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
         }
 
         RHI::ViewDesc depthDsvDesc{};
-        depthDsvDesc.name = "SceneDepthDSV";
+        depthDsvDesc.name = "OccluderDepthDSV";
         depthDsvDesc.type = RHI::ViewType::DepthStencil;
         depthDsvDesc.bufferKind = RHI::BufferKind::Texture;
         depthDsvDesc.textureHandle = m_depth;
@@ -245,7 +316,7 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
 
         commandContext->clear_depth_stencil(m_depthDsv, 1.0f, 0);
         commandContext->set_render_targets(nullptr, 0, m_depthDsv);
-        commandContext->set_viewport_scissor(context.width(), context.height());
+        commandContext->set_viewport_scissor(m_depthWidth, m_depthHeight);
         commandContext->set_graphics_pipeline(m_pipeline);
         commandContext->set_primitive_topology(
             RHI::PrimitiveTopologyType::Triangle);
@@ -271,6 +342,8 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
     }
 
   private:
+    static constexpr uint32_t k_depthScale = 2u;
+
     const DrawFrameState &m_drawFrameState;
     RHI::TextureHandle m_depth{};
     RHI::ViewHandle m_depthDsv{};
@@ -283,6 +356,8 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_indirectCommandBuffer{};
     RHI::BufferHandle m_indirectCommandCountBuffer{};
     RHI::BufferHandle m_renderObjectIndexBuffer{};
+    uint32_t m_depthWidth = 0;
+    uint32_t m_depthHeight = 0;
     RHI::RootSignatureHandle m_rootSignature{};
     RHI::ShaderBlobHandle m_vertexShader{};
     RHI::ShaderBlobHandle m_pixelShader{};

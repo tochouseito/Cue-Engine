@@ -412,7 +412,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         }
 
         static constexpr Math::float4 k_clearColor =
-            Math::float4::from_rgba8(63, 63, 63, 255);
+            Math::float4::from_rgba8(0, 0, 0, 255);
         commandContext->clear_render_target(m_colorRtv, k_clearColor.data());
         commandContext->clear_depth_stencil(m_depthDsv, 1.0f, 0);
         commandContext->set_render_targets(&m_colorRtv, 1, m_depthDsv);

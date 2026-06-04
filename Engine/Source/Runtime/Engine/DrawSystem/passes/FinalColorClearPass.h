@@ -60,7 +60,7 @@ namespace Cue::RHI
 
     private:
         static constexpr Math::float4 k_clearColor =
-            Math::float4::from_rgba8(63, 63, 63, 255);
+            Math::float4::from_rgba8(0, 0, 0, 255);
 
         TextureHandle m_finalColorHandle{};
         ViewHandle m_finalColorRtvHandle{};

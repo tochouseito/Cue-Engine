@@ -23,6 +23,11 @@ cbuffer TileSizeParam : register(b4)
     uint g_tileSize;
 };
 
+cbuffer DepthScaleParam : register(b5)
+{
+    uint g_depthScale;
+};
+
 Texture2D<float> g_sceneDepth : register(t0);
 RWByteAddressBuffer g_hizDepth : register(u0);
 
@@ -41,9 +46,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint2 pixelStart = uint2(tileX, tileY) * g_tileSize;
+    const uint depthScale = max(g_depthScale, 1u);
+    const uint2 fullPixelStart = uint2(tileX, tileY) * g_tileSize;
+    const uint2 fullPixelEnd = fullPixelStart + g_tileSize;
+    const uint2 pixelStart = fullPixelStart / depthScale;
     const uint2 pixelEnd = min(
-        pixelStart + g_tileSize,
+        (fullPixelEnd + depthScale - 1u) / depthScale,
         uint2(g_depthWidth, g_depthHeight));
 
     float maxDepth = 0.0f;

@@ -46,6 +46,7 @@ struct EngineSetupInfo final
         nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
     uint32_t maxFps = 60;             // 最大フレームレート
     uint32_t maxPointLightCount = 64; // ポイントライトの最大数
+    bool enableDirectionalLight = true; // DirectionalLight を有効化するか
 };
 
 class Engine final
@@ -150,6 +151,7 @@ class Engine final
     uint32_t m_maxCellCount = 0;
     uint32_t m_maxPointLightCount = 0;
     uint32_t m_pointLightBufferCapacity = 1;
+    bool m_enableDirectionalLight = true;
     uint32_t m_drawMeshId = UINT32_MAX;
     std::array<uint32_t, 5> m_drawLodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
                                              UINT32_MAX, UINT32_MAX};

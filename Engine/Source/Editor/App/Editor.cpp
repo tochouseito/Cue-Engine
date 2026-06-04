@@ -112,6 +112,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const Math::uint3 modelGridCount(100u, 10u, 20u);
     const float modelTargetRadius = 0.6f;
     const uint32_t maxPointLightCount = 1000;
+    const bool enableDirectionalLight = false;
 
     // 処理結果
     Result r = Result::ok();
@@ -180,6 +181,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineSetupInfo{};
     engineSetupInfo.maxFps = maxFps; // 最大フレームレートを Engine にセット
     engineSetupInfo.maxPointLightCount = maxPointLightCount;
+    engineSetupInfo.enableDirectionalLight = enableDirectionalLight;
     engineSetupInfo.platform =
         platform.get(); // プラットフォームを Engine にセット
     engineSetupInfo.platformCommandBridge =

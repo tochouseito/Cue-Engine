@@ -41,6 +41,8 @@ cbuffer DepthBinParam : register(b2)
 [numthreads(1, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    // Emit commands near-to-far so the occluder depth pass benefits from
+    // early depth rejection. depthBin 0 is nearest.
     for (uint depthBin = 0u; depthBin < g_depthBinCount; ++depthBin)
     {
         for (uint meshId = 0u; meshId < g_maxBatchCount / (g_maxMaterialCount * g_depthBinCount); ++meshId)
