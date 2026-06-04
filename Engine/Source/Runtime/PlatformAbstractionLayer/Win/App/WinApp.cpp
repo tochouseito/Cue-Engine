@@ -129,6 +129,16 @@ namespace Cue::PAL::Win
 
     LRESULT WinApp::on_message(HWND a_hwnd, UINT a_message, WPARAM a_wParam, LPARAM a_lParam)
     {
+        if (m_messageHandler)
+        {
+            LRESULT handledResult = 0;
+            if (m_messageHandler(
+                    a_hwnd, a_message, a_wParam, a_lParam, handledResult))
+            {
+                return handledResult;
+            }
+        }
+
         // 未処理メッセージを既定処理へ移譲
         switch (a_message)
         {

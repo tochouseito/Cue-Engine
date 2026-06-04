@@ -21,15 +21,24 @@
 // === Engine includes ===
 #include <Engine.h>
 
+// === ImGui includes ===
+#include <imgui.h>
+#include <imgui_impl_dx12.h>
+#include <imgui_impl_win32.h>
+
 // === C++ includes ===
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 using namespace Cue;
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
+    HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 namespace
 {
@@ -96,6 +105,317 @@ namespace
 
     return input;
 }
+
+[[nodiscard]] double pass_gpu_ms(
+    const RHI::FrameGraphExecutionStats &stats,
+    std::initializer_list<std::string_view> passNames) noexcept
+{
+    double total = 0.0;
+    for (const RHI::FrameGraphExecutionStats::PassExecutionStats &pass :
+         stats.passStats)
+    {
+        if (!pass.hasGpuExecuteMs)
+        {
+            continue;
+        }
+        for (std::string_view passName : passNames)
+        {
+            if (pass.name == passName)
+            {
+                total += pass.gpuExecuteMs;
+                break;
+            }
+        }
+    }
+    return total;
+}
+
+class ImGuiOverlayPass final : public RHI::FrameGraphPass
+{
+  public:
+    ImGuiOverlayPass(HWND hwnd, RHI::DX12::D3D12Backend &backend,
+                     Engine &engine)
+        : m_backend(backend), m_engine(engine)
+    {
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO &io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.IniFilename = "config/editor/imgui.ini";
+        if (io.Fonts->AddFontFromFileTTF(
+                "EngineResources/Fonts/NotoSansJP-VariableFont_wght.ttf",
+                18.0f) == nullptr)
+        {
+            io.Fonts->AddFontFromFileTTF(
+                "EngineResources/Fonts/Inter-VariableFont_opsz,wght.ttf",
+                18.0f);
+        }
+        ImGui::StyleColorsDark();
+
+        ImGui_ImplWin32_Init(hwnd);
+
+        ImGui_ImplDX12_InitInfo initInfo{};
+        initInfo.Device = backend.imgui_device();
+        initInfo.CommandQueue = backend.imgui_command_queue();
+        initInfo.NumFramesInFlight = 3;
+        initInfo.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
+        initInfo.UserData = &backend;
+        initInfo.SrvDescriptorHeap = backend.imgui_srv_descriptor_heap();
+        initInfo.SrvDescriptorAllocFn = &allocate_srv_descriptor;
+        initInfo.SrvDescriptorFreeFn = &free_srv_descriptor;
+        m_initialized = ImGui_ImplDX12_Init(&initInfo);
+    }
+
+    ~ImGuiOverlayPass() override
+    {
+        if (m_initialized)
+        {
+            ImGui_ImplDX12_Shutdown();
+            ImGui_ImplWin32_Shutdown();
+            ImGui::DestroyContext();
+        }
+    }
+
+    const char *name() const noexcept override
+    {
+        return "ImGuiOverlay";
+    }
+
+    RHI::CommandListType type() const noexcept override
+    {
+        return RHI::CommandListType::Graphics;
+    }
+
+    Result setup(RHI::FrameGraphBuilder &builder) override
+    {
+        Result result = builder.get_texture("BackBuffer", m_backBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.render(&m_backBuffer, 1);
+        if (!result)
+        {
+            return result;
+        }
+        return builder.get_view("BackBufferRTV", m_backBufferRtv);
+    }
+
+    Result describe_resources(RHI::FrameGraphBuilder &builder) override
+    {
+        return builder.use_texture(
+            m_backBuffer, RHI::ResourceAccessType::Write,
+            RHI::ResourceState::RenderTarget, RHI::ResourceState::Present);
+    }
+
+    void execute(RHI::FrameGraphContext &context) override
+    {
+        if (!m_initialized || context.commandContext() == nullptr)
+        {
+            return;
+        }
+
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        draw_overlay();
+        ImGui::Render();
+
+        RHI::ICommandContext *commandContext = context.commandContext();
+        commandContext->set_render_targets(&m_backBufferRtv, 1, {});
+        commandContext->set_viewport_scissor(context.width(), context.height());
+
+        auto *commandList = static_cast<ID3D12GraphicsCommandList *>(
+            commandContext->native_command_list());
+        ID3D12DescriptorHeap *descriptorHeaps[] = {
+            m_backend.imgui_srv_descriptor_heap()};
+        commandList->SetDescriptorHeaps(1, descriptorHeaps);
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+    }
+
+  private:
+    static void allocate_srv_descriptor(
+        ImGui_ImplDX12_InitInfo *info,
+        D3D12_CPU_DESCRIPTOR_HANDLE *outCpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE *outGpuHandle)
+    {
+        auto *backend =
+            static_cast<RHI::DX12::D3D12Backend *>(info->UserData);
+        backend->allocate_imgui_srv_descriptor(*outCpuHandle, *outGpuHandle);
+    }
+
+    static void free_srv_descriptor(
+        ImGui_ImplDX12_InitInfo *info,
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
+    {
+        auto *backend =
+            static_cast<RHI::DX12::D3D12Backend *>(info->UserData);
+        backend->free_imgui_srv_descriptor(cpuHandle, gpuHandle);
+    }
+
+    void draw_overlay()
+    {
+        const EngineDebugStats debugStats = m_engine.debug_stats();
+        const RHI::FrameGraphExecutionStats frameStats =
+            m_engine.render_execution_stats();
+
+        bool directionalLightEnabled = debugStats.directionalLightEnabled;
+
+        ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(520.0f, 760.0f),
+                                 ImGuiCond_FirstUseEver);
+        ImGui::Begin("CueEngineRef GPU Driven Demo");
+
+        ImGui::Text("Frame");
+        const float fps = ImGui::GetIO().Framerate;
+        ImGui::Text("FPS / Frame Time: %.1f / %.3f ms", fps,
+                    fps > 0.0f ? 1000.0f / fps : 0.0f);
+        ImGui::Text("GPU Frame Time: %s%.3f ms",
+                    frameStats.hasGpuFrameMs ? "" : "~",
+                    frameStats.hasGpuFrameMs ? frameStats.gpuFrameMs
+                                             : frameStats.totalExecuteMs);
+        ImGui::TextDisabled(
+            "Object/draw counters are CPU-side estimates until GPU readback is added.");
+
+        if (ImGui::CollapsingHeader("Pass GPU Time",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("ObjectCullAndLod: %.3f ms",
+                        pass_gpu_ms(frameStats, {"ObjectCullAndLod"}));
+            ImGui::Text("OccluderDepthOnlyIndirect: %.3f ms",
+                        pass_gpu_ms(frameStats,
+                                    {"OccluderDepthOnlyIndirect"}));
+            ImGui::Text("BuildHiZ: %.3f ms",
+                        pass_gpu_ms(frameStats, {"BuildHiZDepth"}));
+            ImGui::Text("CellCulling: %.3f ms",
+                        pass_gpu_ms(frameStats, {"CellCulling"}));
+            ImGui::Text("ObjectCulling: %.3f ms",
+                        pass_gpu_ms(frameStats, {"ObjectCulling"}));
+            ImGui::Text("Batching: %.3f ms",
+                        pass_gpu_ms(frameStats,
+                                    {"BatchCount", "PrefixSum", "BatchFill",
+                                     "IndirectCommandEmit"}));
+            ImGui::Text("StaticMeshForward: %.3f ms",
+                        pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+        }
+
+        if (ImGui::CollapsingHeader("Objects",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("total objects: %u", debugStats.totalObjects);
+            ImGui::Text("visible objects: %u", debugStats.visibleObjects);
+            ImGui::Text("occluded objects: %u", debugStats.occludedObjects);
+            ImGui::Text("culled by frustum: %u",
+                        debugStats.frustumCulledObjects);
+        }
+
+        if (ImGui::CollapsingHeader("Draw",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("indirect draw count: %u",
+                        debugStats.indirectDrawCount);
+            ImGui::Text("instance count: %u", debugStats.instanceCount);
+            ImGui::Text("triangle estimate: %llu",
+                        static_cast<unsigned long long>(
+                            debugStats.submittedTriangleEstimate));
+        }
+
+        if (ImGui::CollapsingHeader("LOD Distribution",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("LOD0: %u", debugStats.lodObjectCounts[0]);
+            ImGui::Text("LOD1: %u", debugStats.lodObjectCounts[1]);
+            ImGui::Text("LOD2: %u", debugStats.lodObjectCounts[2]);
+            ImGui::Text("LOD3: %u", debugStats.lodObjectCounts[3]);
+            ImGui::Text("LOD4: %u", debugStats.lodObjectCounts[4]);
+            ImGui::Text("impostor: %u", debugStats.impostorCount);
+        }
+
+        if (ImGui::CollapsingHeader("Occluder",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("occluder object count: %u",
+                        debugStats.occluderObjectCount);
+            ImGui::Text("occluder triangle count: %llu",
+                        static_cast<unsigned long long>(
+                            debugStats.occluderTriangleEstimate));
+            ImGui::Text("occluder proxy: %s",
+                        debugStats.occluderProxyEnabled ? "ON" : "OFF");
+            ImGui::Text("Hi-Z: %s", debugStats.hiZEnabled ? "ON" : "OFF");
+        }
+
+        if (ImGui::CollapsingHeader("Toggles",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Frustum Culling", &m_frustumCullingEnabled);
+            ImGui::Checkbox("Hi-Z Occlusion", &m_hiZEnabled);
+            ImGui::Checkbox("Occluder Proxy", &m_occluderProxyEnabled);
+            ImGui::Checkbox("LOD Selection", &m_lodEnabled);
+            ImGui::Checkbox("Impostor", &m_impostorEnabled);
+            if (ImGui::Checkbox("Directional Light",
+                                &directionalLightEnabled))
+            {
+                m_engine.set_directional_light_enabled(
+                    directionalLightEnabled);
+            }
+            ImGui::Checkbox("Point Lights", &m_pointLightsEnabled);
+            ImGui::TextDisabled(
+                "Only Directional Light is wired to the renderer.");
+        }
+
+        if (ImGui::CollapsingHeader("Camera / Debug",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("camera position: %.2f, %.2f, %.2f",
+                        debugStats.cameraPosition.x,
+                        debugStats.cameraPosition.y,
+                        debugStats.cameraPosition.z);
+            ImGui::Text("visible cells / total cells: %u / %u",
+                        debugStats.visibleCells, debugStats.totalCells);
+            ImGui::Text("selected depth bin: %u",
+                        debugStats.selectedDepthBin);
+        }
+
+        if (ImGui::CollapsingHeader("Render Cost",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("submitted triangles: %llu",
+                        static_cast<unsigned long long>(
+                            debugStats.submittedTriangleEstimate));
+            ImGui::Text("saved triangles estimate: %llu",
+                        static_cast<unsigned long long>(
+                            debugStats.savedTriangleEstimate));
+            ImGui::Text("saved objects estimate: %u",
+                        debugStats.savedObjectEstimate);
+        }
+
+        if (ImGui::CollapsingHeader("Controls",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::BulletText("W/A/S/D: move camera");
+            ImGui::BulletText("Space / Ctrl: move up / down");
+            ImGui::BulletText("Shift: fast movement");
+            ImGui::BulletText("Right mouse drag: look around");
+            ImGui::BulletText("Mouse over this window: operate ImGui");
+        }
+
+        ImGui::End();
+    }
+
+    RHI::DX12::D3D12Backend &m_backend;
+    Engine &m_engine;
+    RHI::TextureHandle m_backBuffer{};
+    RHI::ViewHandle m_backBufferRtv{};
+    bool m_initialized = false;
+    bool m_frustumCullingEnabled = true;
+    bool m_hiZEnabled = true;
+    bool m_occluderProxyEnabled = true;
+    bool m_lodEnabled = true;
+    bool m_impostorEnabled = true;
+    bool m_pointLightsEnabled = true;
+};
 
 } // namespace
 
@@ -178,10 +498,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
+    std::unique_ptr<RHI::FrameGraphPass> imguiOverlayPass =
+        std::make_unique<ImGuiOverlayPass>(
+            platform->get_window_handle(), *renderBackend, *engine);
+    platform->set_message_handler(
+        [](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+           LRESULT &outResult) -> bool
+        {
+            outResult =
+                ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
+            return outResult != 0;
+        });
+
     EngineSetupInfo engineSetupInfo{};
     engineSetupInfo.maxFps = maxFps; // 最大フレームレートを Engine にセット
     engineSetupInfo.maxPointLightCount = maxPointLightCount;
     engineSetupInfo.enableDirectionalLight = enableDirectionalLight;
+    engineSetupInfo.editorPass = std::move(imguiOverlayPass);
     engineSetupInfo.platform =
         platform.get(); // プラットフォームを Engine にセット
     engineSetupInfo.platformCommandBridge =

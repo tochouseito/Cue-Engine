@@ -35,6 +35,9 @@ namespace Cue::PAL::Win
     class WinApp final
     {
     public:
+        using MessageHandler =
+            std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT&)>;
+
         struct WindowSize
         {
             uint32_t width = 0;
@@ -78,9 +81,15 @@ namespace Cue::PAL::Win
         {
             m_commandBridge = a_bridge;
         }
+
+        void set_message_handler(MessageHandler a_handler)
+        {
+            m_messageHandler = std::move(a_handler);
+        }
     private:
         HWND m_hwnd = nullptr; // ウィンドウハンドル
         bool m_shouldClose = false; // 終了フラグ
         Core::CQRS::Bridge* m_commandBridge = nullptr; // コマンドブリッジ
+        MessageHandler m_messageHandler{};
     };
 }

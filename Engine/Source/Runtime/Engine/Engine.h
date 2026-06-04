@@ -47,6 +47,36 @@ struct EngineSetupInfo final
     uint32_t maxFps = 60;             // 最大フレームレート
     uint32_t maxPointLightCount = 64; // ポイントライトの最大数
     bool enableDirectionalLight = true; // DirectionalLight を有効化するか
+    std::unique_ptr<RHI::FrameGraphPass> editorPass{};
+};
+
+struct EngineDebugStats final
+{
+    uint32_t totalObjects = 0;
+    uint32_t totalCells = 0;
+    uint32_t visibleCells = 0;
+    uint32_t visibleObjects = 0;
+    uint32_t occludedObjects = 0;
+    uint32_t frustumCulledObjects = 0;
+    uint32_t indirectDrawCount = 0;
+    uint32_t instanceCount = 0;
+    uint64_t submittedTriangleEstimate = 0;
+    uint64_t savedTriangleEstimate = 0;
+    uint32_t savedObjectEstimate = 0;
+    std::array<uint32_t, 5> lodObjectCounts{0, 0, 0, 0, 0};
+    uint32_t impostorCount = 0;
+    uint32_t occluderObjectCount = 0;
+    uint64_t occluderTriangleEstimate = 0;
+    bool occluderProxyEnabled = true;
+    bool hiZEnabled = true;
+    bool frustumCullingEnabled = true;
+    bool lodEnabled = true;
+    bool impostorEnabled = true;
+    bool directionalLightEnabled = true;
+    bool pointLightsEnabled = true;
+    uint32_t pointLightCount = 0;
+    Math::float3 cameraPosition = Math::float3::zero();
+    uint32_t selectedDepthBin = 0;
 };
 
 class Engine final
@@ -89,6 +119,10 @@ class Engine final
     /// @brief DebugCamera など外部で作った ViewProjection を描画へ渡す
     Result set_view_projection(
         const GpuData::ViewProjectionGpu &a_viewProjection);
+    [[nodiscard]] EngineDebugStats debug_stats() const noexcept;
+    [[nodiscard]] RHI::FrameGraphExecutionStats render_execution_stats()
+        const noexcept;
+    void set_directional_light_enabled(bool enabled) noexcept;
 
     //
     FrameController &frame_controller() noexcept
@@ -164,5 +198,6 @@ class Engine final
     std::vector<GpuData::RenderCellGpu> m_renderCells{};
     std::vector<GpuData::ObjectTransformGpu> m_objectTransforms{};
     std::vector<GpuData::PointLightGpu> m_pointLights{};
+    EngineDebugStats m_debugStats{};
 };
 } // namespace Cue

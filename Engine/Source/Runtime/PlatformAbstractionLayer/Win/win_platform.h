@@ -64,6 +64,13 @@ namespace Cue::PAL::Win
         {
             return m_app ? m_app->get_window_handle() : nullptr;
         }
+        void set_message_handler(WinApp::MessageHandler a_handler)
+        {
+            if (m_app)
+            {
+                m_app->set_message_handler(std::move(a_handler));
+            }
+        }
         Result get_process_memory_usage(ProcessMemoryUsage& a_out) noexcept override
         {
             if (m_cpuProfiler)

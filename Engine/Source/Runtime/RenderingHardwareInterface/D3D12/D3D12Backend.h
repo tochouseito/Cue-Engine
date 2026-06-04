@@ -60,6 +60,50 @@ namespace Cue::RHI::DX12
         Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const override { return m_gpuProfiler->get_gpu_memory_usage(outUsage); }
         /// @brief 利用する Windows プラットフォームを設定する
         void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
+
+        ID3D12Device* imgui_device() const noexcept
+        {
+            return m_renderDevice ? m_renderDevice->get_d3d12_device()
+                                  : nullptr;
+        }
+        ID3D12CommandQueue* imgui_command_queue() const noexcept
+        {
+            if (m_queuePool == nullptr)
+            {
+                return nullptr;
+            }
+            IQueueContext* queue = m_queuePool->get_present_queue_context();
+            auto* dxQueue = static_cast<DX12GpuCommandQueue*>(queue);
+            return dxQueue ? dxQueue->command_queue() : nullptr;
+        }
+        ID3D12DescriptorHeap* imgui_srv_descriptor_heap() const noexcept
+        {
+            return m_descriptorAllocator
+                       ? m_descriptorAllocator->get_descriptor_heap(
+                             HeapType::CBV_SRV_UAV)
+                       : nullptr;
+        }
+        void allocate_imgui_srv_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE& outCpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE& outGpuHandle)
+        {
+            if (m_descriptorAllocator)
+            {
+                (void)m_descriptorAllocator
+                    ->allocate_shader_visible_texture_descriptor(
+                        outCpuHandle, outGpuHandle);
+            }
+        }
+        void free_imgui_srv_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
+        {
+            if (m_descriptorAllocator)
+            {
+                m_descriptorAllocator->free_shader_visible_texture_descriptor(
+                    cpuHandle, gpuHandle);
+            }
+        }
     private:
         // RenderBackendSetupInfo 由来の基本設定。RHI 抽象層から参照されるため保持する。
         uint32_t m_width{};

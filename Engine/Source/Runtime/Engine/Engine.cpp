@@ -94,6 +94,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_maxPointLightCount = a_info.maxPointLightCount;
     m_pointLightBufferCapacity = std::max(1u, m_maxPointLightCount);
     m_enableDirectionalLight = a_info.enableDirectionalLight;
+    m_debugStats.directionalLightEnabled = m_enableDirectionalLight;
     const uint32_t initialRenderWidth = m_renderBackend->width();
     const uint32_t initialRenderHeight = m_renderBackend->height();
     m_drawFrameState.resize(m_bufferCount);
@@ -253,7 +254,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     }
 
     // FrameGraph の生成
-    r = create_frame_graphs(nullptr);
+    r = create_frame_graphs(std::move(a_info.editorPass));
     if (!r)
     {
         return r;
@@ -687,6 +688,56 @@ Result Engine::register_model_set(
         m_pointLights.push_back(pointLight);
     }
     m_lightFrame.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
+    m_debugStats.totalObjects = static_cast<uint32_t>(m_renderableInfos.size());
+    m_debugStats.totalCells = static_cast<uint32_t>(m_renderCells.size());
+    m_debugStats.visibleCells = m_debugStats.totalCells;
+    m_debugStats.visibleObjects = m_debugStats.totalObjects;
+    m_debugStats.instanceCount = m_debugStats.totalObjects;
+    m_debugStats.occluderObjectCount = m_debugStats.totalObjects;
+    m_debugStats.frustumCulledObjects = 0;
+    m_debugStats.occludedObjects = 0;
+    m_debugStats.savedObjectEstimate = 0;
+    m_debugStats.indirectDrawCount = 0;
+    m_debugStats.submittedTriangleEstimate = 0;
+    m_debugStats.savedTriangleEstimate = 0;
+    m_debugStats.occluderTriangleEstimate = 0;
+    m_debugStats.lodObjectCounts = {0, 0, 0, 0, 0};
+    m_debugStats.impostorCount = 0;
+    for (uint32_t objectIndex = 0;
+         objectIndex < static_cast<uint32_t>(m_renderableInfos.size());
+         ++objectIndex)
+    {
+        const DrawModelSetup &drawModel =
+            drawModels[objectIndex % static_cast<uint32_t>(drawModels.size())];
+        const uint32_t lodIndex = drawModel.lodCount > 0u
+                                      ? std::min<uint32_t>(
+                                            3u, drawModel.lodCount - 1u)
+                                      : 0u;
+        if (lodIndex < m_debugStats.lodObjectCounts.size())
+        {
+            ++m_debugStats.lodObjectCounts[lodIndex];
+        }
+
+        DrawSystem::MeshRange lodRange{};
+        if (drawModel.lodMeshIds[lodIndex] != UINT32_MAX &&
+            m_meshPool->get_mesh_range(drawModel.lodMeshIds[lodIndex],
+                                       lodRange))
+        {
+            m_debugStats.submittedTriangleEstimate +=
+                static_cast<uint64_t>(lodRange.indexCount / 3u);
+        }
+
+        DrawSystem::MeshRange occluderRange{};
+        if (drawModel.occluderMeshId != UINT32_MAX &&
+            m_meshPool->get_mesh_range(drawModel.occluderMeshId,
+                                       occluderRange))
+        {
+            m_debugStats.occluderTriangleEstimate +=
+                static_cast<uint64_t>(occluderRange.indexCount / 3u);
+        }
+    }
+    m_debugStats.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
+    m_debugStats.pointLightsEnabled = !m_pointLights.empty();
 
     m_drawObjectCount = static_cast<uint32_t>(m_renderableInfos.size());
     m_drawCellCount = static_cast<uint32_t>(m_renderCells.size());
@@ -710,7 +761,33 @@ Result Engine::set_view_projection(
     const GpuData::ViewProjectionGpu &a_viewProjection)
 {
     m_viewProjection = a_viewProjection;
+    m_debugStats.cameraPosition =
+        Math::float3(a_viewProjection.cameraPosition.x,
+                     a_viewProjection.cameraPosition.y,
+                     a_viewProjection.cameraPosition.z);
     return commit_view_projection_to_uploaders();
+}
+
+EngineDebugStats Engine::debug_stats() const noexcept
+{
+    return m_debugStats;
+}
+
+RHI::FrameGraphExecutionStats Engine::render_execution_stats() const noexcept
+{
+    if (m_frameGraph == nullptr)
+    {
+        return {};
+    }
+    return m_frameGraph->execution_stats_copy();
+}
+
+void Engine::set_directional_light_enabled(bool enabled) noexcept
+{
+    m_enableDirectionalLight = enabled;
+    m_debugStats.directionalLightEnabled = enabled;
+    m_lightFrame.directionalLightCount = enabled ? 1u : 0u;
+    (void)commit_light_data_to_uploaders();
 }
 
 Result Engine::commit_static_draw_data_to_uploaders()
@@ -892,7 +969,7 @@ Result Engine::create_frame_graphs(
     RHI::FrameGraphDesc renderFrameGraphDesc{};
     renderFrameGraphDesc.usePresentQueue = true;
     renderFrameGraphDesc.enableProfiling = true;
-    renderFrameGraphDesc.waitForCompletion = false;
+    renderFrameGraphDesc.waitForCompletion = true;
     result =
         m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
     if (!result)
@@ -1038,14 +1115,11 @@ Result Engine::create_frame_graphs(
                             "Failed to create present frame graph.");
     }
 
+    m_presentFrameGraph->add_pass(
+        std::make_unique<RHI::PresentToSwapChainPass>());
     if (a_editorPass)
     {
         m_presentFrameGraph->add_pass(std::move(a_editorPass));
-    }
-    else
-    {
-        m_presentFrameGraph->add_pass(
-            std::make_unique<RHI::PresentToSwapChainPass>());
     }
 
     result = m_presentFrameGraph->build();
