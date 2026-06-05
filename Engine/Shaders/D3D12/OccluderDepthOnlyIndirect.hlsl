@@ -1,3 +1,7 @@
+// Early occlusion 用 depth-only indirect pass。
+// ObjectCullAndLod が選んだ価値のある occluder だけを描き、BuildHiZDepth が
+// 後続の object/cell culling 用 Hi-Z depth を作れるようにする。
+
 struct RenderObject
 {
     uint objectId;
@@ -56,6 +60,8 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
     const Transform transform = g_transforms[renderObject.transformId];
 
     VsOutput output;
+    // LOD4/impostor は billboard として depth を出す。
+    // 遠距離の小さい mesh を高ポリゴンのまま occluder にしないための軽量 path。
     if ((renderObject.drawFlags & 1u) != 0u)
     {
         const float4 worldCenter =
@@ -67,6 +73,7 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
         return output;
     }
 
+    // depth-only なので normal/uv/material/light は読まず、position と transform だけ使う。
     const float4 worldPosition =
         mul(float4(input.position.xyz, 1.0f), transform.worldMatrix);
     output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);

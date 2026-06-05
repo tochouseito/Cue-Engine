@@ -25,6 +25,7 @@
 #include "DrawSystem/MeshPool.h"
 #include "FrameController.h"
 #include "GpuData/Batching.h"
+#include "GpuData/ClusteredLighting.h"
 #include "GpuData/Transform.h"
 #include "GpuData/ViewProjection.h"
 #include "LightingSystem/GpuData/LightData.h"
@@ -75,6 +76,7 @@ struct EngineDebugStats final
     bool directionalLightEnabled = true;
     bool pointLightsEnabled = true;
     uint32_t pointLightCount = 0;
+    GpuData::ClusterLightingStatsGpu clusterLightingStats{};
     Math::float3 cameraPosition = Math::float3::zero();
     uint32_t selectedDepthBin = 0;
 };

@@ -1,3 +1,7 @@
+// Cell culling 後の object culling / LOD selection pass。
+// visible cell の中にある object だけを frustum/Hi-Z で判定し、
+// 描画用 RenderObject list を batchId が近くなる順に compact する。
+
 struct RenderableInfo
 {
     uint objectId;
@@ -118,6 +122,8 @@ bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 
 bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 {
+    // world-space bounds center を view-space に変換し、projection 行列から
+    // 作った 6 plane に対して sphere-frustum 判定する。
     const float radius = boundsCenterRadius.w;
     if (radius <= 0.0f)
     {
@@ -211,6 +217,8 @@ uint select_view_center_lod_bias(float4 viewCenter, float projectedRadius)
 
 uint select_lod(RenderableInfo renderableInfo, uint lodBias)
 {
+    // 基本は screen-space projected radius で LOD を選ぶ。
+    // cell lodBias と視野中心からの距離 bias は、近距離の急な LOD4 化を避ける。
     const uint lodCount = max(renderableInfo.lodCount, 1u);
     if (lodCount <= 1u)
     {
@@ -297,6 +305,8 @@ bool project_bounds_to_hiz_tiles(float4 boundsCenterRadius, out uint2 minTile, o
 
 bool is_occluded_by_hiz(float4 boundsCenterRadius)
 {
+    // bounds を Hi-Z tile 矩形へ投影し、全 tile で既存 depth より奥なら occluded。
+    // depthBias は画面端や近距離 object の誤消失を抑えるための余裕。
     uint2 minTile;
     uint2 maxTile;
     uint nearDepth;
@@ -359,6 +369,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         sortKey = meshId * 8u + depthBin;
     }
 
+    // WaveActiveMin により wave 内を sortKey 昇順で compact する。
+    // 後段 batching の batchId 局所性が上がり、write/atomic のばらつきを抑える。
     bool remaining = visible;
     for (;;)
     {

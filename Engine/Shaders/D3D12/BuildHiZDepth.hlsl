@@ -1,3 +1,7 @@
+// Occluder depth から coarse Hi-Z tile depth を作る pass。
+// 各 tile の最大 depth を保存し、CellCulling/ObjectCulling が bounds occlusion
+// test を少ないメモリアクセスで行えるようにする。
+
 cbuffer DepthSizeParam : register(b0)
 {
     uint g_depthWidth;
@@ -54,6 +58,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         (fullPixelEnd + depthScale - 1u) / depthScale,
         uint2(g_depthWidth, g_depthHeight));
 
+    // tile 内で一番奥の depth を保存する。対象 bounds の nearDepth がこれより
+    // さらに奥なら、その tile では既存 occluder に隠れていると判断できる。
     float maxDepth = 0.0f;
     for (uint y = pixelStart.y; y < pixelEnd.y; ++y)
     {

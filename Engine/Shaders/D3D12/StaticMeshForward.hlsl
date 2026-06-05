@@ -1,3 +1,7 @@
+// Main static mesh forward pass。
+// GPU culling/batching が作った indirect command と instance list を読み、
+// material、directional light、clustered point light を評価して最終色を書く。
+
 struct RenderObject
 {
     uint objectId;
@@ -53,10 +57,12 @@ struct PointLight
 
 struct ClusterLightRange
 {
+    // ClusterLightCulling が作った compact light list への参照。
+    // pixel shader は自分の cluster の offset/count だけをたどる。
     uint offset;
     uint count;
-    uint padding0;
-    uint padding1;
+    uint hash;
+    uint overflow;
 };
 
 struct VsInput
@@ -70,6 +76,10 @@ struct VsOutput
 {
     float4 position : SV_POSITION;
     float3 worldPosition : POSITION0;
+
+    // pixel shader で cluster の depth slice を求めるための view-space 位置。
+    // PS で worldPosition に view matrix を掛け直すより安い。
+    float3 viewPosition : POSITION1;
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
     nointerpolation uint materialId : TEXCOORD1;
@@ -99,24 +109,44 @@ StructuredBuffer<uint> g_renderObjectIndices : register(t6);
 StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t7);
 StructuredBuffer<uint> g_clusterLightIndices : register(t8);
 
-cbuffer ClusterTileSizeParam : register(b3)
+cbuffer ScreenWidthParam : register(b3)
 {
-    uint g_clusterTileSize;
+    uint g_screenWidth;
 };
 
-cbuffer ClusterTileCountXParam : register(b4)
+cbuffer ScreenHeightParam : register(b4)
 {
-    uint g_clusterTileCountX;
+    uint g_screenHeight;
 };
 
-cbuffer ClusterTileCountYParam : register(b5)
+cbuffer ClusterCountXParam : register(b5)
 {
-    uint g_clusterTileCountY;
+    uint g_clusterCountX;
 };
 
-cbuffer ClusterDepthSliceCountParam : register(b6)
+cbuffer ClusterCountYParam : register(b6)
+{
+    uint g_clusterCountY;
+};
+
+cbuffer ClusterDepthSliceCountParam : register(b7)
 {
     uint g_clusterDepthSliceCount;
+};
+
+cbuffer ClusterNearZParam : register(b8)
+{
+    float g_clusterNearZ;
+};
+
+cbuffer ClusterFarZParam : register(b9)
+{
+    float g_clusterFarZ;
+};
+
+cbuffer ClusterInvLogFarNearParam : register(b10)
+{
+    float g_clusterInvLogFarNear;
 };
 
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
@@ -134,6 +164,8 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
+        // LOD4 impostor は mesh 頂点ではなく camera-facing billboard として描く。
+        // view-space 上で quad を広げることで、常に camera に正対させる。
         const float4 worldCenter =
             float4(renderObject.boundsCenterRadius.xyz, 1.0f);
         const float objectScale = length(transform.worldMatrix[0].xyz);
@@ -142,56 +174,64 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
         output.position = mul(viewPosition, g_projectionMatrix);
         output.worldPosition = worldCenter.xyz;
+        output.viewPosition = viewPosition.xyz;
         output.worldNormal = float3(0.0f, 0.0f, 1.0f);
         return output;
     }
 
-    // 頂点変換
+    // 通常 mesh の頂点変換。viewPosition もここで作り、PS の per-pixel
+    // matrix multiply を避ける。
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
+    const float4 viewPosition = mul(worldPosition, g_viewMatrix);
     const float3 worldNormal =
         normalize(mul(float4(input.normal, 0.0f), transform.normalMatrix).xyz);
 
-    output.position = mul(mul(worldPosition, g_viewMatrix), g_projectionMatrix);
+    output.position = mul(viewPosition, g_projectionMatrix);
     output.worldPosition = worldPosition.xyz;
+    output.viewPosition = viewPosition.xyz;
     output.worldNormal = worldNormal;
     return output;
 }
 
-void projection_near_far(out float nearZ, out float farZ)
+uint compute_depth_slice(float viewZ)
 {
-    const float a = g_projectionMatrix[2][2];
-    const float b = g_projectionMatrix[3][2];
-    nearZ = max(b / (-1.0f - a), 0.0001f);
-    farZ = max(b / (1.0f - a), nearZ + 0.0001f);
+    // Cluster grid の Z slice は logarithmic。near/far と逆数 log は
+    // root constants で渡し、PS で projection matrix から復元しない。
+    const uint depthSliceCount = max(g_clusterDepthSliceCount, 1u);
+    const float safeNearZ = max(g_clusterNearZ, 0.0001f);
+    const float safeFarZ = max(g_clusterFarZ, safeNearZ + 0.0001f);
+    const float safeViewZ = clamp(viewZ, safeNearZ, safeFarZ);
+    const float slice =
+        log(safeViewZ / safeNearZ) *
+        max(g_clusterInvLogFarNear, 0.0001f) *
+        (float)depthSliceCount;
+    return min((uint)slice, depthSliceCount - 1u);
 }
 
-uint compute_cluster_index(float4 screenPosition, float3 worldPosition)
+uint compute_cluster_index(float4 screenPosition, float viewZ)
 {
-    const uint tileCountX = max(g_clusterTileCountX, 1u);
-    const uint tileCountY = max(g_clusterTileCountY, 1u);
-    const uint depthSliceCount = max(g_clusterDepthSliceCount, 1u);
-    const uint tileSize = max(g_clusterTileSize, 1u);
+    // screen x/y と view-space z から cluster id を求める。
+    // ここで得た id が ClusterLightRangeBuffer の index になる。
+    const uint tileCountX = max(g_clusterCountX, 1u);
+    const uint tileCountY = max(g_clusterCountY, 1u);
+    const float2 screenSize =
+        max(float2((float)g_screenWidth, (float)g_screenHeight),
+            float2(1.0f, 1.0f));
 
-    const uint tileX = min((uint)(screenPosition.x / (float)tileSize),
+    const uint tileX = min((uint)(screenPosition.x / screenSize.x *
+                                  (float)tileCountX),
                            tileCountX - 1u);
-    const uint tileY = min((uint)(screenPosition.y / (float)tileSize),
+    const uint tileY = min((uint)(screenPosition.y / screenSize.y *
+                                  (float)tileCountY),
                            tileCountY - 1u);
 
-    float nearZ = 0.0f;
-    float farZ = 0.0f;
-    projection_near_far(nearZ, farZ);
-    const float viewZ = mul(float4(worldPosition, 1.0f), g_viewMatrix).z;
-    const float normalizedDepth =
-        saturate((viewZ - nearZ) / max(farZ - nearZ, 0.0001f));
-    const uint sliceZ =
-        min((uint)(normalizedDepth * (float)depthSliceCount),
-            depthSliceCount - 1u);
+    const uint sliceZ = compute_depth_slice(viewZ);
 
     return (sliceZ * tileCountY + tileY) * tileCountX + tileX;
 }
 
 float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
-                         float3 worldNormal)
+                         float3 viewPosition, float3 worldNormal)
 {
     float3 lighting =
         g_lightFrame.ambientColorIntensity.rgb *
@@ -209,9 +249,12 @@ float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
             diffuse;
     }
 
-    const uint clusterIndex = compute_cluster_index(screenPosition,
-                                                    worldPosition);
+    const uint clusterIndex =
+        compute_cluster_index(screenPosition, viewPosition.z);
     const ClusterLightRange range = g_clusterLightRanges[clusterIndex];
+
+    // cluster に割り当てられた point light だけを評価する。
+    // 全 light 走査を避けるのが Clustered Forward の主目的。
     for (uint rangeIndex = 0; rangeIndex < range.count; ++rangeIndex)
     {
         const uint lightIndex =
@@ -240,7 +283,8 @@ float4 ps_main(VsOutput input) : SV_Target0
     const Material material = g_materials[input.materialId];
     const float3 normal = normalize(input.worldNormal);
     const float3 lighting =
-        max(evaluate_lighting(input.position, input.worldPosition, normal),
+        max(evaluate_lighting(input.position, input.worldPosition,
+                              input.viewPosition, normal),
             0.0f);
     return float4(material.color.rgb * lighting, material.color.a);
 }

@@ -292,6 +292,12 @@ class ImGuiOverlayPass final : public RHI::FrameGraphPass
         if (ImGui::CollapsingHeader("Pass GPU Time",
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
+            ImGui::Text("BuildClusterGrid: %.3f ms",
+                        pass_gpu_ms(frameStats, {"BuildClusterGrid"}));
+            ImGui::Text("PreparePointLights: %.3f ms",
+                        pass_gpu_ms(frameStats, {"PreparePointLights"}));
+            ImGui::Text("ClusterLightCulling: %.3f ms",
+                        pass_gpu_ms(frameStats, {"ClusterLightCulling"}));
             ImGui::Text("ObjectCullAndLod: %.3f ms",
                         pass_gpu_ms(frameStats, {"ObjectCullAndLod"}));
             ImGui::Text("OccluderDepthOnlyIndirect: %.3f ms",
@@ -309,6 +315,49 @@ class ImGuiOverlayPass final : public RHI::FrameGraphPass
                                      "IndirectCommandEmit"}));
             ImGui::Text("StaticMeshForward: %.3f ms",
                         pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+        }
+
+        if (ImGui::CollapsingHeader("Clustered Lighting",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            // ClusterLightCulling が GPU 上で集計した値。
+            // pass time と並べて見ることで、cluster grid や compact list の
+            // チューニングが効いているか判断する。
+            const GpuData::ClusterLightingStatsGpu &clusterStats =
+                debugStats.clusterLightingStats;
+            const float avgLightsPerCluster =
+                clusterStats.clusterCount > 0u
+                    ? static_cast<float>(clusterStats.totalClusterItems) /
+                          static_cast<float>(clusterStats.clusterCount)
+                    : 0.0f;
+
+            ImGui::Text("BuildClusterGrid: %.3f ms",
+                        pass_gpu_ms(frameStats, {"BuildClusterGrid"}));
+            ImGui::Text("PreparePointLights: %.3f ms",
+                        pass_gpu_ms(frameStats, {"PreparePointLights"}));
+            ImGui::Text("ClusterLightCulling: %.3f ms",
+                        pass_gpu_ms(frameStats, {"ClusterLightCulling"}));
+            ImGui::Text("StaticMeshForward: %.3f ms",
+                        pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+            ImGui::Separator();
+            ImGui::Text("clusterCount: %u", clusterStats.clusterCount);
+            ImGui::Text("activeClusterCount: %u",
+                        clusterStats.activeClusterCount);
+            ImGui::Text("pointLightCount: %u",
+                        clusterStats.pointLightCount);
+            ImGui::Text("totalClusterItems: %u",
+                        clusterStats.totalClusterItems);
+            ImGui::Text("avg lights / cluster: %.2f",
+                        avgLightsPerCluster);
+            ImGui::Text("max lights / cluster: %u",
+                        clusterStats.maxLightsInCluster);
+            ImGui::Text("overflow clusters: %u",
+                        clusterStats.overflowClusterCount);
+            ImGui::Text("empty clusters: %u",
+                        clusterStats.emptyClusterCount);
+            ImGui::Text("reused light lists: %u",
+                        clusterStats.reusedListCount);
+            ImGui::TextDisabled("Cluster stats are GPU readback values with a small frame delay.");
         }
 
         if (ImGui::CollapsingHeader("Objects",
@@ -439,9 +488,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const char *title = "Cue Editor";
     uint32_t maxFps = 0;
     uint32_t bufferCount = 3;
-    const Math::uint3 modelGridCount(100u, 10u, 40u);
+    const Math::uint3 modelGridCount(100u, 2u, 100u);
     const float modelTargetRadius = 0.6f;
-    const uint32_t maxPointLightCount = 10000;
+    const uint32_t maxPointLightCount = 5000;
     const bool enableDirectionalLight = false;
 
     // 処理結果

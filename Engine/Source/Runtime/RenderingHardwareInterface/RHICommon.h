@@ -166,6 +166,19 @@ namespace Cue::RHI
         uint64_t dstByteOffset = 0;
     };
 
+    struct BufferToReadbackCopyRegion final
+    {
+        // GPU default heap の buffer 内容を CPU 可視 readback heap へコピーする。
+        // GPU が作った debug/statistics 値を ImGui やログへ出す用途で使う。
+        BufferHandle srcBufferHandle = {};
+        uint32_t srcDefaultResourceIndex = 0;
+        uint64_t srcByteOffset = 0;
+        BufferHandle dstBufferHandle = {};
+        uint32_t dstReadbackResourceIndex = 0;
+        uint64_t dstByteOffset = 0;
+        uint64_t byteSize = 0;
+    };
+
     /// @brief コマンドコンテキストの共通インターフェース
     class ICommandContext
     {
@@ -200,6 +213,7 @@ namespace Cue::RHI
         virtual Result resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc) = 0;
         virtual Result copy_buffer_region(const BufferCopyRegion& region) = 0;
+        virtual Result copy_buffer_region_to_readback(const BufferToReadbackCopyRegion& region) = 0;
         virtual Result copy_texture_region_to_buffer(const TextureToBufferCopyRegion& region) = 0;
         virtual Result clear_render_target(ViewHandle handle, const float clearColor[4]) = 0;
         virtual Result clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil) = 0;

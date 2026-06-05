@@ -1,3 +1,7 @@
+// Visible RenderObject を batch key ごとの instance list へ詰める pass。
+// batch key は meshId/materialId/depthBin で、後段の indirect command は
+// この list の連続範囲を instance 描画する。
+
 struct RenderObject
 {
     uint objectId;
@@ -82,6 +86,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
+    // wave 内で同じ batchId の lane をまとめて 1 回だけ atomic add する。
+    // object ごとに atomic するより counter contention を抑えられる。
     bool remaining = active;
     for (;;)
     {
@@ -106,6 +112,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
         if (matching)
         {
+            // prefix sum で確保済みの batch 範囲へ、この object の index を書く。
             const uint drawInstanceIndex =
                 waveBaseOffset + WavePrefixCountBits(matching);
             if (drawInstanceIndex < g_maxDrawInstanceCount)

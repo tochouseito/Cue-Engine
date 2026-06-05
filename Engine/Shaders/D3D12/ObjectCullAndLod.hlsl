@@ -1,3 +1,7 @@
+// OccluderDepthOnlyIndirect 用の occluder list を作る pass。
+// 全 object を depth-only に出すと重いため、近い/大きい object または
+// proxy mesh を持つ object だけを抽出する。
+
 struct RenderableInfo
 {
     uint objectId;
@@ -152,6 +156,8 @@ float projected_radius(RenderableInfo renderableInfo, float viewZ)
 
 bool is_valuable_occluder(RenderableInfo renderableInfo)
 {
+    // occlusion に効きやすい「画面上で大きい」または「近くてそこそこ大きい」
+    // object だけを depth occluder にする。遠距離の小物はここで捨てる。
     const float4 viewCenter =
         mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
     const float viewZ = max(viewCenter.z, 0.001f);
@@ -197,6 +203,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             is_valuable_occluder(renderableInfo);
     }
 
+    // visible lane 数を wave 単位でまとめて append し、object ごとの atomic を避ける。
     const uint waveVisibleCount = WaveActiveCountBits(visible);
     if (waveVisibleCount == 0u)
     {

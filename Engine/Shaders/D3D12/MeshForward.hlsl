@@ -1,3 +1,7 @@
+// 初期検証用の単純 forward shader。
+// GPU-driven static mesh path 以前の mesh 表示確認に使う最小描画で、
+// position から疑似色を作るだけで material/light は扱わない。
+
 struct VsInput
 {
     float4 position : POSITION;

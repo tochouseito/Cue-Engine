@@ -1020,11 +1020,16 @@ Result Engine::create_frame_graphs(
             std::make_unique<DrawSystem::BuildClusterGridPass>(
                 m_drawResources->view_projection_buffer_handle()));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::ClusterLightCullingPass>(
+            std::make_unique<DrawSystem::PreparePointLightsPass>(
                 m_drawResources->view_projection_buffer_handle(),
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
                 m_pointLightBufferCapacity));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ClusterLightCullingPass>(
+                m_renderBackend->get_buffer_manager(),
+                m_pointLightBufferCapacity,
+                &m_debugStats.clusterLightingStats));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::InitializeHiZDepthPass>());
         m_frameGraph->add_pass(

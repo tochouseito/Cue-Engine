@@ -1,3 +1,7 @@
+// Visible RenderObject を batch key ごとに数える pass。
+// ここでは instance list にはまだ書かず、PrefixSumPass が必要な範囲を
+// 計算できるよう batch ごとの count だけを作る。
+
 struct RenderObject
 {
     uint objectId;
@@ -76,6 +80,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
+    // wave 内の同一 batch をまとめて加算し、BatchKey 生成の O(N scan) を避ける。
     bool remaining = active;
     for (;;)
     {
@@ -90,6 +95,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         const bool matching = remaining && batchId == leaderBatchId;
         const uint matchingCount = WaveActiveCountBits(matching);
 
+        // leader lane だけが atomic add する。matchingCount は同じ batchId の
+        // lane 数なので、wave 内の複数 object を 1 回で数えられる。
         if (WaveGetLaneIndex() == leaderLane)
         {
             uint previousCount = 0u;

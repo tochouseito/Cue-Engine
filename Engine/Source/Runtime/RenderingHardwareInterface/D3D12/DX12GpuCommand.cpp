@@ -509,6 +509,68 @@ namespace Cue::RHI::DX12
 
         return Result::ok();
     }
+
+    Result DX12GpuCommandContext::copy_buffer_region_to_readback(
+        const BufferToReadbackCopyRegion& region)
+    {
+        // Default heap -> Readback heap のコピー。
+        // 通常の copy_buffer_region は Upload -> Default 専用なので、
+        // GPU 生成 stats を CPU へ戻す経路として分けている。
+        if (region.byteSize == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy buffer readback region byte size must be greater than 0.");
+        }
+
+        DX12GpuResource* srcResource = nullptr;
+        Result result = resolve_default_buffer(
+            region.srcBufferHandle,
+            region.srcDefaultResourceIndex,
+            &srcResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* dstResource = nullptr;
+        result = resolve_readback_buffer(
+            region.dstBufferHandle,
+            region.dstReadbackResourceIndex,
+            &dstResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (region.srcByteOffset + region.byteSize >
+            srcResource->get_buffer_size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy readback source range exceeds the source buffer size.");
+        }
+        if (region.dstByteOffset + region.byteSize >
+            dstResource->get_buffer_size())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Copy readback destination range exceeds the destination buffer size.");
+        }
+
+        m_commandList->CopyBufferRegion(
+            dstResource->get_resource(),
+            region.dstByteOffset,
+            srcResource->get_resource(),
+            region.srcByteOffset,
+            region.byteSize);
+
+        return Result::ok();
+    }
+
     Result DX12GpuCommandContext::copy_texture_region_to_buffer(
         const TextureToBufferCopyRegion& region)
     {

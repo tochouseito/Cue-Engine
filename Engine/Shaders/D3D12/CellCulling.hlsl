@@ -1,3 +1,7 @@
+// Chunk/cell 単位の coarse culling pass。
+// object を見る前に cell bounds を frustum/Hi-Z で判定し、通った cell だけを
+// ObjectCullingPass に渡して object culling の対象数を減らす。
+
 struct RenderCell
 {
     float4 boundsCenterRadius;
@@ -49,6 +53,8 @@ bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 
 bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 {
+    // cell bounds は object bounds より大きいので、ここでは conservative に残す。
+    // false になった cell 内の object は後段で一切処理しない。
     const float radius = boundsCenterRadius.w;
     if (radius <= 0.0f)
     {
@@ -169,6 +175,8 @@ bool project_bounds_to_hiz_tiles(
 
 bool is_occluded_by_hiz(float4 boundsCenterRadius)
 {
+    // cell bounds 全体が Hi-Z の手前 depth より奥なら cell ごと occluded。
+    // 大量 object の個別 Hi-Z 判定を避けるための coarse rejection。
     uint2 minTile;
     uint2 maxTile;
     uint nearDepth;
@@ -210,6 +218,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             !is_occluded_by_hiz(cell.boundsCenterRadius);
     }
 
+    // visible cell index も wave 単位で append し、counter atomic を抑える。
     const uint waveVisibleCount = WaveActiveCountBits(visible);
     if (waveVisibleCount == 0u)
     {
