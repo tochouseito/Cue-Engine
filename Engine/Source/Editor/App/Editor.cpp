@@ -142,15 +142,25 @@ class ImGuiOverlayPass final : public RHI::FrameGraphPass
         ImGuiIO &io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.IniFilename = "config/editor/imgui.ini";
+
+        ImFontConfig fontConfig{};
+        fontConfig.OversampleH = 3;
+        fontConfig.OversampleV = 2;
+        fontConfig.RasterizerMultiply = 1.45f;
         if (io.Fonts->AddFontFromFileTTF(
                 "EngineResources/Fonts/NotoSansJP-VariableFont_wght.ttf",
-                18.0f) == nullptr)
+                18.0f, &fontConfig) == nullptr)
         {
             io.Fonts->AddFontFromFileTTF(
                 "EngineResources/Fonts/Inter-VariableFont_opsz,wght.ttf",
-                18.0f);
+                18.0f, &fontConfig);
         }
         ImGui::StyleColorsDark();
+        ImGuiStyle &style = ImGui::GetStyle();
+        style.Colors[ImGuiCol_Text] = ImVec4(0.98f, 0.98f, 0.98f, 1.0f);
+        style.Colors[ImGuiCol_TextDisabled] =
+            ImVec4(0.72f, 0.72f, 0.72f, 1.0f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.06f, 0.94f);
 
         ImGui_ImplWin32_Init(hwnd);
 
@@ -429,10 +439,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const char *title = "Cue Editor";
     uint32_t maxFps = 0;
     uint32_t bufferCount = 3;
-    const Math::uint3 modelGridCount(100u, 10u, 20u);
+    const Math::uint3 modelGridCount(100u, 10u, 40u);
     const float modelTargetRadius = 0.6f;
-    const uint32_t maxPointLightCount = 1000;
-    const bool enableDirectionalLight = true;
+    const uint32_t maxPointLightCount = 10000;
+    const bool enableDirectionalLight = false;
 
     // 処理結果
     Result r = Result::ok();
