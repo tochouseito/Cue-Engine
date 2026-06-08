@@ -11,10 +11,7 @@ find_package(winpixevent CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc"
-    "App/DebugCamera.h"
-    "App/DebugCamera.cpp"
- "Asset/ModelImporter.h" "Asset/ModelImporter.cpp")
+    "App/EditorResources.rc")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE

@@ -10,20 +10,6 @@
 #include "Command/PlatformCommandContext.h"
 
 // === Frame Passes includes ===
-#include "DrawSystem/passes/BuildHiZDepthPass.h"
-#include "DrawSystem/passes/CellCullingPass.h"
-#include "DrawSystem/passes/ClusteredLightingPass.h"
-#include "DrawSystem/passes/DrawResourceCopyPasses.h"
-#include "DrawSystem/passes/FinalColorClearPass.h"
-#include "DrawSystem/passes/GenerateVisibleListPass.h"
-#include "DrawSystem/passes/MeshForwardPass.h"
-#include "DrawSystem/passes/ObjectCullAndLodPass.h"
-#include "DrawSystem/passes/ObjectOcclusionDepthPass.h"
-#include "DrawSystem/passes/OccluderDepthOnlyIndirectPass.h"
-#include "DrawSystem/passes/PresentToSwapChain.h"
-#include "DrawSystem/passes/StaticMeshBatchingPass.h"
-#include "DrawSystem/passes/StaticMeshForwardPass.h"
-#include "LightingSystem/Passes/LightBufferCopyPass.h"
 
 // === C++ includes ===
 #include <algorithm>
@@ -33,47 +19,6 @@
 
 namespace Cue
 {
-namespace
-{
-constexpr float k_pi = 3.14159265358979323846f;
-constexpr uint32_t k_maxObjectCount = 50000;
-constexpr uint32_t k_cellObjectCapacity = 256;
-
-struct DrawModelSetup final
-{
-    std::array<uint32_t, 5> lodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
-                                       UINT32_MAX, UINT32_MAX};
-    uint32_t lodCount = 0;
-    uint32_t occluderMeshId = UINT32_MAX;
-    float modelScale = 1.0f;
-    float scaledRadius = 0.0f;
-    Math::float3 scaledBoundsCenter = Math::float3::zero();
-};
-
-[[nodiscard]] uint64_t instance_count(Math::uint3 a_instanceCounts) noexcept
-{
-    return static_cast<uint64_t>(a_instanceCounts.x) *
-           static_cast<uint64_t>(a_instanceCounts.y) *
-           static_cast<uint64_t>(a_instanceCounts.z);
-}
-
-[[nodiscard]] uint32_t grid_index(Math::uint3 instanceCounts, uint32_t x,
-                                  uint32_t y, uint32_t z) noexcept
-{
-    return (z * instanceCounts.y + y) * instanceCounts.x + x;
-}
-
-[[nodiscard]] Math::float4 point_light_color(uint32_t lightIndex) noexcept
-{
-    constexpr Math::float4 k_colors[] = {
-        Math::float4(1.0f, 0.55f, 0.28f, 1.0f),
-        Math::float4(0.32f, 0.72f, 1.0f, 1.0f),
-        Math::float4(0.74f, 0.55f, 1.0f, 1.0f),
-        Math::float4(0.55f, 1.0f, 0.68f, 1.0f),
-    };
-    return k_colors[lightIndex % std::size(k_colors)];
-}
-} // namespace
 
 Result Engine::initialize(EngineSetupInfo &a_info)
 {
@@ -91,22 +36,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     m_platform = a_info.platform;
     m_renderBackend = a_info.renderBackend;
     m_bufferCount = a_info.renderBackend->buffer_count();
-    m_maxPointLightCount = a_info.maxPointLightCount;
-    m_pointLightBufferCapacity = std::max(1u, m_maxPointLightCount);
-    m_enableDirectionalLight = a_info.enableDirectionalLight;
-    m_debugStats.directionalLightEnabled = m_enableDirectionalLight;
-    const uint32_t initialRenderWidth = m_renderBackend->width();
-    const uint32_t initialRenderHeight = m_renderBackend->height();
-    m_drawFrameState.resize(m_bufferCount);
-    for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
-    {
-        DrawSystem::DrawFrameData &frameState =
-            m_drawFrameState.frame_state(frameIndex);
-        frameState.renderWidth = initialRenderWidth;
-        frameState.renderHeight = initialRenderHeight;
-        frameState.objectCount = 0;
-    }
-
+    
     // フレームコントローラーの生成
     FrameControllerDesc desc(m_bufferCount);
     desc.mode = ControllerMode::Backpressure;
@@ -150,111 +80,8 @@ Result Engine::initialize(EngineSetupInfo &a_info)
             "Failed to get command or queue pool from backend.");
     }
 
-    // MeshPool の生成
-    DrawSystem::MeshPoolDesc meshPoolDesc{};
-    meshPoolDesc.maxVertexCount = 8u * 1024u * 1024u;
-    meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
-    m_meshPool = std::make_unique<DrawSystem::MeshPool>(
-        meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
-
-    m_drawResources = std::make_unique<DrawSystem::DrawResources>(
-        bufferManager, viewManager, m_bufferCount);
-    m_maxObjectCount = k_maxObjectCount;
-    m_maxCellCount =
-        (m_maxObjectCount + k_cellObjectCapacity - 1u) / k_cellObjectCapacity;
-
-    r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_transform_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_view_projection_buffer();
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_material_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_render_cell_buffer(m_maxCellCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_render_object_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_object_count_buffer();
-    if (!r)
-    {
-        return r;
-    }
-
-    m_lightResources = std::make_unique<LightingSystem::LightResources>(
-        bufferManager, viewManager, m_bufferCount);
-    r = m_lightResources->create_frame_buffer();
-    if (!r)
-    {
-        return r;
-    }
-    r = m_lightResources->create_directional_light_buffer(
-        GpuData::k_maxDirectionalLightCount);
-    if (!r)
-    {
-        return r;
-    }
-    r = m_lightResources->create_point_light_buffer(m_pointLightBufferCapacity);
-    if (!r)
-    {
-        return r;
-    }
-
-    m_material.color = Math::float4(0.72f, 0.68f, 0.58f, 1.0f);
-    m_material.shininess = 32.0f;
-    m_lightFrame.ambientColorIntensity = Math::float4(1.0f, 1.0f, 1.0f, 0.16f);
-    m_lightFrame.directionalLightCount = m_enableDirectionalLight ? 1u : 0u;
-    m_directionalLight.directionIntensity =
-        Math::float4(0.35f, -0.85f, 0.35f, 0.85f);
-    m_directionalLight.color = Math::float4(1.0f, 0.96f, 0.9f, 1.0f);
-    m_viewProjection.view = Math::float4x4::identity();
-    m_viewProjection.projection = Math::perspective_fov_matrix(
-        60.0f * k_pi / 180.0f,
-        static_cast<float>(initialRenderWidth) / static_cast<float>(initialRenderHeight),
-        0.01f, 100.0f);
-    m_viewProjection.cameraPosition = Math::float4(0.0f, 0.0f, -5.0f, 1.0f);
-    r = commit_static_draw_data_to_uploaders();
-    if (!r)
-    {
-        return r;
-    }
-    r = commit_view_projection_to_uploaders();
-    if (!r)
-    {
-        return r;
-    }
-    r = commit_light_data_to_uploaders();
-    if (!r)
-    {
-        return r;
-    }
-
     // FrameGraph の生成
-    r = create_frame_graphs(std::move(a_info.editorPass));
+    r = create_frame_graphs();
     if (!r)
     {
         return r;

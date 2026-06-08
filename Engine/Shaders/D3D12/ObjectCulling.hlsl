@@ -1,0 +1,427 @@
+// Cell culling 後の object culling / LOD selection pass。
+// visible cell の中にある object だけを frustum/Hi-Z で判定し、
+// 描画用 RenderObject list を batchId が近くなる順に compact する。
+
+struct RenderableInfo
+{
+    uint objectId;
+    uint visible;
+    uint meshId;
+    uint transformId;
+    uint materialId;
+    uint castsShadow;
+    uint receivesShadow;
+    uint shadowCasterMode;
+    uint skinPaletteOffset;
+    uint skinPaletteCount;
+    uint lodMeshId0;
+    uint lodMeshId1;
+    uint lodMeshId2;
+    uint lodMeshId3;
+    uint lodMeshId4;
+    uint lodCount;
+    uint occluderMeshId;
+    uint occluderFlags;
+    uint padding0;
+    uint padding1;
+    float4 boundsCenterRadius;
+};
+
+struct RenderCell
+{
+    float4 boundsCenterRadius;
+    uint objectStart;
+    uint objectCount;
+    uint lodBias;
+    uint flags;
+};
+
+struct RenderObject
+{
+    uint objectId;
+    uint meshId;
+    uint transformId;
+    uint materialId;
+    uint castsShadow;
+    uint receivesShadow;
+    uint shadowCasterMode;
+    uint skinPaletteOffset;
+    uint skinPaletteCount;
+    uint drawFlags;
+    uint depthBin;
+    uint padding;
+    float4 boundsCenterRadius;
+};
+
+cbuffer CellObjectCapacityParam : register(b0)
+{
+    uint g_cellObjectCapacity;
+};
+
+cbuffer TileCountXParam : register(b1)
+{
+    uint g_tileCountX;
+};
+
+cbuffer TileCountYParam : register(b2)
+{
+    uint g_tileCountY;
+};
+
+cbuffer TileSizeParam : register(b3)
+{
+    uint g_tileSize;
+};
+
+cbuffer ViewProjection : register(b4)
+{
+    row_major float4x4 g_viewMatrix;
+    row_major float4x4 g_projectionMatrix;
+};
+
+cbuffer MaxObjectCountParam : register(b5)
+{
+    uint g_maxObjectCount;
+};
+
+StructuredBuffer<RenderableInfo> g_renderableInfos : register(t0);
+StructuredBuffer<RenderCell> g_cells : register(t1);
+StructuredBuffer<uint> g_visibleCellIndices : register(t2);
+ByteAddressBuffer g_visibleCellCount : register(t3);
+ByteAddressBuffer g_hizDepth : register(t4);
+RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
+RWByteAddressBuffer g_renderObjectCount : register(u1);
+
+static const uint k_invalidSortKey = 0xffffffffu;
+
+uint first_active_lane(uint4 mask)
+{
+    if (mask.x != 0u)
+    {
+        return (uint)firstbitlow(mask.x);
+    }
+    if (mask.y != 0u)
+    {
+        return 32u + (uint)firstbitlow(mask.y);
+    }
+    if (mask.z != 0u)
+    {
+        return 64u + (uint)firstbitlow(mask.z);
+    }
+    return 96u + (uint)firstbitlow(mask.w);
+}
+
+bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
+{
+    const float invPlaneLength =
+        rsqrt(max(dot(plane.xyz, plane.xyz), 0.000000000001f));
+    const float signedDistance =
+        (dot(plane.xyz, center) + plane.w) * invPlaneLength;
+    return signedDistance >= -radius;
+}
+
+bool is_sphere_inside_frustum(float4 boundsCenterRadius)
+{
+    // world-space bounds center を view-space に変換し、projection 行列から
+    // 作った 6 plane に対して sphere-frustum 判定する。
+    const float radius = boundsCenterRadius.w;
+    if (radius <= 0.0f)
+    {
+        return false;
+    }
+    const float4 viewCenter =
+        mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+
+    const float4 projectionColumn0 =
+        float4(g_projectionMatrix[0][0], g_projectionMatrix[1][0],
+               g_projectionMatrix[2][0], g_projectionMatrix[3][0]);
+    const float4 projectionColumn1 =
+        float4(g_projectionMatrix[0][1], g_projectionMatrix[1][1],
+               g_projectionMatrix[2][1], g_projectionMatrix[3][1]);
+    const float4 projectionColumn2 =
+        float4(g_projectionMatrix[0][2], g_projectionMatrix[1][2],
+               g_projectionMatrix[2][2], g_projectionMatrix[3][2]);
+    const float4 projectionColumn3 =
+        float4(g_projectionMatrix[0][3], g_projectionMatrix[1][3],
+               g_projectionMatrix[2][3], g_projectionMatrix[3][3]);
+
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn0, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn0, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn1, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn1, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 + projectionColumn2, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    if (!is_sphere_inside_plane(
+            projectionColumn3 - projectionColumn2, viewCenter.xyz, radius))
+    {
+        return false;
+    }
+    return true;
+}
+
+uint get_lod_mesh_id(RenderableInfo renderableInfo, uint lodIndex)
+{
+    if (lodIndex == 1) return renderableInfo.lodMeshId1;
+    if (lodIndex == 2) return renderableInfo.lodMeshId2;
+    if (lodIndex == 3) return renderableInfo.lodMeshId3;
+    if (lodIndex == 4) return renderableInfo.lodMeshId4;
+    return renderableInfo.lodMeshId0;
+}
+
+uint select_view_center_lod_bias(float4 viewCenter, float projectedRadius)
+{
+    const float4 clipCenter = mul(viewCenter, g_projectionMatrix);
+    if (abs(clipCenter.w) <= 0.000001f)
+    {
+        return 0u;
+    }
+
+    const float2 ndcCenter = clipCenter.xy / clipCenter.w;
+    const float centerDistance = length(ndcCenter);
+
+    uint bias = 0u;
+    if (centerDistance >= 0.9f)
+    {
+        bias = 2u;
+    }
+    else if (centerDistance >= 0.6f)
+    {
+        bias = 1u;
+    }
+
+    if (projectedRadius >= 0.35f)
+    {
+        bias = min(bias, 1u);
+    }
+    return bias;
+}
+
+uint select_lod(RenderableInfo renderableInfo, uint lodBias)
+{
+    // 基本は screen-space projected radius で LOD を選ぶ。
+    // cell lodBias と視野中心からの距離 bias は、近距離の急な LOD4 化を避ける。
+    const uint lodCount = max(renderableInfo.lodCount, 1u);
+    if (lodCount <= 1u)
+    {
+        return 0u;
+    }
+    const float4 viewCenter =
+        mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float projectedRadius =
+        renderableInfo.boundsCenterRadius.w *
+        abs(g_projectionMatrix[1][1]) /
+        max(viewCenter.z, 0.001f);
+
+    uint lodIndex = 0u;
+    if (projectedRadius < 0.012f) lodIndex = 4u;
+    else if (projectedRadius < 0.08f) lodIndex = 3u;
+    else if (projectedRadius < 0.18f) lodIndex = 2u;
+    else if (projectedRadius < 0.35f) lodIndex = 1u;
+    const uint baseLodIndex = min(lodIndex + lodBias, lodCount - 1u);
+    const uint viewCenterBias =
+        select_view_center_lod_bias(viewCenter, projectedRadius);
+    if (viewCenterBias == 0u || baseLodIndex >= 2u)
+    {
+        return baseLodIndex;
+    }
+    return min(baseLodIndex + viewCenterBias, min(2u, lodCount - 1u));
+}
+
+uint quantize_depth(float depth)
+{
+    return (uint)min(max(depth, 0.0f) * 4294967295.0f, 4294967295.0f);
+}
+
+float project_device_depth(float viewZ)
+{
+    const float4 clipPosition = mul(float4(0.0f, 0.0f, viewZ, 1.0f), g_projectionMatrix);
+    if (abs(clipPosition.w) <= 0.000001f)
+    {
+        return 1.0f;
+    }
+    return saturate(clipPosition.z / clipPosition.w);
+}
+
+uint select_depth_bin(float4 boundsCenterRadius)
+{
+    const float4 viewCenter =
+        mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    return min((uint)floor(project_device_depth(max(viewCenter.z, 0.001f)) * 8.0f), 7u);
+}
+
+bool project_bounds_to_hiz_tiles(float4 boundsCenterRadius, out uint2 minTile, out uint2 maxTile, out uint nearDepth)
+{
+    minTile = uint2(0u, 0u);
+    maxTile = uint2(0u, 0u);
+    nearDepth = 0u;
+    if (g_tileCountX == 0u || g_tileCountY == 0u || g_tileSize == 0u)
+    {
+        return false;
+    }
+    const float radius = boundsCenterRadius.w;
+    const float4 viewCenter = mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float viewZ = viewCenter.z;
+    const float4 clipCenter = mul(viewCenter, g_projectionMatrix);
+    if (radius <= 0.0f || abs(clipCenter.w) <= 0.000001f)
+    {
+        return false;
+    }
+    const float projection00 = max(abs(g_projectionMatrix[0][0]), 0.000001f);
+    const float projection11 = max(abs(g_projectionMatrix[1][1]), 0.000001f);
+    const float2 ndcCenter = clipCenter.xy / clipCenter.w;
+    const float2 projectedRadius =
+        float2(radius * projection00, radius * projection11) / max(viewZ, 0.000001f);
+    const float2 minNdc = max(ndcCenter - projectedRadius, float2(-1.0f, -1.0f));
+    const float2 maxNdc = min(ndcCenter + projectedRadius, float2(1.0f, 1.0f));
+    const float2 screenSize = float2((float)(g_tileCountX * g_tileSize), (float)(g_tileCountY * g_tileSize));
+    const float2 minPixel = (minNdc * float2(0.5f, -0.5f) + 0.5f) * screenSize;
+    const float2 maxPixel = (maxNdc * float2(0.5f, -0.5f) + 0.5f) * screenSize;
+    const float2 rectMin = min(minPixel, maxPixel);
+    const float2 rectMax = max(minPixel, maxPixel);
+    minTile = min((uint2)floor(rectMin / (float)g_tileSize), uint2(g_tileCountX - 1u, g_tileCountY - 1u));
+    maxTile = min((uint2)floor(rectMax / (float)g_tileSize), uint2(g_tileCountX - 1u, g_tileCountY - 1u));
+    nearDepth = quantize_depth(project_device_depth(max(viewZ - radius, 0.001f)));
+    return true;
+}
+
+bool is_occluded_by_hiz(float4 boundsCenterRadius)
+{
+    // bounds を Hi-Z tile 矩形へ投影し、全 tile で既存 depth より奥なら occluded。
+    // depthBias は画面端や近距離 object の誤消失を抑えるための余裕。
+    uint2 minTile;
+    uint2 maxTile;
+    uint nearDepth;
+    if (!project_bounds_to_hiz_tiles(boundsCenterRadius, minTile, maxTile, nearDepth))
+    {
+        return false;
+    }
+    const uint depthBias = 8589934u;
+    for (uint tileY = minTile.y; tileY <= maxTile.y; ++tileY)
+    {
+        for (uint tileX = minTile.x; tileX <= maxTile.x; ++tileX)
+        {
+            const uint tileIndex = tileY * g_tileCountX + tileX;
+            const uint tileMaxDepth = g_hizDepth.Load(tileIndex * 4u);
+            if (tileMaxDepth == 0u ||
+                nearDepth <= tileMaxDepth ||
+                nearDepth - tileMaxDepth <= depthBias)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint visibleCellOrdinal = dispatchThreadId.x / g_cellObjectCapacity;
+    const uint objectOffsetInCell = dispatchThreadId.x % g_cellObjectCapacity;
+    bool visible = visibleCellOrdinal < g_visibleCellCount.Load(0);
+    RenderCell cell;
+    RenderableInfo renderableInfo;
+    if (visible)
+    {
+        const uint cellIndex = g_visibleCellIndices[visibleCellOrdinal];
+        cell = g_cells[cellIndex];
+        visible = objectOffsetInCell < cell.objectCount;
+
+        if (visible)
+        {
+            const uint objectId = cell.objectStart + objectOffsetInCell;
+            renderableInfo = g_renderableInfos[objectId];
+            visible =
+                renderableInfo.visible != 0u &&
+                is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
+                !is_occluded_by_hiz(renderableInfo.boundsCenterRadius);
+        }
+    }
+
+    uint lodIndex = 0u;
+    uint meshId = 0u;
+    uint depthBin = 0u;
+    uint sortKey = k_invalidSortKey;
+    if (visible)
+    {
+        lodIndex = select_lod(renderableInfo, cell.lodBias);
+        meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+        depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
+        sortKey = meshId * 8u + depthBin;
+    }
+
+    // WaveActiveMin により wave 内を sortKey 昇順で compact する。
+    // 後段 batching の batchId 局所性が上がり、write/atomic のばらつきを抑える。
+    bool remaining = visible;
+    for (;;)
+    {
+        const uint currentSortKey =
+            WaveActiveMin(remaining ? sortKey : k_invalidSortKey);
+        if (currentSortKey == k_invalidSortKey)
+        {
+            return;
+        }
+
+        const bool matching = remaining && sortKey == currentSortKey;
+        const uint matchingCount = WaveActiveCountBits(matching);
+        const uint4 matchingMask = WaveActiveBallot(matching);
+        const uint leaderLane = first_active_lane(matchingMask);
+
+        uint waveBaseOffset = 0u;
+        if (WaveGetLaneIndex() == leaderLane)
+        {
+            g_renderObjectCount.InterlockedAdd(
+                0, matchingCount, waveBaseOffset);
+        }
+        waveBaseOffset = WaveReadLaneAt(waveBaseOffset, leaderLane);
+
+        if (matching)
+        {
+            const uint objectOffset =
+                waveBaseOffset + WavePrefixCountBits(matching);
+            if (objectOffset < g_maxObjectCount)
+            {
+                RenderObject renderObject;
+                renderObject.objectId = renderableInfo.objectId;
+                renderObject.meshId = meshId;
+                renderObject.transformId = renderableInfo.transformId;
+                renderObject.materialId = renderableInfo.materialId;
+                renderObject.castsShadow = renderableInfo.castsShadow;
+                renderObject.receivesShadow = renderableInfo.receivesShadow;
+                renderObject.shadowCasterMode =
+                    renderableInfo.shadowCasterMode;
+                renderObject.skinPaletteOffset =
+                    renderableInfo.skinPaletteOffset;
+                renderObject.skinPaletteCount =
+                    renderableInfo.skinPaletteCount;
+                renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+                renderObject.depthBin = depthBin;
+                renderObject.padding = 0u;
+                renderObject.boundsCenterRadius =
+                    renderableInfo.boundsCenterRadius;
+                g_renderObjects[objectOffset] = renderObject;
+            }
+        }
+
+        remaining = remaining && !matching;
+    }
+}
