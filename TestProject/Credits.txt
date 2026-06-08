@@ -1,0 +1,34 @@
+Third-party 3D scan models
+
+This project uses the following 3D scan models as test assets for rendering,
+GPU-driven rendering, culling, LOD, lighting, and graphics performance evaluation.
+The authorship of these 3D models is not part of the evaluated work.
+
+The models are from The Stanford 3D Scanning Repository unless otherwise noted.
+The Stanford 3D Scanning Repository states that its data and models may be used
+for research purposes, must not be used for commercial purposes, must not appear
+in a product for sale without permission, and that the source of the data and
+models should be acknowledged.
+
+- Stanford Bunny
+  Source: Stanford University Computer Graphics Laboratory
+  Scanner: Cyberware
+  Reconstruction: zipper
+  Repository: The Stanford 3D Scanning Repository
+
+- Happy Buddha
+  Source: Stanford University Computer Graphics Laboratory
+  Scanner: Cyberware + spacetime analysis
+  Reconstruction: vrip
+  Repository: The Stanford 3D Scanning Repository
+
+- Stanford Dragon
+  Source: Stanford University Computer Graphics Laboratory
+  Scanner: Cyberware + spacetime analysis
+  Reconstruction: vrip
+  Repository: The Stanford 3D Scanning Repository
+
+- Asian Dragon / XYZ RGB Dragon
+  Source: XYZ RGB Inc.
+  Scanner: XYZ RGB
+  Repository: The Stanford 3D Scanning Repository
