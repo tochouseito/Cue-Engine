@@ -10,6 +10,7 @@
 #include "Command/PlatformCommandContext.h"
 
 // === Frame Passes includes ===
+#include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 
 // === C++ includes ===
@@ -17,6 +18,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <utility>
 
 namespace Cue
 {
@@ -28,7 +30,17 @@ namespace Cue
         if (a_info.platformCommandBridge == nullptr)
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
-                "Platform command bridge must not be null.");
+                                "Platform command bridge must not be null.");
+        }
+        if (a_info.platform == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Platform must not be null.");
+        }
+        if (a_info.renderBackend == nullptr)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Render backend must not be null.");
         }
 
         // 依存オブジェクトの保存
@@ -36,6 +48,17 @@ namespace Cue
         m_platform = a_info.platform;
         m_renderBackend = a_info.renderBackend;
         m_bufferCount = a_info.renderBackend->buffer_count();
+
+        // FrameState の初期化
+        m_drawFrameState.resize(m_bufferCount);
+        for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
+        {
+            DrawSystem::DrawFrameData& frameState =
+                m_drawFrameState.frame_state(frameIndex);
+            frameState.renderWidth = m_renderBackend->width();
+            frameState.renderHeight = m_renderBackend->height();
+            frameState.objectCount = 0;
+        }
 
         // フレームコントローラーの生成
         FrameControllerDesc desc(m_bufferCount);
@@ -46,6 +69,23 @@ namespace Cue
             m_platform->waiter(), update(), render(), present(), [this]() {
 
             });
+
+        // 共有リソースの作成
+        constexpr float k_finalColorClearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        r = RHI::create_render_target_resources(
+            *m_renderBackend, "FinalColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_finalColorRenderTarget, k_finalColorClearColor);
+        if (!r)
+        {
+            return r;
+        }
+
+        // FrameGraph の構築
+        r = create_frame_graphs(std::move(a_info.editorPass));
+        if (!r)
+        {
+            return r;
+        }
 
         return Result::ok();
     }
@@ -64,9 +104,18 @@ namespace Cue
             Result waitResult = m_renderBackend->wait_for_idle();
             if (!waitResult)
             {
-                CUE_ASSERT_FORMAT(false,
-                    "Failed to wait backend idle during shutdown: %s",
+                CUE_ASSERT_FORMAT(
+                    false, "Failed to wait backend idle during shutdown: %s",
                     waitResult.message.data());
+            }
+
+            Result destroyResult = RHI::destroy_render_target_resources(
+                *m_renderBackend, m_finalColorRenderTarget);
+            if (!destroyResult)
+            {
+                CUE_ASSERT_FORMAT(
+                    false, "Failed to destroy final color render target: %s",
+                    destroyResult.message.data());
             }
         }
 
@@ -110,22 +159,25 @@ namespace Cue
     std::function<void(uint64_t, uint32_t)> Engine::render()
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
+        {
+            if (m_renderBackend != nullptr && m_frameGraph != nullptr)
             {
-                if (m_renderBackend != nullptr && m_frameGraph != nullptr)
-                {
-                    a_frameNo; a_index; // 未使用
-                    // (void)m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
-                }
-            };
+                (void)m_renderBackend->render(a_frameNo, a_index,
+                                              *m_frameGraph);
+            }
+        };
     }
 
     std::function<void(uint64_t, uint32_t)> Engine::present()
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
+        {
+            if (m_renderBackend != nullptr && m_presentFrameGraph != nullptr)
             {
-                a_frameNo; a_index; // 未使用
-                // m_renderBackend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
-            };
+                (void)m_renderBackend->present(a_frameNo, a_index, false,
+                                               *m_presentFrameGraph);
+            }
+        };
     }
 
     Result Engine::create_frame_graphs(
@@ -133,37 +185,51 @@ namespace Cue
     {
         Result result = Result::ok();
 
+        // メインのフレームグラフの構築
         RHI::FrameGraphDesc renderFrameGraphDesc{};
         renderFrameGraphDesc.usePresentQueue = true;
         renderFrameGraphDesc.enableProfiling = true;
         renderFrameGraphDesc.waitForCompletion = true;
-        result =
-            m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
+        result = m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
         if (!result)
         {
             return Result::fail(result.code, Severity::Fatal,
-                "Failed to create render frame graph.");
+                                "Failed to create render frame graph.");
         }
 
+        // メインのフレームグラフにパスを追加
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::FinalColorClearPass>());
+
+        // グラフを構築
+        result = m_frameGraph->build();
+        if (!result)
+        {
+            return result;
+        }
+
+        // present 用のフレームグラフの構築
         RHI::FrameGraphDesc presentFrameGraphDesc{};
         presentFrameGraphDesc.usePresentQueue = true;
         presentFrameGraphDesc.enableProfiling = true;
         presentFrameGraphDesc.waitForCompletion = true;
         result = m_renderBackend->create_frame_graph(presentFrameGraphDesc,
-            m_presentFrameGraph);
+                                                     m_presentFrameGraph);
         if (!result)
         {
             return Result::fail(result.code, Severity::Fatal,
-                "Failed to create present frame graph.");
+                                "Failed to create present frame graph.");
         }
 
         m_presentFrameGraph->add_pass(
             std::make_unique<RHI::PresentToSwapChainPass>());
+
+        // editorパスが提供されている場合は present グラフに追加
         if (a_editorPass)
         {
             m_presentFrameGraph->add_pass(std::move(a_editorPass));
         }
 
+        // グラフを構築
         result = m_presentFrameGraph->build();
         if (!result)
         {

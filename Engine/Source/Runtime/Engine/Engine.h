@@ -22,6 +22,8 @@
 // === Engine includes ===
 #include "FrameController.h"
 
+#include "DrawSystem/DrawFrameState.h"
+
 // === C++ includes ===
 #include <array>
 #include <cstdint>
@@ -34,6 +36,7 @@ struct EngineSetupInfo final
 {
     PAL::IPlatform *platform = nullptr; // プラットフォームインターフェース
     RHI::IRenderBackend *renderBackend = nullptr; // レンダーバックエンド
+    std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
     Core::CQRS::Bridge *platformCommandBridge =
         nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
     uint32_t maxFps = 60;             // 最大フレームレート
@@ -105,7 +108,10 @@ class Engine final
     std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
 
     // --- 全体共有リソース ---
-    RHI::RenderTargetResources m_gameRenderTarget{};
+    RHI::RenderTargetResources m_finalColorRenderTarget{};
+
+    // --- DrawSystem ---
+    DrawSystem::DrawFrameState m_drawFrameState{};
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;
