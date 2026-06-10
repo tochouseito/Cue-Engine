@@ -41,16 +41,159 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // パラメーター
     uint32_t width = 1280;
     uint32_t height = 720;
-    std::string className = "CueEditorWindowClass";
-    std::string title = "Cue Editor";
+    const char* className = "CueEditorWindowClass";
+    const char* title = "Cue Editor";
     uint32_t bufferCount = 3;
     bool enableDebugLayer = true;
     uint32_t maxFps = 60;
+    Core::IO::Path logFilePath("logs/editor.log");
 
-    // 宣言
-    Result r = Result::ok();// 結果コード
-    std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr; // Windows プラットフォーム
-    std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend = nullptr; // D3D12 バックエンド
+    // Windows プラットフォームの初期化
+    std::unique_ptr<Core::CQRS::Bridge> platformBridge = std::make_unique<Core::CQRS::Bridge>();
+    std::unique_ptr<PAL::Win::WinPlatform> platform = std::make_unique<PAL::Win::WinPlatform>();
+    platform->set_command_bridge(platformBridge.get());
+    PAL::PlatformSetupInfo platformSetupInfo{}; // プラットフォームのセットアップ情報
+    platformSetupInfo.width = width;
+    platformSetupInfo.height = height;
+    platformSetupInfo.className = className;
+    platformSetupInfo.title = title;
+    Result r = platform->initialize(platformSetupInfo);
+
+    // Logger にプラットフォームのファイルシステムをセット
+    Core::IO::set_log_file(platform->file_system(),
+        Core::IO::Path("logs/editor.log"), true);
+
+    // 失敗したらログを出力して終了
+    if (!r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to initialize platform: %s", r.message.data());
+        CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s", r.message.data());
+        return -1;
+    }
+
+    // PerformanceCounter を初期化
+    Core::PerformanceCounter profiler(platform->clock());
+
+    // レンダーバックエンドを初期化
+    std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend = std::make_unique<RHI::DX12::D3D12Backend>();
+    RHI::RenderBackendSetupInfo renderBackendSetupInfo{};
+    renderBackendSetupInfo.width = width;
+    renderBackendSetupInfo.height = height;
+    renderBackendSetupInfo.bufferCount = bufferCount;
+    renderBackendSetupInfo.enableDebugLayer = enableDebugLayer;
+    renderBackend->set_win_platform(platform.get()); // プラットフォームをセット
+    r = renderBackend->initialize(renderBackendSetupInfo);
+
+    // 失敗したらログを出力して終了
+    if (!r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to initialize render backend: %s", r.message.data());
+        CUE_ASSERT_FORMAT(false, "Failed to initialize render backend: %s", r.message.data());
+        return -1;
+    }
+
+    // エンジンを初期化
+    std::unique_ptr<Engine> engine = std::make_unique<Engine>();
+    EngineSetupInfo engineSetupInfo{}; // エンジンのセットアップ情報
+    engineSetupInfo.platform = platform.get();
+    engineSetupInfo.platformCommandBridge = platformBridge.get();
+    engineSetupInfo.renderBackend = renderBackend.get();
+    engineSetupInfo.maxFps = maxFps;
+    r = engine->initialize(engineSetupInfo);
+
+    // 失敗したらログを出力して終了
+    if (!r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to initialize engine: %s", r.message.data());
+        CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s", r.message.data());
+        return -1;
+    }
+
+    // ウィンドウを表示
+    platform->start();
+
+    // メインループ
+    bool isRunning = true;
+    while (isRunning)
+    {
+        // プラットフォームメッセージを処理
+        PAL::PlatformMessage message = platform->poll_message();
+        if (message == PAL::PlatformMessage::Quit)
+        {
+            isRunning = false;
+        }
+
+        // フレーム開始
+        r = platform->begin_frame();
+
+        // 失敗したらログを出力して終了
+        if (!r)
+        {
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "Failed to begin frame: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to begin frame: %s", r.message.data());
+            break;
+        }
+
+        // エンジンのフレーム処理
+        r = engine->begin_frame();
+
+        // 失敗したらログを出力して終了
+        if (!r)
+        {
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "Failed to begin engine frame: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s", r.message.data());
+            break;
+        }
+
+        // エンジンのフレーム処理
+        r = engine->tick();
+
+        // 失敗したらログを出力して終了
+        if (!r)
+        {
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "Failed to tick engine: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to tick engine: %s", r.message.data());
+            break;
+        }
+
+        // エンジンのフレーム処理
+        r = engine->end_frame();
+
+        // 失敗したらログを出力して終了
+        if (!r)
+        {
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "Failed to end engine frame: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s", r.message.data());
+            break;
+        }
+
+        // フレーム終了
+        r = platform->end_frame();
+
+        // 失敗したらログを出力して終了
+        if (!r)
+        {
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "Failed to end frame: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
+            break;
+        }
+    }
+
+    // クリーン
+    engine->shutdown();
+    engine.reset();
+    renderBackend->shutdown();
+    renderBackend.reset();
+    platform->shutdown();
+    platform.reset();
 
     return 0;
 }

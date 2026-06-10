@@ -138,6 +138,10 @@ namespace Cue::Core::IO
         : m_utf8(std::move(a_utf8))
     {}
 
+    Path::Path(const char* a_utf8) noexcept
+        : m_utf8(a_utf8)
+    {}
+
     const std::string& Path::utf8() const noexcept
     {
         return m_utf8;

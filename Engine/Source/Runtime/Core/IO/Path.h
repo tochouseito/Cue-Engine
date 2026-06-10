@@ -22,6 +22,10 @@ namespace Cue::Core::IO
         /// @param a_utf8 保持するパス文字列
         explicit Path(std::string a_utf8) noexcept;
 
+        /// @brief char* 形式のパスを構築
+        /// @param a_utf8 保持するパス文字列
+        explicit Path(const char* a_utf8) noexcept;
+
         /// @brief 保持している UTF-8 文字列を返す
         /// @return 内部表現の文字列参照
         [[nodiscard]] const std::string& utf8() const noexcept;

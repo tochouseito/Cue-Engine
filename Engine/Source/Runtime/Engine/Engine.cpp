@@ -113,7 +113,8 @@ namespace Cue
             {
                 if (m_renderBackend != nullptr && m_frameGraph != nullptr)
                 {
-                    (void)m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
+                    a_frameNo; a_index; // 未使用
+                    // (void)m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
                 }
             };
     }
@@ -122,8 +123,8 @@ namespace Cue
     {
         return [this](uint64_t a_frameNo, uint32_t a_index)
             {
-                m_renderBackend->present(a_frameNo, a_index, false,
-                    *m_presentFrameGraph);
+                a_frameNo; a_index; // 未使用
+                // m_renderBackend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
             };
     }
 
