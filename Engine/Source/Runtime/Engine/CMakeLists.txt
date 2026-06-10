@@ -4,7 +4,7 @@
 add_library(Engine STATIC
     "Engine.h"
     "Engine.cpp"
- "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp")
+ "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp" "DrawSystem/passes/PresentToSwapChain.h")
  
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC

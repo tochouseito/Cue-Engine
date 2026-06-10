@@ -31,14 +31,18 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
 using namespace Cue;
 
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
-    HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd,
+                                                             UINT message,
+                                                             WPARAM wParam,
+                                                             LPARAM lParam);
 
 namespace
 {
@@ -88,9 +92,9 @@ namespace
             else
             {
                 input.mouseDeltaX = static_cast<float>(currentMousePosition.x -
-                    previousMousePosition.x);
+                                                       previousMousePosition.x);
                 input.mouseDeltaY = static_cast<float>(currentMousePosition.y -
-                    previousMousePosition.y);
+                                                       previousMousePosition.y);
                 previousMousePosition = currentMousePosition;
             }
         }
@@ -112,7 +116,7 @@ namespace
     {
         double total = 0.0;
         for (const RHI::FrameGraphExecutionStats::PassExecutionStats& pass :
-            stats.passStats)
+             stats.passStats)
         {
             if (!pass.hasGpuExecuteMs)
             {
@@ -130,37 +134,122 @@ namespace
         return total;
     }
 
+    [[nodiscard]] Result make_runtime_path(Core::IO::IFileSystem& fileSystem,
+                                           const Core::IO::Path& relativePath,
+                                           Core::IO::Path& outPath) noexcept
+    {
+        return Core::IO::make_executable_relative_path(fileSystem, relativePath,
+                                                       outPath);
+    }
+
+    Result load_imgui_font(Core::IO::IFileSystem& fileSystem,
+                           const Core::IO::Path& relativePath,
+                           ImFontAtlas& fontAtlas, const float fontSize,
+                           ImFontConfig* config, ImFont*& outFont)
+    {
+        outFont = nullptr;
+
+        Core::IO::Path fontPath{};
+        Result result = make_runtime_path(fileSystem, relativePath, fontPath);
+        if (!result)
+        {
+            return result;
+        }
+
+        std::vector<std::byte> fontBytes{};
+        result = fileSystem.read_all(fontPath, &fontBytes);
+        if (!result)
+        {
+            return result;
+        }
+        if (fontBytes.size() >
+            static_cast<size_t>(std::numeric_limits<int>::max()))
+        {
+            return Result::fail(Code::OutOfMemory, Severity::Error,
+                                "Font file is too large to load into ImGui.");
+        }
+
+        void* fontData = IM_ALLOC(fontBytes.size());
+        if (fontData == nullptr)
+        {
+            return Result::fail(Code::OutOfMemory, Severity::Error,
+                                "Failed to allocate ImGui font memory.");
+        }
+
+        std::memcpy(fontData, fontBytes.data(), fontBytes.size());
+
+        ImFontConfig fontConfig{};
+        if (config != nullptr)
+        {
+            fontConfig = *config;
+        }
+        fontConfig.FontDataOwnedByAtlas = true;
+
+        outFont = fontAtlas.AddFontFromMemoryTTF(
+            fontData, static_cast<int>(fontBytes.size()), fontSize,
+            &fontConfig);
+        if (outFont == nullptr)
+        {
+            IM_FREE(fontData);
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                                "Failed to load ImGui font from memory.");
+        }
+
+        return Result::ok();
+    }
+
     class ImGuiOverlayPass final : public RHI::FrameGraphPass
     {
-    public:
+      public:
         ImGuiOverlayPass(HWND hwnd, RHI::DX12::D3D12Backend& backend,
-            Engine& engine)
+                         Engine& engine, Core::IO::IFileSystem& fileSystem)
             : m_backend(backend), m_engine(engine)
         {
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
             ImGuiIO& io = ImGui::GetIO();
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-            io.IniFilename = "config/renderer/imgui.ini";
+            Core::IO::Path iniPath{};
+            const Result iniPathResult = make_runtime_path(
+                fileSystem, Core::IO::Path("config/renderer/imgui.ini"),
+                iniPath);
+            m_imguiIniPath = iniPathResult
+                                 ? iniPath.utf8()
+                                 : std::string("config/renderer/imgui.ini");
+            io.IniFilename = m_imguiIniPath.c_str();
 
             ImFontConfig fontConfig{};
             fontConfig.OversampleH = 3;
             fontConfig.OversampleV = 2;
             fontConfig.RasterizerMultiply = 1.45f;
-            if (io.Fonts->AddFontFromFileTTF(
-                "EngineResources/Fonts/NotoSansJP-VariableFont_wght.ttf",
-                18.0f, &fontConfig) == nullptr)
+            ImFont* font = nullptr;
+            Result fontResult = load_imgui_font(
+                fileSystem,
+                Core::IO::Path(
+                    "EngineResources/Fonts/NotoSansJP-VariableFont_wght.ttf"),
+                *io.Fonts, 18.0f, &fontConfig, font);
+            if (!fontResult)
             {
-                io.Fonts->AddFontFromFileTTF(
-                    "EngineResources/Fonts/Inter-VariableFont_opsz,wght.ttf",
-                    18.0f, &fontConfig);
+                fontResult = load_imgui_font(
+                    fileSystem,
+                    Core::IO::Path("EngineResources/Fonts/"
+                                   "Inter-VariableFont_opsz,wght.ttf"),
+                    *io.Fonts, 18.0f, &fontConfig, font);
+                if (!fontResult)
+                {
+                    Core::IO::log(Core::IO::LogSink::console |
+                                      Core::IO::LogSink::file,
+                                  "Failed to load ImGui font: %s",
+                                  fontResult.message.data());
+                }
             }
             ImGui::StyleColorsDark();
             ImGuiStyle& style = ImGui::GetStyle();
             style.Colors[ImGuiCol_Text] = ImVec4(0.98f, 0.98f, 0.98f, 1.0f);
             style.Colors[ImGuiCol_TextDisabled] =
                 ImVec4(0.72f, 0.72f, 0.72f, 1.0f);
-            style.Colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.06f, 0.94f);
+            style.Colors[ImGuiCol_WindowBg] =
+                ImVec4(0.05f, 0.05f, 0.06f, 0.94f);
 
             ImGui_ImplWin32_Init(hwnd);
 
@@ -234,17 +323,19 @@ namespace
 
             RHI::ICommandContext* commandContext = context.commandContext();
             commandContext->set_render_targets(&m_backBufferRtv, 1, {});
-            commandContext->set_viewport_scissor(context.width(), context.height());
+            commandContext->set_viewport_scissor(context.width(),
+                                                 context.height());
 
             auto* commandList = static_cast<ID3D12GraphicsCommandList*>(
                 commandContext->native_command_list());
             ID3D12DescriptorHeap* descriptorHeaps[] = {
-                m_backend.imgui_srv_descriptor_heap() };
+                m_backend.imgui_srv_descriptor_heap()
+            };
             commandList->SetDescriptorHeaps(1, descriptorHeaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
         }
 
-    private:
+      private:
         static void allocate_srv_descriptor(
             ImGui_ImplDX12_InitInfo* info,
             D3D12_CPU_DESCRIPTOR_HANDLE* outCpuHandle,
@@ -252,13 +343,13 @@ namespace
         {
             auto* backend =
                 static_cast<RHI::DX12::D3D12Backend*>(info->UserData);
-            backend->allocate_imgui_srv_descriptor(*outCpuHandle, *outGpuHandle);
+            backend->allocate_imgui_srv_descriptor(*outCpuHandle,
+                                                   *outGpuHandle);
         }
 
-        static void free_srv_descriptor(
-            ImGui_ImplDX12_InitInfo* info,
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
+        static void free_srv_descriptor(ImGui_ImplDX12_InitInfo* info,
+                                        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
+                                        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
         {
             auto* backend =
                 static_cast<RHI::DX12::D3D12Backend*>(info->UserData);
@@ -273,52 +364,54 @@ namespace
 
             bool directionalLightEnabled = debugStats.directionalLightEnabled;
 
-            ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f),
+                                    ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(520.0f, 760.0f),
-                ImGuiCond_FirstUseEver);
+                                     ImGuiCond_FirstUseEver);
             ImGui::Begin("CueEngineRef GPU Driven Demo");
 
             ImGui::Text("Frame");
             const float fps = ImGui::GetIO().Framerate;
             ImGui::Text("FPS / Frame Time: %.1f / %.3f ms", fps,
-                fps > 0.0f ? 1000.0f / fps : 0.0f);
+                        fps > 0.0f ? 1000.0f / fps : 0.0f);
             ImGui::Text("GPU Frame Time: %s%.3f ms",
-                frameStats.hasGpuFrameMs ? "" : "~",
-                frameStats.hasGpuFrameMs ? frameStats.gpuFrameMs
-                : frameStats.totalExecuteMs);
+                        frameStats.hasGpuFrameMs ? "" : "~",
+                        frameStats.hasGpuFrameMs ? frameStats.gpuFrameMs
+                                                 : frameStats.totalExecuteMs);
             ImGui::TextDisabled(
-                "Object/draw counters are CPU-side estimates until GPU readback is added.");
+                "Object/draw counters are CPU-side estimates until GPU "
+                "readback is added.");
 
             if (ImGui::CollapsingHeader("Pass GPU Time",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("BuildClusterGrid: %.3f ms",
-                    pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
+                            pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
                 ImGui::Text("PreparePointLights: %.3f ms",
-                    pass_gpu_ms(frameStats, { "PreparePointLights" }));
+                            pass_gpu_ms(frameStats, { "PreparePointLights" }));
                 ImGui::Text("ClusterLightCulling: %.3f ms",
-                    pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
+                            pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
                 ImGui::Text("ObjectCullAndLod: %.3f ms",
-                    pass_gpu_ms(frameStats, { "ObjectCullAndLod" }));
-                ImGui::Text("OccluderDepthOnlyIndirect: %.3f ms",
-                    pass_gpu_ms(frameStats,
-                        { "OccluderDepthOnlyIndirect" }));
+                            pass_gpu_ms(frameStats, { "ObjectCullAndLod" }));
+                ImGui::Text(
+                    "OccluderDepthOnlyIndirect: %.3f ms",
+                    pass_gpu_ms(frameStats, { "OccluderDepthOnlyIndirect" }));
                 ImGui::Text("BuildHiZ: %.3f ms",
-                    pass_gpu_ms(frameStats, { "BuildHiZDepth" }));
+                            pass_gpu_ms(frameStats, { "BuildHiZDepth" }));
                 ImGui::Text("CellCulling: %.3f ms",
-                    pass_gpu_ms(frameStats, { "CellCulling" }));
+                            pass_gpu_ms(frameStats, { "CellCulling" }));
                 ImGui::Text("ObjectCulling: %.3f ms",
-                    pass_gpu_ms(frameStats, { "ObjectCulling" }));
+                            pass_gpu_ms(frameStats, { "ObjectCulling" }));
                 ImGui::Text("Batching: %.3f ms",
-                    pass_gpu_ms(frameStats,
-                        { "BatchCount", "PrefixSum", "BatchFill",
-                         "IndirectCommandEmit" }));
+                            pass_gpu_ms(frameStats, { "BatchCount", "PrefixSum",
+                                                      "BatchFill",
+                                                      "IndirectCommandEmit" }));
                 ImGui::Text("StaticMeshForward: %.3f ms",
-                    pass_gpu_ms(frameStats, { "StaticMeshForward" }));
+                            pass_gpu_ms(frameStats, { "StaticMeshForward" }));
             }
 
             if (ImGui::CollapsingHeader("Clustered Lighting",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 // ClusterLightCulling が GPU 上で集計した値。
                 // pass time と並べて見ることで、cluster grid や compact list の
@@ -327,62 +420,61 @@ namespace
                     debugStats.clusterLightingStats;
                 const float avgLightsPerCluster =
                     clusterStats.clusterCount > 0u
-                    ? static_cast<float>(clusterStats.totalClusterItems) /
-                    static_cast<float>(clusterStats.clusterCount)
-                    : 0.0f;
+                        ? static_cast<float>(clusterStats.totalClusterItems) /
+                              static_cast<float>(clusterStats.clusterCount)
+                        : 0.0f;
 
                 ImGui::Text("BuildClusterGrid: %.3f ms",
-                    pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
+                            pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
                 ImGui::Text("PreparePointLights: %.3f ms",
-                    pass_gpu_ms(frameStats, { "PreparePointLights" }));
+                            pass_gpu_ms(frameStats, { "PreparePointLights" }));
                 ImGui::Text("ClusterLightCulling: %.3f ms",
-                    pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
+                            pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
                 ImGui::Text("StaticMeshForward: %.3f ms",
-                    pass_gpu_ms(frameStats, { "StaticMeshForward" }));
+                            pass_gpu_ms(frameStats, { "StaticMeshForward" }));
                 ImGui::Separator();
                 ImGui::Text("clusterCount: %u", clusterStats.clusterCount);
                 ImGui::Text("activeClusterCount: %u",
-                    clusterStats.activeClusterCount);
+                            clusterStats.activeClusterCount);
                 ImGui::Text("pointLightCount: %u",
-                    clusterStats.pointLightCount);
+                            clusterStats.pointLightCount);
                 ImGui::Text("totalClusterItems: %u",
-                    clusterStats.totalClusterItems);
-                ImGui::Text("avg lights / cluster: %.2f",
-                    avgLightsPerCluster);
+                            clusterStats.totalClusterItems);
+                ImGui::Text("avg lights / cluster: %.2f", avgLightsPerCluster);
                 ImGui::Text("max lights / cluster: %u",
-                    clusterStats.maxLightsInCluster);
+                            clusterStats.maxLightsInCluster);
                 ImGui::Text("overflow clusters: %u",
-                    clusterStats.overflowClusterCount);
+                            clusterStats.overflowClusterCount);
                 ImGui::Text("empty clusters: %u",
-                    clusterStats.emptyClusterCount);
+                            clusterStats.emptyClusterCount);
                 ImGui::Text("reused light lists: %u",
-                    clusterStats.reusedListCount);
-                ImGui::TextDisabled("Cluster stats are GPU readback values with a small frame delay.");
+                            clusterStats.reusedListCount);
+                ImGui::TextDisabled("Cluster stats are GPU readback values "
+                                    "with a small frame delay.");
             }
 
             if (ImGui::CollapsingHeader("Objects",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("total objects: %u", debugStats.totalObjects);
                 ImGui::Text("visible objects: %u", debugStats.visibleObjects);
                 ImGui::Text("occluded objects: %u", debugStats.occludedObjects);
                 ImGui::Text("culled by frustum: %u",
-                    debugStats.frustumCulledObjects);
+                            debugStats.frustumCulledObjects);
             }
 
-            if (ImGui::CollapsingHeader("Draw",
-                ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("Draw", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("indirect draw count: %u",
-                    debugStats.indirectDrawCount);
+                            debugStats.indirectDrawCount);
                 ImGui::Text("instance count: %u", debugStats.instanceCount);
                 ImGui::Text("triangle estimate: %llu",
-                    static_cast<unsigned long long>(
-                        debugStats.submittedTriangleEstimate));
+                            static_cast<unsigned long long>(
+                                debugStats.submittedTriangleEstimate));
             }
 
             if (ImGui::CollapsingHeader("LOD Distribution",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("LOD0: %u", debugStats.lodObjectCounts[0]);
                 ImGui::Text("LOD1: %u", debugStats.lodObjectCounts[1]);
@@ -393,20 +485,20 @@ namespace
             }
 
             if (ImGui::CollapsingHeader("Occluder",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("occluder object count: %u",
-                    debugStats.occluderObjectCount);
+                            debugStats.occluderObjectCount);
                 ImGui::Text("occluder triangle count: %llu",
-                    static_cast<unsigned long long>(
-                        debugStats.occluderTriangleEstimate));
+                            static_cast<unsigned long long>(
+                                debugStats.occluderTriangleEstimate));
                 ImGui::Text("occluder proxy: %s",
-                    debugStats.occluderProxyEnabled ? "ON" : "OFF");
+                            debugStats.occluderProxyEnabled ? "ON" : "OFF");
                 ImGui::Text("Hi-Z: %s", debugStats.hiZEnabled ? "ON" : "OFF");
             }
 
             if (ImGui::CollapsingHeader("Toggles",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Checkbox("Frustum Culling", &m_frustumCullingEnabled);
                 ImGui::Checkbox("Hi-Z Occlusion", &m_hiZEnabled);
@@ -414,7 +506,7 @@ namespace
                 ImGui::Checkbox("LOD Selection", &m_lodEnabled);
                 ImGui::Checkbox("Impostor", &m_impostorEnabled);
                 if (ImGui::Checkbox("Directional Light",
-                    &directionalLightEnabled))
+                                    &directionalLightEnabled))
                 {
                     m_engine.set_directional_light_enabled(
                         directionalLightEnabled);
@@ -425,33 +517,33 @@ namespace
             }
 
             if (ImGui::CollapsingHeader("Camera / Debug",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("camera position: %.2f, %.2f, %.2f",
-                    debugStats.cameraPosition.x,
-                    debugStats.cameraPosition.y,
-                    debugStats.cameraPosition.z);
+                            debugStats.cameraPosition.x,
+                            debugStats.cameraPosition.y,
+                            debugStats.cameraPosition.z);
                 ImGui::Text("visible cells / total cells: %u / %u",
-                    debugStats.visibleCells, debugStats.totalCells);
+                            debugStats.visibleCells, debugStats.totalCells);
                 ImGui::Text("selected depth bin: %u",
-                    debugStats.selectedDepthBin);
+                            debugStats.selectedDepthBin);
             }
 
             if (ImGui::CollapsingHeader("Render Cost",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::Text("submitted triangles: %llu",
-                    static_cast<unsigned long long>(
-                        debugStats.submittedTriangleEstimate));
+                            static_cast<unsigned long long>(
+                                debugStats.submittedTriangleEstimate));
                 ImGui::Text("saved triangles estimate: %llu",
-                    static_cast<unsigned long long>(
-                        debugStats.savedTriangleEstimate));
+                            static_cast<unsigned long long>(
+                                debugStats.savedTriangleEstimate));
                 ImGui::Text("saved objects estimate: %u",
-                    debugStats.savedObjectEstimate);
+                            debugStats.savedObjectEstimate);
             }
 
             if (ImGui::CollapsingHeader("Controls",
-                ImGuiTreeNodeFlags_DefaultOpen))
+                                        ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::BulletText("W/A/S/D: move camera");
                 ImGui::BulletText("Space / Ctrl: move up / down");
@@ -467,6 +559,7 @@ namespace
         Engine& m_engine;
         RHI::TextureHandle m_backBuffer{};
         RHI::ViewHandle m_backBufferRtv{};
+        std::string m_imguiIniPath{};
         bool m_initialized = false;
         bool m_frustumCullingEnabled = true;
         bool m_hiZEnabled = true;
@@ -514,15 +607,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize platform: %s", r.message.data());
+                      "Failed to initialize platform: %s", r.message.data());
         return -1;
     }
 
     // Logger にプラットフォームのファイルシステムをセット
     Core::IO::set_log_file(platform->file_system(),
-        Core::IO::Path("logs/renderer.log"), true);
+                           Core::IO::Path("logs/renderer.log"), true);
 
     // PerformanceCounter を初期化
     Core::PerformanceCounter profiler(platform->clock());
@@ -548,21 +641,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize render backend: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize render backend: %s",
-            r.message.data());
+                      "Failed to initialize render backend: %s",
+                      r.message.data());
         return -1;
     }
 
     // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     std::unique_ptr<RHI::FrameGraphPass> imguiOverlayPass =
-        std::make_unique<ImGuiOverlayPass>(
-            platform->get_window_handle(), *renderBackend, *engine);
+        std::make_unique<ImGuiOverlayPass>(platform->get_window_handle(),
+                                           *renderBackend, *engine,
+                                           platform->file_system());
     platform->set_message_handler(
         [](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-            LRESULT& outResult) -> bool
+           LRESULT& outResult) -> bool
         {
             outResult =
                 ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
@@ -584,9 +678,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize engine: %s", r.message.data());
+                      "Failed to initialize engine: %s", r.message.data());
         return -1;
     }
 
@@ -596,9 +690,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to set debug camera: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to set debug camera: %s", r.message.data());
+                      "Failed to set debug camera: %s", r.message.data());
         return -1;
     }
 
@@ -612,20 +706,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     constexpr std::array<Editor::ModelImporter::LodGroupSettings, 4>
         k_lodGroups = {
             Editor::ModelImporter::LodGroupSettings{
-                "AsianDragon", {0.50f, 0.15f, 0.01f}, true},
+                "AsianDragon", { 0.50f, 0.15f, 0.01f }, true },
             Editor::ModelImporter::LodGroupSettings{
-                "StanfordDragon", {0.25f, 0.05f, 0.005f}, true},
+                "StanfordDragon", { 0.25f, 0.05f, 0.005f }, true },
             Editor::ModelImporter::LodGroupSettings{
-                "Bunny", {0.50f, 0.15f, 0.01f}, true},
+                "Bunny", { 0.50f, 0.15f, 0.01f }, true },
             Editor::ModelImporter::LodGroupSettings{
-                "Buddha", {0.20f, 0.03f, 0.003f}, true},
-    };
+                "Buddha", { 0.20f, 0.03f, 0.003f }, true },
+        };
 
     constexpr std::array<TestModelDesc, 4> k_testModels = {
-        TestModelDesc{"asiandragon.obj", "asiandragon", 0u},
-        TestModelDesc{"stanforddragon.obj", "stanforddragon", 1u},
-        TestModelDesc{"bunny.obj", "bunny", 2u},
-        TestModelDesc{"buddha.obj", "buddha", 3u},
+        TestModelDesc{ "asiandragon.obj", "asiandragon", 0u },
+        TestModelDesc{ "stanforddragon.obj", "stanforddragon", 1u },
+        TestModelDesc{ "bunny.obj", "bunny", 2u },
+        TestModelDesc{ "buddha.obj", "buddha", 3u },
     };
 
     std::vector<Core::Native::ModelData> modelDataList{};
@@ -633,39 +727,39 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     for (const TestModelDesc& modelDesc : k_testModels)
     {
         Core::Native::ModelData modelData{};
-        const Core::IO::Path modelPath(std::string(CUE_PROJECT_ROOT_PATH) +
-            "/TestProject/Assets/Models/" +
-            modelDesc.fileName);
+        const Core::IO::Path modelPath =
+            Core::IO::Path::join(Core::IO::Path("TestProject/Assets/Models"),
+                                 Core::IO::Path(modelDesc.fileName));
         if (modelDesc.lodGroupIndex >= k_lodGroups.size())
         {
             CUE_ASSERT_FORMAT(false, "Invalid LOD group index for model '%s'.",
-                modelDesc.modelName);
+                              modelDesc.modelName);
             return -1;
         }
 
         r = Editor::ModelImporter::import_model(
-            modelPath, modelDesc.modelName,
+            platform->file_system(), modelPath, modelDesc.modelName,
             k_lodGroups[modelDesc.lodGroupIndex], modelData);
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to import model '%s': %s",
-                modelDesc.modelName, r.message.data());
+                              modelDesc.modelName, r.message.data());
             Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to import model '{}': {}",
-                modelDesc.modelName, r.message);
+                          "Failed to import model '{}': {}",
+                          modelDesc.modelName, r.message);
             return -1;
         }
         modelDataList.push_back(std::move(modelData));
     }
 
     r = engine->register_models(modelDataList, modelGridCount,
-        modelTargetRadius);
+                                modelTargetRadius);
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to register test models: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to register test models: %s", r.message.data());
+                      "Failed to register test models: %s", r.message.data());
         return -1;
     }
 
@@ -674,9 +768,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to start platform: %s",
-            r.message.data());
+                          r.message.data());
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to start platform: %s", r.message.data());
+                      "Failed to start platform: %s", r.message.data());
         return -1;
     }
 
@@ -694,7 +788,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     else
     {
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to get process memory usage: {}", r.message);
+                      "Failed to get process memory usage: {}", r.message);
     }
     if (r = platform->get_system_memory_usage(systemMemoryUsage); r)
     {
@@ -709,26 +803,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     else
     {
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to get system memory usage: {}", r.message);
+                      "Failed to get system memory usage: {}", r.message);
     }
     // GPU
     RHI::GpuMemoryUsage gpuMemoryUsage{};
     if (r = renderBackend->get_gpu_memory_usage(gpuMemoryUsage); r)
     {
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "GPU Memory Usage - Budget: {} MB, Current Usage: {} MB, "
-            "Available for "
-            "Reservation: {} MB, Current Reservation: {} MB",
-            gpuMemoryUsage.budgetBytes / (1024 * 1024),
-            gpuMemoryUsage.currentUsageBytes / (1024 * 1024),
-            gpuMemoryUsage.availableForReservationBytes /
-            (1024 * 1024),
-            gpuMemoryUsage.currentReservationBytes / (1024 * 1024));
+                      "GPU Memory Usage - Budget: {} MB, Current Usage: {} MB, "
+                      "Available for "
+                      "Reservation: {} MB, Current Reservation: {} MB",
+                      gpuMemoryUsage.budgetBytes / (1024 * 1024),
+                      gpuMemoryUsage.currentUsageBytes / (1024 * 1024),
+                      gpuMemoryUsage.availableForReservationBytes /
+                          (1024 * 1024),
+                      gpuMemoryUsage.currentReservationBytes / (1024 * 1024));
     }
     else
     {
         Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to get GPU memory usage: {}", r.message);
+                      "Failed to get GPU memory usage: {}", r.message);
     }
 
     // メインループ
@@ -739,7 +833,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         const auto currentInputTime = std::chrono::steady_clock::now();
         const float deltaSeconds = std::clamp(
             std::chrono::duration<float>(currentInputTime - previousInputTime)
-            .count(),
+                .count(),
             0.0f, 0.1f);
         previousInputTime = currentInputTime;
 
@@ -757,7 +851,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to begin frame: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
 
@@ -767,7 +861,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
 
@@ -778,7 +872,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to update debug camera: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
 
@@ -789,7 +883,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to tick engine: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
 
@@ -814,7 +908,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
 
@@ -825,13 +919,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to end frame: %s",
-                r.message.data());
+                              r.message.data());
             return -1;
         }
     }
 
     Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-        "Renderer shutdown");
+                  "Renderer shutdown");
     Core::IO::clear_log_file();
 
     // 終了処理

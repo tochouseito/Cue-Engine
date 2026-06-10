@@ -38,7 +38,19 @@ using namespace Cue;
 // windows アプリのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-   
+    // パラメーター
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    std::string className = "CueEditorWindowClass";
+    std::string title = "Cue Editor";
+    uint32_t bufferCount = 3;
+    bool enableDebugLayer = true;
+    uint32_t maxFps = 60;
+
+    // 宣言
+    Result r = Result::ok();// 結果コード
+    std::unique_ptr<PAL::Win::WinPlatform> platform = nullptr; // Windows プラットフォーム
+    std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend = nullptr; // D3D12 バックエンド
 
     return 0;
 }

@@ -39,11 +39,6 @@ target_include_directories(RendererTest PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-# 定数定義
-target_compile_definitions(RendererTest PRIVATE
-    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
-)
-
 # コンパイルオプション
 target_compile_options(RendererTest PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
@@ -84,5 +79,8 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/config"
             "$<TARGET_FILE_DIR:RendererTest>/config"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/TestProject/Assets"
+            "$<TARGET_FILE_DIR:RendererTest>/TestProject/Assets"
     VERBATIM
 )

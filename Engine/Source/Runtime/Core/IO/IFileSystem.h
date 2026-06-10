@@ -5,8 +5,8 @@
 /// *********************************************************************************
 
 // === C++ includes ===
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <vector>
@@ -30,7 +30,7 @@ namespace Cue::Core::IO
     {
         FileType type = FileType::unknown;
         uint64_t size_bytes = 0;
-        int64_t  mtime_ns = 0; // 最終更新 (ns)
+        int64_t mtime_ns = 0; // 最終更新 (ns)
     };
 
     enum class SeekOrigin : uint8_t
@@ -49,43 +49,47 @@ namespace Cue::Core::IO
 
     enum class OpenCreate : uint8_t
     {
-        open_existing = 0,  // 無ければ失敗
-        open_always,        // 無ければ作成
-        create_new,         // 既にあれば失敗
-        create_always,      // 常に作成（既存は上書き）
-        truncate_existing,  // 既存を切り詰め（無ければ失敗）
+        open_existing = 0, // 無ければ失敗
+        open_always,       // 無ければ作成
+        create_new,        // 既にあれば失敗
+        create_always,     // 常に作成（既存は上書き）
+        truncate_existing, // 既存を切り詰め（無ければ失敗）
     };
 
     enum class OpenFlags : uint32_t
     {
         none = 0,
-        append = 1u << 0, // 末尾追記（write時）
+        append = 1u << 0,     // 末尾追記（write時）
         sequential = 1u << 1, // os ヒント
-        random = 1u << 2, // os ヒント
-        no_buffer = 1u << 3, // 直 i/o 系
+        random = 1u << 2,     // os ヒント
+        no_buffer = 1u << 3,  // 直 i/o 系
     };
 
-    [[nodiscard]] constexpr OpenFlags operator|(OpenFlags a_left, OpenFlags a_right) noexcept
+    [[nodiscard]] constexpr OpenFlags operator|(OpenFlags a_left,
+                                                OpenFlags a_right) noexcept
     {
-        return static_cast<OpenFlags>(static_cast<uint32_t>(a_left) | static_cast<uint32_t>(a_right));
+        return static_cast<OpenFlags>(static_cast<uint32_t>(a_left) |
+                                      static_cast<uint32_t>(a_right));
     }
 
-    [[nodiscard]] constexpr bool has_flag(OpenFlags a_value, OpenFlags a_flag) noexcept
+    [[nodiscard]] constexpr bool has_flag(OpenFlags a_value,
+                                          OpenFlags a_flag) noexcept
     {
-        return (static_cast<uint32_t>(a_value) & static_cast<uint32_t>(a_flag)) != 0u;
+        return (static_cast<uint32_t>(a_value) &
+                static_cast<uint32_t>(a_flag)) != 0u;
     }
 
     struct FileOpenDesc
     {
         OpenAccess access = OpenAccess::read;
         OpenCreate create = OpenCreate::open_existing;
-        OpenFlags  flags = OpenFlags::none;
+        OpenFlags flags = OpenFlags::none;
     };
 
     /// @brief 単一ファイルの入出力インターフェース
     class IFile
     {
-    public:
+      public:
         IFile() = default;
         virtual ~IFile() = default;
 
@@ -95,9 +99,11 @@ namespace Cue::Core::IO
         IFile& operator=(IFile&&) = delete;
 
         /// @brief ファイルからバイト列を読み込み
-        virtual Result read(std::span<std::byte> a_destination, uint64_t* a_outRead) noexcept = 0;
+        virtual Result read(std::span<std::byte> a_destination,
+                            uint64_t* a_outRead) noexcept = 0;
         /// @brief ファイルへバイト列を書き込み
-        virtual Result write(std::span<const std::byte> a_source, uint64_t* a_outWritten) noexcept = 0;
+        virtual Result write(std::span<const std::byte> a_source,
+                             uint64_t* a_outWritten) noexcept = 0;
 
         /// @brief ファイル位置を移動
         virtual Result seek(int64_t a_offset, SeekOrigin a_origin) noexcept = 0;
@@ -115,7 +121,7 @@ namespace Cue::Core::IO
     /// @brief ファイルシステム操作を抽象化するインターフェース
     class IFileSystem
     {
-    public:
+      public:
         IFileSystem() = default;
         virtual ~IFileSystem() = default;
         // コピー禁止
@@ -129,35 +135,69 @@ namespace Cue::Core::IO
         /// @brief 実行ファイルが配置されているディレクトリを取得
         virtual Result executable_directory(Path& a_outDirectory) noexcept = 0;
         /// @brief パスの存在有無を取得
-        virtual Result exists(const Path& a_path, bool* a_outExists) noexcept = 0;
+        virtual Result exists(const Path& a_path,
+                              bool* a_outExists) noexcept = 0;
         /// @brief ファイル情報を取得
-        virtual Result stat(const Path& a_path, FileStat* a_outStat) noexcept = 0;
+        virtual Result stat(const Path& a_path,
+                            FileStat* a_outStat) noexcept = 0;
 
         // --- ディレクトリ操作 ---
         /// @brief ディレクトリを再帰的に作成
         virtual Result create_directories(const Path& a_path) noexcept = 0;
         /// @brief ディレクトリ内容を列挙
-        virtual Result list_directory(const Path& a_path, std::vector<Path>* a_outEntries) noexcept = 0;
+        virtual Result list_directory(
+            const Path& a_path, std::vector<Path>* a_outEntries) noexcept = 0;
 
         // --- 変更操作 ---
         /// @brief ファイルまたはディレクトリを削除
-        virtual Result remove(const Path& a_path, bool* a_outRemoved) noexcept = 0;
+        virtual Result remove(const Path& a_path,
+                              bool* a_outRemoved) noexcept = 0;
         /// @brief パスをリネーム
-        virtual Result rename(const Path& a_from, const Path& a_to) noexcept = 0;
+        virtual Result rename(const Path& a_from,
+                              const Path& a_to) noexcept = 0;
         /// @brief ファイルをコピー
-        virtual Result copy_file(
-            const Path& a_from,
-            const Path& a_to,
-            bool a_overwrite) noexcept = 0;
+        virtual Result copy_file(const Path& a_from, const Path& a_to,
+                                 bool a_overwrite) noexcept = 0;
 
         // --- ファイルI/O ---
         /// @brief ファイルを開く
-        virtual Result open(const Path& a_path, const FileOpenDesc& a_desc, std::unique_ptr<IFile>* a_outFile) noexcept = 0;
+        virtual Result open(const Path& a_path, const FileOpenDesc& a_desc,
+                            std::unique_ptr<IFile>* a_outFile) noexcept = 0;
 
         // --- 便利関数 ---
         /// @brief ファイル全体を読み込み
-        virtual Result read_all(const Path& a_path, std::vector<std::byte>* a_outData) noexcept = 0;
+        virtual Result read_all(const Path& a_path,
+                                std::vector<std::byte>* a_outData) noexcept = 0;
         /// @brief ファイル全体を書き込み
-        virtual Result write_all(const Path& a_path, std::span<const std::byte> a_data, bool a_createParentDirs) noexcept = 0;
+        virtual Result write_all(const Path& a_path,
+                                 std::span<const std::byte> a_data,
+                                 bool a_createParentDirs) noexcept = 0;
     };
+
+
+    /// @brief 実行ファイル相対パスを生成
+    /// @param a_fileSystem 
+    /// @param a_path 
+    /// @param a_outPath 
+    /// @return 
+    [[nodiscard]] inline Result make_executable_relative_path(
+        IFileSystem& a_fileSystem, const Path& a_path, Path& a_outPath) noexcept
+    {
+        a_outPath = {};
+        if (a_path.is_absolute())
+        {
+            a_outPath = a_path.normalize();
+            return Result::ok();
+        }
+
+        Path executableDirectory{};
+        Result result = a_fileSystem.executable_directory(executableDirectory);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outPath = Path::join(executableDirectory, a_path);
+        return Result::ok();
+    }
 } // namespace Cue::Core::IO

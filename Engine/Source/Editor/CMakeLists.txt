@@ -11,7 +11,7 @@ find_package(winpixevent CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc")
+    "App/EditorResources.rc" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -41,7 +41,6 @@ target_include_directories(Editor PRIVATE
 
 # 定数定義
 target_compile_definitions(Editor PRIVATE
-    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
 )
 
 # コンパイルオプション

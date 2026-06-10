@@ -86,7 +86,6 @@ target_compile_definitions(cue_compile_options INTERFACE
     $<$<CONFIG:Release>:CUE_RELEASE=1>
     $<$<CONFIG:RelWithDebInfo>:CUE_RELWITHDEBINFO=1>
     $<$<CONFIG:Debug>:CUE_DEBUG=1>
-    CUE_PROJECT_ROOT_PATH="${CMAKE_SOURCE_DIR}"
 )
 
 # 追加のインクルードディレクトリ

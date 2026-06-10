@@ -8,22 +8,22 @@
 #include <CueResult.h>
 
 // === RHI includes ===
+#include <FrameGraph.h>
 #include <RHI.h>
 #include <RHICommon.h>
-#include <FrameGraph.h>
 
 // === D3D12 includes ===
-#include "ResourceLeakChecker.h"
-#include "HLSLCompiler.h"
-#include "DX12RenderDevice.h"
-#include "DescriptorAllocator.h"
-#include "DX12GpuCommand.h"
-#include "SwapChain.h"
 #include "DX12BufferManager.h"
+#include "DX12GpuCommand.h"
+#include "DX12GpuProfiler.h"
+#include "DX12PipelineManager.h"
+#include "DX12RenderDevice.h"
 #include "DX12TextureManager.h"
 #include "DX12ViewManager.h"
-#include "DX12PipelineManager.h"
-#include "DX12GpuProfiler.h"
+#include "DescriptorAllocator.h"
+#include "HLSLCompiler.h"
+#include "ResourceLeakChecker.h"
+#include "SwapChain.h"
 
 namespace Cue::RHI::DX12
 {
@@ -32,7 +32,7 @@ namespace Cue::RHI::DX12
     ///          デバイス、シェーダーコンパイラ、デスクリプタ管理をまとめて初期化する。
     class D3D12Backend final : public IRenderBackend
     {
-    public:
+      public:
         D3D12Backend();
         ~D3D12Backend() override = default;
         Result initialize(const RenderBackendSetupInfo& a_info) override;
@@ -41,25 +41,59 @@ namespace Cue::RHI::DX12
         Result wait_for_idle() override;
 
         /// @brief 指定フレームの描画処理を実行する
-        Result render(uint64_t a_frameNo, uint32_t a_index, FrameGraph& a_frameGraph) override;
+        Result render(uint64_t a_frameNo, uint32_t a_index,
+                      FrameGraph& a_frameGraph) override;
 
         /// @brief 指定フレームの提示処理を実行する
-        Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync, FrameGraph& a_frameGraph) override;
-        Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
+        Result present(uint64_t a_frameNo, uint32_t a_index, bool vsync,
+                       FrameGraph& a_frameGraph) override;
+        Result create_frame_graph(
+            const FrameGraphDesc& a_desc,
+            std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
 
         // --- バックエンドのシステムへのアクセス ---
-        IBufferManager* get_buffer_manager() override { return m_bufferManager.get(); }
-        ITextureManager* get_texture_manager() override { return m_textureManager.get(); }
-        IViewManager* get_view_manager() override { return m_viewManager.get(); }
-        ICommandPool* get_command_pool() override { return m_commandPool.get(); }
-        IQueuePool* get_queue_pool() override { return m_queuePool.get(); }
+        IBufferManager* get_buffer_manager() override
+        {
+            return m_bufferManager.get();
+        }
+        ITextureManager* get_texture_manager() override
+        {
+            return m_textureManager.get();
+        }
+        IViewManager* get_view_manager() override
+        {
+            return m_viewManager.get();
+        }
+        ICommandPool* get_command_pool() override
+        {
+            return m_commandPool.get();
+        }
+        IQueuePool* get_queue_pool() override
+        {
+            return m_queuePool.get();
+        }
 
-        uint32_t width() const noexcept override { return m_width; }
-        uint32_t height() const noexcept override { return m_height; }
-        const uint32_t& buffer_count() const noexcept override { return m_bufferCount; }
-        Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const override { return m_gpuProfiler->get_gpu_memory_usage(outUsage); }
+        uint32_t width() const noexcept override
+        {
+            return m_width;
+        }
+        uint32_t height() const noexcept override
+        {
+            return m_height;
+        }
+        const uint32_t& buffer_count() const noexcept override
+        {
+            return m_bufferCount;
+        }
+        Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const override
+        {
+            return m_gpuProfiler->get_gpu_memory_usage(outUsage);
+        }
         /// @brief 利用する Windows プラットフォームを設定する
-        void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept { m_platform = a_platform; }
+        void set_win_platform(PAL::Win::WinPlatform* a_platform) noexcept
+        {
+            m_platform = a_platform;
+        }
 
         ID3D12Device* imgui_device() const noexcept
         {
@@ -83,49 +117,68 @@ namespace Cue::RHI::DX12
                              HeapType::CBV_SRV_UAV)
                        : nullptr;
         }
-        void allocate_imgui_srv_descriptor(
-            D3D12_CPU_DESCRIPTOR_HANDLE& outCpuHandle,
-            D3D12_GPU_DESCRIPTOR_HANDLE& outGpuHandle)
+        Result allocate_imgui_srv_descriptor(
+            D3D12_CPU_DESCRIPTOR_HANDLE& a_outCpuHandle,
+            D3D12_GPU_DESCRIPTOR_HANDLE& a_outGpuHandle)
         {
-            if (m_descriptorAllocator)
+            if (!m_descriptorAllocator)
             {
-                (void)m_descriptorAllocator
-                    ->allocate_shader_visible_texture_descriptor(
-                        outCpuHandle, outGpuHandle);
+                return Result::fail(
+                    Code::InvalidState, Severity::Error,
+                    "DescriptorAllocator is not initialized in D3D12Backend.");
             }
+
+            return m_descriptorAllocator
+                ->allocate_shader_visible_texture_descriptor(a_outCpuHandle,
+                                                             a_outGpuHandle);
         }
-        void free_imgui_srv_descriptor(
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
+        void free_imgui_srv_descriptor(D3D12_CPU_DESCRIPTOR_HANDLE a_cpuHandle,
+                                       D3D12_GPU_DESCRIPTOR_HANDLE a_gpuHandle)
         {
             if (m_descriptorAllocator)
             {
                 m_descriptorAllocator->free_shader_visible_texture_descriptor(
-                    cpuHandle, gpuHandle);
+                    a_cpuHandle, a_gpuHandle);
             }
         }
-    private:
-        // RenderBackendSetupInfo 由来の基本設定。RHI 抽象層から参照されるため保持する。
+
+      private:
+        // RenderBackendSetupInfo 由来の基本設定。RHI
+        // 抽象層から参照されるため保持する。
         uint32_t m_width{};
         uint32_t m_height{};
         uint32_t m_bufferCount{};
-        PAL::Win::WinPlatform* m_platform = nullptr; // Windows プラットフォームへのポインタ。スワップチェイン作成に必要。
+        PAL::Win::WinPlatform* m_platform =
+            nullptr; // Windows
+                     // プラットフォームへのポインタ。スワップチェイン作成に必要。
 
         // D3D12 debug layer の live object 出力はバックエンド破棄時に行う。
         // 他の D3D12 オブジェクトより後に破棄されるよう、最初に宣言している。
-        std::unique_ptr<ResourceLeakChecker> m_resourceLeakChecker = std::make_unique<ResourceLeakChecker>();
+        std::unique_ptr<ResourceLeakChecker> m_resourceLeakChecker =
+            std::make_unique<ResourceLeakChecker>();
 
-        // バックエンド共有サービス。各 manager はこれらの実体を参照して RHI handle を D3D12 object へ解決する。
-        std::unique_ptr<HLSLCompiler> m_hlslCompiler = std::make_unique<HLSLCompiler>(); // HLSLコンパイラ
-        std::unique_ptr<DX12RenderDevice> m_renderDevice = nullptr; // レンダーデバイス
-        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator = nullptr; // デスクリプタアロケータ
-        std::unique_ptr<DX12CommandPool> m_commandPool = nullptr; // コマンドプール
-        std::unique_ptr<DX12QueuePool> m_queuePool = nullptr; // コマンドキュープール 
+        // バックエンド共有サービス。各 manager はこれらの実体を参照して RHI
+        // handle を D3D12 object へ解決する。
+        std::unique_ptr<HLSLCompiler> m_hlslCompiler =
+            nullptr; // HLSLコンパイラ
+        std::unique_ptr<DX12RenderDevice> m_renderDevice =
+            nullptr; // レンダーデバイス
+        std::unique_ptr<DescriptorAllocator> m_descriptorAllocator =
+            nullptr; // デスクリプタアロケータ
+        std::unique_ptr<DX12CommandPool> m_commandPool =
+            nullptr; // コマンドプール
+        std::unique_ptr<DX12QueuePool> m_queuePool =
+            nullptr; // コマンドキュープール
         std::unique_ptr<SwapChain> m_swapChain = nullptr; // スワップチェイン
-        std::unique_ptr<DX12BufferManager> m_bufferManager = nullptr; // バッファマネージャ
-        std::unique_ptr<DX12TextureManager> m_textureManager = nullptr; // テクスチャマネージャ
-        std::unique_ptr<DX12ViewManager> m_viewManager = nullptr; // ビューマネージャ
-        std::unique_ptr<DX12PipelineManager> m_pipelineManager = nullptr; // パイプラインマネージャ
-        std::unique_ptr<DX12GpuProfiler> m_gpuProfiler = nullptr; // GPUプロファイラ
+        std::unique_ptr<DX12BufferManager> m_bufferManager =
+            nullptr; // バッファマネージャ
+        std::unique_ptr<DX12TextureManager> m_textureManager =
+            nullptr; // テクスチャマネージャ
+        std::unique_ptr<DX12ViewManager> m_viewManager =
+            nullptr; // ビューマネージャ
+        std::unique_ptr<DX12PipelineManager> m_pipelineManager =
+            nullptr; // パイプラインマネージャ
+        std::unique_ptr<DX12GpuProfiler> m_gpuProfiler =
+            nullptr; // GPUプロファイラ
     };
-}
+} // namespace Cue::RHI::DX12
