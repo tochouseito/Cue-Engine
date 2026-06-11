@@ -4,47 +4,6 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
-        std::string get_module_directory_path()
-        {
-            constexpr DWORD k_modulePathCapacity = 4096;
-            std::string modulePath(k_modulePathCapacity, '\0');
-            const DWORD length =
-                ::GetModuleFileNameA(nullptr, modulePath.data(), k_modulePathCapacity);
-            if (length == 0 || length >= k_modulePathCapacity)
-            {
-                return {};
-            }
-
-            modulePath.resize(length);
-            const size_t lastSeparator = modulePath.find_last_of("\\/");
-            if (lastSeparator == std::string::npos)
-            {
-                return {};
-            }
-
-            return modulePath.substr(0, lastSeparator);
-        }
-
-        std::string join_path(std::string_view a_left, std::string_view a_right)
-        {
-            if (a_left.empty())
-            {
-                return std::string(a_right);
-            }
-            if (a_right.empty())
-            {
-                return std::string(a_left);
-            }
-
-            std::string result(a_left);
-            if (result.back() != '/' && result.back() != '\\')
-            {
-                result += '/';
-            }
-            result += a_right;
-            return result;
-        }
-
         std::string_view strip_shader_root(std::string_view a_path)
         {
             constexpr std::string_view k_shaderRoot = "Shaders/";
@@ -56,42 +15,29 @@ namespace Cue::RHI::DX12
             return a_path;
         }
 
-        std::string resolve_shader_path(std::string_view a_relativePath)
+        Core::IO::Path resolve_shader_path(Core::IO::IFileSystem& fileSystem,
+                                           std::string_view a_relativePath)
         {
             const std::string_view shaderRelativePath = strip_shader_root(a_relativePath);
 
-#ifdef CUE_PROJECT_ROOT_PATH
-            const std::string repositoryPath = join_path(
-                join_path(std::string(CUE_PROJECT_ROOT_PATH), "Engine/Shaders"),
-                shaderRelativePath);
-#endif
-
-            const std::string moduleDirectoryPath = get_module_directory_path();
-            const std::string runtimePath =
-                join_path(
-                    join_path(moduleDirectoryPath, "EngineResources/Shaders"),
-                    shaderRelativePath);
-
-#ifdef CUE_DEBUG
-            if (!repositoryPath.empty())
+#if defined(CUE_DEBUG) && defined(CUE_PROJECT_ROOT_PATH)
+            fileSystem;
+            return Core::IO::Path::join(
+                Core::IO::Path(CUE_PROJECT_ROOT_PATH),
+                Core::IO::Path::join(Core::IO::Path("Engine/Shaders"),
+                                     Core::IO::Path(std::string(shaderRelativePath))));
+#else
+            Core::IO::Path executableDirectory{};
+            if (fileSystem.executable_directory(executableDirectory))
             {
-                return repositoryPath;
-            }
-#endif
-
-            if (!runtimePath.empty())
-            {
-                return runtimePath;
+                return Core::IO::Path::join(
+                    executableDirectory,
+                    Core::IO::Path::join(Core::IO::Path("EngineResources/Shaders"),
+                                         Core::IO::Path(std::string(shaderRelativePath))));
             }
 
-#ifdef CUE_PROJECT_ROOT_PATH
-            if (!repositoryPath.empty())
-            {
-                return repositoryPath;
-            }
+            return Core::IO::Path(std::string(a_relativePath));
 #endif
-
-            return std::string(a_relativePath);
         }
 
         std::wstring shader_profile_to_wstring(D3D_SHADER_MODEL model)
@@ -140,26 +86,21 @@ namespace Cue::RHI::DX12
             }
         }
 
-    }
+    } // namespace
 
     HLSLCompiler::HLSLCompiler()
     {
-        // DXC の COM object は compiler インスタンス単位で作成し、各 shader compile で再利用する。
+        // DXC の COM object は compiler インスタンス単位で作成し、各 shader compile
+        // で再利用する。
         HRESULT hr = S_OK;
         // dxc utility 生成
-        hr = DxcCreateInstance(
-            CLSID_DxcUtils,
-            IID_PPV_ARGS(&m_dxcUtils)
-        );
+        hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&m_dxcUtils));
         if (FAILED(hr))
         {
             CUE_ASSERT_MSG(false, "Failed to create DxcUtils instance.");
         }
         // dxc compiler 生成
-        hr = DxcCreateInstance(
-            CLSID_DxcCompiler,
-            IID_PPV_ARGS(&m_dxcCompiler)
-        );
+        hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&m_dxcCompiler));
         if (FAILED(hr))
         {
             CUE_ASSERT_MSG(false, "Failed to create DxcCompiler instance.");
@@ -171,29 +112,37 @@ namespace Cue::RHI::DX12
             CUE_ASSERT_MSG(false, "Failed to create default include handler.");
         }
     }
-    Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc, ComPtr<IDxcBlob>* outBlob)
+
+    void HLSLCompiler::set_file_system(Core::IO::IFileSystem* fileSystem) noexcept
+    {
+        m_fileSystem = fileSystem;
+    }
+
+    Result HLSLCompiler::compile_shader_raw(const ShaderCompileDesc& desc,
+                                            ComPtr<IDxcBlob>* outBlob)
     {
         // ShaderCompileDesc を DXC の UTF-16 引数列へ変換し、DXIL blob を返す。
         // include 解決は DXC 標準 include handler に任せる。
         HRESULT hr = {};
         Result r{};
-        ComPtr<IDxcBlobEncoding> pSource = nullptr;
+        std::vector<std::byte> sourceData{};
 
         // 入力と出力先を検証し、失敗時は呼び出し側で扱える Result に正規化する
         if (outBlob == nullptr)
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Shader blob output must not be null.");
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Shader blob output must not be null.");
         }
 
         if (!desc)
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Shader compile description is invalid.");
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Shader compile description is invalid.");
+        }
+        if (m_fileSystem == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Shader compiler file system is not set.");
         }
 
         outBlob->Reset();
@@ -206,8 +155,9 @@ namespace Cue::RHI::DX12
             return r;
         }
         std::wstring filePath = L"";
-        const std::string resolvedFilePath = resolve_shader_path(desc.filePath);
-        r = PAL::Win::utf8_to_wide(resolvedFilePath, &filePath);
+        const Core::IO::Path resolvedFilePath =
+            resolve_shader_path(*m_fileSystem, desc.filePath);
+        r = PAL::Win::utf8_to_wide(resolvedFilePath.utf8(), &filePath);
         if (!r)
         {
             return r;
@@ -226,28 +176,17 @@ namespace Cue::RHI::DX12
         }
 
         // シェーダーファイルの読込とコンパイルを行い、DXC の失敗を Result で返す
-        hr = m_dxcUtils.Get()->LoadFile(filePath.c_str(), nullptr, &pSource);
-        if (FAILED(hr))
+        r = m_fileSystem->read_all(resolvedFilePath, &sourceData);
+        if (!r)
         {
-            return Result::fail(
-                PAL::Win::convert_hresult_code(hr),
-                Severity::Error,
-                "Failed to load shader file.");
+            return r;
         }
 
         // コンパイル引数の設定
         DxcBuffer sourceBuffer;
-        sourceBuffer.Ptr = pSource->GetBufferPointer();
-        sourceBuffer.Size = pSource->GetBufferSize();
+        sourceBuffer.Ptr = sourceData.data();
+        sourceBuffer.Size = sourceData.size();
         sourceBuffer.Encoding = DXC_CP_UTF8;
-        LPCWSTR arguments[] = {
-            filePath.c_str(), // コンパイル対象 hlsl ファイル名
-            L"-E", entryPoint.c_str(), // エントリーポイント指定
-            L"-T", targetProfile.c_str(), // shader profile 設定
-            L"-Zi", L"-Qembed_debug", // デバッグ情報埋込
-            L"-Od", // 最適化無効
-            L"-Zpr", // 行優先メモリレイアウト
-        };
 
         // 可読性のために引数をベクターで管理
         std::vector<LPCWCH> args;
@@ -256,12 +195,12 @@ namespace Cue::RHI::DX12
         args.push_back(entryPoint.c_str()); // エントリーポイント指定
         args.push_back(L"-T");
         args.push_back(targetProfile.c_str()); // shader profile 設定
-        args.push_back(L"-Zpr"); // 行優先メモリレイアウト
+        args.push_back(L"-Zpr");               // 行優先メモリレイアウト
         if (desc.enableDebugInfo)
         {
             args.push_back(L"-Zi");
             args.push_back(L"-Qembed_debug"); // デバッグ情報埋込
-            args.push_back(L"-Od"); // デバッグビルド最適化無効
+            args.push_back(L"-Od");           // デバッグビルド最適化無効
         }
         else
         {
@@ -270,52 +209,46 @@ namespace Cue::RHI::DX12
 
         // シェーダーのコンパイル
         ComPtr<IDxcResult> pResult = nullptr;
-        hr = m_dxcCompiler.Get()->Compile(
-            &sourceBuffer, // 読込済みソース
-            arguments, // コンパイル引数
-            _countof(arguments), // 引数数
-            m_dxcIncludeHandler.Get(), // include handler
-            IID_PPV_ARGS(&pResult) // コンパイル結果
-        );
+        hr =
+            m_dxcCompiler.Get()->Compile(&sourceBuffer,                    // 読込済みソース
+                                         args.data(),                      // コンパイル引数
+                                         static_cast<UINT32>(args.size()), // 引数数
+                                         m_dxcIncludeHandler.Get(),        // include handler
+                                         IID_PPV_ARGS(&pResult)            // コンパイル結果
+            );
         if (FAILED(hr))
         {
-            return Result::fail(
-                PAL::Win::convert_hresult_code(hr),
-                Severity::Error,
-                "Failed to compile shader.");
+            return Result::fail(PAL::Win::convert_hresult_code(hr), Severity::Error,
+                                "Failed to compile shader.");
         }
 
         // コンパイル結果を検証し、成功時のみブロブを返す
         ComPtr<IDxcBlobUtf8> pErrors = nullptr;
         ComPtr<IDxcBlobUtf16> pErrorsUtf16;
-        hr = pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);
+        hr =
+            pResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pErrorsUtf16);
         if (FAILED(hr))
         {
-            return Result::fail(
-                PAL::Win::convert_hresult_code(hr),
-                Severity::Error,
-                "Failed to read shader compiler errors.");
+            return Result::fail(PAL::Win::convert_hresult_code(hr), Severity::Error,
+                                "Failed to read shader compiler errors.");
         }
         if (pErrors != nullptr && pErrors->GetStringLength() != 0)
         {
-            return Result::fail(
-                Code::CreateFailed,
-                Severity::Error,
-                pErrors->GetStringPointer());
+            return Result::fail(Code::CreateFailed, Severity::Error,
+                                pErrors->GetStringPointer());
         }
 
         // コンパイル結果からシェーダーオブジェクトを取得
         ComPtr<IDxcBlob> shaderBlob = nullptr;
-        hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), &pErrorsUtf16);
+        hr = pResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob),
+                                &pErrorsUtf16);
         if (FAILED(hr))
         {
-            return Result::fail(
-                PAL::Win::convert_hresult_code(hr),
-                Severity::Error,
-                "Failed to get compiled shader object.");
+            return Result::fail(PAL::Win::convert_hresult_code(hr), Severity::Error,
+                                "Failed to get compiled shader object.");
         }
 
         *outBlob = shaderBlob;
         return Result::ok();
     }
-}
+} // namespace Cue::RHI::DX12

@@ -254,7 +254,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
     }
 
     // FrameGraph の生成
-    r = create_frame_graphs(std::move(a_info.editorPass));
+    r = create_frame_graphs(std::move(a_info.rendererPass));
     if (!r)
     {
         return r;
@@ -962,7 +962,7 @@ std::function<void(uint64_t, uint32_t)> Engine::present()
 }
 
 Result Engine::create_frame_graphs(
-    std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
+    std::unique_ptr<RHI::FrameGraphPass> a_rendererPass)
 {
     Result result = Result::ok();
 
@@ -1122,9 +1122,9 @@ Result Engine::create_frame_graphs(
 
     m_presentFrameGraph->add_pass(
         std::make_unique<RHI::PresentToSwapChainPass>());
-    if (a_editorPass)
+    if (a_rendererPass)
     {
-        m_presentFrameGraph->add_pass(std::move(a_editorPass));
+        m_presentFrameGraph->add_pass(std::move(a_rendererPass));
     }
 
     result = m_presentFrameGraph->build();

@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace Cue::Editor
+namespace Cue::Renderer
 {
     namespace
     {

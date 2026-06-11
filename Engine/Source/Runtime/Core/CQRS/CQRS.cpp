@@ -46,7 +46,7 @@ namespace Cue::Core::CQRS
 
     Result Bridge::undo_last_command(ICommandContext& a_commandContext)
     {
-        // undo 対象がなければ失敗を返し、Editor 側で UI 状態と整合させやすくする。
+        // undo 対象がなければ失敗を返し、Renderer 側で UI 状態と整合させやすくする。
         if (m_undoStack.empty())
         {
             return Result::fail(Code::InvalidState, Severity::Error, "No command to undo");

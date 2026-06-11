@@ -48,7 +48,7 @@ struct EngineSetupInfo final
     uint32_t maxFps = 60;             // 最大フレームレート
     uint32_t maxPointLightCount = 64; // ポイントライトの最大数
     bool enableDirectionalLight = true; // DirectionalLight を有効化するか
-    std::unique_ptr<RHI::FrameGraphPass> editorPass{};
+    std::unique_ptr<RHI::FrameGraphPass> rendererPass{};
 };
 
 struct EngineDebugStats final
@@ -147,7 +147,7 @@ class Engine final
     /// @brief present
     std::function<void(uint64_t, uint32_t)> present();
     Result create_frame_graphs(
-        std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+        std::unique_ptr<RHI::FrameGraphPass> a_rendererPass);
     Result register_model_set(
         const std::vector<const Core::Native::ModelData *> &a_modelDataList,
         Math::uint3 a_instanceCounts, float a_targetRadius);

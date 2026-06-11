@@ -5,10 +5,10 @@ title: 環境要件
 
 # 環境要件
 
-Cue Engine の Editor / Runtime 開発は Windows を前提にしています。
+Cue Engine の Renderer / Runtime 開発は Windows を前提にしています。
 ここではローカル開発、docs-site、Release package 作成に必要なツールをまとめます。
 
-## Engine / Editor 開発
+## Engine / Renderer 開発
 
 必須:
 
@@ -53,7 +53,7 @@ GitHub Actions では workflow 内で vcpkg を clone して bootstrap するた
 ## GameScript 開発
 
 GameScript は CMake でビルドします。
-Editor 上の GameScript build backend は常に CMake です。
+Renderer 上の GameScript build backend は常に CMake です。
 
 必須:
 
@@ -66,7 +66,7 @@ Visual Studio 連携機能を使う場合は、追加で次が必要です。
 
 - .NET SDK / `dotnet.exe`
 
-`ビルド > GameScript solution を開く` と `ビルド > Editor にデバッガをアタッチ` は、Visual Studio 連携用 tool を `dotnet run` で起動します。
+`ビルド > GameScript solution を開く` と `ビルド > Renderer にデバッガをアタッチ` は、Visual Studio 連携用 tool を `dotnet run` で起動します。
 
 ## docs-site 開発
 
@@ -98,10 +98,10 @@ npm run build
 
 ## Release package 作成
 
-Editor / Engine の配布 package は次の script で作成します。
+Renderer / Engine の配布 package は次の script で作成します。
 
 ```powershell
-pwsh -NoProfile -File scripts/create_editor_release_package.ps1 -Version 0.1.0
+pwsh -NoProfile -File scripts/create_renderer_release_package.ps1 -Version 0.1.0
 ```
 
 必須:
@@ -114,17 +114,17 @@ pwsh -NoProfile -File scripts/create_editor_release_package.ps1 -Version 0.1.0
 
 生成物は既定で `generated/release` に出力されます。
 
-- `CueEngineEditor_<version>_win-x64.zip`
-- `CueEngineEditor_<version>_win-x64.json`
+- `CueEngineRenderer_<version>_win-x64.zip`
+- `CueEngineRenderer_<version>_win-x64.json`
 - `CueUpdater_<version>_win-x64.exe`
 
-GitHub Release へ publish する workflow は `.github/workflows/release-editor.yml` です。
+GitHub Release へ publish する workflow は `.github/workflows/release-renderer.yml` です。
 この workflow は `v*` tag push、または Actions の手動実行で動きます。
 Release asset の作成と upload には GitHub Actions 上の `gh` CLI と `contents: write` 権限を使います。
 
-## 配布された Editor を使うだけの場合
+## 配布された Renderer を使うだけの場合
 
-配布 package から Editor を使うだけなら、開発用 SDK 全体は不要です。
+配布 package から Renderer を使うだけなら、開発用 SDK 全体は不要です。
 ただし、プロジェクト内で GameScript をビルドする場合は Visual Studio / CMake / vcpkg が必要です。
 
 CueUpdater で install / update する場合は、GitHub Releases に次の asset が添付されている必要があります。

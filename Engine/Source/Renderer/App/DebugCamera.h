@@ -1,7 +1,7 @@
 #pragma once
 
 /// ****************************************************************************
-/// Temporary debug camera for CueEngineRef editor
+/// Temporary debug camera for CueEngineRef renderer
 /// ****************************************************************************
 
 // === Engine includes ===
@@ -10,7 +10,7 @@
 // === C++ includes ===
 #include <cstdint>
 
-namespace Cue::Editor
+namespace Cue::Renderer
 {
     namespace DebugCameraConstants
     {

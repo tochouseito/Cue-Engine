@@ -5,7 +5,7 @@ title: Scene / Asset / 物理 / Navigation
 
 # Scene / Asset / 物理 / Navigation
 
-このページは Editor と Script から見える現在の Runtime 仕様をまとめます。
+このページは Renderer と Script から見える現在の Runtime 仕様をまとめます。
 
 ## Scene 管理
 
@@ -41,11 +41,11 @@ Scene asset は `.cuescene` です。
 `ScriptComponent` の Entity 参照は、Scene 保存時に localObjectId として保存されます。
 Scene 読み込み時に Runtime EntityId へ解決されます。
 `TransformComponent.rotation` は内部と Scene asset では弧度法の Euler 回転として保存されます。
-Editor の Inspector では度数法で表示、入力します。
+Renderer の Inspector では度数法で表示、入力します。
 
 ## Asset Browser と import
 
-Editor Window へ外部ファイルをドロップすると、Asset Browser の現在フォルダへコピーして import します。
+Renderer Window へ外部ファイルをドロップすると、Asset Browser の現在フォルダへコピーして import します。
 現在フォルダが `Assets` 以下ではない場合は `Assets/` へコピーします。
 
 対応形式は次の通りです。
@@ -113,7 +113,7 @@ Player の WASD 移動のように、床に沿って移動させたい Entity �
 ## Navigation
 
 Navigation は Scene に設定された NavMesh を使います。
-Editor では `ナビゲーション > Scene NavMesh を Bake` で NavMesh asset を生成します。
+Renderer では `ナビゲーション > Scene NavMesh を Bake` で NavMesh asset を生成します。
 
 ### NavAgentComponent
 
@@ -138,5 +138,5 @@ NavAgentMotorSystem が `desiredVelocity` を CharacterController の `moveVeloc
 DebugView では grid 表示を切り替えられます。
 Navigation Debug Window では NavMesh と Navigation の状態を確認できます。
 
-カメラ、ライトなど通常描画されない Editor object も screen picker の対象になります。
+カメラ、ライトなど通常描画されない Renderer object も screen picker の対象になります。
 選択 outline は選択 object の形を depth に依存せず前面へ表示する方針です。

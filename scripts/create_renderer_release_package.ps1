@@ -3,10 +3,10 @@ param(
     [string]$TagName = "",
     [string]$Repository = "",
     [string]$Channel = "stable",
-    [string]$PackageRoot = "generated/packaged_editor",
+    [string]$PackageRoot = "generated/packaged_renderer",
     [string]$ArtifactRoot = "generated/release",
     [string]$BuildDirectory = "out/build/win-x64",
-    [string]$EditorConfiguration = "RelWithDebInfo",
+    [string]$RendererConfiguration = "RelWithDebInfo",
     [string]$SdkConfiguration = "Release",
     [string]$UpdaterConfiguration = "Release",
     [string]$TargetTriplet = "x64-windows-static-md",
@@ -84,7 +84,7 @@ else
 }
 
 $platform = "win-x64"
-$packageName = "CueEngineEditor_$resolvedVersion`_$platform"
+$packageName = "CueEngineRenderer_$resolvedVersion`_$platform"
 $zipName = "$packageName.zip"
 $manifestName = "$packageName.json"
 $packagePath = Join-Path $repoRoot $PackageRoot
@@ -98,9 +98,9 @@ $versionManifestPath = Join-Path $packagePath "version.json"
 
 if (-not $SkipPackageBuild)
 {
-    & (Join-Path $PSScriptRoot "package_editor.ps1") `
+    & (Join-Path $PSScriptRoot "package_renderer.ps1") `
         -BuildDirectory $BuildDirectory `
-        -EditorConfiguration $EditorConfiguration `
+        -RendererConfiguration $RendererConfiguration `
         -SdkConfiguration $SdkConfiguration `
         -OutputRoot $PackageRoot `
         -TargetTriplet $TargetTriplet `
@@ -109,13 +109,13 @@ if (-not $SkipPackageBuild)
         -ForceConfigure:$ForceConfigure
     if ($LASTEXITCODE -ne 0)
     {
-        throw "package_editor.ps1 に失敗しました。"
+        throw "package_renderer.ps1 に失敗しました。"
     }
 }
 
 if (-not (Test-Path -LiteralPath $packagePath))
 {
-    throw "package_editor の出力が見つかりません: $packagePath"
+    throw "package_renderer の出力が見つかりません: $packagePath"
 }
 
 if (Test-Path -LiteralPath $artifactPath)
@@ -147,7 +147,7 @@ $versionManifest = [ordered]@{
     version = $resolvedVersion
     channel = $Channel
     platform = $platform
-    package = "CueEngineEditor"
+    package = "CueEngineRenderer"
     createdAtUtc = $createdAtUtc
 }
 $versionManifest |
@@ -176,7 +176,7 @@ $releaseManifest = [ordered]@{
     version = $resolvedVersion
     channel = $Channel
     platform = $platform
-    package = "CueEngineEditor"
+    package = "CueEngineRenderer"
     tag = $resolvedTag
     assetName = $zipName
     downloadUrl = $downloadUrl
@@ -185,7 +185,7 @@ $releaseManifest = [ordered]@{
     minimumUpdaterVersion = "0.1.0"
     createdAtUtc = $createdAtUtc
     installRootEntries = @(
-        "Editor",
+        "Renderer",
         "Sdk",
         "version.json"
     )
@@ -195,5 +195,5 @@ $releaseManifest |
     ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $manifestPath -Encoding utf8
 
-Write-Host "[CueEditorRelease] package: $(Convert-ToForwardSlashPath -Path $zipPath)"
-Write-Host "[CueEditorRelease] manifest: $(Convert-ToForwardSlashPath -Path $manifestPath)"
+Write-Host "[CueRendererRelease] package: $(Convert-ToForwardSlashPath -Path $zipPath)"
+Write-Host "[CueRendererRelease] manifest: $(Convert-ToForwardSlashPath -Path $manifestPath)"

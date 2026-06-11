@@ -697,7 +697,7 @@ namespace Cue::PAL::Win
             flags |= FILE_FLAG_RANDOM_ACCESS;
         }
 
-        // Share（Editor運用で重要）
+        // Share（Renderer運用で重要）
         const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
         // CreateFileW

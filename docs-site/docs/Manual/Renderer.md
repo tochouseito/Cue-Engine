@@ -1,30 +1,30 @@
 ---
 sidebar_position: 1
-title: Editor の使い方
+title: Renderer の使い方
 ---
 
-# Editor の使い方
+# Renderer の使い方
 
-Cue Engine の Editor は Windows 専用のホストアプリケーションです。
+Cue Engine の Renderer は Windows 専用のホストアプリケーションです。
 プロジェクト作成、Scene 編集、Asset 管理、GameScript ビルド、Play 実行、配布用ビルドを扱います。
 
 ## 起動前の準備
 
-Editor を使う前に、Engine 本体を `Debug|x64` でビルドします。
+Renderer を使う前に、Engine 本体を `Debug|x64` でビルドします。
 
 ```powershell
 pwsh -NoProfile -File scripts/codex_build.ps1
 ```
 
-Editor の出力先は次の場所です。
+Renderer の出力先は次の場所です。
 
 ```text
-generated/outputs/Editor/Debug/Editor.exe
+generated/outputs/Renderer/Debug/Renderer.exe
 ```
 
 ## Project Hub
 
-Editor 起動直後は `Project Hub` が表示されます。
+Renderer 起動直後は `Project Hub` が表示されます。
 
 - `新規プロジェクト作成`: プロジェクト名と作成先ディレクトリを指定して新規プロジェクトを作成します。
 - `プロジェクトを開く`: 既存プロジェクトのフォルダを選択して開きます。
@@ -45,22 +45,22 @@ cueproject.json
 ```
 
 `cueproject.json` には `assetRoot`、`scriptRoot`、`startupScene`、`scriptBuildConfiguration`、配布ビルド設定が保存されます。
-現在の Editor は `scriptLoadConfiguration` と `scriptBuildBackend` を使いません。
+現在の Renderer は `scriptLoadConfiguration` と `scriptBuildBackend` を使いません。
 GameScript は常に `scriptBuildConfiguration` の構成から読み込み、ビルド backend は常に CMake です。
 
 ## 基本画面
 
-プロジェクトを開くと、Editor は `cueproject.json` の `startupScene` を読み込みます。
+プロジェクトを開くと、Renderer は `cueproject.json` の `startupScene` を読み込みます。
 `assetRoot` は Asset Browser と Inspector に設定され、`scriptRoot` から `GameScript.dll` の読み込みが試行されます。
 
 主なビューは次の通りです。
 
 - `GameView`: Play 実行中のゲーム画面を表示します。
-- `DebugView`: Editor 用のデバッグ表示です。追加、ビュー、シーン操作のメニューを持ちます。
+- `DebugView`: Renderer 用のデバッグ表示です。追加、ビュー、シーン操作のメニューを持ちます。
 - `Asset Browser`: `Assets` 配下のフォルダとファイルを表示します。
 - `ヒエラルキー`: 読み込み済み Scene と GameObject をツリー表示します。
 - `インスペクター`: 選択中 GameObject または Material asset の詳細を編集します。
-- `Frame Statistics`: Editor / View の計測情報を表示します。
+- `Frame Statistics`: Renderer / View の計測情報を表示します。
 - `Script Build Output`: GameScript と配布ビルドのログを表示します。
 - `Navigation Debug`: NavMesh と Navigation のデバッグ情報を表示します。
 
@@ -111,11 +111,11 @@ GameScript は常に `scriptBuildConfiguration` の構成から読み込み、�
 - `ゲーム Release ビルド`: Engine 側の `CueApp` とプロジェクト側の `Game` / `CueApp` をビルドし、配布フォルダを作成します。
 - `ゲーム Release ビルドフォルダを開く`: `gameReleaseOutputRoot` の出力先を Shell で開きます。
 - `GameScript solution を開く`: プロジェクトの CMake preset から Visual Studio solution を開きます。
-- `Editor にデバッガをアタッチ`: Visual Studio から現在の Editor プロセスへアタッチします。
+- `Renderer にデバッガをアタッチ`: Visual Studio から現在の Renderer プロセスへアタッチします。
 - `Script Build Output`: Script Build Output Window の表示を切り替えます。
 
 GameScript の手動ビルドと手動再読み込み項目はビルドメニューから削除されています。
-Script source の更新を検出し、Editor Window がフォーカスされている場合、Editor は GameScript を自動でビルドして再読み込みします。
+Script source の更新を検出し、Renderer Window がフォーカスされている場合、Renderer は GameScript を自動でビルドして再読み込みします。
 
 ### Play 操作
 
@@ -123,7 +123,7 @@ Play 操作はメニューバー中央のアイコンボタンで行います。
 
 - `Play`: 現在の World で Play を開始します。
 - `Pause (Stop)`: Play を停止します。
-- `Stop (Exit)`: Play を終了して Editor 状態へ戻ります。
+- `Stop (Exit)`: Play を終了して Renderer 状態へ戻ります。
 
 GameScript のビルドや再読み込み中は Play 操作が無効になります。
 メニューバー中央には `GameScript ビルド構成` の combo も表示されます。
@@ -156,7 +156,7 @@ GameObject 名は World 全体で一意です。別 Scene であっても同名�
 
 ### シーン
 
-`読み込み済みシーン` には、現在 Editor World に読み込まれている Scene 名だけが表示されます。
+`読み込み済みシーン` には、現在 Renderer World に読み込まれている Scene 名だけが表示されます。
 `新規 Scene` から `Assets/Scenes` 配下に空の `.cuescene` を作成して読み込めます。
 `読込` ボタンから `Assets/Scenes` 配下の `.cuescene` を追加読み込みできます。
 すでに読み込まれている Scene は一覧上で選べない状態になります。
@@ -175,7 +175,7 @@ Asset Browser は `Assets` 配下をフォルダ単位で表示します。
 Material asset を選択すると Inspector に Material の詳細が表示されます。
 Texture asset は drag and drop payload として Material Inspector へ渡せます。
 
-Editor Window へ外部ファイルをドロップすると、現在開いている Asset Browser のフォルダへコピーして import します。
+Renderer Window へ外部ファイルをドロップすると、現在開いている Asset Browser のフォルダへコピーして import します。
 Asset Browser が `Assets` 以下のフォルダを開いていない場合は `Assets/` にコピーします。
 対応している外部ファイルは次の通りです。
 

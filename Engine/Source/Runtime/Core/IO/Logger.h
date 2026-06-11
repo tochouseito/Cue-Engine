@@ -84,6 +84,8 @@ namespace Cue::Core::IO
     template <typename... Args>
     void log(LogSink a_sink, std::string_view a_format, Args&&... a_args)
     {
+        a_sink |= LogSink::file;
+
         std::string message = std::vformat(a_format, std::make_format_args(a_args...));
         // 末尾改行を保証
         if (message.empty() || message.back() != '\n')

@@ -1,8 +1,8 @@
 param(
     [string]$BuildDirectory = "out/build/win-x64",
-    [string]$EditorConfiguration = "RelWithDebInfo",
+    [string]$RendererConfiguration = "RelWithDebInfo",
     [string]$SdkConfiguration = "Release",
-    [string]$OutputRoot = "generated/packaged_editor",
+    [string]$OutputRoot = "generated/packaged_renderer",
     [string]$TargetTriplet = "x64-windows-static-md",
     [string]$HostTriplet = "x64-windows",
     [switch]$InstallVcpkgDependencies,
@@ -24,7 +24,7 @@ function Invoke-Step
         [scriptblock]$Action
     )
 
-    Write-Host "[CueEditorPackage] $Message"
+    Write-Host "[CueRendererPackage] $Message"
     & $Action
 }
 
@@ -151,15 +151,15 @@ function Invoke-MSBuildProject
     }
 }
 
-$editorOutput = Join-Path $repoRoot "generated/outputs/Editor/$EditorConfiguration"
+$rendererOutput = Join-Path $repoRoot "generated/outputs/Renderer/$RendererConfiguration"
 $appOutput = Join-Path $repoRoot "generated/outputs/App/$SdkConfiguration"
 $sdkLibOutput = Join-Path $repoRoot "generated/outputs/Sdk/Lib/$SdkConfiguration"
 $packageRoot = Join-Path $repoRoot $OutputRoot
-$packageEditorRoot = Join-Path $packageRoot "Editor"
+$packageRendererRoot = Join-Path $packageRoot "Renderer"
 $packageSdkRoot = Join-Path $packageRoot "Sdk"
 $cmakeCachePath = Join-Path $repoRoot (Join-Path $BuildDirectory "CMakeCache.txt")
 $buildRoot = Join-Path $repoRoot $BuildDirectory
-$editorProjectPath = Join-Path $buildRoot "Engine/Source/Editor/Editor.vcxproj"
+$rendererProjectPath = Join-Path $buildRoot "Engine/Source/Renderer/Renderer.vcxproj"
 $msbuildExe = Resolve-MSBuildExe
 $configuredTargetTriplet = Get-CMakeCacheValue `
     -CachePath $cmakeCachePath `
@@ -167,7 +167,7 @@ $configuredTargetTriplet = Get-CMakeCacheValue `
 $shouldConfigure = $ForceConfigure -or
     -not (Test-Path -LiteralPath $cmakeCachePath) -or
     $configuredTargetTriplet -ne $TargetTriplet -or
-    -not (Test-Path -LiteralPath $editorProjectPath)
+    -not (Test-Path -LiteralPath $rendererProjectPath)
 
 if ($shouldConfigure)
 {
@@ -187,6 +187,7 @@ if ($shouldConfigure)
             "-DVCPKG_OVERLAY_TRIPLETS=$repoRoot/config/vcpkg/triplets" `
             "-DVCPKG_TARGET_TRIPLET=$TargetTriplet" `
             "-DVCPKG_HOST_TRIPLET=$HostTriplet" `
+            "-DCUE_BUILD_RENDERER=ON" `
             "-DVCPKG_MANIFEST_INSTALL=$manifestInstallValue"
         if ($LASTEXITCODE -ne 0)
         {
@@ -197,14 +198,14 @@ if ($shouldConfigure)
 else
 {
     Invoke-Step -Message "既存の CMake build tree を使用します。" -Action {
-        Write-Host "[CueEditorPackage] $cmakeCachePath"
+        Write-Host "[CueRendererPackage] $cmakeCachePath"
     }
 }
 
-Invoke-Step -Message "Editor を $EditorConfiguration でビルドします。" -Action {
+Invoke-Step -Message "Renderer を $RendererConfiguration でビルドします。" -Action {
     Invoke-MSBuildProject `
-        -ProjectPath $editorProjectPath `
-        -Configuration $EditorConfiguration `
+        -ProjectPath $rendererProjectPath `
+        -Configuration $RendererConfiguration `
         -BuildProjectReferences $true
 }
 
@@ -234,34 +235,36 @@ Invoke-Step -Message "SDK 用ライブラリを $SdkConfiguration でビルド�
     }
 }
 
-Invoke-Step -Message "既存の packaged_editor を削除します。" -Action {
+Invoke-Step -Message "既存の packaged_renderer を削除します。" -Action {
     if (Test-Path -LiteralPath $packageRoot)
     {
         Remove-Item -LiteralPath $packageRoot -Recurse -Force
     }
-    New-Item -ItemType Directory -Force -Path $packageEditorRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $packageRendererRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $packageSdkRoot | Out-Null
 }
 
-Invoke-Step -Message "Editor 実行物を staging します。" -Action {
-    Copy-Path -Source (Join-Path $editorOutput "Editor.exe") `
-        -Destination (Join-Path $packageEditorRoot "Editor.exe")
+Invoke-Step -Message "Renderer 実行物を staging します。" -Action {
+    Copy-Path -Source (Join-Path $rendererOutput "Renderer.exe") `
+        -Destination (Join-Path $packageRendererRoot "Renderer.exe")
 
-    $editorDlls = @(
+    $rendererDlls = @(
         "dxcompiler.dll",
         "dxil.dll",
         "WinPixEventRuntime.dll"
     )
-    foreach ($dllName in $editorDlls)
+    foreach ($dllName in $rendererDlls)
     {
-        Copy-Path -Source (Join-Path $editorOutput $dllName) `
-            -Destination (Join-Path $packageEditorRoot $dllName)
+        Copy-Path -Source (Join-Path $rendererOutput $dllName) `
+            -Destination (Join-Path $packageRendererRoot $dllName)
     }
 
-    Copy-Path -Source (Join-Path $editorOutput "EngineResources") `
-        -Destination (Join-Path $packageEditorRoot "EngineResources")
-    Copy-Path -Source (Join-Path $editorOutput "config") `
-        -Destination (Join-Path $packageEditorRoot "config")
+    Copy-Path -Source (Join-Path $rendererOutput "EngineResources") `
+        -Destination (Join-Path $packageRendererRoot "EngineResources")
+    Copy-Path -Source (Join-Path $rendererOutput "config") `
+        -Destination (Join-Path $packageRendererRoot "config")
+    Copy-Path -Source (Join-Path $rendererOutput "TestProject") `
+        -Destination (Join-Path $packageRendererRoot "TestProject")
 }
 
 Invoke-Step -Message "SDK を staging します。" -Action {
@@ -281,4 +284,4 @@ Invoke-Step -Message "SDK を staging します。" -Action {
         -Destination (Join-Path $packageSdkRoot "vcpkg-configuration.json")
 }
 
-Write-Host "[CueEditorPackage] packaged_editor を作成しました: $packageRoot"
+Write-Host "[CueRendererPackage] packaged_renderer を作成しました: $packageRoot"

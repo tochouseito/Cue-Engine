@@ -6,7 +6,7 @@ title: Script の使い方
 # Script の使い方
 
 Cue Engine の Script は `Marionette` フレームワークを使う C++ Script です。
-プロジェクト側の `Assets/Scripts/*Script.h` と `Assets/Scripts/*Script.cpp` から `GameScript.dll` をビルドし、Editor が `ScriptComponent` として読み込みます。
+プロジェクト側の `Assets/Scripts/*Script.h` と `Assets/Scripts/*Script.cpp` から `GameScript.dll` をビルドし、Renderer が `ScriptComponent` として読み込みます。
 
 ## Script プロジェクト構成
 
@@ -22,11 +22,11 @@ Intermediate/Generated/
 
 `CMakeLists.txt` は `Assets/Scripts/*Script.cpp` と `Assets/Scripts/*Script.h` を収集し、次の target を作ります。
 
-- `GameScript`: Editor が読み込む DLL です。
+- `GameScript`: Renderer が読み込む DLL です。
 - `Game`: 配布用 `CueApp` に静的リンクするライブラリです。
 - `CueApp`: 配布用の Windows 実行ファイルです。
 
-Editor は常に CMake で GameScript をビルドします。
+Renderer は常に CMake で GameScript をビルドします。
 読み込みに使う構成は `scriptBuildConfiguration` と同じです。
 古い `scriptLoadConfiguration` と `scriptBuildBackend` は現在使いません。
 
@@ -35,7 +35,7 @@ Editor は常に CMake で GameScript をビルドします。
 
 ## Script を追加する
 
-Editor から追加する場合は、`DebugView > 追加 > GameScript を追加` を選び、Script 名を入力します。
+Renderer から追加する場合は、`DebugView > 追加 > GameScript を追加` を選び、Script 名を入力します。
 Script 名には英数字と `_` のみ使えます。先頭に数字は使えません。
 
 たとえば `RotateCube` を追加すると、次の 2 ファイルが作成されます。
@@ -367,16 +367,16 @@ void LookupRotateCube::bind_fields(
 }
 ```
 
-Editor 側では `targetEntity` と `targetScriptClass` の組として扱われます。
+Renderer 側では `targetEntity` と `targetScriptClass` の組として扱われます。
 参照先 Entity に ScriptComponent がない場合や class が一致しない場合は、Inspector に診断が表示されます。
 Scene 保存時は localObjectId として保存され、読み込み時に Runtime Entity へ解決されます。
 
-## Editor で ScriptComponent を使う
+## Renderer で ScriptComponent を使う
 
 1. `DebugView > 追加 > GameScript を追加` で Script を作成します。
 2. Script の `.h` / `.cpp` を編集します。
-3. Editor Window にフォーカスを戻します。
-4. Editor が変更検出後に GameScript を自動ビルドして再読み込みします。
+3. Renderer Window にフォーカスを戻します。
+4. Renderer が変更検出後に GameScript を自動ビルドして再読み込みします。
 5. `ヒエラルキー` で GameObject を選択します。
 6. `Inspector` で `ScriptComponent` を追加します。
 7. `className` の combo から登録済み Script class を選択します。
@@ -392,7 +392,7 @@ Inspector に `field 定義との差分があります。` と表示された場
 ## Visual Studio 連携
 
 `ビルド > GameScript solution を開く` で `scriptRoot` の CMake preset から Visual Studio solution を開けます。
-`ビルド > Editor にデバッガをアタッチ` で、Visual Studio から現在の Editor プロセスへアタッチできます。
+`ビルド > Renderer にデバッガをアタッチ` で、Visual Studio から現在の Renderer プロセスへアタッチできます。
 
 ## 注意点
 
