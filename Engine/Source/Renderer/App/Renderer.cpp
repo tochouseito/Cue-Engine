@@ -376,7 +376,8 @@ namespace
                 ImGui::Text(
                     "Batching: %.3f ms",
                     pass_gpu_ms(frameStats, { "BatchCount", "PrefixSum", "BatchFill",
-                                              "IndirectCommandEmit" }));
+                                              "IndirectCommandEmit",
+                                              "DirectCommandEmit" }));
                 ImGui::Text("StaticMeshForward: %.3f ms",
                             pass_gpu_ms(frameStats, { "StaticMeshForward" }));
             }
@@ -458,17 +459,51 @@ namespace
 
             if (ImGui::CollapsingHeader("Toggles", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                ImGui::Checkbox("Frustum Culling", &m_frustumCullingEnabled);
-                ImGui::Checkbox("Hi-Z Occlusion", &m_hiZEnabled);
-                ImGui::Checkbox("Occluder Proxy", &m_occluderProxyEnabled);
-                ImGui::Checkbox("LOD Selection", &m_lodEnabled);
-                ImGui::Checkbox("Impostor", &m_impostorEnabled);
+                static constexpr const char* k_modeLabels[] = {
+                    "Before optimization",
+                    "GPU Culling",
+                    "LOD",
+                    "Hi-Z",
+                    "Batching",
+                    "Final",
+                };
+                static constexpr const char* k_modeDescriptions[] = {
+                    "CPU-style draw commands / no culling",
+                    "Reduce objects outside the view",
+                    "Reduce submitted vertices",
+                    "Reduce objects hidden behind occluders",
+                    "Reduce draw commands",
+                    "All features ON",
+                };
+
+                int comparisonMode =
+                    static_cast<int>(m_engine.render_comparison_mode());
+                if (ImGui::Combo("Optimization Compare", &comparisonMode,
+                                 k_modeLabels, IM_ARRAYSIZE(k_modeLabels)))
+                {
+                    m_engine.set_render_comparison_mode(
+                        static_cast<DrawSystem::RenderComparisonMode>(
+                            comparisonMode));
+                }
+
+                const DrawSystem::RenderFeatureSettings& featureSettings =
+                    m_engine.render_feature_settings();
+                ImGui::Text("Current: %s",
+                            k_modeDescriptions[comparisonMode]);
+                ImGui::Text("GPU Culling: %s",
+                            featureSettings.gpuCullingEnabled ? "ON" : "OFF");
+                ImGui::Text("LOD: %s",
+                            featureSettings.lodEnabled ? "ON" : "OFF");
+                ImGui::Text("Hi-Z: %s",
+                            featureSettings.hiZEnabled ? "ON" : "OFF");
+                ImGui::Text("Batching: %s",
+                            featureSettings.batchingEnabled ? "ON" : "OFF");
                 if (ImGui::Checkbox("Directional Light", &directionalLightEnabled))
                 {
                     m_engine.set_directional_light_enabled(directionalLightEnabled);
                 }
-                ImGui::Checkbox("Point Lights", &m_pointLightsEnabled);
-                ImGui::TextDisabled("Only Directional Light is wired to the renderer.");
+                ImGui::TextDisabled(
+                    "Lighting, scene, material, resolution, and camera stay shared.");
             }
 
             if (ImGui::CollapsingHeader("Camera / Debug",
@@ -514,12 +549,6 @@ namespace
         RHI::TextureHandle m_backBuffer{};
         RHI::ViewHandle m_backBufferRtv{};
         bool m_initialized = false;
-        bool m_frustumCullingEnabled = true;
-        bool m_hiZEnabled = true;
-        bool m_occluderProxyEnabled = true;
-        bool m_lodEnabled = true;
-        bool m_impostorEnabled = true;
-        bool m_pointLightsEnabled = true;
     };
 
 } // namespace

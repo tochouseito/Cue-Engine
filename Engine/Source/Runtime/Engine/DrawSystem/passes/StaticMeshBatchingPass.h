@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 #include "GpuData/Batching.h"
 
 namespace Cue::DrawSystem
@@ -23,15 +24,33 @@ namespace Cue::DrawSystem
         static constexpr uint32_t k_depthBinCount = 8u;
         static constexpr uint32_t k_maxBatchCount =
             k_maxMeshBatchCount * k_maxMaterialBatchCount * k_depthBinCount;
+
+        enum class Stage : uint8_t
+        {
+            Occluder,
+            Final
+        };
+
+        [[nodiscard]] inline bool is_stage_enabled(
+            Stage stage,
+            const RenderFeatureSettings& featureSettings) noexcept
+        {
+            return stage == Stage::Occluder ? featureSettings.hiZEnabled
+                                            : featureSettings.batchingEnabled;
+        }
     } // namespace StaticMeshBatching
 
     class ResetBatchCountersPass final : public RHI::FrameGraphPass
     {
       public:
         explicit ResetBatchCountersPass(uint32_t maxObjectCount,
-                                        bool createResources = true)
+                                        bool createResources,
+                                        StaticMeshBatching::Stage stage,
+                                        const RenderFeatureSettings& featureSettings)
             : m_maxObjectCount(maxObjectCount),
-              m_createResources(createResources)
+              m_createResources(createResources),
+              m_stage(stage),
+              m_featureSettings(featureSettings)
         {
         }
 
@@ -42,6 +61,12 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return StaticMeshBatching::is_stage_enabled(
+                m_stage, m_featureSettings);
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -330,6 +355,8 @@ namespace Cue::DrawSystem
       private:
         uint32_t m_maxObjectCount = 0;
         bool m_createResources = true;
+        StaticMeshBatching::Stage m_stage = StaticMeshBatching::Stage::Final;
+        const RenderFeatureSettings& m_featureSettings;
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
         RHI::BufferHandle m_renderObjectIndexBuffer{};
@@ -347,10 +374,14 @@ namespace Cue::DrawSystem
       public:
         BatchCountPass(const DrawFrameState& drawFrameState,
                        RHI::BufferHandle renderObjectBuffer,
-                       RHI::BufferHandle visibleObjectCountBuffer)
+                       RHI::BufferHandle visibleObjectCountBuffer,
+                       StaticMeshBatching::Stage stage,
+                       const RenderFeatureSettings& featureSettings)
             : m_drawFrameState(drawFrameState),
               m_renderObjectBuffer(renderObjectBuffer),
-              m_visibleObjectCountBuffer(visibleObjectCountBuffer)
+              m_visibleObjectCountBuffer(visibleObjectCountBuffer),
+              m_stage(stage),
+              m_featureSettings(featureSettings)
         {
         }
 
@@ -361,6 +392,12 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return StaticMeshBatching::is_stage_enabled(
+                m_stage, m_featureSettings);
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -482,6 +519,8 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_renderObjectBuffer{};
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::BufferHandle m_batchObjectCountBuffer{};
+        StaticMeshBatching::Stage m_stage = StaticMeshBatching::Stage::Final;
+        const RenderFeatureSettings& m_featureSettings;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};
@@ -490,7 +529,11 @@ namespace Cue::DrawSystem
     class PrefixSumPass final : public RHI::FrameGraphPass
     {
       public:
-        PrefixSumPass()
+        PrefixSumPass(
+            StaticMeshBatching::Stage stage,
+            const RenderFeatureSettings& featureSettings)
+            : m_stage(stage),
+              m_featureSettings(featureSettings)
         {
         }
 
@@ -501,6 +544,12 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return StaticMeshBatching::is_stage_enabled(
+                m_stage, m_featureSettings);
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -605,6 +654,8 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_batchObjectCountBuffer{};
         RHI::BufferHandle m_batchObjectStartBuffer{};
         RHI::BufferHandle m_batchObjectOffsetBuffer{};
+        StaticMeshBatching::Stage m_stage = StaticMeshBatching::Stage::Final;
+        const RenderFeatureSettings& m_featureSettings;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};
@@ -616,11 +667,15 @@ namespace Cue::DrawSystem
         BatchFillPass(const DrawFrameState& drawFrameState,
                       RHI::BufferHandle renderObjectBuffer,
                       RHI::BufferHandle visibleObjectCountBuffer,
-                      uint32_t maxDrawInstanceCount)
+                      uint32_t maxDrawInstanceCount,
+                      StaticMeshBatching::Stage stage,
+                      const RenderFeatureSettings& featureSettings)
             : m_drawFrameState(drawFrameState),
               m_renderObjectBuffer(renderObjectBuffer),
               m_visibleObjectCountBuffer(visibleObjectCountBuffer),
-              m_maxDrawInstanceCount(maxDrawInstanceCount)
+              m_maxDrawInstanceCount(maxDrawInstanceCount),
+              m_stage(stage),
+              m_featureSettings(featureSettings)
         {
         }
 
@@ -631,6 +686,12 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return StaticMeshBatching::is_stage_enabled(
+                m_stage, m_featureSettings);
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -775,6 +836,8 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_renderObjectIndexBuffer{};
         RHI::BufferHandle m_batchObjectOffsetBuffer{};
         uint32_t m_maxDrawInstanceCount = 0;
+        StaticMeshBatching::Stage m_stage = StaticMeshBatching::Stage::Final;
+        const RenderFeatureSettings& m_featureSettings;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};
@@ -783,7 +846,11 @@ namespace Cue::DrawSystem
     class IndirectCommandEmitPass final : public RHI::FrameGraphPass
     {
       public:
-        IndirectCommandEmitPass()
+        IndirectCommandEmitPass(
+            StaticMeshBatching::Stage stage,
+            const RenderFeatureSettings& featureSettings)
+            : m_stage(stage),
+              m_featureSettings(featureSettings)
         {
         }
 
@@ -794,6 +861,12 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return StaticMeshBatching::is_stage_enabled(
+                m_stage, m_featureSettings);
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -945,6 +1018,218 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_batchObjectStartBuffer{};
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
+        StaticMeshBatching::Stage m_stage = StaticMeshBatching::Stage::Final;
+        const RenderFeatureSettings& m_featureSettings;
+        RHI::RootSignatureHandle m_rootSignature{};
+        RHI::ShaderBlobHandle m_computeShader{};
+        RHI::PipelineStateHandle m_pipeline{};
+    };
+
+    class DirectCommandEmitPass final : public RHI::FrameGraphPass
+    {
+      public:
+        DirectCommandEmitPass(const DrawFrameState& drawFrameState,
+                              RHI::BufferHandle renderObjectBuffer,
+                              RHI::BufferHandle visibleObjectCountBuffer,
+                              uint32_t maxCommandCount,
+                              const RenderFeatureSettings& featureSettings)
+            : m_drawFrameState(drawFrameState),
+              m_renderObjectBuffer(renderObjectBuffer),
+              m_visibleObjectCountBuffer(visibleObjectCountBuffer),
+              m_maxCommandCount(maxCommandCount),
+              m_featureSettings(featureSettings)
+        {
+        }
+
+        const char* name() const noexcept override
+        {
+            return "DirectCommandEmit";
+        }
+        RHI::CommandListType type() const noexcept override
+        {
+            return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return !m_featureSettings.batchingEnabled;
+        }
+
+        Result setup(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result =
+                builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_renderObjectBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_visibleObjectCountBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer("RenderObjectIndexBuffer",
+                                        m_renderObjectIndexBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer("IndirectCommandBuffer",
+                                        m_indirectCommandBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer("IndirectCommandCountBuffer",
+                                        m_indirectCommandCountBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_view("IndirectCommandCountBufferUAV",
+                                      m_indirectCommandCountUav);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::RootSignatureDesc rootSignatureDesc{};
+            rootSignatureDesc.name = "DirectCommandEmitRootSignature";
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                  RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2 });
+            result = builder.create_root_signature(rootSignatureDesc,
+                                                   m_rootSignature);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ShaderCompileDesc shaderDesc{};
+            shaderDesc.name = "DirectCommandEmitCS";
+            shaderDesc.filePath =
+                "Shaders/D3D12/StaticMeshDirectCommandEmit.hlsl";
+            shaderDesc.entryPoint = "CSMain";
+            shaderDesc.targetProfile = "cs_6_0";
+            result = builder.create_shader_blob(shaderDesc, m_computeShader);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ComputePipelineStateDesc pipelineDesc{};
+            pipelineDesc.name = "DirectCommandEmitPipeline";
+            pipelineDesc.rootSignatureHandle = m_rootSignature;
+            pipelineDesc.csHandle = m_computeShader;
+            return builder.create_compute_pipeline(pipelineDesc, m_pipeline);
+        }
+
+        Result describe_resources(RHI::FrameGraphBuilder& builder) override
+        {
+            Result result = builder.use_buffer(
+                m_meshRangeBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_renderObjectBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_visibleObjectCountBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_renderObjectIndexBuffer, RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_indirectCommandBuffer, RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::IndirectArgument);
+            if (!result)
+            {
+                return result;
+            }
+            return builder.use_buffer(
+                m_indirectCommandCountBuffer, RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::IndirectArgument);
+        }
+
+        void execute(RHI::FrameGraphContext& context) override
+        {
+            RHI::ICommandContext* commandContext = context.commandContext();
+            if (commandContext == nullptr)
+            {
+                return;
+            }
+
+            const DrawFrameData& frameState =
+                m_drawFrameState.frame_state(context.frame_index());
+            if (frameState.objectCount == 0)
+            {
+                return;
+            }
+
+            const uint32_t clearValues[4] = { 0, 0, 0, 0 };
+            commandContext->clear_unordered_access_uint(
+                m_indirectCommandCountUav, clearValues);
+            commandContext->set_compute_pipeline(m_pipeline);
+            commandContext->set_32bit_constant(0, m_maxCommandCount);
+            commandContext->set_srv(1, m_meshRangeBuffer);
+            commandContext->set_srv(2, m_renderObjectBuffer);
+            commandContext->set_srv(3, m_visibleObjectCountBuffer);
+            commandContext->set_uav(4, m_renderObjectIndexBuffer);
+            commandContext->set_uav(5, m_indirectCommandBuffer);
+            commandContext->set_uav(6, m_indirectCommandCountBuffer);
+            commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1,
+                                     1);
+        }
+
+      private:
+        const DrawFrameState& m_drawFrameState;
+        RHI::BufferHandle m_meshRangeBuffer{};
+        RHI::BufferHandle m_renderObjectBuffer{};
+        RHI::BufferHandle m_visibleObjectCountBuffer{};
+        RHI::BufferHandle m_renderObjectIndexBuffer{};
+        RHI::BufferHandle m_indirectCommandBuffer{};
+        RHI::BufferHandle m_indirectCommandCountBuffer{};
+        RHI::ViewHandle m_indirectCommandCountUav{};
+        uint32_t m_maxCommandCount = 0;
+        const RenderFeatureSettings& m_featureSettings;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

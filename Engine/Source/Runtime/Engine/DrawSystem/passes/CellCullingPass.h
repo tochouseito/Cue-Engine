@@ -9,20 +9,26 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 
 namespace Cue::DrawSystem {
 class CellCullingPass final : public RHI::FrameGraphPass {
 public:
   CellCullingPass(const DrawFrameState &drawFrameState,
                   RHI::BufferHandle renderCellBuffer,
-                  RHI::BufferHandle viewProjectionBuffer, uint32_t maxCellCount)
+                  RHI::BufferHandle viewProjectionBuffer, uint32_t maxCellCount,
+                  const RenderFeatureSettings &featureSettings)
       : m_drawFrameState(drawFrameState), m_renderCellBuffer(renderCellBuffer),
         m_viewProjectionBuffer(viewProjectionBuffer),
-        m_maxCellCount(maxCellCount) {}
+        m_maxCellCount(maxCellCount), m_featureSettings(featureSettings) {}
 
   const char *name() const noexcept override { return "CellCulling"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Compute;
+  }
+  bool is_enabled(uint32_t a_frameIndex) const noexcept override {
+    a_frameIndex;
+    return m_featureSettings.hiZEnabled;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -208,6 +214,7 @@ private:
   RHI::BufferHandle m_visibleCellIndexBuffer{};
   RHI::BufferHandle m_visibleCellCountBuffer{};
   RHI::ViewHandle m_visibleCellCountUav{};
+  const RenderFeatureSettings &m_featureSettings;
   uint32_t m_maxCellCount = 0;
   uint32_t m_tileSize = 16u;
   uint32_t m_tileCountX = 0;
@@ -227,7 +234,8 @@ public:
                     RHI::BufferHandle visibleObjectCountBuffer,
                     RHI::ViewHandle visibleObjectCountUav,
                     uint32_t maxCellCount, uint32_t cellObjectCapacity,
-                    uint32_t maxObjectCount)
+                    uint32_t maxObjectCount,
+                    const RenderFeatureSettings &featureSettings)
       : m_drawFrameState(drawFrameState),
         m_renderableInfoBuffer(renderableInfoBuffer),
         m_renderCellBuffer(renderCellBuffer),
@@ -236,11 +244,15 @@ public:
         m_visibleObjectCountBuffer(visibleObjectCountBuffer),
         m_visibleObjectCountUav(visibleObjectCountUav),
         m_maxCellCount(maxCellCount), m_cellObjectCapacity(cellObjectCapacity),
-        m_maxObjectCount(maxObjectCount) {}
+        m_maxObjectCount(maxObjectCount), m_featureSettings(featureSettings) {}
 
   const char *name() const noexcept override { return "ObjectCulling"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Compute;
+  }
+  bool is_enabled(uint32_t a_frameIndex) const noexcept override {
+    a_frameIndex;
+    return m_featureSettings.hiZEnabled;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -436,6 +448,7 @@ private:
   RHI::BufferHandle m_visibleCellCountBuffer{};
   RHI::BufferHandle m_hizDepthBuffer{};
   RHI::ViewHandle m_visibleObjectCountUav{};
+  const RenderFeatureSettings &m_featureSettings;
   uint32_t m_maxCellCount = 0;
   uint32_t m_cellObjectCapacity = 1;
   uint32_t m_maxObjectCount = 0;

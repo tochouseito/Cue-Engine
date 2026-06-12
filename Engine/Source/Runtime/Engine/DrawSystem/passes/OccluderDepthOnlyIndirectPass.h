@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 
 namespace Cue::DrawSystem
 {
@@ -82,12 +83,14 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
                                   RHI::BufferHandle renderObjectBuffer,
                                   RHI::BufferHandle transformBuffer,
                                   RHI::BufferHandle viewProjectionBuffer,
-                                  uint32_t maxIndirectCommandCount)
+                                  uint32_t maxIndirectCommandCount,
+                                  const RenderFeatureSettings &featureSettings)
         : m_drawFrameState(drawFrameState),
           m_renderObjectBuffer(renderObjectBuffer),
           m_transformBuffer(transformBuffer),
           m_viewProjectionBuffer(viewProjectionBuffer),
-          m_maxIndirectCommandCount(maxIndirectCommandCount)
+          m_maxIndirectCommandCount(maxIndirectCommandCount),
+          m_featureSettings(featureSettings)
     {
     }
 
@@ -98,6 +101,11 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
     RHI::CommandListType type() const noexcept override
     {
         return RHI::CommandListType::Graphics;
+    }
+    bool is_enabled(uint32_t a_frameIndex) const noexcept override
+    {
+        a_frameIndex;
+        return m_featureSettings.hiZEnabled;
     }
 
     Result setup(RHI::FrameGraphBuilder &builder) override
@@ -351,6 +359,7 @@ class OccluderDepthOnlyIndirectPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_transformBuffer{};
     RHI::BufferHandle m_viewProjectionBuffer{};
     uint32_t m_maxIndirectCommandCount = 0;
+    const RenderFeatureSettings &m_featureSettings;
     RHI::BufferHandle m_positionBuffer{};
     RHI::BufferHandle m_indexBuffer{};
     RHI::BufferHandle m_indirectCommandBuffer{};

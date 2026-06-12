@@ -70,6 +70,21 @@ cbuffer TileSizeParam : register(b4)
     uint g_tileSize;
 };
 
+cbuffer FeatureFlagsParam : register(b5)
+{
+    uint g_enableGpuCulling;
+};
+
+cbuffer LodFlagsParam : register(b6)
+{
+    uint g_enableLod;
+};
+
+cbuffer HizFlagsParam : register(b7)
+{
+    uint g_enableHiZ;
+};
+
 StructuredBuffer<RenderableInfo> g_renderableInfos : register(t0);
 ByteAddressBuffer g_hizDepth : register(t1);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
@@ -358,8 +373,10 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         renderableInfo = g_renderableInfos[objectId];
         visible =
             renderableInfo.visible != 0 &&
-            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
-            !is_occluded_by_hiz(renderableInfo.boundsCenterRadius);
+            (g_enableGpuCulling == 0u ||
+                is_sphere_inside_frustum(renderableInfo.boundsCenterRadius)) &&
+            (g_enableHiZ == 0u ||
+                !is_occluded_by_hiz(renderableInfo.boundsCenterRadius));
     }
 
     // wave 単位で compact append し、visible object count の atomic 回数を減らす。
@@ -382,7 +399,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint lodIndex = select_lod(renderableInfo);
+    const uint lodIndex = g_enableLod != 0u ? select_lod(renderableInfo) : 0u;
     const uint objectOffset = waveBaseOffset + WavePrefixCountBits(visible);
     if (objectOffset >= g_objectCount)
     {

@@ -7,6 +7,9 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === Engine includes ===
+#include "DrawSystem/RenderFeatureSettings.h"
+
 // === C++ includes ===
 #include <vector>
 
@@ -112,12 +115,19 @@ namespace Cue::DrawSystem
     class BuildHiZDepthPass final : public RHI::FrameGraphPass
     {
     public:
-        BuildHiZDepthPass() = default;
+        explicit BuildHiZDepthPass(const RenderFeatureSettings& featureSettings)
+            : m_featureSettings(featureSettings)
+        {}
 
         const char* name() const noexcept override { return "BuildHiZDepth"; }
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return m_featureSettings.hiZEnabled;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -266,6 +276,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_sceneDepthSrv{};
         RHI::ViewHandle m_hizDepthUav{};
+        const RenderFeatureSettings& m_featureSettings;
         uint32_t m_fullWidth = 0;
         uint32_t m_fullHeight = 0;
         uint32_t m_depthWidth = 0;

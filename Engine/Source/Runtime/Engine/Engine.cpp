@@ -782,6 +782,24 @@ RHI::FrameGraphExecutionStats Engine::render_execution_stats() const noexcept
     return m_frameGraph->execution_stats_copy();
 }
 
+DrawSystem::RenderComparisonMode Engine::render_comparison_mode() const noexcept
+{
+    return m_renderFeatureSettings.mode;
+}
+
+const DrawSystem::RenderFeatureSettings&
+Engine::render_feature_settings() const noexcept
+{
+    return m_renderFeatureSettings;
+}
+
+void Engine::set_render_comparison_mode(
+    DrawSystem::RenderComparisonMode mode) noexcept
+{
+    m_renderFeatureSettings =
+        DrawSystem::render_feature_settings_for_mode(mode);
+}
+
 void Engine::set_directional_light_enabled(bool enabled) noexcept
 {
     m_enableDirectionalLight = enabled;
@@ -1033,38 +1051,61 @@ Result Engine::create_frame_graphs(
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::InitializeHiZDepthPass>());
         m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::GenerateVisibleListPass>(
+                m_drawFrameState,
+                m_drawResources->renderable_info_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_uav_handle(),
+                m_renderFeatureSettings));
+        m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ObjectCullAndLodPass>(
                 m_drawFrameState,
                 m_drawResources->renderable_info_buffer_handle(),
                 m_drawResources->view_projection_buffer_handle(),
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->visible_object_count_buffer_handle(),
-                m_drawResources->visible_object_count_buffer_uav_handle()));
+                m_drawResources->visible_object_count_buffer_uav_handle(),
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ResetBatchCountersPass>(
-                m_maxObjectCount));
+                m_maxObjectCount, true,
+                DrawSystem::StaticMeshBatching::Stage::Occluder,
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+            m_drawResources->visible_object_count_buffer_handle(),
+            DrawSystem::StaticMeshBatching::Stage::Occluder,
+            m_renderFeatureSettings));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>(
+            DrawSystem::StaticMeshBatching::Stage::Occluder,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
             m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount));
+            m_maxObjectCount,
+            DrawSystem::StaticMeshBatching::Stage::Occluder,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>(
+                DrawSystem::StaticMeshBatching::Stage::Occluder,
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::OccluderDepthOnlyIndirectPass>(
                 m_drawFrameState,
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->transform_buffer_handle(),
                 m_drawResources->view_projection_buffer_handle(),
-                m_maxObjectCount));
+                m_maxObjectCount,
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::BuildHiZDepthPass>());
+            std::make_unique<DrawSystem::BuildHiZDepthPass>(
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::CellCullingPass>(
             m_drawFrameState, m_drawResources->render_cell_buffer_handle(),
-            m_drawResources->view_projection_buffer_handle(), m_maxCellCount));
+            m_drawResources->view_projection_buffer_handle(), m_maxCellCount,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullingPass>(
             m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
             m_drawResources->render_cell_buffer_handle(),
@@ -1072,20 +1113,38 @@ Result Engine::create_frame_graphs(
             m_drawResources->render_object_buffer_handle(),
             m_drawResources->visible_object_count_buffer_handle(),
             m_drawResources->visible_object_count_buffer_uav_handle(),
-            m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount));
+            m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ResetBatchCountersPass>(
-                m_maxObjectCount, false));
+                m_maxObjectCount, false,
+                DrawSystem::StaticMeshBatching::Stage::Final,
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+            m_drawResources->visible_object_count_buffer_handle(),
+            DrawSystem::StaticMeshBatching::Stage::Final,
+            m_renderFeatureSettings));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>(
+            DrawSystem::StaticMeshBatching::Stage::Final,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
             m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount));
+            m_maxObjectCount,
+            DrawSystem::StaticMeshBatching::Stage::Final,
+            m_renderFeatureSettings));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>(
+                DrawSystem::StaticMeshBatching::Stage::Final,
+                m_renderFeatureSettings));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::DirectCommandEmitPass>(
+                m_drawFrameState,
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                m_maxObjectCount,
+                m_renderFeatureSettings));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::SceneDepthClearPass>());
         m_frameGraph->add_pass(

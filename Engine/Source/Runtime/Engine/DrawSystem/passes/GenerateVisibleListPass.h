@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 
 namespace Cue::DrawSystem
 {
@@ -20,19 +21,26 @@ namespace Cue::DrawSystem
             RHI::BufferHandle viewProjectionBuffer,
             RHI::BufferHandle renderObjectBuffer,
             RHI::BufferHandle visibleObjectCountBuffer,
-            RHI::ViewHandle visibleObjectCountUav)
+            RHI::ViewHandle visibleObjectCountUav,
+            const RenderFeatureSettings& featureSettings)
             : m_drawFrameState(drawFrameState)
             , m_renderableInfoBuffer(renderableInfoBuffer)
             , m_viewProjectionBuffer(viewProjectionBuffer)
             , m_renderObjectBuffer(renderObjectBuffer)
             , m_visibleObjectCountBuffer(visibleObjectCountBuffer)
             , m_visibleObjectCountUav(visibleObjectCountUav)
+            , m_featureSettings(featureSettings)
         {}
 
         const char* name() const noexcept override { return "GenerateVisibleList"; }
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return !m_featureSettings.hiZEnabled;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -90,6 +98,15 @@ namespace Cue::DrawSystem
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 5 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 6 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 7 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
@@ -197,10 +214,16 @@ namespace Cue::DrawSystem
             commandContext->set_32bit_constant(2, m_tileCountX);
             commandContext->set_32bit_constant(3, m_tileCountY);
             commandContext->set_32bit_constant(4, m_tileSize);
-            commandContext->set_srv(5, m_renderableInfoBuffer);
-            commandContext->set_srv(6, m_hizDepthBuffer);
-            commandContext->set_uav(7, m_renderObjectBuffer);
-            commandContext->set_uav(8, m_visibleObjectCountBuffer);
+            commandContext->set_32bit_constant(
+                5, m_featureSettings.gpuCullingEnabled ? 1u : 0u);
+            commandContext->set_32bit_constant(
+                6, m_featureSettings.lodEnabled ? 1u : 0u);
+            commandContext->set_32bit_constant(
+                7, m_featureSettings.hiZEnabled ? 1u : 0u);
+            commandContext->set_srv(8, m_renderableInfoBuffer);
+            commandContext->set_srv(9, m_hizDepthBuffer);
+            commandContext->set_uav(10, m_renderObjectBuffer);
+            commandContext->set_uav(11, m_visibleObjectCountBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
@@ -212,6 +235,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
+        const RenderFeatureSettings& m_featureSettings;
         uint32_t m_tileSize = 16u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;

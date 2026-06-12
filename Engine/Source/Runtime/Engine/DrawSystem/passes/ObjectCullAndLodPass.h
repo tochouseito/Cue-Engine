@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 
 namespace Cue::DrawSystem
 {
@@ -21,13 +22,15 @@ namespace Cue::DrawSystem
             RHI::BufferHandle viewProjectionBuffer,
             RHI::BufferHandle renderObjectBuffer,
             RHI::BufferHandle visibleObjectCountBuffer,
-            RHI::ViewHandle visibleObjectCountUav)
+            RHI::ViewHandle visibleObjectCountUav,
+            const RenderFeatureSettings& featureSettings)
             : m_drawFrameState(drawFrameState)
             , m_renderableInfoBuffer(renderableInfoBuffer)
             , m_viewProjectionBuffer(viewProjectionBuffer)
             , m_renderObjectBuffer(renderObjectBuffer)
             , m_visibleObjectCountBuffer(visibleObjectCountBuffer)
             , m_visibleObjectCountUav(visibleObjectCountUav)
+            , m_featureSettings(featureSettings)
         {}
 
         const char* name() const noexcept override
@@ -37,6 +40,11 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+        bool is_enabled(uint32_t a_frameIndex) const noexcept override
+        {
+            a_frameIndex;
+            return m_featureSettings.hiZEnabled;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -171,6 +179,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_renderObjectBuffer{};
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
+        const RenderFeatureSettings& m_featureSettings;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

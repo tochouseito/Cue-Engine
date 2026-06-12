@@ -23,6 +23,7 @@
 #include "DrawSystem/DrawFrameState.h"
 #include "DrawSystem/DrawResources.h"
 #include "DrawSystem/MeshPool.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 #include "FrameController.h"
 #include "GpuData/Batching.h"
 #include "GpuData/ClusteredLighting.h"
@@ -124,6 +125,12 @@ class Engine final
     [[nodiscard]] EngineDebugStats debug_stats() const noexcept;
     [[nodiscard]] RHI::FrameGraphExecutionStats render_execution_stats()
         const noexcept;
+    [[nodiscard]] DrawSystem::RenderComparisonMode render_comparison_mode()
+        const noexcept;
+    [[nodiscard]] const DrawSystem::RenderFeatureSettings&
+    render_feature_settings() const noexcept;
+    void set_render_comparison_mode(
+        DrawSystem::RenderComparisonMode mode) noexcept;
     void set_directional_light_enabled(bool enabled) noexcept;
 
     //
@@ -188,6 +195,9 @@ class Engine final
     uint32_t m_maxPointLightCount = 0;
     uint32_t m_pointLightBufferCapacity = 1;
     bool m_enableDirectionalLight = true;
+    DrawSystem::RenderFeatureSettings m_renderFeatureSettings =
+        DrawSystem::render_feature_settings_for_mode(
+            DrawSystem::RenderComparisonMode::Final);
     uint32_t m_drawMeshId = UINT32_MAX;
     std::array<uint32_t, 5> m_drawLodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
                                              UINT32_MAX, UINT32_MAX};
