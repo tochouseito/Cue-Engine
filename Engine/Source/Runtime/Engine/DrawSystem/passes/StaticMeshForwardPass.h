@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderFeatureSettings.h"
 #include "DrawSystem/passes/ClusteredLightingPass.h"
 
 // === C++ includes ===
@@ -29,7 +30,8 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
                           RHI::BufferHandle lightFrameBuffer,
                           RHI::BufferHandle directionalLightBuffer,
                           RHI::BufferHandle pointLightBuffer,
-                          uint32_t maxIndirectCommandCount)
+                          uint32_t maxIndirectCommandCount,
+                          const RenderFeatureSettings &featureSettings)
         : m_drawFrameState(drawFrameState),
           m_renderObjectBuffer(renderObjectBuffer),
           m_transformBuffer(transformBuffer),
@@ -39,7 +41,8 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
           m_lightFrameBuffer(lightFrameBuffer),
           m_directionalLightBuffer(directionalLightBuffer),
           m_pointLightBuffer(pointLightBuffer),
-          m_maxIndirectCommandCount(maxIndirectCommandCount)
+          m_maxIndirectCommandCount(maxIndirectCommandCount),
+          m_featureSettings(featureSettings)
     {
     }
 
@@ -172,6 +175,11 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
+        result = builder.get_buffer("HiZDepthBuffer", m_hizDepthBuffer);
+        if (!result)
+        {
+            return result;
+        }
 
         m_screenWidth = builder.width();
         m_screenHeight = builder.height();
@@ -238,6 +246,14 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7});
         rootSignatureDesc.parameters.push_back(
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 11});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 9});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::_32BitConstants,
+             RHI::ShaderVisibility::All, 12});
         result =
             builder.create_root_signature(rootSignatureDesc, m_rootSignature);
         if (!result)
@@ -419,8 +435,16 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
-        return builder.use_buffer(
+        result = builder.use_buffer(
             m_clusterLightIndexBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+        return builder.use_buffer(
+            m_hizDepthBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::ShaderResource,
             RHI::ResourceState::ShaderResource);
     }
@@ -435,7 +459,13 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
 
         static constexpr Math::float4 k_clearColor =
             Math::float4::from_rgba8(0, 0, 0, 255);
-        commandContext->clear_render_target(m_colorRtv, k_clearColor.data());
+        static constexpr Math::float4 k_cullingClearColor =
+            Math::float4::from_rgba8(48, 8, 8, 255);
+        const Math::float4& clearColor =
+            m_featureSettings.debugViewMode == RenderDebugViewMode::Culling
+                ? k_cullingClearColor
+                : k_clearColor;
+        commandContext->clear_render_target(m_colorRtv, clearColor.data());
         commandContext->clear_depth_stencil(m_depthDsv, 1.0f, 0);
         commandContext->set_render_targets(&m_colorRtv, 1, m_depthDsv);
         commandContext->set_viewport_scissor(context.width(), context.height());
@@ -466,6 +496,10 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             17, float_to_uint32(m_clusterInvLogFarNear));
         commandContext->set_srv(18, m_clusterLightRangeBuffer);
         commandContext->set_srv(19, m_clusterLightIndexBuffer);
+        commandContext->set_32bit_constant(
+            20, static_cast<uint32_t>(m_featureSettings.debugViewMode));
+        commandContext->set_srv(21, m_hizDepthBuffer);
+        commandContext->set_32bit_constant(22, m_hizTileSize);
         commandContext->set_vertex_buffer(0, m_positionBuffer);
         commandContext->set_vertex_buffer(1, m_uvBuffer);
         commandContext->set_vertex_buffer(2, m_normalBuffer);
@@ -499,6 +533,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_directionalLightBuffer{};
     RHI::BufferHandle m_pointLightBuffer{};
     uint32_t m_maxIndirectCommandCount = 0;
+    const RenderFeatureSettings &m_featureSettings;
     RHI::BufferHandle m_positionBuffer{};
     RHI::BufferHandle m_uvBuffer{};
     RHI::BufferHandle m_normalBuffer{};
@@ -508,8 +543,10 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_renderObjectIndexBuffer{};
     RHI::BufferHandle m_clusterLightRangeBuffer{};
     RHI::BufferHandle m_clusterLightIndexBuffer{};
+    RHI::BufferHandle m_hizDepthBuffer{};
     uint32_t m_screenWidth = 0;
     uint32_t m_screenHeight = 0;
+    uint32_t m_hizTileSize = 16;
     uint32_t m_clusterTileCountX = 0;
     uint32_t m_clusterTileCountY = 0;
     uint32_t m_clusterDepthSliceCount = 0;

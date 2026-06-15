@@ -13,6 +13,7 @@
 #include "DrawSystem/passes/BuildHiZDepthPass.h"
 #include "DrawSystem/passes/CellCullingPass.h"
 #include "DrawSystem/passes/ClusteredLightingPass.h"
+#include "DrawSystem/passes/DrawStatsReadbackPass.h"
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
@@ -793,11 +794,25 @@ Engine::render_feature_settings() const noexcept
     return m_renderFeatureSettings;
 }
 
+DrawSystem::RenderDebugViewMode Engine::render_debug_view_mode() const noexcept
+{
+    return m_renderFeatureSettings.debugViewMode;
+}
+
 void Engine::set_render_comparison_mode(
     DrawSystem::RenderComparisonMode mode) noexcept
 {
+    const DrawSystem::RenderDebugViewMode debugViewMode =
+        m_renderFeatureSettings.debugViewMode;
     m_renderFeatureSettings =
         DrawSystem::render_feature_settings_for_mode(mode);
+    m_renderFeatureSettings.debugViewMode = debugViewMode;
+}
+
+void Engine::set_render_debug_view_mode(
+    DrawSystem::RenderDebugViewMode mode) noexcept
+{
+    m_renderFeatureSettings.debugViewMode = mode;
 }
 
 void Engine::set_directional_light_enabled(bool enabled) noexcept
@@ -1146,6 +1161,13 @@ Result Engine::create_frame_graphs(
                 m_maxObjectCount,
                 m_renderFeatureSettings));
         m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::DrawStatsReadbackPass>(
+                m_renderBackend->get_buffer_manager(),
+                m_drawFrameState,
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                &m_debugStats));
+        m_frameGraph->add_pass(
             std::make_unique<DrawSystem::SceneDepthClearPass>());
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshForwardPass>(
@@ -1158,7 +1180,8 @@ Result Engine::create_frame_graphs(
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->directional_light_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
-                m_maxObjectCount));
+                m_maxObjectCount,
+                m_renderFeatureSettings));
     }
 
     result = m_frameGraph->build();

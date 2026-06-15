@@ -413,9 +413,15 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                     renderableInfo.skinPaletteOffset;
                 renderObject.skinPaletteCount =
                     renderableInfo.skinPaletteCount;
-                renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+                const uint proxyFlag =
+                    (renderableInfo.occluderFlags != 0u &&
+                     renderableInfo.occluderMeshId != meshId)
+                        ? 2u
+                        : 0u;
+                renderObject.drawFlags =
+                    (lodIndex == 4u ? 1u : 0u) | proxyFlag;
                 renderObject.depthBin = depthBin;
-                renderObject.padding = 0u;
+                renderObject.padding = lodIndex;
                 renderObject.boundsCenterRadius =
                     renderableInfo.boundsCenterRadius;
                 g_renderObjects[objectOffset] = renderObject;

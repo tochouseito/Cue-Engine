@@ -83,6 +83,9 @@ struct VsOutput
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
     nointerpolation uint materialId : TEXCOORD1;
+    nointerpolation uint lodIndex : TEXCOORD2;
+    nointerpolation uint drawFlags : TEXCOORD3;
+    nointerpolation uint depthBin : TEXCOORD4;
 };
 
 cbuffer ViewProjection : register(b0)
@@ -108,6 +111,7 @@ StructuredBuffer<PointLight> g_pointLights : register(t5);
 StructuredBuffer<uint> g_renderObjectIndices : register(t6);
 StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t7);
 StructuredBuffer<uint> g_clusterLightIndices : register(t8);
+ByteAddressBuffer g_hizDepth : register(t9);
 
 cbuffer ScreenWidthParam : register(b3)
 {
@@ -149,6 +153,16 @@ cbuffer ClusterInvLogFarNearParam : register(b10)
     float g_clusterInvLogFarNear;
 };
 
+cbuffer DebugViewModeParam : register(b11)
+{
+    uint g_debugViewMode;
+};
+
+cbuffer HiZTileSizeParam : register(b12)
+{
+    uint g_hizTileSize;
+};
+
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectIndex =
@@ -161,6 +175,9 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
     VsOutput output;
     output.texcoord = input.texcoord;
     output.materialId = renderObject.materialId;
+    output.lodIndex = renderObject.padding;
+    output.drawFlags = renderObject.drawFlags;
+    output.depthBin = renderObject.depthBin;
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
@@ -230,6 +247,74 @@ uint compute_cluster_index(float4 screenPosition, float viewZ)
     return (sliceZ * tileCountY + tileY) * tileCountX + tileX;
 }
 
+float3 heat_color(float value)
+{
+    const float v = saturate(value);
+    return saturate(float3(v * 2.0f - 0.15f,
+                           1.0f - abs(v - 0.5f) * 2.0f,
+                           1.15f - v * 2.0f));
+}
+
+float3 lod_debug_color(uint lodIndex)
+{
+    if (lodIndex == 0u)
+    {
+        return float3(1.0f, 0.12f, 0.08f);
+    }
+    if (lodIndex == 1u)
+    {
+        return float3(0.1f, 0.95f, 0.2f);
+    }
+    if (lodIndex == 2u)
+    {
+        return float3(0.15f, 0.35f, 1.0f);
+    }
+    if (lodIndex == 3u)
+    {
+        return float3(1.0f, 0.9f, 0.08f);
+    }
+    return float3(1.0f, 0.15f, 0.95f);
+}
+
+float3 depth_debug_color(float viewZ)
+{
+    const float viewDepth = max(abs(viewZ), g_clusterNearZ);
+    const float depth01 =
+        saturate(log(viewDepth / g_clusterNearZ) *
+                 max(g_clusterInvLogFarNear, 0.0001f));
+    return float3(depth01, depth01, depth01);
+}
+
+float3 hiz_debug_color(float4 screenPosition)
+{
+    const uint tileSize = max(g_hizTileSize, 1u);
+    const uint tileCountX = max((g_screenWidth + tileSize - 1u) / tileSize, 1u);
+    const uint tileCountY =
+        max((g_screenHeight + tileSize - 1u) / tileSize, 1u);
+    const uint tileX = min((uint)(screenPosition.x) / tileSize, tileCountX - 1u);
+    const uint tileY = min((uint)(screenPosition.y) / tileSize, tileCountY - 1u);
+    const uint tileIndex = tileY * tileCountX + tileX;
+    const uint quantizedDepth = g_hizDepth.Load(tileIndex * 4u);
+    const float depth01 = (float)quantizedDepth * (1.0f / 4294967295.0f);
+    return heat_color(depth01);
+}
+
+float3 cluster_debug_color(float4 screenPosition, float viewZ)
+{
+    const uint clusterIndex = compute_cluster_index(screenPosition, viewZ);
+    const ClusterLightRange range = g_clusterLightRanges[clusterIndex];
+    if (range.overflow != 0u)
+    {
+        return float3(1.0f, 0.0f, 1.0f);
+    }
+
+    const float load01 = saturate((float)range.count / 16.0f);
+    const float hash01 = (float)((range.hash ^ clusterIndex) & 255u) / 255.0f;
+    return lerp(float3(hash01 * 0.25f, 0.12f, 0.35f),
+                heat_color(load01),
+                0.8f);
+}
+
 float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
                          float3 viewPosition, float3 worldNormal)
 {
@@ -280,6 +365,37 @@ float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
 
 float4 ps_main(VsOutput input) : SV_Target0
 {
+    if (g_debugViewMode == 1u)
+    {
+        return float4(lod_debug_color(input.lodIndex), 1.0f);
+    }
+    if (g_debugViewMode == 2u)
+    {
+        const float dither = (float)(((uint)input.position.x ^
+                                      ((uint)input.position.y * 17u)) & 1u);
+        return float4(0.04f + dither * 0.06f, 0.85f, 0.25f, 1.0f);
+    }
+    if (g_debugViewMode == 3u)
+    {
+        return float4(depth_debug_color(input.viewPosition.z), 1.0f);
+    }
+    if (g_debugViewMode == 4u)
+    {
+        return float4(hiz_debug_color(input.position), 1.0f);
+    }
+    if (g_debugViewMode == 5u)
+    {
+        const bool usesProxy = (input.drawFlags & 2u) != 0u;
+        return usesProxy ? float4(1.0f, 0.55f, 0.05f, 1.0f)
+                         : float4(0.08f, 0.18f, 0.35f, 1.0f);
+    }
+    if (g_debugViewMode == 6u)
+    {
+        return float4(cluster_debug_color(input.position,
+                                          input.viewPosition.z),
+                      1.0f);
+    }
+
     const Material material = g_materials[input.materialId];
     const float3 normal = normalize(input.worldNormal);
     const float3 lighting =

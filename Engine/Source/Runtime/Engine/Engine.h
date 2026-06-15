@@ -129,8 +129,12 @@ class Engine final
         const noexcept;
     [[nodiscard]] const DrawSystem::RenderFeatureSettings&
     render_feature_settings() const noexcept;
+    [[nodiscard]] DrawSystem::RenderDebugViewMode render_debug_view_mode()
+        const noexcept;
     void set_render_comparison_mode(
         DrawSystem::RenderComparisonMode mode) noexcept;
+    void set_render_debug_view_mode(
+        DrawSystem::RenderDebugViewMode mode) noexcept;
     void set_directional_light_enabled(bool enabled) noexcept;
 
     //

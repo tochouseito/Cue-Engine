@@ -16,6 +16,17 @@ namespace Cue::DrawSystem
         Final,
     };
 
+    enum class RenderDebugViewMode : int
+    {
+        None = 0,
+        LodColor,
+        Culling,
+        DepthBuffer,
+        HiZ,
+        OccluderProxy,
+        ClusteredLighting,
+    };
+
     struct RenderFeatureSettings final
     {
         RenderComparisonMode mode = RenderComparisonMode::Final;
@@ -23,6 +34,7 @@ namespace Cue::DrawSystem
         bool lodEnabled = true;
         bool hiZEnabled = true;
         bool batchingEnabled = true;
+        RenderDebugViewMode debugViewMode = RenderDebugViewMode::None;
     };
 
     [[nodiscard]] inline RenderFeatureSettings
@@ -88,6 +100,30 @@ namespace Cue::DrawSystem
             return "Batching";
         case RenderComparisonMode::Final:
             return "Final";
+        default:
+            return "Unknown";
+        }
+    }
+
+    [[nodiscard]] inline const char*
+    render_debug_view_mode_label(RenderDebugViewMode mode) noexcept
+    {
+        switch (mode)
+        {
+        case RenderDebugViewMode::None:
+            return "None";
+        case RenderDebugViewMode::LodColor:
+            return "LOD Color";
+        case RenderDebugViewMode::Culling:
+            return "Culling";
+        case RenderDebugViewMode::DepthBuffer:
+            return "Depth Buffer";
+        case RenderDebugViewMode::HiZ:
+            return "Hi-Z Mip / Tile";
+        case RenderDebugViewMode::OccluderProxy:
+            return "Occluder Proxy";
+        case RenderDebugViewMode::ClusteredLighting:
+            return "Clustered Lighting";
         default:
             return "Unknown";
         }

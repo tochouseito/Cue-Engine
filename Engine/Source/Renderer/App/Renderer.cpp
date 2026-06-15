@@ -189,6 +189,21 @@ namespace
         return total;
     }
 
+    [[nodiscard]] double
+    total_gpu_ms(const RHI::FrameGraphExecutionStats& stats) noexcept
+    {
+        double total = 0.0;
+        for (const RHI::FrameGraphExecutionStats::PassExecutionStats& pass :
+             stats.passStats)
+        {
+            if (pass.hasGpuExecuteMs)
+            {
+                total += pass.gpuExecuteMs;
+            }
+        }
+        return total;
+    }
+
     class ImGuiOverlayPass final : public RHI::FrameGraphPass
     {
       public:
@@ -347,12 +362,10 @@ namespace
             const float fps = ImGui::GetIO().Framerate;
             ImGui::Text("FPS / Frame Time: %.1f / %.3f ms", fps,
                         fps > 0.0f ? 1000.0f / fps : 0.0f);
-            ImGui::Text("GPU Frame Time: %s%.3f ms",
-                        frameStats.hasGpuFrameMs ? "" : "~",
-                        frameStats.hasGpuFrameMs ? frameStats.gpuFrameMs
-                                                 : frameStats.totalExecuteMs);
-            ImGui::TextDisabled("Object/draw counters are CPU-side estimates until GPU "
-                                "readback is added.");
+            ImGui::Text("GPU Time: %.3f ms", total_gpu_ms(frameStats));
+            ImGui::Text("Draw Commands: %u", debugStats.indirectDrawCount);
+            ImGui::Text("Visible Objects: %u", debugStats.visibleObjects);
+            ImGui::Text("Culled Objects: %u", debugStats.savedObjectEstimate);
 
             if (ImGui::CollapsingHeader("Pass GPU Time",
                                         ImGuiTreeNodeFlags_DefaultOpen))
@@ -422,13 +435,14 @@ namespace
             {
                 ImGui::Text("total objects: %u", debugStats.totalObjects);
                 ImGui::Text("visible objects: %u", debugStats.visibleObjects);
+                ImGui::Text("culled objects: %u", debugStats.savedObjectEstimate);
                 ImGui::Text("occluded objects: %u", debugStats.occludedObjects);
                 ImGui::Text("culled by frustum: %u", debugStats.frustumCulledObjects);
             }
 
             if (ImGui::CollapsingHeader("Draw", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                ImGui::Text("indirect draw count: %u", debugStats.indirectDrawCount);
+                ImGui::Text("draw commands: %u", debugStats.indirectDrawCount);
                 ImGui::Text("instance count: %u", debugStats.instanceCount);
                 ImGui::Text("triangle estimate: %llu",
                             static_cast<unsigned long long>(
@@ -498,6 +512,46 @@ namespace
                             featureSettings.hiZEnabled ? "ON" : "OFF");
                 ImGui::Text("Batching: %s",
                             featureSettings.batchingEnabled ? "ON" : "OFF");
+
+                DrawSystem::RenderDebugViewMode debugViewMode =
+                    m_engine.render_debug_view_mode();
+                auto debug_view_toggle =
+                    [&](const char* label,
+                        DrawSystem::RenderDebugViewMode mode)
+                {
+                    bool enabled = debugViewMode == mode;
+                    if (ImGui::Checkbox(label, &enabled))
+                    {
+                        debugViewMode =
+                            enabled ? mode
+                                    : DrawSystem::RenderDebugViewMode::None;
+                        m_engine.set_render_debug_view_mode(debugViewMode);
+                    }
+                };
+
+                ImGui::SeparatorText("Debug Visualization");
+                debug_view_toggle(
+                    "LOD color",
+                    DrawSystem::RenderDebugViewMode::LodColor);
+                debug_view_toggle(
+                    "Culling visualization",
+                    DrawSystem::RenderDebugViewMode::Culling);
+                debug_view_toggle(
+                    "Depth Buffer",
+                    DrawSystem::RenderDebugViewMode::DepthBuffer);
+                debug_view_toggle(
+                    "Hi-Z Mip / Tile",
+                    DrawSystem::RenderDebugViewMode::HiZ);
+                debug_view_toggle(
+                    "Occluder Proxy compare",
+                    DrawSystem::RenderDebugViewMode::OccluderProxy);
+                debug_view_toggle(
+                    "Clustered Lighting color",
+                    DrawSystem::RenderDebugViewMode::ClusteredLighting);
+                ImGui::Text("View: %s",
+                            DrawSystem::render_debug_view_mode_label(
+                                debugViewMode));
+
                 if (ImGui::Checkbox("Directional Light", &directionalLightEnabled))
                 {
                     m_engine.set_directional_light_enabled(directionalLightEnabled);

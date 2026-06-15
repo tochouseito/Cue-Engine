@@ -58,6 +58,22 @@ struct RenderObject
     Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
 };
 
+struct DrawStatsGpu
+{
+    uint32_t visibleObjects = 0;
+    uint32_t culledObjects = 0;
+    uint32_t indirectDrawCount = 0;
+    uint32_t instanceCount = 0;
+    uint32_t lod0Count = 0;
+    uint32_t lod1Count = 0;
+    uint32_t lod2Count = 0;
+    uint32_t lod3Count = 0;
+    uint32_t lod4Count = 0;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
+    uint32_t padding2 = 0;
+};
+
 struct RenderCellGpu
 {
     Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);

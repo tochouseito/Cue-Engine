@@ -406,9 +406,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
+    const uint meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+
     RenderObject renderObject;
     renderObject.objectId = renderableInfo.objectId;
-    renderObject.meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+    renderObject.meshId = meshId;
     renderObject.transformId = renderableInfo.transformId;
     renderObject.materialId = renderableInfo.materialId;
     renderObject.castsShadow = renderableInfo.castsShadow;
@@ -416,9 +418,14 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     renderObject.shadowCasterMode = renderableInfo.shadowCasterMode;
     renderObject.skinPaletteOffset = renderableInfo.skinPaletteOffset;
     renderObject.skinPaletteCount = renderableInfo.skinPaletteCount;
-    renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+    const uint proxyFlag =
+        (renderableInfo.occluderFlags != 0u &&
+         renderableInfo.occluderMeshId != meshId)
+            ? 2u
+            : 0u;
+    renderObject.drawFlags = (lodIndex == 4u ? 1u : 0u) | proxyFlag;
     renderObject.depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
-    renderObject.padding = 0u;
+    renderObject.padding = lodIndex;
     renderObject.boundsCenterRadius = renderableInfo.boundsCenterRadius;
     g_renderObjects[objectOffset] = renderObject;
 }
