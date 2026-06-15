@@ -123,7 +123,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         PAL::PlatformMessage message = platform->poll_message();
         if (message == PAL::PlatformMessage::Quit)
         {
-            isRunning = false;
+            break;
         }
 
         // フレーム開始

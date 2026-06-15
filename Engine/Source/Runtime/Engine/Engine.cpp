@@ -71,10 +71,9 @@ namespace Cue
             });
 
         // 共有リソースの作成
-        constexpr float k_finalColorClearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
         r = RHI::create_render_target_resources(
             *m_renderBackend, "FinalColor", RHI::ColorFormat::R8G8B8A8_UNORM,
-            m_finalColorRenderTarget, k_finalColorClearColor);
+            m_finalColorRenderTarget);
         if (!r)
         {
             return r;

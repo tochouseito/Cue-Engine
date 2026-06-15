@@ -146,7 +146,8 @@ namespace Cue::RHI::DX12
                 D3D12_MESSAGE_SEVERITY_CORRUPTION, isDebuggerPresent);
             infoQueue->SetBreakOnSeverity(
                 D3D12_MESSAGE_SEVERITY_ERROR, isDebuggerPresent);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, false);
+            infoQueue->SetBreakOnSeverity(
+                D3D12_MESSAGE_SEVERITY_WARNING, isDebuggerPresent);
             infoQueue->SetBreakOnID(
                 D3D12_MESSAGE_ID_FENCE_ZERO_WAIT, isDebuggerPresent);
 
