@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningThunderThin",
+    "color": {
+        "x": 0.72,
+        "y": 0.92,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Thunder_Thin.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}
