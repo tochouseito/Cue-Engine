@@ -27,7 +27,6 @@ namespace Cue::RHI
         colorDesc.width = a_backend.width();
         colorDesc.height = a_backend.height();
         colorDesc.format = a_format;
-        Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         if (a_clearColor != nullptr)
         {
             colorDesc.clearColor[0] = a_clearColor[0];
@@ -37,10 +36,10 @@ namespace Cue::RHI
         }
         else
         {
-            colorDesc.clearColor[0] = clearColor.r;
-            colorDesc.clearColor[1] = clearColor.g;
-            colorDesc.clearColor[2] = clearColor.b;
-            colorDesc.clearColor[3] = clearColor.a;
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Fatal,
+                "Clear color must be provided for render target resources.");
         }
         if (a_format == RHI::ColorFormat::R32_UINT)
         {

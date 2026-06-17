@@ -73,7 +73,86 @@ namespace Cue
         // 共有リソースの作成
         r = RHI::create_render_target_resources(
             *m_renderBackend, "FinalColor", RHI::ColorFormat::R8G8B8A8_UNORM,
-            m_finalColorRenderTarget);
+            m_finalColorRenderTarget, Math::float4::from_rgba8(63, 63, 63, 255).data());
+        if (!r)
+        {
+            return r;
+        }
+
+        auto* bufferManager = m_renderBackend->get_buffer_manager();
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get buffer manager from backend.");
+        }
+
+        auto* viewManager = m_renderBackend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        auto* commandPool = m_renderBackend->get_command_pool();
+        auto* queuePool = m_renderBackend->get_queue_pool();
+        if (commandPool == nullptr || queuePool == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound, Severity::Fatal,
+                "Failed to get command or queue pool from backend.");
+        }
+
+        // MeshPool の生成
+        DrawSystem::MeshPoolDesc meshPoolDesc{};
+        meshPoolDesc.maxVertexCount = 8u * 1024u * 1024u;
+        meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
+        m_meshPool = std::make_unique<DrawSystem::MeshPool>(
+            meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
+        // 描画用リソース作成
+        m_drawResources = std::make_unique<DrawSystem::DrawResources>(
+            bufferManager, viewManager, m_bufferCount);
+        m_maxObjectCount = k_maxObjectCount;
+        m_maxCellCount =
+            (m_maxObjectCount + k_cellObjectCapacity - 1u) / k_cellObjectCapacity;
+
+        r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_transform_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_view_projection_buffer();
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_material_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_render_cell_buffer(m_maxCellCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_render_object_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_drawResources->create_object_count_buffer();
         if (!r)
         {
             return r;

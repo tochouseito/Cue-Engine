@@ -116,29 +116,21 @@ namespace Cue::Editor
             }
 
             // GameView が参照する SRV の存在を確認する
-            result = builder.get_view("GameColorSRV", m_gameColorSrvHandle);
+            result = builder.get_view("FinalColorSRV", m_finalColorSrvHandle);
             if (!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get game color SRV view handle for present pass.");
+                    "Failed to get final color SRV view handle for present pass.");
             }
-            result = builder.get_texture("GameColor", m_gameColorHandle);
+            result = builder.get_texture("FinalColor", m_finalColorHandle);
             if (!result)
             {
                 return Result::fail(
                     Code::GetFailed,
                     Severity::Error,
-                    "Failed to get game color texture handle for present pass.");
-            }
-            result = builder.get_texture("DebugColor", m_debugColorHandle);
-            if (!result)
-            {
-                return Result::fail(
-                    Code::GetFailed,
-                    Severity::Error,
-                    "Failed to get debug color texture handle for present pass.");
+                    "Failed to get final color texture handle for present pass.");
             }
 
             return Result::ok();
@@ -156,18 +148,8 @@ namespace Cue::Editor
                 return result;
             }
 
-            result = builder.use_texture(
-                m_gameColorHandle,
-                RHI::ResourceAccessType::Read,
-                RHI::ResourceState::ShaderResource,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
-
             return builder.use_texture(
-                m_debugColorHandle,
+                m_finalColorHandle,
                 RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::ShaderResource);
@@ -193,9 +175,8 @@ namespace Cue::Editor
         static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
-        RHI::TextureHandle m_gameColorHandle{};
-        RHI::TextureHandle m_debugColorHandle{};
+        RHI::TextureHandle m_finalColorHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
-        RHI::ViewHandle m_gameColorSrvHandle{};
+        RHI::ViewHandle m_finalColorSrvHandle{};
     };
 }

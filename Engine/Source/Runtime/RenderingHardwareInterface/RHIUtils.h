@@ -32,7 +32,7 @@ namespace Cue::RHI
         std::string_view a_name,
         RHI::ColorFormat a_format,
         RenderTargetResources& a_outResources,
-        const float* a_clearColor = nullptr);
+        const float* a_clearColor);
     Result destroy_render_target_resources(
         IRenderBackend& a_backend,
         RenderTargetResources& a_resources);

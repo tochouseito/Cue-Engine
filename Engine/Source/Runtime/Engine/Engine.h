@@ -22,7 +22,9 @@
 // === Engine includes ===
 #include "FrameController.h"
 
+#include "DrawSystem/DrawResources.h"
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/MeshPool.h"
 
 // === C++ includes ===
 #include <array>
@@ -115,5 +117,13 @@ class Engine final
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;
+    uint32_t m_maxObjectCount = 0;
+    uint32_t m_maxCellCount = 0;
+    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+    std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+
+    // --- 定数 ---
+    const uint32_t k_maxObjectCount = 50000;
+    const uint32_t k_cellObjectCapacity = 256;
 };
 } // namespace Cue

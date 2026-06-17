@@ -15,6 +15,7 @@
 #include <D3D12Backend.h>
 
 // === Editor includes ===
+#include "ImGuiManager/ImGuiManager.h"
 
 // === Engine includes ===
 #include <Engine.h>
@@ -94,6 +95,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // ImGui マネージャーの初期化
+    std::unique_ptr<Editor::ImGuiManager> imGuiManager = nullptr;
+    Cue::Editor::ImGuiSetupInfo imGuiInfo(renderBackend->buffer_count());
+    imGuiInfo.hwnd = platform->get_window_handle();
+    imGuiInfo.device = renderBackend->imgui_device();
+    imGuiInfo.commandQueue = renderBackend->imgui_command_queue();
+    imGuiInfo.srvDescHeap = renderBackend->imgui_srv_descriptor_heap();
+    imGuiInfo.renderBackend = renderBackend.get();
+    imGuiInfo.fileSystem = &platform->file_system();
+    imGuiManager = std::make_unique<Editor::ImGuiManager>(imGuiInfo);
+
+    // ImGuiMessageHandler を登録
+    platform->set_message_handler(
+        [](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+            LRESULT& outResult) -> bool
+        {
+            outResult =
+                ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
+            return outResult != 0;
+        });
+
     // エンジンを初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     EngineSetupInfo engineSetupInfo{}; // エンジンのセットアップ情報
@@ -101,6 +123,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineSetupInfo.platformCommandBridge = platformBridge.get();
     engineSetupInfo.renderBackend = renderBackend.get();
     engineSetupInfo.maxFps = maxFps;
+    engineSetupInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
     r = engine->initialize(engineSetupInfo);
 
     // 失敗したらログを出力して終了
@@ -126,7 +149,26 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             break;
         }
 
-        // フレーム開始
+# pragma region フレーム開始
+        /// <summary>
+        /// 各フレーム開始処理
+        /// </summary>
+
+        // ImGui マネージャー
+        r = imGuiManager->begin_frame();
+
+        if (r)
+        {
+            ImGui::Begin("Test");
+
+            ImGui::Text("Test.txt");
+
+            ImGui::End();
+
+            imGuiManager->end_frame();
+        }
+
+        // プラットフォーム
         r = platform->begin_frame();
 
         // 失敗したらログを出力して終了
@@ -134,7 +176,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
                 "Failed to begin frame: %s", r.message.data());
-            CUE_ASSERT_FORMAT(false, "Failed to begin frame: %s", r.message.data());
+            CUE_ASSERT_FORMAT(false, "Failed to begin platform frame: %s", r.message.data());
             break;
         }
 
@@ -149,6 +191,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s", r.message.data());
             break;
         }
+# pragma endregion フレーム開始
 
         // エンジンのフレーム処理
         r = engine->tick();
@@ -188,6 +231,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // クリーン
+    imGuiManager->shutdown();
+    imGuiManager.reset();
     engine->shutdown();
     engine.reset();
     renderBackend->shutdown();

@@ -35,6 +35,43 @@ namespace Cue::Math
         return out;
     }
 
+    [[nodiscard]]
+    uint64_t round_up_to_multiple(uint64_t a_value, uint64_t a_step) noexcept
+    {
+        uint64_t out = 0;
+
+        // - 0 の倍数への切り上げは定義できないため停止する
+        if (a_step == 0)
+        {
+            CUE_ASSERT_FORMAT(false, "Invalid step: %llu. Step must be greater than 0.", static_cast<unsigned long long>(a_step));
+        }
+
+        // - 既に倍数ならそのまま
+        const uint64_t r = a_value % a_step;
+        if (r == 0)
+        {
+            out = a_value;
+            return out;
+        }
+
+        // 次の倍数へ（オーバーフロー検出）
+        const uint64_t add = a_step - r;
+        const uint64_t maxValue = (std::numeric_limits<uint64_t>::max)();
+        // a_value + add > maxValue ならオーバーフローする
+        if (a_value > (maxValue - add))
+        {
+            CUE_ASSERT_FORMAT(
+                false,
+                "Overflow detected: value %llu + add %llu exceeds max uint64_t %llu.",
+                static_cast<unsigned long long>(a_value),
+                static_cast<unsigned long long>(add),
+                static_cast<unsigned long long>(maxValue));
+        }
+
+        out = a_value + add;
+        return out;
+    }
+
     [[nodiscard]] float4x4 scale_matrix(float3 a_scale) noexcept
     {
         // - 各軸のスケールを対角成分に設定する

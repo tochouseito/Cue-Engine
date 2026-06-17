@@ -75,12 +75,7 @@ namespace Cue::DrawSystem
         }
 
       private:
-        static constexpr std::array<float, 4> k_clearColor = {
-            0.247058824f,
-            0.247058824f,
-            0.247058824f,
-            1.0f,
-        };
+          static constexpr Math::float4 k_clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
 
         RHI::TextureHandle m_finalColorHandle{};
         RHI::ViewHandle m_finalColorRtvHandle{};

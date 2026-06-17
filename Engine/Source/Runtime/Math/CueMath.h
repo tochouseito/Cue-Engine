@@ -30,9 +30,15 @@ namespace Cue::Math
 {
     /// @brief 値を指定された倍数に切り上げ
     /// @param a_value 切り上げる値
-    /// @param a_step 切り上げ先の倍数0の場合は無効
+    /// @param a_step 切り上げ先の倍数。0 の場合は無効
     /// @return 指定された倍数に切り上げられた値
     [[nodiscard]] uint32_t round_up_to_multiple(uint32_t a_value, uint32_t a_step) noexcept;
+
+    /// @brief 値を指定された倍数に切り上げ
+    /// @param a_value 切り上げる値
+    /// @param a_step 切り上げ先の倍数。0 の場合は無効
+    /// @return 指定された倍数に切り上げられた値
+    [[nodiscard]] uint64_t round_up_to_multiple(uint64_t a_value, uint64_t a_step) noexcept;
 
     /// @brief スケール行列を構築する
     [[nodiscard]] float4x4 scale_matrix(float3 a_scale) noexcept;
