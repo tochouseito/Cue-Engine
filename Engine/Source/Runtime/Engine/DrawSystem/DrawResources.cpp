@@ -6,6 +6,7 @@ namespace Cue::DrawSystem
         const uint32_t a_maxObjectCount)
     {
         // RenderableInfoBuffer の設定
+        // - 各描画対象の mesh/material/transform 参照情報を GPU から読む structured buffer として作成する
         RHI::BufferDesc renderableInfoBufferDesc{};
         renderableInfoBufferDesc.name = "RenderableInfoBuffer";
         renderableInfoBufferDesc.type = RHI::BufferType::Structured;
@@ -20,6 +21,7 @@ namespace Cue::DrawSystem
         renderableInfoBufferDesc.alignment = alignof(GpuData::RenderableInfo);
 
         // RenderableInfoBuffer の作成
+        // - handle は DrawResourceType の添字で保持し、後続 pass から取得できるようにする
         RHI::BufferHandle& renderableInfoBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)];
         Result result = m_bufferManager->create_buffer(
@@ -30,6 +32,7 @@ namespace Cue::DrawSystem
         }
 
         // RenderableInfoBuffer の uploader 作成
+        // - フレームごとに CPU から更新できるよう、bufferCount 分の SlotUploader を作る
         result = m_bufferManager->create_slot_uploaders(
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)],
             m_bufferCount, m_renderableInfoUploaders);
@@ -46,6 +49,7 @@ namespace Cue::DrawSystem
         }
 
         // RenderableInfoBuffer の SRV 作成
+        // - shader から objectId を添字にして RenderableInfo を読むための SRV を作る
         RHI::ViewDesc renderableInfoBufferSrvDesc{};
         renderableInfoBufferSrvDesc.name = "RenderableInfoBufferSRV";
         renderableInfoBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
@@ -73,6 +77,7 @@ namespace Cue::DrawSystem
     Result DrawResources::create_transform_buffer(const uint32_t a_maxObjectCount)
     {
         // TransformBuffer の設定
+        // - オブジェクトごとの world / normal matrix を GPU から読む structured buffer として作成する
         RHI::BufferDesc transformBufferDesc{};
         transformBufferDesc.name = "TransformBuffer";
         transformBufferDesc.type = RHI::BufferType::Structured;
@@ -88,6 +93,7 @@ namespace Cue::DrawSystem
             m_bufferHandles[static_cast<size_t>(DrawResourceType::TransformBuffer)];
 
         // TransformBuffer の作成
+        // - RenderableInfo の transformId から参照される buffer handle を保存する
         Result result = m_bufferManager->create_buffer(transformBufferDesc, transformBufferHandle);
         if (!result)
         {
@@ -95,6 +101,7 @@ namespace Cue::DrawSystem
         }
 
         // TransformBuffer の uploader 作成
+        // - transform はフレームごとに変わるため、各 frame resource 用の uploader を用意する
         result = m_bufferManager->create_slot_uploaders(
             transformBufferHandle, m_bufferCount, m_transformUploaders);
         if (!result)
@@ -108,6 +115,7 @@ namespace Cue::DrawSystem
         }
 
         // TransformBuffer の SRV 作成
+        // - vertex/compute shader から transform 配列として参照する
         RHI::ViewDesc transformBufferSrvDesc{};
         transformBufferSrvDesc.name = "TransformBufferSRV";
         transformBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
@@ -132,8 +140,10 @@ namespace Cue::DrawSystem
 
     Result DrawResources::create_view_projection_buffer()
     {
+        // - constant buffer は D3D12 の CBV 要件に合わせて 256 byte alignment にする
         constexpr uint32_t k_constantBufferAlignment = 256;
 
+        // - カメラ行列は 1 要素だけの constant buffer として持つ
         RHI::BufferDesc viewProjectionBufferDesc{};
         viewProjectionBufferDesc.name = "ViewProjectionBuffer";
         viewProjectionBufferDesc.type = RHI::BufferType::Constant;
@@ -148,6 +158,7 @@ namespace Cue::DrawSystem
 
         RHI::BufferHandle& viewProjectionBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::ViewProjectionBuffer)];
+        // - 描画 pass から CBV として bind できる buffer handle を保存する
         Result result = m_bufferManager->create_buffer(
             viewProjectionBufferDesc, viewProjectionBufferHandle);
         if (!result)
@@ -155,6 +166,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - カメラ行列もフレームごとに更新するため、frame resource 数分の uploader を作る
         result = m_bufferManager->create_slot_uploaders(
             viewProjectionBufferHandle, m_bufferCount, m_viewProjectionUploaders);
         if (!result)
@@ -174,6 +186,7 @@ namespace Cue::DrawSystem
 
     Result DrawResources::create_material_buffer(const uint32_t a_maxMaterialCount)
     {
+        // - materialId から参照されるマテリアルパラメータ配列を structured buffer として作成する
         RHI::BufferDesc materialBufferDesc{};
         materialBufferDesc.name = "MaterialBuffer";
         materialBufferDesc.type = RHI::BufferType::Structured;
@@ -188,6 +201,7 @@ namespace Cue::DrawSystem
 
         RHI::BufferHandle& materialBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
+        // - Material buffer の GPU 実体を作成し、共通 handle 配列へ格納する
         Result result = m_bufferManager->create_buffer(
             materialBufferDesc, materialBufferHandle);
         if (!result)
@@ -195,6 +209,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - MaterialGpu の更新用 uploader を frame resource 数分作る
         result = m_bufferManager->create_slot_uploaders(
             materialBufferHandle, m_bufferCount, m_materialUploaders);
         if (!result)
@@ -209,6 +224,7 @@ namespace Cue::DrawSystem
                 "MaterialBuffer uploader was not created.");
         }
 
+        // - pixel shader などから materialId で読むための SRV を作成する
         RHI::ViewDesc materialBufferSrvDesc{};
         materialBufferSrvDesc.name = "MaterialBufferSRV";
         materialBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
@@ -232,6 +248,7 @@ namespace Cue::DrawSystem
 
     Result DrawResources::create_render_cell_buffer(const uint32_t a_maxCellCount)
     {
+        // - セル単位の bounds と object range を GPU culling から読む structured buffer として作成する
         RHI::BufferDesc renderCellBufferDesc{};
         renderCellBufferDesc.name = "RenderCellBuffer";
         renderCellBufferDesc.type = RHI::BufferType::Structured;
@@ -246,6 +263,7 @@ namespace Cue::DrawSystem
 
         RHI::BufferHandle& renderCellBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderCellBuffer)];
+        // - Cell culling pass が参照する RenderCell buffer handle を保存する
         Result result = m_bufferManager->create_buffer(
             renderCellBufferDesc, renderCellBufferHandle);
         if (!result)
@@ -253,6 +271,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - セル情報は scene setup 後にアップロードされるため、更新用 uploader を用意する
         result = m_bufferManager->create_slot_uploaders(
             renderCellBufferHandle, m_bufferCount, m_renderCellUploaders);
         if (!result)
@@ -267,6 +286,7 @@ namespace Cue::DrawSystem
                 "RenderCellBuffer uploader was not created.");
         }
 
+        // - compute shader から cellIndex で RenderCellGpu を読むための SRV を作る
         RHI::ViewDesc renderCellBufferSrvDesc{};
         renderCellBufferSrvDesc.name = "RenderCellBufferSRV";
         renderCellBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
@@ -293,6 +313,7 @@ namespace Cue::DrawSystem
     Result DrawResources::create_render_object_buffer(const uint32_t a_maxObjectCount)
     {
         // RenderObjectBuffer の設定
+        // - GPU culling 後の可視オブジェクトを書き込むため、UAV buffer として作成する
         RHI::BufferDesc renderObjectBufferDesc{};
         renderObjectBufferDesc.name = "RenderObjectBuffer";
         renderObjectBufferDesc.type = RHI::BufferType::UnorderedAccess;
@@ -306,6 +327,7 @@ namespace Cue::DrawSystem
         renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
 
         // RenderObjectBuffer の作成
+        // - 後続の batching / forward pass が参照する output buffer handle を保存する
         RHI::BufferHandle& renderObjectBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderObjectBuffer)];
         Result result = m_bufferManager->create_buffer(renderObjectBufferDesc,
@@ -315,6 +337,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - CPU から初期化や debug 用更新ができるよう uploader も作成しておく
         result = m_bufferManager->create_slot_uploaders(
             renderObjectBufferHandle, m_bufferCount, m_renderObjectUploaders);
         if (!result)
@@ -330,6 +353,7 @@ namespace Cue::DrawSystem
         }
 
         // RenderObjectBuffer の UAV 作成
+        // - compute shader が可視 RenderObject を書き込むための UAV を作る
         RHI::ViewDesc renderObjectBufferUavDesc{};
         renderObjectBufferUavDesc.name = "RenderObjectBufferUAV";
         renderObjectBufferUavDesc.type = RHI::ViewType::UnorderedAccessBuffer;
@@ -355,6 +379,7 @@ namespace Cue::DrawSystem
     Result DrawResources::create_object_count_buffer()
     {
         // ObjectCountBuffer の設定
+        // - 可視オブジェクト数を GPU 側で atomic 更新する raw UAV buffer として作成する
         RHI::BufferDesc renderObjectCountBufferDesc{};
         renderObjectCountBufferDesc.name = "VisibleObjectCountBuffer";
         renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
@@ -368,6 +393,7 @@ namespace Cue::DrawSystem
         renderObjectCountBufferDesc.alignment = alignof(uint32_t);
 
         // ObjectCountBuffer の作成
+        // - RenderObjectBuffer への書き込み数を共有する counter buffer handle を保存する
         RHI::BufferHandle& renderObjectCountBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
         Result result = m_bufferManager->create_buffer(renderObjectCountBufferDesc,
@@ -377,6 +403,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - フレーム開始時の初期値アップロードなどに使う uploader を作成する
         result = m_bufferManager->create_slot_uploaders(
             renderObjectCountBufferHandle, m_bufferCount, m_visibleObjectCountUploaders);
         if (!result)
@@ -392,6 +419,7 @@ namespace Cue::DrawSystem
         }
 
         // ObjectCountBuffer の UAV 作成
+        // - compute shader が raw uint counter として読み書きするための UAV を作る
         RHI::ViewDesc renderObjectCountBufferUavDesc{};
         renderObjectCountBufferUavDesc.name = "VisibleObjectCountBufferUAV";
         renderObjectCountBufferUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;

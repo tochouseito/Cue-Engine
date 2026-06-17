@@ -8,28 +8,20 @@ namespace Cue::DrawSystem
 {
     namespace
     {
-        [[nodiscard]] uint64_t align_up_u64(uint64_t value, uint32_t alignment) noexcept
-        {
-            if (alignment <= 1)
-            {
-                return value;
-            }
-
-            const uint64_t remainder = value % static_cast<uint64_t>(alignment);
-            return remainder == 0 ? value : (value + (static_cast<uint64_t>(alignment) - remainder));
-        }
-
         [[nodiscard]] bool allocate_from_free_ranges(
             std::vector<FreeRange>& freeRanges,
             uint64_t byteSize,
             uint32_t alignment,
             uint64_t& outOffset) noexcept
         {
+            // - free-list を先頭から走査し、alignment を満たす最初の範囲を探す
             outOffset = 0;
             for (size_t i = 0; i < freeRanges.size(); ++i)
             {
                 const FreeRange freeRange = freeRanges[i];
-                const uint64_t alignedOffset = align_up_u64(freeRange.byteOffset, alignment);
+                const uint64_t alignedOffset = alignment <= 1
+                    ? freeRange.byteOffset
+                    : Math::round_up_to_multiple(freeRange.byteOffset, static_cast<uint64_t>(alignment));
                 const uint64_t prefixBytes = alignedOffset - freeRange.byteOffset;
                 if (prefixBytes + byteSize > freeRange.byteSize)
                 {
@@ -39,6 +31,7 @@ namespace Cue::DrawSystem
                 const uint64_t suffixOffset = alignedOffset + byteSize;
                 const uint64_t suffixBytes = freeRange.byteSize - prefixBytes - byteSize;
 
+                // - 確保範囲の前後に残る空き領域だけを free-list に残す
                 if (prefixBytes > 0 && suffixBytes > 0)
                 {
                     freeRanges[i].byteSize = prefixBytes;
@@ -72,11 +65,13 @@ namespace Cue::DrawSystem
             uint64_t byteOffset,
             uint64_t byteSize) noexcept
         {
+            // - 0 byte の解放は free-list を変更しない
             if (byteSize == 0)
             {
                 return;
             }
 
+            // - byteOffset の昇順を保つ位置に解放範囲を挿入する
             auto insertIt = freeRanges.begin();
             while (insertIt != freeRanges.end() && insertIt->byteOffset < byteOffset)
             {
@@ -96,6 +91,7 @@ namespace Cue::DrawSystem
                 }
             }
 
+            // - 直後の空き範囲と隣接していれば結合する
             auto nextIt = insertIt;
             ++nextIt;
             if (nextIt != freeRanges.end() && insertIt->byteOffset + insertIt->byteSize == nextIt->byteOffset)
@@ -108,6 +104,7 @@ namespace Cue::DrawSystem
         template<typename T>
         [[nodiscard]] uint64_t byte_size_of(const std::vector<T>& values) noexcept
         {
+            // - vector の要素数を byte 数に変換する
             return static_cast<uint64_t>(values.size()) * static_cast<uint64_t>(sizeof(T));
         }
 
@@ -117,9 +114,11 @@ namespace Cue::DrawSystem
             MeshBounds bounds{};
             if (positions.empty())
             {
+                // - 頂点がない場合はゼロ境界を返す
                 return bounds;
             }
 
+            // - 全頂点を走査してローカル空間の AABB を求める
             Math::float3 minPosition(
                 positions[0].x,
                 positions[0].y,
@@ -135,6 +134,7 @@ namespace Cue::DrawSystem
                 maxPosition.z = (std::max)(maxPosition.z, position.z);
             }
 
+            // - AABB 中心を境界球の中心とし、最遠頂点までの距離を半径にする
             bounds.center = (minPosition + maxPosition) * 0.5f;
             float radiusSq = 0.0f;
             for (const Math::float4& position : positions)
@@ -264,6 +264,7 @@ namespace Cue::DrawSystem
 
     Result MeshPool::initialize_mesh_range_state(const MeshPoolDesc& desc)
     {
+        // - MeshRange は meshId を添字にしてシェーダから読む structured buffer として確保する
         m_meshRangeState.debugName = std::string(desc.meshRangeName);
 
         BufferDesc defaultDesc{};
@@ -283,6 +284,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - 通常更新用の staging は最大容量以下に抑え、大きな初期化は一時 upload に退避できるようにする
         const uint64_t totalBytes = static_cast<uint64_t>(defaultDesc.size);
         const uint64_t stagingBytes = (std::min)(
             totalBytes,
@@ -300,6 +302,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - MeshRange buffer 全体をシェーダリソースとして公開する
         ViewDesc meshRangeSrvDesc{};
         meshRangeSrvDesc.name = desc.meshRangeSrvName;
         meshRangeSrvDesc.type = ViewType::ShaderResourceBuffer;
@@ -314,6 +317,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - meshId は後ろから詰めておき、pop_back で O(1) 払い出しできるようにする
         m_meshRangeState.stagingCapacityInBytes = stagingBytes;
         m_meshRangeState.stagingRing.initialize(static_cast<size_t>(stagingBytes));
         m_meshRangeState.capacity = desc.maxMeshCount;
@@ -324,6 +328,7 @@ namespace Cue::DrawSystem
             m_meshRangeState.freeMeshIds.push_back(meshId - 1);
         }
 
+        // - 未登録 meshId が参照されても描画されないよう、MeshRange buffer をゼロ初期化する
         UploadAllocation initializeUpload{};
         result = allocate_upload_range(
             m_meshRangeState,
@@ -337,6 +342,7 @@ namespace Cue::DrawSystem
 
         std::memset(initializeUpload.mappedData + initializeUpload.byteOffset, 0, static_cast<size_t>(totalBytes));
 
+        // - 初期化データを GPU 側 MeshRange buffer へ転送する
         BufferCopyRegion initializeRegion{};
         initializeRegion.srcBufferHandle = initializeUpload.bufferHandle;
         initializeRegion.srcUploadResourceIndex = 0;
@@ -367,6 +373,7 @@ namespace Cue::DrawSystem
         StreamState& outStreamState)
     {
         // - 常駐先は default heap、通常のコピー元は小さい staging upload buffer とする
+        // - default heap は描画時の参照先、staging は CPU からの更新経路として使う
         BufferDesc defaultDesc{};
         defaultDesc.name = bufferName;
         defaultDesc.type = bufferType;
@@ -384,6 +391,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - staging は要求サイズを超えない範囲で確保し、足りない upload は一時 buffer に逃がす
         outStreamState.debugName = std::string(bufferName);
         outStreamState.bufferType = bufferType;
         const uint64_t clampedStagingBytes = (std::min)(totalBytes, stagingBytes);
@@ -400,6 +408,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - 作成直後は default heap 全体を空き範囲として登録する
         outStreamState.capacityInBytes = totalBytes;
         outStreamState.stagingCapacityInBytes = clampedStagingBytes;
         outStreamState.alignment = alignment;
@@ -416,6 +425,7 @@ namespace Cue::DrawSystem
         BufferHandle& outBufferHandle,
         std::byte*& outMappedData)
     {
+        // - 呼び出し側が失敗時にも安全に扱えるよう、出力を先に無効化する
         outBufferHandle = {};
         outMappedData = nullptr;
         if (byteSize == 0)
@@ -430,6 +440,7 @@ namespace Cue::DrawSystem
                 "Upload buffer size exceeds the supported range.");
         }
 
+        // - upload heap の buffer を 1 byte stride の線形領域として確保する
         BufferDesc uploadDesc{};
         uploadDesc.name = std::string(bufferName);
         uploadDesc.type = bufferType;
@@ -447,6 +458,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - CPU から直接書き込むため、BufferManager から mapped address を取得する
         UploadBufferView uploadView{};
         result = m_bufferManager.get_upload_buffer_view(outBufferHandle, uploadView);
         if (!result)
@@ -465,6 +477,7 @@ namespace Cue::DrawSystem
                 "Static mesh pool upload buffer is not mapped.");
         }
 
+        // - mapped address を呼び出し側へ返し、以降の memcpy/memset の書き込み先にする
         outMappedData = uploadView.mappedDatas[0];
         return Result::ok();
     }
@@ -502,6 +515,7 @@ namespace Cue::DrawSystem
         uint32_t alignment,
         UploadAllocation& outAllocation)
     {
+        // - まず常設 staging ring から確保し、毎回 buffer を作らずに済む経路を優先する
         outAllocation = {};
         if (streamState.stagingBufferHandle.valid()
             && streamState.mappedStagingData != nullptr
@@ -518,6 +532,7 @@ namespace Cue::DrawSystem
             return Result::ok();
         }
 
+        // - 常設 staging に収まらない場合は、この upload 専用の一時 buffer を作る
         Result result = create_upload_buffer(
             std::string_view{},
             streamState.bufferType,
@@ -541,6 +556,7 @@ namespace Cue::DrawSystem
         uint32_t alignment,
         UploadAllocation& outAllocation)
     {
+        // - MeshRange 更新も常設 staging ring を優先して使う
         outAllocation = {};
         if (meshRangeState.stagingBufferHandle.valid()
             && meshRangeState.mappedStagingData != nullptr
@@ -557,6 +573,7 @@ namespace Cue::DrawSystem
             return Result::ok();
         }
 
+        // - staging が足りない場合は structured buffer 用の一時 upload buffer を作る
         Result result = create_upload_buffer(
             std::string_view{},
             BufferType::Structured,
@@ -578,11 +595,13 @@ namespace Cue::DrawSystem
         StreamState& streamState,
         UploadAllocation& allocation)
     {
+        // - 無効な割り当ては解放済みとして扱う
         if (!allocation.valid())
         {
             return;
         }
 
+        // - 一時 buffer は破棄し、常設 staging は ring allocation だけを戻す
         if (allocation.isTransient)
         {
             Result result = m_bufferManager.destroy_buffer(allocation.bufferHandle);
@@ -601,11 +620,13 @@ namespace Cue::DrawSystem
         MeshRangeState& meshRangeState,
         UploadAllocation& allocation)
     {
+        // - 無効な割り当ては解放済みとして扱う
         if (!allocation.valid())
         {
             return;
         }
 
+        // - 一時 buffer は破棄し、常設 staging は ring allocation だけを戻す
         if (allocation.isTransient)
         {
             Result result = m_bufferManager.destroy_buffer(allocation.bufferHandle);
@@ -638,6 +659,7 @@ namespace Cue::DrawSystem
 
     Result MeshPool::copy_upload_regions(const std::vector<BufferCopyRegion>& regions)
     {
+        // - コピー対象がない呼び出しは使用ミスとして弾く
         if (regions.empty())
         {
             return Result::fail(
@@ -646,6 +668,7 @@ namespace Cue::DrawSystem
                 "Copy regions must not be empty.");
         }
 
+        // - コピー専用の command context と queue を pool から借りる
         commandContextLease commandContext{};
         Result result = m_commandPool.get_command_context(CommandListType::Copy, commandContext);
         if (!result)
@@ -661,12 +684,14 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - context を初期化し、コピー command を記録できる状態にする
         result = commandContext->reset();
         if (result)
         {
             result = commandContext->setup(0, 1);
         }
 
+        // - 各コピー先を CopyDest に遷移し、コピー後は Common に戻す
         if (result)
         {
             for (const BufferCopyRegion& region : regions)
@@ -699,6 +724,7 @@ namespace Cue::DrawSystem
         {
             result = commandContext->close();
         }
+        // - コピー queue に投入し、完了を待ってから staging 領域を再利用可能にする
         if (result)
         {
             std::vector<ICommandContext*> contexts{ commandContext.get() };
@@ -734,6 +760,7 @@ namespace Cue::DrawSystem
 
         streamState.debugName.clear();
         streamState.bufferType = BufferType::Unknown;
+        // - 破棄後に再利用されても古い状態を参照しないよう、管理情報も初期化する
         streamState.freeRanges.clear();
         streamState.stagingRing.clear();
         streamState.mappedStagingData = nullptr;
@@ -743,6 +770,7 @@ namespace Cue::DrawSystem
 
     Result MeshPool::allocate_mesh_id(uint32_t& outMeshId)
     {
+        // - freeMeshIds をスタックとして使い、空なら MeshRange buffer の容量超過を返す
         if (m_meshRangeState.freeMeshIds.empty())
         {
             return Result::fail(
@@ -758,6 +786,7 @@ namespace Cue::DrawSystem
 
     void MeshPool::release_mesh_id(uint32_t meshId)
     {
+        // - 範囲外の meshId は無視し、範囲内のものだけ再利用候補へ戻す
         if (meshId >= m_meshRangeState.capacity)
         {
             return;
@@ -768,12 +797,14 @@ namespace Cue::DrawSystem
 
     void MeshPool::write_mesh_range(uint32_t meshId, const MeshRange& meshRange)
     {
+        // - 内部用途の即時更新なので、失敗は assert で検出する
         Result result = upload_mesh_range(meshId, meshRange);
         CUE_ASSERT_MSG(result, "Failed to write mesh range.");
     }
 
     Result MeshPool::upload_mesh_range(uint32_t meshId, const MeshRange& meshRange)
     {
+        // - meshId は MeshRange buffer の要素番号なので capacity 内に制限する
         if (meshId >= m_meshRangeState.capacity)
         {
             return Result::fail(
@@ -782,6 +813,7 @@ namespace Cue::DrawSystem
                 "Mesh range slot is out of bounds.");
         }
 
+        // - 1 要素分の MeshRange を upload buffer に書き込む
         UploadAllocation uploadAllocation{};
         Result result = allocate_upload_range(
             m_meshRangeState,
@@ -795,6 +827,7 @@ namespace Cue::DrawSystem
 
         write_upload_bytes(uploadAllocation, &meshRange, sizeof(MeshRange));
 
+        // - meshId に対応する structured buffer 要素だけを更新する
         BufferCopyRegion region{};
         region.srcBufferHandle = uploadAllocation.bufferHandle;
         region.srcUploadResourceIndex = 0;
@@ -963,6 +996,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - index/vertex の offset から GPU 側で参照する MeshRange を作る
         UploadAllocation meshRangeUpload{};
         MeshRange meshRange{};
         meshRange.indexCount = record.indexCount;
@@ -988,6 +1022,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        // - CPU 側の meshData を各 upload 領域へ書き込む。未指定 UV/Normal はゼロ埋めにする
         write_upload_bytes(positionUpload, meshData.positions.data(), record.positionByteSize);
         write_upload_bytes(
             uvUpload,
@@ -1000,6 +1035,7 @@ namespace Cue::DrawSystem
         write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
         write_upload_bytes(meshRangeUpload, &meshRange, sizeof(MeshRange));
 
+        // - 各 stream と MeshRange buffer へのコピーを 1 回の copy command にまとめる
         std::vector<BufferCopyRegion> uploadRegions
         {
             BufferCopyRegion
@@ -1056,6 +1092,7 @@ namespace Cue::DrawSystem
 
         result = copy_upload_regions(uploadRegions);
 
+        // - GPU コピーは同期完了まで待つため、ここで upload 領域を返却できる
         release_upload_range(m_meshRangeState, meshRangeUpload);
         release_upload_range(m_indexStream, indexUpload);
         release_upload_range(m_normalStream, normalUpload);
@@ -1064,6 +1101,7 @@ namespace Cue::DrawSystem
 
         if (!result)
         {
+            // - コピー失敗時は確保済み default heap 領域と meshId を登録前に巻き戻す
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1107,12 +1145,14 @@ namespace Cue::DrawSystem
         release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
         release_mesh_id(record.meshId);
 
+        // - 解放済み meshId の MeshRange をゼロに戻し、古い描画範囲が残らないようにする
         Result result = upload_mesh_range(record.meshId, MeshRange{});
         if (!result)
         {
             return result;
         }
 
+        // - 名前引きと meshId 引きの補助テーブルからも削除する
         if (record.nameId != 0)
         {
             const auto it = m_nameToHandlesMap.find(record.nameId);
@@ -1137,6 +1177,7 @@ namespace Cue::DrawSystem
 
     Result MeshPool::get_mesh_id(MeshHandle handle, uint32_t& outMeshId) const
     {
+        // - handle を registry で解決し、GPU 側 MeshRange の添字を返す
         MeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))
         {
@@ -1152,6 +1193,7 @@ namespace Cue::DrawSystem
 
     Result MeshPool::get_bindings(MeshPoolBindings& outBindings) const
     {
+        // - 描画パスが必要とする GPU buffer handle を現在の StreamState から集める
         outBindings.positionBuffer = m_positionStream.defaultBufferHandle;
         outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
         outBindings.normalBuffer = m_normalStream.defaultBufferHandle;
@@ -1164,8 +1206,10 @@ namespace Cue::DrawSystem
     Result MeshPool::get_mesh_range(
         uint32_t meshId, MeshRange& outMeshRange) const
     {
+        // - 失敗時に呼び出し側が古い値を使わないよう、出力を先に初期化する
         outMeshRange = {};
 
+        // - meshId から registry handle を引き、登録済みレコードを取得する
         const auto it = m_meshIdToHandlesMap.find(meshId);
         if (it == m_meshIdToHandlesMap.end())
         {
@@ -1184,6 +1228,7 @@ namespace Cue::DrawSystem
                 "Static mesh record was not found.");
         }
 
+        // - record の byte offset を DrawIndexed 向けの index/vertex offset に戻す
         outMeshRange.indexCount = record.indexCount;
         outMeshRange.startIndex =
             static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
@@ -1195,8 +1240,10 @@ namespace Cue::DrawSystem
     Result MeshPool::get_mesh_bounds(
         uint32_t meshId, MeshBounds& outBounds) const
     {
+        // - 失敗時に呼び出し側が古い値を使わないよう、出力を先に初期化する
         outBounds = {};
 
+        // - meshId から登録済みレコードを引き、CPU 側で保持している境界情報を返す
         const auto it = m_meshIdToHandlesMap.find(meshId);
         if (it == m_meshIdToHandlesMap.end())
         {
