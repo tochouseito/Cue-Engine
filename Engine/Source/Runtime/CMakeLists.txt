@@ -4,6 +4,7 @@
 add_subdirectory("Base")
 add_subdirectory("Math")
 add_subdirectory("Core")
+add_subdirectory("ECS")
 add_subdirectory("PlatformAbstractionLayer")
 add_subdirectory("RenderingHardwareInterface")
 add_subdirectory("Engine")
