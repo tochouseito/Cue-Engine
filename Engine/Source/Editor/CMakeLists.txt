@@ -11,7 +11,7 @@ find_package(winpixevent CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp")
+    "App/EditorResources.rc" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp" "Workspace/Dockspace.h" "Workspace/Dockspace.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE

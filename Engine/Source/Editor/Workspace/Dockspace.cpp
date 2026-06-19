@@ -1,0 +1,45 @@
+#include "Dockspace.h"
+
+// === ImGui includes ===
+#include <imgui.h>
+
+namespace Cue::Editor
+{
+    void Dockspace::update()
+    {
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+        ImGui::SetNextWindowViewport(viewport->ID);
+
+        ImGuiWindowFlags window_flags =
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoNavFocus |
+            ImGuiWindowFlags_MenuBar;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+        ImGui::Begin("DockSpace Window", nullptr, window_flags);
+        ImGui::PopStyleVar(2);
+
+        if (ImGui::BeginMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Exit"))
+                {
+                    // Handle exit action
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMenuBar();
+        }
+        ImGui::End();
+    }
+}

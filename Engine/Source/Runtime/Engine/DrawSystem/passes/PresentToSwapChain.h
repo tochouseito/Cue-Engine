@@ -173,6 +173,7 @@ namespace Cue::RHI
             ICommandContext* commandContext = context.commandContext();
 
             commandContext->set_render_targets(&m_backBufferRtvHandle, 1, {});
+            commandContext->clear_render_target(m_backBufferRtvHandle, k_swapChainClearColor.data());
             commandContext->set_viewport_scissor(context.width(), context.height());
             commandContext->set_graphics_pipeline(m_screenCopyPipelineHandle);
             commandContext->set_primitive_topology(PrimitiveTopologyType::Triangle);
@@ -181,6 +182,7 @@ namespace Cue::RHI
 
         }
     private:
+        static constexpr Math::float4 k_swapChainClearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         TextureHandle m_backBufferHandle; // スワップチェインのバックバッファのハンドル
         ViewHandle m_backBufferRtvHandle; // スワップチェインのバックバッファの RTV ビューのハンドル
         TextureHandle m_sourceColorHandle; // コピー元となる color のハンドル

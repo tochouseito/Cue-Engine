@@ -16,6 +16,7 @@
 
 // === Editor includes ===
 #include "ImGuiManager/ImGuiManager.h"
+#include "Workspace/Dockspace.h"
 
 // === Engine includes ===
 #include <Engine.h>
@@ -135,6 +136,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
+    // Dockspace を初期化
+    std::unique_ptr<Editor::Dockspace> dockspace = std::make_unique<Editor::Dockspace>();
+
     // ウィンドウを表示
     platform->start();
 
@@ -159,11 +163,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         if (r)
         {
+# pragma region Editor UI の描画
+            /// <summary>
+            /// Editor UI の描画
+            /// </summary>
+            
             ImGui::Begin("Test");
 
             ImGui::Text("Test.txt");
 
             ImGui::End();
+
+            dockspace->update();
+
+# pragma endregion Editor UI の描画
 
             imGuiManager->end_frame();
         }

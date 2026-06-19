@@ -298,13 +298,15 @@ namespace Cue
                                 "Failed to create present frame graph.");
         }
 
-        m_presentFrameGraph->add_pass(
-            std::make_unique<RHI::PresentToSwapChainPass>());
-
         // editorパスが提供されている場合は present グラフに追加
         if (a_editorPass)
         {
             m_presentFrameGraph->add_pass(std::move(a_editorPass));
+        }
+        else
+        {
+            m_presentFrameGraph->add_pass(
+                std::make_unique<RHI::PresentToSwapChainPass>());
         }
 
         // グラフを構築
