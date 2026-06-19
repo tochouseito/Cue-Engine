@@ -1121,23 +1121,17 @@ Result Engine::create_frame_graphs(
             m_drawResources->visible_object_count_buffer_uav_handle(),
             m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount));
         m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ResetBatchCountersPass>(
+                m_maxObjectCount, false));
+        m_frameGraph->add_pass(
             std::make_unique<DrawSystem::MeshletVisibilityRefinementPass>(
                 m_drawFrameState,
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->transform_buffer_handle(),
                 m_drawResources->view_projection_buffer_handle(),
-                m_drawResources->visible_object_count_buffer_handle()));
-        m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::ResetBatchCountersPass>(
-                m_maxObjectCount, false));
-        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
-            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle(), true));
-        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
-        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
-            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount, true));
+                m_drawResources->visible_object_count_buffer_handle(),
+                DrawSystem::StaticMeshBatching::max_visible_meshlet_count(
+                    m_maxObjectCount)));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>(
                 m_drawResources->render_object_buffer_handle(),
@@ -1158,8 +1152,7 @@ Result Engine::create_frame_graphs(
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->directional_light_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
-                DrawSystem::StaticMeshBatching::
-                    max_meshlet_indirect_command_count(m_maxObjectCount)));
+                1u));
     }
 
     result = m_frameGraph->build();

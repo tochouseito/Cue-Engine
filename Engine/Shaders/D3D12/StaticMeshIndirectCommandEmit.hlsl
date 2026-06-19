@@ -64,7 +64,7 @@ StructuredBuffer<uint> g_renderObjectIndices : register(t3);
 StructuredBuffer<RenderObject> g_renderObjects : register(t4);
 StructuredBuffer<Transform> g_transforms : register(t5);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t6);
-StructuredBuffer<uint> g_meshletRangeVisibility : register(t7);
+ByteAddressBuffer g_visibleMeshletCount : register(t7);
 
 RWStructuredBuffer<IndirectCommand> g_indirectCommands : register(u0);
 RWByteAddressBuffer g_indirectCommandCount : register(u1);
@@ -99,13 +99,18 @@ cbuffer MeshletDepthBinParam : register(b5)
     uint g_meshletDepthBinCount;
 };
 
+cbuffer MaxVisibleMeshletCountParam : register(b7)
+{
+    uint g_maxVisibleMeshletCount;
+};
+
 cbuffer ViewProjection : register(b6)
 {
     row_major float4x4 g_viewMatrix;
     row_major float4x4 g_projectionMatrix;
 };
 
-static const uint k_maxMeshletRangeDrawsPerBatch = 64u;
+static const uint k_maxMeshletIndexCount = 384u;
 
 float project_device_depth(float viewZ)
 {
@@ -157,6 +162,19 @@ void emit_command(
 [numthreads(1, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    if (g_useMeshletRanges != 0u)
+    {
+        const uint visibleMeshletCount =
+            min(g_visibleMeshletCount.Load(0), g_maxVisibleMeshletCount);
+        emit_command(
+            0u,
+            visibleMeshletCount,
+            k_maxMeshletIndexCount,
+            0u,
+            0);
+        return;
+    }
+
     // Emit commands near-to-far so the occluder depth pass benefits from
     // early depth rejection. depthBin 0 is nearest.
     const uint meshletDepthBinCount = max(g_meshletDepthBinCount, 1u);
@@ -193,72 +211,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                 }
 
                 const uint batchStart = g_batchObjectStarts.Load(batchId * 4u);
-                const bool useMeshletRanges =
-                    g_useMeshletRanges != 0u &&
-                    meshRange.meshletCount > 1u &&
-                    meshRange.meshletCount <= k_maxMeshletRangeDrawsPerBatch;
-
-                if (!useMeshletRanges)
-                {
-                    emit_command(
-                        batchStart,
-                        instanceCount,
-                        meshRange.indexCount,
-                        meshRange.startIndex,
-                        meshRange.baseVertex);
-                    continue;
-                }
-
-                for (uint meshletDepthBin = 0u;
-                     meshletDepthBin < meshletDepthBinCount;
-                     ++meshletDepthBin)
-                {
-                    for (uint instanceOffset = 0u;
-                         instanceOffset < instanceCount;
-                         ++instanceOffset)
-                    {
-                        const uint drawObjectStartIndex =
-                            batchStart + instanceOffset;
-                        const uint renderObjectIndex =
-                            g_renderObjectIndices[drawObjectStartIndex];
-                        const uint visibilityBase =
-                            renderObjectIndex * k_maxMeshletRangeDrawsPerBatch;
-                        const RenderObject renderObject =
-                            g_renderObjects[renderObjectIndex];
-                        const Transform transform =
-                            g_transforms[renderObject.transformId];
-
-                        for (uint meshletOffset = 0u;
-                             meshletOffset < meshRange.meshletCount;
-                             ++meshletOffset)
-                        {
-                            const MeshletBounds meshlet =
-                                g_meshletBounds[meshRange.firstMeshlet + meshletOffset];
-                            if (meshlet.indexCount == 0u ||
-                                g_meshletRangeVisibility[visibilityBase + meshletOffset] ==
-                                    0u)
-                            {
-                                continue;
-                            }
-
-                            const float3 worldCenter =
-                                mul(float4(meshlet.center, 1.0f),
-                                    transform.worldMatrix).xyz;
-                            if (project_depth_bin(worldCenter, meshletDepthBinCount) !=
-                                meshletDepthBin)
-                            {
-                                continue;
-                            }
-
-                            emit_command(
-                                drawObjectStartIndex,
-                                1u,
-                                meshlet.indexCount,
-                                meshRange.startIndex + meshlet.firstIndex,
-                                meshRange.baseVertex);
-                        }
-                    }
-                }
+                emit_command(
+                    batchStart,
+                    instanceCount,
+                    meshRange.indexCount,
+                    meshRange.startIndex,
+                    meshRange.baseVertex);
             }
         }
     }

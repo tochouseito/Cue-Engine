@@ -160,6 +160,23 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
+        result = builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.get_buffer("MeshPool.MeshletBounds",
+                                    m_meshletBoundsBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.get_buffer("VisibleMeshletBuffer",
+                                    m_visibleMeshletBuffer);
+        if (!result)
+        {
+            return result;
+        }
         result = builder.get_buffer("ClusterLightRangeBuffer",
                                     m_clusterLightRangeBuffer);
         if (!result)
@@ -238,6 +255,20 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7});
         rootSignatureDesc.parameters.push_back(
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 9});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 10});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 11});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 12});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 13});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 14});
+        rootSignatureDesc.parameters.push_back(
+            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 15});
         result =
             builder.create_root_signature(rootSignatureDesc, m_rootSignature);
         if (!result)
@@ -272,11 +303,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         pipelineDesc.rootSignatureHandle = m_rootSignature;
         pipelineDesc.vsHandle = m_vertexShader;
         pipelineDesc.psHandle = m_pixelShader;
-        pipelineDesc.inputElements = {
-            {"POSITION", 0, RHI::InputElementFormat::R32G32B32A32_Float, 0, 0},
-            {"TEXCOORD", 0, RHI::InputElementFormat::R32G32_Float, 1, 0},
-            {"NORMAL", 0, RHI::InputElementFormat::R32G32B32_Float, 2, 0},
-        };
+        pipelineDesc.inputElements = {};
         pipelineDesc.rasterizerState.cullMode = RHI::CullMode::Back;
         pipelineDesc.depthStencilState.depthEnable = true;
         pipelineDesc.depthStencilState.depthWriteMask =
@@ -364,28 +391,55 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         }
         result = builder.use_buffer(
             m_positionBuffer, RHI::ResourceAccessType::Read,
-            RHI::ResourceState::VertexBuffer, RHI::ResourceState::VertexBuffer);
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
         if (!result)
         {
             return result;
         }
         result = builder.use_buffer(m_uvBuffer, RHI::ResourceAccessType::Read,
-                                    RHI::ResourceState::VertexBuffer,
-                                    RHI::ResourceState::VertexBuffer);
+                                    RHI::ResourceState::ShaderResource,
+                                    RHI::ResourceState::ShaderResource);
         if (!result)
         {
             return result;
         }
         result = builder.use_buffer(
             m_normalBuffer, RHI::ResourceAccessType::Read,
-            RHI::ResourceState::VertexBuffer, RHI::ResourceState::VertexBuffer);
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
         if (!result)
         {
             return result;
         }
         result = builder.use_buffer(
             m_indexBuffer, RHI::ResourceAccessType::Read,
-            RHI::ResourceState::IndexBuffer, RHI::ResourceState::IndexBuffer);
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_meshRangeBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_meshletBoundsBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_visibleMeshletBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
         if (!result)
         {
             return result;
@@ -466,11 +520,13 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             17, float_to_uint32(m_clusterInvLogFarNear));
         commandContext->set_srv(18, m_clusterLightRangeBuffer);
         commandContext->set_srv(19, m_clusterLightIndexBuffer);
-        commandContext->set_vertex_buffer(0, m_positionBuffer);
-        commandContext->set_vertex_buffer(1, m_uvBuffer);
-        commandContext->set_vertex_buffer(2, m_normalBuffer);
-        commandContext->set_index_buffer(m_indexBuffer,
-                                         RHI::IndexFormat::UInt32);
+        commandContext->set_srv(20, m_positionBuffer);
+        commandContext->set_srv(21, m_uvBuffer);
+        commandContext->set_srv(22, m_normalBuffer);
+        commandContext->set_srv(23, m_indexBuffer);
+        commandContext->set_srv(24, m_meshRangeBuffer);
+        commandContext->set_srv(25, m_meshletBoundsBuffer);
+        commandContext->set_srv(26, m_visibleMeshletBuffer);
 
         const DrawFrameData &frameState =
             m_drawFrameState.frame_state(context.frame_index());
@@ -479,9 +535,9 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             return;
         }
 
-        commandContext->execute_indexed_indirect(m_indirectCommandBuffer,
-                                                 m_indirectCommandCountBuffer,
-                                                 m_maxIndirectCommandCount);
+        commandContext->execute_indirect(m_indirectCommandBuffer,
+                                         m_indirectCommandCountBuffer,
+                                         m_maxIndirectCommandCount);
     }
 
   private:
@@ -506,6 +562,9 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_indirectCommandBuffer{};
     RHI::BufferHandle m_indirectCommandCountBuffer{};
     RHI::BufferHandle m_renderObjectIndexBuffer{};
+    RHI::BufferHandle m_meshRangeBuffer{};
+    RHI::BufferHandle m_meshletBoundsBuffer{};
+    RHI::BufferHandle m_visibleMeshletBuffer{};
     RHI::BufferHandle m_clusterLightRangeBuffer{};
     RHI::BufferHandle m_clusterLightIndexBuffer{};
     uint32_t m_screenWidth = 0;

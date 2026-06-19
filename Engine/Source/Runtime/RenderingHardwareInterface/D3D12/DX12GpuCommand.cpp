@@ -23,6 +23,16 @@ namespace Cue::RHI::DX12
             uint32_t startInstanceLocation = 0;
         };
 
+        struct IndirectDrawCommand final
+        {
+            uint32_t drawObjectStartIndex = 0;
+            uint32_t vertexCountPerInstance = 0;
+            uint32_t instanceCount = 0;
+            uint32_t startVertexLocation = 0;
+            uint32_t startInstanceLocation = 0;
+            uint32_t padding = 0;
+        };
+
         [[nodiscard]] bool supports_draw_indexed_indirect_signature(
             const RootSignatureDesc& a_desc) noexcept
         {
@@ -1074,6 +1084,17 @@ namespace Cue::RHI::DX12
 
         if (supports_draw_indexed_indirect_signature(rootSignatureRecord->desc))
         {
+            if (m_drawCommandSignature == nullptr ||
+                m_drawSignatureRootSignature != rootSignatureRecord->rootSignature.Get())
+            {
+                Result signatureResult = create_draw_command_signature(
+                    *m_device,
+                    rootSignatureRecord->rootSignature.Get());
+                if (!signatureResult)
+                {
+                    return signatureResult;
+                }
+            }
             if (m_drawIndexedCommandSignature == nullptr ||
                 m_drawIndexedSignatureRootSignature != rootSignatureRecord->rootSignature.Get())
             {
@@ -1088,6 +1109,8 @@ namespace Cue::RHI::DX12
         }
         else
         {
+            m_drawCommandSignature.Reset();
+            m_drawSignatureRootSignature = nullptr;
             m_drawIndexedCommandSignature.Reset();
             m_drawIndexedSignatureRootSignature = nullptr;
         }
@@ -1514,6 +1537,49 @@ namespace Cue::RHI::DX12
             0);
         return Result::ok();
     }
+    Result DX12GpuCommandContext::execute_indirect(
+        BufferHandle commandBufferHandle,
+        BufferHandle commandCountBufferHandle,
+        uint32_t maxCommandCount)
+    {
+        if (type() != CommandListType::Graphics)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "ExecuteIndirect can only be issued on a graphics command context.");
+        }
+        if (!m_drawCommandSignature)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Draw command signature is not initialized.");
+        }
+
+        DX12GpuResource* commandResource = nullptr;
+        Result result = resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        DX12GpuResource* commandCountResource = nullptr;
+        result = resolve_default_buffer(commandCountBufferHandle, 0, &commandCountResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_commandList->ExecuteIndirect(
+            m_drawCommandSignature.Get(),
+            maxCommandCount,
+            commandResource->get_resource(),
+            0,
+            commandCountResource->get_resource(),
+            0);
+        return Result::ok();
+    }
     Result DX12GpuCommandContext::create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
     {
         // コマンドアロケータの作成
@@ -1568,6 +1634,46 @@ namespace Cue::RHI::DX12
         }
 
         m_drawIndexedSignatureRootSignature = rootSignature;
+
+        return Result::ok();
+    }
+    Result DX12GpuCommandContext::create_draw_command_signature(
+        ID3D12Device& device,
+        ID3D12RootSignature* rootSignature)
+    {
+        if (rootSignature == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Root signature is required for draw command signature.");
+        }
+
+        D3D12_INDIRECT_ARGUMENT_DESC argumentDescs[2]{};
+        argumentDescs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+        argumentDescs[0].Constant.RootParameterIndex = 0;
+        argumentDescs[0].Constant.DestOffsetIn32BitValues = 0;
+        argumentDescs[0].Constant.Num32BitValuesToSet = 1;
+        argumentDescs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+        D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};
+        signatureDesc.ByteStride = sizeof(IndirectDrawCommand);
+        signatureDesc.NumArgumentDescs = 2;
+        signatureDesc.pArgumentDescs = argumentDescs;
+
+        HRESULT hr = device.CreateCommandSignature(
+            &signatureDesc,
+            rootSignature,
+            IID_PPV_ARGS(m_drawCommandSignature.ReleaseAndGetAddressOf()));
+        if (FAILED(hr))
+        {
+            return Result::fail(
+                PAL::Win::convert_hresult_code(hr),
+                Severity::Error,
+                "Failed to create draw command signature.");
+        }
+
+        m_drawSignatureRootSignature = rootSignature;
 
         return Result::ok();
     }
