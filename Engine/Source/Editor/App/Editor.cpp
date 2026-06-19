@@ -612,18 +612,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     constexpr std::array<Editor::ModelImporter::LodGroupSettings, 4>
         k_lodGroups = {
             Editor::ModelImporter::LodGroupSettings{
-                "Dragon", {0.50f, 0.15f, 0.01f}, true},
+                "StanfordDragon", {0.50f, 0.15f, 0.01f}, true},
             Editor::ModelImporter::LodGroupSettings{
-                "DragonHighPoly", {0.25f, 0.05f, 0.005f}, true},
+                "AsianDragon", {0.25f, 0.05f, 0.005f}, true},
             Editor::ModelImporter::LodGroupSettings{
                 "Bunny", {0.50f, 0.15f, 0.01f}, true},
             Editor::ModelImporter::LodGroupSettings{
                 "Buddha", {0.20f, 0.03f, 0.003f}, true},
-        };
+    };
 
     constexpr std::array<TestModelDesc, 4> k_testModels = {
-        TestModelDesc{"dragon.obj", "dragon", 0u},
-        TestModelDesc{"dragon-highpoly.obj", "dragon-highpoly", 1u},
+        TestModelDesc{"stanforddragon.obj", "stanforddragon", 0u},
+        TestModelDesc{"asiandragon.obj", "asiandragon", 1u},
         TestModelDesc{"bunny.obj", "bunny", 2u},
         TestModelDesc{"buddha.obj", "buddha", 3u},
     };

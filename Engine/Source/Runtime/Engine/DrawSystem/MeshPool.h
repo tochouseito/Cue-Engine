@@ -46,15 +46,19 @@ namespace Cue::DrawSystem
         uint32_t maxVertexCount = 4u * 1024u * 1024u; // プール内で保持できる最大頂点数
         uint32_t maxIndexCount = 4u * 1024u * 1024u; // プール内で保持できる最大インデックス数
         uint32_t maxMeshCount = 4u * 1024u; // プール内で管理できる最大メッシュ数
+        uint32_t maxMeshletCount = 256u * 1024u; // 追加カリング用 meshlet bounds の最大数
         uint32_t positionStagingSize = 1u * 1024u * 1024u; // Position stream 用の常設 staging サイズ
         uint32_t uvStagingSize = 512u * 1024u; // UV stream 用の常設 staging サイズ
         uint32_t normalStagingSize = 1u * 1024u * 1024u; // Normal stream 用の常設 staging サイズ
         uint32_t indexStagingSize = 1u * 1024u * 1024u; // Index stream 用の常設 staging サイズ
+        uint32_t meshletBoundsStagingSize = 256u * 1024u; // Meshlet bounds 用の常設 staging サイズ
         uint32_t meshRangeStagingCount = 256u; // MeshRange 用の常設 staging 要素数
         std::string_view positionName = "MeshPool.Position"; // Position buffer のデバッグ名
         std::string_view uvName = "MeshPool.Uv"; // UV buffer のデバッグ名
         std::string_view normalName = "MeshPool.Normal"; // Normal buffer のデバッグ名
         std::string_view indexName = "MeshPool.Index"; // Index buffer のデバッグ名
+        std::string_view meshletBoundsName = "MeshPool.MeshletBounds"; // Meshlet bounds buffer のデバッグ名
+        std::string_view meshletBoundsSrvName = "MeshPool.MeshletBoundsSRV"; // Meshlet bounds SRV のデバッグ名
         std::string_view meshRangeName = "MeshPool.MeshRange"; // MeshRange buffer のデバッグ名
         std::string_view meshRangeSrvName = "MeshPool.MeshRangeSRV"; // MeshRange SRV のデバッグ名
     };
@@ -65,7 +69,11 @@ namespace Cue::DrawSystem
         uint32_t indexCount = 0; // DrawIndexed に渡すインデックス数
         uint32_t startIndex = 0; // Index buffer 内の開始インデックス
         int32_t baseVertex = 0; // Position buffer 内の基準頂点
-        uint32_t padding = 0; // GPU 構造体の 16 byte 境界合わせ
+        uint32_t firstMeshlet = 0; // MeshletBounds buffer 内の開始要素
+        uint32_t meshletCount = 0; // このメッシュに属する meshlet 数
+        uint32_t padding0 = 0; // GPU 構造体の 16 byte 境界合わせ
+        uint32_t padding1 = 0; // GPU 構造体の 16 byte 境界合わせ
+        uint32_t padding2 = 0; // GPU 構造体の 16 byte 境界合わせ
     };
 
     /// @brief メッシュの中心点と外接球半径
@@ -82,7 +90,9 @@ namespace Cue::DrawSystem
         BufferHandle uvBuffer = {}; // UV ストリーム
         BufferHandle normalBuffer = {}; // 法線ストリーム
         BufferHandle indexBuffer = {}; // インデックスストリーム
+        BufferHandle meshletBoundsBuffer = {}; // Meshlet bounds ストリーム
         BufferHandle meshRangeBuffer = {}; // MeshRange 配列を保持する structured buffer
+        ViewHandle meshletBoundsSrv = {}; // Meshlet bounds を読むための SRV
         ViewHandle meshRangeSrv = {}; // シェーダから MeshRange を読むための SRV
     };
 
@@ -101,6 +111,9 @@ namespace Cue::DrawSystem
         uint64_t normalByteSize = 0; // Normal stream に確保した byte 数
         uint64_t indexByteOffset = 0; // Index stream 内の開始 byte offset
         uint64_t indexByteSize = 0; // Index stream に確保した byte 数
+        uint64_t meshletByteOffset = 0; // MeshletBounds stream 内の開始 byte offset
+        uint64_t meshletByteSize = 0; // MeshletBounds stream に確保した byte 数
+        uint32_t meshletCount = 0; // このメッシュに属する meshlet 数
         MeshBounds bounds{}; // CPU 側で保持するメッシュ境界情報
         bool hasSkinInfluence = false; // スキニング用 influence stream を使うかどうか
     };
@@ -299,6 +312,8 @@ namespace Cue::DrawSystem
         StreamState m_normalStream{}; // 法線データ用ストリーム
         StreamState m_influenceStream{}; // スキニング influence データ用ストリーム
         StreamState m_indexStream{}; // インデックスデータ用ストリーム
+        StreamState m_meshletBoundsStream{}; // 追加カリング用 meshlet bounds ストリーム
+        ViewHandle m_meshletBoundsSrvHandle{}; // Meshlet bounds buffer の SRV
         MeshRangeState m_meshRangeState{}; // MeshRange buffer と meshId 管理状態
         Result m_initResult = Result::ok(); // コンストラクタ内初期化の結果
     };

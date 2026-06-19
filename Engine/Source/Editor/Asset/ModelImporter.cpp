@@ -229,6 +229,61 @@ struct MeshoptPosition final
     float z = 0.0f;
 };
 
+[[nodiscard]] std::vector<Core::Native::MeshletBounds> build_meshlet_bounds(
+    const Core::Native::MeshData &meshData)
+{
+    static constexpr size_t k_maxMeshletVertices = 64u;
+    static constexpr size_t k_maxMeshletTriangles = 126u;
+    static constexpr float k_coneWeight = 0.0f;
+
+    std::vector<Core::Native::MeshletBounds> result{};
+    if (meshData.positions.empty() || meshData.indices.size() < 3u)
+    {
+        return result;
+    }
+
+    const size_t maxMeshletCount = meshopt_buildMeshletsBound(
+        meshData.indices.size(), k_maxMeshletVertices, k_maxMeshletTriangles);
+    std::vector<meshopt_Meshlet> meshlets(maxMeshletCount);
+    std::vector<uint32_t> meshletVertices(maxMeshletCount * k_maxMeshletVertices);
+    std::vector<unsigned char> meshletTriangles(
+        maxMeshletCount * k_maxMeshletTriangles * 3u);
+
+    const size_t meshletCount = meshopt_buildMeshlets(
+        meshlets.data(), meshletVertices.data(), meshletTriangles.data(),
+        meshData.indices.data(), meshData.indices.size(),
+        &meshData.positions[0].x, meshData.positions.size(),
+        sizeof(Math::float4), k_maxMeshletVertices, k_maxMeshletTriangles,
+        k_coneWeight);
+    result.reserve(meshletCount);
+
+    for (size_t meshletIndex = 0; meshletIndex < meshletCount; ++meshletIndex)
+    {
+        const meshopt_Meshlet &meshlet = meshlets[meshletIndex];
+        if (meshlet.triangle_count == 0u)
+        {
+            continue;
+        }
+
+        const meshopt_Bounds bounds = meshopt_computeMeshletBounds(
+            &meshletVertices[meshlet.vertex_offset],
+            &meshletTriangles[meshlet.triangle_offset],
+            meshlet.triangle_count,
+            &meshData.positions[0].x,
+            meshData.positions.size(),
+            sizeof(Math::float4));
+
+        Core::Native::MeshletBounds meshletBounds{};
+        meshletBounds.center =
+            Math::float3(bounds.center[0], bounds.center[1], bounds.center[2]);
+        meshletBounds.radius = bounds.radius;
+        meshletBounds.indexCount = meshlet.triangle_count * 3u;
+        result.push_back(meshletBounds);
+    }
+
+    return result;
+}
+
 struct LodGenerationStats final
 {
     size_t sourceVertexCount = 0;
@@ -341,6 +396,7 @@ void unpack_vertices(const std::vector<MeshoptVertex> &vertices,
 
     result.indices = std::move(overdrawIndices);
     unpack_vertices(fetchVertices, result);
+    result.meshletBounds = build_meshlet_bounds(result);
     return result;
 }
 

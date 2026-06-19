@@ -7,7 +7,11 @@ struct MeshRange
     uint indexCount;
     uint startIndex;
     int baseVertex;
-    uint padding;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint padding0;
+    uint padding1;
+    uint padding2;
 };
 
 struct IndirectCommand

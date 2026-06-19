@@ -6,6 +6,9 @@
 
 namespace Cue::DrawSystem
 {
+    static_assert(sizeof(MeshRange) == 32u, "MeshRange must match the HLSL structured buffer layout.");
+    static_assert(sizeof(Core::Native::MeshletBounds) == 32u, "MeshletBounds must match the HLSL structured buffer layout.");
+
     namespace
     {
         [[nodiscard]] bool allocate_from_free_ranges(
@@ -193,7 +196,13 @@ namespace Cue::DrawSystem
         m_meshRangeState.stagingCapacityInBytes = 0;
         m_meshRangeState.capacity = 0;
         m_meshRangeState.freeMeshIds.clear();
+        if (m_meshletBoundsSrvHandle.valid())
+        {
+            m_viewManager.destroy_view(m_meshletBoundsSrvHandle);
+            m_meshletBoundsSrvHandle = {};
+        }
         destroy_stream_state(m_indexStream);
+        destroy_stream_state(m_meshletBoundsStream);
         destroy_stream_state(m_influenceStream);
         destroy_stream_state(m_normalStream);
         destroy_stream_state(m_uvStream);
@@ -254,6 +263,34 @@ namespace Cue::DrawSystem
             desc.maxIndexCount,
             alignof(uint32_t),
             m_indexStream);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_stream_state(
+            desc.meshletBoundsName,
+            BufferType::Structured,
+            static_cast<uint64_t>(desc.maxMeshletCount) * sizeof(Core::Native::MeshletBounds),
+            desc.meshletBoundsStagingSize,
+            sizeof(Core::Native::MeshletBounds),
+            desc.maxMeshletCount,
+            alignof(Core::Native::MeshletBounds),
+            m_meshletBoundsStream);
+        if (!result)
+        {
+            return result;
+        }
+
+        ViewDesc meshletBoundsSrvDesc{};
+        meshletBoundsSrvDesc.name = desc.meshletBoundsSrvName;
+        meshletBoundsSrvDesc.type = ViewType::ShaderResourceBuffer;
+        meshletBoundsSrvDesc.bufferKind = BufferKind::Buffer;
+        meshletBoundsSrvDesc.bufferHandle = m_meshletBoundsStream.defaultBufferHandle;
+        meshletBoundsSrvDesc.firstElement = 0;
+        meshletBoundsSrvDesc.numElements = desc.maxMeshletCount;
+        meshletBoundsSrvDesc.structureByteStride = sizeof(Core::Native::MeshletBounds);
+        result = m_viewManager.create_view(meshletBoundsSrvDesc, m_meshletBoundsSrvHandle);
         if (!result)
         {
             return result;
@@ -883,6 +920,8 @@ namespace Cue::DrawSystem
         record.uvByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float2);
         record.normalByteSize = static_cast<uint64_t>(vertexCount) * sizeof(Math::float3);
         record.indexByteSize = byte_size_of(meshData.indices);
+        record.meshletCount = static_cast<uint32_t>(meshData.meshletBounds.size());
+        record.meshletByteSize = byte_size_of(meshData.meshletBounds);
         record.bounds = calculate_bounds(meshData.positions);
         Result result = allocate_mesh_id(record.meshId);
         if (!result)
@@ -940,11 +979,30 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        if (record.meshletByteSize > 0)
+        {
+            result = allocate_stream_range(
+                m_meshletBoundsStream,
+                record.meshletByteSize,
+                alignof(Core::Native::MeshletBounds),
+                record.meshletByteOffset);
+            if (!result)
+            {
+                // - meshlet bounds は追加カリング用の任意データなので、容量不足時は
+                //   メッシュ登録自体は継続し、後段では常に visible 扱いにする。
+                record.meshletByteOffset = 0;
+                record.meshletByteSize = 0;
+                record.meshletCount = 0;
+                result = Result::ok();
+            }
+        }
+
         // - 常設 staging に乗る分は ring を使い、乗らない分だけ一時 upload buffer へ逃がす
         UploadAllocation positionUpload{};
         UploadAllocation uvUpload{};
         UploadAllocation normalUpload{};
         UploadAllocation indexUpload{};
+        UploadAllocation meshletUpload{};
 
         result = allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
         if (!result)
@@ -988,6 +1046,7 @@ namespace Cue::DrawSystem
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_meshletBoundsStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -996,12 +1055,33 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        if (record.meshletByteSize > 0)
+        {
+            result = allocate_upload_range(
+                m_meshletBoundsStream,
+                record.meshletByteSize,
+                alignof(Core::Native::MeshletBounds),
+                meshletUpload);
+            if (!result)
+            {
+                // - meshlet bounds の upload だけ失敗した場合も描画は継続する。
+                release_stream_range(m_meshletBoundsStream, record.meshletByteOffset, record.meshletByteSize);
+                record.meshletByteOffset = 0;
+                record.meshletByteSize = 0;
+                record.meshletCount = 0;
+                result = Result::ok();
+            }
+        }
+
         // - index/vertex の offset から GPU 側で参照する MeshRange を作る
         UploadAllocation meshRangeUpload{};
         MeshRange meshRange{};
         meshRange.indexCount = record.indexCount;
         meshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         meshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        meshRange.firstMeshlet = static_cast<uint32_t>(
+            record.meshletByteOffset / sizeof(Core::Native::MeshletBounds));
+        meshRange.meshletCount = record.meshletCount;
 
         result = allocate_upload_range(
             m_meshRangeState,
@@ -1010,10 +1090,12 @@ namespace Cue::DrawSystem
             meshRangeUpload);
         if (!result)
         {
+            release_upload_range(m_meshletBoundsStream, meshletUpload);
             release_upload_range(m_indexStream, indexUpload);
             release_upload_range(m_normalStream, normalUpload);
             release_upload_range(m_uvStream, uvUpload);
             release_upload_range(m_positionStream, positionUpload);
+            release_stream_range(m_meshletBoundsStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1033,6 +1115,10 @@ namespace Cue::DrawSystem
             meshData.normals.empty() ? nullptr : meshData.normals.data(),
             record.normalByteSize);
         write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
+        if (record.meshletByteSize > 0)
+        {
+            write_upload_bytes(meshletUpload, meshData.meshletBounds.data(), record.meshletByteSize);
+        }
         write_upload_bytes(meshRangeUpload, &meshRange, sizeof(MeshRange));
 
         // - 各 stream と MeshRange buffer へのコピーを 1 回の copy command にまとめる
@@ -1080,6 +1166,16 @@ namespace Cue::DrawSystem
             },
             BufferCopyRegion
             {
+                .srcBufferHandle = meshletUpload.bufferHandle,
+                .srcUploadResourceIndex = 0,
+                .srcByteOffset = meshletUpload.byteOffset,
+                .dstBufferHandle = m_meshletBoundsStream.defaultBufferHandle,
+                .dstDefaultResourceIndex = 0,
+                .dstByteOffset = record.meshletByteOffset,
+                .byteSize = record.meshletByteSize
+            },
+            BufferCopyRegion
+            {
                 .srcBufferHandle = meshRangeUpload.bufferHandle,
                 .srcUploadResourceIndex = 0,
                 .srcByteOffset = meshRangeUpload.byteOffset,
@@ -1089,11 +1185,16 @@ namespace Cue::DrawSystem
                 .byteSize = sizeof(MeshRange)
             }
         };
+        if (record.meshletByteSize == 0)
+        {
+            uploadRegions.erase(uploadRegions.end() - 2);
+        }
 
         result = copy_upload_regions(uploadRegions);
 
         // - GPU コピーは同期完了まで待つため、ここで upload 領域を返却できる
         release_upload_range(m_meshRangeState, meshRangeUpload);
+        release_upload_range(m_meshletBoundsStream, meshletUpload);
         release_upload_range(m_indexStream, indexUpload);
         release_upload_range(m_normalStream, normalUpload);
         release_upload_range(m_uvStream, uvUpload);
@@ -1102,6 +1203,7 @@ namespace Cue::DrawSystem
         if (!result)
         {
             // - コピー失敗時は確保済み default heap 領域と meshId を登録前に巻き戻す
+            release_stream_range(m_meshletBoundsStream, record.meshletByteOffset, record.meshletByteSize);
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -1143,6 +1245,7 @@ namespace Cue::DrawSystem
         release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
         release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
         release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
+        release_stream_range(m_meshletBoundsStream, record.meshletByteOffset, record.meshletByteSize);
         release_mesh_id(record.meshId);
 
         // - 解放済み meshId の MeshRange をゼロに戻し、古い描画範囲が残らないようにする
@@ -1198,7 +1301,9 @@ namespace Cue::DrawSystem
         outBindings.uvBuffer = m_uvStream.defaultBufferHandle;
         outBindings.normalBuffer = m_normalStream.defaultBufferHandle;
         outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
+        outBindings.meshletBoundsBuffer = m_meshletBoundsStream.defaultBufferHandle;
         outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
+        outBindings.meshletBoundsSrv = m_meshletBoundsSrvHandle;
         outBindings.meshRangeSrv = m_meshRangeState.srvHandle;
         return Result::ok();
     }
@@ -1234,6 +1339,9 @@ namespace Cue::DrawSystem
             static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         outMeshRange.baseVertex =
             static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        outMeshRange.firstMeshlet =
+            static_cast<uint32_t>(record.meshletByteOffset / sizeof(Core::Native::MeshletBounds));
+        outMeshRange.meshletCount = record.meshletCount;
         return Result::ok();
     }
 

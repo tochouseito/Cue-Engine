@@ -17,6 +17,7 @@
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/GenerateVisibleListPass.h"
 #include "DrawSystem/passes/MeshForwardPass.h"
+#include "DrawSystem/passes/MeshletVisibilityRefinementPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/ObjectOcclusionDepthPass.h"
 #include "DrawSystem/passes/OccluderDepthOnlyIndirectPass.h"
@@ -1074,16 +1075,23 @@ Result Engine::create_frame_graphs(
             m_drawResources->visible_object_count_buffer_uav_handle(),
             m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount));
         m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::MeshletVisibilityRefinementPass>(
+                m_drawFrameState,
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ResetBatchCountersPass>(
                 m_maxObjectCount, false));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle()));
+            m_drawResources->visible_object_count_buffer_handle(), true));
         m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
         m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
             m_drawFrameState, m_drawResources->render_object_buffer_handle(),
             m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount));
+            m_maxObjectCount, true));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>());
         m_frameGraph->add_pass(

@@ -23,6 +23,17 @@ namespace Cue::Core::Native
         (std::numeric_limits<uint32_t>::max)();
     inline constexpr int32_t k_invalidJointIndex = -1;
 
+    /// @brief meshlet / cluster 単位のローカル境界情報
+    struct MeshletBounds
+    {
+        Math::float3 center = Math::float3::zero();
+        float radius = 0.0f;
+        uint32_t firstIndex = 0;
+        uint32_t indexCount = 0;
+        uint32_t padding0 = 0;
+        uint32_t padding1 = 0;
+    };
+
     /// @brief 1 メッシュ分の頂点データ
     struct MeshData
     {
@@ -31,6 +42,7 @@ namespace Cue::Core::Native
         std::vector<Math::float2> uvs;           // UV座標配列
         std::vector<Math::float3> normals;       // 法線配列
         std::vector<std::uint32_t> indices; // インデックスデータ配列
+        std::vector<MeshletBounds> meshletBounds; // 追加カリング用 meshlet 境界
 
         /// @brief 頂点数を返す
         /// @return 位置配列の要素数
