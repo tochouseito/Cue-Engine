@@ -4,7 +4,7 @@
 add_library(Engine STATIC
     "Engine.h"
     "Engine.cpp"
- "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp" "DrawSystem/passes/PresentToSwapChain.h" "DrawSystem/passes/FinalColorClearPass.h" "DrawSystem/DrawFrameState.h" "GpuData/ViewProjection.h" "DrawSystem/MeshPool.h" "DrawSystem/MeshPool.cpp" "DrawSystem/DrawResources.h" "DrawSystem/DrawResources.cpp" "DrawSystem/GpuData/Batching.h")
+ "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp" "DrawSystem/passes/PresentToSwapChain.h" "DrawSystem/passes/FinalColorClearPass.h" "DrawSystem/DrawFrameState.h" "GpuData/ViewProjection.h" "DrawSystem/MeshPool.h" "DrawSystem/MeshPool.cpp" "DrawSystem/DrawResources.h" "DrawSystem/DrawResources.cpp" "DrawSystem/GpuData/Batching.h" "GameCore/Components.h" "GameCore/GameCoreTypes.h")
  
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC
@@ -13,6 +13,7 @@ target_link_libraries(Engine PUBLIC
     Base
     CueMath
     Core
+    ECS
     PAL
     RHI
 )
