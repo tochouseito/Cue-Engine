@@ -1053,7 +1053,12 @@ Result Engine::create_frame_graphs(
             m_drawResources->visible_object_count_buffer_handle(),
             m_maxObjectCount));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>(
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_maxObjectCount,
+                false));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::OccluderDepthOnlyIndirectPass>(
                 m_drawFrameState,
@@ -1093,7 +1098,12 @@ Result Engine::create_frame_graphs(
             m_drawResources->visible_object_count_buffer_handle(),
             m_maxObjectCount, true));
         m_frameGraph->add_pass(
-            std::make_unique<DrawSystem::IndirectCommandEmitPass>());
+            std::make_unique<DrawSystem::IndirectCommandEmitPass>(
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->view_projection_buffer_handle(),
+                m_maxObjectCount,
+                true));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::SceneDepthClearPass>());
         m_frameGraph->add_pass(

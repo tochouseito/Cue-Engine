@@ -862,7 +862,16 @@ namespace Cue::DrawSystem
     class IndirectCommandEmitPass final : public RHI::FrameGraphPass
     {
       public:
-        IndirectCommandEmitPass()
+        IndirectCommandEmitPass(RHI::BufferHandle renderObjectBuffer,
+                                RHI::BufferHandle transformBuffer,
+                                RHI::BufferHandle viewProjectionBuffer,
+                                uint32_t maxIndirectCommandCount,
+                                bool useMeshletRanges = false)
+            : m_renderObjectBuffer(renderObjectBuffer),
+              m_transformBuffer(transformBuffer),
+              m_viewProjectionBuffer(viewProjectionBuffer),
+              m_maxIndirectCommandCount(maxIndirectCommandCount),
+              m_useMeshletRanges(useMeshletRanges)
         {
         }
 
@@ -907,6 +916,33 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer("RenderObjectIndexBuffer",
+                                        m_renderObjectIndexBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer("MeshPool.MeshletBounds",
+                                        m_meshletBoundsBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_renderObjectBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_transformBuffer);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.read_buffer(m_viewProjectionBuffer);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "IndirectCommandEmitRootSignature";
@@ -920,11 +956,30 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::_32BitConstants,
                   RHI::ShaderVisibility::All, 2 });
             rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                  RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                  RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                  RHI::ShaderVisibility::All, 5 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 6 });
+            rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
@@ -981,6 +1036,46 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.use_buffer(
+                m_renderObjectIndexBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_renderObjectBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_transformBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_meshletBoundsBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
+                m_viewProjectionBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.use_buffer(m_indirectCommandBuffer,
                                         RHI::ResourceAccessType::Write,
                                         RHI::ResourceState::UnorderedAccess,
@@ -1010,11 +1105,20 @@ namespace Cue::DrawSystem
                 1, StaticMeshBatching::k_maxMaterialBatchCount);
             commandContext->set_32bit_constant(
                 2, StaticMeshBatching::k_depthBinCount);
-            commandContext->set_srv(3, m_meshRangeBuffer);
-            commandContext->set_srv(4, m_batchObjectCountBuffer);
-            commandContext->set_srv(5, m_batchObjectStartBuffer);
-            commandContext->set_uav(6, m_indirectCommandBuffer);
-            commandContext->set_uav(7, m_indirectCommandCountBuffer);
+            commandContext->set_32bit_constant(3, m_maxIndirectCommandCount);
+            commandContext->set_32bit_constant(4,
+                                               m_useMeshletRanges ? 1u : 0u);
+            commandContext->set_32bit_constant(5, m_meshletDepthBinCount);
+            commandContext->set_cbv(6, m_viewProjectionBuffer);
+            commandContext->set_srv(7, m_meshRangeBuffer);
+            commandContext->set_srv(8, m_batchObjectCountBuffer);
+            commandContext->set_srv(9, m_batchObjectStartBuffer);
+            commandContext->set_srv(10, m_renderObjectIndexBuffer);
+            commandContext->set_srv(11, m_renderObjectBuffer);
+            commandContext->set_srv(12, m_transformBuffer);
+            commandContext->set_srv(13, m_meshletBoundsBuffer);
+            commandContext->set_uav(14, m_indirectCommandBuffer);
+            commandContext->set_uav(15, m_indirectCommandCountBuffer);
             commandContext->dispatch(1, 1, 1);
         }
 
@@ -1022,8 +1126,16 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_meshRangeBuffer{};
         RHI::BufferHandle m_batchObjectCountBuffer{};
         RHI::BufferHandle m_batchObjectStartBuffer{};
+        RHI::BufferHandle m_renderObjectIndexBuffer{};
+        RHI::BufferHandle m_renderObjectBuffer{};
+        RHI::BufferHandle m_transformBuffer{};
+        RHI::BufferHandle m_viewProjectionBuffer{};
+        RHI::BufferHandle m_meshletBoundsBuffer{};
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
+        uint32_t m_maxIndirectCommandCount = 0;
+        uint32_t m_meshletDepthBinCount = 8u;
+        bool m_useMeshletRanges = false;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

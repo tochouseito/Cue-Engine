@@ -232,9 +232,8 @@ struct MeshoptPosition final
 [[nodiscard]] std::vector<Core::Native::MeshletBounds> build_meshlet_bounds(
     const Core::Native::MeshData &meshData)
 {
-    static constexpr size_t k_maxMeshletVertices = 64u;
     static constexpr size_t k_maxMeshletTriangles = 126u;
-    static constexpr float k_coneWeight = 0.0f;
+    static constexpr size_t k_maxMeshletIndices = k_maxMeshletTriangles * 3u;
 
     std::vector<Core::Native::MeshletBounds> result{};
     if (meshData.positions.empty() || meshData.indices.size() < 3u)
@@ -242,42 +241,69 @@ struct MeshoptPosition final
         return result;
     }
 
-    const size_t maxMeshletCount = meshopt_buildMeshletsBound(
-        meshData.indices.size(), k_maxMeshletVertices, k_maxMeshletTriangles);
-    std::vector<meshopt_Meshlet> meshlets(maxMeshletCount);
-    std::vector<uint32_t> meshletVertices(maxMeshletCount * k_maxMeshletVertices);
-    std::vector<unsigned char> meshletTriangles(
-        maxMeshletCount * k_maxMeshletTriangles * 3u);
-
-    const size_t meshletCount = meshopt_buildMeshlets(
-        meshlets.data(), meshletVertices.data(), meshletTriangles.data(),
-        meshData.indices.data(), meshData.indices.size(),
-        &meshData.positions[0].x, meshData.positions.size(),
-        sizeof(Math::float4), k_maxMeshletVertices, k_maxMeshletTriangles,
-        k_coneWeight);
-    result.reserve(meshletCount);
-
-    for (size_t meshletIndex = 0; meshletIndex < meshletCount; ++meshletIndex)
+    result.reserve((meshData.indices.size() + k_maxMeshletIndices - 1u) /
+                   k_maxMeshletIndices);
+    for (size_t firstIndex = 0; firstIndex < meshData.indices.size();
+         firstIndex += k_maxMeshletIndices)
     {
-        const meshopt_Meshlet &meshlet = meshlets[meshletIndex];
-        if (meshlet.triangle_count == 0u)
+        size_t indexCount =
+            (std::min)(k_maxMeshletIndices, meshData.indices.size() - firstIndex);
+        indexCount = (indexCount / 3u) * 3u;
+        if (indexCount == 0u)
         {
             continue;
         }
 
-        const meshopt_Bounds bounds = meshopt_computeMeshletBounds(
-            &meshletVertices[meshlet.vertex_offset],
-            &meshletTriangles[meshlet.triangle_offset],
-            meshlet.triangle_count,
-            &meshData.positions[0].x,
-            meshData.positions.size(),
-            sizeof(Math::float4));
+        const uint32_t seedVertexIndex = meshData.indices[firstIndex];
+        if (seedVertexIndex >= meshData.positions.size())
+        {
+            continue;
+        }
+
+        const Math::float4 &seedPosition = meshData.positions[seedVertexIndex];
+        Math::float3 minPosition(seedPosition.x, seedPosition.y, seedPosition.z);
+        Math::float3 maxPosition = minPosition;
+
+        for (size_t indexOffset = 0; indexOffset < indexCount; ++indexOffset)
+        {
+            const uint32_t vertexIndex = meshData.indices[firstIndex + indexOffset];
+            if (vertexIndex >= meshData.positions.size())
+            {
+                continue;
+            }
+
+            const Math::float4 &position = meshData.positions[vertexIndex];
+            minPosition.x = (std::min)(minPosition.x, position.x);
+            minPosition.y = (std::min)(minPosition.y, position.y);
+            minPosition.z = (std::min)(minPosition.z, position.z);
+            maxPosition.x = (std::max)(maxPosition.x, position.x);
+            maxPosition.y = (std::max)(maxPosition.y, position.y);
+            maxPosition.z = (std::max)(maxPosition.z, position.z);
+        }
+
+        const Math::float3 center = (minPosition + maxPosition) * 0.5f;
+        float radiusSq = 0.0f;
+        for (size_t indexOffset = 0; indexOffset < indexCount; ++indexOffset)
+        {
+            const uint32_t vertexIndex = meshData.indices[firstIndex + indexOffset];
+            if (vertexIndex >= meshData.positions.size())
+            {
+                continue;
+            }
+
+            const Math::float4 &position = meshData.positions[vertexIndex];
+            const Math::float3 delta(
+                position.x - center.x,
+                position.y - center.y,
+                position.z - center.z);
+            radiusSq = (std::max)(radiusSq, delta.dot(delta));
+        }
 
         Core::Native::MeshletBounds meshletBounds{};
-        meshletBounds.center =
-            Math::float3(bounds.center[0], bounds.center[1], bounds.center[2]);
-        meshletBounds.radius = bounds.radius;
-        meshletBounds.indexCount = meshlet.triangle_count * 3u;
+        meshletBounds.center = center;
+        meshletBounds.radius = std::sqrt(radiusSq);
+        meshletBounds.firstIndex = static_cast<uint32_t>(firstIndex);
+        meshletBounds.indexCount = static_cast<uint32_t>(indexCount);
         result.push_back(meshletBounds);
     }
 
