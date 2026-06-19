@@ -232,7 +232,7 @@ struct MeshoptPosition final
 [[nodiscard]] std::vector<Core::Native::MeshletBounds> build_meshlet_bounds(
     const Core::Native::MeshData &meshData)
 {
-    static constexpr size_t k_maxMeshletTriangles = 126u;
+    static constexpr size_t k_maxMeshletTriangles = 4096u;
     static constexpr size_t k_maxMeshletIndices = k_maxMeshletTriangles * 3u;
 
     std::vector<Core::Native::MeshletBounds> result{};

@@ -1134,7 +1134,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
         uint32_t m_maxIndirectCommandCount = 0;
-        uint32_t m_meshletDepthBinCount = 8u;
+        uint32_t m_meshletDepthBinCount = 4u;
         bool m_useMeshletRanges = false;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};

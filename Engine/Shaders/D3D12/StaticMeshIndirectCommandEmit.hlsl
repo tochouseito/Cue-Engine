@@ -104,6 +104,8 @@ cbuffer ViewProjection : register(b6)
     row_major float4x4 g_projectionMatrix;
 };
 
+static const uint k_maxMeshletRangeDrawsPerBatch = 64u;
+
 float project_device_depth(float viewZ)
 {
     const float4 clipPosition =
@@ -192,7 +194,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                 const uint batchStart = g_batchObjectStarts.Load(batchId * 4u);
                 const bool useMeshletRanges =
                     g_useMeshletRanges != 0u &&
-                    meshRange.meshletCount > 1u;
+                    meshRange.meshletCount > 1u &&
+                    meshRange.meshletCount <= k_maxMeshletRangeDrawsPerBatch;
 
                 if (!useMeshletRanges)
                 {
