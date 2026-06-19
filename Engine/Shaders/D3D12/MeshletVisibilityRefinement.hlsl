@@ -90,6 +90,9 @@ StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t4);
 ByteAddressBuffer g_hizDepth : register(t5);
 RWStructuredBuffer<uint> g_refinedVisibility : register(u0);
+RWStructuredBuffer<uint> g_meshletRangeVisibility : register(u1);
+
+static const uint k_maxMeshletRangeDrawsPerObject = 64u;
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -278,28 +281,40 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint refinedVisible = 1u;
 
     const MeshRange meshRange = g_meshRanges[renderObject.meshId];
+    const uint visibilityBase =
+        renderObjectIndex * k_maxMeshletRangeDrawsPerObject;
+    const uint meshletRangeCount =
+        min(meshRange.meshletCount, k_maxMeshletRangeDrawsPerObject);
+    for (uint meshletOffset = 0u;
+         meshletOffset < meshletRangeCount;
+         ++meshletOffset)
+    {
+        g_meshletRangeVisibility[visibilityBase + meshletOffset] = 1u;
+    }
+
     if ((renderObject.drawFlags & 1u) == 0u &&
         meshRange.meshletCount >= g_minMeshletCount &&
+        meshRange.meshletCount <= k_maxMeshletRangeDrawsPerObject &&
         object_projected_radius(renderObject) >= g_minProjectedRadius)
     {
         refinedVisible = 0u;
         const Transform transform = g_transforms[renderObject.transformId];
         const float maxScale = transform_max_scale(transform);
-        const uint meshletEnd = meshRange.firstMeshlet + meshRange.meshletCount;
-        for (uint meshletIndex = meshRange.firstMeshlet;
-             meshletIndex < meshletEnd;
-             ++meshletIndex)
+        for (uint meshletOffset = 0u;
+             meshletOffset < meshletRangeCount;
+             ++meshletOffset)
         {
+            const uint meshletIndex = meshRange.firstMeshlet + meshletOffset;
             const MeshletBounds meshlet = g_meshletBounds[meshletIndex];
             const float3 worldCenter =
                 mul(float4(meshlet.center, 1.0f), transform.worldMatrix).xyz;
             const float worldRadius = meshlet.radius * maxScale;
-            if (is_sphere_inside_frustum(worldCenter, worldRadius) &&
-                !is_occluded_by_hiz(worldCenter, worldRadius))
-            {
-                refinedVisible = 1u;
-                break;
-            }
+            const uint rangeVisible =
+                is_sphere_inside_frustum(worldCenter, worldRadius) &&
+                !is_occluded_by_hiz(worldCenter, worldRadius) ? 1u : 0u;
+            g_meshletRangeVisibility[visibilityBase + meshletOffset] =
+                rangeVisible;
+            refinedVisible |= rangeVisible;
         }
     }
 

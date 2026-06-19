@@ -36,6 +36,7 @@ namespace Cue::Editor
         };
 
         DebugCamera() = default;
+        DebugCamera(Math::float3 position, float yaw, float pitch) noexcept;
 
         void update(const Input& input) noexcept;
 

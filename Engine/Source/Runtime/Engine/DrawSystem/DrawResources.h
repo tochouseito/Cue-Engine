@@ -23,7 +23,8 @@ namespace Cue::DrawSystem
     {
         RenderableInfoBuffer = 0, // 描画対象の mesh/material/transform 参照情報
         TransformBuffer, // オブジェクトごとのワールド変換情報
-        ViewProjectionBuffer, // カメラの view/projection 定数バッファ
+        ViewProjectionBuffer, // culling 用カメラの view/projection 定数バッファ
+        RenderViewProjectionBuffer, // 表示用カメラの view/projection 定数バッファ
         MaterialBuffer, // マテリアルパラメータ配列
         RenderCellBuffer, // 空間分割セル情報
         RenderObjectBuffer, // 可視判定後の描画オブジェクト出力
@@ -120,6 +121,13 @@ namespace Cue::DrawSystem
             return m_viewProjectionUploaders;
         }
 
+        /// @brief Render ViewProjection buffer のフレーム別 uploader 配列を返す
+        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>&
+            render_view_projection_uploaders() noexcept
+        {
+            return m_renderViewProjectionUploaders;
+        }
+
         /// @brief RenderableInfo buffer の RHI handle を返す
         [[nodiscard]] RHI::BufferHandle renderable_info_buffer_handle() const noexcept
         {
@@ -139,6 +147,13 @@ namespace Cue::DrawSystem
         {
             return m_bufferHandles[static_cast<size_t>(
                 DrawResourceType::ViewProjectionBuffer)];
+        }
+
+        /// @brief Render ViewProjection constant buffer の RHI handle を返す
+        [[nodiscard]] RHI::BufferHandle render_view_projection_buffer_handle() const noexcept
+        {
+            return m_bufferHandles[static_cast<size_t>(
+                DrawResourceType::RenderViewProjectionBuffer)];
         }
 
         /// @brief Material buffer の RHI handle を返す
@@ -225,5 +240,6 @@ namespace Cue::DrawSystem
         std::vector<RHI::SlotUploader<GpuData::RenderObject>> m_renderObjectUploaders{}; // RenderObject buffer へのフレーム別 upload 経路
         std::vector<RHI::SlotUploader<uint32_t>> m_visibleObjectCountUploaders{}; // VisibleObjectCount buffer へのフレーム別 upload 経路
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_viewProjectionUploaders{}; // ViewProjection buffer へのフレーム別 upload 経路
+        std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>> m_renderViewProjectionUploaders{}; // Render ViewProjection buffer へのフレーム別 upload 経路
     };
 }

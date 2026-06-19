@@ -42,9 +42,17 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 
 namespace
 {
+bool g_observerViewEnabled = false;
+bool g_controlObserverCamera = false;
+
 [[nodiscard]] bool is_key_down(int virtualKey) noexcept
 {
     return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+}
+
+[[nodiscard]] bool was_key_pressed(int virtualKey) noexcept
+{
+    return (::GetAsyncKeyState(virtualKey) & 0x0001) != 0;
 }
 
 [[nodiscard]] Editor::DebugCamera::Input make_debug_camera_input(
@@ -431,6 +439,10 @@ class ImGuiOverlayPass final : public RHI::FrameGraphPass
                         debugStats.cameraPosition.x,
                         debugStats.cameraPosition.y,
                         debugStats.cameraPosition.z);
+            ImGui::Text("observer view: %s",
+                        g_observerViewEnabled ? "ON" : "OFF");
+            ImGui::Text("camera control: %s",
+                        g_controlObserverCamera ? "observer" : "main/culling");
             ImGui::Text("visible cells / total cells: %u / %u",
                         debugStats.visibleCells, debugStats.totalCells);
             ImGui::Text("selected depth bin: %u",
@@ -457,6 +469,8 @@ class ImGuiOverlayPass final : public RHI::FrameGraphPass
             ImGui::BulletText("Space / Ctrl: move up / down");
             ImGui::BulletText("Shift: fast movement");
             ImGui::BulletText("Right mouse drag: look around");
+            ImGui::BulletText("C: toggle observer view");
+            ImGui::BulletText("Tab: switch main / observer camera");
             ImGui::BulletText("Mouse over this window: operate ImGui");
         }
 
@@ -591,6 +605,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     Editor::DebugCamera debugCamera{};
+    Editor::DebugCamera observerCamera{
+        Math::float3(-12.0f, 6.0f, -12.0f),
+        45.0f * Editor::DebugCameraConstants::k_pi / 180.0f,
+        -0.35f};
     r = engine->set_view_projection(
         debugCamera.make_view_projection(width, height));
     if (!r)
@@ -771,13 +789,48 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
-        debugCamera.update(make_debug_camera_input(
-            platform->get_window_handle(), deltaSeconds));
-        r = engine->set_view_projection(
-            debugCamera.make_view_projection(width, height));
+        if (was_key_pressed('C'))
+        {
+            g_observerViewEnabled = !g_observerViewEnabled;
+        }
+        if (was_key_pressed(VK_TAB))
+        {
+            g_controlObserverCamera = !g_controlObserverCamera;
+            g_observerViewEnabled = g_controlObserverCamera;
+        }
+
+        Editor::DebugCamera::Input cameraInput = make_debug_camera_input(
+            platform->get_window_handle(), deltaSeconds);
+        if (g_controlObserverCamera)
+        {
+            observerCamera.update(cameraInput);
+        }
+        else
+        {
+            debugCamera.update(cameraInput);
+        }
+
+        const GpuData::ViewProjectionGpu mainViewProjection =
+            debugCamera.make_view_projection(width, height);
+        r = engine->set_view_projection(mainViewProjection);
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to update debug camera: %s",
+                              r.message.data());
+            return -1;
+        }
+        if (g_observerViewEnabled)
+        {
+            r = engine->set_render_view_projection(
+                observerCamera.make_view_projection(width, height));
+        }
+        else
+        {
+            r = engine->set_render_view_projection(mainViewProjection);
+        }
+        if (!r)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to update render camera: %s",
                               r.message.data());
             return -1;
         }

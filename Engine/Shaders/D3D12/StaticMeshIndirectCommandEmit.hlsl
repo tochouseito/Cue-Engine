@@ -64,6 +64,7 @@ StructuredBuffer<uint> g_renderObjectIndices : register(t3);
 StructuredBuffer<RenderObject> g_renderObjects : register(t4);
 StructuredBuffer<Transform> g_transforms : register(t5);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t6);
+StructuredBuffer<uint> g_meshletRangeVisibility : register(t7);
 
 RWStructuredBuffer<IndirectCommand> g_indirectCommands : register(u0);
 RWByteAddressBuffer g_indirectCommandCount : register(u1);
@@ -208,43 +209,54 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                     continue;
                 }
 
-                const uint representativeRenderObjectIndex =
-                    g_renderObjectIndices[batchStart];
-                const RenderObject representativeObject =
-                    g_renderObjects[representativeRenderObjectIndex];
-                const Transform representativeTransform =
-                    g_transforms[representativeObject.transformId];
-
                 for (uint meshletDepthBin = 0u;
                      meshletDepthBin < meshletDepthBinCount;
                      ++meshletDepthBin)
                 {
-                    for (uint meshletOffset = 0u;
-                         meshletOffset < meshRange.meshletCount;
-                         ++meshletOffset)
+                    for (uint instanceOffset = 0u;
+                         instanceOffset < instanceCount;
+                         ++instanceOffset)
                     {
-                        const MeshletBounds meshlet =
-                            g_meshletBounds[meshRange.firstMeshlet + meshletOffset];
-                        if (meshlet.indexCount == 0u)
-                        {
-                            continue;
-                        }
+                        const uint drawObjectStartIndex =
+                            batchStart + instanceOffset;
+                        const uint renderObjectIndex =
+                            g_renderObjectIndices[drawObjectStartIndex];
+                        const uint visibilityBase =
+                            renderObjectIndex * k_maxMeshletRangeDrawsPerBatch;
+                        const RenderObject renderObject =
+                            g_renderObjects[renderObjectIndex];
+                        const Transform transform =
+                            g_transforms[renderObject.transformId];
 
-                        const float3 worldCenter =
-                            mul(float4(meshlet.center, 1.0f),
-                                representativeTransform.worldMatrix).xyz;
-                        if (project_depth_bin(worldCenter, meshletDepthBinCount) !=
-                            meshletDepthBin)
+                        for (uint meshletOffset = 0u;
+                             meshletOffset < meshRange.meshletCount;
+                             ++meshletOffset)
                         {
-                            continue;
-                        }
+                            const MeshletBounds meshlet =
+                                g_meshletBounds[meshRange.firstMeshlet + meshletOffset];
+                            if (meshlet.indexCount == 0u ||
+                                g_meshletRangeVisibility[visibilityBase + meshletOffset] ==
+                                    0u)
+                            {
+                                continue;
+                            }
 
-                        emit_command(
-                            batchStart,
-                            instanceCount,
-                            meshlet.indexCount,
-                            meshRange.startIndex + meshlet.firstIndex,
-                            meshRange.baseVertex);
+                            const float3 worldCenter =
+                                mul(float4(meshlet.center, 1.0f),
+                                    transform.worldMatrix).xyz;
+                            if (project_depth_bin(worldCenter, meshletDepthBinCount) !=
+                                meshletDepthBin)
+                            {
+                                continue;
+                            }
+
+                            emit_command(
+                                drawObjectStartIndex,
+                                1u,
+                                meshlet.indexCount,
+                                meshRange.startIndex + meshlet.firstIndex,
+                                meshRange.baseVertex);
+                        }
                     }
                 }
             }

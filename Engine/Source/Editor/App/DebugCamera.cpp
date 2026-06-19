@@ -44,6 +44,13 @@ namespace Cue::Editor
             std::cos(m_yaw) * cosPitch));
     }
 
+    DebugCamera::DebugCamera(Math::float3 position, float yaw, float pitch) noexcept
+        : m_position(position),
+          m_yaw(yaw),
+          m_pitch(pitch)
+    {
+    }
+
     Math::float3 DebugCamera::right() const noexcept
     {
         return Math::float3::normalize(

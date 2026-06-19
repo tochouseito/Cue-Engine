@@ -95,6 +95,13 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer(
+                "MeshletRangeVisibilityBuffer",
+                m_meshletRangeVisibilityBuffer);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "MeshletVisibilityRefinementRootSignature";
@@ -132,6 +139,8 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -222,8 +231,17 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            return builder.use_buffer(
+            result = builder.use_buffer(
                 m_refinedVisibilityBuffer,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            return builder.use_buffer(
+                m_meshletRangeVisibilityBuffer,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::ShaderResource);
@@ -261,6 +279,7 @@ namespace Cue::DrawSystem
             commandContext->set_srv(11, m_meshletBoundsBuffer);
             commandContext->set_srv(12, m_hizDepthBuffer);
             commandContext->set_uav(13, m_refinedVisibilityBuffer);
+            commandContext->set_uav(14, m_meshletRangeVisibilityBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
@@ -274,6 +293,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_meshletBoundsBuffer{};
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::BufferHandle m_refinedVisibilityBuffer{};
+        RHI::BufferHandle m_meshletRangeVisibilityBuffer{};
         uint32_t m_tileSize = 16u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;

@@ -1,5 +1,8 @@
 #include "DrawResources.h"
 
+// === C++ includes ===
+#include <string_view>
+
 namespace Cue::DrawSystem
 {
     Result DrawResources::create_renderable_info_buffer(
@@ -143,42 +146,66 @@ namespace Cue::DrawSystem
         // - constant buffer は D3D12 の CBV 要件に合わせて 256 byte alignment にする
         constexpr uint32_t k_constantBufferAlignment = 256;
 
-        // - カメラ行列は 1 要素だけの constant buffer として持つ
-        RHI::BufferDesc viewProjectionBufferDesc{};
-        viewProjectionBufferDesc.name = "ViewProjectionBuffer";
-        viewProjectionBufferDesc.type = RHI::BufferType::Constant;
-        viewProjectionBufferDesc.defaultHeapCount = 1;
-        viewProjectionBufferDesc.uploadHeapCount = m_bufferCount;
-        viewProjectionBufferDesc.initialState = RHI::ResourceState::Common;
-        viewProjectionBufferDesc.stride = sizeof(GpuData::ViewProjectionGpu);
-        viewProjectionBufferDesc.elementCount = 1;
-        viewProjectionBufferDesc.size =
-            viewProjectionBufferDesc.stride * viewProjectionBufferDesc.elementCount;
-        viewProjectionBufferDesc.alignment = k_constantBufferAlignment;
+        const auto createViewProjectionBuffer =
+            [this](std::string_view name,
+                   DrawResourceType type,
+                   std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>& uploaders)
+            -> Result
+        {
+            RHI::BufferDesc viewProjectionBufferDesc{};
+            viewProjectionBufferDesc.name = name;
+            viewProjectionBufferDesc.type = RHI::BufferType::Constant;
+            viewProjectionBufferDesc.defaultHeapCount = 1;
+            viewProjectionBufferDesc.uploadHeapCount = m_bufferCount;
+            viewProjectionBufferDesc.initialState = RHI::ResourceState::Common;
+            viewProjectionBufferDesc.stride = sizeof(GpuData::ViewProjectionGpu);
+            viewProjectionBufferDesc.elementCount = 1;
+            viewProjectionBufferDesc.size =
+                viewProjectionBufferDesc.stride * viewProjectionBufferDesc.elementCount;
+            viewProjectionBufferDesc.alignment = k_constantBufferAlignment;
 
-        RHI::BufferHandle& viewProjectionBufferHandle =
-            m_bufferHandles[static_cast<size_t>(DrawResourceType::ViewProjectionBuffer)];
-        // - 描画 pass から CBV として bind できる buffer handle を保存する
-        Result result = m_bufferManager->create_buffer(
-            viewProjectionBufferDesc, viewProjectionBufferHandle);
+            RHI::BufferHandle& viewProjectionBufferHandle =
+                m_bufferHandles[static_cast<size_t>(type)];
+            Result result = m_bufferManager->create_buffer(
+                viewProjectionBufferDesc, viewProjectionBufferHandle);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = m_bufferManager->create_slot_uploaders(
+                viewProjectionBufferHandle, m_bufferCount, uploaders);
+            if (!result)
+            {
+                return result;
+            }
+            if (uploaders.size() != m_bufferCount)
+            {
+                return Result::fail(
+                    Code::InternalError,
+                    Severity::Fatal,
+                    "ViewProjection uploader was not created.");
+            }
+
+            return Result::ok();
+        };
+
+        Result result = createViewProjectionBuffer(
+            "ViewProjectionBuffer",
+            DrawResourceType::ViewProjectionBuffer,
+            m_viewProjectionUploaders);
         if (!result)
         {
             return result;
         }
 
-        // - カメラ行列もフレームごとに更新するため、frame resource 数分の uploader を作る
-        result = m_bufferManager->create_slot_uploaders(
-            viewProjectionBufferHandle, m_bufferCount, m_viewProjectionUploaders);
+        result = createViewProjectionBuffer(
+            "RenderViewProjectionBuffer",
+            DrawResourceType::RenderViewProjectionBuffer,
+            m_renderViewProjectionUploaders);
         if (!result)
         {
             return result;
-        }
-        if (m_viewProjectionUploaders.size() != m_bufferCount)
-        {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "ViewProjectionBuffer uploader was not created.");
         }
 
         return Result::ok();

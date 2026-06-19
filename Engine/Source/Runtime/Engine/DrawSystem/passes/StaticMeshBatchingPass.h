@@ -21,8 +21,15 @@ namespace Cue::DrawSystem
         static constexpr uint32_t k_maxMeshBatchCount = 64u;
         static constexpr uint32_t k_maxMaterialBatchCount = 1u;
         static constexpr uint32_t k_depthBinCount = 8u;
+        static constexpr uint32_t k_maxMeshletRangeCount = 64u;
         static constexpr uint32_t k_maxBatchCount =
             k_maxMeshBatchCount * k_maxMaterialBatchCount * k_depthBinCount;
+
+        constexpr uint32_t max_meshlet_indirect_command_count(
+            uint32_t objectCount) noexcept
+        {
+            return objectCount * k_maxMeshletRangeCount;
+        }
     } // namespace StaticMeshBatching
 
     class ResetBatchCountersPass final : public RHI::FrameGraphPass
@@ -91,6 +98,12 @@ namespace Cue::DrawSystem
                 {
                     return result;
                 }
+                result = builder.get_buffer("MeshletRangeVisibilityBuffer",
+                                            m_meshletRangeVisibilityBuffer);
+                if (!result)
+                {
+                    return result;
+                }
                 result = builder.get_view("IndirectCommandCountBufferUAV",
                                           m_indirectCommandCountUav);
                 if (!result)
@@ -121,7 +134,9 @@ namespace Cue::DrawSystem
             commandBufferDesc.initialState =
                 RHI::ResourceState::UnorderedAccess;
             commandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
-            commandBufferDesc.elementCount = m_maxObjectCount;
+            commandBufferDesc.elementCount =
+                StaticMeshBatching::max_meshlet_indirect_command_count(
+                    m_maxObjectCount);
             commandBufferDesc.size =
                 commandBufferDesc.stride * commandBufferDesc.elementCount;
             commandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
@@ -198,6 +213,29 @@ namespace Cue::DrawSystem
             refinedVisibilityBufferDesc.alignment = alignof(uint32_t);
             result = builder.create_buffer(refinedVisibilityBufferDesc,
                                            m_refinedVisibilityBuffer);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::BufferDesc meshletRangeVisibilityBufferDesc{};
+            meshletRangeVisibilityBufferDesc.name =
+                "MeshletRangeVisibilityBuffer";
+            meshletRangeVisibilityBufferDesc.type =
+                RHI::BufferType::UnorderedAccess;
+            meshletRangeVisibilityBufferDesc.defaultHeapCount = 1;
+            meshletRangeVisibilityBufferDesc.uploadHeapCount = 0;
+            meshletRangeVisibilityBufferDesc.initialState =
+                RHI::ResourceState::UnorderedAccess;
+            meshletRangeVisibilityBufferDesc.stride = sizeof(uint32_t);
+            meshletRangeVisibilityBufferDesc.elementCount =
+                m_maxObjectCount * StaticMeshBatching::k_maxMeshletRangeCount;
+            meshletRangeVisibilityBufferDesc.size =
+                meshletRangeVisibilityBufferDesc.stride *
+                meshletRangeVisibilityBufferDesc.elementCount;
+            meshletRangeVisibilityBufferDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(meshletRangeVisibilityBufferDesc,
+                                           m_meshletRangeVisibilityBuffer);
             if (!result)
             {
                 return result;
@@ -360,6 +398,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_indirectCommandCountBuffer{};
         RHI::BufferHandle m_renderObjectIndexBuffer{};
         RHI::BufferHandle m_refinedVisibilityBuffer{};
+        RHI::BufferHandle m_meshletRangeVisibilityBuffer{};
         RHI::BufferHandle m_batchObjectCountBuffer{};
         RHI::BufferHandle m_batchObjectStartBuffer{};
         RHI::BufferHandle m_batchObjectOffsetBuffer{};
@@ -870,7 +909,11 @@ namespace Cue::DrawSystem
             : m_renderObjectBuffer(renderObjectBuffer),
               m_transformBuffer(transformBuffer),
               m_viewProjectionBuffer(viewProjectionBuffer),
-              m_maxIndirectCommandCount(maxIndirectCommandCount),
+              m_maxIndirectCommandCount(
+                  useMeshletRanges
+                      ? StaticMeshBatching::max_meshlet_indirect_command_count(
+                            maxIndirectCommandCount)
+                      : maxIndirectCommandCount),
               m_useMeshletRanges(useMeshletRanges)
         {
         }
@@ -928,6 +971,12 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_buffer("MeshletRangeVisibilityBuffer",
+                                        m_meshletRangeVisibilityBuffer);
+            if (!result)
+            {
+                return result;
+            }
             result = builder.read_buffer(m_renderObjectBuffer);
             if (!result)
             {
@@ -980,6 +1029,8 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
@@ -1069,6 +1120,14 @@ namespace Cue::DrawSystem
                 return result;
             }
             result = builder.use_buffer(
+                m_meshletRangeVisibilityBuffer, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_buffer(
                 m_viewProjectionBuffer, RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::ShaderResource);
@@ -1117,8 +1176,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(11, m_renderObjectBuffer);
             commandContext->set_srv(12, m_transformBuffer);
             commandContext->set_srv(13, m_meshletBoundsBuffer);
-            commandContext->set_uav(14, m_indirectCommandBuffer);
-            commandContext->set_uav(15, m_indirectCommandCountBuffer);
+            commandContext->set_srv(14, m_meshletRangeVisibilityBuffer);
+            commandContext->set_uav(15, m_indirectCommandBuffer);
+            commandContext->set_uav(16, m_indirectCommandCountBuffer);
             commandContext->dispatch(1, 1, 1);
         }
 
@@ -1131,6 +1191,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_transformBuffer{};
         RHI::BufferHandle m_viewProjectionBuffer{};
         RHI::BufferHandle m_meshletBoundsBuffer{};
+        RHI::BufferHandle m_meshletRangeVisibilityBuffer{};
         RHI::BufferHandle m_indirectCommandBuffer{};
         RHI::BufferHandle m_indirectCommandCountBuffer{};
         uint32_t m_maxIndirectCommandCount = 0;

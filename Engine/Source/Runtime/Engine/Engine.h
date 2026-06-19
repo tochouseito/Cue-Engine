@@ -121,6 +121,9 @@ class Engine final
     /// @brief DebugCamera など外部で作った ViewProjection を描画へ渡す
     Result set_view_projection(
         const GpuData::ViewProjectionGpu &a_viewProjection);
+    /// @brief 表示専用カメラを設定する。未設定時は culling 用カメラと同じ値を使う
+    Result set_render_view_projection(
+        const GpuData::ViewProjectionGpu &a_viewProjection);
     [[nodiscard]] EngineDebugStats debug_stats() const noexcept;
     [[nodiscard]] RHI::FrameGraphExecutionStats render_execution_stats()
         const noexcept;
@@ -153,6 +156,7 @@ class Engine final
         Math::uint3 a_instanceCounts, float a_targetRadius);
     Result commit_static_draw_data_to_uploaders();
     Result commit_view_projection_to_uploaders();
+    Result commit_render_view_projection_to_uploaders();
     Result commit_light_data_to_uploaders();
 
   private:
@@ -179,6 +183,7 @@ class Engine final
     std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
     DrawSystem::DrawFrameState m_drawFrameState{};
     GpuData::ViewProjectionGpu m_viewProjection{};
+    GpuData::ViewProjectionGpu m_renderViewProjection{};
     GpuData::MaterialGpu m_material{};
     GpuData::LightFrameGpu m_lightFrame{};
     GpuData::DirectionalLightGpu m_directionalLight{};

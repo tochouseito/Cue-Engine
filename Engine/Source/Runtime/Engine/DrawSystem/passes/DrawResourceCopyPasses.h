@@ -101,10 +101,11 @@ private:
 
 class ViewProjectionCopyPass final : public RHI::FrameGraphPass {
 public:
-  explicit ViewProjectionCopyPass(RHI::BufferHandle viewProjectionBuffer)
-      : m_viewProjectionBuffer(viewProjectionBuffer) {}
+  ViewProjectionCopyPass(const char* passName,
+                         RHI::BufferHandle viewProjectionBuffer)
+      : m_passName(passName), m_viewProjectionBuffer(viewProjectionBuffer) {}
 
-  const char *name() const noexcept override { return "ViewProjectionCopy"; }
+  const char *name() const noexcept override { return m_passName; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
   }
@@ -133,6 +134,7 @@ public:
   }
 
 private:
+  const char* m_passName = "ViewProjectionCopy";
   RHI::BufferHandle m_viewProjectionBuffer{};
 };
 

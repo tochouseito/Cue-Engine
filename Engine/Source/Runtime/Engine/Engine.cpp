@@ -238,12 +238,18 @@ Result Engine::initialize(EngineSetupInfo &a_info)
         static_cast<float>(initialRenderWidth) / static_cast<float>(initialRenderHeight),
         0.01f, 100.0f);
     m_viewProjection.cameraPosition = Math::float4(0.0f, 0.0f, -5.0f, 1.0f);
+    m_renderViewProjection = m_viewProjection;
     r = commit_static_draw_data_to_uploaders();
     if (!r)
     {
         return r;
     }
     r = commit_view_projection_to_uploaders();
+    if (!r)
+    {
+        return r;
+    }
+    r = commit_render_view_projection_to_uploaders();
     if (!r)
     {
         return r;
@@ -769,6 +775,13 @@ Result Engine::set_view_projection(
     return commit_view_projection_to_uploaders();
 }
 
+Result Engine::set_render_view_projection(
+    const GpuData::ViewProjectionGpu &a_viewProjection)
+{
+    m_renderViewProjection = a_viewProjection;
+    return commit_render_view_projection_to_uploaders();
+}
+
 EngineDebugStats Engine::debug_stats() const noexcept
 {
     return m_debugStats;
@@ -890,6 +903,29 @@ Result Engine::commit_view_projection_to_uploaders()
     return Result::ok();
 }
 
+Result Engine::commit_render_view_projection_to_uploaders()
+{
+    if (m_drawResources == nullptr)
+    {
+        return Result::ok();
+    }
+
+    for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
+    {
+        auto &uploader =
+            m_drawResources->render_view_projection_uploaders()[frameIndex];
+        uploader.begin_frame();
+        if (!uploader.push(0, m_renderViewProjection) || !uploader.commit())
+        {
+            return Result::fail(
+                Code::InternalError, Severity::Error,
+                "Failed to commit RenderViewProjection uploader.");
+        }
+    }
+
+    return Result::ok();
+}
+
 Result Engine::commit_light_data_to_uploaders()
 {
     if (m_lightResources == nullptr)
@@ -992,7 +1028,12 @@ Result Engine::create_frame_graphs(
             m_drawFrameState, m_drawResources->render_cell_buffer_handle()));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::ViewProjectionCopyPass>(
+                "CullViewProjectionCopy",
                 m_drawResources->view_projection_buffer_handle()));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::ViewProjectionCopyPass>(
+                "RenderViewProjectionCopy",
+                m_drawResources->render_view_projection_buffer_handle()));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::MaterialBufferCopyPass>(
                 m_drawResources->material_buffer_handle()));
@@ -1019,10 +1060,10 @@ Result Engine::create_frame_graphs(
         }
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::BuildClusterGridPass>(
-                m_drawResources->view_projection_buffer_handle()));
+                m_drawResources->render_view_projection_buffer_handle()));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::PreparePointLightsPass>(
-                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
                 m_pointLightBufferCapacity));
@@ -1101,7 +1142,7 @@ Result Engine::create_frame_graphs(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>(
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->transform_buffer_handle(),
-                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
                 m_maxObjectCount,
                 true));
         m_frameGraph->add_pass(
@@ -1111,13 +1152,14 @@ Result Engine::create_frame_graphs(
                 m_drawFrameState,
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->transform_buffer_handle(),
-                m_drawResources->view_projection_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
                 m_drawResources->visible_object_count_buffer_handle(),
                 m_drawResources->material_buffer_handle(),
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->directional_light_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
-                m_maxObjectCount));
+                DrawSystem::StaticMeshBatching::
+                    max_meshlet_indirect_command_count(m_maxObjectCount)));
     }
 
     result = m_frameGraph->build();
