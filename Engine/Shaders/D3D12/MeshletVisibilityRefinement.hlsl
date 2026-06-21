@@ -47,12 +47,6 @@ struct MeshletBounds
     uint padding1;
 };
 
-struct VisibleMeshlet
-{
-    uint renderObjectIndex;
-    uint meshletIndex;
-};
-
 cbuffer ObjectCountParam : register(b0)
 {
     uint g_objectCount;
@@ -83,11 +77,6 @@ cbuffer MinProjectedRadiusParam : register(b5)
     float g_minProjectedRadius;
 };
 
-cbuffer MaxVisibleMeshletCountParam : register(b7)
-{
-    uint g_maxVisibleMeshletCount;
-};
-
 cbuffer ViewProjection : register(b6)
 {
     row_major float4x4 g_viewMatrix;
@@ -101,8 +90,6 @@ StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t4);
 ByteAddressBuffer g_hizDepth : register(t5);
 RWStructuredBuffer<uint> g_refinedVisibility : register(u0);
-RWStructuredBuffer<VisibleMeshlet> g_visibleMeshlets : register(u1);
-RWByteAddressBuffer g_visibleMeshletCount : register(u2);
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -276,21 +263,6 @@ float object_projected_radius(RenderObject renderObject)
         max(viewCenter.z, 0.001f);
 }
 
-void append_visible_meshlet(uint renderObjectIndex, uint meshletIndex)
-{
-    uint visibleMeshletIndex = 0u;
-    g_visibleMeshletCount.InterlockedAdd(0, 1u, visibleMeshletIndex);
-    if (visibleMeshletIndex >= g_maxVisibleMeshletCount)
-    {
-        return;
-    }
-
-    VisibleMeshlet visibleMeshlet;
-    visibleMeshlet.renderObjectIndex = renderObjectIndex;
-    visibleMeshlet.meshletIndex = meshletIndex;
-    g_visibleMeshlets[visibleMeshletIndex] = visibleMeshlet;
-}
-
 [numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -319,42 +291,32 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (!cullMeshlets)
     {
-        const uint meshletEnd = meshRange.firstMeshlet + meshRange.meshletCount;
-        for (uint meshletIndex = meshRange.firstMeshlet;
-             meshletIndex < meshletEnd;
-             ++meshletIndex)
-        {
-            if (g_meshletBounds[meshletIndex].indexCount != 0u)
-            {
-                append_visible_meshlet(renderObjectIndex, meshletIndex);
-            }
-        }
+        g_refinedVisibility[renderObjectIndex] = refinedVisible;
+        return;
     }
-    else
-    {
-        refinedVisible = 0u;
-        const Transform transform = g_transforms[renderObject.transformId];
-        const float maxScale = transform_max_scale(transform);
-        const uint meshletEnd = meshRange.firstMeshlet + meshRange.meshletCount;
-        for (uint meshletIndex = meshRange.firstMeshlet;
-             meshletIndex < meshletEnd;
-             ++meshletIndex)
-        {
-            const MeshletBounds meshlet = g_meshletBounds[meshletIndex];
-            if (meshlet.indexCount == 0u)
-            {
-                continue;
-            }
 
-            const float3 worldCenter =
-                mul(float4(meshlet.center, 1.0f), transform.worldMatrix).xyz;
-            const float worldRadius = meshlet.radius * maxScale;
-            if (is_sphere_inside_frustum(worldCenter, worldRadius) &&
-                !is_occluded_by_hiz(worldCenter, worldRadius))
-            {
-                append_visible_meshlet(renderObjectIndex, meshletIndex);
-                refinedVisible = 1u;
-            }
+    refinedVisible = 0u;
+    const Transform transform = g_transforms[renderObject.transformId];
+    const float maxScale = transform_max_scale(transform);
+    const uint meshletEnd = meshRange.firstMeshlet + meshRange.meshletCount;
+    for (uint meshletIndex = meshRange.firstMeshlet;
+         meshletIndex < meshletEnd;
+         ++meshletIndex)
+    {
+        const MeshletBounds meshlet = g_meshletBounds[meshletIndex];
+        if (meshlet.indexCount == 0u)
+        {
+            continue;
+        }
+
+        const float3 worldCenter =
+            mul(float4(meshlet.center, 1.0f), transform.worldMatrix).xyz;
+        const float worldRadius = meshlet.radius * maxScale;
+        if (is_sphere_inside_frustum(worldCenter, worldRadius) &&
+            !is_occluded_by_hiz(worldCenter, worldRadius))
+        {
+            refinedVisible = 1u;
+            break;
         }
     }
 

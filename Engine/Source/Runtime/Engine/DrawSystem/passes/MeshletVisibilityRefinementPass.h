@@ -23,14 +23,12 @@ namespace Cue::DrawSystem
             RHI::BufferHandle renderObjectBuffer,
             RHI::BufferHandle transformBuffer,
             RHI::BufferHandle viewProjectionBuffer,
-            RHI::BufferHandle visibleObjectCountBuffer,
-            uint32_t maxVisibleMeshletCount)
+            RHI::BufferHandle visibleObjectCountBuffer)
             : m_drawFrameState(drawFrameState)
             , m_renderObjectBuffer(renderObjectBuffer)
             , m_transformBuffer(transformBuffer)
             , m_viewProjectionBuffer(viewProjectionBuffer)
             , m_visibleObjectCountBuffer(visibleObjectCountBuffer)
-            , m_maxVisibleMeshletCount(maxVisibleMeshletCount)
         {}
 
         const char* name() const noexcept override
@@ -97,21 +95,6 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.get_buffer(
-                "VisibleMeshletBuffer",
-                m_visibleMeshletBuffer);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.get_buffer(
-                "VisibleMeshletCountBuffer",
-                m_visibleMeshletCountBuffer);
-            if (!result)
-            {
-                return result;
-            }
-
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "MeshletVisibilityRefinementRootSignature";
             rootSignatureDesc.parameters.push_back(
@@ -133,9 +116,6 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::_32BitConstants,
                     RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::_32BitConstants,
-                    RHI::ShaderVisibility::All, 7 });
-            rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 6 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0 });
@@ -151,10 +131,6 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
-            rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
-            rootSignatureDesc.parameters.push_back(
-                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -245,26 +221,8 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.use_buffer(
-                m_refinedVisibilityBuffer,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
-            result = builder.use_buffer(
-                m_visibleMeshletBuffer,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
-            {
-                return result;
-            }
             return builder.use_buffer(
-                m_visibleMeshletCountBuffer,
+                m_refinedVisibilityBuffer,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::ShaderResource);
@@ -294,17 +252,14 @@ namespace Cue::DrawSystem
             commandContext->set_32bit_constant(
                 5,
                 float_to_uint32(m_minProjectedRadius));
-            commandContext->set_32bit_constant(6, m_maxVisibleMeshletCount);
-            commandContext->set_cbv(7, m_viewProjectionBuffer);
-            commandContext->set_srv(8, m_renderObjectBuffer);
-            commandContext->set_srv(9, m_transformBuffer);
-            commandContext->set_srv(10, m_visibleObjectCountBuffer);
-            commandContext->set_srv(11, m_meshRangeBuffer);
-            commandContext->set_srv(12, m_meshletBoundsBuffer);
-            commandContext->set_srv(13, m_hizDepthBuffer);
-            commandContext->set_uav(14, m_refinedVisibilityBuffer);
-            commandContext->set_uav(15, m_visibleMeshletBuffer);
-            commandContext->set_uav(16, m_visibleMeshletCountBuffer);
+            commandContext->set_cbv(6, m_viewProjectionBuffer);
+            commandContext->set_srv(7, m_renderObjectBuffer);
+            commandContext->set_srv(8, m_transformBuffer);
+            commandContext->set_srv(9, m_visibleObjectCountBuffer);
+            commandContext->set_srv(10, m_meshRangeBuffer);
+            commandContext->set_srv(11, m_meshletBoundsBuffer);
+            commandContext->set_srv(12, m_hizDepthBuffer);
+            commandContext->set_uav(13, m_refinedVisibilityBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
         }
 
@@ -318,13 +273,10 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_meshletBoundsBuffer{};
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::BufferHandle m_refinedVisibilityBuffer{};
-        RHI::BufferHandle m_visibleMeshletBuffer{};
-        RHI::BufferHandle m_visibleMeshletCountBuffer{};
         uint32_t m_tileSize = 16u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
         uint32_t m_minMeshletCount = 8u;
-        uint32_t m_maxVisibleMeshletCount = 0;
         float m_minProjectedRadius = 0.12f;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};

@@ -94,15 +94,11 @@ namespace Cue::RHI::DX12
         Result set_render_targets(const ViewHandle* renderTargetViews, uint32_t renderTargetCount, ViewHandle depthStencilView) override;
         Result draw_instanced(uint32_t vertexCountPerInstance, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation) override;
         Result draw_indexed_instanced(uint32_t indexCountPerInstance, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation) override;
-        Result execute_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) override;
         Result execute_indexed_indirect(BufferHandle commandBufferHandle, BufferHandle commandCountBufferHandle, uint32_t maxCommandCount) override;
     private:
         Result create_command_allocator(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_command_list(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
         Result create_draw_indexed_command_signature(
-            ID3D12Device& device,
-            ID3D12RootSignature* rootSignature);
-        Result create_draw_command_signature(
             ID3D12Device& device,
             ID3D12RootSignature* rootSignature);
         Result create_timestamp_resources(ID3D12Device& device, D3D12_COMMAND_LIST_TYPE type);
@@ -119,10 +115,8 @@ namespace Cue::RHI::DX12
         DX12PipelineManager& m_pipelineManager; // パイプラインマネージャへの参照
         ComPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
         ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
-        ComPtr<ID3D12CommandSignature> m_drawCommandSignature = nullptr;
         ComPtr<ID3D12CommandSignature> m_drawIndexedCommandSignature = nullptr;
         ID3D12Device* m_device = nullptr;
-        ID3D12RootSignature* m_drawSignatureRootSignature = nullptr;
         ID3D12RootSignature* m_drawIndexedSignatureRootSignature = nullptr;
         ComPtr<ID3D12QueryHeap> m_timestampQueryHeap = nullptr;
         ComPtr<ID3D12Resource> m_timestampReadbackBuffer = nullptr;

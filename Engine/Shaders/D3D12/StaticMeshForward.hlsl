@@ -65,32 +65,11 @@ struct ClusterLightRange
     uint overflow;
 };
 
-struct MeshRange
+struct VsInput
 {
-    uint indexCount;
-    uint startIndex;
-    int baseVertex;
-    uint firstMeshlet;
-    uint meshletCount;
-    uint padding0;
-    uint padding1;
-    uint padding2;
-};
-
-struct MeshletBounds
-{
-    float3 center;
-    float radius;
-    uint firstIndex;
-    uint indexCount;
-    uint padding0;
-    uint padding1;
-};
-
-struct VisibleMeshlet
-{
-    uint renderObjectIndex;
-    uint meshletIndex;
+    float4 position : POSITION;
+    float2 texcoord : TEXCOORD0;
+    float3 normal : NORMAL0;
 };
 
 struct VsOutput
@@ -129,13 +108,6 @@ StructuredBuffer<PointLight> g_pointLights : register(t5);
 StructuredBuffer<uint> g_renderObjectIndices : register(t6);
 StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t7);
 StructuredBuffer<uint> g_clusterLightIndices : register(t8);
-StructuredBuffer<float4> g_positions : register(t9);
-StructuredBuffer<float2> g_texcoords : register(t10);
-StructuredBuffer<float3> g_normals : register(t11);
-StructuredBuffer<uint> g_indices : register(t12);
-StructuredBuffer<MeshRange> g_meshRanges : register(t13);
-StructuredBuffer<MeshletBounds> g_meshletBounds : register(t14);
-StructuredBuffer<VisibleMeshlet> g_visibleMeshlets : register(t15);
 
 cbuffer ScreenWidthParam : register(b3)
 {
@@ -177,44 +149,17 @@ cbuffer ClusterInvLogFarNearParam : register(b10)
     float g_clusterInvLogFarNear;
 };
 
-VsOutput clipped_output(uint materialId)
+VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
-    VsOutput output;
-    output.position = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    output.worldPosition = float3(0.0f, 0.0f, 0.0f);
-    output.viewPosition = float3(0.0f, 0.0f, 0.0f);
-    output.worldNormal = float3(0.0f, 0.0f, 1.0f);
-    output.texcoord = float2(0.0f, 0.0f);
-    output.materialId = materialId;
-    return output;
-}
-
-VsOutput vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
-{
-    const VisibleMeshlet visibleMeshlet =
-        g_visibleMeshlets[g_drawObjectIndex.drawObjectIndex + instanceId];
-    const uint renderObjectIndex = visibleMeshlet.renderObjectIndex;
+    const uint renderObjectIndex =
+        g_renderObjectIndices[g_drawObjectIndex.drawObjectIndex + instanceId];
 
     // 描画対象情報を取得する
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
-    const MeshRange meshRange = g_meshRanges[renderObject.meshId];
-    const MeshletBounds meshlet = g_meshletBounds[visibleMeshlet.meshletIndex];
-    if (vertexId >= meshlet.indexCount)
-    {
-        return clipped_output(renderObject.materialId);
-    }
-
-    const uint meshletIndexAddress =
-        meshRange.startIndex + meshlet.firstIndex + vertexId;
-    const uint vertexIndex =
-        (uint)((int)g_indices[meshletIndexAddress] + meshRange.baseVertex);
-    const float4 localPosition = g_positions[vertexIndex];
-    const float2 localTexcoord = g_texcoords[vertexIndex];
-    const float3 localNormal = g_normals[vertexIndex];
 
     VsOutput output;
-    output.texcoord = localTexcoord;
+    output.texcoord = input.texcoord;
     output.materialId = renderObject.materialId;
 
     if ((renderObject.drawFlags & 1u) != 0u)
@@ -225,7 +170,7 @@ VsOutput vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
             float4(renderObject.boundsCenterRadius.xyz, 1.0f);
         const float objectScale = length(transform.worldMatrix[0].xyz);
         float4 viewPosition = mul(worldCenter, g_viewMatrix);
-        viewPosition.xy += localPosition.xy * objectScale;
+        viewPosition.xy += input.position.xy * objectScale;
 
         output.position = mul(viewPosition, g_projectionMatrix);
         output.worldPosition = worldCenter.xyz;
@@ -236,10 +181,10 @@ VsOutput vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 
     // 通常 mesh の頂点変換。viewPosition もここで作り、PS の per-pixel
     // matrix multiply を避ける。
-    const float4 worldPosition = mul(localPosition, transform.worldMatrix);
+    const float4 worldPosition = mul(input.position, transform.worldMatrix);
     const float4 viewPosition = mul(worldPosition, g_viewMatrix);
     const float3 worldNormal =
-        normalize(mul(float4(localNormal, 0.0f), transform.normalMatrix).xyz);
+        normalize(mul(float4(input.normal, 0.0f), transform.normalMatrix).xyz);
 
     output.position = mul(viewPosition, g_projectionMatrix);
     output.worldPosition = worldPosition.xyz;

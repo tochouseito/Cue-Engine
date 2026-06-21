@@ -1095,11 +1095,7 @@ Result Engine::create_frame_graphs(
             m_maxObjectCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>(
-                m_drawResources->render_object_buffer_handle(),
-                m_drawResources->transform_buffer_handle(),
-                m_drawResources->view_projection_buffer_handle(),
-                m_maxObjectCount,
-                false));
+                m_maxObjectCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::OccluderDepthOnlyIndirectPass>(
                 m_drawFrameState,
@@ -1129,16 +1125,18 @@ Result Engine::create_frame_graphs(
                 m_drawResources->render_object_buffer_handle(),
                 m_drawResources->transform_buffer_handle(),
                 m_drawResources->view_projection_buffer_handle(),
-                m_drawResources->visible_object_count_buffer_handle(),
-                DrawSystem::StaticMeshBatching::max_visible_meshlet_count(
-                    m_maxObjectCount)));
+                m_drawResources->visible_object_count_buffer_handle()));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(), true));
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
+            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount, true));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::IndirectCommandEmitPass>(
-                m_drawResources->render_object_buffer_handle(),
-                m_drawResources->transform_buffer_handle(),
-                m_drawResources->render_view_projection_buffer_handle(),
-                m_maxObjectCount,
-                true));
+                m_maxObjectCount));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::SceneDepthClearPass>());
         m_frameGraph->add_pass(
@@ -1152,7 +1150,7 @@ Result Engine::create_frame_graphs(
                 m_lightResources->frame_buffer_handle(),
                 m_lightResources->directional_light_buffer_handle(),
                 m_lightResources->point_light_buffer_handle(),
-                1u));
+                m_maxObjectCount));
     }
 
     result = m_frameGraph->build();
