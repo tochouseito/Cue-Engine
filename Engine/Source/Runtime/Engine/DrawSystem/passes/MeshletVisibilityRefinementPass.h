@@ -273,11 +273,11 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_meshletBoundsBuffer{};
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::BufferHandle m_refinedVisibilityBuffer{};
-        uint32_t m_tileSize = 16u;
+        uint32_t m_tileSize = 8u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
-        uint32_t m_minMeshletCount = 8u;
-        float m_minProjectedRadius = 0.12f;
+        uint32_t m_minMeshletCount = 1u;
+        float m_minProjectedRadius = 0.0f;
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};

@@ -103,7 +103,7 @@ namespace Cue::DrawSystem
     private:
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_hizDepthUav{};
-        uint32_t m_tileSize = 16u;
+        uint32_t m_tileSize = 8u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
         std::vector<uint8_t> m_initialized{};
@@ -270,7 +270,7 @@ namespace Cue::DrawSystem
         uint32_t m_fullHeight = 0;
         uint32_t m_depthWidth = 0;
         uint32_t m_depthHeight = 0;
-        uint32_t m_tileSize = 16u;
+        uint32_t m_tileSize = 8u;
         uint32_t m_depthScale = 2u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;

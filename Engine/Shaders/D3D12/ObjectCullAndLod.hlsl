@@ -163,8 +163,8 @@ bool is_valuable_occluder(RenderableInfo renderableInfo)
     const float viewZ = max(viewCenter.z, 0.001f);
     const float screenRadius = projected_radius(renderableInfo, viewZ);
 
-    const bool largeOnScreen = screenRadius >= 0.15f;
-    const bool nearEnough = viewZ <= 12.0f && screenRadius >= 0.06f;
+    const bool largeOnScreen = screenRadius >= 0.08f;
+    const bool nearEnough = viewZ <= 25.0f && screenRadius >= 0.03f;
     return largeOnScreen || nearEnough;
 }
 

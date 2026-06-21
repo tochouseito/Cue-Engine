@@ -9,8 +9,8 @@ struct MeshRange
     int baseVertex;
     uint firstMeshlet;
     uint meshletCount;
-    uint padding0;
-    uint padding1;
+    uint rangeStartIndex;
+    uint rangeIndexCount;
     uint padding2;
 };
 

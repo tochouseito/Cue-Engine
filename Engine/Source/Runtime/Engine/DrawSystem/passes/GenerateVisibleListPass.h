@@ -212,7 +212,7 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::BufferHandle m_hizDepthBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
-        uint32_t m_tileSize = 16u;
+        uint32_t m_tileSize = 8u;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
         RHI::RootSignatureHandle m_rootSignature{};

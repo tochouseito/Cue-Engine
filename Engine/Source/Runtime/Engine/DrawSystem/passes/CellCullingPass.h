@@ -209,7 +209,7 @@ private:
   RHI::BufferHandle m_visibleCellCountBuffer{};
   RHI::ViewHandle m_visibleCellCountUav{};
   uint32_t m_maxCellCount = 0;
-  uint32_t m_tileSize = 16u;
+  uint32_t m_tileSize = 8u;
   uint32_t m_tileCountX = 0;
   uint32_t m_tileCountY = 0;
   RHI::RootSignatureHandle m_rootSignature{};
@@ -439,7 +439,7 @@ private:
   uint32_t m_maxCellCount = 0;
   uint32_t m_cellObjectCapacity = 1;
   uint32_t m_maxObjectCount = 0;
-  uint32_t m_tileSize = 16u;
+  uint32_t m_tileSize = 8u;
   uint32_t m_tileCountX = 0;
   uint32_t m_tileCountY = 0;
   RHI::RootSignatureHandle m_rootSignature{};

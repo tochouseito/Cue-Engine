@@ -4,6 +4,8 @@ namespace Cue::RHI::DX12
 {
     namespace
     {
+        std::string g_lastRootSignatureSerializeError{};
+
         D3D12_INPUT_ELEMENT_DESC convert_input_element_desc(const InputElementDesc& desc)
         {
             // RHI の vertex input 記述を D3D12 の PSO 入力レイアウトへ変換する。
@@ -514,10 +516,25 @@ namespace Cue::RHI::DX12
             &errorBlob);
         if (FAILED(hr))
         {
+            g_lastRootSignatureSerializeError =
+                "Failed to serialize root signature";
+            if (!desc.name.empty())
+            {
+                g_lastRootSignatureSerializeError += ": ";
+                g_lastRootSignatureSerializeError += desc.name;
+            }
+            if (errorBlob)
+            {
+                g_lastRootSignatureSerializeError += " - ";
+                g_lastRootSignatureSerializeError +=
+                    static_cast<const char*>(errorBlob->GetBufferPointer());
+            }
+            ::OutputDebugStringA(g_lastRootSignatureSerializeError.c_str());
+            ::OutputDebugStringA("\n");
             return Result::fail(
                 PAL::Win::convert_hresult_code(hr),
                 Severity::Error,
-                "Failed to serialize root signature");
+                g_lastRootSignatureSerializeError);
         }
         RootSignatureRecord rootSigRecord{};
         hr = m_renderDevice.get_d3d12_device()->CreateRootSignature(

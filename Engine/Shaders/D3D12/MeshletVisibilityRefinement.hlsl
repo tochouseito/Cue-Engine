@@ -32,8 +32,8 @@ struct MeshRange
     int baseVertex;
     uint firstMeshlet;
     uint meshletCount;
-    uint padding0;
-    uint padding1;
+    uint rangeStartIndex;
+    uint rangeIndexCount;
     uint padding2;
 };
 
@@ -41,6 +41,10 @@ struct MeshletBounds
 {
     float3 center;
     float radius;
+    float3 coneApex;
+    float coneCutoff;
+    float3 coneAxis;
+    uint flags;
     uint firstIndex;
     uint indexCount;
     uint padding0;
@@ -90,6 +94,8 @@ StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t4);
 ByteAddressBuffer g_hizDepth : register(t5);
 RWStructuredBuffer<uint> g_refinedVisibility : register(u0);
+
+static const float k_minMeshletCullWorldRadius = 0.0f;
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -287,6 +293,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const bool cullMeshlets =
         (renderObject.drawFlags & 1u) == 0u &&
         meshRange.meshletCount >= g_minMeshletCount &&
+        renderObject.boundsCenterRadius.w >= k_minMeshletCullWorldRadius &&
         object_projected_radius(renderObject) >= g_minProjectedRadius;
 
     if (!cullMeshlets)

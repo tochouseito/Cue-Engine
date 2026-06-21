@@ -149,11 +149,22 @@ cbuffer ClusterInvLogFarNearParam : register(b10)
     float g_clusterInvLogFarNear;
 };
 
+VsOutput build_vs_output(VsInput input, uint renderObjectIndex);
+
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectIndex =
         g_renderObjectIndices[g_drawObjectIndex.drawObjectIndex + instanceId];
+    return build_vs_output(input, renderObjectIndex);
+}
 
+VsOutput range_vs_main(VsInput input)
+{
+    return build_vs_output(input, g_drawObjectIndex.drawObjectIndex);
+}
+
+VsOutput build_vs_output(VsInput input, uint renderObjectIndex)
+{
     // 描画対象情報を取得する
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
