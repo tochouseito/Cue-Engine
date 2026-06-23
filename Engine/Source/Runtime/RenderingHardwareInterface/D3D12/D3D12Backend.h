@@ -51,6 +51,9 @@ namespace Cue::RHI::DX12
             const FrameGraphDesc& a_desc,
             std::unique_ptr<FrameGraph>& a_outFrameGraph) override;
 
+        /// @brief ウィンドウリサイズ
+        Result resize(uint32_t a_width, uint32_t a_height) override;
+
         // --- バックエンドのシステムへのアクセス ---
         IBufferManager* get_buffer_manager() override
         {

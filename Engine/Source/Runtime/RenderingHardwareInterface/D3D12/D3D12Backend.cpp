@@ -155,4 +155,23 @@ namespace Cue::RHI::DX12
         a_outFrameGraph = std::make_unique<FrameGraph>(desc, m_bufferCount);
         return Result::ok();
     }
+
+    Result D3D12Backend::resize(uint32_t a_width, uint32_t a_height)
+    {
+        if (!m_swapChain)
+        {
+            return Result::fail(
+                Code::InvalidState, Severity::Error,
+                "SwapChain must be initialized before resizing.");
+        }
+
+        Result result = wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_swapChain->resize(a_width, a_height);
+    }
+
 } // namespace Cue::RHI::DX12

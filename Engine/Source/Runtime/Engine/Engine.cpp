@@ -344,9 +344,38 @@ namespace Cue
             return result;
         }
 
+        // 古いレンダーターゲットの破棄
+        result = RHI::destroy_render_target_resources(*m_renderBackend, m_finalColorRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
 
+        // バックエンドのリサイズ
+        result = m_renderBackend->resize(request.width, request.height);
+        if (!result)
+        {
+            return result;
+        }
 
-        return Result::ok();
+        // 新しいレンダーターゲットの作成
+        result = RHI::create_render_target_resources(
+            *m_renderBackend, "FinalColor",
+            RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_finalColorRenderTarget, Math::float4::from_rgba8(63, 63, 63, 255).data());
+        if (!result)
+        {
+            return result;
+        }
+
+        // フレームグラフの再構築
+        result = m_frameGraph->rebuild(m_renderBackend->width(), m_renderBackend->height());
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_presentFrameGraph->rebuild(m_renderBackend->width(), m_renderBackend->height());
     }
 
 } // namespace Cue

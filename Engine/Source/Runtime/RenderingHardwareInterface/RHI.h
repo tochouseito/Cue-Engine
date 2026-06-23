@@ -56,6 +56,9 @@ namespace Cue::RHI
         /// @brief FrameGraph の生成
         virtual Result create_frame_graph(const FrameGraphDesc& a_desc, std::unique_ptr<FrameGraph>& a_outFrameGraph) = 0;
 
+        /// @brief リサイズ
+        virtual Result resize(uint32_t a_width, uint32_t a_height) = 0;
+
         // --- バックエンドのシステムへのアクセス ---
         virtual IBufferManager* get_buffer_manager() = 0;
         virtual ITextureManager* get_texture_manager() = 0;
