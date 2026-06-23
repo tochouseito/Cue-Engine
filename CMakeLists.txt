@@ -96,3 +96,4 @@ target_include_directories(cue_compile_options INTERFACE
 # サブディレクトリの追加
 add_subdirectory("Engine/Source/Runtime")
 add_subdirectory("Engine/Source/Editor")
+add_subdirectory("Engine/Source/Renderer")
