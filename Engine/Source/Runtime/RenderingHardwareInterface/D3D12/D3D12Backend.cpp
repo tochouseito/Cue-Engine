@@ -171,7 +171,15 @@ namespace Cue::RHI::DX12
             return result;
         }
 
-        return m_swapChain->resize(a_width, a_height);
+        result = m_swapChain->resize(a_width, a_height);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_width = a_width;
+        m_height = a_height;
+        return Result::ok();
     }
 
 } // namespace Cue::RHI::DX12
