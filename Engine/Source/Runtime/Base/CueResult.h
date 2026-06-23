@@ -142,4 +142,12 @@ namespace Cue
             return result;
         }
     };
+
+    /// @brief 成功かを判定します
+    /// @param a_result 判定対象の結果
+    /// @return 成功なら true
+    inline bool success(const Result& a_result) noexcept
+    {
+        return a_result.code == Code::OK;
+    }
 }

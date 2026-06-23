@@ -71,7 +71,6 @@ class Engine final
     /// @brief ティック処理
     Result tick();
 
-    //
     FrameController &frame_controller() noexcept
     {
         return *m_frameController;
@@ -93,6 +92,10 @@ class Engine final
     std::function<void(uint64_t, uint32_t)> present();
     Result create_frame_graphs(
         std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+
+    /// @brief リサイズの適用
+    /// @return 
+    Result apply_pending_resize();
     
   private:
     std::unique_ptr<FrameController> m_frameController =

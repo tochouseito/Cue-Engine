@@ -2,8 +2,8 @@
 
 namespace Cue
 {
-    PlatformCommandContext::PlatformCommandContext(PAL::PlatformRuntimeState& a_state) noexcept
-        : m_state(a_state)
+    PlatformCommandContext::PlatformCommandContext(PAL::PlatformRuntimeState& a_state, FrameController* a_frameController) noexcept
+        : m_state(a_state), m_frameController(a_frameController)
     {}
 
     Result PlatformCommandContext::request_window_resize(
@@ -14,6 +14,11 @@ namespace Cue
         if (!result)
         {
             return result;
+        }
+
+        if (m_frameController != nullptr)
+        {
+            m_frameController->poll_resize_request();
         }
 
         return Result::ok();

@@ -11,13 +11,16 @@
 #include <PlatformCommands.h>
 #include <PlatformRuntimeState.h>
 
+// === Engine includes ===
+#include <FrameController.h>
+
 namespace Cue
 {
     /// @brief プラットフォームコマンドコンテキスト
     class PlatformCommandContext final : public PAL::IPlatformCommandContext
     {
     public:
-        PlatformCommandContext(PAL::PlatformRuntimeState& a_state) noexcept;
+        PlatformCommandContext(PAL::PlatformRuntimeState& a_state, FrameController* a_frameController) noexcept;
 
         /// @brief ウィンドウリサイズ要求を処理
         /// @param a_width リクエストされたウィンドウ幅
@@ -27,5 +30,6 @@ namespace Cue
 
     private:
         PAL::PlatformRuntimeState& m_state;
+        FrameController* m_frameController = nullptr;
     };
 }

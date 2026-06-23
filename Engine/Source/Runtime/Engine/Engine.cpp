@@ -67,7 +67,8 @@ namespace Cue
         m_frameController = std::make_unique<FrameController>(
             desc, m_platform->thread_factory(), m_platform->clock(),
             m_platform->waiter(), update(), render(), present(), [this]() {
-
+                Result r = apply_pending_resize();
+                CUE_ASSERT_FORMAT(success(r), "Failed to apply pending resize: {}", r.message.data());
             });
 
         // 共有リソースの作成
@@ -208,7 +209,7 @@ namespace Cue
         // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
         if (m_platformCommandBridge)
         {
-            PlatformCommandContext platformCommandContext(m_platformRuntimeState);
+            PlatformCommandContext platformCommandContext(m_platformRuntimeState, m_frameController.get());
             Result result =
                 m_platformCommandBridge->drain_commands(platformCommandContext);
             if (!result)
@@ -318,4 +319,34 @@ namespace Cue
 
         return Result::ok();
     }
+
+    Result Engine::apply_pending_resize()
+    {
+        PAL::PendingResizeRequest request;
+
+        // プラットフォームランタイムステートから保留中のリサイズ要求を消費
+        if (!m_platformRuntimeState.consume_pending_resize_request(request))
+        {
+            return Result::ok();
+        }
+
+        // サイズが変わらない場合は何もしない
+        if (request.width == m_renderBackend->width() &&
+            request.height == m_renderBackend->height())
+        {
+            return Result::ok();
+        }
+
+        // GPU 処理の完了を待つ
+        Result result = m_renderBackend->wait_for_idle();
+        if (!result)
+        {
+            return result;
+        }
+
+
+
+        return Result::ok();
+    }
+
 } // namespace Cue

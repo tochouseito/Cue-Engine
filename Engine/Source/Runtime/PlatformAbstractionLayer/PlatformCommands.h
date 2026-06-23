@@ -15,6 +15,7 @@
 
 namespace Cue::PAL
 {
+    /// @brief Command インタフェース
     class IPlatformCommandContext : public virtual Core::CQRS::ICommandContext
     {
     public:
@@ -23,6 +24,7 @@ namespace Cue::PAL
         virtual Result request_window_resize(uint32_t a_width, uint32_t a_height) = 0;
     };
 
+    /// @brief ウィンドウリサイズコマンド
     class ResizeWindowCommand final : public Core::CQRS::ICommand
     {
     public:
