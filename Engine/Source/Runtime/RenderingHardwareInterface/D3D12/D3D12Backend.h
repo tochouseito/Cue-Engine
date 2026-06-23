@@ -88,6 +88,10 @@ namespace Cue::RHI::DX12
         {
             return m_bufferCount;
         }
+        uint32_t current_back_buffer_index() const noexcept
+        {
+            return m_swapChain ? m_swapChain->get_current_back_buffer_index() : 0;
+        }
         Result get_gpu_memory_usage(GpuMemoryUsage& outUsage) const override
         {
             return m_gpuProfiler->get_gpu_memory_usage(outUsage);
@@ -144,7 +148,7 @@ namespace Cue::RHI::DX12
                     a_cpuHandle, a_gpuHandle);
             }
         }
-
+        D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount);
       private:
         // RenderBackendSetupInfo 由来の基本設定。RHI
         // 抽象層から参照されるため保持する。

@@ -182,4 +182,35 @@ namespace Cue::RHI::DX12
         return Result::ok();
     }
 
+    D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::get_gpu_descriptor_handle(ViewHandle a_viewHandle, uint32_t a_frameIndex, uint32_t a_bufferCount)
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE result{};
+        if (!m_viewManager || !m_descriptorAllocator || !a_viewHandle.valid())
+        {
+            return result;
+        }
+
+        DX12ViewRecord* record = nullptr;
+        if (!m_viewManager->try_get_record(a_viewHandle, &record) || record == nullptr || record->defaultTableIds.empty())
+        {
+            return result;
+        }
+
+        uint32_t descriptorIndex = 0;
+        if (record->defaultTableIds.size() == 1)
+        {
+            descriptorIndex = 0;
+        }
+        else
+        {
+            if (record->defaultTableIds.size() != a_bufferCount || a_frameIndex >= record->defaultTableIds.size())
+            {
+                return result;
+            }
+
+            descriptorIndex = a_frameIndex;
+        }
+
+        return m_descriptorAllocator->get_gpu_handle(record->defaultTableIds[descriptorIndex]);
+    }
 } // namespace Cue::RHI::DX12

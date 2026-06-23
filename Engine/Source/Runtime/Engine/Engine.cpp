@@ -160,7 +160,7 @@ namespace Cue
         }
 
         // FrameGraph の構築
-        r = create_frame_graphs(std::move(a_info.editorPass));
+        r = create_frame_graphs(std::move(a_info.editorPass), a_info.enableDebugColor);
         if (!r)
         {
             return r;
@@ -260,7 +260,7 @@ namespace Cue
     }
 
     Result Engine::create_frame_graphs(
-        std::unique_ptr<RHI::FrameGraphPass> a_editorPass)
+        std::unique_ptr<RHI::FrameGraphPass> a_editorPass, bool enableDebugColor)
     {
         Result result = Result::ok();
 

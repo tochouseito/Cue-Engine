@@ -42,6 +42,7 @@ struct EngineSetupInfo final
     Core::CQRS::Bridge *platformCommandBridge =
         nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
     uint32_t maxFps = 60;             // 最大フレームレート
+    bool enableDebugColor = false; // デバッグカラーを有効にするかどうか
 };
 
 class Engine final
@@ -91,7 +92,7 @@ class Engine final
     /// @brief present
     std::function<void(uint64_t, uint32_t)> present();
     Result create_frame_graphs(
-        std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+        std::unique_ptr<RHI::FrameGraphPass> a_editorPass, bool enableDebugColor);
 
     /// @brief リサイズの適用
     /// @return 
