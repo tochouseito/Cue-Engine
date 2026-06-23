@@ -19,6 +19,16 @@ namespace Cue::RHI
                 "Failed to get texture or view manager for size dependent resources.");
         }
 
+        if (a_outResources.colorHandle.valid() ||
+            a_outResources.colorRtvHandle.valid() ||
+            a_outResources.colorSrvHandle.valid())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Render target resources must be empty before creation.");
+        }
+
         std::string colorName(a_name);
         RHI::TextureDesc colorDesc{};
         colorDesc.name = colorName;
@@ -65,6 +75,12 @@ namespace Cue::RHI
             colorRtvDesc, a_outResources.colorRtvHandle);
         if (!result)
         {
+            Result rollbackResult =
+                destroy_render_target_resources(a_backend, a_outResources);
+            if (!rollbackResult)
+            {
+                return rollbackResult;
+            }
             return result;
         }
 
@@ -79,6 +95,12 @@ namespace Cue::RHI
             colorSrvDesc, a_outResources.colorSrvHandle);
         if (!result)
         {
+            Result rollbackResult =
+                destroy_render_target_resources(a_backend, a_outResources);
+            if (!rollbackResult)
+            {
+                return rollbackResult;
+            }
             return result;
         }
 
@@ -91,6 +113,16 @@ namespace Cue::RHI
     {
         auto* textureManager = a_backend.get_texture_manager();
         auto* viewManager = a_backend.get_view_manager();
+
+        if (viewManager == nullptr &&
+            (a_resources.colorSrvHandle.valid() ||
+             a_resources.colorRtvHandle.valid()))
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get view manager for render target resource destruction.");
+        }
 
         if (viewManager != nullptr)
         {
@@ -115,6 +147,14 @@ namespace Cue::RHI
                 }
                 a_resources.colorRtvHandle = {};
             }
+        }
+
+        if (textureManager == nullptr && a_resources.colorHandle.valid())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get texture manager for render target resource destruction.");
         }
 
         if (textureManager != nullptr && a_resources.colorHandle.valid())
