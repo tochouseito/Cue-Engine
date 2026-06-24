@@ -54,237 +54,266 @@
 #include <vector>
 
 namespace Cue {
-Result Engine::initialize(EngineSetupInfo &a_info) {
-  // 引数の検査
-  if (!a_info.platform || !a_info.backend || !a_info.audioBackend) {
-    return Result::fail(Code::InvalidArgument, Severity::Error,
-                        "Invalid argument: platform, backend, and audio "
-                        "backend must not be null");
-  }
-
-  // 依存オブジェクトの保存
-  m_platform = a_info.platform;
-  m_backend = a_info.backend;
-  m_audioBackend = a_info.audioBackend;
-  m_physicsSystem = a_info.physicsSystem;
-  m_editorBridge = a_info.editorBridge;
-  m_platformBridge = a_info.platformBridge;
-
-  Audio::AudioDeviceDesc audioDeviceDesc{};
-  Result result = m_audioBackend->create_device(audioDeviceDesc, m_audioDevice);
-  if (!result) {
-    return result;
-  }
-
-  auto *bufferManager = m_backend->get_buffer_manager();
-  if (bufferManager == nullptr) {
-    return Result::fail(Code::NotFound, Severity::Fatal,
-                        "Failed to get buffer manager from backend.");
-  }
-
-  auto *viewManager = m_backend->get_view_manager();
-  if (viewManager == nullptr) {
-    return Result::fail(Code::NotFound, Severity::Fatal,
-                        "Failed to get view manager from backend.");
-  }
-
-  auto *commandPool = m_backend->get_command_pool();
-  auto *queuePool = m_backend->get_queue_pool();
-  if (commandPool == nullptr || queuePool == nullptr) {
-    return Result::fail(Code::NotFound, Severity::Fatal,
-                        "Failed to get command or queue pool from backend.");
-  }
-
-  auto *textureManager = m_backend->get_texture_manager();
-  if (textureManager == nullptr) {
-    return Result::fail(Code::NotFound, Severity::Fatal,
-                        "Failed to get texture manager from backend.");
-  }
-
-  DrawSystem::StaticMeshPoolDesc meshPoolDesc{};
-  m_staticMeshPool = std::make_unique<DrawSystem::StaticMeshPool>(
-      meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
-
-  m_assetManager.initialize(m_staticMeshPool.get(), textureManager);
-
-  Core::IO::Path errorTexturePath = a_info.errorTexturePath;
-  if (errorTexturePath.is_empty()) {
-#ifdef CUE_PROJECT_ROOT_PATH
-    errorTexturePath =
-        Core::IO::Path::join(Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
-                             Core::IO::Path("Engine/Textures/CueDummy.dds"));
-#else
-    return Result::fail(Code::InvalidState, Severity::Fatal,
-                        "Error texture path is not configured for Engine.");
-#endif
-  }
-
-  result = m_assetManager.register_error_texture_from_file(
-      m_platform->file_system(), errorTexturePath);
-  if (!result) {
-    return result;
-  }
-
-  m_defaultMaterialHandle = MaterialHandle{};
-  result = m_assetManager.create_color_material(
-      "DefaultWhite", Math::float4(1.0f, 1.0f, 1.0f, 1.0f),
-      m_defaultMaterialHandle);
-  if (!result) {
-    return result;
-  }
-
-  ModelHandle cubeModelHandle{};
-  result = m_assetManager.create_cube_model(cubeModelHandle);
-  if (!result) {
-    return result;
-  }
-
-  Core::Native::ModelData cubeModelData{};
-  result = m_assetManager.get_model(cubeModelHandle, cubeModelData);
-  if (!result) {
-    return result;
-  }
-  if (cubeModelData.meshes.empty()) {
-    return Result::fail(Code::NotFound, Severity::Fatal,
-                        "Cube model does not contain any mesh data.");
-  }
-  m_cubeIndexCount =
-      static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
-
-  RHI::StaticMeshHandle cubeStaticMeshHandle{};
-  result = m_assetManager.get_static_mesh_handle(cubeModelHandle, 0,
-                                                 cubeStaticMeshHandle);
-  if (!result) {
-    return result;
-  }
-
-  result =
-      m_staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
-  if (!result) {
-    return result;
-  }
-
-  m_editorWorld = std::make_unique<GameCore::GameWorld>();
-  result = m_editorWorld->initialize(
-      bufferManager, viewManager, m_staticMeshPool.get(), &m_assetManager,
-      &m_platform->file_system(), m_audioBackend, m_audioDevice,
-      m_physicsSystem, &m_platform->input_manager(), m_backend->buffer_count(),
-      m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
-      m_defaultMaterialHandle);
-  if (!result) {
-    return result;
-  }
-
-  m_activeWorld = m_editorWorld.get();
-
-  m_scriptModuleHost =
-      std::make_unique<ScriptModuleHost>(m_platform->file_system(), m_platform);
-  result = m_scriptModuleHost->initialize(*m_activeWorld);
-  if (!result) {
-    return result;
-  }
-
-  result = create_render_target_resources(
-      "GameColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_gameRenderTarget);
-  if (!result) {
-    return result;
-  }
-
-  result = create_render_target_resources(
-      "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_debugRenderTarget);
-  if (!result) {
-    return result;
-  }
-
-  result = create_render_target_resources(
-      "EffectPreviewColor", RHI::ColorFormat::R8G8B8A8_UNORM,
-      m_effectPreviewRenderTarget,
-      DrawSystem::EffectPreviewClearPass::k_clearColor.data());
-  if (!result) {
-    return result;
-  }
-
-  result = create_render_target_resources(
-      "DebugObjectId", RHI::ColorFormat::R32_UINT, m_debugObjectIdTarget);
-  if (!result) {
-    return result;
-  }
-
-  result = create_render_target_resources("DebugOutlineObjectId",
-                                          RHI::ColorFormat::R32_UINT,
-                                          m_debugOutlineObjectIdTarget);
-  if (!result) {
-    return result;
-  }
-
-  result = create_debug_pick_readback_buffer();
-  if (!result) {
-    return result;
-  }
-
-  result = create_view_projection_buffer("DebugViewProjectionBuffer",
-                                         m_debugViewProjectionBufferHandle,
-                                         m_debugViewProjectionUploaders);
-  if (!result) {
-    return result;
-  }
-  const float debugAspectRatio =
-      m_backend->height() > 0 ? static_cast<float>(m_backend->width()) /
-                                    static_cast<float>(m_backend->height())
-                              : 1.0f;
-  const Math::float4x4 debugWorldMatrix = Math::make_affine_matrix(
-      Math::float3(1.0f, 1.0f, 1.0f), Math::float3::zero(),
-      Math::float3(0.0f, 2.0f, -6.0f));
-  m_debugViewProjection.view = Math::float4x4::inverse(debugWorldMatrix);
-  m_debugViewProjection.projection = Math::perspective_fov_matrix(
-      60.0f * Math::k_pi / 180.0f, debugAspectRatio, 0.1f, 1000.0f);
-
-  result =
-      create_view_projection_buffer("EffectPreviewViewProjectionBuffer",
-                                    m_effectPreviewViewProjectionBufferHandle,
-                                    m_effectPreviewViewProjectionUploaders);
-  if (!result) {
-    return result;
-  }
-  const Math::float4x4 effectPreviewWorldMatrix = Math::make_affine_matrix(
-      Math::float3(1.0f, 1.0f, 1.0f), Math::float3::zero(),
-      Math::float3(0.0f, 1.2f, -4.0f));
-  m_effectPreviewViewProjection.view =
-      Math::float4x4::inverse(effectPreviewWorldMatrix);
-  m_effectPreviewViewProjection.projection = Math::perspective_fov_matrix(
-      40.0f * Math::k_pi / 180.0f, debugAspectRatio, 0.05f, 100.0f);
-
-  result = create_debug_selection_buffer();
-  if (!result) {
-    return result;
-  }
-
-  result = create_frame_graphs(std::move(a_info.editorPass));
-  if (!result) {
-    return result;
-  }
-
-  result =
-      m_activeWorld->editor_update(0, m_backend->width(), m_backend->height());
-  if (!result) {
-    return result;
-  }
-
-  // フレームコントローラーの生成
-  FrameControllerDesc desc(m_backend->buffer_count());
-  desc.mode = ControllerMode::Fixed;
-  desc.maxFps = a_info.maxFps;
-  m_frameController = std::make_unique<FrameController>(
-      desc, m_platform->thread_factory(), m_platform->clock(),
-      m_platform->waiter(), update(), render(), present(), [this]() {
-        Result resizeResult = apply_pending_resize();
-        if (!resizeResult) {
-          CUE_ASSERTF(false, "Resize failed: %s", resizeResult.message.data());
+    Result Engine::initialize(EngineSetupInfo& a_info)
+    {
+        // 引数の検査
+        if (!a_info.platform || !a_info.backend || !a_info.audioBackend)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                "Invalid argument: platform, backend, and audio "
+                "backend must not be null");
         }
-      });
 
-  return Result::ok();
-}
+        // 依存オブジェクトの保存
+        m_platform = a_info.platform;
+        m_backend = a_info.backend;
+        m_audioBackend = a_info.audioBackend;
+        m_physicsSystem = a_info.physicsSystem;
+        m_editorBridge = a_info.editorBridge;
+        m_platformBridge = a_info.platformBridge;
+
+        Audio::AudioDeviceDesc audioDeviceDesc{};
+        Result result = m_audioBackend->create_device(audioDeviceDesc, m_audioDevice);
+        if (!result)
+        {
+            return result;
+        }
+
+        auto* bufferManager = m_backend->get_buffer_manager();
+        if (bufferManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get buffer manager from backend.");
+        }
+
+        auto* viewManager = m_backend->get_view_manager();
+        if (viewManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get view manager from backend.");
+        }
+
+        auto* commandPool = m_backend->get_command_pool();
+        auto* queuePool = m_backend->get_queue_pool();
+        if (commandPool == nullptr || queuePool == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get command or queue pool from backend.");
+        }
+
+        auto* textureManager = m_backend->get_texture_manager();
+        if (textureManager == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Failed to get texture manager from backend.");
+        }
+
+        DrawSystem::StaticMeshPoolDesc meshPoolDesc{};
+        m_staticMeshPool = std::make_unique<DrawSystem::StaticMeshPool>(
+            meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+
+        m_assetManager.initialize(m_staticMeshPool.get(), textureManager);
+
+        Core::IO::Path errorTexturePath = a_info.errorTexturePath;
+        if (errorTexturePath.is_empty())
+        {
+#ifdef CUE_PROJECT_ROOT_PATH
+            errorTexturePath =
+                Core::IO::Path::join(Core::IO::Path(std::string(CUE_PROJECT_ROOT_PATH)),
+                    Core::IO::Path("Engine/Textures/CueDummy.dds"));
+#else
+            return Result::fail(Code::InvalidState, Severity::Fatal,
+                "Error texture path is not configured for Engine.");
+#endif
+        }
+
+        result = m_assetManager.register_error_texture_from_file(
+            m_platform->file_system(), errorTexturePath);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_defaultMaterialHandle = MaterialHandle{};
+        result = m_assetManager.create_color_material(
+            "DefaultWhite", Math::float4(1.0f, 1.0f, 1.0f, 1.0f),
+            m_defaultMaterialHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        ModelHandle cubeModelHandle{};
+        result = m_assetManager.create_cube_model(cubeModelHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        Core::Native::ModelData cubeModelData{};
+        result = m_assetManager.get_model(cubeModelHandle, cubeModelData);
+        if (!result)
+        {
+            return result;
+        }
+        if (cubeModelData.meshes.empty())
+        {
+            return Result::fail(Code::NotFound, Severity::Fatal,
+                "Cube model does not contain any mesh data.");
+        }
+        m_cubeIndexCount =
+            static_cast<uint32_t>(cubeModelData.meshes[0].indices.size());
+
+        RHI::StaticMeshHandle cubeStaticMeshHandle{};
+        result = m_assetManager.get_static_mesh_handle(cubeModelHandle, 0,
+            cubeStaticMeshHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            m_staticMeshPool->get_mesh_id(cubeStaticMeshHandle, m_defaultCubeMeshId);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_editorWorld = std::make_unique<GameCore::GameWorld>();
+        result = m_editorWorld->initialize(
+            bufferManager, viewManager, m_staticMeshPool.get(), &m_assetManager,
+            &m_platform->file_system(), m_audioBackend, m_audioDevice,
+            m_physicsSystem, &m_platform->input_manager(), m_backend->buffer_count(),
+            m_backend->width(), m_backend->height(), m_defaultCubeMeshId,
+            m_defaultMaterialHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_activeWorld = m_editorWorld.get();
+
+        m_scriptModuleHost =
+            std::make_unique<ScriptModuleHost>(m_platform->file_system(), m_platform);
+        result = m_scriptModuleHost->initialize(*m_activeWorld);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "GameColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_gameRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_debugRenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "EffectPreviewColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+            m_effectPreviewRenderTarget,
+            DrawSystem::EffectPreviewClearPass::k_clearColor.data());
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources(
+            "DebugObjectId", RHI::ColorFormat::R32_UINT, m_debugObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_render_target_resources("DebugOutlineObjectId",
+            RHI::ColorFormat::R32_UINT,
+            m_debugOutlineObjectIdTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_debug_pick_readback_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_view_projection_buffer("DebugViewProjectionBuffer",
+            m_debugViewProjectionBufferHandle,
+            m_debugViewProjectionUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        const float debugAspectRatio =
+            m_backend->height() > 0 ? static_cast<float>(m_backend->width()) /
+            static_cast<float>(m_backend->height())
+            : 1.0f;
+        const Math::float4x4 debugWorldMatrix = Math::make_affine_matrix(
+            Math::float3(1.0f, 1.0f, 1.0f), Math::float3::zero(),
+            Math::float3(0.0f, 2.0f, -6.0f));
+        m_debugViewProjection.view = Math::float4x4::inverse(debugWorldMatrix);
+        m_debugViewProjection.projection = Math::perspective_fov_matrix(
+            60.0f * Math::k_pi / 180.0f, debugAspectRatio, 0.1f, 1000.0f);
+
+        result =
+            create_view_projection_buffer("EffectPreviewViewProjectionBuffer",
+                m_effectPreviewViewProjectionBufferHandle,
+                m_effectPreviewViewProjectionUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        const Math::float4x4 effectPreviewWorldMatrix = Math::make_affine_matrix(
+            Math::float3(1.0f, 1.0f, 1.0f), Math::float3::zero(),
+            Math::float3(0.0f, 1.2f, -4.0f));
+        m_effectPreviewViewProjection.view =
+            Math::float4x4::inverse(effectPreviewWorldMatrix);
+        m_effectPreviewViewProjection.projection = Math::perspective_fov_matrix(
+            40.0f * Math::k_pi / 180.0f, debugAspectRatio, 0.05f, 100.0f);
+
+        result = create_debug_selection_buffer();
+        if (!result)
+        {
+            return result;
+        }
+
+        result = create_frame_graphs(std::move(a_info.editorPass));
+        if (!result)
+        {
+            return result;
+        }
+
+        result =
+            m_activeWorld->editor_update(0, m_backend->width(), m_backend->height());
+        if (!result)
+        {
+            return result;
+        }
+
+        // フレームコントローラーの生成
+        FrameControllerDesc desc(m_backend->buffer_count());
+        desc.mode = ControllerMode::Fixed;
+        desc.maxFps = a_info.maxFps;
+        m_frameController = std::make_unique<FrameController>(
+            desc, m_platform->thread_factory(), m_platform->clock(),
+            m_platform->waiter(), update(), render(), present(), [this]() {
+                Result resizeResult = apply_pending_resize();
+                if (!resizeResult)
+                {
+                    CUE_ASSERTF(false, "Resize failed: %s", resizeResult.message.data());
+                }
+            });
+
+        return Result::ok();
+    }
 
 void Engine::shutdown() {
   unload_script_module();
@@ -359,34 +388,41 @@ void Engine::shutdown() {
   m_physicsSystem = nullptr;
 }
 
-Result Engine::begin_frame() {
-  if (m_platform != nullptr) {
-    Result platformResult = m_platform->begin_frame();
-    if (!platformResult) {
-      return platformResult;
+Result Engine::begin_frame()
+{
+    if (m_platform != nullptr)
+    {
+        Result platformResult = m_platform->begin_frame();
+        if (!platformResult)
+        {
+            return platformResult;
+        }
     }
-  }
 
-  // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
-  if (m_platformBridge) {
-    PlatformCommandContext platformCommandContext(m_platformRuntimeState,
-                                                  m_frameController.get());
-    Result result = m_platformBridge->drain_commands(platformCommandContext);
-    if (!result) {
-      return result;
+    // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
+    if (m_platformBridge)
+    {
+        PlatformCommandContext platformCommandContext(m_platformRuntimeState,
+            m_frameController.get());
+        Result result = m_platformBridge->drain_commands(platformCommandContext);
+        if (!result)
+        {
+            return result;
+        }
     }
-  }
 
-  // editor ブリッジがあれば command を処理
-  if (m_editorBridge) {
-    EngineCommandContext commandContext(*m_editorWorld, m_editorSceneId);
-    Result result = m_editorBridge->drain_commands(commandContext);
-    if (!result) {
-      return result;
+    // editor ブリッジがあれば command を処理
+    if (m_editorBridge)
+    {
+        EngineCommandContext commandContext(*m_editorWorld, m_editorSceneId);
+        Result result = m_editorBridge->drain_commands(commandContext);
+        if (!result)
+        {
+            return result;
+        }
     }
-  }
 
-  return Result::ok();
+    return Result::ok();
 }
 
 Result Engine::end_frame() {
@@ -1433,91 +1469,107 @@ Result Engine::destroy_size_dependent_resources() {
 
   return destroy_render_target_resources(m_gameRenderTarget);
 }
-Result Engine::apply_pending_resize() {
-  PAL::PendingResizeRequest request{};
-  if (!m_platformRuntimeState.consume_pending_resize_request(request)) {
-    return Result::ok();
-  }
+Result Engine::apply_pending_resize()
+{
+    PAL::PendingResizeRequest request{};
+    if (!m_platformRuntimeState.consume_pending_resize_request(request))
+    {
+        return Result::ok();
+    }
 
-  if (request.width == m_backend->width() &&
-      request.height == m_backend->height()) {
-    return Result::ok();
-  }
+    if (request.width == m_backend->width() &&
+        request.height == m_backend->height())
+    {
+        return Result::ok();
+    }
 
-  Result result = m_backend->wait_for_idle();
-  if (!result) {
-    return result;
-  }
+    Result result = m_backend->wait_for_idle();
+    if (!result)
+    {
+        return result;
+    }
 
-  result = destroy_render_target_resources(m_debugObjectIdTarget);
-  if (!result) {
-    return result;
-  }
+    result = destroy_render_target_resources(m_debugObjectIdTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = destroy_render_target_resources(m_debugOutlineObjectIdTarget);
-  if (!result) {
-    return result;
-  }
+    result = destroy_render_target_resources(m_debugOutlineObjectIdTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = destroy_render_target_resources(m_effectPreviewRenderTarget);
-  if (!result) {
-    return result;
-  }
+    result = destroy_render_target_resources(m_effectPreviewRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = destroy_render_target_resources(m_debugRenderTarget);
-  if (!result) {
-    return result;
-  }
+    result = destroy_render_target_resources(m_debugRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = destroy_render_target_resources(m_gameRenderTarget);
-  if (!result) {
-    return result;
-  }
+    result = destroy_render_target_resources(m_gameRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = m_backend->resize(request.width, request.height);
-  if (!result) {
-    return result;
-  }
+    result = m_backend->resize(request.width, request.height);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = create_render_target_resources(
-      "GameColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_gameRenderTarget);
-  if (!result) {
-    return result;
-  }
+    result = create_render_target_resources(
+        "GameColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_gameRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = create_render_target_resources(
-      "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_debugRenderTarget);
-  if (!result) {
-    return result;
-  }
+    result = create_render_target_resources(
+        "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM, m_debugRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = create_render_target_resources(
-      "EffectPreviewColor", RHI::ColorFormat::R8G8B8A8_UNORM,
-      m_effectPreviewRenderTarget,
-      DrawSystem::EffectPreviewClearPass::k_clearColor.data());
-  if (!result) {
-    return result;
-  }
+    result = create_render_target_resources(
+        "EffectPreviewColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+        m_effectPreviewRenderTarget,
+        DrawSystem::EffectPreviewClearPass::k_clearColor.data());
+    if (!result)
+    {
+        return result;
+    }
 
-  result = create_render_target_resources(
-      "DebugObjectId", RHI::ColorFormat::R32_UINT, m_debugObjectIdTarget);
-  if (!result) {
-    return result;
-  }
+    result = create_render_target_resources(
+        "DebugObjectId", RHI::ColorFormat::R32_UINT, m_debugObjectIdTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = create_render_target_resources("DebugOutlineObjectId",
-                                          RHI::ColorFormat::R32_UINT,
-                                          m_debugOutlineObjectIdTarget);
-  if (!result) {
-    return result;
-  }
+    result = create_render_target_resources("DebugOutlineObjectId",
+        RHI::ColorFormat::R32_UINT,
+        m_debugOutlineObjectIdTarget);
+    if (!result)
+    {
+        return result;
+    }
 
-  result = m_frameGraph->rebuild(m_backend->width(), m_backend->height());
-  if (!result) {
-    return result;
-  }
+    result = m_frameGraph->rebuild(m_backend->width(), m_backend->height());
+    if (!result)
+    {
+        return result;
+    }
 
-  return m_presentFrameGraph->rebuild(m_backend->width(), m_backend->height());
+    return m_presentFrameGraph->rebuild(m_backend->width(), m_backend->height());
 }
 
 std::function<void(uint64_t, uint32_t)> Engine::update() {
@@ -1769,10 +1821,11 @@ std::function<void(uint64_t, uint32_t)> Engine::render() {
   };
 }
 
-std::function<void(uint64_t, uint32_t)> Engine::present() {
-  return [this](uint64_t a_frameNo, uint32_t a_index) {
-    m_backend->present(a_frameNo, a_index, true, *m_presentFrameGraph);
-  };
+std::function<void(uint64_t, uint32_t)> Engine::present()
+{
+    return [this](uint64_t a_frameNo, uint32_t a_index) {
+        m_backend->present(a_frameNo, a_index, true, *m_presentFrameGraph);
+        };
 }
 
 } // namespace Cue

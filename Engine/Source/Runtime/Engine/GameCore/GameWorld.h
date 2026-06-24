@@ -71,3330 +71,1018 @@
 #include <utility>
 #include <vector>
 
-namespace Cue::GameCore {
-class GameWorld final {
-public:
-  static constexpr uint32_t k_maxRenderObjectCount = 1000;
-  static constexpr uint32_t k_maxSpriteCount = 1000;
-  static constexpr uint32_t k_maxParticleEmitterCount =
-      GpuData::k_maxParticleEmitterCount;
-  static constexpr uint32_t k_maxParticleCount = GpuData::k_maxParticleCount;
-  static constexpr uint32_t k_maxSkinPaletteCount =
-      k_maxRenderObjectCount * 128u;
-  static constexpr uint32_t k_maxMaterialCount = 1024;
+namespace Cue::GameCore
+{
+/// @brief Scene、Entity、各 Runtime System を統合して実行時 World を管理する。
+///
+/// GameObject は EntityId と世代番号の軽量ハンドルとして扱い、実体の生成、削除、
+/// Scene への所属、Component 復元、描画・物理・Navigation 各 System との同期をここで行う。
+class GameWorld final
+{
+  public:
+    /// @brief 1 World で扱う StaticMesh Render Object の最大数。
+    static constexpr uint32_t k_maxRenderObjectCount = 1000;
+    /// @brief 1 World で扱う Sprite の最大数。
+    static constexpr uint32_t k_maxSpriteCount = 1000;
+    /// @brief 1 World で扱う ParticleEmitter の最大数。
+    static constexpr uint32_t k_maxParticleEmitterCount = GpuData::k_maxParticleEmitterCount;
+    /// @brief 1 World で扱う Particle の最大数。
+    static constexpr uint32_t k_maxParticleCount = GpuData::k_maxParticleCount;
+    /// @brief Skinning 用 Palette 行列の最大数。
+    static constexpr uint32_t k_maxSkinPaletteCount = k_maxRenderObjectCount * 128u;
+    /// @brief 1 World で扱う Material の最大数。
+    static constexpr uint32_t k_maxMaterialCount = 1024;
 
-  struct LoadSceneResult final {
-    SceneId sceneId = k_invalidSceneId;
-    std::vector<GameObject> objects{};
-  };
+    /// @brief Scene ロードや追加入力の結果を返すための値。
+    struct LoadSceneResult final
+    {
+        /// @brief 対象 Scene の実行時 ID。
+        SceneId sceneId = k_invalidSceneId;
+        /// @brief 実体化された GameObject ハンドル一覧。
+        std::vector<GameObject> objects{};
+    };
 
-  struct EntityRecord final {
-    Generation generation = 0;
-    bool isAlive = false;
-    // 遅延削除キューへ同じ Entity を二重登録しないためのフラグ
-    bool isPendingDestroy = false;
-    SceneId sourceSceneId = k_invalidSceneId;
-    LocalObjectId sourceLocalObjectId = k_invalidLocalObjectId;
-  };
+    /// @brief EntityId の生存状態と Scene 由来情報を管理する内部レコード。
+    struct EntityRecord final
+    {
+        /// @brief 古い GameObject ハンドルを無効化するための世代番号。
+        Generation generation = 0;
+        /// @brief Entity が現在生存しているか。
+        bool isAlive = false;
+        // 遅延削除キューへ同じ Entity を二重登録しないためのフラグ
+        bool isPendingDestroy = false;
+        /// @brief 生成元 Scene。Scene に属さない場合は無効 ID。
+        SceneId sourceSceneId = k_invalidSceneId;
+        /// @brief 生成元 SceneAsset 内の LocalObjectId。
+        LocalObjectId sourceLocalObjectId = k_invalidLocalObjectId;
+    };
 
-  struct PendingSceneLoad final {
-    SceneId sceneId = k_invalidSceneId;
-    Core::IO::Path path{};
-  };
+    /// @brief ファイルからの Scene 遅延ロード要求。
+    struct PendingSceneLoad final
+    {
+        /// @brief ロード完了後に割り当てる Scene ID。
+        SceneId sceneId = k_invalidSceneId;
+        /// @brief 読み込む `.cuescene` のパス。
+        Core::IO::Path path{};
+    };
 
-  struct GameplayRaycastDesc final {
-    Math::float3 origin = Math::float3::zero();
-    Math::float3 direction = Math::float3(0.0f, 0.0f, 1.0f);
-    EntityId ignoredEntity = k_invalidEntityId;
-    float distance = 1000.0f;
-  };
+    /// @brief Gameplay 向け Raycast 入力。
+    struct GameplayRaycastDesc final
+    {
+        /// @brief Ray の開始位置。
+        Math::float3 origin = Math::float3::zero();
+        /// @brief Ray の方向。
+        Math::float3 direction = Math::float3(0.0f, 0.0f, 1.0f);
+        /// @brief 判定から除外する Entity。
+        EntityId ignoredEntity = k_invalidEntityId;
+        /// @brief Ray の最大距離。
+        float distance = 1000.0f;
+    };
 
-  struct GameplayRaycastHit final {
-    EntityId entity = k_invalidEntityId;
-    Math::float3 position = Math::float3::zero();
-    Math::float3 normal = Math::float3::zero();
-    float distance = 0.0f;
-  };
+    /// @brief Gameplay 向け Raycast 結果。
+    struct GameplayRaycastHit final
+    {
+        /// @brief Hit した Entity。
+        EntityId entity = k_invalidEntityId;
+        /// @brief Hit 位置。
+        Math::float3 position = Math::float3::zero();
+        /// @brief Hit 面の法線。
+        Math::float3 normal = Math::float3::zero();
+        /// @brief Ray 開始位置から Hit 位置までの距離。
+        float distance = 0.0f;
+    };
 
-  GameWorld() = default;
+    /// @brief 空の World を生成する。
+    GameWorld();
 
-  [[nodiscard]] Result ecs(ECS::ECSManager *&a_outEcs) noexcept {
-    a_outEcs = &m_ecs;
-    return Result::ok();
-  }
+    /// @brief 内部 ECSManager への非所有ポインタを取得する。
+    /// @param a_outEcs ECSManager の出力先。
+    [[nodiscard]] Result ecs(ECS::ECSManager *&a_outEcs) noexcept;
 
-  [[nodiscard]] Result initialize(
-      RHI::IBufferManager *a_bufferManager, RHI::IViewManager *a_viewManager,
-      DrawSystem::IStaticMeshPool *a_staticMeshPool,
-      AssetManager *a_assetManager, Core::IO::IFileSystem *a_fileSystem,
-      Audio::IBackend *a_audioBackend, Audio::AudioDeviceHandle a_audioDevice,
-      Physics::IPhysicsSystem *a_physicsSystem,
-      PAL::InputManager *a_inputManager, uint32_t a_bufferCount,
-      uint32_t a_renderWidth, uint32_t a_renderHeight,
-      uint32_t a_defaultStaticMeshId, MaterialHandle a_defaultMaterialHandle);
-  [[nodiscard]] Result finalize_systems() noexcept;
-  void set_asset_root_path(const Core::IO::Path &a_assetRootPath) {
-    m_assetRootPath = a_assetRootPath.normalize();
-  }
+    /// @brief World が利用する Runtime System と GPU/Asset/Platform 依存を初期化する。
+    [[nodiscard]] Result initialize(
+        RHI::IBufferManager *a_bufferManager, RHI::IViewManager *a_viewManager,
+        DrawSystem::IStaticMeshPool *a_staticMeshPool, AssetManager *a_assetManager,
+        Core::IO::IFileSystem *a_fileSystem, Audio::IBackend *a_audioBackend,
+        Audio::AudioDeviceHandle a_audioDevice, Physics::IPhysicsSystem *a_physicsSystem,
+        PAL::InputManager *a_inputManager, uint32_t a_bufferCount, uint32_t a_renderWidth,
+        uint32_t a_renderHeight, uint32_t a_defaultStaticMeshId,
+        MaterialHandle a_defaultMaterialHandle);
 
-  [[nodiscard]] const Core::IO::Path &asset_root_path() const noexcept {
-    return m_assetRootPath;
-  }
+    /// @brief initialize() 後に各 System の最終構築処理を行う。
+    [[nodiscard]] Result finalize_systems() noexcept;
 
-  [[nodiscard]] Core::IO::IFileSystem *file_system() const noexcept {
-    return m_fileSystem;
-  }
+    /// @brief Asset の相対パス解決に使うルートパスを設定する。
+    void set_asset_root_path(const Core::IO::Path &a_assetRootPath);
 
-  [[nodiscard]] Result simulate(float a_deltaTime);
-  [[nodiscard]] Result editor_update(uint32_t a_bufferIndex,
-                                     uint32_t a_renderWidth,
-                                     uint32_t a_renderHeight,
-                                     float a_deltaTime = 0.0f);
-  [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex,
-                              uint32_t a_renderWidth, uint32_t a_renderHeight);
-  [[nodiscard]] Result clone_from(const GameWorld &a_source);
+    /// @brief Asset の相対パス解決に使うルートパスを返す。
+    [[nodiscard]] const Core::IO::Path &asset_root_path() const noexcept;
 
-  [[nodiscard]] Result add_object() {
-    return add_object(make_spawn_position());
-  }
+    /// @brief World が使用している FileSystem を返す。
+    [[nodiscard]] Core::IO::IFileSystem *file_system() const noexcept;
 
-  [[nodiscard]] Result add_object(GameObject &a_outObject) {
-    return add_object(make_spawn_position(), a_outObject);
-  }
+    /// @brief Gameplay Simulation だけを進める。
+    [[nodiscard]] Result simulate(float a_deltaTime);
 
-  [[nodiscard]] Result add_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_object(a_position, object);
-  }
+    /// @brief Editor 表示用の更新と描画データ構築を行う。
+    [[nodiscard]] Result editor_update(uint32_t a_bufferIndex, uint32_t a_renderWidth,
+                                       uint32_t a_renderHeight, float a_deltaTime = 0.0f);
 
-  [[nodiscard]] Result add_object(const Math::float3 &a_position,
-                                  GameObject &a_outObject);
-  [[nodiscard]] Result add_game_object() {
-    GameObject object{};
-    return add_game_object(object);
-  }
+    /// @brief Runtime 用の Simulation と描画データ構築を行う。
+    [[nodiscard]] Result update(float a_deltaTime, uint32_t a_bufferIndex, uint32_t a_renderWidth,
+                                uint32_t a_renderHeight);
 
-  [[nodiscard]] Result add_game_object(GameObject &a_outObject) {
-    return add_game_object(make_spawn_position(), a_outObject);
-  }
+    /// @brief 別 World の Scene と Object 状態をこの World に複製する。
+    [[nodiscard]] Result clone_from(const GameWorld &a_source);
 
-  [[nodiscard]] Result add_game_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_game_object(a_position, object);
-  }
+    /// @brief 既定位置に StaticMeshObject を生成する。
+    [[nodiscard]] Result add_object();
 
-  [[nodiscard]] Result add_game_object(const Math::float3 &a_position,
-                                       GameObject &a_outObject);
-  [[nodiscard]] Result add_camera_object() {
-    GameObject object{};
-    return add_camera_object(object);
-  }
+    /// @brief 既定位置に StaticMeshObject を生成し、生成した GameObject を返す。
+    [[nodiscard]] Result add_object(GameObject &a_outObject);
 
-  [[nodiscard]] Result add_camera_object(GameObject &a_outObject) {
-    return add_camera_object(make_camera_spawn_position(), a_outObject);
-  }
+    /// @brief 指定位置に StaticMeshObject を生成する。
+    [[nodiscard]] Result add_object(const Math::float3 &a_position);
 
-  [[nodiscard]] Result add_camera_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_camera_object(a_position, object);
-  }
+    /// @brief 指定位置に StaticMeshObject を生成し、生成した GameObject を返す。
+    [[nodiscard]] Result add_object(const Math::float3 &a_position, GameObject &a_outObject);
 
-  [[nodiscard]] Result add_camera_object(const Math::float3 &a_position,
-                                         GameObject &a_outObject);
-  [[nodiscard]] Result add_directional_light_object() {
-    GameObject object{};
-    return add_directional_light_object(object);
-  }
+    /// @brief 既定位置に空の GameObject を生成する。
+    [[nodiscard]] Result add_game_object();
 
-  [[nodiscard]] Result add_directional_light_object(GameObject &a_outObject) {
-    return add_directional_light_object(make_light_spawn_position(),
-                                        a_outObject);
-  }
+    /// @brief 既定位置に空の GameObject を生成し、生成した GameObject を返す。
+    [[nodiscard]] Result add_game_object(GameObject &a_outObject);
 
-  [[nodiscard]] Result
-  add_directional_light_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_directional_light_object(a_position, object);
-  }
+    [[nodiscard]] Result add_game_object(const Math::float3 &a_position);
 
-  [[nodiscard]] Result
-  add_directional_light_object(const Math::float3 &a_position,
-                               GameObject &a_outObject);
-  [[nodiscard]] Result add_point_light_object() {
-    GameObject object{};
-    return add_point_light_object(object);
-  }
+    [[nodiscard]] Result add_game_object(const Math::float3 &a_position, GameObject &a_outObject);
+    [[nodiscard]] Result add_camera_object();
 
-  [[nodiscard]] Result add_point_light_object(GameObject &a_outObject) {
-    return add_point_light_object(make_light_spawn_position(), a_outObject);
-  }
+    [[nodiscard]] Result add_camera_object(GameObject &a_outObject);
 
-  [[nodiscard]] Result add_point_light_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_point_light_object(a_position, object);
-  }
+    [[nodiscard]] Result add_camera_object(const Math::float3 &a_position);
 
-  [[nodiscard]] Result add_point_light_object(const Math::float3 &a_position,
-                                              GameObject &a_outObject);
-  [[nodiscard]] Result add_spot_light_object() {
-    GameObject object{};
-    return add_spot_light_object(object);
-  }
+    [[nodiscard]] Result add_camera_object(const Math::float3 &a_position, GameObject &a_outObject);
+    [[nodiscard]] Result add_directional_light_object();
 
-  [[nodiscard]] Result add_spot_light_object(GameObject &a_outObject) {
-    return add_spot_light_object(make_light_spawn_position(), a_outObject);
-  }
+    [[nodiscard]] Result add_directional_light_object(GameObject &a_outObject);
+    [[nodiscard]] Result add_directional_light_object(const Math::float3 &a_position);
 
-  [[nodiscard]] Result add_spot_light_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_spot_light_object(a_position, object);
-  }
+    [[nodiscard]] Result add_directional_light_object(const Math::float3 &a_position,
+                                                      GameObject &a_outObject);
+    [[nodiscard]] Result add_point_light_object();
 
-  [[nodiscard]] Result add_spot_light_object(const Math::float3 &a_position,
-                                             GameObject &a_outObject);
-  [[nodiscard]] Result add_sprite_object() {
-    GameObject object{};
-    return add_sprite_object(object);
-  }
+    [[nodiscard]] Result add_point_light_object(GameObject &a_outObject);
 
-  [[nodiscard]] Result add_sprite_object(GameObject &a_outObject) {
-    return add_sprite_object(make_sprite_spawn_position(), a_outObject);
-  }
+    [[nodiscard]] Result add_point_light_object(const Math::float3 &a_position);
 
-  [[nodiscard]] Result add_sprite_object(const Math::float3 &a_position) {
-    GameObject object{};
-    return add_sprite_object(a_position, object);
-  }
-
-  [[nodiscard]] Result add_sprite_object(const Math::float3 &a_position,
-                                         GameObject &a_outObject);
-
-  [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId) {
-    return add_object_to_scene(a_sceneId, make_spawn_position());
-  }
-
-  [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
-                                           GameObject &a_outObject) {
-    return add_object_to_scene(a_sceneId, make_spawn_position(), a_outObject);
-  }
-
-  [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
-                                           const Math::float3 &a_position) {
-    GameObject object{};
-    return add_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId,
-                                           const Math::float3 &a_position,
-                                           GameObject &a_outObject);
-  [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId) {
-    return add_game_object_to_scene(a_sceneId, make_spawn_position());
-  }
-
-  [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId,
-                                                GameObject &a_outObject) {
-    return add_game_object_to_scene(a_sceneId, make_spawn_position(),
-                                    a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_game_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position) {
-    GameObject object{};
-    return add_game_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId,
-                                                const Math::float3 &a_position,
+    [[nodiscard]] Result add_point_light_object(const Math::float3 &a_position,
                                                 GameObject &a_outObject);
-  [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId) {
-    return add_camera_object_to_scene(a_sceneId, make_camera_spawn_position());
-  }
-
-  [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
-                                                  GameObject &a_outObject) {
-    return add_camera_object_to_scene(a_sceneId, make_camera_spawn_position(),
-                                      a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_camera_object_to_scene(SceneId a_sceneId,
-                             const Math::float3 &a_position) {
-    GameObject object{};
-    return add_camera_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result
-  add_camera_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position,
-                             GameObject &a_outObject);
-  [[nodiscard]] Result
-  add_directional_light_object_to_scene(SceneId a_sceneId) {
-    return add_directional_light_object_to_scene(a_sceneId,
-                                                 make_light_spawn_position());
-  }
-
-  [[nodiscard]] Result
-  add_directional_light_object_to_scene(SceneId a_sceneId,
-                                        GameObject &a_outObject) {
-    return add_directional_light_object_to_scene(
-        a_sceneId, make_light_spawn_position(), a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_directional_light_object_to_scene(SceneId a_sceneId,
-                                        const Math::float3 &a_position) {
-    GameObject object{};
-    return add_directional_light_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result
-  add_directional_light_object_to_scene(SceneId a_sceneId,
-                                        const Math::float3 &a_position,
-                                        GameObject &a_outObject);
-  [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId) {
-    return add_point_light_object_to_scene(a_sceneId,
-                                           make_light_spawn_position());
-  }
-
-  [[nodiscard]] Result
-  add_point_light_object_to_scene(SceneId a_sceneId, GameObject &a_outObject) {
-    return add_point_light_object_to_scene(
-        a_sceneId, make_light_spawn_position(), a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_point_light_object_to_scene(SceneId a_sceneId,
-                                  const Math::float3 &a_position) {
-    GameObject object{};
-    return add_point_light_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result
-  add_point_light_object_to_scene(SceneId a_sceneId,
-                                  const Math::float3 &a_position,
-                                  GameObject &a_outObject);
-  [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId) {
-    return add_spot_light_object_to_scene(a_sceneId,
-                                          make_light_spawn_position());
-  }
-
-  [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId,
-                                                      GameObject &a_outObject) {
-    return add_spot_light_object_to_scene(
-        a_sceneId, make_light_spawn_position(), a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_spot_light_object_to_scene(SceneId a_sceneId,
-                                 const Math::float3 &a_position) {
-    GameObject object{};
-    return add_spot_light_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result
-  add_spot_light_object_to_scene(SceneId a_sceneId,
-                                 const Math::float3 &a_position,
-                                 GameObject &a_outObject);
-  [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId) {
-    return add_sprite_object_to_scene(a_sceneId, make_sprite_spawn_position());
-  }
-
-  [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId,
-                                                  GameObject &a_outObject) {
-    return add_sprite_object_to_scene(a_sceneId, make_sprite_spawn_position(),
-                                      a_outObject);
-  }
-
-  [[nodiscard]] Result
-  add_sprite_object_to_scene(SceneId a_sceneId,
-                             const Math::float3 &a_position) {
-    GameObject object{};
-    return add_sprite_object_to_scene(a_sceneId, a_position, object);
-  }
-
-  [[nodiscard]] Result
-  add_sprite_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position,
-                             GameObject &a_outObject);
-
-  [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept;
-
-  [[nodiscard]] Result
-  get_render_object_entity(uint32_t a_objectId,
-                           EntityId &a_outEntityId) const noexcept {
-    return try_get_static_mesh_entity(a_objectId, a_outEntityId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Error,
-                              "Static mesh object id was not found.");
-  }
-
-  [[nodiscard]] Result set_main_camera(EntityId a_cameraEntityId) {
-    if (!contains_object(a_cameraEntityId) ||
-        !has_component<ECS::CameraComponent>(a_cameraEntityId)) {
-      return Result::fail(Code::NotFound, Severity::Error,
-                          "Camera object was not found.");
-    }
-
-    std::vector<EntityId> cameraEntities = collect_camera_entities();
-    auto targetIt = std::find(cameraEntities.begin(), cameraEntities.end(),
-                              a_cameraEntityId);
-    if (targetIt == cameraEntities.end()) {
-      return Result::fail(Code::NotFound, Severity::Error,
-                          "Camera object was not found.");
-    }
-
-    for (uint32_t cameraIndex = 0; cameraIndex < cameraEntities.size();
-         ++cameraIndex) {
-      ECS::CameraComponent *camera =
-          get_component<ECS::CameraComponent>(cameraEntities[cameraIndex]);
-      if (camera == nullptr) {
-        continue;
-      }
-
-      camera->isMain = (cameraEntities[cameraIndex] == a_cameraEntityId);
-    }
-
-    m_mainCameraIndex =
-        static_cast<uint32_t>(std::distance(cameraEntities.begin(), targetIt));
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result get_parent(EntityId a_entityId,
-                                  EntityId &a_outParent) const noexcept {
-    a_outParent = k_invalidEntityId;
-    if (!contains_object(a_entityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
-
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    if (base == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld BaseComponent is missing.");
-    }
-
-    a_outParent = base->parent;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result set_parent(EntityId a_childEntityId,
-                                  EntityId a_parentEntityId,
-                                  bool a_keepsWorldTransform) noexcept {
-    if (!contains_object(a_childEntityId) ||
-        !contains_object(a_parentEntityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
-    if (a_childEntityId == a_parentEntityId) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "GameWorld parent cannot be the child itself.");
-    }
-    if (is_descendant_of(a_parentEntityId, a_childEntityId)) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "GameWorld parent cycle was rejected.");
-    }
-
-    ECS::TransformComponent *childTransform = nullptr;
-    ECS::TransformComponent *parentTransform = nullptr;
-    Result childTransformResult =
-        get_component(a_childEntityId, childTransform);
-    Result parentTransformResult =
-        get_component(a_parentEntityId, parentTransform);
-    if (!childTransformResult || childTransform == nullptr) {
-      return childTransformResult;
-    }
-    if (!parentTransformResult || parentTransform == nullptr) {
-      return parentTransformResult;
-    }
-
-    ECS::WorldTransformComponent childWorld{};
-    ECS::WorldTransformComponent parentWorld{};
-    if (a_keepsWorldTransform) {
-      std::vector<uint8_t> state(m_entityRecords.size(), 0u);
-      if (!resolve_world_transform(a_childEntityId, state, childWorld) ||
-          !resolve_world_transform(a_parentEntityId, state, parentWorld)) {
-        return Result::fail(Code::InvalidState, Severity::Error,
-                            "GameWorld world transform could not be resolved.");
-      }
-    }
-
-    BaseComponent *childBase = get_component<BaseComponent>(a_childEntityId);
-    if (childBase == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld BaseComponent is missing.");
-    }
-    childBase->parent = a_parentEntityId;
-
-    if (a_keepsWorldTransform) {
-      *childTransform = make_local_transform(parentWorld, childWorld);
-    }
-
-    sync_world_transforms();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result detach_parent(EntityId a_childEntityId,
-                                     bool a_keepsWorldTransform) noexcept {
-    if (!contains_object(a_childEntityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
-
-    BaseComponent *childBase = get_component<BaseComponent>(a_childEntityId);
-    ECS::TransformComponent *childTransform = nullptr;
-    Result childTransformResult =
-        get_component(a_childEntityId, childTransform);
-    if (childBase == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld BaseComponent is missing.");
-    }
-    if (!childTransformResult || childTransform == nullptr) {
-      return childTransformResult;
-    }
-
-    ECS::WorldTransformComponent childWorld{};
-    if (a_keepsWorldTransform) {
-      std::vector<uint8_t> state(m_entityRecords.size(), 0u);
-      if (!resolve_world_transform(a_childEntityId, state, childWorld)) {
-        return Result::fail(Code::InvalidState, Severity::Error,
-                            "GameWorld world transform could not be resolved.");
-      }
-    }
-
-    childBase->parent = k_invalidEntityId;
-    if (a_keepsWorldTransform) {
-      childTransform->position = childWorld.position;
-      childTransform->rotation = childWorld.rotation;
-      childTransform->scale = childWorld.scale;
-    }
-
-    sync_world_transforms();
-    return Result::ok();
-  }
-
-  DrawSystem::DrawFrameState &draw_frame_state() noexcept {
-    return m_drawFrameState;
-  }
-
-  const DrawSystem::DrawFrameState &draw_frame_state() const noexcept {
-    return m_drawFrameState;
-  }
-
-  NavigationWorld &navigation_world() noexcept { return m_navigationWorld; }
-
-  const NavigationWorld &navigation_world() const noexcept {
-    return m_navigationWorld;
-  }
-
-  [[nodiscard]] Result
-  load_navigation_mesh(const NavMeshAssetData &a_asset,
-                       NavMeshHandle &a_outHandle) noexcept {
-    Result result = m_navigationWorld.load_nav_mesh(a_asset, a_outHandle);
-    if (!result) {
-      return result;
-    }
-
-    result = set_active_navigation_mesh(a_outHandle, a_asset);
-    if (!result) {
-      (void)m_navigationWorld.unload_nav_mesh(a_outHandle);
-      a_outHandle = {};
-      return result;
-    }
-
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  load_navigation_mesh_from_path(const Core::IO::Path &a_path,
-                                 NavMeshHandle &a_outHandle) noexcept {
-    a_outHandle = {};
-    if (m_fileSystem == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld file system is not initialized.");
-    }
-
-    Core::IO::Path navMeshPath = a_path;
-    if (!navMeshPath.is_absolute()) {
-      if (m_assetRootPath.is_empty()) {
-        return Result::fail(Code::InvalidState, Severity::Error,
-                            "GameWorld asset root path is not initialized.");
-      }
-      navMeshPath = Core::IO::Path::join(m_assetRootPath, navMeshPath);
-    }
-
-    NavMeshAssetData navMeshAsset{};
-    Result result =
-        NavMeshAssetSerializer::load(*m_fileSystem, navMeshPath, navMeshAsset);
-    if (!result) {
-      return result;
-    }
-
-    return load_navigation_mesh(navMeshAsset, a_outHandle);
-  }
-
-  [[nodiscard]] Result
-  set_active_navigation_mesh(NavMeshHandle a_handle) noexcept {
-    if (!a_handle.valid()) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "Navigation mesh handle is invalid.");
-    }
-
-    m_activeNavMesh = a_handle;
-    m_activeNavMeshAsset = {};
-    m_hasActiveNavMeshAsset = false;
-    if (m_navigationSystem != nullptr) {
-      m_navigationSystem->set_nav_mesh(a_handle);
-    }
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  set_active_navigation_mesh(NavMeshHandle a_handle,
-                             const NavMeshAssetData &a_asset) noexcept {
-    Result result = set_active_navigation_mesh(a_handle);
-    if (!result) {
-      return result;
-    }
-
-    m_activeNavMeshAsset = a_asset;
-    m_hasActiveNavMeshAsset = true;
-    return Result::ok();
-  }
-
-  [[nodiscard]] NavMeshHandle active_navigation_mesh() const noexcept {
-    return m_activeNavMesh;
-  }
-
-  [[nodiscard]] Result
-  set_nav_agent_destination(EntityId a_entityId,
-                            const Math::float3 &a_destination) noexcept {
-    ECS::NavAgentComponent *agent =
-        get_component<ECS::NavAgentComponent>(a_entityId);
-    if (agent == nullptr) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "NavAgentComponent was not found.");
-    }
-
-    agent->destination = a_destination;
-    agent->targetEntity = 0;
-    agent->hasTarget = false;
-    agent->hasDestination = true;
-    agent->hasArrived = false;
-    agent->hasPath = false;
-    agent->hasPathFailed = false;
-    agent->isOnNavMesh = false;
-    agent->pathPoints.clear();
-    agent->pathIndex = 0;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  set_nav_agent_target(EntityId a_entityId,
-                       EntityId a_targetEntityId) noexcept {
-    ECS::NavAgentComponent *agent =
-        get_component<ECS::NavAgentComponent>(a_entityId);
-    if (agent == nullptr) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "NavAgentComponent was not found.");
-    }
-    if (a_targetEntityId == k_invalidEntityId ||
-        !contains_object(a_targetEntityId)) {
-      return Result::fail(Code::InvalidArgument, Severity::Warning,
-                          "NavAgent target entity is invalid.");
-    }
-
-    agent->targetEntity = a_targetEntityId;
-    agent->hasTarget = true;
-    agent->hasDestination = true;
-    agent->hasArrived = false;
-    agent->hasPath = false;
-    agent->hasPathFailed = false;
-    agent->pathPoints.clear();
-    agent->pathIndex = 0;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result raycast(const GameplayRaycastDesc &a_desc,
-                               GameplayRaycastHit &a_outHit) const noexcept {
-    a_outHit = {};
-    if (m_physicsSystem == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld physics system is not initialized.");
-    }
+    [[nodiscard]] Result add_spot_light_object();
 
-    Physics::RaycastDesc raycast{};
-    raycast.origin = a_desc.origin;
-    raycast.direction = a_desc.direction;
-    raycast.distance = a_desc.distance;
-    if (a_desc.ignoredEntity != k_invalidEntityId) {
-      const ECS::RigidBodyComponent *ignoredRigidBody =
-          get_component<ECS::RigidBodyComponent>(a_desc.ignoredEntity);
-      if (ignoredRigidBody != nullptr) {
-        raycast.ignoredBody = ignoredRigidBody->body;
-      }
-    }
-
-    Physics::RaycastHit hit{};
-    Result result = m_physicsSystem->raycast(raycast, hit);
-    if (!result) {
-      return result;
-    }
-
-    EntityId entity = k_invalidEntityId;
-    if (!find_entity_by_body(hit.body, entity)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "Raycast hit body is not owned by GameWorld.");
-    }
-
-    a_outHit.entity = entity;
-    a_outHit.position = hit.position;
-    a_outHit.normal = hit.normal;
-    a_outHit.distance = hit.distance;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  trigger_overlaps(EntityId a_entityId,
-                   std::vector<EntityId> &a_outEntities) const noexcept {
-    a_outEntities.clear();
-    const ECS::TriggerVolumeComponent *trigger =
-        get_component<ECS::TriggerVolumeComponent>(a_entityId);
-    if (trigger == nullptr) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "TriggerVolumeComponent was not found.");
-    }
-
-    a_outEntities = trigger->overlappingEntities;
-    return Result::ok();
-  }
-
-  DebugDrawBuffer &debug_draw() noexcept { return m_debugDraw; }
-
-  const DebugDrawBuffer &debug_draw() const noexcept { return m_debugDraw; }
-
-  [[nodiscard]] Result build_navigation_debug_geometry(
-      NavMeshDebugGeometry &a_outGeometry) noexcept {
-    a_outGeometry = {};
-    if (!m_activeNavMesh.valid()) {
-      return Result::fail(Code::InvalidState, Severity::Warning,
-                          "Active navigation mesh is not set.");
-    }
-
-    Result result =
-        m_navigationWorld.build_debug_geometry(m_activeNavMesh, a_outGeometry);
-    if (!result) {
-      return result;
-    }
-
-    if (m_navigationSystem != nullptr) {
-      m_navigationSystem->append_agent_debug_geometry(a_outGeometry);
-    }
-    return Result::ok();
-  }
-
-  [[nodiscard]] const DrawSystem::DrawResources *
-  draw_resources() const noexcept {
-    return m_drawResources.get();
-  }
-
-  [[nodiscard]] const LightingSystem::LightResources *
-  light_resources() const noexcept {
-    return m_lightResources.get();
-  }
-
-  [[nodiscard]] const ShadowSystem::ShadowResources *
-  shadow_resources() const noexcept {
-    return m_shadowResources.get();
-  }
-
-  [[nodiscard]] const ParticleSystem::ParticleResources *
-  particle_resources() const noexcept {
-    return m_particleResources.get();
-  }
-
-  [[nodiscard]] const EffectSystem::EffectPrimitiveResources *
-  effect_primitive_resources() const noexcept {
-    return m_effectPrimitiveResources.get();
-  }
-
-  LightingSystem::LightFrameState &light_frame_state() noexcept {
-    return m_lightFrameState;
-  }
-
-  ParticleSystem::ParticleFrameState &particle_frame_state() noexcept {
-    return m_particleFrameState;
-  }
-
-  const ParticleSystem::ParticleFrameState &
-  particle_frame_state() const noexcept {
-    return m_particleFrameState;
-  }
-
-  EffectSystem::EffectPrimitiveFrameState &
-  effect_primitive_frame_state() noexcept {
-    return m_effectPrimitiveFrameState;
-  }
-
-  const EffectSystem::EffectPrimitiveFrameState &
-  effect_primitive_frame_state() const noexcept {
-    return m_effectPrimitiveFrameState;
-  }
-
-  const LightingSystem::LightFrameState &light_frame_state() const noexcept {
-    return m_lightFrameState;
-  }
-
-  ShadowSystem::ShadowFrameState &shadow_frame_state() noexcept {
-    return m_shadowFrameState;
-  }
-
-  const ShadowSystem::ShadowFrameState &shadow_frame_state() const noexcept {
-    return m_shadowFrameState;
-  }
-
-  void set_cpu_batching_enabled(bool a_enabled) noexcept {
-    m_isCpuBatchingEnabled = a_enabled;
-  }
-
-  [[nodiscard]] bool is_cpu_batching_enabled() const noexcept {
-    return m_isCpuBatchingEnabled;
-  }
-
-  [[nodiscard]] Result create_object(std::string_view a_name,
-                                     std::string_view a_tag,
-                                     bool a_isPersistent,
-                                     GameObject &a_outObject) {
-    a_outObject = {};
-    return capture_result(
-        [this, &a_outObject, a_name, a_tag, a_isPersistent]() {
-          a_outObject = create_object(a_name, a_tag, a_isPersistent);
-        });
-  }
-
-  [[nodiscard]] Result create_object(std::string_view a_name,
-                                     GameObject &a_outObject) {
-    return create_object(a_name, "Default", false, a_outObject);
-  }
-
-  [[nodiscard]] Result load_scene(const SceneAsset &a_asset,
-                                  LoadSceneResult &a_outResult) {
-    a_outResult = {};
-    Result result = capture_result([this, &a_outResult, &a_asset]() {
-      a_outResult = load_scene(a_asset);
-    });
-    if (!result) {
-      return result;
-    }
-
-    if (!a_asset.navigation_mesh_path().empty()) {
-      NavMeshHandle navMeshHandle{};
-      result = load_navigation_mesh_from_path(
-          Core::IO::Path(a_asset.navigation_mesh_path()), navMeshHandle);
-      if (!result) {
-        (void)unload_scene(a_outResult.sceneId);
-        (void)execute_deferred_deletions();
-        a_outResult = {};
-        return result;
-      }
-    }
-
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result load_scene(SceneId a_sceneId, const SceneAsset &a_asset,
-                                  LoadSceneResult &a_outResult) {
-    a_outResult = {};
-    if (a_sceneId == k_invalidSceneId) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "GameWorld scene id is invalid.");
-    }
-
-    Result result = capture_result([this, &a_outResult, a_sceneId, &a_asset]() {
-      a_outResult = load_scene(a_sceneId, a_asset);
-    });
-    if (!result) {
-      return result;
-    }
-
-    if (!a_asset.navigation_mesh_path().empty()) {
-      NavMeshHandle navMeshHandle{};
-      result = load_navigation_mesh_from_path(
-          Core::IO::Path(a_asset.navigation_mesh_path()), navMeshHandle);
-      if (!result) {
-        (void)unload_scene(a_outResult.sceneId);
-        (void)execute_deferred_deletions();
-        a_outResult = {};
-        return result;
-      }
-    }
-
-    return Result::ok();
-  }
+    [[nodiscard]] Result add_spot_light_object(GameObject &a_outObject);
 
-  [[nodiscard]] Result request_load_scene(std::string_view a_sceneName,
-                                          SceneId &a_outSceneId) {
-    a_outSceneId = k_invalidSceneId;
+    [[nodiscard]] Result add_spot_light_object(const Math::float3 &a_position);
 
-    Core::IO::Path scenePath{};
-    Result result = resolve_scene_path(a_sceneName, scenePath);
-    if (!result) {
-      return result;
-    }
-
-    return capture_result([this, &a_outSceneId, &scenePath]() {
-      a_outSceneId = generate_scene_id();
-      m_pendingLoadedScenes.push_back(
-          PendingSceneLoad{a_outSceneId, scenePath});
-    });
-  }
-
-  [[nodiscard]] Result
-  append_to_scene(SceneId a_sceneId,
-                  std::span<const ObjectDefinition> a_objects,
-                  LoadSceneResult &a_outResult) {
-    a_outResult = {};
-    return capture_result([this, &a_outResult, a_sceneId, a_objects]() {
-      a_outResult = append_to_scene(a_sceneId, a_objects);
-    });
-  }
-
-  [[nodiscard]] Result
-  append_to_scene(SceneId a_sceneId,
-                  const std::vector<ObjectDefinition> &a_objects,
-                  LoadSceneResult &a_outResult) {
-    return append_to_scene(
-        a_sceneId, std::span<const ObjectDefinition>(a_objects), a_outResult);
-  }
-
-  [[nodiscard]] Result append_object_to_scene(SceneId a_sceneId,
-                                              const ObjectDefinition &a_object,
-                                              GameObject &a_outObject) {
-    a_outObject = {};
-    return capture_result([this, &a_outObject, a_sceneId, &a_object]() {
-      a_outObject = append_object_to_scene(a_sceneId, a_object);
-    });
-  }
-
-  [[nodiscard]] Result destroy_object(EntityId a_entityId) noexcept {
-    if (!contains_object(a_entityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
-
-    destroy_object_internal(a_entityId);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result unload_scene(SceneId a_sceneId) noexcept {
-    return unload_scene_internal(a_sceneId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld scene was not found.");
-  }
-
-  [[nodiscard]] Result request_unload_scene(SceneId a_sceneId) noexcept {
-    if (a_sceneId == k_invalidSceneId) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "GameWorld scene id is invalid.");
-    }
-
-    const auto pendingIt =
-        std::find_if(m_pendingLoadedScenes.begin(), m_pendingLoadedScenes.end(),
-                     [a_sceneId](const PendingSceneLoad &a_pending) {
-                       return a_pending.sceneId == a_sceneId;
-                     });
-    if (pendingIt != m_pendingLoadedScenes.end()) {
-      m_pendingLoadedScenes.erase(pendingIt);
-      return Result::ok();
-    }
-
-    return unload_scene(a_sceneId);
-  }
-
-  [[nodiscard]] Result execute_deferred_deletions() noexcept {
-    execute_deferred_deletions_internal();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result find_object(EntityId a_entityId,
-                                   GameObject &a_outObject) noexcept {
-    a_outObject = find_object(a_entityId);
-    return a_outObject.is_valid()
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  [[nodiscard]] Result contains_object(EntityId a_entityId,
-                                       bool &a_outContains) const noexcept {
-    a_outContains = contains_object(a_entityId);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result contains_scene(SceneId a_sceneId,
-                                      bool &a_outContains) const noexcept {
-    a_outContains = contains_scene(a_sceneId);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result get_object_tag(EntityId a_entityId,
-                                      std::string &a_outTag) const {
-    a_outTag = get_object_tag(a_entityId);
-    return a_outTag.empty() && !contains_object(a_entityId)
-               ? Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.")
-               : Result::ok();
-  }
-
-  [[nodiscard]] Result get_object_name(EntityId a_entityId,
-                                       std::string &a_outName) const {
-    a_outName = get_object_name(a_entityId);
-    return a_outName.empty() && !contains_object(a_entityId)
-               ? Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.")
-               : Result::ok();
-  }
-
-  [[nodiscard]] Result set_object_name(EntityId a_entityId,
-                                       std::string_view a_name) {
-    return capture_result([this, a_entityId, a_name]() {
-      BaseComponent *base = get_component<BaseComponent>(a_entityId);
-      if (base == nullptr) {
-        throw std::runtime_error("GameWorld BaseComponent is missing.");
-      }
-
-      const std::string resolvedName =
-          make_unique_object_name(a_name, a_entityId);
-      if (base->name == resolvedName) {
-        return;
-      }
-
-      remove_object_from_name_index(a_entityId, base->name);
-      base->name = resolvedName;
-      add_object_to_name_index(a_entityId, base->name);
-    });
-  }
-
-  [[nodiscard]] Result set_object_tag(EntityId a_entityId,
-                                      std::string_view a_tag) {
-    return capture_result([this, a_entityId, a_tag]() {
-      BaseComponent *base = get_component<BaseComponent>(a_entityId);
-      if (base == nullptr) {
-        throw std::runtime_error("GameWorld BaseComponent is missing.");
-      }
-
-      if (base->tag == a_tag) {
-        return;
-      }
-
-      remove_object_from_tag_index(a_entityId, base->tag);
-      base->tag = std::string(a_tag);
-      add_object_to_tag_index(a_entityId, base->tag);
-    });
-  }
-
-  [[nodiscard]] Result is_object_active(EntityId a_entityId,
-                                        bool &a_outIsActive) const noexcept {
-    a_outIsActive =
-        contains_object(a_entityId) && m_ecs.is_entity_active(a_entityId);
-    return contains_object(a_entityId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  [[nodiscard]] Result
-  capture_deleted_object(EntityId a_entityId,
-                         DeletedObjectSnapshot &a_outSnapshot) const {
-    a_outSnapshot = {};
-    if (!contains_object(a_entityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
-
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    const EntityRecord *record = try_get_entity_record(a_entityId);
-    if (base == nullptr || record == nullptr || !record->isAlive) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld object snapshot could not be captured.");
-    }
-
-    ObjectDefinition definition{};
-    definition.localObjectId = record->sourceLocalObjectId;
-    definition.isActive = m_ecs.is_entity_active(a_entityId);
-    definition.isPersistent = base->isPersistent;
-    definition.prototype = build_object_prototype(a_entityId, *base);
-
-    if (base->parent != k_invalidEntityId) {
-      const EntityRecord *parentRecord = try_get_entity_record(base->parent);
-      if (parentRecord != nullptr && parentRecord->isAlive &&
-          parentRecord->sourceSceneId == record->sourceSceneId &&
-          parentRecord->sourceLocalObjectId != k_invalidLocalObjectId) {
-        definition.parentLocalObjectId = parentRecord->sourceLocalObjectId;
-      }
-    }
+    [[nodiscard]] Result add_spot_light_object(const Math::float3 &a_position,
+                                               GameObject &a_outObject);
+    [[nodiscard]] Result add_sprite_object();
 
-    a_outSnapshot.sourceSceneId = record->sourceSceneId;
-    a_outSnapshot.definition = std::move(definition);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  restore_deleted_object(const DeletedObjectSnapshot &a_snapshot,
-                         EntityId &a_outObjectId) {
-    a_outObjectId = k_invalidEntityId;
-
-    GameObject object{};
-    if (a_snapshot.sourceSceneId != k_invalidSceneId) {
-      Result appendResult = append_object_to_scene(
-          a_snapshot.sourceSceneId, a_snapshot.definition, object);
-      if (!appendResult) {
-        return appendResult;
-      }
-    } else {
-      object = instantiate_object(a_snapshot.definition);
-      if (!object.is_valid()) {
-        return Result::fail(Code::CreateFailed, Severity::Error,
-                            "GameWorld object restore failed.");
-      }
-    }
+    [[nodiscard]] Result add_sprite_object(GameObject &a_outObject);
 
-    a_outObjectId = object.entity_id();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result set_object_active(EntityId a_entityId, bool a_isActive) {
-    return capture_result([this, a_entityId, a_isActive]() {
-      BaseComponent *base = get_component<BaseComponent>(a_entityId);
-      if (base == nullptr) {
-        throw std::runtime_error("GameWorld BaseComponent is missing.");
-      }
-
-      if (base->isActiveSelf == a_isActive &&
-          m_ecs.is_entity_active(a_entityId) == a_isActive) {
-        return;
-      }
-
-      base->isActiveSelf = a_isActive;
-      m_ecs.set_entity_active(a_entityId, a_isActive);
-    });
-  }
-
-  [[nodiscard]] Result
-  is_object_persistent(EntityId a_entityId,
-                       bool &a_outIsPersistent) const noexcept {
-    a_outIsPersistent = is_object_persistent(a_entityId);
-    return contains_object(a_entityId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  [[nodiscard]] Result set_object_persistent(EntityId a_entityId,
-                                             bool a_isPersistent) {
-    return capture_result([this, a_entityId, a_isPersistent]() {
-      BaseComponent *base = get_component<BaseComponent>(a_entityId);
-      if (base == nullptr) {
-        throw std::runtime_error("GameWorld BaseComponent is missing.");
-      }
-
-      if (base->isPersistent == a_isPersistent) {
-        return;
-      }
-
-      base->isPersistent = a_isPersistent;
-      base->owningSceneId =
-          a_isPersistent ? k_invalidSceneId : source_scene_id(a_entityId);
-    });
-  }
-
-  [[nodiscard]] Result is_alive(EntityId a_entityId, Generation a_generation,
-                                bool &a_outIsAlive) const noexcept {
-    a_outIsAlive = is_alive(a_entityId, a_generation);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result source_scene_id(EntityId a_entityId,
-                                       SceneId &a_outSceneId) const noexcept {
-    a_outSceneId = source_scene_id(a_entityId);
-    return contains_object(a_entityId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  [[nodiscard]] Result object_count(size_t &a_outCount) const noexcept {
-    a_outCount = m_liveObjectCount;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  set_rigid_body_linear_velocity(EntityId a_entityId,
-                                 Math::float3 a_velocity) noexcept {
-    ECS::RigidBodyComponent *rigidBody = nullptr;
-    Result result =
-        get_component<ECS::RigidBodyComponent>(a_entityId, rigidBody);
-    if (!result || rigidBody == nullptr) {
-      return result;
-    }
+    [[nodiscard]] Result add_sprite_object(const Math::float3 &a_position);
 
-    rigidBody->linearVelocity = a_velocity;
-    if (m_physicsSystem == nullptr || !rigidBody->body.valid()) {
-      return Result::ok();
-    }
+    [[nodiscard]] Result add_sprite_object(const Math::float3 &a_position, GameObject &a_outObject);
 
-    return m_physicsSystem->set_linear_velocity(
-        rigidBody->body, a_velocity, Physics::BodyActivation::Activate);
-  }
-
-  [[nodiscard]] Result
-  get_rigid_body_linear_velocity(EntityId a_entityId,
-                                 Math::float3 &a_outVelocity) const noexcept {
-    a_outVelocity = Math::float3::zero();
-    const ECS::RigidBodyComponent *rigidBody =
-        get_component<ECS::RigidBodyComponent>(a_entityId);
-    if (rigidBody == nullptr) {
-      return Result::fail(Code::NotFound, Severity::Error,
-                          "RigidBodyComponent was not found.");
-    }
+    [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId);
 
-    if (m_physicsSystem == nullptr || !rigidBody->body.valid()) {
-      a_outVelocity = rigidBody->linearVelocity;
-      return Result::ok();
-    }
+    [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId, GameObject &a_outObject);
 
-    return m_physicsSystem->get_linear_velocity(rigidBody->body, a_outVelocity);
-  }
-
-  [[nodiscard]] Result add_rigid_body_force(EntityId a_entityId,
-                                            Math::float3 a_force) noexcept {
-    ECS::RigidBodyComponent *rigidBody = nullptr;
-    Result result =
-        get_component<ECS::RigidBodyComponent>(a_entityId, rigidBody);
-    if (!result || rigidBody == nullptr) {
-      return result;
-    }
-    if (m_physicsSystem == nullptr || !rigidBody->body.valid()) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "RigidBody physics body is not created.");
-    }
+    [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position);
 
-    return m_physicsSystem->add_force(rigidBody->body, a_force,
-                                      Physics::BodyActivation::Activate);
-  }
-
-  [[nodiscard]] Result add_rigid_body_impulse(EntityId a_entityId,
-                                              Math::float3 a_impulse) noexcept {
-    ECS::RigidBodyComponent *rigidBody = nullptr;
-    Result result =
-        get_component<ECS::RigidBodyComponent>(a_entityId, rigidBody);
-    if (!result || rigidBody == nullptr) {
-      return result;
-    }
-    if (m_physicsSystem == nullptr || !rigidBody->body.valid()) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "RigidBody physics body is not created.");
-    }
+    [[nodiscard]] Result add_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position,
+                                             GameObject &a_outObject);
+    [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId);
 
-    return m_physicsSystem->add_impulse(rigidBody->body, a_impulse,
-                                        Physics::BodyActivation::Activate);
-  }
-
-  [[nodiscard]] Result
-  set_character_move_velocity(EntityId a_entityId,
-                              Math::float3 a_velocity) noexcept {
-    ECS::CharacterControllerComponent *controller = nullptr;
-    Result result = get_component<ECS::CharacterControllerComponent>(
-        a_entityId, controller);
-    if (!result || controller == nullptr) {
-      return result;
-    }
+    [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId, GameObject &a_outObject);
 
-    controller->moveVelocity = a_velocity;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result request_character_jump(EntityId a_entityId) noexcept {
-    ECS::CharacterControllerComponent *controller = nullptr;
-    Result result = get_component<ECS::CharacterControllerComponent>(
-        a_entityId, controller);
-    if (!result || controller == nullptr) {
-      return result;
-    }
+    [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId,
+                                                  const Math::float3 &a_position);
 
-    controller->jumpRequested = true;
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result scene_count(size_t &a_outCount) const noexcept {
-    a_outCount = m_scenes.size();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result clear() noexcept {
-    m_pendingLoadedScenes.clear();
-
-    if (m_activeNavMesh.valid()) {
-      const Result navResult =
-          m_navigationWorld.unload_nav_mesh(m_activeNavMesh);
-      if (!navResult) {
-        return navResult;
-      }
-    }
+    [[nodiscard]] Result add_game_object_to_scene(SceneId a_sceneId, const Math::float3 &a_position,
+                                                  GameObject &a_outObject);
+    [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId);
 
-    m_activeNavMesh = {};
-    m_activeNavMeshAsset = {};
-    m_hasActiveNavMeshAsset = false;
-    if (m_navigationSystem != nullptr) {
-      m_navigationSystem->set_nav_mesh(m_activeNavMesh);
-    }
+    [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId, GameObject &a_outObject);
 
-    // 公開 API を使って削除予約を積み、最後にまとめて flush する
-    std::vector<SceneId> sceneIds{};
-    sceneIds.reserve(m_scenes.size());
-    for (const auto &[sceneId, _] : m_scenes) {
-      sceneIds.push_back(sceneId);
-    }
+    [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+                                                    const Math::float3 &a_position);
 
-    for (const SceneId sceneId : sceneIds) {
-      const Result unloadResult = unload_scene(sceneId);
-      if (!unloadResult) {
-        return unloadResult;
-      }
-    }
+    [[nodiscard]] Result add_camera_object_to_scene(SceneId a_sceneId,
+                                                    const Math::float3 &a_position,
+                                                    GameObject &a_outObject);
+    [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId);
 
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (contains_object(entity)) {
-        const Result destroyResult = destroy_object(entity);
-        if (!destroyResult) {
-          return destroyResult;
-        }
-      }
-    }
+    [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId,
+                                                               GameObject &a_outObject);
 
-    // clear() 完了時点ではワールドが空になっていることを保証する
-    Result clearResult = execute_deferred_deletions();
-    if (!clearResult) {
-      return clearResult;
-    }
+    [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId,
+                                                               const Math::float3 &a_position);
 
-    m_ownedSceneAssets.clear();
-    return Result::ok();
-  }
-
-  template <typename T>
-  [[nodiscard]] Result get_component(EntityId a_entityId,
-                                     T *&a_outComponent) noexcept {
-    a_outComponent = get_component<T>(a_entityId);
-    return a_outComponent != nullptr
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld component was not found.");
-  }
-
-  template <typename T>
-  [[nodiscard]] Result get_component(EntityId a_entityId,
-                                     const T *&a_outComponent) const noexcept {
-    a_outComponent = get_component<T>(a_entityId);
-    return a_outComponent != nullptr
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld component was not found.");
-  }
-
-  template <typename T, typename... Args>
-  [[nodiscard]] Result add_component(EntityId a_entityId, T *&a_outComponent,
-                                     Args &&...a_args) {
-    a_outComponent = nullptr;
-    return capture_result([this, &a_outComponent, a_entityId, &a_args...]() {
-      a_outComponent =
-          &add_component<T>(a_entityId, std::forward<Args>(a_args)...);
-    });
-  }
-
-  template <typename T>
-  [[nodiscard]] Result has_component(EntityId a_entityId,
-                                     bool &a_outHasComponent) const noexcept {
-    a_outHasComponent = has_component<T>(a_entityId);
-    return contains_object(a_entityId)
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  template <typename T>
-  [[nodiscard]] Result remove_component(EntityId a_entityId) noexcept {
-    if (!contains_object(a_entityId)) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
+    [[nodiscard]] Result add_directional_light_object_to_scene(SceneId a_sceneId,
+                                                               const Math::float3 &a_position,
+                                                               GameObject &a_outObject);
+    [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId);
 
-    m_ecs.remove_component<T>(a_entityId);
-    return Result::ok();
-  }
-
-  template <class F>
-  [[nodiscard]] Result visit_object(EntityId a_entityId, F &&a_func) {
-    GameObject object = find_object(a_entityId);
-    if (!object.is_valid()) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
+    [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId,
+                                                         GameObject &a_outObject);
 
-    a_func(object.entity_id(), source_scene_id(a_entityId), object);
-    return Result::ok();
-  }
-
-  template <class F>
-  [[nodiscard]] Result for_each_object_in_scene(SceneId a_sceneId, F &&a_func) {
-    auto sceneIt = m_scenes.find(a_sceneId);
-    if (sceneIt == m_scenes.end()) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld scene was not found.");
-    }
+    [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId,
+                                                         const Math::float3 &a_position);
 
-    const std::vector<EntityId> entities = sceneIt->second.entities;
-    for (const EntityId entity : entities) {
-      GameObject object = find_object(entity);
-      if (!object.is_valid()) {
-        continue;
-      }
-
-      a_func(object.entity_id(), a_sceneId, object);
-    }
+    [[nodiscard]] Result add_point_light_object_to_scene(SceneId a_sceneId,
+                                                         const Math::float3 &a_position,
+                                                         GameObject &a_outObject);
+    [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId);
 
-    return Result::ok();
-  }
-
-  template <class F> [[nodiscard]] Result for_each_object(F &&a_func) {
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      GameObject object = find_object(entity);
-      if (!object.is_valid()) {
-        continue;
-      }
-
-      a_func(object.entity_id(), source_scene_id(entity), object);
-    }
+    [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId, GameObject &a_outObject);
 
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  find_objects_by_tag(std::string_view a_tag,
-                      std::vector<GameObject> &a_outObjects) {
-    a_outObjects = find_objects_by_tag(a_tag);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  find_objects_by_name(std::string_view a_name,
-                       std::vector<GameObject> &a_outObjects) {
-    a_outObjects = find_objects_by_name(a_name);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result find_object_by_name(std::string_view a_name,
-                                           GameObject &a_outObject) {
-    a_outObject = find_object_by_name(a_name);
-    return a_outObject.is_valid()
-               ? Result::ok()
-               : Result::fail(Code::NotFound, Severity::Warning,
-                              "GameWorld object was not found.");
-  }
-
-  [[nodiscard]] Result
-  destroy_object_by_name(std::string_view a_name) noexcept {
-    const GameObject object = find_object_by_name(a_name);
-    if (!object.is_valid()) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "GameWorld object was not found.");
-    }
+    [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId,
+                                                        const Math::float3 &a_position);
 
-    return destroy_object_internal(object.entity_id()), Result::ok();
-  }
-
-  [[nodiscard]] Result destroy_objects_by_name(std::string_view a_name,
-                                               size_t &a_outCount) noexcept {
-    const std::vector<GameObject> objects = find_objects_by_name(a_name);
-    for (const GameObject &object : objects) {
-      destroy_object_internal(object.entity_id());
-    }
+    [[nodiscard]] Result add_spot_light_object_to_scene(SceneId a_sceneId,
+                                                        const Math::float3 &a_position,
+                                                        GameObject &a_outObject);
+    [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId);
 
-    a_outCount = objects.size();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  find_objects_by_name_series(std::string_view a_baseName,
-                              std::vector<GameObject> &a_outObjects) {
-    a_outObjects = find_objects_by_name_series(a_baseName);
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  destroy_objects_by_name_series(std::string_view a_baseName,
-                                 size_t &a_outCount) noexcept {
-    const std::vector<GameObject> objects =
-        find_objects_by_name_series(a_baseName);
-    for (const GameObject &object : objects) {
-      destroy_object_internal(object.entity_id());
-    }
+    [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId, GameObject &a_outObject);
 
-    a_outCount = objects.size();
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result destroy_objects_by_tag(std::string_view a_tag,
-                                              size_t &a_outCount) noexcept {
-    const std::vector<GameObject> objects = find_objects_by_tag(a_tag);
-    for (const GameObject &object : objects) {
-      destroy_object_internal(object.entity_id());
-    }
+    [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId,
+                                                    const Math::float3 &a_position);
 
-    a_outCount = objects.size();
-    return Result::ok();
-  }
-
-private:
-  [[nodiscard]] Math::float3 make_spawn_position() const noexcept {
-    const size_t objectIndex = count_active_static_mesh_objects();
-    const uint32_t column = static_cast<uint32_t>(objectIndex % 3u);
-    const uint32_t row = static_cast<uint32_t>(objectIndex / 3u);
-
-    return Math::float3{(static_cast<float>(column) - 1.0f) * 2.0f, 0.0f,
-                        static_cast<float>(row) * 2.5f};
-  }
-
-  [[nodiscard]] Math::float3 make_camera_spawn_position() const noexcept {
-    return Math::float3(0.0f, 0.0f, -6.0f);
-  }
-
-  [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept {
-    if (!m_drawFrameState.frameStates.empty()) {
-      const DrawSystem::DrawFrameData &frameState =
-          m_drawFrameState.frameStates.front();
-      return Math::float3{static_cast<float>(frameState.renderWidth) * 0.5f,
-                          static_cast<float>(frameState.renderHeight) * 0.5f,
-                          0.0f};
-    }
+    [[nodiscard]] Result add_sprite_object_to_scene(SceneId a_sceneId,
+                                                    const Math::float3 &a_position,
+                                                    GameObject &a_outObject);
 
-    return Math::float3(320.0f, 180.0f, 0.0f);
-  }
-
-  [[nodiscard]] Math::float3 make_light_spawn_position() const noexcept {
-    return Math::float3(0.0f, 3.0f, -4.0f);
-  }
-
-  [[nodiscard]] static Math::float3
-  multiply_components(const Math::float3 &a_left,
-                      const Math::float3 &a_right) noexcept {
-    return Math::float3(a_left.x * a_right.x, a_left.y * a_right.y,
-                        a_left.z * a_right.z);
-  }
-
-  [[nodiscard]] static Math::float3
-  divide_components_safe(const Math::float3 &a_left,
-                         const Math::float3 &a_right) noexcept {
-    const auto divide = [](float a_value, float a_divisor) noexcept {
-      return a_divisor != 0.0f ? a_value / a_divisor : a_value;
-    };
-    return Math::float3(divide(a_left.x, a_right.x),
-                        divide(a_left.y, a_right.y),
-                        divide(a_left.z, a_right.z));
-  }
-
-  [[nodiscard]] static Math::float3
-  rotate_vector(const Math::Quaternion &a_rotation,
-                const Math::float3 &a_value) noexcept {
-    const Math::Quaternion rotation = Math::Quaternion::normalize(a_rotation);
-    const Math::Quaternion vector(a_value.x, a_value.y, a_value.z, 0.0f);
-    const Math::Quaternion result =
-        rotation * vector * Math::Quaternion::inverse(rotation);
-    return Math::float3(result.x, result.y, result.z);
-  }
-
-  [[nodiscard]] static ECS::WorldTransformComponent
-  compose_world_transform(const ECS::WorldTransformComponent &a_parent,
-                          const ECS::TransformComponent &a_local) noexcept {
-    ECS::WorldTransformComponent world{};
-    world.scale = multiply_components(a_parent.scale, a_local.scale);
-    world.rotation =
-        Math::Quaternion::normalize(a_parent.rotation * a_local.rotation);
-    const Math::float3 scaledLocalPosition =
-        multiply_components(a_local.position, a_parent.scale);
-    world.position = a_parent.position +
-                     rotate_vector(a_parent.rotation, scaledLocalPosition);
-    return world;
-  }
-
-  [[nodiscard]] static ECS::TransformComponent
-  make_local_transform(const ECS::WorldTransformComponent &a_parent,
-                       const ECS::WorldTransformComponent &a_world) noexcept {
-    ECS::TransformComponent local{};
-    const Math::Quaternion inverseParentRotation =
-        Math::Quaternion::inverse(a_parent.rotation);
-    local.position = divide_components_safe(
-        rotate_vector(inverseParentRotation,
-                      a_world.position - a_parent.position),
-        a_parent.scale);
-    local.rotation =
-        Math::Quaternion::normalize(inverseParentRotation * a_world.rotation);
-    local.scale = divide_components_safe(a_world.scale, a_parent.scale);
-    return local;
-  }
-
-  [[nodiscard]] bool
-  is_descendant_of(EntityId a_entityId,
-                   EntityId a_potentialAncestorId) const noexcept {
-    EntityId current = a_entityId;
-    std::unordered_set<EntityId> visited{};
-    while (current != k_invalidEntityId) {
-      if (current == a_potentialAncestorId) {
-        return true;
-      }
-      if (!visited.insert(current).second) {
-        return true;
-      }
-
-      const BaseComponent *base = get_component<BaseComponent>(current);
-      current = base != nullptr ? base->parent : k_invalidEntityId;
-    }
+    /// @brief 旧 StaticMesh object id に紐付く Object を削除予約する。
+    [[nodiscard]] Result remove_object(uint32_t a_objectId) noexcept;
 
-    return false;
-  }
-
-  [[nodiscard]] bool
-  resolve_world_transform(EntityId a_entityId, std::vector<uint8_t> &a_state,
-                          ECS::WorldTransformComponent &a_outWorld) noexcept {
-    if (!contains_object(a_entityId) ||
-        static_cast<size_t>(a_entityId) >= a_state.size()) {
-      return false;
-    }
+    /// @brief 旧 StaticMesh object id から EntityId を取得する。
+    [[nodiscard]] Result get_render_object_entity(uint32_t a_objectId,
+                                                  EntityId &a_outEntityId) const noexcept;
 
-    uint8_t &state = a_state[static_cast<size_t>(a_entityId)];
-    if (state == 2u) {
-      const ECS::WorldTransformComponent *world =
-          get_component<ECS::WorldTransformComponent>(a_entityId);
-      if (world == nullptr) {
-        return false;
-      }
-      a_outWorld = *world;
-      return true;
-    }
-    if (state == 1u) {
-      return false;
-    }
+    /// @brief 描画に使う Main Camera を指定する。
+    [[nodiscard]] Result set_main_camera(EntityId a_cameraEntityId);
 
-    ECS::TransformComponent *local =
-        get_component<ECS::TransformComponent>(a_entityId);
-    if (local == nullptr) {
-      return false;
-    }
+    /// @brief 指定 Entity の親 Entity を取得する。
+    [[nodiscard]] Result get_parent(EntityId a_entityId, EntityId &a_outParent) const noexcept;
 
-    ECS::WorldTransformComponent *world =
-        get_component<ECS::WorldTransformComponent>(a_entityId);
-    if (world == nullptr) {
-      Result addWorldResult =
-          add_component<ECS::WorldTransformComponent>(a_entityId, world);
-      if (!addWorldResult || world == nullptr) {
-        return false;
-      }
-    }
+    /// @brief 指定 Entity の親 Entity を設定する。
+    ///
+    /// a_keepsWorldTransform が true の場合は、親変更後も World Transform が維持されるよう
+    /// Local Transform を再計算する。
+    [[nodiscard]] Result set_parent(EntityId a_childEntityId, EntityId a_parentEntityId,
+                                    bool a_keepsWorldTransform) noexcept;
 
-    if (world == nullptr) {
-      return false;
-    }
+    /// @brief 指定 Entity を親子関係から切り離す。
+    ///
+    /// a_keepsWorldTransform が true の場合は、切り離し後も World Transform を維持する。
+    [[nodiscard]] Result detach_parent(EntityId a_childEntityId,
+                                       bool a_keepsWorldTransform) noexcept;
 
-    state = 1u;
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    if (base != nullptr && base->parent != k_invalidEntityId &&
-        contains_object(base->parent)) {
-      ECS::WorldTransformComponent parentWorld{};
-      if (!resolve_world_transform(base->parent, a_state, parentWorld)) {
-        return false;
-      }
-      *world = compose_world_transform(parentWorld, *local);
-    } else {
-      world->position = local->position;
-      world->rotation = local->rotation;
-      world->scale = local->scale;
-    }
+    /// @brief 描画 System が構築した FrameState を取得する。
+    DrawSystem::DrawFrameState &draw_frame_state() noexcept;
 
-    state = 2u;
-    a_outWorld = *world;
-    return true;
-  }
-
-  void sync_world_transforms() noexcept {
-    std::vector<uint8_t> state(m_entityRecords.size(), 0u);
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (!contains_object(entity) ||
-          get_component<ECS::TransformComponent>(entity) == nullptr) {
-        continue;
-      }
-
-      ECS::WorldTransformComponent world{};
-      (void)resolve_world_transform(entity, state, world);
-    }
-  }
-
-  void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
-                             uint32_t a_renderHeight) noexcept {
-    if (a_bufferIndex >= m_drawFrameState.frameStates.size()) {
-      return;
-    }
+    /// @brief 描画 System が構築した FrameState を取得する。
+    const DrawSystem::DrawFrameState &draw_frame_state() const noexcept;
 
-    DrawSystem::DrawFrameData &frameState =
-        m_drawFrameState.frame_state(a_bufferIndex);
-    frameState.objectCount = 0;
-    frameState.spriteCount = 0;
-    frameState.cpuIndexedDraws.clear();
-    frameState.transparentCpuIndexedDraws.clear();
-    frameState.cpuShadowCasters.clear();
-    frameState.renderWidth = a_renderWidth;
-    frameState.renderHeight = a_renderHeight;
-    frameState.useCpuBatching = m_isCpuBatchingEnabled;
-
-    if (a_bufferIndex < m_particleFrameState.frameStates.size()) {
-      ParticleSystem::ParticleFrameData &particleFrameState =
-          m_particleFrameState.frame_state(a_bufferIndex);
-      particleFrameState.frame.emitterCount = 0;
-      particleFrameState.frame.particleCount = 0;
-    }
+    /// @brief NavigationWorld を取得する。
+    NavigationWorld &navigation_world() noexcept;
 
-    if (a_bufferIndex < m_effectPrimitiveFrameState.frameStates.size()) {
-      EffectSystem::EffectPrimitiveFrameData &effectFrameState =
-          m_effectPrimitiveFrameState.frame_state(a_bufferIndex);
-      effectFrameState.frame.spriteCount = 0;
-      effectFrameState.frame.ribbonCount = 0;
-    }
-  }
-
-  [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
-  [[nodiscard]] Result upload_particle_scene(uint32_t a_bufferIndex);
-  [[nodiscard]] Result upload_effect_primitive_scene(uint32_t a_bufferIndex);
-  [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
-  [[nodiscard]] Result upload_shadow_scene(uint32_t a_bufferIndex);
-
-  void animate_static_mesh_objects(float a_deltaTime) {
-    std::vector<EntityId> entities = collect_active_static_mesh_entities();
-    for (size_t entityIndex = 0; entityIndex < entities.size(); ++entityIndex) {
-      ECS::TransformComponent *transform =
-          get_component<ECS::TransformComponent>(entities[entityIndex]);
-      if (transform == nullptr) {
-        continue;
-      }
-
-      switch (entityIndex) {
-      case 0: {
-        Math::float3 rotation =
-            Math::quaternion_to_euler_xyz(transform->rotation);
-        rotation.y += a_deltaTime * 1.25f;
-        transform->rotation = Math::quaternion_from_euler_xyz(rotation);
-        break;
-      }
-      case 1: {
-        Math::float3 rotation =
-            Math::quaternion_to_euler_xyz(transform->rotation);
-        rotation.x += a_deltaTime * 0.75f;
-        transform->rotation = Math::quaternion_from_euler_xyz(rotation);
-        break;
-      }
-      case 2: {
-        Math::float3 rotation =
-            Math::quaternion_to_euler_xyz(transform->rotation);
-        rotation.y -= a_deltaTime * 1.0f;
-        transform->rotation = Math::quaternion_from_euler_xyz(rotation);
-        break;
-      }
-      default: {
-        Math::float3 rotation =
-            Math::quaternion_to_euler_xyz(transform->rotation);
-        rotation.y += a_deltaTime * 0.5f;
-        transform->rotation = Math::quaternion_from_euler_xyz(rotation);
-        break;
-      }
-      }
-    }
-  }
-
-  [[nodiscard]] std::vector<EntityId>
-  collect_active_static_mesh_entities() const {
-    std::vector<EntityId> entities{};
-    entities.reserve(m_liveObjectCount);
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (!contains_object(entity) || !m_ecs.is_entity_active(entity)) {
-        continue;
-      }
-
-      const BaseComponent *base = get_component<BaseComponent>(entity);
-      const ECS::TransformComponent *transform =
-          get_component<ECS::TransformComponent>(entity);
-      const ECS::MeshFilterComponent *meshFilter =
-          get_component<ECS::MeshFilterComponent>(entity);
-      const ECS::StaticMeshRendererComponent *renderer =
-          get_component<ECS::StaticMeshRendererComponent>(entity);
-      if (base == nullptr || transform == nullptr || meshFilter == nullptr ||
-          renderer == nullptr) {
-        continue;
-      }
-      if (!base->isActiveSelf || !renderer->visible ||
-          meshFilter->meshId == ECS::k_invalidMeshId) {
-        continue;
-      }
-
-      entities.push_back(entity);
-    }
+    /// @brief NavigationWorld を取得する。
+    const NavigationWorld &navigation_world() const noexcept;
 
-    return entities;
-  }
-
-  [[nodiscard]] std::vector<EntityId> collect_camera_entities() const {
-    std::vector<EntityId> entities{};
-    entities.reserve(m_liveObjectCount);
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (!contains_object(entity) ||
-          !has_component<ECS::CameraComponent>(entity)) {
-        continue;
-      }
-
-      entities.push_back(entity);
-    }
+    /// @brief NavMeshAssetData を読み込み、Active NavMesh として設定する。
+    [[nodiscard]] Result load_navigation_mesh(const NavMeshAssetData &a_asset,
+                                              NavMeshHandle &a_outHandle) noexcept;
 
-    return entities;
-  }
-
-  [[nodiscard]] size_t count_active_static_mesh_objects() const {
-    return collect_active_static_mesh_entities().size();
-  }
-
-  [[nodiscard]] bool
-  try_get_static_mesh_entity(uint32_t a_objectId,
-                             EntityId &a_outEntityId) const noexcept {
-    a_outEntityId = k_invalidEntityId;
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (!contains_object(entity) || !m_ecs.is_entity_active(entity)) {
-        continue;
-      }
-
-      const ECS::RenderableInfoComponent *renderableInfo =
-          get_component<ECS::RenderableInfoComponent>(entity);
-      if (renderableInfo == nullptr || renderableInfo->objectId != a_objectId) {
-        continue;
-      }
-
-      a_outEntityId = entity;
-      return true;
-    }
+    /// @brief 指定パスから NavMesh を読み込み、Active NavMesh として設定する。
+    [[nodiscard]] Result load_navigation_mesh_from_path(const Core::IO::Path &a_path,
+                                                        NavMeshHandle &a_outHandle) noexcept;
 
-    return false;
-  }
-
-  template <typename F> [[nodiscard]] static Result capture_result(F &&a_func) {
-    try {
-      a_func();
-      return Result::ok();
-    } catch (const std::bad_alloc &) {
-      return Result::fail(Code::OutOfMemory, Severity::Error,
-                          "GameWorld out of memory.");
-    } catch (const std::overflow_error &a_error) {
-      return map_exception_message(a_error.what());
-    } catch (const std::runtime_error &a_error) {
-      return map_exception_message(a_error.what());
-    } catch (const std::exception &) {
-      return Result::fail(Code::UnknownError, Severity::Error,
-                          "GameWorld unknown exception.");
-    }
-  }
-
-  [[nodiscard]] static Result
-  map_exception_message(std::string_view a_message) noexcept {
-    if (a_message == "GameWorld BaseComponent is missing." ||
-        a_message ==
-            "GameWorld BaseComponent is missing while resolving parent.") {
-      return Result::fail(Code::InternalError, Severity::Error, a_message);
-    }
-    if (a_message == "GameWorld object is not alive.") {
-      return Result::fail(Code::InvalidState, Severity::Warning, a_message);
-    }
-    if (a_message == "GameWorld failed to add component." ||
-        a_message == "GameWorld failed to initialize BaseComponent.") {
-      return Result::fail(Code::CreateFailed, Severity::Error, a_message);
-    }
-    if (a_message == "GameWorld scene id overflow.") {
-      return Result::fail(Code::InvalidState, Severity::Error, a_message);
-    }
-    if (a_message ==
-            "GameWorld internal error: entity slot is already alive." ||
-        a_message == "GameWorld parentLocalObjectId could not be resolved.") {
-      return Result::fail(Code::InternalError, Severity::Error, a_message);
-    }
-    if (a_message == "GameWorld scene was not found.") {
-      return Result::fail(Code::NotFound, Severity::Warning, a_message);
-    }
-    if (a_message == "GameWorld scene is pending unload.") {
-      return Result::fail(Code::InvalidState, Severity::Warning, a_message);
-    }
-    if (a_message == "GameWorld localObjectId is duplicated in scene.") {
-      return Result::fail(Code::InvalidArgument, Severity::Warning, a_message);
-    }
-    if (a_message == "GameWorld scene id is invalid." ||
-        a_message == "GameWorld scene id is duplicated.") {
-      return Result::fail(Code::InvalidArgument, Severity::Warning, a_message);
-    }
+    /// @brief 読み込み済み NavMesh を NavigationSystem の Active NavMesh に設定する。
+    [[nodiscard]] Result set_active_navigation_mesh(NavMeshHandle a_handle) noexcept;
 
-    return Result::fail(Code::UnknownError, Severity::Error, a_message);
-  }
-
-  [[nodiscard]] GameObject create_object(std::string_view a_name,
-                                         std::string_view a_tag = "Default",
-                                         bool a_isPersistent = false) {
-    // Scene に属さない単体の GameObject を生成する
-    const EntityId entity =
-        create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
-    initialize_base_component(entity, a_name, a_tag, k_invalidSceneId,
-                              k_invalidEntityId, true, a_isPersistent);
-    return make_handle(entity);
-  }
-
-  [[nodiscard]] GameObject
-  instantiate_object(const ObjectDefinition &a_object) {
-    const EntityId entity =
-        create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
-    a_object.prototype.restore_components_into(entity, m_ecs);
-    initialize_base_component(entity, a_object.name(), a_object.tag(),
-                              k_invalidSceneId, k_invalidEntityId,
-                              a_object.isActive, a_object.isPersistent);
-    return make_handle(entity);
-  }
-
-  [[nodiscard]] LoadSceneResult load_scene(const SceneAsset &a_asset) {
-    const SceneId sceneId = generate_scene_id();
-    return load_scene(sceneId, a_asset);
-  }
-
-  [[nodiscard]] LoadSceneResult load_scene(SceneId a_sceneId,
-                                           const SceneAsset &a_asset) {
-    if (a_sceneId == k_invalidSceneId) {
-      throw std::runtime_error("GameWorld scene id is invalid.");
-    }
-    if (m_scenes.contains(a_sceneId)) {
-      throw std::runtime_error("GameWorld scene id is duplicated.");
-    }
-    if (a_sceneId >= m_nextSceneId) {
-      m_nextSceneId = a_sceneId + 1;
-      if (m_nextSceneId == 0) {
-        throw std::overflow_error("GameWorld scene id overflow.");
-      }
-    }
+    /// @brief 読み込み済み NavMesh と元 AssetData を Active NavMesh として保持する。
+    [[nodiscard]] Result set_active_navigation_mesh(NavMeshHandle a_handle,
+                                                    const NavMeshAssetData &a_asset) noexcept;
 
-    SceneInstance scene{};
-    scene.sceneId = a_sceneId;
-    scene.asset = &a_asset;
-    scene.isLoaded = true;
-    scene.isActive = true;
-
-    m_scenes.emplace(a_sceneId, std::move(scene));
-
-    try {
-      return instantiate_into_scene(a_sceneId, a_asset.objects(), &a_asset);
-    } catch (...) {
-      auto it = m_scenes.find(a_sceneId);
-      if (it != m_scenes.end()) {
-        const std::vector<EntityId> created = it->second.entities;
-        for (const EntityId entity : created) {
-          destroy_object_immediately(entity);
-        }
-        m_scenes.erase(it);
-      }
-      throw;
-    }
-  }
-
-  [[nodiscard]] LoadSceneResult
-  append_to_scene(SceneId a_sceneId,
-                  std::span<const ObjectDefinition> a_objects) {
-    return instantiate_into_scene(a_sceneId, a_objects, nullptr);
-  }
-
-  [[nodiscard]] GameObject
-  append_object_to_scene(SceneId a_sceneId, const ObjectDefinition &a_object) {
-    const std::array<ObjectDefinition, 1> objects = {a_object};
-    LoadSceneResult result = append_to_scene(a_sceneId, objects);
-    if (result.objects.empty()) {
-      return {};
-    }
+    /// @brief 現在 Active な NavMesh Handle を返す。
+    [[nodiscard]] NavMeshHandle active_navigation_mesh() const noexcept;
 
-    return result.objects.front();
-  }
+    /// @brief NavAgent に直接目的地を設定する。
+    [[nodiscard]] Result set_nav_agent_destination(EntityId a_entityId,
+                                                   const Math::float3 &a_destination) noexcept;
 
-  void destroy_object_internal(EntityId a_entityId) noexcept {
-    EntityRecord *record = try_get_entity_record(a_entityId);
-    if (record == nullptr || !record->isAlive || record->isPendingDestroy) {
-      return;
-    }
+    /// @brief NavAgent に追跡対象 Entity を設定する。
+    [[nodiscard]] Result set_nav_agent_target(EntityId a_entityId,
+                                              EntityId a_targetEntityId) noexcept;
 
-    // 実際の削除は execute_deferred_deletions() が呼ばれるまで遅延させる
-    record->isPendingDestroy = true;
-    m_pendingDestroyedEntities.push_back(a_entityId);
-  }
-
-  [[nodiscard]] bool unload_scene_internal(SceneId a_sceneId) noexcept {
-    auto sceneIt = m_scenes.find(a_sceneId);
-    if (sceneIt == m_scenes.end() || sceneIt->second.isPendingUnload) {
-      return false;
-    }
+    /// @brief PhysicsSystem へ Raycast を発行し、Hit した Body を Entity に変換して返す。
+    [[nodiscard]] Result raycast(const GameplayRaycastDesc &a_desc,
+                                 GameplayRaycastHit &a_outHit) const noexcept;
 
-    // Scene の破棄も遅延させ、呼び出し側が flush
-    // のタイミングを制御できるようにする
-    sceneIt->second.isPendingUnload = true;
-    m_pendingUnloadedScenes.push_back(a_sceneId);
-    return true;
-  }
-
-  void execute_deferred_deletions_internal() noexcept {
-    // Scene のアンロードでは非永続 Object がまとめて消えるため、先に Scene
-    // 側を処理する
-    std::vector<SceneId> pendingScenes{};
-    pendingScenes.swap(m_pendingUnloadedScenes);
-    for (const SceneId sceneId : pendingScenes) {
-      (void)unload_scene_immediately(sceneId);
-    }
+    /// @brief TriggerVolume が現在重なっている Entity 一覧を取得する。
+    [[nodiscard]] Result trigger_overlaps(EntityId a_entityId,
+                                          std::vector<EntityId> &a_outEntities) const noexcept;
 
-    // 続いて、単体で予約されていた Object の削除を処理する
-    std::vector<EntityId> pendingEntities{};
-    pendingEntities.swap(m_pendingDestroyedEntities);
-    for (const EntityId entity : pendingEntities) {
-      destroy_object_immediately(entity);
-    }
-  }
-
-  [[nodiscard]] Result execute_deferred_scene_loads() {
-    std::vector<PendingSceneLoad> pendingScenes{};
-    pendingScenes.swap(m_pendingLoadedScenes);
-
-    for (const PendingSceneLoad &pendingScene : pendingScenes) {
-      auto sceneAsset = std::make_unique<SceneAsset>();
-      SceneSerializer::LoadOptions loadOptions{};
-      loadOptions.assetManager = m_assetManager;
-      Result result = SceneSerializer::load_scene_asset(
-          *m_fileSystem, pendingScene.path, *sceneAsset, loadOptions);
-      if (!result) {
-        return result;
-      }
-
-      LoadSceneResult loadResult{};
-      result = load_scene(pendingScene.sceneId, *sceneAsset, loadResult);
-      if (!result) {
-        return result;
-      }
-
-      m_ownedSceneAssets[pendingScene.sceneId] = std::move(sceneAsset);
-    }
+    /// @brief DebugDraw 用バッファを取得する。
+    DebugDrawBuffer &debug_draw() noexcept;
 
-    return Result::ok();
-  }
-
-  [[nodiscard]] Result
-  resolve_scene_path(std::string_view a_sceneName,
-                     Core::IO::Path &a_outPath) const noexcept {
-    a_outPath = {};
-    if (a_sceneName.empty()) {
-      return Result::fail(Code::InvalidArgument, Severity::Error,
-                          "Scene name is empty.");
-    }
-    if (m_fileSystem == nullptr) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld file system is not initialized.");
-    }
-    if (m_assetRootPath.is_empty()) {
-      return Result::fail(Code::InvalidState, Severity::Error,
-                          "GameWorld asset root path is not configured.");
-    }
+    /// @brief DebugDraw 用バッファを取得する。
+    const DebugDrawBuffer &debug_draw() const noexcept;
 
-    std::string sceneText(a_sceneName);
-    const bool hasDirectory = sceneText.find('/') != std::string::npos ||
-                              sceneText.find('\\') != std::string::npos;
-    Core::IO::Path scenePath(sceneText);
-    if (scenePath.extension().empty()) {
-      sceneText += ".cuescene";
-      scenePath = Core::IO::Path(sceneText);
-    }
+    /// @brief Active NavMesh と Agent 状態から Debug 表示用 Geometry を構築する。
+    [[nodiscard]] Result build_navigation_debug_geometry(
+        NavMeshDebugGeometry &a_outGeometry) noexcept;
 
-    if (!scenePath.is_absolute()) {
-      scenePath = hasDirectory
-                      ? Core::IO::Path::join(m_assetRootPath, scenePath)
-                      : Core::IO::Path::join(
-                            Core::IO::Path::join(m_assetRootPath,
-                                                 Core::IO::Path("Scenes")),
-                            scenePath);
-    }
+    /// @brief DrawSystem が保持する GPU Resource 群を取得する。
+    [[nodiscard]] const DrawSystem::DrawResources *draw_resources() const noexcept;
 
-    scenePath = scenePath.normalize();
-    bool exists = false;
-    Result result = m_fileSystem->exists(scenePath, &exists);
-    if (!result) {
-      return result;
-    }
-    if (!exists) {
-      return Result::fail(Code::NotFound, Severity::Warning,
-                          "Scene file was not found.");
-    }
+    /// @brief LightingSystem が保持する GPU Resource 群を取得する。
+    [[nodiscard]] const LightingSystem::LightResources *light_resources() const noexcept;
 
-    a_outPath = scenePath;
-    return Result::ok();
-  }
+    /// @brief ShadowSystem が保持する GPU Resource 群を取得する。
+    [[nodiscard]] const ShadowSystem::ShadowResources *shadow_resources() const noexcept;
 
-  [[nodiscard]] GameObject find_object(EntityId a_entityId) noexcept {
-    if (!contains_object(a_entityId)) {
-      return {};
-    }
+    /// @brief ParticleSystem が保持する GPU Resource 群を取得する。
+    [[nodiscard]] const ParticleSystem::ParticleResources *particle_resources() const noexcept;
 
-    return make_handle(a_entityId);
-  }
-
-  [[nodiscard]] bool contains_object(EntityId a_entityId) const noexcept {
-    const EntityRecord *record = try_get_entity_record(a_entityId);
-    return record != nullptr && record->isAlive;
-  }
-
-  [[nodiscard]] bool contains_scene(SceneId a_sceneId) const noexcept {
-    return m_scenes.find(a_sceneId) != m_scenes.end();
-  }
-
-  void
-  localize_script_entity_references(ECS::ScriptComponent &a_script,
-                                    EntityId a_sourceEntityId) const noexcept {
-    const SceneId sourceSceneId = source_scene_id(a_sourceEntityId);
-    const auto localizeField = [this, sourceSceneId](
-                                   ECS::ScriptFieldValue &a_field) noexcept {
-      if (a_field.type != ECS::ScriptFieldType::EntityRef ||
-          a_field.entityValue == k_invalidEntityId) {
-        return;
-      }
-
-      const EntityRecord *record = try_get_entity_record(a_field.entityValue);
-      if (record == nullptr || !record->isAlive ||
-          record->sourceSceneId != sourceSceneId ||
-          record->sourceLocalObjectId == k_invalidLocalObjectId) {
-        return;
-      }
-
-      a_field.entityValue = static_cast<EntityId>(record->sourceLocalObjectId);
-    };
-
-    for (ECS::ScriptFieldValue &field : a_script.serializedFieldValues) {
-      localizeField(field);
-    }
-    for (ECS::ScriptFieldValue &field : a_script.transientFieldValues) {
-      localizeField(field);
-    }
-  }
-
-  [[nodiscard]] EntityId
-  localize_entity_reference(EntityId a_entityValue,
-                            EntityId a_sourceEntityId) const noexcept {
-    if (a_entityValue == k_invalidEntityId) {
-      return a_entityValue;
-    }
+    /// @brief EffectSystem が保持する GPU Resource 群を取得する。
+    [[nodiscard]] const EffectSystem::EffectPrimitiveResources *effect_primitive_resources()
+        const noexcept;
 
-    const SceneId sourceSceneId = source_scene_id(a_sourceEntityId);
-    const EntityRecord *record = try_get_entity_record(a_entityValue);
-    if (record == nullptr || !record->isAlive ||
-        record->sourceSceneId != sourceSceneId ||
-        record->sourceLocalObjectId == k_invalidLocalObjectId) {
-      return a_entityValue;
-    }
+    LightingSystem::LightFrameState &light_frame_state() noexcept;
 
-    return static_cast<EntityId>(record->sourceLocalObjectId);
-  }
-
-  void resolve_script_entity_references(
-      EntityId a_entityId, const SceneInstance &a_scene,
-      const std::unordered_map<LocalObjectId, EntityId>
-          &a_newLocalObjectToEntity) noexcept {
-    ECS::ScriptComponent *script =
-        get_component<ECS::ScriptComponent>(a_entityId);
-    if (script == nullptr) {
-      return;
-    }
+    ParticleSystem::ParticleFrameState &particle_frame_state() noexcept;
 
-    const auto resolveField = [&a_scene, &a_newLocalObjectToEntity](
-                                  ECS::ScriptFieldValue &a_field) noexcept {
-      if (a_field.type != ECS::ScriptFieldType::EntityRef ||
-          a_field.entityValue == k_invalidEntityId) {
-        return;
-      }
-
-      const LocalObjectId localObjectId =
-          static_cast<LocalObjectId>(a_field.entityValue);
-      if (const auto newIt = a_newLocalObjectToEntity.find(localObjectId);
-          newIt != a_newLocalObjectToEntity.end()) {
-        a_field.entityValue = newIt->second;
-        return;
-      }
-
-      if (const auto sceneIt = a_scene.localObjectToEntity.find(localObjectId);
-          sceneIt != a_scene.localObjectToEntity.end()) {
-        a_field.entityValue = sceneIt->second;
-      }
-    };
-
-    for (ECS::ScriptFieldValue &field : script->serializedFieldValues) {
-      resolveField(field);
-    }
-    for (ECS::ScriptFieldValue &field : script->transientFieldValues) {
-      resolveField(field);
-    }
-  }
-
-  void resolve_component_entity_references(
-      EntityId a_entityId, const SceneInstance &a_scene,
-      const std::unordered_map<LocalObjectId, EntityId>
-          &a_newLocalObjectToEntity) noexcept {
-    const auto resolveEntity =
-        [&a_scene, &a_newLocalObjectToEntity](
-            EntityId a_entityValue) noexcept -> EntityId {
-      if (a_entityValue == k_invalidEntityId) {
-        return a_entityValue;
-      }
-
-      const LocalObjectId localObjectId =
-          static_cast<LocalObjectId>(a_entityValue);
-      if (const auto newIt = a_newLocalObjectToEntity.find(localObjectId);
-          newIt != a_newLocalObjectToEntity.end()) {
-        return newIt->second;
-      }
-
-      if (const auto sceneIt = a_scene.localObjectToEntity.find(localObjectId);
-          sceneIt != a_scene.localObjectToEntity.end()) {
-        return sceneIt->second;
-      }
-
-      return a_entityValue;
-    };
-
-    if (ECS::FirstPersonCameraControllerComponent *controller =
-            get_component<ECS::FirstPersonCameraControllerComponent>(
-                a_entityId);
-        controller != nullptr) {
-      controller->targetEntity = resolveEntity(controller->targetEntity);
-    }
+    const ParticleSystem::ParticleFrameState &particle_frame_state() const noexcept;
 
-    if (ECS::DemoEnemyComponent *demoEnemy =
-            get_component<ECS::DemoEnemyComponent>(a_entityId);
-        demoEnemy != nullptr) {
-      demoEnemy->targetEntity = resolveEntity(demoEnemy->targetEntity);
-    }
+    EffectSystem::EffectPrimitiveFrameState &effect_primitive_frame_state() noexcept;
 
-    if (ECS::NavAgentComponent *navAgent =
-            get_component<ECS::NavAgentComponent>(a_entityId);
-        navAgent != nullptr && navAgent->hasTarget) {
-      navAgent->targetEntity = resolveEntity(navAgent->targetEntity);
-    }
-  }
-
-  [[nodiscard]] std::string get_object_tag(EntityId a_entityId) const {
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    if (base == nullptr) {
-      return {};
-    }
+    const EffectSystem::EffectPrimitiveFrameState &effect_primitive_frame_state() const noexcept;
 
-    return base->tag;
-  }
+    const LightingSystem::LightFrameState &light_frame_state() const noexcept;
 
-  [[nodiscard]] std::string get_object_name(EntityId a_entityId) const {
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    if (base == nullptr) {
-      return {};
-    }
+    ShadowSystem::ShadowFrameState &shadow_frame_state() noexcept;
 
-    return base->name;
-  }
-
-  [[nodiscard]] GameObjectProto
-  build_object_prototype(EntityId a_entityId,
-                         const BaseComponent &a_base) const {
-    GameObjectProto prototype(std::string(a_base.name),
-                              std::string(a_base.tag));
-
-    if (const ECS::TransformComponent *transform =
-            get_component<ECS::TransformComponent>(a_entityId);
-        transform != nullptr) {
-      prototype.add_component(*transform);
-    }
+    const ShadowSystem::ShadowFrameState &shadow_frame_state() const noexcept;
 
-    if (const ECS::CameraComponent *camera =
-            get_component<ECS::CameraComponent>(a_entityId);
-        camera != nullptr) {
-      prototype.add_component(*camera);
-    }
+    /// @brief CPU 側 StaticMesh batching の有効状態を設定する。
+    void set_cpu_batching_enabled(bool a_enabled) noexcept;
 
-    if (const ECS::CanvasComponent *canvas =
-            get_component<ECS::CanvasComponent>(a_entityId);
-        canvas != nullptr) {
-      prototype.add_component(*canvas);
-    }
+    /// @brief CPU 側 StaticMesh batching が有効かを返す。
+    [[nodiscard]] bool is_cpu_batching_enabled() const noexcept;
 
-    if (const ECS::UiRectTransformComponent *rect =
-            get_component<ECS::UiRectTransformComponent>(a_entityId);
-        rect != nullptr) {
-      ECS::UiRectTransformComponent copiedRect = *rect;
-      copiedRect.resolvedMin = Math::float2(0.0f, 0.0f);
-      copiedRect.resolvedSize = Math::float2(0.0f, 0.0f);
-      copiedRect.isResolved = false;
-      prototype.add_component(copiedRect);
-    }
+    /// @brief 名前・タグ・永続状態を指定して空の GameObject を生成する。
+    [[nodiscard]] Result create_object(std::string_view a_name, std::string_view a_tag,
+                                       bool a_isPersistent, GameObject &a_outObject);
 
-    if (const ECS::UiLayoutGroupComponent *layout =
-            get_component<ECS::UiLayoutGroupComponent>(a_entityId);
-        layout != nullptr) {
-      prototype.add_component(*layout);
-    }
+    /// @brief 名前を指定して空の GameObject を生成する。
+    [[nodiscard]] Result create_object(std::string_view a_name, GameObject &a_outObject);
 
-    if (const ECS::TextRendererComponent *text =
-            get_component<ECS::TextRendererComponent>(a_entityId);
-        text != nullptr) {
-      prototype.add_component(*text);
-    }
+    /// @brief SceneAsset を新しい SceneId で読み込み、Object 群を実体化する。
+    [[nodiscard]] Result load_scene(const SceneAsset &a_asset, LoadSceneResult &a_outResult);
 
-    if (const ECS::UiImageComponent *image =
-            get_component<ECS::UiImageComponent>(a_entityId);
-        image != nullptr) {
-      prototype.add_component(*image);
-    }
+    /// @brief SceneAsset を指定 SceneId で読み込み、Object 群を実体化する。
+    [[nodiscard]] Result load_scene(SceneId a_sceneId, const SceneAsset &a_asset,
+                                    LoadSceneResult &a_outResult);
 
-    if (const ECS::UiButtonComponent *button =
-            get_component<ECS::UiButtonComponent>(a_entityId);
-        button != nullptr) {
-      ECS::UiButtonComponent copiedButton = *button;
-      copiedButton.isHovered = false;
-      copiedButton.isPressed = false;
-      copiedButton.wasClicked = false;
-      copiedButton.hasFocus = false;
-      prototype.add_component(copiedButton);
-    }
+    /// @brief Scene 名から `.cuescene` パスを解決し、次回の遅延ロードを予約する。
+    [[nodiscard]] Result request_load_scene(std::string_view a_sceneName, SceneId &a_outSceneId);
 
-    if (const ECS::UiCheckboxComponent *checkbox =
-            get_component<ECS::UiCheckboxComponent>(a_entityId);
-        checkbox != nullptr) {
-      ECS::UiCheckboxComponent copiedCheckbox = *checkbox;
-      copiedCheckbox.isHovered = false;
-      copiedCheckbox.isPressed = false;
-      copiedCheckbox.wasChanged = false;
-      copiedCheckbox.hasFocus = false;
-      prototype.add_component(copiedCheckbox);
-    }
+    /// @brief 既存 Scene に ObjectDefinition 群を追加して実体化する。
+    [[nodiscard]] Result append_to_scene(SceneId a_sceneId,
+                                         std::span<const ObjectDefinition> a_objects,
+                                         LoadSceneResult &a_outResult);
 
-    if (const ECS::UiSliderComponent *slider =
-            get_component<ECS::UiSliderComponent>(a_entityId);
-        slider != nullptr) {
-      ECS::UiSliderComponent copiedSlider = *slider;
-      copiedSlider.isHovered = false;
-      copiedSlider.isDragging = false;
-      copiedSlider.wasChanged = false;
-      copiedSlider.hasFocus = false;
-      prototype.add_component(copiedSlider);
-    }
+    /// @brief 既存 Scene に ObjectDefinition 群を追加して実体化する。
+    [[nodiscard]] Result append_to_scene(SceneId a_sceneId,
+                                         const std::vector<ObjectDefinition> &a_objects,
+                                         LoadSceneResult &a_outResult);
 
-    if (const ECS::DirectionalLightComponent *directionalLight =
-            get_component<ECS::DirectionalLightComponent>(a_entityId);
-        directionalLight != nullptr) {
-      prototype.add_component(*directionalLight);
-    }
+    /// @brief 既存 Scene に ObjectDefinition 1 件を追加して実体化する。
+    [[nodiscard]] Result append_object_to_scene(SceneId a_sceneId, const ObjectDefinition &a_object,
+                                                GameObject &a_outObject);
 
-    if (const ECS::PointLightComponent *pointLight =
-            get_component<ECS::PointLightComponent>(a_entityId);
-        pointLight != nullptr) {
-      prototype.add_component(*pointLight);
-    }
+    /// @brief 指定 Entity の削除を遅延キューへ登録する。
+    [[nodiscard]] Result destroy_object(EntityId a_entityId) noexcept;
 
-    if (const ECS::SpotLightComponent *spotLight =
-            get_component<ECS::SpotLightComponent>(a_entityId);
-        spotLight != nullptr) {
-      prototype.add_component(*spotLight);
-    }
+    /// @brief 指定 Scene のアンロードを遅延キューへ登録する。
+    [[nodiscard]] Result unload_scene(SceneId a_sceneId) noexcept;
 
-    if (const ECS::FirstPersonCameraControllerComponent *controller =
-            get_component<ECS::FirstPersonCameraControllerComponent>(
-                a_entityId);
-        controller != nullptr) {
-      ECS::FirstPersonCameraControllerComponent copiedController = *controller;
-      copiedController.targetEntity =
-          localize_entity_reference(copiedController.targetEntity, a_entityId);
-      prototype.add_component(copiedController);
-    }
+    /// @brief 遅延ロード前なら予約を取り消し、ロード済みならアンロードを予約する。
+    [[nodiscard]] Result request_unload_scene(SceneId a_sceneId) noexcept;
 
-    if (const ECS::MeshFilterComponent *meshFilter =
-            get_component<ECS::MeshFilterComponent>(a_entityId);
-        meshFilter != nullptr) {
-      prototype.add_component(*meshFilter);
-    }
+    /// @brief 遅延削除・遅延 Scene アンロードを即時実行する。
+    [[nodiscard]] Result execute_deferred_deletions() noexcept;
 
-    if (const ECS::NavAgentComponent *navAgent =
-            get_component<ECS::NavAgentComponent>(a_entityId);
-        navAgent != nullptr) {
-      ECS::NavAgentComponent copiedNavAgent = *navAgent;
-      if (copiedNavAgent.hasTarget) {
-        copiedNavAgent.targetEntity =
-            localize_entity_reference(copiedNavAgent.targetEntity, a_entityId);
-      }
-      copiedNavAgent.pathPoints.clear();
-      copiedNavAgent.pathIndex = 0;
-      copiedNavAgent.desiredVelocity = Math::float3::zero();
-      copiedNavAgent.hasPath = false;
-      prototype.add_component(copiedNavAgent);
-    }
+    /// @brief EntityId から GameObject ハンドルを取得する。
+    [[nodiscard]] Result find_object(EntityId a_entityId, GameObject &a_outObject) noexcept;
 
-    if (const ECS::DemoEnemyComponent *demoEnemy =
-            get_component<ECS::DemoEnemyComponent>(a_entityId);
-        demoEnemy != nullptr) {
-      ECS::DemoEnemyComponent copiedDemoEnemy = *demoEnemy;
-      copiedDemoEnemy.targetEntity =
-          localize_entity_reference(copiedDemoEnemy.targetEntity, a_entityId);
-      prototype.add_component(copiedDemoEnemy);
-    }
+    /// @brief Entity が現在生存しているかを取得する。
+    [[nodiscard]] Result contains_object(EntityId a_entityId, bool &a_outContains) const noexcept;
 
-    if (const ECS::NavMeshBakeSourceComponent *navMeshBakeSource =
-            get_component<ECS::NavMeshBakeSourceComponent>(a_entityId);
-        navMeshBakeSource != nullptr) {
-      prototype.add_component(*navMeshBakeSource);
-    }
+    /// @brief Scene が現在ロードされているかを取得する。
+    [[nodiscard]] Result contains_scene(SceneId a_sceneId, bool &a_outContains) const noexcept;
 
-    if (const ECS::StaticMeshRendererComponent *renderer =
-            get_component<ECS::StaticMeshRendererComponent>(a_entityId);
-        renderer != nullptr) {
-      prototype.add_component(*renderer);
-    }
+    /// @brief Entity のタグを取得する。
+    [[nodiscard]] Result get_object_tag(EntityId a_entityId, std::string &a_outTag) const;
 
-    if (const ECS::SkinnedMeshRendererComponent *renderer =
-            get_component<ECS::SkinnedMeshRendererComponent>(a_entityId);
-        renderer != nullptr) {
-      prototype.add_component(*renderer);
-    }
+    /// @brief Entity の表示名を取得する。
+    [[nodiscard]] Result get_object_name(EntityId a_entityId, std::string &a_outName) const;
 
-    if (const ECS::AnimationComponent *animation =
-            get_component<ECS::AnimationComponent>(a_entityId);
-        animation != nullptr) {
-      prototype.add_component(*animation);
-    }
+    /// @brief Entity の表示名を設定する。
+    ///
+    /// 同名 Object が既に存在する場合は、GameWorld 内で一意になる名前へ解決する。
+    [[nodiscard]] Result set_object_name(EntityId a_entityId, std::string_view a_name);
 
-    if (const ECS::SpriteRendererComponent *spriteRenderer =
-            get_component<ECS::SpriteRendererComponent>(a_entityId);
-        spriteRenderer != nullptr) {
-      prototype.add_component(*spriteRenderer);
-    }
+    /// @brief Entity のタグを設定する。
+    [[nodiscard]] Result set_object_tag(EntityId a_entityId, std::string_view a_tag);
 
-    if (const ECS::ParticleEmitterComponent *particleEmitter =
-            get_component<ECS::ParticleEmitterComponent>(a_entityId);
-        particleEmitter != nullptr) {
-      ECS::ParticleEmitterComponent copiedParticleEmitter = *particleEmitter;
-      copiedParticleEmitter.runtimeParticleBase =
-          (std::numeric_limits<uint32_t>::max)();
-      copiedParticleEmitter.runtimeParticleCapacity = 0;
-      copiedParticleEmitter.runtimeSpawnCursor = 0;
-      copiedParticleEmitter.runtimeEmitAccumulator = 0.0f;
-      prototype.add_component(copiedParticleEmitter);
-    }
+    /// @brief Entity の有効状態を取得する。
+    [[nodiscard]] Result is_object_active(EntityId a_entityId, bool &a_outIsActive) const noexcept;
 
-    if (const ECS::EffectEmitterComponent *effectEmitter =
-            get_component<ECS::EffectEmitterComponent>(a_entityId);
-        effectEmitter != nullptr) {
-      ECS::EffectEmitterComponent copiedEffectEmitter = *effectEmitter;
-      copiedEffectEmitter.runtimeEmitters.clear();
-      prototype.add_component(copiedEffectEmitter);
-    }
+    /// @brief 削除前の Object 状態を復元可能な Snapshot として取得する。
+    [[nodiscard]] Result capture_deleted_object(EntityId a_entityId,
+                                                DeletedObjectSnapshot &a_outSnapshot) const;
 
-    if (const ECS::AudioSourceComponent *audioSource =
-            get_component<ECS::AudioSourceComponent>(a_entityId);
-        audioSource != nullptr) {
-      ECS::AudioSourceComponent copiedAudioSource = *audioSource;
-      copiedAudioSource.sourceHandle = {};
-      copiedAudioSource.isPlaying = false;
-      copiedAudioSource.playRequested = false;
-      copiedAudioSource.stopRequested = false;
-      copiedAudioSource.hasStarted = false;
-      prototype.add_component(copiedAudioSource);
-    }
+    /// @brief capture_deleted_object() で取得した Snapshot から Object を復元する。
+    [[nodiscard]] Result restore_deleted_object(const DeletedObjectSnapshot &a_snapshot,
+                                                EntityId &a_outObjectId);
 
-    if (const ECS::RigidBodyComponent *rigidBody =
-            get_component<ECS::RigidBodyComponent>(a_entityId);
-        rigidBody != nullptr) {
-      ECS::RigidBodyComponent copiedRigidBody = *rigidBody;
-      copiedRigidBody.body = {};
-      copiedRigidBody.isCreated = false;
-      prototype.add_component(copiedRigidBody);
-    }
+    /// @brief Entity の有効状態を設定する。
+    [[nodiscard]] Result set_object_active(EntityId a_entityId, bool a_isActive);
 
-    if (const ECS::ColliderComponent *collider =
-            get_component<ECS::ColliderComponent>(a_entityId);
-        collider != nullptr) {
-      prototype.add_component(*collider);
-    }
+    /// @brief Entity が Scene アンロード後も残る永続 Object かを取得する。
+    [[nodiscard]] Result is_object_persistent(EntityId a_entityId,
+                                              bool &a_outIsPersistent) const noexcept;
 
-    if (const ECS::TriggerVolumeComponent *trigger =
-            get_component<ECS::TriggerVolumeComponent>(a_entityId);
-        trigger != nullptr) {
-      ECS::TriggerVolumeComponent copiedTrigger = *trigger;
-      copiedTrigger.overlappingEntities.clear();
-      copiedTrigger.enteredEntities.clear();
-      copiedTrigger.exitedEntities.clear();
-      prototype.add_component(copiedTrigger);
-    }
+    /// @brief Entity が Scene アンロード後も残る永続 Object かを設定する。
+    [[nodiscard]] Result set_object_persistent(EntityId a_entityId, bool a_isPersistent);
 
-    if (const ECS::InteractableComponent *interactable =
-            get_component<ECS::InteractableComponent>(a_entityId);
-        interactable != nullptr) {
-      prototype.add_component(*interactable);
-    }
+    /// @brief EntityId と世代番号が現在も同じ生存 Entity を指しているかを取得する。
+    [[nodiscard]] Result is_alive(EntityId a_entityId, Generation a_generation,
+                                  bool &a_outIsAlive) const noexcept;
 
-    if (const ECS::CharacterControllerComponent *characterController =
-            get_component<ECS::CharacterControllerComponent>(a_entityId);
-        characterController != nullptr) {
-      ECS::CharacterControllerComponent copiedCharacterController =
-          *characterController;
-      copiedCharacterController.isGrounded = false;
-      copiedCharacterController.jumpRequested = false;
-      prototype.add_component(copiedCharacterController);
-    }
+    /// @brief Entity の生成元 SceneId を取得する。
+    [[nodiscard]] Result source_scene_id(EntityId a_entityId, SceneId &a_outSceneId) const noexcept;
 
-    if (const ECS::ScriptComponent *script =
-            get_component<ECS::ScriptComponent>(a_entityId);
-        script != nullptr) {
-      ECS::ScriptComponent copiedScript = *script;
-      localize_script_entity_references(copiedScript, a_entityId);
-      prototype.add_component(copiedScript);
-    }
+    /// @brief 現在生存している Object 数を取得する。
+    [[nodiscard]] Result object_count(size_t &a_outCount) const noexcept;
 
-    return prototype;
-  }
+    /// @brief RigidBody の線形速度を設定し、PhysicsSystem 側にも反映する。
+    [[nodiscard]] Result set_rigid_body_linear_velocity(EntityId a_entityId,
+                                                        Math::float3 a_velocity) noexcept;
 
-  [[nodiscard]] bool is_object_persistent(EntityId a_entityId) const noexcept {
-    const BaseComponent *base = get_component<BaseComponent>(a_entityId);
-    if (base == nullptr) {
-      return false;
-    }
+    /// @brief RigidBody の線形速度を取得する。
+    [[nodiscard]] Result get_rigid_body_linear_velocity(EntityId a_entityId,
+                                                        Math::float3 &a_outVelocity) const noexcept;
 
-    return base->isPersistent;
-  }
-
-  [[nodiscard]] bool is_alive(EntityId a_entityId,
-                              Generation a_generation) const noexcept {
-    const EntityRecord *record = try_get_entity_record(a_entityId);
-    return record != nullptr && record->isAlive &&
-           record->generation == a_generation;
-  }
-
-  [[nodiscard]] SceneId source_scene_id(EntityId a_entityId) const noexcept {
-    const EntityRecord *record = try_get_entity_record(a_entityId);
-    if (record == nullptr || !record->isAlive) {
-      return k_invalidSceneId;
-    }
+    /// @brief RigidBody に継続的な Force を加える。
+    [[nodiscard]] Result add_rigid_body_force(EntityId a_entityId, Math::float3 a_force) noexcept;
 
-    return record->sourceSceneId;
-  }
+    /// @brief RigidBody に瞬間的な Impulse を加える。
+    [[nodiscard]] Result add_rigid_body_impulse(EntityId a_entityId,
+                                                Math::float3 a_impulse) noexcept;
 
-  template <typename T>
-  [[nodiscard]] T *get_component(EntityId a_entityId) noexcept {
-    if (!contains_object(a_entityId)) {
-      return nullptr;
-    }
+    /// @brief CharacterController の移動速度を設定する。
+    [[nodiscard]] Result set_character_move_velocity(EntityId a_entityId,
+                                                     Math::float3 a_velocity) noexcept;
 
-    return m_ecs.get_component<T>(a_entityId);
-  }
-
-  template <typename T>
-  [[nodiscard]] const T *get_component(EntityId a_entityId) const noexcept {
-    return const_cast<GameWorld *>(this)->get_component<T>(a_entityId);
-  }
-
-  template <typename T, typename... Args>
-  T &add_component(EntityId a_entityId, Args &&...a_args) {
-    if (!contains_object(a_entityId)) {
-      throw std::runtime_error("GameWorld object is not alive.");
-    }
+    /// @brief CharacterController に Jump 要求を設定する。
+    [[nodiscard]] Result request_character_jump(EntityId a_entityId) noexcept;
 
-    T *component = m_ecs.add_component<T>(a_entityId);
-    if (component == nullptr) {
-      throw std::runtime_error("GameWorld failed to add component.");
-    }
+    /// @brief 現在ロードされている Scene 数を取得する。
+    [[nodiscard]] Result scene_count(size_t &a_outCount) const noexcept;
 
-    *component = T{std::forward<Args>(a_args)...};
-    return *component;
-  }
-
-  template <typename T>
-  [[nodiscard]] bool has_component(EntityId a_entityId) const noexcept {
-    return get_component<T>(a_entityId) != nullptr;
-  }
-
-  [[nodiscard]] std::vector<GameObject>
-  find_objects_by_tag(std::string_view a_tag) {
-    const auto it = m_tagIndex.find(std::string(a_tag));
-    if (it == m_tagIndex.end()) {
-      return {};
-    }
+    /// @brief World 内の Scene、Object、遅延要求、所有 SceneAsset を破棄する。
+    [[nodiscard]] Result clear() noexcept;
 
-    std::vector<GameObject> objects{};
-    objects.reserve(it->second.size());
-    for (const EntityId entity : it->second) {
-      if (!contains_object(entity)) {
-        continue;
-      }
-
-      objects.push_back(make_handle(entity));
+    /// @brief 指定 Entity から Component を取得する。
+    ///
+    /// 外部向け API として Result を返し、Component が無い場合は a_outComponent を nullptr にする。
+    template <typename T>
+    [[nodiscard]] Result get_component(EntityId a_entityId, T *&a_outComponent) noexcept
+    {
+        a_outComponent = get_component<T>(a_entityId);
+        return a_outComponent != nullptr ? Result::ok()
+                                         : Result::fail(Code::NotFound, Severity::Warning,
+                                                        "GameWorld component was not found.");
     }
 
-    std::sort(objects.begin(), objects.end(),
-              [](const GameObject &a_left, const GameObject &a_right) {
-                return a_left.entity_id() < a_right.entity_id();
-              });
-
-    return objects;
-  }
-
-  [[nodiscard]] std::vector<GameObject>
-  find_objects_by_name(std::string_view a_name) {
-    const auto it = m_nameIndex.find(std::string(a_name));
-    if (it == m_nameIndex.end()) {
-      return {};
+    /// @brief 指定 Entity から読み取り専用 Component を取得する。
+    template <typename T>
+    [[nodiscard]] Result get_component(EntityId a_entityId, const T *&a_outComponent) const noexcept
+    {
+        a_outComponent = get_component<T>(a_entityId);
+        return a_outComponent != nullptr ? Result::ok()
+                                         : Result::fail(Code::NotFound, Severity::Warning,
+                                                        "GameWorld component was not found.");
     }
 
-    std::vector<GameObject> objects{};
-    objects.reserve(it->second.size());
-    for (const EntityId entity : it->second) {
-      if (!contains_object(entity)) {
-        continue;
-      }
-
-      objects.push_back(make_handle(entity));
+    /// @brief 指定 Entity に Component を追加し、追加した Component を取得する。
+    template <typename T, typename... Args>
+    [[nodiscard]] Result add_component(EntityId a_entityId, T *&a_outComponent, Args &&...a_args)
+    {
+        a_outComponent = nullptr;
+        return capture_result(
+            [this, &a_outComponent, a_entityId, &a_args...]()
+            { a_outComponent = &add_component<T>(a_entityId, std::forward<Args>(a_args)...); });
     }
 
-    std::sort(objects.begin(), objects.end(),
-              [](const GameObject &a_left, const GameObject &a_right) {
-                return a_left.entity_id() < a_right.entity_id();
-              });
-
-    return objects;
-  }
-
-  [[nodiscard]] GameObject find_object_by_name(std::string_view a_name) {
-    std::vector<GameObject> objects = find_objects_by_name(a_name);
-    if (objects.empty()) {
-      return {};
+    /// @brief 指定 Entity が Component を持っているかを取得する。
+    template <typename T>
+    [[nodiscard]] Result has_component(EntityId a_entityId, bool &a_outHasComponent) const noexcept
+    {
+        a_outHasComponent = has_component<T>(a_entityId);
+        return contains_object(a_entityId) ? Result::ok()
+                                           : Result::fail(Code::NotFound, Severity::Warning,
+                                                          "GameWorld object was not found.");
     }
 
-    return objects.front();
-  }
-
-  [[nodiscard]] std::vector<GameObject>
-  find_objects_by_name_series(std::string_view a_baseName) {
-    const std::string normalizedBaseName = normalize_object_name(a_baseName);
-
-    std::vector<GameObject> objects{};
-    for (const auto &[name, entityIds] : m_nameIndex) {
-      std::uint32_t seriesIndex = 0;
-      if (!try_get_name_series_index(name, normalizedBaseName, seriesIndex)) {
-        continue;
-      }
-
-      for (const EntityId entity : entityIds) {
-        if (!contains_object(entity)) {
-          continue;
+    /// @brief 指定 Entity から Component を削除する。
+    template <typename T> [[nodiscard]] Result remove_component(EntityId a_entityId) noexcept
+    {
+        if (!contains_object(a_entityId))
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                                "GameWorld object was not found.");
         }
 
-        objects.push_back(make_handle(entity));
-      }
+        m_ecs.remove_component<T>(a_entityId);
+        return Result::ok();
     }
 
-    std::sort(objects.begin(), objects.end(),
-              [this, &normalizedBaseName](const GameObject &a_left,
-                                          const GameObject &a_right) {
-                std::uint32_t leftSeriesIndex = 0;
-                std::uint32_t rightSeriesIndex = 0;
-                const bool leftMatched = try_get_name_series_index(
-                    get_object_name(a_left.entity_id()), normalizedBaseName,
-                    leftSeriesIndex);
-                const bool rightMatched = try_get_name_series_index(
-                    get_object_name(a_right.entity_id()), normalizedBaseName,
-                    rightSeriesIndex);
-
-                if (leftMatched != rightMatched) {
-                  return leftMatched;
-                }
-                if (leftSeriesIndex != rightSeriesIndex) {
-                  return leftSeriesIndex < rightSeriesIndex;
-                }
-
-                return a_left.entity_id() < a_right.entity_id();
-              });
-
-    return objects;
-  }
-
-  [[nodiscard]] SceneId generate_scene_id() {
-    if (m_nextSceneId == 0) {
-      throw std::overflow_error("GameWorld scene id overflow.");
-    }
-
-    const SceneId sceneId = m_nextSceneId;
-    ++m_nextSceneId;
-    return sceneId;
-  }
-
-  [[nodiscard]] EntityId create_entity_record(SceneId a_sourceSceneId,
-                                              LocalObjectId a_localObjectId) {
-    // ECS の Entity と GameWorld の管理情報を対応付ける
-    const EntityId entity = m_ecs.generate_entity();
-
-    if (m_entityRecords.size() <= entity) {
-      m_entityRecords.resize(entity + 1);
-    }
-
-    EntityRecord &record = m_entityRecords[entity];
-    if (record.isAlive) {
-      throw std::runtime_error(
-          "GameWorld internal error: entity slot is already alive.");
-    }
-
-    if (record.generation == 0) {
-      record.generation = 1;
-    }
-
-    record.isAlive = true;
-    record.isPendingDestroy = false;
-    record.sourceSceneId = a_sourceSceneId;
-    record.sourceLocalObjectId = a_localObjectId;
-    ++m_liveObjectCount;
-
-    return entity;
-  }
-
-  void initialize_base_component(EntityId a_entityId, std::string_view a_name,
-                                 std::string_view a_tag,
-                                 SceneId a_owningSceneId, EntityId a_parent,
-                                 bool a_isActive, bool a_isPersistent) {
-    BaseComponent *base = m_ecs.get_component<BaseComponent>(a_entityId);
-    ECS::RenderableInfoComponent *renderableInfo =
-        m_ecs.get_component<ECS::RenderableInfoComponent>(a_entityId);
-    std::string previousName{};
-    std::string previousTag{};
-    const bool hadBaseComponent = base != nullptr;
-    if (hadBaseComponent) {
-      previousName = base->name;
-      previousTag = base->tag;
-    }
-
-    if (base == nullptr) {
-      base = m_ecs.add_component<BaseComponent>(a_entityId);
-    }
-    if (renderableInfo == nullptr) {
-      renderableInfo =
-          m_ecs.add_component<ECS::RenderableInfoComponent>(a_entityId);
-    }
-
-    if (base == nullptr || renderableInfo == nullptr) {
-      throw std::runtime_error("GameWorld failed to initialize BaseComponent.");
-    }
-
-    base->name = make_unique_object_name(a_name, a_entityId);
-    base->tag = std::string(a_tag);
-    base->owningSceneId = a_owningSceneId;
-    base->parent = a_parent;
-    base->isActiveSelf = a_isActive;
-    base->isPersistent = a_isPersistent;
-    renderableInfo->objectId = ECS::k_invalidRenderableId;
-    renderableInfo->transformId = ECS::k_invalidRenderableId;
-
-    if (hadBaseComponent && previousName != base->name) {
-      remove_object_from_name_index(a_entityId, previousName);
-    }
-
-    if (hadBaseComponent && previousTag != base->tag) {
-      remove_object_from_tag_index(a_entityId, previousTag);
-    }
-
-    add_object_to_name_index(a_entityId, base->name);
-    add_object_to_tag_index(a_entityId, base->tag);
-    m_ecs.set_entity_active(a_entityId, a_isActive);
-  }
-
-  [[nodiscard]] LoadSceneResult
-  instantiate_into_scene(SceneId a_sceneId,
-                         std::span<const ObjectDefinition> a_objects,
-                         const SceneAsset *a_asset) {
-    // ObjectDefinition 群を実 Entity として生成し、Scene に紐付ける
-    auto sceneIt = m_scenes.find(a_sceneId);
-    if (sceneIt == m_scenes.end()) {
-      throw std::runtime_error("GameWorld scene was not found.");
-    }
-
-    SceneInstance &scene = sceneIt->second;
-    if (scene.isPendingUnload) {
-      throw std::runtime_error("GameWorld scene is pending unload.");
-    }
-
-    if (a_asset != nullptr) {
-      scene.asset = a_asset;
-    }
-
-    LoadSceneResult result{};
-    result.sceneId = a_sceneId;
-    result.objects.reserve(a_objects.size());
-
-    struct PendingObjectInstantiation final {
-      const ObjectDefinition *definition = nullptr;
-      LocalObjectId localObjectId = k_invalidLocalObjectId;
-      EntityId entityId = k_invalidEntityId;
-    };
-
-    std::vector<PendingObjectInstantiation> pending{};
-    pending.reserve(a_objects.size());
-    std::unordered_map<LocalObjectId, EntityId> newLocalObjectToEntity{};
-    newLocalObjectToEntity.reserve(a_objects.size());
-    std::vector<EntityId> createdEntities{};
-    createdEntities.reserve(a_objects.size());
-
-    try {
-      for (const ObjectDefinition &object : a_objects) {
-        LocalObjectId localObjectId = object.localObjectId;
-        if (localObjectId == k_invalidLocalObjectId) {
-          localObjectId = scene.nextLocalObjectId++;
-        } else {
-          if (scene.localObjectToEntity.contains(localObjectId) ||
-              newLocalObjectToEntity.contains(localObjectId)) {
-            throw std::runtime_error(
-                "GameWorld localObjectId is duplicated in scene.");
-          }
-
-          scene.nextLocalObjectId =
-              (std::max)(scene.nextLocalObjectId, localObjectId + 1);
+    /// @brief 指定 Entity を GameObject として取得して関数を実行する。
+    template <class F> [[nodiscard]] Result visit_object(EntityId a_entityId, F &&a_func)
+    {
+        GameObject object = find_object(a_entityId);
+        if (!object.is_valid())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                                "GameWorld object was not found.");
         }
 
-        const EntityId entity = create_entity_record(a_sceneId, localObjectId);
-        createdEntities.push_back(entity);
+        a_func(object.entity_id(), source_scene_id(a_entityId), object);
+        return Result::ok();
+    }
 
-        object.prototype.restore_components_into(entity, m_ecs);
-
-        const SceneId owningSceneId =
-            object.isPersistent ? k_invalidSceneId : a_sceneId;
-        initialize_base_component(entity, object.name(), object.tag(),
-                                  owningSceneId, k_invalidEntityId,
-                                  object.isActive, object.isPersistent);
-
-        scene.entities.push_back(entity);
-        scene.localObjectToEntity.emplace(localObjectId, entity);
-        newLocalObjectToEntity.emplace(localObjectId, entity);
-
-        pending.push_back({&object, localObjectId, entity});
-        result.objects.push_back(make_handle(entity));
-      }
-
-      for (const PendingObjectInstantiation &entry : pending) {
-        resolve_script_entity_references(entry.entityId, scene,
-                                         newLocalObjectToEntity);
-        resolve_component_entity_references(entry.entityId, scene,
-                                            newLocalObjectToEntity);
-
-        if (!entry.definition->parentLocalObjectId.has_value()) {
-          continue;
+    /// @brief 指定 Scene に属する生存 Object を順に訪問する。
+    template <class F> [[nodiscard]] Result for_each_object_in_scene(SceneId a_sceneId, F &&a_func)
+    {
+        auto sceneIt = m_scenes.find(a_sceneId);
+        if (sceneIt == m_scenes.end())
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                                "GameWorld scene was not found.");
         }
 
-        const LocalObjectId parentLocalObjectId =
-            *entry.definition->parentLocalObjectId;
-        EntityId parentEntity = k_invalidEntityId;
+        const std::vector<EntityId> entities = sceneIt->second.entities;
+        for (const EntityId entity : entities)
+        {
+            GameObject object = find_object(entity);
+            if (!object.is_valid())
+            {
+                continue;
+            }
 
-        if (const auto newIt = newLocalObjectToEntity.find(parentLocalObjectId);
-            newIt != newLocalObjectToEntity.end()) {
-          parentEntity = newIt->second;
-        } else if (const auto sceneLocalIt =
-                       scene.localObjectToEntity.find(parentLocalObjectId);
-                   sceneLocalIt != scene.localObjectToEntity.end()) {
-          parentEntity = sceneLocalIt->second;
-        } else {
-          throw std::runtime_error(
-              "GameWorld parentLocalObjectId could not be resolved.");
+            a_func(object.entity_id(), a_sceneId, object);
         }
 
-        BaseComponent *base = get_component<BaseComponent>(entry.entityId);
-        if (base == nullptr) {
-          throw std::runtime_error(
-              "GameWorld BaseComponent is missing while resolving parent.");
+        return Result::ok();
+    }
+
+    /// @brief World 内の生存 Object を順に訪問する。
+    template <class F> [[nodiscard]] Result for_each_object(F &&a_func)
+    {
+        for (EntityId entity = 0; entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+        {
+            GameObject object = find_object(entity);
+            if (!object.is_valid())
+            {
+                continue;
+            }
+
+            a_func(object.entity_id(), source_scene_id(entity), object);
         }
 
-        base->parent = parentEntity;
-      }
-
-      return result;
-    } catch (...) {
-      for (const EntityId entity : createdEntities) {
-        destroy_object_immediately(entity);
-      }
-      throw;
-    }
-  }
-
-  void destroy_object_immediately(EntityId a_entityId) noexcept {
-    EntityRecord *record = try_get_entity_record(a_entityId);
-    if (record == nullptr || !record->isAlive) {
-      return;
+        return Result::ok();
     }
 
-    // flush 実行時と、例外時に即座に巻き戻す必要がある経路で使う
-    record->isPendingDestroy = false;
+    /// @brief 指定タグを持つ Object をすべて取得する。
+    [[nodiscard]] Result find_objects_by_tag(std::string_view a_tag,
+                                             std::vector<GameObject> &a_outObjects);
 
-    const bool unlinked = unlink_object_from_scene(a_entityId);
-    (void)unlinked;
-    remove_object_from_name_index(a_entityId, get_object_name(a_entityId));
-    remove_object_from_tag_index(a_entityId, get_object_tag(a_entityId));
+    /// @brief 指定名と一致する Object をすべて取得する。
+    [[nodiscard]] Result find_objects_by_name(std::string_view a_name,
+                                              std::vector<GameObject> &a_outObjects);
 
-    record->isAlive = false;
-    record->sourceSceneId = k_invalidSceneId;
-    record->sourceLocalObjectId = k_invalidLocalObjectId;
-    ++record->generation;
-    if (record->generation == 0) {
-      record->generation = 1;
-    }
+    /// @brief 指定名と一致する最初の Object を取得する。
+    [[nodiscard]] Result find_object_by_name(std::string_view a_name, GameObject &a_outObject);
 
-    if (m_liveObjectCount > 0) {
-      --m_liveObjectCount;
-    }
+    /// @brief 指定名と一致する最初の Object を削除予約する。
+    [[nodiscard]] Result destroy_object_by_name(std::string_view a_name) noexcept;
 
-    m_ecs.remove_entity(a_entityId);
-  }
+    /// @brief 指定名と一致する Object をすべて削除予約する。
+    [[nodiscard]] Result destroy_objects_by_name(std::string_view a_name,
+                                                 size_t &a_outCount) noexcept;
 
-  [[nodiscard]] bool unload_scene_immediately(SceneId a_sceneId) noexcept {
-    auto sceneIt = m_scenes.find(a_sceneId);
-    if (sceneIt == m_scenes.end()) {
-      return false;
-    }
+    /// @brief `Name`, `Name(1)` のような連番名に属する Object を取得する。
+    [[nodiscard]] Result find_objects_by_name_series(std::string_view a_baseName,
+                                                     std::vector<GameObject> &a_outObjects);
 
-    // 遅延状態を解除し、ここで実際の Scene アンロードを行う
-    sceneIt->second.isPendingUnload = false;
+    [[nodiscard]] Result destroy_objects_by_name_series(std::string_view a_baseName,
+                                                        size_t &a_outCount) noexcept;
 
-    const std::vector<EntityId> entities = sceneIt->second.entities;
-    for (const EntityId entity : entities) {
-      if (!contains_object(entity)) {
-        continue;
-      }
+    [[nodiscard]] Result destroy_objects_by_tag(std::string_view a_tag,
+                                                size_t &a_outCount) noexcept;
 
-      BaseComponent *base = get_component<BaseComponent>(entity);
-      if (base != nullptr && base->isPersistent) {
-        if (base->parent != k_invalidEntityId &&
-            source_scene_id(base->parent) == a_sceneId) {
-          base->parent = k_invalidEntityId;
+  private:
+    [[nodiscard]] Math::float3 make_spawn_position() const noexcept;
+
+    [[nodiscard]] Math::float3 make_camera_spawn_position() const noexcept;
+
+    [[nodiscard]] Math::float3 make_sprite_spawn_position() const noexcept;
+
+    [[nodiscard]] Math::float3 make_light_spawn_position() const noexcept;
+
+    [[nodiscard]] static Math::float3 multiply_components(const Math::float3 &a_left,
+                                                          const Math::float3 &a_right) noexcept;
+
+    [[nodiscard]] static Math::float3 divide_components_safe(const Math::float3 &a_left,
+                                                             const Math::float3 &a_right) noexcept;
+
+    [[nodiscard]] static Math::float3 rotate_vector(const Math::Quaternion &a_rotation,
+                                                    const Math::float3 &a_value) noexcept;
+
+    [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
+        const ECS::WorldTransformComponent &a_parent,
+        const ECS::TransformComponent &a_local) noexcept;
+
+    [[nodiscard]] static ECS::TransformComponent make_local_transform(
+        const ECS::WorldTransformComponent &a_parent,
+        const ECS::WorldTransformComponent &a_world) noexcept;
+
+    [[nodiscard]] bool is_descendant_of(EntityId a_entityId,
+                                        EntityId a_potentialAncestorId) const noexcept;
+
+    [[nodiscard]] bool resolve_world_transform(EntityId a_entityId, std::vector<uint8_t> &a_state,
+                                               ECS::WorldTransformComponent &a_outWorld) noexcept;
+
+    void sync_world_transforms() noexcept;
+
+    void sync_draw_frame_state(uint32_t a_bufferIndex, uint32_t a_renderWidth,
+                               uint32_t a_renderHeight) noexcept;
+
+    [[nodiscard]] Result upload_draw_scene(uint32_t a_bufferIndex);
+    [[nodiscard]] Result upload_particle_scene(uint32_t a_bufferIndex);
+    [[nodiscard]] Result upload_effect_primitive_scene(uint32_t a_bufferIndex);
+    [[nodiscard]] Result upload_light_scene(uint32_t a_bufferIndex);
+    [[nodiscard]] Result upload_shadow_scene(uint32_t a_bufferIndex);
+
+    void animate_static_mesh_objects(float a_deltaTime);
+
+    [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const;
+
+    [[nodiscard]] std::vector<EntityId> collect_camera_entities() const;
+
+    [[nodiscard]] size_t count_active_static_mesh_objects() const;
+
+    [[nodiscard]] bool try_get_static_mesh_entity(uint32_t a_objectId,
+                                                  EntityId &a_outEntityId) const noexcept;
+
+    template <typename F> [[nodiscard]] static Result capture_result(F &&a_func)
+    {
+        try
+        {
+            a_func();
+            return Result::ok();
         }
-        base->owningSceneId = k_invalidSceneId;
-
-        if (EntityRecord *record = try_get_entity_record(entity)) {
-          record->sourceSceneId = k_invalidSceneId;
-          record->sourceLocalObjectId = k_invalidLocalObjectId;
+        catch (const std::bad_alloc &)
+        {
+            return Result::fail(Code::OutOfMemory, Severity::Error, "GameWorld out of memory.");
         }
-        continue;
-      }
-
-      destroy_object_immediately(entity);
+        catch (const std::overflow_error &a_error)
+        {
+            return map_exception_message(a_error.what());
+        }
+        catch (const std::runtime_error &a_error)
+        {
+            return map_exception_message(a_error.what());
+        }
+        catch (const std::exception &)
+        {
+            return Result::fail(Code::UnknownError, Severity::Error,
+                                "GameWorld unknown exception.");
+        }
     }
 
-    m_scenes.erase(sceneIt);
-    m_ownedSceneAssets.erase(a_sceneId);
-    return true;
-  }
+    [[nodiscard]] static Result map_exception_message(std::string_view a_message) noexcept;
 
-  [[nodiscard]] bool unlink_object_from_scene(EntityId a_entityId) noexcept {
-    EntityRecord *record = try_get_entity_record(a_entityId);
-    if (record == nullptr || record->sourceSceneId == k_invalidSceneId) {
-      return false;
+    [[nodiscard]] GameObject create_object(std::string_view a_name,
+                                           std::string_view a_tag = "Default",
+                                           bool a_isPersistent = false);
+
+    [[nodiscard]] GameObject instantiate_object(const ObjectDefinition &a_object);
+
+    [[nodiscard]] LoadSceneResult load_scene(const SceneAsset &a_asset);
+
+    [[nodiscard]] LoadSceneResult load_scene(SceneId a_sceneId, const SceneAsset &a_asset);
+
+    [[nodiscard]] LoadSceneResult append_to_scene(SceneId a_sceneId,
+                                                  std::span<const ObjectDefinition> a_objects);
+
+    [[nodiscard]] GameObject append_object_to_scene(SceneId a_sceneId,
+                                                    const ObjectDefinition &a_object);
+
+    void destroy_object_internal(EntityId a_entityId) noexcept;
+
+    [[nodiscard]] bool unload_scene_internal(SceneId a_sceneId) noexcept;
+
+    void execute_deferred_deletions_internal() noexcept;
+
+    [[nodiscard]] Result execute_deferred_scene_loads();
+
+    [[nodiscard]] Result resolve_scene_path(std::string_view a_sceneName,
+                                            Core::IO::Path &a_outPath) const noexcept;
+
+    [[nodiscard]] GameObject find_object(EntityId a_entityId) noexcept;
+
+    [[nodiscard]] bool contains_object(EntityId a_entityId) const noexcept;
+
+    [[nodiscard]] bool contains_scene(SceneId a_sceneId) const noexcept;
+
+    void localize_script_entity_references(ECS::ScriptComponent &a_script,
+                                           EntityId a_sourceEntityId) const noexcept;
+
+    [[nodiscard]] EntityId localize_entity_reference(EntityId a_entityValue,
+                                                     EntityId a_sourceEntityId) const noexcept;
+
+    void resolve_script_entity_references(
+        EntityId a_entityId, const SceneInstance &a_scene,
+        const std::unordered_map<LocalObjectId, EntityId> &a_newLocalObjectToEntity) noexcept;
+
+    void resolve_component_entity_references(
+        EntityId a_entityId, const SceneInstance &a_scene,
+        const std::unordered_map<LocalObjectId, EntityId> &a_newLocalObjectToEntity) noexcept;
+
+    [[nodiscard]] std::string get_object_tag(EntityId a_entityId) const;
+
+    [[nodiscard]] std::string get_object_name(EntityId a_entityId) const;
+
+    [[nodiscard]] GameObjectProto build_object_prototype(EntityId a_entityId,
+                                                         const BaseComponent &a_base) const;
+
+    [[nodiscard]] bool is_object_persistent(EntityId a_entityId) const noexcept;
+
+    [[nodiscard]] bool is_alive(EntityId a_entityId, Generation a_generation) const noexcept;
+
+    [[nodiscard]] SceneId source_scene_id(EntityId a_entityId) const noexcept;
+
+    template <typename T> [[nodiscard]] T *get_component(EntityId a_entityId) noexcept
+    {
+        if (!contains_object(a_entityId))
+        {
+            return nullptr;
+        }
+
+        return m_ecs.get_component<T>(a_entityId);
     }
 
-    auto sceneIt = m_scenes.find(record->sourceSceneId);
-    if (sceneIt == m_scenes.end()) {
-      return false;
+    template <typename T> [[nodiscard]] const T *get_component(EntityId a_entityId) const noexcept
+    {
+        return const_cast<GameWorld *>(this)->get_component<T>(a_entityId);
     }
 
-    std::vector<EntityId> &entities = sceneIt->second.entities;
-    const auto entityIt =
-        std::find(entities.begin(), entities.end(), a_entityId);
-    if (entityIt != entities.end()) {
-      entities.erase(entityIt);
+    template <typename T, typename... Args> T &add_component(EntityId a_entityId, Args &&...a_args)
+    {
+        if (!contains_object(a_entityId))
+        {
+            throw std::runtime_error("GameWorld object is not alive.");
+        }
+
+        T *component = m_ecs.add_component<T>(a_entityId);
+        if (component == nullptr)
+        {
+            throw std::runtime_error("GameWorld failed to add component.");
+        }
+
+        *component = T{std::forward<Args>(a_args)...};
+        return *component;
     }
 
-    if (record->sourceLocalObjectId != k_invalidLocalObjectId) {
-      sceneIt->second.localObjectToEntity.erase(record->sourceLocalObjectId);
+    template <typename T> [[nodiscard]] bool has_component(EntityId a_entityId) const noexcept
+    {
+        return get_component<T>(a_entityId) != nullptr;
     }
 
-    return true;
-  }
+    [[nodiscard]] std::vector<GameObject> find_objects_by_tag(std::string_view a_tag);
 
-  [[nodiscard]] GameObject make_handle(EntityId a_entityId) noexcept {
-    EntityRecord *record = try_get_entity_record(a_entityId);
-    if (record == nullptr || !record->isAlive) {
-      return {};
-    }
+    [[nodiscard]] std::vector<GameObject> find_objects_by_name(std::string_view a_name);
 
-    return GameObject(this, a_entityId, record->generation);
-  }
+    [[nodiscard]] GameObject find_object_by_name(std::string_view a_name);
 
-  [[nodiscard]] EntityRecord *
-  try_get_entity_record(EntityId a_entityId) noexcept {
-    if (a_entityId >= m_entityRecords.size()) {
-      return nullptr;
-    }
+    [[nodiscard]] std::vector<GameObject> find_objects_by_name_series(std::string_view a_baseName);
 
-    return &m_entityRecords[a_entityId];
-  }
+    [[nodiscard]] SceneId generate_scene_id();
 
-  [[nodiscard]] const EntityRecord *
-  try_get_entity_record(EntityId a_entityId) const noexcept {
-    if (a_entityId >= m_entityRecords.size()) {
-      return nullptr;
-    }
+    [[nodiscard]] EntityId create_entity_record(SceneId a_sourceSceneId,
+                                                LocalObjectId a_localObjectId);
 
-    return &m_entityRecords[a_entityId];
-  }
+    void initialize_base_component(EntityId a_entityId, std::string_view a_name,
+                                   std::string_view a_tag, SceneId a_owningSceneId,
+                                   EntityId a_parent, bool a_isActive, bool a_isPersistent);
 
-  void add_object_to_tag_index(EntityId a_entityId, const std::string &a_tag) {
-    m_tagIndex[a_tag].insert(a_entityId);
-  }
+    [[nodiscard]] LoadSceneResult instantiate_into_scene(
+        SceneId a_sceneId, std::span<const ObjectDefinition> a_objects, const SceneAsset *a_asset);
 
-  void add_object_to_name_index(EntityId a_entityId,
-                                const std::string &a_name) {
-    m_nameIndex[a_name].insert(a_entityId);
-  }
+    void destroy_object_immediately(EntityId a_entityId) noexcept;
 
-  [[nodiscard]] std::string
-  normalize_object_name(std::string_view a_name) const {
-    if (a_name.empty()) {
-      return "GameObject";
-    }
+    [[nodiscard]] bool unload_scene_immediately(SceneId a_sceneId) noexcept;
 
-    return std::string(a_name);
-  }
+    [[nodiscard]] bool unlink_object_from_scene(EntityId a_entityId) noexcept;
 
-  [[nodiscard]] bool
-  is_name_taken(std::string_view a_name,
-                EntityId a_ignoredEntityId = k_invalidEntityId) const {
-    const auto it = m_nameIndex.find(std::string(a_name));
-    if (it == m_nameIndex.end()) {
-      return false;
-    }
+    [[nodiscard]] GameObject make_handle(EntityId a_entityId) noexcept;
 
-    for (const EntityId entity : it->second) {
-      if (entity == a_ignoredEntityId) {
-        continue;
-      }
-      if (contains_object(entity)) {
-        return true;
-      }
-    }
+    [[nodiscard]] EntityRecord *try_get_entity_record(EntityId a_entityId) noexcept;
 
-    return false;
-  }
+    [[nodiscard]] const EntityRecord *try_get_entity_record(EntityId a_entityId) const noexcept;
 
-  [[nodiscard]] std::string make_unique_object_name(
-      std::string_view a_requestedName,
-      EntityId a_ignoredEntityId = k_invalidEntityId) const {
-    const std::string baseName = normalize_object_name(a_requestedName);
-    if (!is_name_taken(baseName, a_ignoredEntityId)) {
-      return baseName;
-    }
+    void add_object_to_tag_index(EntityId a_entityId, const std::string &a_tag);
 
-    std::uint32_t suffix = 1;
-    while (true) {
-      const std::string candidate =
-          baseName + "(" + std::to_string(suffix) + ")";
-      if (!is_name_taken(candidate, a_ignoredEntityId)) {
-        return candidate;
-      }
-      ++suffix;
-    }
-  }
+    void add_object_to_name_index(EntityId a_entityId, const std::string &a_name);
 
-  [[nodiscard]] bool
-  try_get_name_series_index(const std::string &a_name,
-                            std::string_view a_baseName,
-                            std::uint32_t &a_outSeriesIndex) const {
-    if (a_name == a_baseName) {
-      a_outSeriesIndex = 0;
-      return true;
-    }
+    [[nodiscard]] std::string normalize_object_name(std::string_view a_name) const;
 
-    if (!a_name.starts_with(a_baseName) ||
-        a_name.size() <= a_baseName.size() + 2) {
-      return false;
-    }
+    [[nodiscard]] bool is_name_taken(std::string_view a_name,
+                                     EntityId a_ignoredEntityId = k_invalidEntityId) const;
 
-    if (a_name[a_baseName.size()] != '(' || a_name.back() != ')') {
-      return false;
-    }
+    [[nodiscard]] std::string make_unique_object_name(
+        std::string_view a_requestedName, EntityId a_ignoredEntityId = k_invalidEntityId) const;
 
-    const size_t digitsBegin = a_baseName.size() + 1;
-    const size_t digitsCount = a_name.size() - digitsBegin - 1;
-    if (digitsCount == 0) {
-      return false;
-    }
+    [[nodiscard]] bool try_get_name_series_index(const std::string &a_name,
+                                                 std::string_view a_baseName,
+                                                 std::uint32_t &a_outSeriesIndex) const;
 
-    std::uint32_t seriesIndex = 0;
-    for (size_t i = digitsBegin; i < a_name.size() - 1; ++i) {
-      const unsigned char ch = static_cast<unsigned char>(a_name[i]);
-      if (!std::isdigit(ch)) {
-        return false;
-      }
+    void remove_object_from_tag_index(EntityId a_entityId, const std::string &a_tag);
 
-      seriesIndex = (seriesIndex * 10u) + static_cast<std::uint32_t>(ch - '0');
-    }
+    void remove_object_from_name_index(EntityId a_entityId, const std::string &a_name);
 
-    a_outSeriesIndex = seriesIndex;
-    return true;
-  }
+    [[nodiscard]] bool find_entity_by_body(Physics::RigidBodyHandle a_body,
+                                           EntityId &a_outEntity) const noexcept;
 
-  void remove_object_from_tag_index(EntityId a_entityId,
-                                    const std::string &a_tag) {
-    const auto it = m_tagIndex.find(a_tag);
-    if (it == m_tagIndex.end()) {
-      return;
-    }
-
-    it->second.erase(a_entityId);
-    if (it->second.empty()) {
-      m_tagIndex.erase(it);
-    }
-  }
-
-  void remove_object_from_name_index(EntityId a_entityId,
-                                     const std::string &a_name) {
-    const auto it = m_nameIndex.find(a_name);
-    if (it == m_nameIndex.end()) {
-      return;
-    }
-
-    it->second.erase(a_entityId);
-    if (it->second.empty()) {
-      m_nameIndex.erase(it);
-    }
-  }
-
-  [[nodiscard]] bool find_entity_by_body(Physics::RigidBodyHandle a_body,
-                                         EntityId &a_outEntity) const noexcept {
-    a_outEntity = k_invalidEntityId;
-    if (!a_body.valid()) {
-      return false;
-    }
-
-    for (EntityId entity = 0;
-         entity < static_cast<EntityId>(m_entityRecords.size()); ++entity) {
-      if (!contains_object(entity)) {
-        continue;
-      }
-
-      const ECS::RigidBodyComponent *rigidBody =
-          get_component<ECS::RigidBodyComponent>(entity);
-      if (rigidBody != nullptr && rigidBody->body == a_body) {
-        a_outEntity = entity;
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  ECS::ECSManager m_ecs{};
-  ECS::ECSManager::SystemPipeline m_editorPipeline{};
-  ECS::ECSManager::SystemPipeline m_simulationPipeline{};
-  NavigationWorld m_navigationWorld{};
-  ECS::NavigationSystem *m_navigationSystem = nullptr;
-  NavMeshHandle m_activeNavMesh{};
-  NavMeshAssetData m_activeNavMeshAsset{};
-  std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
-  std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
-  std::unique_ptr<ShadowSystem::ShadowResources> m_shadowResources = nullptr;
-  std::unique_ptr<ParticleSystem::ParticleResources> m_particleResources =
-      nullptr;
-  std::unique_ptr<EffectSystem::EffectPrimitiveResources>
-      m_effectPrimitiveResources = nullptr;
-  AssetManager *m_assetManager = nullptr;
-  Core::IO::IFileSystem *m_fileSystem = nullptr;
-  Audio::IBackend *m_audioBackend = nullptr;
-  Physics::IPhysicsSystem *m_physicsSystem = nullptr;
-  PAL::InputManager *m_inputManager = nullptr;
-  Audio::AudioDeviceHandle m_audioDevice{};
-  DebugDrawBuffer m_debugDraw{};
-  Core::IO::Path m_assetRootPath{};
-  bool m_isCpuBatchingEnabled = false;
-  bool m_hasActiveNavMeshAsset = false;
-  DrawSystem::FontAtlasManager m_fontAtlasManager{};
-  DrawSystem::DrawScene m_drawScene{};
-  DrawSystem::DrawFrameState m_drawFrameState{};
-  ParticleSystem::ParticleScene m_particleScene{};
-  ParticleSystem::ParticleFrameState m_particleFrameState{};
-  ParticleSystem::ParticleRangeAllocator m_particleRangeAllocator{};
-  EffectSystem::EffectPrimitiveScene m_effectPrimitiveScene{};
-  EffectSystem::EffectPrimitiveFrameState m_effectPrimitiveFrameState{};
-  uint32_t m_particleTrailFrameIndex = 0;
-  LightingSystem::LightScene m_lightScene{};
-  LightingSystem::LightFrameState m_lightFrameState{};
-  ShadowSystem::ShadowScene m_shadowScene{};
-  ShadowSystem::ShadowFrameState m_shadowFrameState{};
-  MaterialHandle m_defaultMaterialHandle{};
-  std::unordered_map<SceneId, SceneInstance> m_scenes{};
-  std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};
-  std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};
-  std::unordered_map<std::string, std::unordered_set<EntityId>> m_tagIndex{};
-  std::vector<EntityRecord> m_entityRecords{};
-  // 公開 API の遅延削除要求を一時的に保持するキュー
-  std::vector<EntityId> m_pendingDestroyedEntities{};
-  std::vector<PendingSceneLoad> m_pendingLoadedScenes{};
-  std::vector<SceneId> m_pendingUnloadedScenes{};
-  SceneId m_nextSceneId = 1;
-  size_t m_liveObjectCount = 0;
-  uint32_t m_mainCameraIndex = 0;
-  uint32_t m_defaultStaticMeshId = ECS::k_invalidMeshId;
+    /// @brief Entity と Component の実体を保持する ECS。
+    ECS::ECSManager m_ecs{};
+    /// @brief Editor 更新で実行する System Pipeline。
+    ECS::ECSManager::SystemPipeline m_editorPipeline{};
+    /// @brief Runtime Simulation で実行する System Pipeline。
+    ECS::ECSManager::SystemPipeline m_simulationPipeline{};
+    /// @brief NavMesh と経路探索状態を保持する Navigation World。
+    NavigationWorld m_navigationWorld{};
+    /// @brief ECS 側 NavigationSystem への非所有ポインタ。
+    ECS::NavigationSystem *m_navigationSystem = nullptr;
+    /// @brief 現在 Simulation に使う NavMesh。
+    NavMeshHandle m_activeNavMesh{};
+    /// @brief Active NavMesh の元 AssetData。
+    NavMeshAssetData m_activeNavMeshAsset{};
+    /// @brief DrawSystem の GPU Resource 群。
+    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+    /// @brief LightingSystem の GPU Resource 群。
+    std::unique_ptr<LightingSystem::LightResources> m_lightResources = nullptr;
+    /// @brief ShadowSystem の GPU Resource 群。
+    std::unique_ptr<ShadowSystem::ShadowResources> m_shadowResources = nullptr;
+    /// @brief ParticleSystem の GPU Resource 群。
+    std::unique_ptr<ParticleSystem::ParticleResources> m_particleResources = nullptr;
+    /// @brief EffectSystem の GPU Resource 群。
+    std::unique_ptr<EffectSystem::EffectPrimitiveResources> m_effectPrimitiveResources = nullptr;
+    /// @brief Asset 解決に使う AssetManager の非所有ポインタ。
+    AssetManager *m_assetManager = nullptr;
+    /// @brief Scene/NavMesh などのファイル入出力に使う FileSystem。
+    Core::IO::IFileSystem *m_fileSystem = nullptr;
+    /// @brief AudioSource 再生に使う Audio Backend。
+    Audio::IBackend *m_audioBackend = nullptr;
+    /// @brief Physics Body と Raycast に使う PhysicsSystem。
+    Physics::IPhysicsSystem *m_physicsSystem = nullptr;
+    /// @brief 入力参照に使う InputManager。
+    PAL::InputManager *m_inputManager = nullptr;
+    /// @brief Audio Backend 上の出力 Device。
+    Audio::AudioDeviceHandle m_audioDevice{};
+    /// @brief Debug 描画要求の一時バッファ。
+    DebugDrawBuffer m_debugDraw{};
+    /// @brief Asset 相対パス解決の基準パス。
+    Core::IO::Path m_assetRootPath{};
+    /// @brief StaticMesh の CPU batching を有効にするか。
+    bool m_isCpuBatchingEnabled = false;
+    /// @brief Active NavMesh の AssetData を保持しているか。
+    bool m_hasActiveNavMeshAsset = false;
+    /// @brief Text 描画で使う FontAtlas 管理。
+    DrawSystem::FontAtlasManager m_fontAtlasManager{};
+    /// @brief DrawSystem に渡す Scene 単位の描画入力。
+    DrawSystem::DrawScene m_drawScene{};
+    /// @brief DrawSystem が出力する Frame 単位の描画状態。
+    DrawSystem::DrawFrameState m_drawFrameState{};
+    /// @brief ParticleSystem に渡す Scene 単位の入力。
+    ParticleSystem::ParticleScene m_particleScene{};
+    /// @brief ParticleSystem が出力する Frame 単位の状態。
+    ParticleSystem::ParticleFrameState m_particleFrameState{};
+    /// @brief Particle 実行時領域の範囲割り当て管理。
+    ParticleSystem::ParticleRangeAllocator m_particleRangeAllocator{};
+    /// @brief EffectSystem に渡す Scene 単位の入力。
+    EffectSystem::EffectPrimitiveScene m_effectPrimitiveScene{};
+    /// @brief EffectSystem が出力する Frame 単位の状態。
+    EffectSystem::EffectPrimitiveFrameState m_effectPrimitiveFrameState{};
+    /// @brief Particle Trail 更新用のフレームカウンタ。
+    uint32_t m_particleTrailFrameIndex = 0;
+    /// @brief LightingSystem に渡す Scene 単位の入力。
+    LightingSystem::LightScene m_lightScene{};
+    /// @brief LightingSystem が出力する Frame 単位の状態。
+    LightingSystem::LightFrameState m_lightFrameState{};
+    /// @brief ShadowSystem に渡す Scene 単位の入力。
+    ShadowSystem::ShadowScene m_shadowScene{};
+    /// @brief ShadowSystem が出力する Frame 単位の状態。
+    ShadowSystem::ShadowFrameState m_shadowFrameState{};
+    /// @brief 既定生成 Object に割り当てる Material。
+    MaterialHandle m_defaultMaterialHandle{};
+    /// @brief ロード済み Scene の実行時状態。
+    std::unordered_map<SceneId, SceneInstance> m_scenes{};
+    /// @brief ファイルから遅延ロードした SceneAsset の所有領域。
+    std::unordered_map<SceneId, std::unique_ptr<SceneAsset>> m_ownedSceneAssets{};
+    /// @brief Object 名から Entity を逆引きする索引。
+    std::unordered_map<std::string, std::unordered_set<EntityId>> m_nameIndex{};
+    /// @brief Object タグから Entity を逆引きする索引。
+    std::unordered_map<std::string, std::unordered_set<EntityId>> m_tagIndex{};
+    /// @brief EntityId ごとの生存状態と世代情報。
+    std::vector<EntityRecord> m_entityRecords{};
+    // 公開 API の遅延削除要求を一時的に保持するキュー
+    std::vector<EntityId> m_pendingDestroyedEntities{};
+    /// @brief 次回 flush 時にファイルから読み込む Scene 一覧。
+    std::vector<PendingSceneLoad> m_pendingLoadedScenes{};
+    /// @brief 次回 flush 時にアンロードする Scene 一覧。
+    std::vector<SceneId> m_pendingUnloadedScenes{};
+    /// @brief 次に発行する SceneId。
+    SceneId m_nextSceneId = 1;
+    /// @brief 現在生存している Entity 数。
+    size_t m_liveObjectCount = 0;
+    /// @brief collect_camera_entities() 内での Main Camera index。
+    uint32_t m_mainCameraIndex = 0;
+    /// @brief 既定 StaticMeshObject に使う Mesh ID。
+    uint32_t m_defaultStaticMeshId = ECS::k_invalidMeshId;
 };
 
-inline GameObject::GameObject(GameWorld *a_world, EntityId a_entityId,
-                              Generation a_generation) noexcept
-    : m_world(a_world), m_entityId(a_entityId), m_generation(a_generation) {}
+template <typename T> inline Result GameObject::get_component(T *&a_outComponent) noexcept
+{
+    if (!is_valid())
+    {
+        a_outComponent = nullptr;
+        return Result::fail(Code::InvalidState, Severity::Warning, "GameObject is not valid.");
+    }
 
-inline bool GameObject::is_valid() const noexcept {
-  if (m_world == nullptr) {
-    return false;
-  }
-
-  bool isAlive = false;
-  const Result result = m_world->is_alive(m_entityId, m_generation, isAlive);
-  return result && isAlive;
-}
-
-inline Result GameObject::name(std::string &a_outName) const {
-  if (!is_valid()) {
-    a_outName.clear();
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->get_object_name(m_entityId, a_outName);
-}
-
-inline Result GameObject::set_name(std::string_view a_name) {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->set_object_name(m_entityId, a_name);
-}
-
-inline Result GameObject::tag(std::string &a_outTag) const {
-  if (!is_valid()) {
-    a_outTag.clear();
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->get_object_tag(m_entityId, a_outTag);
-}
-
-inline Result GameObject::set_tag(std::string_view a_tag) {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->set_object_tag(m_entityId, a_tag);
-}
-
-inline Result GameObject::is_active(bool &a_outIsActive) const {
-  if (!is_valid()) {
-    a_outIsActive = false;
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->is_object_active(m_entityId, a_outIsActive);
-}
-
-inline Result GameObject::set_active(bool a_isActive) {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->set_object_active(m_entityId, a_isActive);
-}
-
-inline Result GameObject::is_persistent(bool &a_outIsPersistent) const {
-  if (!is_valid()) {
-    a_outIsPersistent = false;
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->is_object_persistent(m_entityId, a_outIsPersistent);
-}
-
-inline Result GameObject::set_persistent(bool a_isPersistent) {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->set_object_persistent(m_entityId, a_isPersistent);
-}
-
-template <typename T>
-inline Result GameObject::get_component(T *&a_outComponent) noexcept {
-  if (!is_valid()) {
-    a_outComponent = nullptr;
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->get_component<T>(m_entityId, a_outComponent);
+    return m_world->get_component<T>(m_entityId, a_outComponent);
 }
 
 template <typename T, typename... Args>
-inline Result GameObject::add_component(T *&a_outComponent, Args &&...a_args) {
-  if (!is_valid()) {
-    a_outComponent = nullptr;
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
+inline Result GameObject::add_component(T *&a_outComponent, Args &&...a_args)
+{
+    if (!is_valid())
+    {
+        a_outComponent = nullptr;
+        return Result::fail(Code::InvalidState, Severity::Warning, "GameObject is not valid.");
+    }
 
-  return m_world->add_component<T>(m_entityId, a_outComponent,
-                                   std::forward<Args>(a_args)...);
+    return m_world->add_component<T>(m_entityId, a_outComponent, std::forward<Args>(a_args)...);
 }
 
 template <typename T>
-inline Result
-GameObject::has_component(bool &a_outHasComponent) const noexcept {
-  if (!is_valid()) {
-    a_outHasComponent = false;
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
+inline Result GameObject::has_component(bool &a_outHasComponent) const noexcept
+{
+    if (!is_valid())
+    {
+        a_outHasComponent = false;
+        return Result::fail(Code::InvalidState, Severity::Warning, "GameObject is not valid.");
+    }
 
-  return m_world->has_component<T>(m_entityId, a_outHasComponent);
+    return m_world->has_component<T>(m_entityId, a_outHasComponent);
 }
 
-template <typename T> inline Result GameObject::remove_component() noexcept {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
+template <typename T> inline Result GameObject::remove_component() noexcept
+{
+    if (!is_valid())
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "GameObject is not valid.");
+    }
 
-  return m_world->remove_component<T>(m_entityId);
+    return m_world->remove_component<T>(m_entityId);
 }
 
-inline Result GameObject::destroy() noexcept {
-  if (!is_valid()) {
-    return Result::fail(Code::InvalidState, Severity::Warning,
-                        "GameObject is not valid.");
-  }
-
-  return m_world->destroy_object(m_entityId);
-}
 } // namespace Cue::GameCore
