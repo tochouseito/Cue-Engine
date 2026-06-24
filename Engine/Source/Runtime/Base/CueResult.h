@@ -90,6 +90,22 @@ namespace Cue
         // 暗黙変換禁止
         explicit Result() = default;
 
+        /// @brief bool から処理結果を構築します
+        /// @param a_success true なら成功、false なら失敗
+        /// @param a_location 呼び出し位置
+        Result(
+            bool a_success,
+            const std::source_location& a_location = std::source_location::current()
+        ) noexcept
+            : code(a_success ? Code::OK : Code::UnknownError),
+              severity(a_success ? Severity::Info : Severity::Error),
+              message(a_success ? std::string_view{} : std::string_view{ "Boolean result was false" }),
+              file(a_success ? "" : a_location.file_name()),
+              function(a_success ? "" : a_location.function_name()),
+              line(a_success ? 0 : static_cast<uint32_t>(a_location.line()))
+        {
+        }
+
         // メンバ変数
         Code code{ Code::OK };                 // 結果コード
         Severity severity{ Severity::Info };   // 結果の重大度

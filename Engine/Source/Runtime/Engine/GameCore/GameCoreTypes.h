@@ -22,4 +22,10 @@ namespace Cue::GameCore
     inline constexpr SceneId k_invalidSceneId = 0;
     inline constexpr EntityId k_invalidEntityId = static_cast<EntityId>(-1);
     inline constexpr LocalObjectId k_invalidLocalObjectId = 0;
+    
+    // ゲームオブジェクトの種類を表す列挙型
+    enum class GameObjectType : uint8_t
+    {
+        Empty = 0,          // 空のオブジェクト
+    };
 }

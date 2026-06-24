@@ -80,6 +80,17 @@ namespace Cue
             return r;
         }
 
+        if (a_info.editorPass)
+        {
+            r = RHI::create_render_target_resources(
+                *m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+                m_debugColorRenderTarget, Math::float4::from_rgba8(63, 63, 63, 255).data());
+            if (!r)
+            {
+                return r;
+            }
+        }
+
         auto* bufferManager = m_renderBackend->get_buffer_manager();
         if (bufferManager == nullptr)
         {

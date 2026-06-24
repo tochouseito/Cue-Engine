@@ -114,16 +114,17 @@ class Engine final
 
     // --- 全体共有リソース ---
     RHI::RenderTargetResources m_finalColorRenderTarget{};
+    RHI::RenderTargetResources m_debugColorRenderTarget{};
 
     // --- DrawSystem ---
     DrawSystem::DrawFrameState m_drawFrameState{};
+    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+    std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;
     uint32_t m_maxObjectCount = 0;
     uint32_t m_maxCellCount = 0;
-    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
-    std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
 
     // --- 定数 ---
     const uint32_t k_maxObjectCount = 50000;
