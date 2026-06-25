@@ -11,6 +11,9 @@
 // === Math includes ===
 #include <CueMath.h>
 
+// === C++ includes ===
+#include <limits>
+
 namespace Cue::GameCore
 {
     Result GameWorldRenderExtractor::extract_static_mesh_draw_scene(GameWorld& a_world,
@@ -75,6 +78,21 @@ namespace Cue::GameCore
                     return;
                 }
 
+                ECS::RenderableInfoComponent* renderableInfoComponent = nullptr;
+                result = a_world.get_component<ECS::RenderableInfoComponent>(a_entityId, renderableInfoComponent);
+                if (!result)
+                {
+                    extractResult = result;
+                    return;
+                }
+
+                if (a_outScene.object_count() >= (std::numeric_limits<uint32_t>::max)())
+                {
+                    extractResult = Result::fail(Code::InvalidState, Severity::Error,
+                                                 "DrawScene object count exceeds renderable ID range.");
+                    return;
+                }
+
                 const uint32_t objectId = static_cast<uint32_t>(a_outScene.object_count());
                 const uint32_t transformId = objectId;
 
@@ -96,6 +114,13 @@ namespace Cue::GameCore
                 const GpuData::ObjectTransformGpu transform = make_object_transform(*worldTransform);
 
                 extractResult = a_outScene.add_static_mesh_object(drawObject, renderableInfo, transform);
+                if (!extractResult)
+                {
+                    return;
+                }
+
+                renderableInfoComponent->objectId = objectId;
+                renderableInfoComponent->transformId = transformId;
             });
 
         if (!eachResult)

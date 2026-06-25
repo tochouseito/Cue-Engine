@@ -33,7 +33,7 @@ namespace Cue::DrawSystem
                                              const GpuData::RenderableInfo& a_renderableInfo,
                                              const GpuData::ObjectTransformGpu& a_transform)
     {
-        // 3 つの配列は同じ index で対応するため、途中失敗時は追加前の状態へ戻す。
+        // 3 つの配列は同じ index で対応するため、追加は全配列で原子的に扱う。
         const size_t oldObjectCount = m_staticMeshObjects.size();
         const size_t oldRenderableInfoCount = m_renderableInfos.size();
         const size_t oldTransformCount = m_transforms.size();

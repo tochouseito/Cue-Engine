@@ -1,9 +1,40 @@
 #include "DrawResources.h"
 
+// === Engine includes ===
+#include "DrawFrameState.h"
+#include "DrawScene.h"
+
+// === C++ includes ===
+#include <limits>
+
 namespace Cue::DrawSystem
 {
-    Result DrawResources::create_renderable_info_buffer(
-        const uint32_t a_maxObjectCount)
+    namespace
+    {
+        template <typename T>
+        Result upload_slots(RHI::SlotUploader<T>& a_uploader, const std::vector<T>& a_values,
+                            const char* a_errorMessage)
+        {
+            a_uploader.begin_frame();
+
+            for (uint32_t slotIndex = 0; slotIndex < static_cast<uint32_t>(a_values.size()); ++slotIndex)
+            {
+                if (!a_uploader.push(slotIndex, a_values[slotIndex]))
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error, a_errorMessage);
+                }
+            }
+
+            if (!a_uploader.commit())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error, a_errorMessage);
+            }
+
+            return Result::ok();
+        }
+    } // namespace
+
+    Result DrawResources::create_renderable_info_buffer(const uint32_t a_maxObjectCount)
     {
         // RenderableInfoBuffer の設定
         // - 各描画対象の mesh/material/transform 参照情報を GPU から読む structured buffer として作成する
@@ -15,17 +46,14 @@ namespace Cue::DrawSystem
         renderableInfoBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         renderableInfoBufferDesc.stride = sizeof(GpuData::RenderableInfo);
         renderableInfoBufferDesc.elementCount = a_maxObjectCount;
-        renderableInfoBufferDesc.size =
-            renderableInfoBufferDesc.stride *
-            renderableInfoBufferDesc.elementCount;
+        renderableInfoBufferDesc.size = renderableInfoBufferDesc.stride * renderableInfoBufferDesc.elementCount;
         renderableInfoBufferDesc.alignment = alignof(GpuData::RenderableInfo);
 
         // RenderableInfoBuffer の作成
         // - handle は DrawResourceType の添字で保持し、後続 pass から取得できるようにする
         RHI::BufferHandle& renderableInfoBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)];
-        Result result = m_bufferManager->create_buffer(
-            renderableInfoBufferDesc, renderableInfoBufferHandle);
+        Result result = m_bufferManager->create_buffer(renderableInfoBufferDesc, renderableInfoBufferHandle);
         if (!result)
         {
             return result;
@@ -34,18 +62,15 @@ namespace Cue::DrawSystem
         // RenderableInfoBuffer の uploader 作成
         // - フレームごとに CPU から更新できるよう、bufferCount 分の SlotUploader を作る
         result = m_bufferManager->create_slot_uploaders(
-            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)],
-            m_bufferCount, m_renderableInfoUploaders);
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)], m_bufferCount,
+            m_renderableInfoUploaders);
         if (!result)
         {
             return result;
         }
         if (m_renderableInfoUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "RenderableInfoBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "RenderableInfoBuffer uploader was not created.");
         }
 
         // RenderableInfoBuffer の SRV 作成
@@ -56,21 +81,19 @@ namespace Cue::DrawSystem
         renderableInfoBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
         renderableInfoBufferSrvDesc.bufferHandle = renderableInfoBufferHandle;
         renderableInfoBufferSrvDesc.firstElement = 0;
-        renderableInfoBufferSrvDesc.numElements =
-            renderableInfoBufferDesc.elementCount;
-        renderableInfoBufferSrvDesc.structureByteStride =
-            renderableInfoBufferDesc.stride;
+        renderableInfoBufferSrvDesc.numElements = renderableInfoBufferDesc.elementCount;
+        renderableInfoBufferSrvDesc.structureByteStride = renderableInfoBufferDesc.stride;
 
         // ビューの作成
         RHI::ViewHandle& renderableInfoBufferSrvHandle =
             m_viewHandles[static_cast<size_t>(DrawResourceType::RenderableInfoBuffer)];
-        result = m_viewManager->create_view(renderableInfoBufferSrvDesc,
-            renderableInfoBufferSrvHandle);
+        result = m_viewManager->create_view(renderableInfoBufferSrvDesc, renderableInfoBufferSrvHandle);
         if (!result)
         {
             return result;
         }
 
+        m_maxRenderableInfoCount = a_maxObjectCount;
         return Result::ok();
     }
 
@@ -86,8 +109,7 @@ namespace Cue::DrawSystem
         transformBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         transformBufferDesc.stride = sizeof(GpuData::ObjectTransformGpu);
         transformBufferDesc.elementCount = a_maxObjectCount;
-        transformBufferDesc.size =
-            transformBufferDesc.stride * transformBufferDesc.elementCount;
+        transformBufferDesc.size = transformBufferDesc.stride * transformBufferDesc.elementCount;
         transformBufferDesc.alignment = alignof(GpuData::ObjectTransformGpu);
         RHI::BufferHandle& transformBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::TransformBuffer)];
@@ -102,16 +124,14 @@ namespace Cue::DrawSystem
 
         // TransformBuffer の uploader 作成
         // - transform はフレームごとに変わるため、各 frame resource 用の uploader を用意する
-        result = m_bufferManager->create_slot_uploaders(
-            transformBufferHandle, m_bufferCount, m_transformUploaders);
+        result = m_bufferManager->create_slot_uploaders(transformBufferHandle, m_bufferCount, m_transformUploaders);
         if (!result)
         {
             return result;
         }
         if (m_transformUploaders.size() != m_bufferCount)
         {
-            return Result::fail(Code::InternalError, Severity::Fatal,
-                "TransformBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "TransformBuffer uploader was not created.");
         }
 
         // TransformBuffer の SRV 作成
@@ -128,13 +148,70 @@ namespace Cue::DrawSystem
         // ビューの作成
         RHI::ViewHandle& transformBufferSrvHandle =
             m_viewHandles[static_cast<size_t>(DrawResourceType::TransformBuffer)];
-        result = m_viewManager->create_view(transformBufferSrvDesc,
-            transformBufferSrvHandle);
+        result = m_viewManager->create_view(transformBufferSrvDesc, transformBufferSrvHandle);
         if (!result)
         {
             return result;
         }
 
+        m_maxTransformCount = a_maxObjectCount;
+        return Result::ok();
+    }
+
+    Result DrawResources::upload_draw_scene(uint32_t a_bufferIndex, const DrawScene& a_scene,
+                                            DrawFrameData& a_frameData)
+    {
+        a_frameData.objectCount = 0;
+
+        if (a_bufferIndex >= m_bufferCount)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "DrawResources buffer index is out of range.");
+        }
+
+        if (m_renderableInfoUploaders.size() != m_bufferCount || m_transformUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "DrawResources uploaders are not initialized.");
+        }
+
+        const size_t objectCount = a_scene.object_count();
+        const std::vector<GpuData::RenderableInfo>& renderableInfos = a_scene.renderable_infos();
+        const std::vector<GpuData::ObjectTransformGpu>& transforms = a_scene.transforms();
+
+        // DrawScene は 3 つの配列を同じ index で対応させる契約。
+        if (renderableInfos.size() != objectCount || transforms.size() != objectCount)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "DrawScene arrays are not aligned.");
+        }
+
+        if (objectCount > m_maxRenderableInfoCount)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "RenderableInfoBuffer capacity is too small.");
+        }
+
+        if (objectCount > m_maxTransformCount)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "TransformBuffer capacity is too small.");
+        }
+
+        if (objectCount > (std::numeric_limits<uint32_t>::max)())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "DrawScene object count exceeds uint32_t range.");
+        }
+
+        Result result = upload_slots(m_renderableInfoUploaders[a_bufferIndex], renderableInfos,
+                                     "Failed to upload RenderableInfoBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        result = upload_slots(m_transformUploaders[a_bufferIndex], transforms, "Failed to upload TransformBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        a_frameData.objectCount = static_cast<uint32_t>(objectCount);
         return Result::ok();
     }
 
@@ -152,33 +229,28 @@ namespace Cue::DrawSystem
         viewProjectionBufferDesc.initialState = RHI::ResourceState::Common;
         viewProjectionBufferDesc.stride = sizeof(GpuData::ViewProjectionGpu);
         viewProjectionBufferDesc.elementCount = 1;
-        viewProjectionBufferDesc.size =
-            viewProjectionBufferDesc.stride * viewProjectionBufferDesc.elementCount;
+        viewProjectionBufferDesc.size = viewProjectionBufferDesc.stride * viewProjectionBufferDesc.elementCount;
         viewProjectionBufferDesc.alignment = k_constantBufferAlignment;
 
         RHI::BufferHandle& viewProjectionBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::ViewProjectionBuffer)];
         // - 描画 pass から CBV として bind できる buffer handle を保存する
-        Result result = m_bufferManager->create_buffer(
-            viewProjectionBufferDesc, viewProjectionBufferHandle);
+        Result result = m_bufferManager->create_buffer(viewProjectionBufferDesc, viewProjectionBufferHandle);
         if (!result)
         {
             return result;
         }
 
         // - カメラ行列もフレームごとに更新するため、frame resource 数分の uploader を作る
-        result = m_bufferManager->create_slot_uploaders(
-            viewProjectionBufferHandle, m_bufferCount, m_viewProjectionUploaders);
+        result = m_bufferManager->create_slot_uploaders(viewProjectionBufferHandle, m_bufferCount,
+                                                        m_viewProjectionUploaders);
         if (!result)
         {
             return result;
         }
         if (m_viewProjectionUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "ViewProjectionBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "ViewProjectionBuffer uploader was not created.");
         }
 
         return Result::ok();
@@ -195,33 +267,27 @@ namespace Cue::DrawSystem
         materialBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         materialBufferDesc.stride = sizeof(GpuData::MaterialGpu);
         materialBufferDesc.elementCount = a_maxMaterialCount;
-        materialBufferDesc.size =
-            materialBufferDesc.stride * materialBufferDesc.elementCount;
+        materialBufferDesc.size = materialBufferDesc.stride * materialBufferDesc.elementCount;
         materialBufferDesc.alignment = alignof(GpuData::MaterialGpu);
 
         RHI::BufferHandle& materialBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
         // - Material buffer の GPU 実体を作成し、共通 handle 配列へ格納する
-        Result result = m_bufferManager->create_buffer(
-            materialBufferDesc, materialBufferHandle);
+        Result result = m_bufferManager->create_buffer(materialBufferDesc, materialBufferHandle);
         if (!result)
         {
             return result;
         }
 
         // - MaterialGpu の更新用 uploader を frame resource 数分作る
-        result = m_bufferManager->create_slot_uploaders(
-            materialBufferHandle, m_bufferCount, m_materialUploaders);
+        result = m_bufferManager->create_slot_uploaders(materialBufferHandle, m_bufferCount, m_materialUploaders);
         if (!result)
         {
             return result;
         }
         if (m_materialUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "MaterialBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "MaterialBuffer uploader was not created.");
         }
 
         // - pixel shader などから materialId で読むための SRV を作成する
@@ -234,10 +300,8 @@ namespace Cue::DrawSystem
         materialBufferSrvDesc.numElements = materialBufferDesc.elementCount;
         materialBufferSrvDesc.structureByteStride = materialBufferDesc.stride;
 
-        RHI::ViewHandle& materialBufferSrvHandle =
-            m_viewHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
-        result = m_viewManager->create_view(
-            materialBufferSrvDesc, materialBufferSrvHandle);
+        RHI::ViewHandle& materialBufferSrvHandle = m_viewHandles[static_cast<size_t>(DrawResourceType::MaterialBuffer)];
+        result = m_viewManager->create_view(materialBufferSrvDesc, materialBufferSrvHandle);
         if (!result)
         {
             return result;
@@ -257,33 +321,27 @@ namespace Cue::DrawSystem
         renderCellBufferDesc.initialState = RHI::ResourceState::ShaderResource;
         renderCellBufferDesc.stride = sizeof(GpuData::RenderCellGpu);
         renderCellBufferDesc.elementCount = a_maxCellCount;
-        renderCellBufferDesc.size =
-            renderCellBufferDesc.stride * renderCellBufferDesc.elementCount;
+        renderCellBufferDesc.size = renderCellBufferDesc.stride * renderCellBufferDesc.elementCount;
         renderCellBufferDesc.alignment = alignof(GpuData::RenderCellGpu);
 
         RHI::BufferHandle& renderCellBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderCellBuffer)];
         // - Cell culling pass が参照する RenderCell buffer handle を保存する
-        Result result = m_bufferManager->create_buffer(
-            renderCellBufferDesc, renderCellBufferHandle);
+        Result result = m_bufferManager->create_buffer(renderCellBufferDesc, renderCellBufferHandle);
         if (!result)
         {
             return result;
         }
 
         // - セル情報は scene setup 後にアップロードされるため、更新用 uploader を用意する
-        result = m_bufferManager->create_slot_uploaders(
-            renderCellBufferHandle, m_bufferCount, m_renderCellUploaders);
+        result = m_bufferManager->create_slot_uploaders(renderCellBufferHandle, m_bufferCount, m_renderCellUploaders);
         if (!result)
         {
             return result;
         }
         if (m_renderCellUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "RenderCellBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "RenderCellBuffer uploader was not created.");
         }
 
         // - compute shader から cellIndex で RenderCellGpu を読むための SRV を作る
@@ -293,15 +351,12 @@ namespace Cue::DrawSystem
         renderCellBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
         renderCellBufferSrvDesc.bufferHandle = renderCellBufferHandle;
         renderCellBufferSrvDesc.firstElement = 0;
-        renderCellBufferSrvDesc.numElements =
-            renderCellBufferDesc.elementCount;
-        renderCellBufferSrvDesc.structureByteStride =
-            renderCellBufferDesc.stride;
+        renderCellBufferSrvDesc.numElements = renderCellBufferDesc.elementCount;
+        renderCellBufferSrvDesc.structureByteStride = renderCellBufferDesc.stride;
 
         RHI::ViewHandle& renderCellBufferSrvHandle =
             m_viewHandles[static_cast<size_t>(DrawResourceType::RenderCellBuffer)];
-        result = m_viewManager->create_view(
-            renderCellBufferSrvDesc, renderCellBufferSrvHandle);
+        result = m_viewManager->create_view(renderCellBufferSrvDesc, renderCellBufferSrvHandle);
         if (!result)
         {
             return result;
@@ -322,34 +377,29 @@ namespace Cue::DrawSystem
         renderObjectBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
         renderObjectBufferDesc.stride = sizeof(GpuData::RenderObject);
         renderObjectBufferDesc.elementCount = a_maxObjectCount;
-        renderObjectBufferDesc.size =
-            renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
+        renderObjectBufferDesc.size = renderObjectBufferDesc.stride * renderObjectBufferDesc.elementCount;
         renderObjectBufferDesc.alignment = alignof(GpuData::RenderObject);
 
         // RenderObjectBuffer の作成
         // - 後続の batching / forward pass が参照する output buffer handle を保存する
         RHI::BufferHandle& renderObjectBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::RenderObjectBuffer)];
-        Result result = m_bufferManager->create_buffer(renderObjectBufferDesc,
-            renderObjectBufferHandle);
+        Result result = m_bufferManager->create_buffer(renderObjectBufferDesc, renderObjectBufferHandle);
         if (!result)
         {
             return result;
         }
 
         // - CPU から初期化や debug 用更新ができるよう uploader も作成しておく
-        result = m_bufferManager->create_slot_uploaders(
-            renderObjectBufferHandle, m_bufferCount, m_renderObjectUploaders);
+        result =
+            m_bufferManager->create_slot_uploaders(renderObjectBufferHandle, m_bufferCount, m_renderObjectUploaders);
         if (!result)
         {
             return result;
         }
         if (m_renderObjectUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "RenderObjectBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal, "RenderObjectBuffer uploader was not created.");
         }
 
         // RenderObjectBuffer の UAV 作成
@@ -366,8 +416,7 @@ namespace Cue::DrawSystem
         // ビューの作成
         RHI::ViewHandle& renderObjectBufferUavHandle =
             m_viewHandles[static_cast<size_t>(DrawResourceType::RenderObjectBuffer)];
-        result = m_viewManager->create_view(renderObjectBufferUavDesc,
-            renderObjectBufferUavHandle);
+        result = m_viewManager->create_view(renderObjectBufferUavDesc, renderObjectBufferUavHandle);
         if (!result)
         {
             return result;
@@ -385,8 +434,7 @@ namespace Cue::DrawSystem
         renderObjectCountBufferDesc.type = RHI::BufferType::Raw;
         renderObjectCountBufferDesc.defaultHeapCount = 1;
         renderObjectCountBufferDesc.uploadHeapCount = m_bufferCount;
-        renderObjectCountBufferDesc.initialState =
-            RHI::ResourceState::UnorderedAccess;
+        renderObjectCountBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
         renderObjectCountBufferDesc.stride = sizeof(uint32_t);
         renderObjectCountBufferDesc.elementCount = 1;
         renderObjectCountBufferDesc.size = sizeof(uint32_t);
@@ -396,26 +444,23 @@ namespace Cue::DrawSystem
         // - RenderObjectBuffer への書き込み数を共有する counter buffer handle を保存する
         RHI::BufferHandle& renderObjectCountBufferHandle =
             m_bufferHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
-        Result result = m_bufferManager->create_buffer(renderObjectCountBufferDesc,
-            renderObjectCountBufferHandle);
+        Result result = m_bufferManager->create_buffer(renderObjectCountBufferDesc, renderObjectCountBufferHandle);
         if (!result)
         {
             return result;
         }
 
         // - フレーム開始時の初期値アップロードなどに使う uploader を作成する
-        result = m_bufferManager->create_slot_uploaders(
-            renderObjectCountBufferHandle, m_bufferCount, m_visibleObjectCountUploaders);
+        result = m_bufferManager->create_slot_uploaders(renderObjectCountBufferHandle, m_bufferCount,
+                                                        m_visibleObjectCountUploaders);
         if (!result)
         {
             return result;
         }
         if (m_visibleObjectCountUploaders.size() != m_bufferCount)
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Fatal,
-                "VisibleObjectCountBuffer uploader was not created.");
+            return Result::fail(Code::InternalError, Severity::Fatal,
+                                "VisibleObjectCountBuffer uploader was not created.");
         }
 
         // ObjectCountBuffer の UAV 作成
@@ -426,14 +471,12 @@ namespace Cue::DrawSystem
         renderObjectCountBufferUavDesc.bufferKind = RHI::BufferKind::Buffer;
         renderObjectCountBufferUavDesc.bufferHandle = renderObjectCountBufferHandle;
         renderObjectCountBufferUavDesc.firstElement = 0;
-        renderObjectCountBufferUavDesc.numElements =
-            renderObjectCountBufferDesc.size / sizeof(uint32_t);
+        renderObjectCountBufferUavDesc.numElements = renderObjectCountBufferDesc.size / sizeof(uint32_t);
 
         // ビューの作成
         RHI::ViewHandle& renderObjectCountBufferUavHandle =
             m_viewHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
-        result = m_viewManager->create_view(renderObjectCountBufferUavDesc,
-            renderObjectCountBufferUavHandle);
+        result = m_viewManager->create_view(renderObjectCountBufferUavDesc, renderObjectCountBufferUavHandle);
         if (!result)
         {
             return result;
@@ -441,4 +484,4 @@ namespace Cue::DrawSystem
 
         return Result::ok();
     }
-}
+} // namespace Cue::DrawSystem

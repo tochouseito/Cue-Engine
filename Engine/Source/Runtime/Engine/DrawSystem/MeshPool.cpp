@@ -11,20 +11,17 @@ namespace Cue::DrawSystem
 {
     namespace
     {
-        [[nodiscard]] bool allocate_from_free_ranges(
-            std::vector<FreeRange>& freeRanges,
-            uint64_t byteSize,
-            uint32_t alignment,
-            uint64_t& outOffset) noexcept
+        [[nodiscard]] bool allocate_from_free_ranges(std::vector<FreeRange>& freeRanges, uint64_t byteSize,
+                                                     uint32_t alignment, uint64_t& outOffset) noexcept
         {
             // - free-list を先頭から走査し、alignment を満たす最初の範囲を探す
             outOffset = 0;
             for (size_t i = 0; i < freeRanges.size(); ++i)
             {
                 const FreeRange freeRange = freeRanges[i];
-                const uint64_t alignedOffset = alignment <= 1
-                    ? freeRange.byteOffset
-                    : Math::round_up_to_multiple(freeRange.byteOffset, static_cast<uint64_t>(alignment));
+                const uint64_t alignedOffset =
+                    alignment <= 1 ? freeRange.byteOffset
+                                   : Math::round_up_to_multiple(freeRange.byteOffset, static_cast<uint64_t>(alignment));
                 const uint64_t prefixBytes = alignedOffset - freeRange.byteOffset;
                 if (prefixBytes + byteSize > freeRange.byteSize)
                 {
@@ -38,9 +35,8 @@ namespace Cue::DrawSystem
                 if (prefixBytes > 0 && suffixBytes > 0)
                 {
                     freeRanges[i].byteSize = prefixBytes;
-                    freeRanges.insert(
-                        freeRanges.begin() + static_cast<std::ptrdiff_t>(i + 1),
-                        FreeRange{ suffixOffset, suffixBytes });
+                    freeRanges.insert(freeRanges.begin() + static_cast<std::ptrdiff_t>(i + 1),
+                                      FreeRange{suffixOffset, suffixBytes});
                 }
                 else if (prefixBytes > 0)
                 {
@@ -63,10 +59,7 @@ namespace Cue::DrawSystem
             return false;
         }
 
-        void release_to_free_ranges(
-            std::vector<FreeRange>& freeRanges,
-            uint64_t byteOffset,
-            uint64_t byteSize) noexcept
+        void release_to_free_ranges(std::vector<FreeRange>& freeRanges, uint64_t byteOffset, uint64_t byteSize) noexcept
         {
             // - 0 byte の解放は free-list を変更しない
             if (byteSize == 0)
@@ -80,7 +73,7 @@ namespace Cue::DrawSystem
             {
                 ++insertIt;
             }
-            insertIt = freeRanges.insert(insertIt, FreeRange{ byteOffset, byteSize });
+            insertIt = freeRanges.insert(insertIt, FreeRange{byteOffset, byteSize});
 
             if (insertIt != freeRanges.begin())
             {
@@ -104,15 +97,13 @@ namespace Cue::DrawSystem
             }
         }
 
-        template<typename T>
-        [[nodiscard]] uint64_t byte_size_of(const std::vector<T>& values) noexcept
+        template <typename T> [[nodiscard]] uint64_t byte_size_of(const std::vector<T>& values) noexcept
         {
             // - vector の要素数を byte 数に変換する
             return static_cast<uint64_t>(values.size()) * static_cast<uint64_t>(sizeof(T));
         }
 
-        [[nodiscard]] MeshBounds calculate_bounds(
-            const std::vector<Math::float4>& positions) noexcept
+        [[nodiscard]] MeshBounds calculate_bounds(const std::vector<Math::float4>& positions) noexcept
         {
             MeshBounds bounds{};
             if (positions.empty())
@@ -122,10 +113,7 @@ namespace Cue::DrawSystem
             }
 
             // - 全頂点を走査してローカル空間の AABB を求める
-            Math::float3 minPosition(
-                positions[0].x,
-                positions[0].y,
-                positions[0].z);
+            Math::float3 minPosition(positions[0].x, positions[0].y, positions[0].z);
             Math::float3 maxPosition = minPosition;
             for (const Math::float4& position : positions)
             {
@@ -142,27 +130,153 @@ namespace Cue::DrawSystem
             float radiusSq = 0.0f;
             for (const Math::float4& position : positions)
             {
-                const Math::float3 delta(
-                    position.x - bounds.center.x,
-                    position.y - bounds.center.y,
-                    position.z - bounds.center.z);
+                const Math::float3 delta(position.x - bounds.center.x, position.y - bounds.center.y,
+                                         position.z - bounds.center.z);
                 radiusSq = (std::max)(radiusSq, delta.dot(delta));
             }
             bounds.radius = std::sqrt(radiusSq);
             return bounds;
         }
-    }
 
-    MeshPool::MeshPool(
-        const MeshPoolDesc& desc,
-        RHI::IBufferManager& bufferManager,
-        RHI::IViewManager& viewManager,
-        RHI::ICommandPool& commandPool,
-        RHI::IQueuePool& queuePool)
-        : m_bufferManager(bufferManager)
-        , m_viewManager(viewManager)
-        , m_commandPool(commandPool)
-        , m_queuePool(queuePool)
+        [[nodiscard]] Core::Native::MeshData create_static_cube_mesh_data()
+        {
+            // 面ごとに頂点を分け、各面が独立した法線と UV を持てるようにする。
+            Core::Native::MeshData meshData{};
+            meshData.name = "StaticCube";
+
+            constexpr float k_halfExtent = 0.5f; // 原点中心で一辺 1 にするための半径
+            constexpr float k_positionW = 1.0f; // position stream へ書き込む同次座標の w
+
+            meshData.positions =
+            {
+                // 前面
+                Math::float4(-k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+
+                // 背面
+                Math::float4(k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+
+                // 左面
+                Math::float4(-k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+
+                // 右面
+                Math::float4(k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+
+                // 上面
+                Math::float4(-k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, k_halfExtent, -k_halfExtent, k_positionW),
+
+                // 下面
+                Math::float4(-k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, -k_halfExtent, -k_halfExtent, k_positionW),
+                Math::float4(k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW),
+                Math::float4(-k_halfExtent, -k_halfExtent, k_halfExtent, k_positionW)
+            };
+
+            // 各面は同じ UV パターンを使い、面単位の確認テクスチャに対応する。
+            meshData.uvs =
+            {
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f),
+
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f),
+
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f),
+
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f),
+
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f),
+
+                Math::float2(0.0f, 1.0f),
+                Math::float2(1.0f, 1.0f),
+                Math::float2(1.0f, 0.0f),
+                Math::float2(0.0f, 0.0f)
+            };
+
+            meshData.normals =
+            {
+                // 前面
+                Math::float3(0.0f, 0.0f, 1.0f),
+                Math::float3(0.0f, 0.0f, 1.0f),
+                Math::float3(0.0f, 0.0f, 1.0f),
+                Math::float3(0.0f, 0.0f, 1.0f),
+
+                // 背面
+                Math::float3(0.0f, 0.0f, -1.0f),
+                Math::float3(0.0f, 0.0f, -1.0f),
+                Math::float3(0.0f, 0.0f, -1.0f),
+                Math::float3(0.0f, 0.0f, -1.0f),
+
+                // 左面
+                Math::float3(-1.0f, 0.0f, 0.0f),
+                Math::float3(-1.0f, 0.0f, 0.0f),
+                Math::float3(-1.0f, 0.0f, 0.0f),
+                Math::float3(-1.0f, 0.0f, 0.0f),
+
+                // 右面
+                Math::float3(1.0f, 0.0f, 0.0f),
+                Math::float3(1.0f, 0.0f, 0.0f),
+                Math::float3(1.0f, 0.0f, 0.0f),
+                Math::float3(1.0f, 0.0f, 0.0f),
+
+                // 上面
+                Math::float3(0.0f, 1.0f, 0.0f),
+                Math::float3(0.0f, 1.0f, 0.0f),
+                Math::float3(0.0f, 1.0f, 0.0f),
+                Math::float3(0.0f, 1.0f, 0.0f),
+
+                // 下面
+                Math::float3(0.0f, -1.0f, 0.0f),
+                Math::float3(0.0f, -1.0f, 0.0f),
+                Math::float3(0.0f, -1.0f, 0.0f),
+                Math::float3(0.0f, -1.0f, 0.0f)
+            };
+
+            // 左手系の正面向き winding に合わせ、各面を 2 三角形で構成する。
+            meshData.indices =
+            {
+                0, 1, 2, 0, 2, 3,
+                4, 5, 6, 4, 6, 7,
+                8, 9, 10, 8, 10, 11,
+                12, 13, 14, 12, 14, 15,
+                16, 17, 18, 16, 18, 19,
+                20, 21, 22, 20, 22, 23
+            };
+
+            return meshData;
+        }
+    } // namespace
+
+    MeshPool::MeshPool(const MeshPoolDesc& desc, RHI::IBufferManager& bufferManager, RHI::IViewManager& viewManager,
+                       RHI::ICommandPool& commandPool, RHI::IQueuePool& queuePool)
+        : m_bufferManager(bufferManager), m_viewManager(viewManager), m_commandPool(commandPool), m_queuePool(queuePool)
     {
         // - コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh で検査できるようにする
         m_initResult = initialize_streams(desc);
@@ -206,57 +320,34 @@ namespace Cue::DrawSystem
     Result MeshPool::initialize_streams(const MeshPoolDesc& desc)
     {
         // - 各ストリームごとの総容量を確定し、永続 default と小さい常設 staging を作る
-        Result result = create_stream_state(
-            desc.positionName,
-            BufferType::Vertex,
-            static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float4),
-            desc.positionStagingSize,
-            sizeof(Math::float4),
-            desc.maxVertexCount,
-            alignof(Math::float4),
-            m_positionStream);
+        Result result = create_stream_state(desc.positionName, BufferType::Vertex,
+                                            static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float4),
+                                            desc.positionStagingSize, sizeof(Math::float4), desc.maxVertexCount,
+                                            alignof(Math::float4), m_positionStream);
         if (!result)
         {
             return result;
         }
 
         result = create_stream_state(
-            desc.uvName,
-            BufferType::Vertex,
-            static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float2),
-            desc.uvStagingSize,
-            sizeof(Math::float2),
-            desc.maxVertexCount,
-            alignof(Math::float2),
-            m_uvStream);
+            desc.uvName, BufferType::Vertex, static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float2),
+            desc.uvStagingSize, sizeof(Math::float2), desc.maxVertexCount, alignof(Math::float2), m_uvStream);
         if (!result)
         {
             return result;
         }
 
         result = create_stream_state(
-            desc.normalName,
-            BufferType::Vertex,
-            static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float3),
-            desc.normalStagingSize,
-            sizeof(Math::float3),
-            desc.maxVertexCount,
-            alignof(Math::float3),
-            m_normalStream);
+            desc.normalName, BufferType::Vertex, static_cast<uint64_t>(desc.maxVertexCount) * sizeof(Math::float3),
+            desc.normalStagingSize, sizeof(Math::float3), desc.maxVertexCount, alignof(Math::float3), m_normalStream);
         if (!result)
         {
             return result;
         }
 
         result = create_stream_state(
-            desc.indexName,
-            BufferType::Index,
-            static_cast<uint64_t>(desc.maxIndexCount) * sizeof(uint32_t),
-            desc.indexStagingSize,
-            sizeof(uint32_t),
-            desc.maxIndexCount,
-            alignof(uint32_t),
-            m_indexStream);
+            desc.indexName, BufferType::Index, static_cast<uint64_t>(desc.maxIndexCount) * sizeof(uint32_t),
+            desc.indexStagingSize, sizeof(uint32_t), desc.maxIndexCount, alignof(uint32_t), m_indexStream);
         if (!result)
         {
             return result;
@@ -289,15 +380,10 @@ namespace Cue::DrawSystem
 
         // - 通常更新用の staging は最大容量以下に抑え、大きな初期化は一時 upload に退避できるようにする
         const uint64_t totalBytes = static_cast<uint64_t>(defaultDesc.size);
-        const uint64_t stagingBytes = (std::min)(
-            totalBytes,
-            static_cast<uint64_t>(desc.meshRangeStagingCount) * sizeof(MeshRange));
-        result = create_upload_buffer(
-            m_meshRangeState.debugName + ".Staging",
-            BufferType::Structured,
-            stagingBytes,
-            m_meshRangeState.stagingBufferHandle,
-            m_meshRangeState.mappedStagingData);
+        const uint64_t stagingBytes =
+            (std::min)(totalBytes, static_cast<uint64_t>(desc.meshRangeStagingCount) * sizeof(MeshRange));
+        result = create_upload_buffer(m_meshRangeState.debugName + ".Staging", BufferType::Structured, stagingBytes,
+                                      m_meshRangeState.stagingBufferHandle, m_meshRangeState.mappedStagingData);
         if (!result)
         {
             m_bufferManager.destroy_buffer(m_meshRangeState.defaultBufferHandle);
@@ -333,11 +419,7 @@ namespace Cue::DrawSystem
 
         // - 未登録 meshId が参照されても描画されないよう、MeshRange buffer をゼロ初期化する
         UploadAllocation initializeUpload{};
-        result = allocate_upload_range(
-            m_meshRangeState,
-            totalBytes,
-            alignof(MeshRange),
-            initializeUpload);
+        result = allocate_upload_range(m_meshRangeState, totalBytes, alignof(MeshRange), initializeUpload);
         if (!result)
         {
             return result;
@@ -354,7 +436,7 @@ namespace Cue::DrawSystem
         initializeRegion.dstDefaultResourceIndex = 0;
         initializeRegion.dstByteOffset = 0;
         initializeRegion.byteSize = totalBytes;
-        std::vector<BufferCopyRegion> initializeRegions{ initializeRegion };
+        std::vector<BufferCopyRegion> initializeRegions{initializeRegion};
         result = copy_upload_regions(initializeRegions);
         release_upload_range(m_meshRangeState, initializeUpload);
         if (!result)
@@ -365,15 +447,9 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
-    Result MeshPool::create_stream_state(
-        std::string_view bufferName,
-        BufferType bufferType,
-        uint64_t totalBytes,
-        uint64_t stagingBytes,
-        uint32_t stride,
-        uint32_t elementCount,
-        uint32_t alignment,
-        StreamState& outStreamState)
+    Result MeshPool::create_stream_state(std::string_view bufferName, BufferType bufferType, uint64_t totalBytes,
+                                         uint64_t stagingBytes, uint32_t stride, uint32_t elementCount,
+                                         uint32_t alignment, StreamState& outStreamState)
     {
         // - 常駐先は default heap、通常のコピー元は小さい staging upload buffer とする
         // - default heap は描画時の参照先、staging は CPU からの更新経路として使う
@@ -398,12 +474,8 @@ namespace Cue::DrawSystem
         outStreamState.debugName = std::string(bufferName);
         outStreamState.bufferType = bufferType;
         const uint64_t clampedStagingBytes = (std::min)(totalBytes, stagingBytes);
-        result = create_upload_buffer(
-            outStreamState.debugName + ".Staging",
-            bufferType,
-            clampedStagingBytes,
-            outStreamState.stagingBufferHandle,
-            outStreamState.mappedStagingData);
+        result = create_upload_buffer(outStreamState.debugName + ".Staging", bufferType, clampedStagingBytes,
+                                      outStreamState.stagingBufferHandle, outStreamState.mappedStagingData);
         if (!result)
         {
             m_bufferManager.destroy_buffer(outStreamState.defaultBufferHandle);
@@ -416,17 +488,13 @@ namespace Cue::DrawSystem
         outStreamState.stagingCapacityInBytes = clampedStagingBytes;
         outStreamState.alignment = alignment;
         outStreamState.freeRanges.clear();
-        outStreamState.freeRanges.push_back(FreeRange{ 0, totalBytes });
+        outStreamState.freeRanges.push_back(FreeRange{0, totalBytes});
         outStreamState.stagingRing.initialize(static_cast<size_t>(clampedStagingBytes));
         return Result::ok();
     }
 
-    Result MeshPool::create_upload_buffer(
-        std::string_view bufferName,
-        BufferType bufferType,
-        uint64_t byteSize,
-        BufferHandle& outBufferHandle,
-        std::byte*& outMappedData)
+    Result MeshPool::create_upload_buffer(std::string_view bufferName, BufferType bufferType, uint64_t byteSize,
+                                          BufferHandle& outBufferHandle, std::byte*& outMappedData)
     {
         // - 呼び出し側が失敗時にも安全に扱えるよう、出力を先に無効化する
         outBufferHandle = {};
@@ -437,10 +505,8 @@ namespace Cue::DrawSystem
         }
         if (byteSize > UINT32_MAX)
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Upload buffer size exceeds the supported range.");
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Upload buffer size exceeds the supported range.");
         }
 
         // - upload heap の buffer を 1 byte stride の線形領域として確保する
@@ -474,10 +540,7 @@ namespace Cue::DrawSystem
         {
             m_bufferManager.destroy_buffer(outBufferHandle);
             outBufferHandle = {};
-            return Result::fail(
-                Code::InternalError,
-                Severity::Error,
-                "Static mesh pool upload buffer is not mapped.");
+            return Result::fail(Code::InternalError, Severity::Error, "Static mesh pool upload buffer is not mapped.");
         }
 
         // - mapped address を呼び出し側へ返し、以降の memcpy/memset の書き込み先にする
@@ -485,47 +548,32 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
-    Result MeshPool::allocate_stream_range(
-        StreamState& streamState,
-        uint64_t byteSize,
-        uint32_t alignment,
-        uint64_t& outOffset)
+    Result MeshPool::allocate_stream_range(StreamState& streamState, uint64_t byteSize, uint32_t alignment,
+                                           uint64_t& outOffset)
     {
         // - 常駐先は free-list で管理し、任意順の解放後でも再利用できるようにする
         if (!allocate_from_free_ranges(streamState.freeRanges, byteSize, alignment, outOffset))
         {
-            return Result::fail(
-                Code::OutOfMemory,
-                Severity::Error,
-                "Static mesh pool default buffer is out of space.");
+            return Result::fail(Code::OutOfMemory, Severity::Error, "Static mesh pool default buffer is out of space.");
         }
 
         return Result::ok();
     }
 
-    void MeshPool::release_stream_range(
-        StreamState& streamState,
-        uint64_t byteOffset,
-        uint64_t byteSize)
+    void MeshPool::release_stream_range(StreamState& streamState, uint64_t byteOffset, uint64_t byteSize)
     {
         // - 解放済み領域を free-list に戻し、隣接区間は即時マージして断片化を抑える
         release_to_free_ranges(streamState.freeRanges, byteOffset, byteSize);
     }
 
-    Result MeshPool::allocate_upload_range(
-        StreamState& streamState,
-        uint64_t byteSize,
-        uint32_t alignment,
-        UploadAllocation& outAllocation)
+    Result MeshPool::allocate_upload_range(StreamState& streamState, uint64_t byteSize, uint32_t alignment,
+                                           UploadAllocation& outAllocation)
     {
         // - まず常設 staging ring から確保し、毎回 buffer を作らずに済む経路を優先する
         outAllocation = {};
-        if (streamState.stagingBufferHandle.valid()
-            && streamState.mappedStagingData != nullptr
-            && streamState.stagingRing.allocate(
-                static_cast<size_t>(byteSize),
-                static_cast<size_t>(alignment),
-                outAllocation.ringAllocation))
+        if (streamState.stagingBufferHandle.valid() && streamState.mappedStagingData != nullptr &&
+            streamState.stagingRing.allocate(static_cast<size_t>(byteSize), static_cast<size_t>(alignment),
+                                             outAllocation.ringAllocation))
         {
             outAllocation.bufferHandle = streamState.stagingBufferHandle;
             outAllocation.mappedData = streamState.mappedStagingData;
@@ -536,12 +584,8 @@ namespace Cue::DrawSystem
         }
 
         // - 常設 staging に収まらない場合は、この upload 専用の一時 buffer を作る
-        Result result = create_upload_buffer(
-            std::string_view{},
-            streamState.bufferType,
-            byteSize,
-            outAllocation.bufferHandle,
-            outAllocation.mappedData);
+        Result result = create_upload_buffer(std::string_view{}, streamState.bufferType, byteSize,
+                                             outAllocation.bufferHandle, outAllocation.mappedData);
         if (!result)
         {
             return result;
@@ -553,20 +597,14 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
-    Result MeshPool::allocate_upload_range(
-        MeshRangeState& meshRangeState,
-        uint64_t byteSize,
-        uint32_t alignment,
-        UploadAllocation& outAllocation)
+    Result MeshPool::allocate_upload_range(MeshRangeState& meshRangeState, uint64_t byteSize, uint32_t alignment,
+                                           UploadAllocation& outAllocation)
     {
         // - MeshRange 更新も常設 staging ring を優先して使う
         outAllocation = {};
-        if (meshRangeState.stagingBufferHandle.valid()
-            && meshRangeState.mappedStagingData != nullptr
-            && meshRangeState.stagingRing.allocate(
-                static_cast<size_t>(byteSize),
-                static_cast<size_t>(alignment),
-                outAllocation.ringAllocation))
+        if (meshRangeState.stagingBufferHandle.valid() && meshRangeState.mappedStagingData != nullptr &&
+            meshRangeState.stagingRing.allocate(static_cast<size_t>(byteSize), static_cast<size_t>(alignment),
+                                                outAllocation.ringAllocation))
         {
             outAllocation.bufferHandle = meshRangeState.stagingBufferHandle;
             outAllocation.mappedData = meshRangeState.mappedStagingData;
@@ -577,12 +615,8 @@ namespace Cue::DrawSystem
         }
 
         // - staging が足りない場合は structured buffer 用の一時 upload buffer を作る
-        Result result = create_upload_buffer(
-            std::string_view{},
-            BufferType::Structured,
-            byteSize,
-            outAllocation.bufferHandle,
-            outAllocation.mappedData);
+        Result result = create_upload_buffer(std::string_view{}, BufferType::Structured, byteSize,
+                                             outAllocation.bufferHandle, outAllocation.mappedData);
         if (!result)
         {
             return result;
@@ -594,9 +628,7 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
-    void MeshPool::release_upload_range(
-        StreamState& streamState,
-        UploadAllocation& allocation)
+    void MeshPool::release_upload_range(StreamState& streamState, UploadAllocation& allocation)
     {
         // - 無効な割り当ては解放済みとして扱う
         if (!allocation.valid())
@@ -619,9 +651,7 @@ namespace Cue::DrawSystem
         allocation = {};
     }
 
-    void MeshPool::release_upload_range(
-        MeshRangeState& meshRangeState,
-        UploadAllocation& allocation)
+    void MeshPool::release_upload_range(MeshRangeState& meshRangeState, UploadAllocation& allocation)
     {
         // - 無効な割り当ては解放済みとして扱う
         if (!allocation.valid())
@@ -644,10 +674,7 @@ namespace Cue::DrawSystem
         allocation = {};
     }
 
-    void MeshPool::write_upload_bytes(
-        const UploadAllocation& allocation,
-        const void* sourceData,
-        uint64_t byteSize)
+    void MeshPool::write_upload_bytes(const UploadAllocation& allocation, const void* sourceData, uint64_t byteSize)
     {
         // - upload staging へ直接書き込み、データ未指定の属性はゼロで埋める
         std::byte* dst = allocation.mappedData + allocation.byteOffset;
@@ -665,10 +692,7 @@ namespace Cue::DrawSystem
         // - コピー対象がない呼び出しは使用ミスとして弾く
         if (regions.empty())
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Copy regions must not be empty.");
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Copy regions must not be empty.");
         }
 
         // - コピー専用の command context と queue を pool から借りる
@@ -730,7 +754,7 @@ namespace Cue::DrawSystem
         // - コピー queue に投入し、完了を待ってから staging 領域を再利用可能にする
         if (result)
         {
-            std::vector<ICommandContext*> contexts{ commandContext.get() };
+            std::vector<ICommandContext*> contexts{commandContext.get()};
             result = queueContext->submit(contexts);
         }
         if (result)
@@ -776,10 +800,7 @@ namespace Cue::DrawSystem
         // - freeMeshIds をスタックとして使い、空なら MeshRange buffer の容量超過を返す
         if (m_meshRangeState.freeMeshIds.empty())
         {
-            return Result::fail(
-                Code::OutOfMemory,
-                Severity::Error,
-                "Static mesh range buffer is out of mesh slots.");
+            return Result::fail(Code::OutOfMemory, Severity::Error, "Static mesh range buffer is out of mesh slots.");
         }
 
         outMeshId = m_meshRangeState.freeMeshIds.back();
@@ -810,19 +831,13 @@ namespace Cue::DrawSystem
         // - meshId は MeshRange buffer の要素番号なので capacity 内に制限する
         if (meshId >= m_meshRangeState.capacity)
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Mesh range slot is out of bounds.");
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Mesh range slot is out of bounds.");
         }
 
         // - 1 要素分の MeshRange を upload buffer に書き込む
         UploadAllocation uploadAllocation{};
-        Result result = allocate_upload_range(
-            m_meshRangeState,
-            sizeof(MeshRange),
-            alignof(MeshRange),
-            uploadAllocation);
+        Result result =
+            allocate_upload_range(m_meshRangeState, sizeof(MeshRange), alignof(MeshRange), uploadAllocation);
         if (!result)
         {
             return result;
@@ -840,10 +855,17 @@ namespace Cue::DrawSystem
         region.dstByteOffset = static_cast<uint64_t>(meshId) * sizeof(MeshRange);
         region.byteSize = sizeof(MeshRange);
 
-        std::vector<BufferCopyRegion> regions{ region };
+        std::vector<BufferCopyRegion> regions{region};
         result = copy_upload_regions(regions);
         release_upload_range(m_meshRangeState, uploadAllocation);
         return result;
+    }
+
+    Result MeshPool::create_static_cube(MeshHandle& outHandle)
+    {
+        // 標準キューブも通常メッシュと同じ登録経路を通し、MeshRange と stream 管理を一元化する。
+        Core::Native::MeshData meshData = create_static_cube_mesh_data();
+        return allocate_mesh(meshData, outHandle);
     }
 
     Result MeshPool::allocate_mesh(const Core::Native::MeshData& meshData, MeshHandle& outHandle)
@@ -856,26 +878,17 @@ namespace Cue::DrawSystem
         }
         if (meshData.positions.empty() || meshData.indices.empty())
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "MeshData must contain positions and indices.");
+            return Result::fail(Code::InvalidArgument, Severity::Error, "MeshData must contain positions and indices.");
         }
 
         const uint32_t vertexCount = meshData.vertex_count();
         if (!meshData.uvs.empty() && meshData.uvs.size() != meshData.positions.size())
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "UV count must match the position count.");
+            return Result::fail(Code::InvalidArgument, Severity::Error, "UV count must match the position count.");
         }
         if (!meshData.normals.empty() && meshData.normals.size() != meshData.positions.size())
         {
-            return Result::fail(
-                Code::InvalidArgument,
-                Severity::Error,
-                "Normal count must match the position count.");
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Normal count must match the position count.");
         }
 
         // - 常駐先の空き領域を先に押さえ、どれか一つでも足りなければ全体を巻き戻す
@@ -893,22 +906,15 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        result = allocate_stream_range(
-            m_positionStream,
-            record.positionByteSize,
-            alignof(Math::float4),
-            record.positionByteOffset);
+        result = allocate_stream_range(m_positionStream, record.positionByteSize, alignof(Math::float4),
+                                       record.positionByteOffset);
         if (!result)
         {
             release_mesh_id(record.meshId);
             return result;
         }
 
-        result = allocate_stream_range(
-            m_uvStream,
-            record.uvByteSize,
-            alignof(Math::float2),
-            record.uvByteOffset);
+        result = allocate_stream_range(m_uvStream, record.uvByteSize, alignof(Math::float2), record.uvByteOffset);
         if (!result)
         {
             release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
@@ -916,11 +922,8 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        result = allocate_stream_range(
-            m_normalStream,
-            record.normalByteSize,
-            alignof(Math::float3),
-            record.normalByteOffset);
+        result = allocate_stream_range(m_normalStream, record.normalByteSize, alignof(Math::float3),
+                                       record.normalByteOffset);
         if (!result)
         {
             release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
@@ -929,11 +932,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        result = allocate_stream_range(
-            m_indexStream,
-            record.indexByteSize,
-            alignof(uint32_t),
-            record.indexByteOffset);
+        result = allocate_stream_range(m_indexStream, record.indexByteSize, alignof(uint32_t), record.indexByteOffset);
         if (!result)
         {
             release_stream_range(m_normalStream, record.normalByteOffset, record.normalByteSize);
@@ -949,7 +948,8 @@ namespace Cue::DrawSystem
         UploadAllocation normalUpload{};
         UploadAllocation indexUpload{};
 
-        result = allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
+        result =
+            allocate_upload_range(m_positionStream, record.positionByteSize, alignof(Math::float4), positionUpload);
         if (!result)
         {
             release_stream_range(m_indexStream, record.indexByteOffset, record.indexByteSize);
@@ -1006,11 +1006,7 @@ namespace Cue::DrawSystem
         meshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
         meshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
 
-        result = allocate_upload_range(
-            m_meshRangeState,
-            sizeof(MeshRange),
-            alignof(MeshRange),
-            meshRangeUpload);
+        result = allocate_upload_range(m_meshRangeState, sizeof(MeshRange), alignof(MeshRange), meshRangeUpload);
         if (!result)
         {
             release_upload_range(m_indexStream, indexUpload);
@@ -1027,71 +1023,49 @@ namespace Cue::DrawSystem
 
         // - CPU 側の meshData を各 upload 領域へ書き込む。未指定 UV/Normal はゼロ埋めにする
         write_upload_bytes(positionUpload, meshData.positions.data(), record.positionByteSize);
-        write_upload_bytes(
-            uvUpload,
-            meshData.uvs.empty() ? nullptr : meshData.uvs.data(),
-            record.uvByteSize);
-        write_upload_bytes(
-            normalUpload,
-            meshData.normals.empty() ? nullptr : meshData.normals.data(),
-            record.normalByteSize);
+        write_upload_bytes(uvUpload, meshData.uvs.empty() ? nullptr : meshData.uvs.data(), record.uvByteSize);
+        write_upload_bytes(normalUpload, meshData.normals.empty() ? nullptr : meshData.normals.data(),
+                           record.normalByteSize);
         write_upload_bytes(indexUpload, meshData.indices.data(), record.indexByteSize);
         write_upload_bytes(meshRangeUpload, &meshRange, sizeof(MeshRange));
 
         // - 各 stream と MeshRange buffer へのコピーを 1 回の copy command にまとめる
-        std::vector<BufferCopyRegion> uploadRegions
-        {
-            BufferCopyRegion
-            {
-                .srcBufferHandle = positionUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = positionUpload.byteOffset,
-                .dstBufferHandle = m_positionStream.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = record.positionByteOffset,
-                .byteSize = record.positionByteSize
-            },
-            BufferCopyRegion
-            {
-                .srcBufferHandle = uvUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = uvUpload.byteOffset,
-                .dstBufferHandle = m_uvStream.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = record.uvByteOffset,
-                .byteSize = record.uvByteSize
-            },
-            BufferCopyRegion
-            {
-                .srcBufferHandle = normalUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = normalUpload.byteOffset,
-                .dstBufferHandle = m_normalStream.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = record.normalByteOffset,
-                .byteSize = record.normalByteSize
-            },
-            BufferCopyRegion
-            {
-                .srcBufferHandle = indexUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = indexUpload.byteOffset,
-                .dstBufferHandle = m_indexStream.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = record.indexByteOffset,
-                .byteSize = record.indexByteSize
-            },
-            BufferCopyRegion
-            {
-                .srcBufferHandle = meshRangeUpload.bufferHandle,
-                .srcUploadResourceIndex = 0,
-                .srcByteOffset = meshRangeUpload.byteOffset,
-                .dstBufferHandle = m_meshRangeState.defaultBufferHandle,
-                .dstDefaultResourceIndex = 0,
-                .dstByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(MeshRange),
-                .byteSize = sizeof(MeshRange)
-            }
-        };
+        std::vector<BufferCopyRegion> uploadRegions{
+            BufferCopyRegion{.srcBufferHandle = positionUpload.bufferHandle,
+                             .srcUploadResourceIndex = 0,
+                             .srcByteOffset = positionUpload.byteOffset,
+                             .dstBufferHandle = m_positionStream.defaultBufferHandle,
+                             .dstDefaultResourceIndex = 0,
+                             .dstByteOffset = record.positionByteOffset,
+                             .byteSize = record.positionByteSize},
+            BufferCopyRegion{.srcBufferHandle = uvUpload.bufferHandle,
+                             .srcUploadResourceIndex = 0,
+                             .srcByteOffset = uvUpload.byteOffset,
+                             .dstBufferHandle = m_uvStream.defaultBufferHandle,
+                             .dstDefaultResourceIndex = 0,
+                             .dstByteOffset = record.uvByteOffset,
+                             .byteSize = record.uvByteSize},
+            BufferCopyRegion{.srcBufferHandle = normalUpload.bufferHandle,
+                             .srcUploadResourceIndex = 0,
+                             .srcByteOffset = normalUpload.byteOffset,
+                             .dstBufferHandle = m_normalStream.defaultBufferHandle,
+                             .dstDefaultResourceIndex = 0,
+                             .dstByteOffset = record.normalByteOffset,
+                             .byteSize = record.normalByteSize},
+            BufferCopyRegion{.srcBufferHandle = indexUpload.bufferHandle,
+                             .srcUploadResourceIndex = 0,
+                             .srcByteOffset = indexUpload.byteOffset,
+                             .dstBufferHandle = m_indexStream.defaultBufferHandle,
+                             .dstDefaultResourceIndex = 0,
+                             .dstByteOffset = record.indexByteOffset,
+                             .byteSize = record.indexByteSize},
+            BufferCopyRegion{.srcBufferHandle = meshRangeUpload.bufferHandle,
+                             .srcUploadResourceIndex = 0,
+                             .srcByteOffset = meshRangeUpload.byteOffset,
+                             .dstBufferHandle = m_meshRangeState.defaultBufferHandle,
+                             .dstDefaultResourceIndex = 0,
+                             .dstByteOffset = static_cast<uint64_t>(record.meshId) * sizeof(MeshRange),
+                             .byteSize = sizeof(MeshRange)}};
 
         result = copy_upload_regions(uploadRegions);
 
@@ -1136,10 +1110,7 @@ namespace Cue::DrawSystem
         MeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh handle was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh handle was not found.");
         }
 
         release_stream_range(m_positionStream, record.positionByteOffset, record.positionByteSize);
@@ -1169,10 +1140,7 @@ namespace Cue::DrawSystem
         // - registry から外してハンドルを無効化し、次回の再利用に備える
         if (!m_meshRegistry.destroy(handle))
         {
-            return Result::fail(
-                Code::InternalError,
-                Severity::Error,
-                "Failed to destroy static mesh record.");
+            return Result::fail(Code::InternalError, Severity::Error, "Failed to destroy static mesh record.");
         }
 
         return Result::ok();
@@ -1184,10 +1152,7 @@ namespace Cue::DrawSystem
         MeshRecord record{};
         if (!m_meshRegistry.try_copy_get(handle, record))
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh handle was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh handle was not found.");
         }
 
         outMeshId = record.meshId;
@@ -1206,8 +1171,7 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
-    Result MeshPool::get_mesh_range(
-        uint32_t meshId, MeshRange& outMeshRange) const
+    Result MeshPool::get_mesh_range(uint32_t meshId, MeshRange& outMeshRange) const
     {
         // - 失敗時に呼び出し側が古い値を使わないよう、出力を先に初期化する
         outMeshRange = {};
@@ -1216,32 +1180,23 @@ namespace Cue::DrawSystem
         const auto it = m_meshIdToHandlesMap.find(meshId);
         if (it == m_meshIdToHandlesMap.end())
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh id was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh id was not found.");
         }
 
         MeshRecord record{};
         if (!m_meshRegistry.try_copy_get(it->second, record))
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh record was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh record was not found.");
         }
 
         // - record の byte offset を DrawIndexed 向けの index/vertex offset に戻す
         outMeshRange.indexCount = record.indexCount;
-        outMeshRange.startIndex =
-            static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
-        outMeshRange.baseVertex =
-            static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
+        outMeshRange.startIndex = static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
+        outMeshRange.baseVertex = static_cast<int32_t>(record.positionByteOffset / sizeof(Math::float4));
         return Result::ok();
     }
 
-    Result MeshPool::get_mesh_bounds(
-        uint32_t meshId, MeshBounds& outBounds) const
+    Result MeshPool::get_mesh_bounds(uint32_t meshId, MeshBounds& outBounds) const
     {
         // - 失敗時に呼び出し側が古い値を使わないよう、出力を先に初期化する
         outBounds = {};
@@ -1250,23 +1205,17 @@ namespace Cue::DrawSystem
         const auto it = m_meshIdToHandlesMap.find(meshId);
         if (it == m_meshIdToHandlesMap.end())
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh id was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh id was not found.");
         }
 
         MeshRecord record{};
         if (!m_meshRegistry.try_copy_get(it->second, record))
         {
-            return Result::fail(
-                Code::NotFound,
-                Severity::Error,
-                "Static mesh record was not found.");
+            return Result::fail(Code::NotFound, Severity::Error, "Static mesh record was not found.");
         }
 
         outBounds = record.bounds;
         return Result::ok();
     }
 
-}
+} // namespace Cue::DrawSystem

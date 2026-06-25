@@ -22,9 +22,11 @@
 // === Engine includes ===
 #include "FrameController.h"
 
-#include "DrawSystem/DrawResources.h"
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/DrawResources.h"
+#include "DrawSystem/DrawScene.h"
 #include "DrawSystem/MeshPool.h"
+#include "GameCore/GameWorld.h"
 
 // === C++ includes ===
 #include <array>
@@ -34,100 +36,96 @@
 
 namespace Cue
 {
-struct EngineSetupInfo final
-{
-    PAL::IPlatform *platform = nullptr; // プラットフォームインターフェース
-    RHI::IRenderBackend *renderBackend = nullptr; // レンダーバックエンド
-    std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
-    Core::CQRS::Bridge *platformCommandBridge =
-        nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
-    uint32_t maxFps = 60;             // 最大フレームレート
-};
-
-class Engine final
-{
-  public:
-    Engine() = default;
-    // コピー禁止
-    Engine(const Engine &) = delete;
-    Engine &operator=(const Engine &) = delete;
-    // ムーブ禁止
-    Engine(Engine &&) = delete;
-    Engine &operator=(Engine &&) = delete;
-    ~Engine() = default;
-
-    /// @brief 初期化
-    Result initialize(EngineSetupInfo &a_info);
-
-    /// @brief 終了
-    void shutdown();
-
-    /// @brief フレーム開始処理
-    Result begin_frame();
-
-    /// @brief フレーム終了処理
-    Result end_frame();
-
-    /// @brief ティック処理
-    Result tick();
-
-    FrameController &frame_controller() noexcept
+    struct EngineSetupInfo final
     {
-        return *m_frameController;
-    }
+        PAL::IPlatform* platform = nullptr;           // プラットフォームインターフェース
+        RHI::IRenderBackend* renderBackend = nullptr; // レンダーバックエンド
+        std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
+        Core::CQRS::Bridge* platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
+        uint32_t maxFps = 60;                                // 最大フレームレート
+    };
 
-  private:
-    /// @brief 更新
-    std::function<void(uint64_t, uint32_t)> update()
+    class Engine final
     {
-        return [this](uint64_t frameNo, uint32_t updateIndex)
+    public:
+        Engine() = default;
+        // コピー禁止
+        Engine(const Engine&) = delete;
+        Engine& operator=(const Engine&) = delete;
+        // ムーブ禁止
+        Engine(Engine&&) = delete;
+        Engine& operator=(Engine&&) = delete;
+        ~Engine() = default;
+
+        /// @brief 初期化
+        Result initialize(EngineSetupInfo& a_info);
+
+        /// @brief 終了
+        void shutdown();
+
+        /// @brief フレーム開始処理
+        Result begin_frame();
+
+        /// @brief フレーム終了処理
+        Result end_frame();
+
+        /// @brief ティック処理
+        Result tick();
+
+        FrameController& frame_controller() noexcept
         {
-            frameNo;
-            updateIndex; // 未使用パラメーターの警告回避
-        };
-    }
-    /// @brief 描画
-    std::function<void(uint64_t, uint32_t)> render();
-    /// @brief present
-    std::function<void(uint64_t, uint32_t)> present();
-    Result create_frame_graphs(
-        std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
+            return *m_frameController;
+        }
 
-    /// @brief リサイズの適用
-    /// @return 
-    Result apply_pending_resize();
-    
-  private:
-    std::unique_ptr<FrameController> m_frameController =
-        nullptr; // フレームコントローラー
-    PAL::IPlatform *m_platform =
-        nullptr; // プラットフォームインターフェースの非所有ポインタ
-    Core::CQRS::Bridge *m_platformCommandBridge =
-        nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
-    PAL::PlatformRuntimeState
-        m_platformRuntimeState; // プラットフォームランタイム状態
-    RHI::IRenderBackend *m_renderBackend =
-        nullptr; // レンダーバックエンドの非所有ポインタ
+        GameCore::GameWorld& game_world() noexcept
+        {
+            return m_gameWorld;
+        }
 
-    std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
-    std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
+    private:
+        /// @brief 更新
+        std::function<void(uint64_t, uint32_t)> update();
+        /// @brief 描画
+        std::function<void(uint64_t, uint32_t)> render();
+        /// @brief present
+        std::function<void(uint64_t, uint32_t)> present();
+        Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
 
-    // --- 全体共有リソース ---
-    RHI::RenderTargetResources m_finalColorRenderTarget{};
-    RHI::RenderTargetResources m_debugColorRenderTarget{};
+        /// @brief GameWorld の描画対象を frame resource に反映する
+        Result update_draw_scene(uint32_t a_bufferIndex);
 
-    // --- DrawSystem ---
-    DrawSystem::DrawFrameState m_drawFrameState{};
-    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
-    std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+        /// @brief リサイズの適用
+        /// @return
+        Result apply_pending_resize();
 
-    // --- サブシステム ---
-    uint32_t m_bufferCount = 1;
-    uint32_t m_maxObjectCount = 0;
-    uint32_t m_maxCellCount = 0;
+    private:
+        std::unique_ptr<FrameController> m_frameController = nullptr; // フレームコントローラー
+        PAL::IPlatform* m_platform = nullptr;                  // プラットフォームインターフェースの非所有ポインタ
+        Core::CQRS::Bridge* m_platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
+        PAL::PlatformRuntimeState m_platformRuntimeState;      // プラットフォームランタイム状態
+        RHI::IRenderBackend* m_renderBackend = nullptr;        // レンダーバックエンドの非所有ポインタ
 
-    // --- 定数 ---
-    const uint32_t k_maxObjectCount = 50000;
-    const uint32_t k_cellObjectCapacity = 256;
-};
+        std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
+        std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
+
+        // --- 全体共有リソース ---
+        RHI::RenderTargetResources m_finalColorRenderTarget{};
+        RHI::RenderTargetResources m_debugColorRenderTarget{};
+
+        // --- DrawSystem ---
+        GameCore::GameWorld m_gameWorld{};
+        std::vector<DrawSystem::DrawScene> m_drawScenes{};
+        DrawSystem::DrawFrameState m_drawFrameState{};
+        std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+        std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+
+        // --- サブシステム ---
+        uint32_t m_bufferCount = 1;
+        uint32_t m_maxObjectCount = 0;
+        uint32_t m_maxCellCount = 0;
+
+        // --- 定数 ---
+        const uint32_t k_maxObjectCount = 50000;
+        const uint32_t k_cellObjectCapacity = 256;
+    };
 } // namespace Cue
