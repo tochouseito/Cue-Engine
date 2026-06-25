@@ -157,6 +157,11 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
+        result = builder.get_buffer("MeshPool.RangeIndex", m_rangeIndexBuffer);
+        if (!result)
+        {
+            return result;
+        }
         result = builder.get_buffer("IndirectCommandBuffer",
                                     m_indirectCommandBuffer);
         if (!result)
@@ -165,6 +170,18 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         }
         result = builder.get_buffer("IndirectCommandCountBuffer",
                                     m_indirectCommandCountBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.get_buffer("GroupRangeCommandBuffer",
+                                    m_groupRangeCommandBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.get_buffer("GroupRangeCommandCountBuffer",
+                                    m_groupRangeCommandCountBuffer);
         if (!result)
         {
             return result;
@@ -270,6 +287,17 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             return result;
         }
 
+        RHI::ShaderCompileDesc rangeVsDesc{};
+        rangeVsDesc.name = "StaticMeshRangeForwardVS";
+        rangeVsDesc.filePath = "Shaders/D3D12/StaticMeshForward.hlsl";
+        rangeVsDesc.entryPoint = "range_vs_main";
+        rangeVsDesc.targetProfile = "vs_6_0";
+        result = builder.create_shader_blob(rangeVsDesc, m_rangeVertexShader);
+        if (!result)
+        {
+            return result;
+        }
+
         RHI::ShaderCompileDesc psDesc{};
         psDesc.name = "StaticMeshForwardPS";
         psDesc.filePath = "Shaders/D3D12/StaticMeshForward.hlsl";
@@ -300,7 +328,15 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
         pipelineDesc.blendMode = {RHI::BlendMode::None};
         pipelineDesc.rtvFormats = {RHI::ColorFormat::R8G8B8A8_UNORM};
-        return builder.create_graphics_pipeline(pipelineDesc, m_pipeline);
+        result = builder.create_graphics_pipeline(pipelineDesc, m_pipeline);
+        if (!result)
+        {
+            return result;
+        }
+
+        pipelineDesc.name = "StaticMeshRangeForwardPipeline";
+        pipelineDesc.vsHandle = m_rangeVertexShader;
+        return builder.create_graphics_pipeline(pipelineDesc, m_rangePipeline);
     }
 
     Result describe_resources(RHI::FrameGraphBuilder &builder) override
@@ -405,6 +441,13 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             return result;
         }
         result = builder.use_buffer(
+            m_rangeIndexBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::IndexBuffer, RHI::ResourceState::IndexBuffer);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
             m_indirectCommandBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
         if (!result)
@@ -413,6 +456,20 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         }
         result = builder.use_buffer(
             m_indirectCommandCountBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_groupRangeCommandBuffer, RHI::ResourceAccessType::Read,
+            RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
+        if (!result)
+        {
+            return result;
+        }
+        result = builder.use_buffer(
+            m_groupRangeCommandCountBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
         if (!result)
         {
@@ -496,6 +553,13 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         commandContext->execute_indexed_indirect(m_indirectCommandBuffer,
                                                  m_indirectCommandCountBuffer,
                                                  m_maxIndirectCommandCount);
+        commandContext->set_graphics_pipeline(m_rangePipeline);
+        commandContext->set_index_buffer(m_rangeIndexBuffer,
+                                         RHI::IndexFormat::UInt32);
+        commandContext->execute_indexed_indirect(
+            m_groupRangeCommandBuffer,
+            m_groupRangeCommandCountBuffer,
+            m_maxIndirectCommandCount);
     }
 
   private:
@@ -517,8 +581,11 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_uvBuffer{};
     RHI::BufferHandle m_normalBuffer{};
     RHI::BufferHandle m_indexBuffer{};
+    RHI::BufferHandle m_rangeIndexBuffer{};
     RHI::BufferHandle m_indirectCommandBuffer{};
     RHI::BufferHandle m_indirectCommandCountBuffer{};
+    RHI::BufferHandle m_groupRangeCommandBuffer{};
+    RHI::BufferHandle m_groupRangeCommandCountBuffer{};
     RHI::BufferHandle m_renderObjectIndexBuffer{};
     RHI::BufferHandle m_clusterLightRangeBuffer{};
     RHI::BufferHandle m_clusterLightIndexBuffer{};
@@ -532,8 +599,10 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     float m_clusterInvLogFarNear = 1.0f;
     RHI::RootSignatureHandle m_rootSignature{};
     RHI::ShaderBlobHandle m_vertexShader{};
+    RHI::ShaderBlobHandle m_rangeVertexShader{};
     RHI::ShaderBlobHandle m_pixelShader{};
     RHI::PipelineStateHandle m_pipeline{};
+    RHI::PipelineStateHandle m_rangePipeline{};
 
     static uint32_t float_to_uint32(float value) noexcept
     {

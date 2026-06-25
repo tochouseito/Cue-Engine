@@ -21,6 +21,7 @@ struct RenderObject
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 ByteAddressBuffer g_renderObjectCount : register(t1);
+StructuredBuffer<uint> g_objectDrawModes : register(t2);
 RWByteAddressBuffer g_batchObjectCounts : register(u0);
 
 cbuffer BatchParam : register(b0)
@@ -62,6 +63,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint visibleObjectCount = g_renderObjectCount.Load(0);
     bool active = objectIndex < visibleObjectCount;
     uint batchId = 0u;
+    if (active)
+    {
+        const uint drawMode = g_objectDrawModes[objectIndex];
+        active = drawMode == 0u || drawMode == 3u;
+    }
+
     if (active)
     {
         const RenderObject renderObject = g_renderObjects[objectIndex];

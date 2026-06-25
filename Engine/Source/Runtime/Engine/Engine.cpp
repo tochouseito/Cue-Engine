@@ -12,6 +12,7 @@
 // === Frame Passes includes ===
 #include "DrawSystem/passes/ClusteredLightingPass.h"
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
+#include "DrawSystem/passes/MeshletGroupCullPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
@@ -904,6 +905,12 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
         m_drawResources->visible_object_count_buffer_uav_handle()));
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
+        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+        m_drawResources->transform_buffer_handle(),
+        m_drawResources->render_view_projection_buffer_handle(),
+        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
+        m_maxObjectCount));
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ResetBatchCountersPass>(m_maxObjectCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(

@@ -325,6 +325,10 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
+    if (!result) {
+      return result;
+    }
     result =
         builder.get_buffer("BatchObjectCountBuffer", m_batchObjectCountBuffer);
     if (!result) {
@@ -345,6 +349,8 @@ public:
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
@@ -382,6 +388,12 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_objectDrawModeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     return builder.use_buffer(m_batchObjectCountBuffer,
                               RHI::ResourceAccessType::Write,
                               RHI::ResourceState::UnorderedAccess,
@@ -408,7 +420,8 @@ public:
     commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
     commandContext->set_srv(3, m_renderObjectBuffer);
     commandContext->set_srv(4, m_visibleObjectCountBuffer);
-    commandContext->set_uav(5, m_batchObjectCountBuffer);
+    commandContext->set_srv(5, m_objectDrawModeBuffer);
+    commandContext->set_uav(6, m_batchObjectCountBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -416,6 +429,7 @@ private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
+  RHI::BufferHandle m_objectDrawModeBuffer{};
   RHI::BufferHandle m_batchObjectCountBuffer{};
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
@@ -549,6 +563,10 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
+    if (!result) {
+      return result;
+    }
     result = builder.get_buffer("RenderObjectIndexBuffer",
                                 m_renderObjectIndexBuffer);
     if (!result) {
@@ -577,6 +595,8 @@ public:
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -616,6 +636,12 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_objectDrawModeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     result = builder.use_buffer(m_renderObjectIndexBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -649,8 +675,9 @@ public:
     commandContext->set_32bit_constant(3, m_maxDrawInstanceCount);
     commandContext->set_srv(4, m_renderObjectBuffer);
     commandContext->set_srv(5, m_visibleObjectCountBuffer);
-    commandContext->set_uav(6, m_renderObjectIndexBuffer);
-    commandContext->set_uav(7, m_batchObjectOffsetBuffer);
+    commandContext->set_srv(6, m_objectDrawModeBuffer);
+    commandContext->set_uav(7, m_renderObjectIndexBuffer);
+    commandContext->set_uav(8, m_batchObjectOffsetBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -658,6 +685,7 @@ private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
+  RHI::BufferHandle m_objectDrawModeBuffer{};
   RHI::BufferHandle m_renderObjectIndexBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
   uint32_t m_maxDrawInstanceCount = 0;
