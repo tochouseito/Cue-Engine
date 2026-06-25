@@ -52,6 +52,30 @@ struct MeshletBounds
     uint padding1;
 };
 
+struct MeshChunkRange
+{
+    uint firstChunk;
+    uint chunkCount;
+    uint padding0;
+    uint padding1;
+};
+
+struct MeshletChunk
+{
+    uint startIndex;
+    uint indexCount;
+    int baseVertex;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint meshId;
+    uint materialId;
+    uint lod;
+    float3 boundsCenter;
+    float boundsRadius;
+    float3 coneAxis;
+    float coneCutoff;
+};
+
 struct IndirectCommand
 {
     uint drawObjectStartIndex;
@@ -83,18 +107,42 @@ StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
 StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t4);
+StructuredBuffer<MeshChunkRange> g_meshChunkRanges : register(t5);
+StructuredBuffer<MeshletChunk> g_meshletChunks : register(t6);
 
 RWStructuredBuffer<uint> g_objectDrawModes : register(u0);
 RWStructuredBuffer<IndirectCommand> g_rangeCommands : register(u1);
 RWByteAddressBuffer g_rangeCommandCount : register(u2);
+RWByteAddressBuffer g_stats : register(u3);
 
 static const uint kDrawModeNormal = 0u;
 static const uint kDrawModeGroupRange = 1u;
 static const uint kDrawModeCulled = 2u;
 static const uint kDrawModeFallback = 3u;
 static const uint kMeshletsPerGroup = 8u;
-static const uint kMaxRangesPerObject = 6u;
-static const uint kMaxMergeGapIndices = 96u;
+static const uint kMaxRangesPerObject = 64u;
+static const uint kMaxMergeGapIndices = 48u;
+static const uint kMaxChunkGroupsPerObjectForRange = 128u;
+static const bool kEnableMeshletRangeDraws = false;
+static const bool kEnableConeCulling = true;
+static const float kMinMeshletRangeProjectedRadius = 0.25f;
+static const uint kMaxRangeDrawnPercent = 92u;
+static const float kConeCutoffEpsilon = 0.02f;
+
+static const uint kStatsVisibleObjectCount = 0u;
+static const uint kStatsCandidateObjectCount = 4u;
+static const uint kStatsTestedGroupCount = 8u;
+static const uint kStatsFrustumRejectedGroupCount = 12u;
+static const uint kStatsConeTestedMeshletCount = 16u;
+static const uint kStatsConeRejectedMeshletCount = 20u;
+static const uint kStatsVisibleGroupCount = 24u;
+static const uint kStatsCulledObjectCount = 28u;
+static const uint kStatsFallbackObjectCount = 32u;
+static const uint kStatsRangeObjectCount = 36u;
+static const uint kStatsRangeCommandCount = 40u;
+static const uint kStatsRangeIndexCount = 44u;
+static const uint kStatsTotalIndexCount = 48u;
+static const uint kStatsSettings = 52u;
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -167,43 +215,128 @@ float projected_radius(float4 boundsCenterRadius)
     return boundsCenterRadius.w * abs(g_projectionMatrix[1][1]) / viewZ;
 }
 
-void build_group_bounds(
+bool is_meshlet_backfacing(
+    MeshletBounds bounds,
+    Transform transform,
+    float radiusScale)
+{
+    if (!kEnableConeCulling || (bounds.flags & 1u) == 0u ||
+        bounds.coneCutoff <= 0.0f)
+    {
+        return false;
+    }
+
+    const float4 worldApex =
+        mul(float4(bounds.coneApex, 1.0f), transform.worldMatrix);
+    const float3 viewApex = mul(worldApex, g_viewMatrix).xyz;
+    const float distanceSq = dot(viewApex, viewApex);
+    const float worldRadius = bounds.radius * radiusScale;
+    if (distanceSq <= max(worldRadius * worldRadius, 0.000001f))
+    {
+        return false;
+    }
+
+    const float3 worldAxis =
+        mul(float4(bounds.coneAxis, 0.0f), transform.normalMatrix).xyz;
+    const float worldAxisLenSq = dot(worldAxis, worldAxis);
+    if (worldAxisLenSq <= 0.000001f)
+    {
+        return false;
+    }
+
+    const float3 viewAxis =
+        mul(float4(worldAxis * rsqrt(worldAxisLenSq), 0.0f), g_viewMatrix).xyz;
+    const float viewAxisLenSq = dot(viewAxis, viewAxis);
+    if (viewAxisLenSq <= 0.000001f)
+    {
+        return false;
+    }
+
+    const float3 viewDirection = viewApex * rsqrt(distanceSq);
+    const float3 normalizedViewAxis = viewAxis * rsqrt(viewAxisLenSq);
+    return dot(viewDirection, normalizedViewAxis) >=
+           (bounds.coneCutoff + kConeCutoffEpsilon);
+}
+
+void append_or_merge_range(
+    uint rangeStart,
+    uint rangeEnd,
+    inout uint rangeCount,
+    inout uint rangeStarts[kMaxRangesPerObject],
+    inout uint rangeEnds[kMaxRangesPerObject],
+    inout bool rangeOverflow);
+
+bool append_visible_meshlets_in_group(
     uint firstMeshlet,
     uint meshletCount,
     uint groupIndex,
-    out float3 center,
-    out float radius,
-    out uint firstIndex,
-    out uint indexCount)
+    uint rangeStartIndex,
+    Transform transform,
+    float radiusScale,
+    inout uint rangeCount,
+    inout uint rangeStarts[kMaxRangesPerObject],
+    inout uint rangeEnds[kMaxRangesPerObject],
+    inout bool rangeOverflow,
+    inout uint visibleIndexCount,
+    inout uint coneTestedMeshletCount,
+    inout uint coneRejectedMeshletCount)
 {
     const uint groupFirst = groupIndex * kMeshletsPerGroup;
     const uint groupCount = min(kMeshletsPerGroup, meshletCount - groupFirst);
 
-    center = float3(0.0f, 0.0f, 0.0f);
-    firstIndex = 0xffffffffu;
-    uint endIndex = 0u;
-
+    bool hasVisibleMeshlet = false;
     [loop]
     for (uint i = 0u; i < groupCount; ++i)
     {
         const MeshletBounds bounds =
             g_meshletBounds[firstMeshlet + groupFirst + i];
-        center += bounds.center;
-        firstIndex = min(firstIndex, bounds.firstIndex);
-        endIndex = max(endIndex, bounds.firstIndex + bounds.indexCount);
-    }
+        ++coneTestedMeshletCount;
+        if (is_meshlet_backfacing(bounds, transform, radiusScale))
+        {
+            ++coneRejectedMeshletCount;
+            continue;
+        }
 
-    center /= max((float)groupCount, 1.0f);
-    radius = 0.0f;
-    [loop]
-    for (uint j = 0u; j < groupCount; ++j)
+        const uint meshletRangeStart = rangeStartIndex + bounds.firstIndex;
+        const uint meshletRangeEnd = meshletRangeStart + bounds.indexCount;
+        append_or_merge_range(meshletRangeStart, meshletRangeEnd, rangeCount,
+                              rangeStarts, rangeEnds, rangeOverflow);
+        visibleIndexCount += bounds.indexCount;
+        hasVisibleMeshlet = true;
+    }
+    return hasVisibleMeshlet;
+}
+
+void publish_object_group_stats(
+    uint testedGroupCount,
+    uint frustumRejectedGroupCount,
+    uint coneTestedMeshletCount,
+    uint coneRejectedMeshletCount,
+    uint visibleGroupCount)
+{
+    if (testedGroupCount != 0u)
     {
-        const MeshletBounds bounds =
-            g_meshletBounds[firstMeshlet + groupFirst + j];
-        radius = max(radius, length(bounds.center - center) + bounds.radius);
+        g_stats.InterlockedAdd(kStatsTestedGroupCount, testedGroupCount);
     }
-
-    indexCount = firstIndex < endIndex ? endIndex - firstIndex : 0u;
+    if (frustumRejectedGroupCount != 0u)
+    {
+        g_stats.InterlockedAdd(kStatsFrustumRejectedGroupCount,
+                               frustumRejectedGroupCount);
+    }
+    if (coneTestedMeshletCount != 0u)
+    {
+        g_stats.InterlockedAdd(kStatsConeTestedMeshletCount,
+                               coneTestedMeshletCount);
+    }
+    if (coneRejectedMeshletCount != 0u)
+    {
+        g_stats.InterlockedAdd(kStatsConeRejectedMeshletCount,
+                               coneRejectedMeshletCount);
+    }
+    if (visibleGroupCount != 0u)
+    {
+        g_stats.InterlockedAdd(kStatsVisibleGroupCount, visibleGroupCount);
+    }
 }
 
 void append_or_merge_range(
@@ -247,11 +380,30 @@ bool emit_range_commands(
     uint rangeStarts[kMaxRangesPerObject],
     uint rangeEnds[kMaxRangesPerObject])
 {
-    uint commandBase = 0u;
-    g_rangeCommandCount.InterlockedAdd(0, rangeCount, commandBase);
-    if (commandBase + rangeCount > g_maxRangeCommandCount)
+    if (rangeCount == 0u)
     {
-        return false;
+        return true;
+    }
+
+    uint commandBase = 0u;
+    [loop]
+    for (;;)
+    {
+        const uint currentCount = g_rangeCommandCount.Load(0);
+        if (currentCount > g_maxRangeCommandCount ||
+            rangeCount > g_maxRangeCommandCount - currentCount)
+        {
+            return false;
+        }
+
+        uint previousCount = 0u;
+        g_rangeCommandCount.InterlockedCompareExchange(
+            0, currentCount, currentCount + rangeCount, previousCount);
+        if (previousCount == currentCount)
+        {
+            commandBase = currentCount;
+            break;
+        }
     }
 
     [loop]
@@ -275,32 +427,51 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint objectIndex = dispatchThreadId.x;
     const uint visibleObjectCount = g_renderObjectCount.Load(0);
+    if (objectIndex == 0u)
+    {
+        g_stats.Store(kStatsVisibleObjectCount, visibleObjectCount);
+        g_stats.Store(
+            kStatsSettings,
+            (kEnableMeshletRangeDraws ? 1u : 0u) |
+                (kEnableConeCulling ? 2u : 0u));
+    }
+
     if (objectIndex >= visibleObjectCount || objectIndex >= g_objectCount)
     {
         return;
     }
 
     g_objectDrawModes[objectIndex] = kDrawModeNormal;
+    if (!kEnableMeshletRangeDraws)
+    {
+        return;
+    }
 
     const RenderObject renderObject = g_renderObjects[objectIndex];
     const MeshRange meshRange = g_meshRanges[renderObject.meshId];
+    const MeshChunkRange chunkRange = g_meshChunkRanges[renderObject.meshId];
     if ((renderObject.drawFlags & 1u) != 0u ||
         meshRange.meshletCount < (kMeshletsPerGroup * 2u) ||
-        meshRange.rangeIndexCount == 0u)
+        meshRange.rangeIndexCount == 0u ||
+        chunkRange.chunkCount == 0u ||
+        chunkRange.chunkCount > kMaxChunkGroupsPerObjectForRange)
     {
         return;
     }
 
-    // Very small objects are cheaper as batched whole-mesh draws.
-    if (projected_radius(renderObject.boundsCenterRadius) < 0.08f)
+    // Meshlet range draws break instance batching, so keep mid/far LODs on the
+    // ordinary batched path unless the object is large enough on screen.
+    if (projected_radius(renderObject.boundsCenterRadius) <
+        kMinMeshletRangeProjectedRadius)
     {
         return;
     }
+
+    g_stats.InterlockedAdd(kStatsCandidateObjectCount, 1u);
+    g_stats.InterlockedAdd(kStatsTotalIndexCount, meshRange.rangeIndexCount);
 
     const Transform transform = g_transforms[renderObject.transformId];
     const float radiusScale = transform_radius_scale(transform.worldMatrix);
-    const uint groupCount =
-        (meshRange.meshletCount + kMeshletsPerGroup - 1u) / kMeshletsPerGroup;
 
     uint rangeStarts[kMaxRangesPerObject];
     uint rangeEnds[kMaxRangesPerObject];
@@ -308,48 +479,65 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint visibleGroupCount = 0u;
     uint visibleIndexCount = 0u;
     uint rangeDrawnIndexCount = 0u;
+    uint testedGroupCount = 0u;
+    uint frustumRejectedGroupCount = 0u;
+    uint coneTestedMeshletCount = 0u;
+    uint coneRejectedMeshletCount = 0u;
     bool rangeOverflow = false;
 
     [loop]
-    for (uint groupIndex = 0u; groupIndex < groupCount; ++groupIndex)
+    for (uint groupIndex = 0u; groupIndex < chunkRange.chunkCount; ++groupIndex)
     {
-        float3 localCenter;
-        float localRadius;
-        uint groupFirstIndex;
-        uint groupIndexCount;
-        build_group_bounds(meshRange.firstMeshlet, meshRange.meshletCount,
-                           groupIndex, localCenter, localRadius,
-                           groupFirstIndex, groupIndexCount);
-        if (groupIndexCount == 0u)
+        ++testedGroupCount;
+
+        const MeshletChunk chunk =
+            g_meshletChunks[chunkRange.firstChunk + groupIndex];
+        if (chunk.indexCount == 0u)
         {
             continue;
         }
 
         const float4 worldCenter =
-            mul(float4(localCenter, 1.0f), transform.worldMatrix);
+            mul(float4(chunk.boundsCenter, 1.0f), transform.worldMatrix);
         const float4 viewCenter = mul(worldCenter, g_viewMatrix);
-        const float worldRadius = localRadius * radiusScale;
+        const float worldRadius = chunk.boundsRadius * radiusScale;
         if (!is_view_sphere_inside_frustum(viewCenter.xyz, worldRadius))
+        {
+            ++frustumRejectedGroupCount;
+            continue;
+        }
+
+        if (!append_visible_meshlets_in_group(
+                chunk.firstMeshlet, chunk.meshletCount, 0u,
+                meshRange.rangeStartIndex, transform, radiusScale, rangeCount,
+                rangeStarts, rangeEnds, rangeOverflow, visibleIndexCount,
+                coneTestedMeshletCount,
+                coneRejectedMeshletCount))
         {
             continue;
         }
 
         ++visibleGroupCount;
-        visibleIndexCount += groupIndexCount;
-        append_or_merge_range(groupFirstIndex,
-                              groupFirstIndex + groupIndexCount,
-                              rangeCount, rangeStarts, rangeEnds,
-                              rangeOverflow);
+        if (rangeOverflow)
+        {
+            break;
+        }
     }
+
+    publish_object_group_stats(testedGroupCount, frustumRejectedGroupCount,
+                               coneTestedMeshletCount,
+                               coneRejectedMeshletCount, visibleGroupCount);
 
     if (visibleGroupCount == 0u)
     {
+        g_stats.InterlockedAdd(kStatsCulledObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeCulled;
         return;
     }
 
     if (rangeOverflow || rangeCount == 0u)
     {
+        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
@@ -360,14 +548,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         rangeDrawnIndexCount += rangeEnds[rangeIndex] - rangeStarts[rangeIndex];
     }
 
-    const bool almostWholeMesh =
-        rangeDrawnIndexCount * 100u >= meshRange.rangeIndexCount * 85u;
-    const bool tooManyRanges = rangeCount > 4u;
     const bool weakSavings =
-        visibleIndexCount * 100u >= meshRange.rangeIndexCount * 70u &&
-        rangeCount > 1u;
-    if (almostWholeMesh || tooManyRanges || weakSavings)
+        rangeDrawnIndexCount * 100u >=
+        meshRange.rangeIndexCount * kMaxRangeDrawnPercent;
+    if (weakSavings)
     {
+        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
@@ -375,10 +561,14 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (emit_range_commands(objectIndex, meshRange.baseVertex, rangeCount,
                             rangeStarts, rangeEnds))
     {
+        g_stats.InterlockedAdd(kStatsRangeObjectCount, 1u);
+        g_stats.InterlockedAdd(kStatsRangeCommandCount, rangeCount);
+        g_stats.InterlockedAdd(kStatsRangeIndexCount, rangeDrawnIndexCount);
         g_objectDrawModes[objectIndex] = kDrawModeGroupRange;
     }
     else
     {
+        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
     }
 }

@@ -7,6 +7,10 @@
 namespace Cue::DrawSystem {
 static_assert(sizeof(MeshRange) == 32u,
               "MeshRange must match the HLSL structured buffer layout.");
+static_assert(sizeof(MeshChunkRange) == 16u,
+              "MeshChunkRange must match the HLSL structured buffer layout.");
+static_assert(sizeof(MeshletChunk) == 64u,
+              "MeshletChunk must match the HLSL structured buffer layout.");
 static_assert(sizeof(Core::Native::MeshletBounds) == 64u,
               "MeshletBounds must match the HLSL structured buffer layout.");
 
@@ -126,6 +130,86 @@ calculate_bounds(const std::vector<Math::float4> &positions) noexcept {
   bounds.radius = std::sqrt(radiusSq);
   return bounds;
 }
+
+[[nodiscard]] std::vector<MeshletChunk> build_meshlet_chunks(
+    const std::vector<Core::Native::MeshletBounds> &meshletBounds,
+    uint32_t meshId, int32_t baseVertex, uint32_t firstMeshletBase,
+    uint32_t rangeStartIndex) {
+  static constexpr uint32_t kMeshletsPerChunk = 8u;
+
+  std::vector<MeshletChunk> chunks{};
+  if (meshletBounds.empty()) {
+    return chunks;
+  }
+
+  const uint32_t chunkCount =
+      (static_cast<uint32_t>(meshletBounds.size()) + kMeshletsPerChunk - 1u) /
+      kMeshletsPerChunk;
+  chunks.reserve(chunkCount);
+
+  for (uint32_t chunkIndex = 0; chunkIndex < chunkCount; ++chunkIndex) {
+    const uint32_t firstLocalMeshlet = chunkIndex * kMeshletsPerChunk;
+    const uint32_t localMeshletCount =
+        (std::min)(kMeshletsPerChunk,
+                   static_cast<uint32_t>(meshletBounds.size()) -
+                       firstLocalMeshlet);
+
+    uint32_t firstIndex = UINT32_MAX;
+    uint32_t endIndex = 0;
+    Math::float3 minBounds(0.0f, 0.0f, 0.0f);
+    Math::float3 maxBounds(0.0f, 0.0f, 0.0f);
+    bool hasBounds = false;
+
+    for (uint32_t localOffset = 0; localOffset < localMeshletCount;
+         ++localOffset) {
+      const Core::Native::MeshletBounds &bounds =
+          meshletBounds[firstLocalMeshlet + localOffset];
+      firstIndex = (std::min)(firstIndex, bounds.firstIndex);
+      endIndex = (std::max)(endIndex, bounds.firstIndex + bounds.indexCount);
+
+      const Math::float3 radius(bounds.radius, bounds.radius, bounds.radius);
+      const Math::float3 meshletMin = bounds.center - radius;
+      const Math::float3 meshletMax = bounds.center + radius;
+      if (!hasBounds) {
+        minBounds = meshletMin;
+        maxBounds = meshletMax;
+        hasBounds = true;
+      } else {
+        minBounds.x = (std::min)(minBounds.x, meshletMin.x);
+        minBounds.y = (std::min)(minBounds.y, meshletMin.y);
+        minBounds.z = (std::min)(minBounds.z, meshletMin.z);
+        maxBounds.x = (std::max)(maxBounds.x, meshletMax.x);
+        maxBounds.y = (std::max)(maxBounds.y, meshletMax.y);
+        maxBounds.z = (std::max)(maxBounds.z, meshletMax.z);
+      }
+    }
+
+    MeshletChunk chunk{};
+    chunk.startIndex = rangeStartIndex + firstIndex;
+    chunk.indexCount = firstIndex < endIndex ? endIndex - firstIndex : 0u;
+    chunk.baseVertex = baseVertex;
+    chunk.firstMeshlet = firstMeshletBase + firstLocalMeshlet;
+    chunk.meshletCount = localMeshletCount;
+    chunk.meshId = meshId;
+    chunk.materialId = 0;
+    chunk.lod = 0;
+    chunk.boundsCenter = (minBounds + maxBounds) * 0.5f;
+
+    float radiusSq = 0.0f;
+    for (uint32_t localOffset = 0; localOffset < localMeshletCount;
+         ++localOffset) {
+      const Core::Native::MeshletBounds &bounds =
+          meshletBounds[firstLocalMeshlet + localOffset];
+      const Math::float3 delta = bounds.center - chunk.boundsCenter;
+      const float distance = std::sqrt(delta.dot(delta)) + bounds.radius;
+      radiusSq = (std::max)(radiusSq, distance * distance);
+    }
+    chunk.boundsRadius = std::sqrt(radiusSq);
+    chunks.push_back(chunk);
+  }
+
+  return chunks;
+}
 } // namespace
 
 MeshPool::MeshPool(const MeshPoolDesc &desc, RHI::IBufferManager &bufferManager,
@@ -133,11 +217,15 @@ MeshPool::MeshPool(const MeshPoolDesc &desc, RHI::IBufferManager &bufferManager,
                    RHI::ICommandPool &commandPool, RHI::IQueuePool &queuePool)
     : m_bufferManager(bufferManager), m_viewManager(viewManager),
       m_commandPool(commandPool), m_queuePool(queuePool) {
+  m_maxMeshletChunkCount = desc.maxMeshletChunkCount;
   // - コンストラクタでは初期化結果だけ保持し、呼び出し側は allocate_mesh
   // で検査できるようにする
   m_initResult = initialize_streams(desc);
   if (m_initResult) {
     m_initResult = initialize_mesh_range_state(desc);
+  }
+  if (m_initResult) {
+    m_initResult = initialize_mesh_chunk_range_state(desc);
   }
 }
 
@@ -161,13 +249,35 @@ MeshPool::~MeshPool() {
   m_meshRangeState.stagingCapacityInBytes = 0;
   m_meshRangeState.capacity = 0;
   m_meshRangeState.freeMeshIds.clear();
+  if (m_meshChunkRangeState.srvHandle.valid()) {
+    m_viewManager.destroy_view(m_meshChunkRangeState.srvHandle);
+    m_meshChunkRangeState.srvHandle = {};
+  }
+  if (m_meshChunkRangeState.stagingBufferHandle.valid()) {
+    m_bufferManager.destroy_buffer(m_meshChunkRangeState.stagingBufferHandle);
+    m_meshChunkRangeState.stagingBufferHandle = {};
+  }
+  if (m_meshChunkRangeState.defaultBufferHandle.valid()) {
+    m_bufferManager.destroy_buffer(m_meshChunkRangeState.defaultBufferHandle);
+    m_meshChunkRangeState.defaultBufferHandle = {};
+  }
+  m_meshChunkRangeState.debugName.clear();
+  m_meshChunkRangeState.stagingRing.clear();
+  m_meshChunkRangeState.mappedStagingData = nullptr;
+  m_meshChunkRangeState.stagingCapacityInBytes = 0;
+  m_meshChunkRangeState.capacity = 0;
   if (m_meshletBoundsSrvHandle.valid()) {
     m_viewManager.destroy_view(m_meshletBoundsSrvHandle);
     m_meshletBoundsSrvHandle = {};
   }
+  if (m_meshletChunkSrvHandle.valid()) {
+    m_viewManager.destroy_view(m_meshletChunkSrvHandle);
+    m_meshletChunkSrvHandle = {};
+  }
   destroy_stream_state(m_indexStream);
   destroy_stream_state(m_rangeIndexStream);
   destroy_stream_state(m_meshletBoundsStream);
+  destroy_stream_state(m_meshletChunkStream);
   destroy_stream_state(m_influenceStream);
   destroy_stream_state(m_normalStream);
   destroy_stream_state(m_uvStream);
@@ -233,6 +343,15 @@ Result MeshPool::initialize_streams(const MeshPoolDesc &desc) {
     return result;
   }
 
+  result = create_stream_state(
+      desc.meshletChunkName, BufferType::Structured,
+      static_cast<uint64_t>(desc.maxMeshletChunkCount) * sizeof(MeshletChunk),
+      desc.meshletChunkStagingSize, sizeof(MeshletChunk),
+      desc.maxMeshletChunkCount, alignof(MeshletChunk), m_meshletChunkStream);
+  if (!result) {
+    return result;
+  }
+
   ViewDesc meshletBoundsSrvDesc{};
   meshletBoundsSrvDesc.name = desc.meshletBoundsSrvName;
   meshletBoundsSrvDesc.type = ViewType::ShaderResourceBuffer;
@@ -244,6 +363,20 @@ Result MeshPool::initialize_streams(const MeshPoolDesc &desc) {
       sizeof(Core::Native::MeshletBounds);
   result =
       m_viewManager.create_view(meshletBoundsSrvDesc, m_meshletBoundsSrvHandle);
+  if (!result) {
+    return result;
+  }
+
+  ViewDesc meshletChunkSrvDesc{};
+  meshletChunkSrvDesc.name = desc.meshletChunkSrvName;
+  meshletChunkSrvDesc.type = ViewType::ShaderResourceBuffer;
+  meshletChunkSrvDesc.bufferKind = BufferKind::Buffer;
+  meshletChunkSrvDesc.bufferHandle = m_meshletChunkStream.defaultBufferHandle;
+  meshletChunkSrvDesc.firstElement = 0;
+  meshletChunkSrvDesc.numElements = desc.maxMeshletChunkCount;
+  meshletChunkSrvDesc.structureByteStride = sizeof(MeshletChunk);
+  result =
+      m_viewManager.create_view(meshletChunkSrvDesc, m_meshletChunkSrvHandle);
   if (!result) {
     return result;
   }
@@ -343,6 +476,84 @@ Result MeshPool::initialize_mesh_range_state(const MeshPoolDesc &desc) {
   }
 
   return Result::ok();
+}
+
+Result MeshPool::initialize_mesh_chunk_range_state(const MeshPoolDesc &desc) {
+  m_meshChunkRangeState.debugName = std::string(desc.meshChunkRangeName);
+
+  const uint64_t totalBytes =
+      static_cast<uint64_t>(desc.maxMeshCount) * sizeof(MeshChunkRange);
+  const uint64_t stagingBytes =
+      static_cast<uint64_t>(desc.meshChunkRangeStagingCount) *
+      sizeof(MeshChunkRange);
+
+  BufferDesc defaultDesc{};
+  defaultDesc.name = desc.meshChunkRangeName;
+  defaultDesc.type = BufferType::Structured;
+  defaultDesc.defaultHeapCount = 1;
+  defaultDesc.uploadHeapCount = 0;
+  defaultDesc.initialState = ResourceState::Common;
+  defaultDesc.stride = sizeof(MeshChunkRange);
+  defaultDesc.elementCount = desc.maxMeshCount;
+  defaultDesc.size = static_cast<uint32_t>(totalBytes);
+  defaultDesc.alignment = alignof(MeshChunkRange);
+  Result result = m_bufferManager.create_buffer(
+      defaultDesc, m_meshChunkRangeState.defaultBufferHandle);
+  if (!result) {
+    return result;
+  }
+
+  result = create_upload_buffer(
+      std::string(desc.meshChunkRangeName) + ".Staging",
+      BufferType::Structured, (std::min)(totalBytes, stagingBytes),
+      m_meshChunkRangeState.stagingBufferHandle,
+      m_meshChunkRangeState.mappedStagingData);
+  if (!result) {
+    return result;
+  }
+
+  ViewDesc srvDesc{};
+  srvDesc.name = desc.meshChunkRangeSrvName;
+  srvDesc.type = ViewType::ShaderResourceBuffer;
+  srvDesc.bufferKind = BufferKind::Buffer;
+  srvDesc.bufferHandle = m_meshChunkRangeState.defaultBufferHandle;
+  srvDesc.firstElement = 0;
+  srvDesc.numElements = desc.maxMeshCount;
+  srvDesc.structureByteStride = sizeof(MeshChunkRange);
+  result = m_viewManager.create_view(srvDesc, m_meshChunkRangeState.srvHandle);
+  if (!result) {
+    return result;
+  }
+
+  m_meshChunkRangeState.stagingCapacityInBytes =
+      (std::min)(totalBytes, stagingBytes);
+  m_meshChunkRangeState.stagingRing.initialize(
+      static_cast<size_t>(m_meshChunkRangeState.stagingCapacityInBytes));
+  m_meshChunkRangeState.capacity = desc.maxMeshCount;
+
+  UploadAllocation initializeUpload{};
+  result = allocate_upload_range(m_meshChunkRangeState, totalBytes,
+                                 alignof(MeshChunkRange), initializeUpload);
+  if (!result) {
+    return result;
+  }
+
+  std::memset(initializeUpload.mappedData + initializeUpload.byteOffset, 0,
+              static_cast<size_t>(totalBytes));
+
+  BufferCopyRegion initializeRegion{};
+  initializeRegion.srcBufferHandle = initializeUpload.bufferHandle;
+  initializeRegion.srcUploadResourceIndex = 0;
+  initializeRegion.srcByteOffset = initializeUpload.byteOffset;
+  initializeRegion.dstBufferHandle =
+      m_meshChunkRangeState.defaultBufferHandle;
+  initializeRegion.dstDefaultResourceIndex = 0;
+  initializeRegion.dstByteOffset = 0;
+  initializeRegion.byteSize = totalBytes;
+  std::vector<BufferCopyRegion> initializeRegions{initializeRegion};
+  result = copy_upload_regions(initializeRegions);
+  release_upload_range(m_meshChunkRangeState, initializeUpload);
+  return result;
 }
 
 Result MeshPool::create_stream_state(std::string_view bufferName,
@@ -533,6 +744,37 @@ Result MeshPool::allocate_upload_range(MeshRangeState &meshRangeState,
   return Result::ok();
 }
 
+Result MeshPool::allocate_upload_range(
+    MeshChunkRangeState &meshChunkRangeState, uint64_t byteSize,
+    uint32_t alignment, UploadAllocation &outAllocation) {
+  outAllocation = {};
+  if (meshChunkRangeState.stagingBufferHandle.valid() &&
+      meshChunkRangeState.mappedStagingData != nullptr &&
+      meshChunkRangeState.stagingRing.allocate(
+          static_cast<size_t>(byteSize), static_cast<size_t>(alignment),
+          outAllocation.ringAllocation)) {
+    outAllocation.bufferHandle = meshChunkRangeState.stagingBufferHandle;
+    outAllocation.mappedData = meshChunkRangeState.mappedStagingData;
+    outAllocation.byteOffset = outAllocation.ringAllocation.offset;
+    outAllocation.byteSize = byteSize;
+    outAllocation.isTransient = false;
+    return Result::ok();
+  }
+
+  Result result =
+      create_upload_buffer(std::string_view{}, BufferType::Structured, byteSize,
+                           outAllocation.bufferHandle,
+                           outAllocation.mappedData);
+  if (!result) {
+    return result;
+  }
+
+  outAllocation.byteOffset = 0;
+  outAllocation.byteSize = byteSize;
+  outAllocation.isTransient = true;
+  return Result::ok();
+}
+
 void MeshPool::release_upload_range(StreamState &streamState,
                                     UploadAllocation &allocation) {
   // - 無効な割り当ては解放済みとして扱う
@@ -574,6 +816,28 @@ void MeshPool::release_upload_range(MeshRangeState &meshRangeState,
                    "Failed to release mesh range staging ring allocation.");
   }
 
+  allocation = {};
+}
+
+void MeshPool::release_upload_range(
+    MeshChunkRangeState &meshChunkRangeState, UploadAllocation &allocation) {
+  if (!allocation.valid()) {
+    allocation = {};
+    return;
+  }
+
+  if (allocation.isTransient) {
+    Result result = m_bufferManager.destroy_buffer(allocation.bufferHandle);
+    CUE_ASSERT_MSG(
+        result,
+        "Failed to destroy transient mesh chunk range upload buffer.");
+  } else if (allocation.ringAllocation.valid()) {
+    const bool released =
+        meshChunkRangeState.stagingRing.release(allocation.ringAllocation);
+    CUE_ASSERT_MSG(
+        released,
+        "Failed to release mesh chunk range staging ring allocation.");
+  }
   allocation = {};
 }
 
@@ -747,6 +1011,40 @@ Result MeshPool::upload_mesh_range(uint32_t meshId,
   return result;
 }
 
+Result MeshPool::upload_mesh_chunk_range(
+    uint32_t meshId, const MeshChunkRange &meshChunkRange) {
+  if (meshId >= m_meshChunkRangeState.capacity) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "Mesh chunk range slot is out of bounds.");
+  }
+
+  UploadAllocation uploadAllocation{};
+  Result result =
+      allocate_upload_range(m_meshChunkRangeState, sizeof(MeshChunkRange),
+                            alignof(MeshChunkRange), uploadAllocation);
+  if (!result) {
+    return result;
+  }
+
+  write_upload_bytes(uploadAllocation, &meshChunkRange,
+                     sizeof(MeshChunkRange));
+
+  BufferCopyRegion region{};
+  region.srcBufferHandle = uploadAllocation.bufferHandle;
+  region.srcUploadResourceIndex = 0;
+  region.srcByteOffset = uploadAllocation.byteOffset;
+  region.dstBufferHandle = m_meshChunkRangeState.defaultBufferHandle;
+  region.dstDefaultResourceIndex = 0;
+  region.dstByteOffset =
+      static_cast<uint64_t>(meshId) * sizeof(MeshChunkRange);
+  region.byteSize = sizeof(MeshChunkRange);
+
+  std::vector<BufferCopyRegion> regions{region};
+  result = copy_upload_regions(regions);
+  release_upload_range(m_meshChunkRangeState, uploadAllocation);
+  return result;
+}
+
 Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                                MeshHandle &outHandle) {
   // - 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ
@@ -785,6 +1083,10 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   record.rangeIndexByteSize = byte_size_of(rangeIndices);
   record.meshletCount = static_cast<uint32_t>(meshData.meshletBounds.size());
   record.meshletByteSize = byte_size_of(meshData.meshletBounds);
+  record.meshletChunkCount =
+      record.meshletCount == 0 ? 0 : (record.meshletCount + 7u) / 8u;
+  record.meshletChunkByteSize =
+      static_cast<uint64_t>(record.meshletChunkCount) * sizeof(MeshletChunk);
   record.bounds = calculate_bounds(meshData.positions);
   Result result = allocate_mesh_id(record.meshId);
   if (!result) {
@@ -856,6 +1158,21 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
       record.meshletByteOffset = 0;
       record.meshletByteSize = 0;
       record.meshletCount = 0;
+      record.meshletChunkByteOffset = 0;
+      record.meshletChunkByteSize = 0;
+      record.meshletChunkCount = 0;
+      result = Result::ok();
+    }
+  }
+
+  if (record.meshletChunkByteSize > 0) {
+    result = allocate_stream_range(
+        m_meshletChunkStream, record.meshletChunkByteSize,
+        alignof(MeshletChunk), record.meshletChunkByteOffset);
+    if (!result) {
+      record.meshletChunkByteOffset = 0;
+      record.meshletChunkByteSize = 0;
+      record.meshletChunkCount = 0;
       result = Result::ok();
     }
   }
@@ -868,10 +1185,17 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   UploadAllocation indexUpload{};
   UploadAllocation rangeIndexUpload{};
   UploadAllocation meshletUpload{};
+  UploadAllocation meshletChunkUpload{};
 
   result = allocate_upload_range(m_positionStream, record.positionByteSize,
                                  alignof(Math::float4), positionUpload);
   if (!result) {
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
+    release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                         record.meshletByteSize);
+    release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                         record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
                          record.indexByteSize);
     release_stream_range(m_normalStream, record.normalByteOffset,
@@ -887,6 +1211,12 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                                  alignof(Math::float2), uvUpload);
   if (!result) {
     release_upload_range(m_positionStream, positionUpload);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
+    release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                         record.meshletByteSize);
+    release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                         record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
                          record.indexByteSize);
     release_stream_range(m_normalStream, record.normalByteOffset,
@@ -903,6 +1233,12 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   if (!result) {
     release_upload_range(m_uvStream, uvUpload);
     release_upload_range(m_positionStream, positionUpload);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
+    release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                         record.meshletByteSize);
+    release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                         record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
                          record.indexByteSize);
     release_stream_range(m_normalStream, record.normalByteOffset,
@@ -922,6 +1258,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     release_upload_range(m_positionStream, positionUpload);
     release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                          record.meshletByteSize);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
@@ -944,6 +1282,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     release_upload_range(m_positionStream, positionUpload);
     release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                          record.meshletByteSize);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
@@ -965,16 +1305,39 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
       // - meshlet bounds の upload だけ失敗した場合も描画は継続する。
       release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                            record.meshletByteSize);
+      release_stream_range(m_meshletChunkStream,
+                           record.meshletChunkByteOffset,
+                           record.meshletChunkByteSize);
       record.meshletByteOffset = 0;
       record.meshletByteSize = 0;
       record.meshletCount = 0;
+      record.meshletChunkByteOffset = 0;
+      record.meshletChunkByteSize = 0;
+      record.meshletChunkCount = 0;
+      result = Result::ok();
+    }
+  }
+
+  if (record.meshletChunkByteSize > 0) {
+    result = allocate_upload_range(m_meshletChunkStream,
+                                   record.meshletChunkByteSize,
+                                   alignof(MeshletChunk), meshletChunkUpload);
+    if (!result) {
+      release_stream_range(m_meshletChunkStream,
+                           record.meshletChunkByteOffset,
+                           record.meshletChunkByteSize);
+      record.meshletChunkByteOffset = 0;
+      record.meshletChunkByteSize = 0;
+      record.meshletChunkCount = 0;
       result = Result::ok();
     }
   }
 
   // - index/vertex の offset から GPU 側で参照する MeshRange を作る
   UploadAllocation meshRangeUpload{};
+  UploadAllocation meshChunkRangeUpload{};
   MeshRange meshRange{};
+  MeshChunkRange meshChunkRange{};
   meshRange.indexCount = record.indexCount;
   meshRange.startIndex =
       static_cast<uint32_t>(record.indexByteOffset / sizeof(uint32_t));
@@ -987,10 +1350,15 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
       static_cast<uint32_t>(record.rangeIndexByteOffset / sizeof(uint32_t));
   meshRange.rangeIndexCount =
       static_cast<uint32_t>(record.rangeIndexByteSize / sizeof(uint32_t));
+  meshChunkRange.firstChunk =
+      static_cast<uint32_t>(record.meshletChunkByteOffset /
+                            sizeof(MeshletChunk));
+  meshChunkRange.chunkCount = record.meshletChunkCount;
 
   result = allocate_upload_range(m_meshRangeState, sizeof(MeshRange),
                                  alignof(MeshRange), meshRangeUpload);
   if (!result) {
+    release_upload_range(m_meshletChunkStream, meshletChunkUpload);
     release_upload_range(m_meshletBoundsStream, meshletUpload);
     release_upload_range(m_rangeIndexStream, rangeIndexUpload);
     release_upload_range(m_indexStream, indexUpload);
@@ -999,6 +1367,37 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     release_upload_range(m_positionStream, positionUpload);
     release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                          record.meshletByteSize);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
+    release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                         record.rangeIndexByteSize);
+    release_stream_range(m_indexStream, record.indexByteOffset,
+                         record.indexByteSize);
+    release_stream_range(m_normalStream, record.normalByteOffset,
+                         record.normalByteSize);
+    release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+    release_stream_range(m_positionStream, record.positionByteOffset,
+                         record.positionByteSize);
+    release_mesh_id(record.meshId);
+    return result;
+  }
+
+  result = allocate_upload_range(m_meshChunkRangeState, sizeof(MeshChunkRange),
+                                 alignof(MeshChunkRange),
+                                 meshChunkRangeUpload);
+  if (!result) {
+    release_upload_range(m_meshRangeState, meshRangeUpload);
+    release_upload_range(m_meshletChunkStream, meshletChunkUpload);
+    release_upload_range(m_meshletBoundsStream, meshletUpload);
+    release_upload_range(m_rangeIndexStream, rangeIndexUpload);
+    release_upload_range(m_indexStream, indexUpload);
+    release_upload_range(m_normalStream, normalUpload);
+    release_upload_range(m_uvStream, uvUpload);
+    release_upload_range(m_positionStream, positionUpload);
+    release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                         record.meshletByteSize);
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_indexStream, record.indexByteOffset,
@@ -1038,7 +1437,20 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     write_upload_bytes(meshletUpload, rangeMeshletBounds.data(),
                        record.meshletByteSize);
   }
+  if (record.meshletChunkByteSize > 0) {
+    const uint32_t firstMeshletBase = static_cast<uint32_t>(
+        record.meshletByteOffset / sizeof(Core::Native::MeshletBounds));
+    const uint32_t rangeStartIndex =
+        static_cast<uint32_t>(record.rangeIndexByteOffset / sizeof(uint32_t));
+    const std::vector<MeshletChunk> meshletChunks = build_meshlet_chunks(
+        meshData.meshletBounds, record.meshId, meshRange.baseVertex,
+        firstMeshletBase, rangeStartIndex);
+    write_upload_bytes(meshletChunkUpload, meshletChunks.data(),
+                       record.meshletChunkByteSize);
+  }
   write_upload_bytes(meshRangeUpload, &meshRange, sizeof(MeshRange));
+  write_upload_bytes(meshChunkRangeUpload, &meshChunkRange,
+                     sizeof(MeshChunkRange));
 
   // - 各 stream と MeshRange buffer へのコピーを 1 回の copy command にまとめる
   std::vector<BufferCopyRegion> uploadRegions{
@@ -1086,6 +1498,14 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                        .dstDefaultResourceIndex = 0,
                        .dstByteOffset = record.meshletByteOffset,
                        .byteSize = record.meshletByteSize},
+      BufferCopyRegion{.srcBufferHandle = meshletChunkUpload.bufferHandle,
+                       .srcUploadResourceIndex = 0,
+                       .srcByteOffset = meshletChunkUpload.byteOffset,
+                       .dstBufferHandle =
+                           m_meshletChunkStream.defaultBufferHandle,
+                       .dstDefaultResourceIndex = 0,
+                       .dstByteOffset = record.meshletChunkByteOffset,
+                       .byteSize = record.meshletChunkByteSize},
       BufferCopyRegion{.srcBufferHandle = meshRangeUpload.bufferHandle,
                        .srcUploadResourceIndex = 0,
                        .srcByteOffset = meshRangeUpload.byteOffset,
@@ -1093,15 +1513,31 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                        .dstDefaultResourceIndex = 0,
                        .dstByteOffset = static_cast<uint64_t>(record.meshId) *
                                         sizeof(MeshRange),
-                       .byteSize = sizeof(MeshRange)}};
+                       .byteSize = sizeof(MeshRange)},
+      BufferCopyRegion{.srcBufferHandle = meshChunkRangeUpload.bufferHandle,
+                       .srcUploadResourceIndex = 0,
+                       .srcByteOffset = meshChunkRangeUpload.byteOffset,
+                       .dstBufferHandle =
+                           m_meshChunkRangeState.defaultBufferHandle,
+                       .dstDefaultResourceIndex = 0,
+                       .dstByteOffset = static_cast<uint64_t>(record.meshId) *
+                                        sizeof(MeshChunkRange),
+                       .byteSize = sizeof(MeshChunkRange)}};
   if (record.meshletByteSize == 0) {
-    uploadRegions.erase(uploadRegions.end() - 2);
+    uploadRegions.erase(uploadRegions.begin() + 5);
+  }
+  if (record.meshletChunkByteSize == 0) {
+    const size_t meshletChunkRegionIndex = record.meshletByteSize == 0 ? 5 : 6;
+    uploadRegions.erase(uploadRegions.begin() +
+                        static_cast<std::ptrdiff_t>(meshletChunkRegionIndex));
   }
 
   result = copy_upload_regions(uploadRegions);
 
   // - GPU コピーは同期完了まで待つため、ここで upload 領域を返却できる
+  release_upload_range(m_meshChunkRangeState, meshChunkRangeUpload);
   release_upload_range(m_meshRangeState, meshRangeUpload);
+  release_upload_range(m_meshletChunkStream, meshletChunkUpload);
   release_upload_range(m_meshletBoundsStream, meshletUpload);
   release_upload_range(m_rangeIndexStream, rangeIndexUpload);
   release_upload_range(m_indexStream, indexUpload);
@@ -1111,6 +1547,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
 
   if (!result) {
     // - コピー失敗時は確保済み default heap 領域と meshId を登録前に巻き戻す
+    release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                         record.meshletChunkByteSize);
     release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                          record.meshletByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
@@ -1133,6 +1571,7 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
 
   MeshHandle handle = m_meshRegistry.create(record);
   m_meshIdToHandlesMap[record.meshId] = handle;
+  m_allocatedMeshletChunkCount += record.meshletChunkCount;
   if (record.nameId != 0) {
     m_nameToHandlesMap[record.nameId] = handle;
   }
@@ -1160,11 +1599,19 @@ Result MeshPool::free_mesh(MeshHandle handle) {
                        record.rangeIndexByteSize);
   release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                        record.meshletByteSize);
+  release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                       record.meshletChunkByteSize);
+  m_allocatedMeshletChunkCount -=
+      (std::min)(m_allocatedMeshletChunkCount, record.meshletChunkCount);
   release_mesh_id(record.meshId);
 
   // - 解放済み meshId の MeshRange
   // をゼロに戻し、古い描画範囲が残らないようにする
   Result result = upload_mesh_range(record.meshId, MeshRange{});
+  if (!result) {
+    return result;
+  }
+  result = upload_mesh_chunk_range(record.meshId, MeshChunkRange{});
   if (!result) {
     return result;
   }
@@ -1207,8 +1654,13 @@ Result MeshPool::get_bindings(MeshPoolBindings &outBindings) const {
   outBindings.indexBuffer = m_indexStream.defaultBufferHandle;
   outBindings.rangeIndexBuffer = m_rangeIndexStream.defaultBufferHandle;
   outBindings.meshletBoundsBuffer = m_meshletBoundsStream.defaultBufferHandle;
+  outBindings.meshletChunkBuffer = m_meshletChunkStream.defaultBufferHandle;
+  outBindings.meshChunkRangeBuffer =
+      m_meshChunkRangeState.defaultBufferHandle;
   outBindings.meshRangeBuffer = m_meshRangeState.defaultBufferHandle;
   outBindings.meshletBoundsSrv = m_meshletBoundsSrvHandle;
+  outBindings.meshletChunkSrv = m_meshletChunkSrvHandle;
+  outBindings.meshChunkRangeSrv = m_meshChunkRangeState.srvHandle;
   outBindings.meshRangeSrv = m_meshRangeState.srvHandle;
   return Result::ok();
 }

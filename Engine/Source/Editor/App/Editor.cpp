@@ -134,6 +134,62 @@ pass_gpu_ms(const RHI::FrameGraphExecutionStats &stats,
   return total;
 }
 
+void log_render_debug_stats(
+    uint64_t frameIndex, double fps, const EngineDebugStats &debugStats,
+    const RHI::FrameGraphExecutionStats &frameStats) {
+  const GpuData::MeshletChunkVisibilityStatsGpu &chunkStats =
+      debugStats.meshletChunkVisibilityStats;
+  const GpuData::MeshletGroupCullStatsGpu &groupStats =
+      debugStats.meshletGroupCullStats;
+  Core::IO::log(
+      Core::IO::LogSink::file,
+      "[RenderStats] frame={} fps={:.2f} objects(total={} visible={} culled={} "
+      "cpuVisible={} cpuFrustumCulled={}) chunks(capacity={} allocated={} "
+      "commands={} instances={} currentVisible={} previousVisible={} tested={} "
+      "selectedObjects={} rejectObject={} skipObjectChunks={} "
+      "skipMaxChunks={} rejectPrev={} rejectFrustum={} rejectOccluder={} "
+      "overflow={} settings(maxChunksPerObject={} minObjectPx={} "
+      "minChunkPx={} maxDepth={} maxDepthBin={}) occlusion(enabled={} "
+      "tested={} rejected={})) meshletGroup(settings={} visibleObjects={} "
+      "candidates={} testedGroups={} rejectFrustumGroups={} "
+      "coneTestedMeshlets={} coneRejectedMeshlets={} visibleGroups={} "
+      "culledObjects={} fallbackObjects={} rangeObjects={} rangeCommands={} "
+      "rangeIndices={} totalIndices={}) gpuMs(objectCull={:.3f} "
+      "meshletGroupCull={:.3f} buildChunkDepth={:.3f} chunkDepthDraw={:.3f} "
+      "chunkHiZBuild={:.3f} batching={:.3f} forward={:.3f})",
+      frameIndex, fps, chunkStats.totalObjectCount,
+      chunkStats.visibleObjectCount, chunkStats.culledObjectCount,
+      debugStats.visibleObjects, debugStats.frustumCulledObjects,
+      debugStats.meshletChunkCapacity, debugStats.meshletChunkCount,
+      chunkStats.commandCount, chunkStats.instanceCount,
+      chunkStats.currentVisibleChunkCount, chunkStats.previousVisibleChunkCount,
+      chunkStats.testedObjectChunkCount, chunkStats.selectedObjectCount,
+      chunkStats.rejectedByObjectFilter,
+      chunkStats.skippedChunksByObjectFilter,
+      chunkStats.skippedChunksByMaxChunks,
+      chunkStats.rejectedByPreviousVisibility, chunkStats.rejectedByFrustum,
+      chunkStats.rejectedByOccluderFilter, chunkStats.commandOverflowCount,
+      chunkStats.maxChunksPerObject, chunkStats.minObjectScreenRadiusPx,
+      chunkStats.minChunkScreenRadiusPx, chunkStats.maxViewDepth,
+      chunkStats.maxDepthBin, chunkStats.occlusionEnabled,
+      chunkStats.occlusionTestedCount, chunkStats.occlusionRejectedCount,
+      groupStats.settings, groupStats.visibleObjectCount,
+      groupStats.candidateObjectCount, groupStats.testedGroupCount,
+      groupStats.frustumRejectedGroupCount, groupStats.coneTestedMeshletCount,
+      groupStats.coneRejectedMeshletCount, groupStats.visibleGroupCount,
+      groupStats.culledObjectCount, groupStats.fallbackObjectCount,
+      groupStats.rangeObjectCount, groupStats.rangeCommandCount,
+      groupStats.rangeIndexCount, groupStats.totalIndexCount,
+      pass_gpu_ms(frameStats, {"ObjectCullAndLod"}),
+      pass_gpu_ms(frameStats, {"MeshletGroupCull"}),
+      pass_gpu_ms(frameStats, {"BuildChunkDepthCommands"}),
+      pass_gpu_ms(frameStats, {"ChunkDepthOnlyDraw"}),
+      pass_gpu_ms(frameStats, {"ChunkHiZBuild"}),
+      pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
+                               "IndirectCommandEmit"}),
+      pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+}
+
 class ImGuiOverlayPass final : public RHI::FrameGraphPass {
 public:
   ImGuiOverlayPass(HWND hwnd, RHI::DX12::D3D12Backend &backend, Engine &engine)
@@ -296,6 +352,19 @@ private:
                   pass_gpu_ms(frameStats, {"ClusterLightCulling"}));
       ImGui::Text("ObjectCullAndLod: %.3f ms",
                   pass_gpu_ms(frameStats, {"ObjectCullAndLod"}));
+      ImGui::Text("MeshletChunkVisibilityReset: %.3f ms",
+                  pass_gpu_ms(frameStats, {"MeshletChunkVisibilityReset"}));
+      ImGui::Text("BuildChunkDepthCommands: %.3f ms",
+                  pass_gpu_ms(frameStats, {"BuildChunkDepthCommands"}));
+      ImGui::Text("ChunkDepthOnlyDraw: %.3f ms",
+                  pass_gpu_ms(frameStats, {"ChunkDepthOnlyDraw"}));
+      ImGui::Text("GeneratedMeshletDepth: %.3f ms",
+                  pass_gpu_ms(frameStats, {"GeneratedMeshletDepthReset",
+                                           "GeneratedMeshletDepthCull",
+                                           "GeneratedMeshletDepthDispatchArgs",
+                                           "GeneratedMeshletDepthStreamBuild",
+                                           "GeneratedMeshletDepthArgs",
+                                           "GeneratedMeshletDepthDraw"}));
       ImGui::Text(
           "Batching: %.3f ms",
           pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
@@ -344,6 +413,49 @@ private:
       ImGui::Text("visible objects: %u", debugStats.visibleObjects);
       ImGui::Text("occluded objects: %u", debugStats.occludedObjects);
       ImGui::Text("culled by frustum: %u", debugStats.frustumCulledObjects);
+    }
+
+    if (ImGui::CollapsingHeader("Meshlet Visibility",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      const GpuData::MeshletChunkVisibilityStatsGpu &chunkStats =
+          debugStats.meshletChunkVisibilityStats;
+      const GpuData::MeshletGroupCullStatsGpu &groupStats =
+          debugStats.meshletGroupCullStats;
+      ImGui::Text("chunk capacity: %u", debugStats.meshletChunkCapacity);
+      ImGui::Text("allocated chunks: %u", debugStats.meshletChunkCount);
+      ImGui::Text("visibility words: %u",
+                  debugStats.meshletVisibilityWordCount);
+      ImGui::Text("depth command count: %u", chunkStats.commandCount);
+      ImGui::Text("depth instance count: %u", chunkStats.instanceCount);
+      ImGui::Text("current visible chunks: %u",
+                  chunkStats.currentVisibleChunkCount);
+      ImGui::Text("previous visible chunks: %u",
+                  chunkStats.previousVisibleChunkCount);
+      ImGui::Text("tested object chunks: %u",
+                  chunkStats.testedObjectChunkCount);
+      ImGui::Text("rejected by previous visibility: %u",
+                  chunkStats.rejectedByPreviousVisibility);
+      ImGui::Text("rejected by frustum: %u", chunkStats.rejectedByFrustum);
+      ImGui::Text("command overflow: %u", chunkStats.commandOverflowCount);
+      ImGui::Text("visible objects (gpu): %u", chunkStats.visibleObjectCount);
+      ImGui::Text("culled objects (gpu): %u", chunkStats.culledObjectCount);
+      ImGui::Text("rejected by occluder filter: %u",
+                  chunkStats.rejectedByOccluderFilter);
+      ImGui::Separator();
+      ImGui::Text("group candidates: %u", groupStats.candidateObjectCount);
+      ImGui::Text("group range objects: %u", groupStats.rangeObjectCount);
+      ImGui::Text("group range commands: %u", groupStats.rangeCommandCount);
+      ImGui::Text("group tested: %u", groupStats.testedGroupCount);
+      ImGui::Text("group rejected by frustum: %u",
+                  groupStats.frustumRejectedGroupCount);
+      ImGui::Text("cone tested meshlets: %u",
+                  groupStats.coneTestedMeshletCount);
+      ImGui::Text("cone rejected meshlets: %u",
+                  groupStats.coneRejectedMeshletCount);
+      ImGui::TextDisabled(
+          "Chunk-depth commands are filtered and generated for measurement; "
+          "meshlet group range draws are conservative and may fall back to "
+          "normal batching.");
     }
 
     if (ImGui::CollapsingHeader("Draw", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -656,6 +768,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   // メインループ
   bool isRunning = true;
   auto previousInputTime = std::chrono::steady_clock::now();
+  uint64_t nextRenderStatsLogFrame = 1u;
   while (isRunning) {
     const auto currentInputTime = std::chrono::steady_clock::now();
     const float deltaSeconds = std::clamp(
@@ -763,6 +876,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     if (!r) {
       CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
       return -1;
+    }
+
+    const uint64_t completedFrameCount = frameCounter.total_frames();
+    if (completedFrameCount >= nextRenderStatsLogFrame) {
+      log_render_debug_stats(completedFrameCount, frameCounter.fps(),
+                             engine->debug_stats(),
+                             engine->render_execution_stats());
+      nextRenderStatsLogFrame = completedFrameCount + 120u;
     }
   }
 

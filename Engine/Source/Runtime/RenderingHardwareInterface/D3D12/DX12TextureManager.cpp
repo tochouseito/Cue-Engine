@@ -134,6 +134,10 @@ namespace Cue::RHI::DX12
             desc.kind == TextureKind::RenderTarget ? D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET :
             desc.kind == TextureKind::DepthStencil ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL :
             D3D12_RESOURCE_FLAG_NONE;
+        if (desc.allowUnorderedAccess)
+        {
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        }
 
         D3D12_CLEAR_VALUE clearValue = {};
         const D3D12_CLEAR_VALUE* clearValuePtr = nullptr;

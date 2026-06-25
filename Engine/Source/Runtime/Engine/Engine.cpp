@@ -12,6 +12,8 @@
 // === Frame Passes includes ===
 #include "DrawSystem/passes/ClusteredLightingPass.h"
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
+#include "DrawSystem/passes/GeneratedMeshletDepthPass.h"
+#include "DrawSystem/passes/MeshletChunkVisibilityPass.h"
 #include "DrawSystem/passes/MeshletGroupCullPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
@@ -137,6 +139,7 @@ Result Engine::initialize(EngineSetupInfo &a_info) {
   meshPoolDesc.maxRangeIndexCount = meshPoolDesc.maxIndexCount;
   meshPoolDesc.maxMeshletCount = 1024u * 1024u;
   meshPoolDesc.meshletBoundsStagingSize = 1024u * 1024u;
+  m_maxMeshletChunkCount = meshPoolDesc.maxMeshletChunkCount;
   m_meshPool = std::make_unique<DrawSystem::MeshPool>(
       meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
 
@@ -639,6 +642,19 @@ Result Engine::register_model_set(
   }
   m_debugStats.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
   m_debugStats.pointLightsEnabled = !m_pointLights.empty();
+  if (m_meshPool != nullptr) {
+    m_debugStats.meshletChunkCapacity = m_meshPool->max_meshlet_chunk_count();
+    m_debugStats.meshletChunkCount =
+        m_meshPool->allocated_meshlet_chunk_count();
+  } else {
+    m_debugStats.meshletChunkCapacity = m_maxMeshletChunkCount;
+    m_debugStats.meshletChunkCount = 0;
+  }
+  m_debugStats.meshletVisibilityWordCount =
+      DrawSystem::MeshletChunkVisibility::word_count_for_chunks(
+          m_debugStats.meshletChunkCapacity);
+  m_debugStats.currentVisibleMeshletChunkCount = 0;
+  m_debugStats.previousVisibleMeshletChunkCount = 0;
 
   m_drawObjectCount = static_cast<uint32_t>(m_renderableInfos.size());
   m_drawCellCount = static_cast<uint32_t>(m_renderCells.size());
@@ -899,6 +915,8 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         std::make_unique<DrawSystem::ClusterLightCullingPass>(
             m_renderBackend->get_buffer_manager(), m_pointLightBufferCapacity,
             &m_debugStats.clusterLightingStats));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::ChunkHiZResourcesPass>(m_bufferCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullAndLodPass>(
         m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
         m_drawResources->view_projection_buffer_handle(),
@@ -906,11 +924,64 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_drawResources->visible_object_count_buffer_handle(),
         m_drawResources->visible_object_count_buffer_uav_handle()));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+        m_drawFrameState, m_renderBackend->get_buffer_manager(),
+        &m_debugStats.meshletGroupCullStats,
+        m_drawResources->render_object_buffer_handle(),
         m_drawResources->transform_buffer_handle(),
         m_drawResources->render_view_projection_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
         m_maxObjectCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::MeshletChunkVisibilityResetPass>(
+            m_maxMeshletChunkCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::BuildChunkDepthCommandsPass>(
+            m_drawFrameState, m_renderBackend->get_buffer_manager(),
+            &m_debugStats.meshletChunkVisibilityStats,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount, std::max<uint32_t>(1u, m_maxObjectCount * 16u),
+            m_maxMeshletChunkCount));
+    static constexpr bool kEnableChunkDepthOnlyDraw = true;
+    if constexpr (kEnableChunkDepthOnlyDraw) {
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::ChunkDepthOnlyDrawPass>(
+              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle(),
+              std::max<uint32_t>(1u, m_maxObjectCount * 16u)));
+      m_frameGraph->add_pass(std::make_unique<DrawSystem::ChunkHiZBuildPass>());
+    }
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::ChunkOcclusionStatsReadbackPass>(
+            m_renderBackend->get_buffer_manager(),
+            &m_debugStats.meshletChunkVisibilityStats));
+    static constexpr bool kEnableGeneratedMeshletDepth = false;
+    if constexpr (kEnableGeneratedMeshletDepth) {
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::GeneratedMeshletDepthResetPass>());
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::GeneratedMeshletDepthCullPass>(
+              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle(),
+              m_drawResources->visible_object_count_buffer_handle(),
+              m_maxObjectCount));
+      m_frameGraph->add_pass(
+          std::make_unique<
+              DrawSystem::GeneratedMeshletDepthDispatchArgsPass>());
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::GeneratedMeshletDepthStreamBuildPass>());
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::GeneratedMeshletDepthArgsPass>());
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::GeneratedMeshletDepthDrawPass>(
+              m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle()));
+    }
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ResetBatchCountersPass>(m_maxObjectCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(

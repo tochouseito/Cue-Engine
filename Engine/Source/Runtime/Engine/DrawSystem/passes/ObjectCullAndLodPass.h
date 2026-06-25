@@ -10,6 +10,9 @@
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
 
+// === C++ includes ===
+#include <algorithm>
+
 namespace Cue::DrawSystem
 {
     class ObjectCullAndLodPass final : public RHI::FrameGraphPass
@@ -61,6 +64,21 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
+            result = builder.get_view("ChunkHiZ.SRV", m_hizSrv);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_texture("ChunkHiZ.Texture", m_hizTexture);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.get_buffer("ChunkOcclusionStatsBuffer", m_occlusionStatsBuffer);
+            if (!result)
+            {
+                return result;
+            }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
             rootSignatureDesc.name = "ObjectCullAndLodRootSignature";
@@ -75,6 +93,19 @@ namespace Cue::DrawSystem
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0 });
             rootSignatureDesc.parameters.push_back(
                 { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::DescriptorTableSRV, RHI::ShaderVisibility::All, 1 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 2 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 3 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::_32BitConstants,
+                    RHI::ShaderVisibility::All, 4 });
+            rootSignatureDesc.parameters.push_back(
+                { RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2 });
             result =
                 builder.create_root_signature(rootSignatureDesc, m_rootSignature);
             if (!result)
@@ -129,11 +160,28 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            return builder.use_buffer(
+            result = builder.use_buffer(
                 m_visibleObjectCountBuffer,
                 RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
                 RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            result = builder.use_texture(
+                m_hizTexture, RHI::ResourceAccessType::Read,
+                RHI::ResourceState::ShaderResource,
+                RHI::ResourceState::ShaderResource);
+            if (!result)
+            {
+                return result;
+            }
+            return builder.use_buffer(
+                m_occlusionStatsBuffer,
+                RHI::ResourceAccessType::Write,
+                RHI::ResourceState::UnorderedAccess,
+                RHI::ResourceState::UnorderedAccess);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -161,7 +209,13 @@ namespace Cue::DrawSystem
             commandContext->set_srv(2, m_renderableInfoBuffer);
             commandContext->set_uav(3, m_renderObjectBuffer);
             commandContext->set_uav(4, m_visibleObjectCountBuffer);
+            commandContext->set_compute_descriptor_table(5, m_hizSrv);
+            commandContext->set_32bit_constant(6, std::max(1u, context.width() / 4u));
+            commandContext->set_32bit_constant(7, std::max(1u, context.height() / 4u));
+            commandContext->set_32bit_constant(8, m_hasPreviousHiZ ? 1u : 0u);
+            commandContext->set_uav(9, m_occlusionStatsBuffer);
             commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
+            m_hasPreviousHiZ = true;
         }
 
     private:
@@ -171,8 +225,12 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_renderObjectBuffer{};
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
+        RHI::ViewHandle m_hizSrv{};
+        RHI::TextureHandle m_hizTexture{};
+        RHI::BufferHandle m_occlusionStatsBuffer{};
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};
         RHI::PipelineStateHandle m_pipeline{};
+        bool m_hasPreviousHiZ = false;
     };
 }

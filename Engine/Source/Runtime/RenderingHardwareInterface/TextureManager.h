@@ -39,6 +39,7 @@ namespace Cue::RHI
         uint16_t arraySize = 1; // 配列テクスチャの場合の配列サイズ
         ColorFormat format = ColorFormat::R8G8B8A8_UNORM;
         uint32_t sampleCount = 1; // マルチサンプルのサンプル数
+        bool allowUnorderedAccess = false;
         float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f }; // レンダーターゲット用のクリアカラー
         float clearDepth = 1.0f; // 深度ステンシル用のクリア深度
         uint8_t clearStencil = 0; // 深度ステンシル用のクリアステンシル値

@@ -56,8 +56,30 @@ cbuffer ViewProjection : register(b1)
 };
 
 StructuredBuffer<RenderableInfo> g_renderableInfos : register(t0);
+Texture2D<uint> g_occlusionHiZ : register(t1);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
 RWByteAddressBuffer g_renderObjectCount : register(u1);
+
+cbuffer HiZWidthParam : register(b2)
+{
+    uint g_hizWidth;
+};
+
+cbuffer HiZHeightParam : register(b3)
+{
+    uint g_hizHeight;
+};
+
+cbuffer OcclusionEnabledParam : register(b4)
+{
+    uint g_occlusionEnabled;
+};
+
+RWByteAddressBuffer g_occlusionStats : register(u2);
+
+static const uint kOcclusionStatsEnabled = 84u;
+static const uint kOcclusionStatsTested = 88u;
+static const uint kOcclusionStatsRejected = 92u;
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -238,6 +260,69 @@ uint select_depth_bin(float4 boundsCenterRadius)
     return min((uint)floor(saturate(deviceDepth) * 8.0f), 7u);
 }
 
+float decode_hiz_depth(uint depth)
+{
+    return (float)depth * (1.0f / 4294967295.0f);
+}
+
+bool is_occluded_by_hiz(float4 boundsCenterRadius)
+{
+    if (g_occlusionEnabled == 0u || g_hizWidth == 0u || g_hizHeight == 0u)
+    {
+        return false;
+    }
+
+    const float4 viewCenter =
+        mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float viewZ = viewCenter.z;
+    const float radius = boundsCenterRadius.w;
+    if (viewZ <= radius + 0.001f || radius <= 0.0f)
+    {
+        return false;
+    }
+
+    const float4 clipCenter = mul(viewCenter, g_projectionMatrix);
+    if (abs(clipCenter.w) <= 0.000001f)
+    {
+        return false;
+    }
+
+    const float2 ndc = clipCenter.xy / clipCenter.w;
+    const float projectedRadiusNdc =
+        radius * abs(g_projectionMatrix[1][1]) / max(viewZ, 0.001f);
+    const float2 minNdc = clamp(ndc - projectedRadiusNdc, -1.0f, 1.0f);
+    const float2 maxNdc = clamp(ndc + projectedRadiusNdc, -1.0f, 1.0f);
+    if (maxNdc.x <= -1.0f || minNdc.x >= 1.0f ||
+        maxNdc.y <= -1.0f || minNdc.y >= 1.0f)
+    {
+        return false;
+    }
+
+    const float2 hizSize = float2((float)g_hizWidth, (float)g_hizHeight);
+    const uint2 p0 =
+        min((uint2)(((minNdc * float2(0.5f, -0.5f) +
+                      float2(0.5f, 0.5f)) *
+                     hizSize)),
+            uint2(g_hizWidth - 1u, g_hizHeight - 1u));
+    const uint2 p1 =
+        min((uint2)(((maxNdc * float2(0.5f, -0.5f) +
+                      float2(0.5f, 0.5f)) *
+                     hizSize)),
+            uint2(g_hizWidth - 1u, g_hizHeight - 1u));
+
+    const uint minX = min(p0.x, p1.x);
+    const uint maxX = max(p0.x, p1.x);
+    const uint minY = min(p0.y, p1.y);
+    const uint maxY = max(p0.y, p1.y);
+    const uint2 center = uint2((minX + maxX) >> 1u, (minY + maxY) >> 1u);
+
+    const uint maxEncodedDepth = g_occlusionHiZ.Load(int3(center, 0));
+
+    const float occluderMaxDepth = decode_hiz_depth(maxEncodedDepth);
+    const float objectNearDepth = project_device_depth(max(viewZ - radius, 0.001f));
+    return objectNearDepth > occluderMaxDepth + 0.0015f;
+}
+
 [numthreads(64, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -250,6 +335,16 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         visible =
             renderableInfo.visible != 0u &&
             is_sphere_inside_frustum(renderableInfo.boundsCenterRadius);
+        if (visible && g_occlusionEnabled != 0u)
+        {
+            g_occlusionStats.Store(kOcclusionStatsEnabled, 1u);
+            g_occlusionStats.InterlockedAdd(kOcclusionStatsTested, 1u);
+            if (is_occluded_by_hiz(renderableInfo.boundsCenterRadius))
+            {
+                g_occlusionStats.InterlockedAdd(kOcclusionStatsRejected, 1u);
+                visible = false;
+            }
+        }
     }
 
     const uint waveVisibleCount = WaveActiveCountBits(visible);

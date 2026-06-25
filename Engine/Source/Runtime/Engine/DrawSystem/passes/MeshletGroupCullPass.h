@@ -11,10 +11,15 @@
 #include "DrawSystem/DrawFrameState.h"
 #include "GpuData/Batching.h"
 
+// === C++ includes ===
+#include <cstring>
+
 namespace Cue::DrawSystem {
 class MeshletGroupCullPass final : public RHI::FrameGraphPass {
 public:
   MeshletGroupCullPass(const DrawFrameState &drawFrameState,
+                       RHI::IBufferManager *bufferManager,
+                       GpuData::MeshletGroupCullStatsGpu *statsOutput,
                        RHI::BufferHandle renderObjectBuffer,
                        RHI::BufferHandle transformBuffer,
                        RHI::BufferHandle viewProjectionBuffer,
@@ -22,6 +27,8 @@ public:
                        uint32_t maxObjectCount,
                        uint32_t maxRangeCommandCount)
       : m_drawFrameState(drawFrameState),
+        m_bufferManager(bufferManager),
+        m_statsOutput(statsOutput),
         m_renderObjectBuffer(renderObjectBuffer),
         m_transformBuffer(transformBuffer),
         m_viewProjectionBuffer(viewProjectionBuffer),
@@ -56,6 +63,15 @@ public:
       return result;
     }
     result = builder.get_buffer("MeshPool.MeshletBounds", m_meshletBoundsBuffer);
+    if (!result) {
+      return result;
+    }
+    result = builder.get_buffer("MeshPool.MeshChunkRange",
+                                m_meshChunkRangeBuffer);
+    if (!result) {
+      return result;
+    }
+    result = builder.get_buffer("MeshPool.MeshletChunk", m_meshletChunkBuffer);
     if (!result) {
       return result;
     }
@@ -116,6 +132,45 @@ public:
       return result;
     }
 
+    RHI::BufferDesc statsDesc{};
+    statsDesc.name = "MeshletGroupCullStatsBuffer";
+    statsDesc.type = RHI::BufferType::Raw;
+    statsDesc.defaultHeapCount = 1u;
+    statsDesc.uploadHeapCount = 0u;
+    statsDesc.readbackHeapCount = builder.buffer_count();
+    statsDesc.initialState = RHI::ResourceState::UnorderedAccess;
+    statsDesc.stride = sizeof(GpuData::MeshletGroupCullStatsGpu);
+    statsDesc.elementCount = 1u;
+    statsDesc.size = sizeof(GpuData::MeshletGroupCullStatsGpu);
+    statsDesc.alignment = alignof(GpuData::MeshletGroupCullStatsGpu);
+    result = builder.create_buffer(statsDesc, m_statsBuffer);
+    if (!result) {
+      return result;
+    }
+
+    RHI::ViewDesc statsUavDesc{};
+    statsUavDesc.name = "MeshletGroupCullStatsBufferUAV";
+    statsUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+    statsUavDesc.bufferKind = RHI::BufferKind::Buffer;
+    statsUavDesc.bufferHandle = m_statsBuffer;
+    statsUavDesc.numElements = statsDesc.size / sizeof(uint32_t);
+    result = builder.create_view(statsUavDesc, m_statsUav);
+    if (!result) {
+      return result;
+    }
+
+    if (m_bufferManager == nullptr) {
+      return Result::fail(
+          Code::InvalidState, Severity::Error,
+          "MeshletGroupCullPass requires a buffer manager for stats readback.");
+    }
+    result =
+        m_bufferManager->get_readback_buffer_view(m_statsBuffer,
+                                                  m_statsReadbackView);
+    if (!result) {
+      return result;
+    }
+
     RHI::RootSignatureDesc rootSignatureDesc{};
     rootSignatureDesc.name = "MeshletGroupCullRootSignature";
     rootSignatureDesc.parameters.push_back(
@@ -137,11 +192,17 @@ public:
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 4});
     rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 5});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 6});
+    rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 3});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
     if (!result) {
       return result;
@@ -201,6 +262,18 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_meshChunkRangeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
+    result = builder.use_buffer(
+        m_meshletChunkBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     result = builder.use_buffer(m_objectDrawModeBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -215,10 +288,16 @@ public:
     if (!result) {
       return result;
     }
-    return builder.use_buffer(m_rangeCommandCountBuffer,
-                              RHI::ResourceAccessType::Write,
+    result = builder.use_buffer(m_rangeCommandCountBuffer,
+                                RHI::ResourceAccessType::Write,
+                                RHI::ResourceState::UnorderedAccess,
+                                RHI::ResourceState::IndirectArgument);
+    if (!result) {
+      return result;
+    }
+    return builder.use_buffer(m_statsBuffer, RHI::ResourceAccessType::Write,
                               RHI::ResourceState::UnorderedAccess,
-                              RHI::ResourceState::IndirectArgument);
+                              RHI::ResourceState::UnorderedAccess);
   }
 
   void execute(RHI::FrameGraphContext &context) override {
@@ -227,9 +306,12 @@ public:
       return;
     }
 
+    update_stats_from_readback(context.frame_index());
+
     const uint32_t clearValues[4] = {0, 0, 0, 0};
     commandContext->clear_unordered_access_uint(m_rangeCommandCountUav,
                                                 clearValues);
+    commandContext->clear_unordered_access_uint(m_statsUav, clearValues);
 
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
@@ -246,14 +328,56 @@ public:
     commandContext->set_srv(5, m_visibleObjectCountBuffer);
     commandContext->set_srv(6, m_meshRangeBuffer);
     commandContext->set_srv(7, m_meshletBoundsBuffer);
-    commandContext->set_uav(8, m_objectDrawModeBuffer);
-    commandContext->set_uav(9, m_rangeCommandBuffer);
-    commandContext->set_uav(10, m_rangeCommandCountBuffer);
+    commandContext->set_srv(8, m_meshChunkRangeBuffer);
+    commandContext->set_srv(9, m_meshletChunkBuffer);
+    commandContext->set_uav(10, m_objectDrawModeBuffer);
+    commandContext->set_uav(11, m_rangeCommandBuffer);
+    commandContext->set_uav(12, m_rangeCommandCountBuffer);
+    commandContext->set_uav(13, m_statsBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
+
+    commandContext->uav_barrier(m_statsBuffer);
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::UnorderedAccess,
+                                 RHI::ResourceState::CopySource});
+
+    RHI::BufferToReadbackCopyRegion statsCopyRegion{};
+    statsCopyRegion.srcBufferHandle = m_statsBuffer;
+    statsCopyRegion.srcDefaultResourceIndex = 0u;
+    statsCopyRegion.srcByteOffset = 0u;
+    statsCopyRegion.dstBufferHandle = m_statsBuffer;
+    statsCopyRegion.dstReadbackResourceIndex = context.frame_index();
+    statsCopyRegion.dstByteOffset = 0u;
+    statsCopyRegion.byteSize = sizeof(GpuData::MeshletGroupCullStatsGpu);
+    commandContext->copy_buffer_region_to_readback(statsCopyRegion);
+
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::CopySource,
+                                 RHI::ResourceState::UnorderedAccess});
   }
 
 private:
+  void update_stats_from_readback(uint32_t frameIndex) noexcept {
+    if (m_statsOutput == nullptr ||
+        frameIndex >= m_statsReadbackView.mappedDatas.size()) {
+      return;
+    }
+
+    const std::byte *mappedData = m_statsReadbackView.mappedDatas[frameIndex];
+    if (mappedData == nullptr) {
+      return;
+    }
+
+    GpuData::MeshletGroupCullStatsGpu stats{};
+    std::memcpy(&stats, mappedData, sizeof(stats));
+    *m_statsOutput = stats;
+  }
+
   const DrawFrameState &m_drawFrameState;
+  RHI::IBufferManager *m_bufferManager = nullptr;
+  GpuData::MeshletGroupCullStatsGpu *m_statsOutput = nullptr;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_transformBuffer{};
   RHI::BufferHandle m_viewProjectionBuffer{};
@@ -262,10 +386,15 @@ private:
   uint32_t m_maxRangeCommandCount = 0;
   RHI::BufferHandle m_meshRangeBuffer{};
   RHI::BufferHandle m_meshletBoundsBuffer{};
+  RHI::BufferHandle m_meshChunkRangeBuffer{};
+  RHI::BufferHandle m_meshletChunkBuffer{};
   RHI::BufferHandle m_objectDrawModeBuffer{};
   RHI::BufferHandle m_rangeCommandBuffer{};
   RHI::BufferHandle m_rangeCommandCountBuffer{};
+  RHI::BufferHandle m_statsBuffer{};
   RHI::ViewHandle m_rangeCommandCountUav{};
+  RHI::ViewHandle m_statsUav{};
+  RHI::ReadbackBufferView m_statsReadbackView{};
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
   RHI::PipelineStateHandle m_pipeline{};

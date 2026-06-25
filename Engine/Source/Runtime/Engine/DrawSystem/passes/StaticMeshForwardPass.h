@@ -442,7 +442,7 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         }
         result = builder.use_buffer(
             m_rangeIndexBuffer, RHI::ResourceAccessType::Read,
-            RHI::ResourceState::IndexBuffer, RHI::ResourceState::IndexBuffer);
+            RHI::ResourceState::IndexBuffer, RHI::ResourceState::Common);
         if (!result)
         {
             return result;
