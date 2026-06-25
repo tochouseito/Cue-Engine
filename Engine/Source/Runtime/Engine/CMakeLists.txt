@@ -4,7 +4,7 @@
 add_library(Engine STATIC
     "Engine.h"
     "Engine.cpp"
- "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp" "DrawSystem/passes/PresentToSwapChain.h" "DrawSystem/passes/FinalColorClearPass.h" "DrawSystem/DrawFrameState.h" "GpuData/ViewProjection.h" "DrawSystem/MeshPool.h" "DrawSystem/MeshPool.cpp" "DrawSystem/DrawResources.h" "DrawSystem/DrawResources.cpp" "DrawSystem/GpuData/Batching.h" "GameCore/Components.h" "GameCore/GameCoreTypes.h" "Command/EngineCommandContext.h" "Command/EngineCommandContext.cpp" "Command/Commands.h"  "GameCore/GameWorld.h" "GameCore/GameWorld.cpp" "GameCore/GameObject.h" "GameCore/GameObject.cpp" "GameCore/GameObjectProto.h")
+ "Command/PlatformCommandContext.h" "Command/PlatformCommandContext.cpp" "FrameController.h" "FrameController.cpp" "DrawSystem/passes/PresentToSwapChain.h" "DrawSystem/passes/FinalColorClearPass.h" "DrawSystem/DrawFrameState.h" "GpuData/ViewProjection.h" "DrawSystem/MeshPool.h" "DrawSystem/MeshPool.cpp" "DrawSystem/DrawResources.h" "DrawSystem/DrawResources.cpp" "DrawSystem/GpuData/Batching.h" "GameCore/Components.h" "GameCore/Components.cpp" "GameCore/GameCoreTypes.h" "Command/EngineCommandContext.h" "Command/EngineCommandContext.cpp" "Command/Commands.h"  "GameCore/GameWorld.h" "GameCore/GameWorld.cpp" "GameCore/GameObject.h" "GameCore/GameObject.cpp" "GameCore/GameObjectProto.h" "GameCore/GameObjectProto.cpp")
  
 # リンクするライブラリの指定
 target_link_libraries(Engine PUBLIC

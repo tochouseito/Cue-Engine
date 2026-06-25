@@ -20,31 +20,31 @@ namespace Cue::GameCore
 
     /// @brief GameWorld が返す軽量な GameObject ハンドル。
     ///
-    /// EntityId と Generation を保持し、参照先が同じ世代で生存している場合だけ有効として扱う。
+    /// EntityId と Generation
+    /// を保持し、参照先が同じ世代で生存している場合だけ有効として扱う。
     class GameObject final
     {
-    public:
+        public:
         /// @brief 無効な GameObject ハンドルを生成する。
-        GameObject() = default;
+        GameObject() noexcept;
 
         /// @brief GameWorld 内の Entity を参照するハンドルを生成する。
         /// @param a_world 参照先の GameWorld。
         /// @param a_entityId 参照先 Entity の ID。
         /// @param a_generation ハンドル生成時点の Entity 世代番号。
-        GameObject(GameWorld* a_world, EntityId a_entityId,
-            Generation a_generation) noexcept;
+        GameObject(GameWorld* a_world, EntityId a_entityId, Generation a_generation) noexcept;
 
         /// @brief 参照先 Entity が同じ世代で生存しているかを返す。
         [[nodiscard]] bool is_valid() const noexcept;
 
         /// @brief is_valid() と同じ有効性判定を bool 変換として返す。
-        [[nodiscard]] explicit operator bool() const noexcept { return is_valid(); }
+        [[nodiscard]] explicit operator bool() const noexcept;
 
         /// @brief 参照先 Entity の ID を返す。
-        [[nodiscard]] EntityId entity_id() const noexcept { return m_entityId; }
+        [[nodiscard]] EntityId entity_id() const noexcept;
 
         /// @brief ハンドル生成時点の Entity 世代番号を返す。
-        [[nodiscard]] Generation generation() const noexcept { return m_generation; }
+        [[nodiscard]] Generation generation() const noexcept;
 
         /// @brief GameWorld が管理する表示名を取得する。
         /// @param a_outName 取得した表示名の出力先。
@@ -103,7 +103,7 @@ namespace Cue::GameCore
         /// @brief GameWorld の遅延削除キューへ自身の削除を要求する。
         [[nodiscard]] Result destroy() noexcept;
 
-    private:
+        private:
         /// @brief 参照先の GameWorld。nullptr の場合は無効ハンドル。
         GameWorld* m_world = nullptr;
         /// @brief 参照先 Entity の ID。
@@ -111,4 +111,4 @@ namespace Cue::GameCore
         /// @brief ハンドル生成時点の Entity 世代番号。
         Generation m_generation = 0;
     };
-}
+} // namespace Cue::GameCore
