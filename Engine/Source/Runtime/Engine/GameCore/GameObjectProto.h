@@ -18,7 +18,7 @@ namespace Cue::GameCore
     /// 側で使う表示名とタグを保持する。
     class GameObjectProto final : public ECS::Prototype
     {
-        public:
+    public:
         /// @brief 空の名前と既定タグを持つ Prototype を生成する。
         GameObjectProto();
 
@@ -59,7 +59,7 @@ namespace Cue::GameCore
         static GameObjectProto from_entity(ECS::ECSManager& a_ecs, ECS::Entity a_e, const std::string& a_name,
                                            const std::string& a_tag = "Default");
 
-        private:
+    private:
         /// @brief Prototype 復元に必要な Component コピー関数を登録する。
         /// @tparam T 登録する Component 型。
         template <ECS::ComponentType T> static void register_component_type();

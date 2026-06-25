@@ -24,7 +24,7 @@ namespace Cue::GameCore
     /// を保持し、参照先が同じ世代で生存している場合だけ有効として扱う。
     class GameObject final
     {
-        public:
+    public:
         /// @brief 無効な GameObject ハンドルを生成する。
         GameObject() noexcept;
 
@@ -103,7 +103,7 @@ namespace Cue::GameCore
         /// @brief GameWorld の遅延削除キューへ自身の削除を要求する。
         [[nodiscard]] Result destroy() noexcept;
 
-        private:
+    private:
         /// @brief 参照先の GameWorld。nullptr の場合は無効ハンドル。
         GameWorld* m_world = nullptr;
         /// @brief 参照先 Entity の ID。

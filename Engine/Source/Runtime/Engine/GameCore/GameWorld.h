@@ -47,7 +47,7 @@ namespace Cue::GameCore
 
     class GameWorld final
     {
-        public:
+    public:
         /// @brief 空の GameWorld を生成する
         GameWorld() noexcept;
 
@@ -140,7 +140,7 @@ namespace Cue::GameCore
         /// @brief Entity から Component を削除する
         template <typename T> [[nodiscard]] Result remove_component(EntityId a_entityId) noexcept;
 
-        private:
+    private:
         /// @brief 例外を Result に変換して処理を実行する
         [[nodiscard]] static Result capture_result(const std::function<void()>& a_func);
 
