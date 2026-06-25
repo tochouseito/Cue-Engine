@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningShockwave",
+    "color": {
+        "x": 0.55,
+        "y": 0.82,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Shockwave.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}

@@ -110,6 +110,13 @@ namespace Cue::Editor
             EffectEditor,
         };
 
+        enum class EffectEditorSelection : uint8_t
+        {
+            Emitter,
+            Sprite,
+            Ribbon,
+        };
+
         Result save_current_scene();
         Result save_scene(GameCore::SceneId a_sceneId);
         Result create_scene_asset(const std::string& a_sceneName);
@@ -237,6 +244,10 @@ namespace Cue::Editor
             selected_effect_emitter() noexcept;
         [[nodiscard]] const EffectSystem::EffectEmitterDesc*
             selected_effect_emitter() const noexcept;
+        [[nodiscard]] EffectSystem::EffectSpritePrimitiveDesc*
+            selected_effect_sprite() noexcept;
+        [[nodiscard]] EffectSystem::EffectRibbonPrimitiveDesc*
+            selected_effect_ribbon() noexcept;
 
         Core::CQRS::Bridge* m_bridge = nullptr;
         Core::IO::IFileSystem* m_fileSystem = nullptr;
@@ -275,11 +286,15 @@ namespace Cue::Editor
         PendingScriptAction m_pendingScriptAction =
             PendingScriptAction::None;
         Workspace m_currentWorkspace = Workspace::Scene;
+        EffectEditorSelection m_effectEditorSelection =
+            EffectEditorSelection::Emitter;
         EffectSystem::EffectAsset m_effectEditorAsset{};
         EffectHandle m_effectEditorHandle{};
         GameCore::EntityId m_effectPreviewEntityId =
             GameCore::k_invalidEntityId;
         uint32_t m_selectedEffectEmitterIndex = 0;
+        uint32_t m_selectedEffectSpriteIndex = 0;
+        uint32_t m_selectedEffectRibbonIndex = 0;
         uint32_t m_pendingScriptActionDelayFrames = 0;
         uint32_t m_autoScriptBuildScanDelayFrames = 0;
         uint32_t m_autoScriptBuildDebounceFrames = 0;

@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningParticleSoft",
+    "color": {
+        "x": 0.42,
+        "y": 0.78,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Particle_Soft.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}
