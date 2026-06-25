@@ -4,6 +4,7 @@
 #define DRAW_PATH_CULLED 0u
 #define DRAW_PATH_NORMAL 1u
 #define DRAW_PATH_RANGE 2u
+#define DRAW_PATH_FALLBACK 3u
 
 struct RenderObject
 {
@@ -480,7 +481,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     stats_add(k_statsCandidateObjectCount, 1u);
 
-    static const uint k_localMaxRanges = 64u;
+    static const uint k_meshletsPerRangeGroup = 2u;
+    static const uint k_localMaxRanges = 128u;
     uint rangeStarts[k_localMaxRanges];
     uint rangeEnds[k_localMaxRanges];
     float rangeDepths[k_localMaxRanges];
@@ -492,11 +494,6 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         min(max(g_maxRangesPerObject, 1u), k_localMaxRanges);
 
     bool anyVisible = false;
-    bool rangeOpen = false;
-    bool fallbackToSpan = false;
-    uint rangeStart = 0u;
-    uint rangeEnd = 0u;
-    float rangeDepth = 0.0f;
     uint firstVisibleIndex = 0xffffffffu;
     uint lastVisibleIndex = 0u;
     uint rangeCount = 0u;
@@ -508,89 +505,138 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint backfaceCulledMeshletCount = 0u;
     uint hiZCulledMeshletCount = 0u;
 
-    for (uint meshletIndex = meshRange.firstMeshlet;
-         meshletIndex < meshletEnd;
-         ++meshletIndex)
+    for (uint groupStartMeshlet = meshRange.firstMeshlet;
+         groupStartMeshlet < meshletEnd;
+         groupStartMeshlet += k_meshletsPerRangeGroup)
     {
-        const MeshletBounds meshlet = g_meshletBounds[meshletIndex];
-        if (meshlet.indexCount == 0u)
-        {
-            continue;
-        }
-        ++testedMeshletCount;
+        const uint groupEndMeshlet =
+            min(groupStartMeshlet + k_meshletsPerRangeGroup, meshletEnd);
+        bool groupVisible = false;
+        bool groupHasDrawableMeshlet = false;
+        uint groupStartIndex = 0xffffffffu;
+        uint groupEndIndex = 0u;
+        float groupDepth = 0.0f;
 
-        const float3 worldCenter =
-            mul(float4(meshlet.center, 1.0f), transform.worldMatrix).xyz;
-        const float worldRadius = meshlet.radius * maxScale;
-        const bool insideFrustum =
-            is_sphere_inside_frustum(worldCenter, worldRadius);
-        const bool backfacing =
-            insideFrustum && is_meshlet_backfacing(meshlet, transform);
-        const bool occludedByHiZ =
-            insideFrustum && !backfacing &&
-            is_occluded_by_hiz(worldCenter, worldRadius);
-        const bool visible = insideFrustum && !backfacing && !occludedByHiZ;
-
-        if (visible)
+        for (uint meshletIndex = groupStartMeshlet;
+             meshletIndex < groupEndMeshlet;
+             ++meshletIndex)
         {
-            anyVisible = true;
-            const uint start = meshlet.firstIndex;
-            const uint end = meshlet.firstIndex + meshlet.indexCount;
+            const MeshletBounds meshlet = g_meshletBounds[meshletIndex];
+            if (meshlet.indexCount == 0u)
+            {
+                continue;
+            }
+
+            groupHasDrawableMeshlet = true;
+            groupStartIndex = min(groupStartIndex, meshlet.firstIndex);
+            groupEndIndex =
+                max(groupEndIndex, meshlet.firstIndex + meshlet.indexCount);
+            ++testedMeshletCount;
+
+            const float3 worldCenter =
+                mul(float4(meshlet.center, 1.0f), transform.worldMatrix).xyz;
+            const float worldRadius = meshlet.radius * maxScale;
+            const bool insideFrustum =
+                is_sphere_inside_frustum(worldCenter, worldRadius);
+            const bool backfacing =
+                insideFrustum && is_meshlet_backfacing(meshlet, transform);
+            const bool occludedByHiZ =
+                insideFrustum && !backfacing &&
+                is_occluded_by_hiz(worldCenter, worldRadius);
+            const bool visible = insideFrustum && !backfacing && !occludedByHiZ;
             const float viewDepth =
                 mul(float4(worldCenter, 1.0f), g_viewMatrix).z - worldRadius;
-            firstVisibleIndex = min(firstVisibleIndex, start);
-            lastVisibleIndex = max(lastVisibleIndex, end);
-            visibleIndexCount += meshlet.indexCount;
-            ++visibleMeshletCount;
 
-            if (!rangeOpen)
+            if (visible)
             {
-                rangeOpen = true;
-                rangeStart = start;
-                rangeEnd = end;
-                rangeDepth = viewDepth;
+                anyVisible = true;
+                const bool wasGroupVisible = groupVisible;
+                groupVisible = true;
+                groupDepth = wasGroupVisible ? min(groupDepth, viewDepth) : viewDepth;
+                const uint start = meshlet.firstIndex;
+                const uint end = meshlet.firstIndex + meshlet.indexCount;
+                firstVisibleIndex = min(firstVisibleIndex, start);
+                lastVisibleIndex = max(lastVisibleIndex, end);
+                visibleIndexCount += meshlet.indexCount;
+                ++visibleMeshletCount;
             }
             else
             {
-                const uint gap = start > rangeEnd ? start - rangeEnd : 0u;
-                if (gap <= g_maxRangeGapIndices)
+                ++culledMeshletCount;
+                if (!insideFrustum)
                 {
-                    rangeEnd = max(rangeEnd, end);
-                    rangeDepth = min(rangeDepth, viewDepth);
+                    ++frustumCulledMeshletCount;
                 }
-                else
+                else if (backfacing)
                 {
-                    if (rangeCount < clampedMaxRanges)
-                    {
-                        rangeStarts[rangeCount] = rangeStart;
-                        rangeEnds[rangeCount] = rangeEnd;
-                        rangeDepths[rangeCount] = rangeDepth;
-                    }
-                    ++rangeCount;
-                    fallbackToSpan = fallbackToSpan ||
-                        rangeCount > clampedMaxRanges;
-                    rangeStart = start;
-                    rangeEnd = end;
-                    rangeDepth = viewDepth;
+                    ++backfaceCulledMeshletCount;
+                }
+                else if (occludedByHiZ)
+                {
+                    ++hiZCulledMeshletCount;
                 }
             }
         }
-        else
+
+        if (!groupVisible || !groupHasDrawableMeshlet)
         {
-            ++culledMeshletCount;
-            if (!insideFrustum)
+            continue;
+        }
+
+        if (rangeCount != 0u)
+        {
+            const uint previousRange = rangeCount - 1u;
+            const uint gap =
+                groupStartIndex > rangeEnds[previousRange]
+                    ? groupStartIndex - rangeEnds[previousRange]
+                    : 0u;
+            if (gap <= g_maxRangeGapIndices)
             {
-                ++frustumCulledMeshletCount;
-            }
-            else if (backfacing)
-            {
-                ++backfaceCulledMeshletCount;
-            }
-            else if (occludedByHiZ)
-            {
-                ++hiZCulledMeshletCount;
+                rangeEnds[previousRange] =
+                    max(rangeEnds[previousRange], groupEndIndex);
+                rangeDepths[previousRange] =
+                    min(rangeDepths[previousRange], groupDepth);
+                continue;
             }
         }
+
+        if (rangeCount >= k_localMaxRanges)
+        {
+            uint bestMergeIndex = 0u;
+            uint bestMergeGap = 0xffffffffu;
+            for (uint mergeIndex = 0u; mergeIndex + 1u < rangeCount;
+                 ++mergeIndex)
+            {
+                const uint gap =
+                    rangeStarts[mergeIndex + 1u] > rangeEnds[mergeIndex]
+                        ? rangeStarts[mergeIndex + 1u] - rangeEnds[mergeIndex]
+                        : 0u;
+                if (gap < bestMergeGap)
+                {
+                    bestMergeGap = gap;
+                    bestMergeIndex = mergeIndex;
+                }
+            }
+            rangeEnds[bestMergeIndex] =
+                max(rangeEnds[bestMergeIndex], rangeEnds[bestMergeIndex + 1u]);
+            rangeDepths[bestMergeIndex] =
+                min(rangeDepths[bestMergeIndex],
+                    rangeDepths[bestMergeIndex + 1u]);
+            for (uint shiftIndex = bestMergeIndex + 1u;
+                 shiftIndex + 1u < rangeCount;
+                 ++shiftIndex)
+            {
+                rangeStarts[shiftIndex] = rangeStarts[shiftIndex + 1u];
+                rangeEnds[shiftIndex] = rangeEnds[shiftIndex + 1u];
+                rangeDepths[shiftIndex] = rangeDepths[shiftIndex + 1u];
+            }
+            --rangeCount;
+        }
+
+        rangeStarts[rangeCount] = groupStartIndex;
+        rangeEnds[rangeCount] = groupEndIndex;
+        rangeDepths[rangeCount] = groupDepth;
+        ++rangeCount;
     }
 
     flush_meshlet_stats(
@@ -609,67 +655,91 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     stats_add(k_statsVisibleIndexCount, visibleIndexCount);
 
-    if (rangeOpen)
+    while (rangeCount > clampedMaxRanges)
     {
-        if (rangeCount < clampedMaxRanges)
+        uint bestMergeIndex = 0u;
+        uint bestMergeGap = 0xffffffffu;
+        for (uint mergeIndex = 0u; mergeIndex + 1u < rangeCount; ++mergeIndex)
         {
-            rangeStarts[rangeCount] = rangeStart;
-            rangeEnds[rangeCount] = rangeEnd;
-            rangeDepths[rangeCount] = rangeDepth;
+            const uint gap =
+                rangeStarts[mergeIndex + 1u] > rangeEnds[mergeIndex]
+                    ? rangeStarts[mergeIndex + 1u] - rangeEnds[mergeIndex]
+                    : 0u;
+            if (gap < bestMergeGap)
+            {
+                bestMergeGap = gap;
+                bestMergeIndex = mergeIndex;
+            }
         }
-        ++rangeCount;
-        fallbackToSpan = fallbackToSpan || rangeCount > clampedMaxRanges;
+        rangeEnds[bestMergeIndex] =
+            max(rangeEnds[bestMergeIndex], rangeEnds[bestMergeIndex + 1u]);
+        rangeDepths[bestMergeIndex] =
+            min(rangeDepths[bestMergeIndex], rangeDepths[bestMergeIndex + 1u]);
+        for (uint shiftIndex = bestMergeIndex + 1u;
+             shiftIndex + 1u < rangeCount;
+             ++shiftIndex)
+        {
+            rangeStarts[shiftIndex] = rangeStarts[shiftIndex + 1u];
+            rangeEnds[shiftIndex] = rangeEnds[shiftIndex + 1u];
+            rangeDepths[shiftIndex] = rangeDepths[shiftIndex + 1u];
+        }
+        --rangeCount;
     }
 
     uint emittedIndexCount = 0u;
-    if (fallbackToSpan)
+    for (uint sortIndex = 0u; sortIndex < rangeCount; ++sortIndex)
     {
-        // Meshlet単位の欠けを保つため、不可視meshletをまたぐspan fallbackは使わない。
-        // Rangeが細切れになりすぎるObjectは通常描画へ戻す。
+        for (uint compareIndex = sortIndex + 1u;
+             compareIndex < rangeCount;
+             ++compareIndex)
+        {
+            if (rangeDepths[compareIndex] < rangeDepths[sortIndex])
+            {
+                const uint startSwap = rangeStarts[sortIndex];
+                const uint endSwap = rangeEnds[sortIndex];
+                const float depthSwap = rangeDepths[sortIndex];
+                rangeStarts[sortIndex] = rangeStarts[compareIndex];
+                rangeEnds[sortIndex] = rangeEnds[compareIndex];
+                rangeDepths[sortIndex] = rangeDepths[compareIndex];
+                rangeStarts[compareIndex] = startSwap;
+                rangeEnds[compareIndex] = endSwap;
+                rangeDepths[compareIndex] = depthSwap;
+            }
+        }
+    }
+
+    for (uint rangeIndex = 0u; rangeIndex < rangeCount; ++rangeIndex)
+    {
+        emittedIndexCount += rangeEnds[rangeIndex] - rangeStarts[rangeIndex];
+    }
+
+    const bool drawsAlmostFullMesh =
+        emittedIndexCount >=
+        meshRange.rangeIndexCount - (meshRange.rangeIndexCount / 8u);
+    const bool gapOverdrawTooLarge =
+        visibleIndexCount != 0u &&
+        emittedIndexCount > visibleIndexCount * 3u;
+    if (drawsAlmostFullMesh || gapOverdrawTooLarge)
+    {
         stats_add(k_statsFallbackObjectCount, 1u);
-        g_objectDrawPath[objectIndex] = DRAW_PATH_NORMAL;
+        g_objectDrawPath[objectIndex] = DRAW_PATH_FALLBACK;
         stats_add(k_statsNormalDrawObjectCount, 1u);
         return;
     }
-    else
-    {
-        for (uint sortIndex = 0u; sortIndex < rangeCount; ++sortIndex)
-        {
-            for (uint compareIndex = sortIndex + 1u;
-                 compareIndex < rangeCount;
-                 ++compareIndex)
-            {
-                if (rangeDepths[compareIndex] < rangeDepths[sortIndex])
-                {
-                    const uint startSwap = rangeStarts[sortIndex];
-                    const uint endSwap = rangeEnds[sortIndex];
-                    const float depthSwap = rangeDepths[sortIndex];
-                    rangeStarts[sortIndex] = rangeStarts[compareIndex];
-                    rangeEnds[sortIndex] = rangeEnds[compareIndex];
-                    rangeDepths[sortIndex] = rangeDepths[compareIndex];
-                    rangeStarts[compareIndex] = startSwap;
-                    rangeEnds[compareIndex] = endSwap;
-                    rangeDepths[compareIndex] = depthSwap;
-                }
-            }
-        }
 
-        for (uint rangeIndex = 0u; rangeIndex < rangeCount; ++rangeIndex)
-        {
-            emittedIndexCount +=
-                rangeEnds[rangeIndex] - rangeStarts[rangeIndex];
-            emit_range(
-                objectIndex,
-                meshRange,
-                rangeStarts[rangeIndex],
-                rangeEnds[rangeIndex]);
-        }
-        if (emittedIndexCount > visibleIndexCount)
-        {
-            stats_add(
-                k_statsRangeExtraGapIndexCount,
-                emittedIndexCount - visibleIndexCount);
-        }
+    for (uint rangeIndex = 0u; rangeIndex < rangeCount; ++rangeIndex)
+    {
+        emit_range(
+            objectIndex,
+            meshRange,
+            rangeStarts[rangeIndex],
+            rangeEnds[rangeIndex]);
+    }
+    if (emittedIndexCount > visibleIndexCount)
+    {
+        stats_add(
+            k_statsRangeExtraGapIndexCount,
+            emittedIndexCount - visibleIndexCount);
     }
 
     g_objectDrawPath[objectIndex] = DRAW_PATH_RANGE;

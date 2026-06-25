@@ -373,7 +373,7 @@ private:
   uint32_t m_minRangeMeshletCount = 1u;
   uint32_t m_minRangeIndexCount = 3u;
   uint32_t m_maxRangesPerObject = StaticMeshBatching::k_maxRangesPerObject;
-  uint32_t m_maxRangeGapIndices = 0u;
+  uint32_t m_maxRangeGapIndices = 96u;
   uint32_t m_tileSize = 8u;
   uint32_t m_tileCountX = 0u;
   uint32_t m_tileCountY = 0u;

@@ -83,6 +83,7 @@ struct VsOutput
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
     nointerpolation uint materialId : TEXCOORD1;
+    nointerpolation uint renderObjectIndex : TEXCOORD2;
 };
 
 cbuffer ViewProjection : register(b0)
@@ -108,6 +109,9 @@ StructuredBuffer<PointLight> g_pointLights : register(t5);
 StructuredBuffer<uint> g_renderObjectIndices : register(t6);
 StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t7);
 StructuredBuffer<uint> g_clusterLightIndices : register(t8);
+StructuredBuffer<uint> g_objectDrawPath : register(t9);
+
+#define DRAW_PATH_FALLBACK 3u
 
 cbuffer ScreenWidthParam : register(b3)
 {
@@ -172,6 +176,7 @@ VsOutput build_vs_output(VsInput input, uint renderObjectIndex)
     VsOutput output;
     output.texcoord = input.texcoord;
     output.materialId = renderObject.materialId;
+    output.renderObjectIndex = renderObjectIndex;
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
@@ -291,6 +296,11 @@ float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
 
 float4 ps_main(VsOutput input) : SV_Target0
 {
+    if (g_objectDrawPath[input.renderObjectIndex] == DRAW_PATH_FALLBACK)
+    {
+        return float4(1.0f, 0.0f, 0.0f, 1.0f);
+    }
+
     const Material material = g_materials[input.materialId];
     const float3 normal = normalize(input.worldNormal);
     const float3 lighting =

@@ -79,7 +79,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     if (active && g_useDrawPath != 0u)
     {
-        active = g_objectDrawPath[objectIndex] == 1u;
+        const uint drawPath = g_objectDrawPath[objectIndex];
+        active = drawPath == 1u || drawPath == 3u;
     }
     uint batchId = 0u;
     if (active)

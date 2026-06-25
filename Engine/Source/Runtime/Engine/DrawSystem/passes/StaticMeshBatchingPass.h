@@ -19,7 +19,7 @@ namespace StaticMeshBatching {
 static constexpr uint32_t k_maxMeshBatchCount = 64u;
 static constexpr uint32_t k_maxMaterialBatchCount = 1u;
 static constexpr uint32_t k_depthBinCount = 8u;
-static constexpr uint32_t k_maxRangesPerObject = 64u;
+static constexpr uint32_t k_maxRangesPerObject = 16u;
 static constexpr uint32_t k_maxBatchCount =
     k_maxMeshBatchCount * k_maxMaterialBatchCount * k_depthBinCount;
 } // namespace StaticMeshBatching
