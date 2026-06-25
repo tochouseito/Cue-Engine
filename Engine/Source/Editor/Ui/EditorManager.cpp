@@ -2535,6 +2535,8 @@ EditorManager::~EditorManager() {
 void EditorManager::initialize() {
   m_debugGizmoOperation = static_cast<uint32_t>(ImGuizmo::TRANSLATE);
   m_debugGizmoMode = static_cast<uint32_t>(ImGuizmo::WORLD);
+  m_effectPreviewCamera.set_transform(Math::float3(0.0f, 1.2f, -4.0f),
+                                      Math::float3::zero());
 
   if (m_fileSystem != nullptr) {
     m_buildSystem = std::make_unique<BuildSystem>(*m_fileSystem);
@@ -3400,7 +3402,7 @@ Result EditorManager::save_effect_editor_asset() {
 }
 
 Result EditorManager::sync_effect_editor_preview() {
-  if (!m_hasEffectEditorAsset || !m_effectPreviewPlaying) {
+  if (!m_hasEffectEditorAsset) {
     destroy_effect_editor_preview();
     return Result::ok();
   }
@@ -3484,10 +3486,19 @@ Result EditorManager::sync_effect_editor_preview() {
 
   effectComponent->effectHandle = m_effectEditorHandle;
   effectComponent->effectName = m_effectEditorAsset.name;
-  effectComponent->playbackSpeed = m_effectPreviewSpeed;
+  effectComponent->playbackSpeed =
+      m_effectPreviewPlaying ? m_effectPreviewSpeed : 0.0f;
+  effectComponent->primitiveTimeSeconds =
+      (std::max)(m_effectPreviewScrubTime, 0.0f);
   effectComponent->randomSeed = 1;
-  effectComponent->isPlaying = true;
+  effectComponent->isPlaying = m_effectPreviewPlaying;
   effectComponent->isVisible = true;
+  for (ECS::EffectEmitterRuntimeState &runtime :
+       effectComponent->runtimeEmitters) {
+    runtime.emitAccumulator = 0.0f;
+    runtime.timeSeconds = effectComponent->primitiveTimeSeconds;
+    runtime.hasSpawnedBurst = false;
+  }
   return Result::ok();
 }
 
@@ -5468,6 +5479,18 @@ void EditorManager::draw_workspace_tabs() {
 
 void EditorManager::draw_effect_editor_workspace() {
   bool shouldSyncPreview = false;
+  if (m_effectPreviewPlaying && m_engine != nullptr &&
+      m_engine->game_world() != nullptr &&
+      m_effectPreviewEntityId != GameCore::k_invalidEntityId &&
+      !ImGui::IsAnyItemActive()) {
+    ECS::EffectEmitterComponent *effectComponent = nullptr;
+    const Result result = m_engine->game_world()
+                              ->get_component<ECS::EffectEmitterComponent>(
+                                  m_effectPreviewEntityId, effectComponent);
+    if (result && effectComponent != nullptr) {
+      m_effectPreviewScrubTime = effectComponent->primitiveTimeSeconds;
+    }
+  }
 
   if (ImGui::Begin("Effect Preview")) {
     const ImVec2 buttonSize(ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
@@ -5563,6 +5586,19 @@ void EditorManager::draw_effect_editor_workspace() {
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(canvasMin, canvasMax, IM_COL32(26, 29, 34, 255));
     drawList->AddRect(canvasMin, canvasMax, IM_COL32(76, 84, 96, 255));
+
+    const float aspectRatio =
+        canvasSize.y > 0.0f ? canvasSize.x / canvasSize.y : 1.0f;
+    const bool isCameraActive =
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
+        ImGui::IsMouseHoveringRect(canvasMin, canvasMax) &&
+        !ImGui::GetIO().WantTextInput;
+    m_effectPreviewCamera.set_aspect(aspectRatio);
+    m_effectPreviewCamera.update(isCameraActive);
+    if (m_engine != nullptr) {
+      m_engine->set_effect_preview_camera(
+          m_effectPreviewCamera.view_projection());
+    }
 
     bool hasPreviewTexture = false;
     if (m_effectPreviewView != nullptr) {
@@ -6445,145 +6481,374 @@ void EditorManager::draw_effect_editor_workspace() {
   ImGui::End();
 
   if (ImGui::Begin("Effect Timeline")) {
+    struct TimelineRow final {
+      EffectEditorSelection selection = EffectEditorSelection::Emitter;
+      uint32_t index = 0;
+      std::string label{};
+      float startTime = 0.0f;
+      float duration = 0.0f;
+      float life = 0.0f;
+      float midTime = -1.0f;
+      float spawnInterval = 0.0f;
+      uint32_t spawnCount = 0;
+      ImU32 color = IM_COL32(90, 160, 255, 190);
+      bool isLooping = false;
+      bool isVisible = true;
+    };
+
+    std::vector<TimelineRow> rows{};
     float timelineSeconds = 5.0f;
     if (m_hasEffectEditorAsset) {
-      for (const EffectSystem::EffectEmitterDesc &emitter :
-           m_effectEditorAsset.emitters) {
-        timelineSeconds = (std::max)(timelineSeconds,
-                                     emitter.startDelay +
-                                         (std::max)(emitter.duration, 0.01f));
+      rows.reserve(m_effectEditorAsset.emitters.size() +
+                   m_effectEditorAsset.sprites.size() +
+                   m_effectEditorAsset.ribbons.size());
+      for (uint32_t emitterIndex = 0;
+           emitterIndex < m_effectEditorAsset.emitters.size();
+           ++emitterIndex) {
+        const EffectSystem::EffectEmitterDesc &emitter =
+            m_effectEditorAsset.emitters[emitterIndex];
+        TimelineRow row{};
+        row.selection = EffectEditorSelection::Emitter;
+        row.index = emitterIndex;
+        row.label = emitter.name.empty()
+                        ? "Emitter"
+                        : "Emitter: " + emitter.name;
+        row.startTime = emitter.startDelay;
+        row.duration = emitter.duration;
+        row.life = emitter.maxLifetime;
+        row.midTime = emitter.curveMidTime;
+        row.spawnInterval =
+            emitter.emitRate > 0.0f ? 1.0f / emitter.emitRate : 0.0f;
+        row.spawnCount = emitter.burstCount;
+        row.color = IM_COL32(90, 160, 255, 190);
+        row.isLooping = emitter.isLooping;
+        row.isVisible = emitter.isVisible;
+        rows.push_back(std::move(row));
+        timelineSeconds =
+            (std::max)(timelineSeconds, emitter.startDelay +
+                                            (std::max)(emitter.duration, 0.01f));
       }
-      for (const EffectSystem::EffectSpritePrimitiveDesc &sprite :
-           m_effectEditorAsset.sprites) {
+      for (uint32_t spriteIndex = 0;
+           spriteIndex < m_effectEditorAsset.sprites.size(); ++spriteIndex) {
+        const EffectSystem::EffectSpritePrimitiveDesc &sprite =
+            m_effectEditorAsset.sprites[spriteIndex];
+        TimelineRow row{};
+        row.selection = EffectEditorSelection::Sprite;
+        row.index = spriteIndex;
+        row.label = sprite.name.empty() ? "Sprite" : "Sprite: " + sprite.name;
+        row.startTime = sprite.timeline.startTime;
+        row.duration = sprite.timeline.duration;
+        row.life = sprite.timeline.life;
+        row.midTime = sprite.curveMidTime;
+        row.spawnInterval = sprite.timeline.spawnInterval;
+        row.spawnCount = sprite.timeline.spawnCount;
+        row.color = IM_COL32(120, 190, 255, 190);
+        row.isLooping = sprite.timeline.isLooping;
+        row.isVisible = sprite.isVisible;
+        rows.push_back(std::move(row));
         timelineSeconds = (std::max)(
             timelineSeconds, sprite.timeline.startTime +
                                  (std::max)(sprite.timeline.duration, 0.01f));
       }
-      for (const EffectSystem::EffectRibbonPrimitiveDesc &ribbon :
-           m_effectEditorAsset.ribbons) {
+      for (uint32_t ribbonIndex = 0;
+           ribbonIndex < m_effectEditorAsset.ribbons.size(); ++ribbonIndex) {
+        const EffectSystem::EffectRibbonPrimitiveDesc &ribbon =
+            m_effectEditorAsset.ribbons[ribbonIndex];
+        TimelineRow row{};
+        row.selection = EffectEditorSelection::Ribbon;
+        row.index = ribbonIndex;
+        row.label = ribbon.name.empty() ? "Ribbon" : "Ribbon: " + ribbon.name;
+        row.startTime = ribbon.timeline.startTime;
+        row.duration = ribbon.timeline.duration;
+        row.life = ribbon.timeline.life;
+        row.midTime = ribbon.curveMidTime;
+        row.spawnInterval = ribbon.timeline.spawnInterval;
+        row.spawnCount = ribbon.timeline.spawnCount;
+        row.color = IM_COL32(150, 120, 255, 190);
+        row.isLooping = ribbon.timeline.isLooping;
+        row.isVisible = ribbon.isVisible;
+        rows.push_back(std::move(row));
         timelineSeconds = (std::max)(
             timelineSeconds, ribbon.timeline.startTime +
                                  (std::max)(ribbon.timeline.duration, 0.01f));
       }
+      timelineSeconds += 0.25f;
       if (ImGui::SliderFloat("Time", &m_effectPreviewScrubTime, 0.0f,
                              timelineSeconds, "%.2fs")) {
         m_effectPreviewScrubTime =
             (std::clamp)(m_effectPreviewScrubTime, 0.0f, timelineSeconds);
+        shouldSyncPreview = true;
       }
+    } else {
+      ImGui::TextUnformatted("Effect が読み込まれていません。");
     }
 
+    const auto selectRow = [this](EffectEditorSelection a_selection,
+                                  uint32_t a_index) {
+      m_effectEditorSelection = a_selection;
+      if (a_selection == EffectEditorSelection::Emitter) {
+        m_selectedEffectEmitterIndex = a_index;
+      } else if (a_selection == EffectEditorSelection::Sprite) {
+        m_selectedEffectSpriteIndex = a_index;
+      } else {
+        m_selectedEffectRibbonIndex = a_index;
+      }
+      refresh_effect_editor_buffers();
+    };
+
+    const auto isSelected = [this](const TimelineRow &a_row) {
+      if (m_effectEditorSelection != a_row.selection) {
+        return false;
+      }
+      if (a_row.selection == EffectEditorSelection::Emitter) {
+        return m_selectedEffectEmitterIndex == a_row.index;
+      }
+      if (a_row.selection == EffectEditorSelection::Sprite) {
+        return m_selectedEffectSpriteIndex == a_row.index;
+      }
+      return m_selectedEffectRibbonIndex == a_row.index;
+    };
+
+    const auto applyTiming =
+        [this, &shouldSyncPreview](const TimelineRow &a_row, float a_startTime,
+                                   float a_duration) {
+          const float startTime = (std::max)(a_startTime, 0.0f);
+          const float duration = (std::max)(a_duration, 0.0f);
+          m_effectPreviewScrubTime = startTime;
+          if (a_row.selection == EffectEditorSelection::Emitter &&
+              a_row.index < m_effectEditorAsset.emitters.size()) {
+            EffectSystem::EffectEmitterDesc &emitter =
+                m_effectEditorAsset.emitters[a_row.index];
+            emitter.startDelay = startTime;
+            emitter.duration = duration;
+          } else if (a_row.selection == EffectEditorSelection::Sprite &&
+                     a_row.index < m_effectEditorAsset.sprites.size()) {
+            EffectSystem::EffectSpritePrimitiveDesc &sprite =
+                m_effectEditorAsset.sprites[a_row.index];
+            sprite.timeline.startTime = startTime;
+            sprite.timeline.duration = duration;
+          } else if (a_row.selection == EffectEditorSelection::Ribbon &&
+                     a_row.index < m_effectEditorAsset.ribbons.size()) {
+            EffectSystem::EffectRibbonPrimitiveDesc &ribbon =
+                m_effectEditorAsset.ribbons[a_row.index];
+            ribbon.timeline.startTime = startTime;
+            ribbon.timeline.duration = duration;
+          }
+          m_effectEditorDirty = true;
+          shouldSyncPreview = true;
+        };
+
+    constexpr float k_labelWidth = 168.0f;
+    constexpr float k_headerHeight = 28.0f;
+    constexpr float k_rowHeight = 30.0f;
+    constexpr float k_barHeight = 16.0f;
+    constexpr float k_handleWidth = 8.0f;
     const ImVec2 timelineMin = ImGui::GetCursorScreenPos();
     ImVec2 timelineSize = ImGui::GetContentRegionAvail();
-    timelineSize.x = (std::max)(timelineSize.x, 160.0f);
-    timelineSize.y = (std::max)(timelineSize.y, 96.0f);
+    timelineSize.x = (std::max)(timelineSize.x, 260.0f);
+    timelineSize.y = (std::max)(
+        timelineSize.y,
+        k_headerHeight + k_rowHeight * static_cast<float>((std::max)(
+                                            rows.size(), static_cast<size_t>(1))) +
+            12.0f);
     const ImVec2 timelineMax(timelineMin.x + timelineSize.x,
                              timelineMin.y + timelineSize.y);
+    const float trackMinX = timelineMin.x + k_labelWidth;
+    const float trackWidth =
+        (std::max)(timelineMax.x - trackMinX - 8.0f, 32.0f);
+    const float secondsPerPixel = timelineSeconds / trackWidth;
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     drawList->AddRectFilled(timelineMin, timelineMax,
                             IM_COL32(32, 35, 40, 255));
     drawList->AddRect(timelineMin, timelineMax, IM_COL32(78, 86, 96, 255));
+    drawList->AddLine(ImVec2(trackMinX - 1.0f, timelineMin.y),
+                      ImVec2(trackMinX - 1.0f, timelineMax.y),
+                      IM_COL32(78, 86, 96, 255));
 
-    constexpr int k_tickCount = 12;
+    constexpr int k_tickCount = 10;
     for (int tickIndex = 0; tickIndex <= k_tickCount; ++tickIndex) {
-      const float t =
+      const float rate =
           static_cast<float>(tickIndex) / static_cast<float>(k_tickCount);
-      const float x = timelineMin.x + (timelineMax.x - timelineMin.x) * t;
-      const float tickHeight = tickIndex % 3 == 0 ? 28.0f : 14.0f;
-      drawList->AddLine(ImVec2(x, timelineMin.y),
-                        ImVec2(x, timelineMin.y + tickHeight),
-                        IM_COL32(140, 150, 165, 180));
+      const float time = timelineSeconds * rate;
+      const float x = trackMinX + trackWidth * rate;
+      const bool isMajorTick = tickIndex % 2 == 0;
+      drawList->AddLine(
+          ImVec2(x, timelineMin.y),
+          ImVec2(x, timelineMax.y),
+          isMajorTick ? IM_COL32(104, 114, 128, 120)
+                      : IM_COL32(78, 86, 96, 90));
+      char label[32]{};
+      std::snprintf(label, sizeof(label), "%.1fs", time);
+      drawList->AddText(ImVec2(x + 4.0f, timelineMin.y + 6.0f),
+                        IM_COL32(200, 208, 218, 230), label);
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(trackMinX, timelineMin.y));
+    ImGui::InvisibleButton("TimelineScrub",
+                           ImVec2(trackWidth, k_headerHeight));
+    if (ImGui::IsItemActive()) {
+      const float mouseX = ImGui::GetIO().MousePos.x;
+      const float scrubRate =
+          (std::clamp)((mouseX - trackMinX) / trackWidth, 0.0f, 1.0f);
+      m_effectPreviewScrubTime = timelineSeconds * scrubRate;
+      shouldSyncPreview = true;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Scrub %.2fs", m_effectPreviewScrubTime);
+    }
+
+    if (m_hasEffectEditorAsset && rows.empty()) {
+      drawList->AddText(ImVec2(timelineMin.x + 12.0f,
+                               timelineMin.y + k_headerHeight + 8.0f),
+                        IM_COL32(210, 216, 224, 230),
+                        "Emitter / Sprite / Ribbon がありません。");
+    }
+
+    for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
+      const TimelineRow &row = rows[rowIndex];
+      const bool selected = isSelected(row);
+      const float rowMinY =
+          timelineMin.y + k_headerHeight + k_rowHeight * rowIndex;
+      const float rowMaxY = rowMinY + k_rowHeight;
+      const float barMinY = rowMinY + (k_rowHeight - k_barHeight) * 0.5f;
+      const float barMaxY = barMinY + k_barHeight;
+      const float displayDuration = (std::max)(row.duration, 0.01f);
+      const float barMinX =
+          trackMinX + trackWidth * (row.startTime / timelineSeconds);
+      const float barWidth =
+          (std::max)(trackWidth * (displayDuration / timelineSeconds), 6.0f);
+      const float barMaxX =
+          (std::min)(trackMinX + trackWidth, barMinX + barWidth);
+      const ImU32 rowColor = selected ? IM_COL32(58, 70, 86, 255)
+                                      : IM_COL32(38, 42, 48, 255);
+      const ImU32 textColor = row.isVisible ? IM_COL32(230, 235, 242, 255)
+                                            : IM_COL32(130, 138, 148, 255);
+      drawList->AddRectFilled(ImVec2(timelineMin.x, rowMinY),
+                              ImVec2(timelineMax.x, rowMaxY), rowColor);
+      drawList->AddLine(ImVec2(timelineMin.x, rowMaxY),
+                        ImVec2(timelineMax.x, rowMaxY),
+                        IM_COL32(65, 72, 82, 160));
+      drawList->AddText(ImVec2(timelineMin.x + 8.0f, rowMinY + 7.0f),
+                        textColor, row.label.c_str());
+      drawList->AddRectFilled(ImVec2(barMinX, barMinY),
+                              ImVec2(barMaxX, barMaxY), row.color, 3.0f);
+      drawList->AddRect(ImVec2(barMinX, barMinY),
+                        ImVec2(barMaxX, barMaxY),
+                        selected ? IM_COL32(255, 226, 128, 255)
+                                 : IM_COL32(210, 220, 232, 130),
+                        3.0f);
+
+      if (row.midTime >= 0.0f && row.midTime <= 1.0f) {
+        const float midX = barMinX + (barMaxX - barMinX) * row.midTime;
+        drawList->AddLine(ImVec2(midX, barMinY - 4.0f),
+                          ImVec2(midX, barMaxY + 4.0f),
+                          IM_COL32(255, 220, 120, 220), 2.0f);
+      }
+      if (row.life > 0.0f) {
+        const float lifeX =
+            (std::min)(barMaxX, barMinX + trackWidth *
+                                          (row.life / timelineSeconds));
+        drawList->AddLine(ImVec2(lifeX, barMinY),
+                          ImVec2(lifeX, barMaxY),
+                          IM_COL32(245, 245, 245, 150), 1.5f);
+      }
+      if (row.spawnCount > 1 && row.spawnInterval > 0.0f) {
+        const uint32_t markerCount = (std::min)(row.spawnCount, 32u);
+        for (uint32_t markerIndex = 1; markerIndex < markerCount;
+             ++markerIndex) {
+          const float spawnTime =
+              row.startTime + static_cast<float>(markerIndex) *
+                                  row.spawnInterval;
+          if (spawnTime > row.startTime + displayDuration) {
+            break;
+          }
+          const float markerX =
+              trackMinX + trackWidth * (spawnTime / timelineSeconds);
+          drawList->AddLine(ImVec2(markerX, barMinY + 2.0f),
+                            ImVec2(markerX, barMaxY - 2.0f),
+                            IM_COL32(255, 255, 255, 110));
+        }
+      }
+      if (row.isLooping) {
+        drawList->AddText(ImVec2(barMaxX + 4.0f, rowMinY + 6.0f),
+                          IM_COL32(190, 225, 255, 220), "Loop");
+      }
+
+      ImGui::PushID(static_cast<int>(rowIndex));
+      ImGui::SetCursorScreenPos(ImVec2(timelineMin.x, rowMinY));
+      ImGui::InvisibleButton("TimelineRow",
+                             ImVec2(k_labelWidth, k_rowHeight));
+      if (ImGui::IsItemClicked()) {
+        selectRow(row.selection, row.index);
+      }
+
+      ImGui::SetCursorScreenPos(
+          ImVec2(barMinX + k_handleWidth * 0.5f, barMinY - 4.0f));
+      ImGui::InvisibleButton("TimelineBar",
+                             ImVec2((std::max)(barMaxX - barMinX -
+                                                   k_handleWidth,
+                                               1.0f),
+                                    k_barHeight + 8.0f));
+      if (ImGui::IsItemClicked()) {
+        selectRow(row.selection, row.index);
+      }
+      if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
+        const float deltaTime = ImGui::GetIO().MouseDelta.x * secondsPerPixel;
+        applyTiming(row, row.startTime + deltaTime, row.duration);
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Move %.2fs / %.2fs", row.startTime, row.duration);
+      }
+
+      ImGui::SetCursorScreenPos(
+          ImVec2(barMinX - k_handleWidth * 0.5f, barMinY - 4.0f));
+      ImGui::InvisibleButton("TimelineStart",
+                             ImVec2(k_handleWidth, k_barHeight + 8.0f));
+      if (ImGui::IsItemClicked()) {
+        selectRow(row.selection, row.index);
+      }
+      if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
+        const float deltaTime = ImGui::GetIO().MouseDelta.x * secondsPerPixel;
+        const float endTime = row.startTime + row.duration;
+        const float startTime =
+            (std::clamp)(row.startTime + deltaTime, 0.0f, endTime);
+        applyTiming(row, startTime, endTime - startTime);
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Start %.2fs", row.startTime);
+      }
+
+      ImGui::SetCursorScreenPos(
+          ImVec2(barMaxX - k_handleWidth * 0.5f, barMinY - 4.0f));
+      ImGui::InvisibleButton("TimelineEnd",
+                             ImVec2(k_handleWidth, k_barHeight + 8.0f));
+      if (ImGui::IsItemClicked()) {
+        selectRow(row.selection, row.index);
+      }
+      if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
+        const float deltaTime = ImGui::GetIO().MouseDelta.x * secondsPerPixel;
+        applyTiming(row, row.startTime, row.duration + deltaTime);
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("End %.2fs", row.startTime + row.duration);
+      }
+      ImGui::PopID();
     }
 
     const float playheadX =
-        timelineMin.x + timelineSize.x * (std::clamp)(m_effectPreviewScrubTime /
-                                                          timelineSeconds,
-                                                      0.0f, 1.0f);
+        trackMinX + trackWidth * (std::clamp)(m_effectPreviewScrubTime /
+                                                  timelineSeconds,
+                                              0.0f, 1.0f);
     drawList->AddLine(ImVec2(playheadX, timelineMin.y),
                       ImVec2(playheadX, timelineMax.y),
                       IM_COL32(255, 210, 90, 255), 2.0f);
 
-    if (m_hasEffectEditorAsset &&
-        m_effectEditorSelection == EffectEditorSelection::Emitter) {
-      const EffectSystem::EffectEmitterDesc *emitter =
-          selected_effect_emitter();
-      if (emitter != nullptr) {
-        const float duration = (std::max)(emitter->duration, 0.01f);
-        const float startX =
-            timelineMin.x +
-            timelineSize.x * (emitter->startDelay / timelineSeconds);
-        const float durationWidth =
-            (std::min)(timelineSize.x,
-                       timelineSize.x * duration / timelineSeconds);
-        drawList->AddRectFilled(
-            ImVec2(startX + 8.0f, timelineMin.y + 46.0f),
-            ImVec2(startX + 8.0f + durationWidth, timelineMin.y + 70.0f),
-            IM_COL32(90, 160, 255, 180), 3.0f);
-        const float midX =
-            startX + 8.0f + durationWidth * emitter->curveMidTime;
-        drawList->AddLine(ImVec2(midX, timelineMin.y + 40.0f),
-                          ImVec2(midX, timelineMin.y + 76.0f),
-                          IM_COL32(255, 220, 120, 220), 2.0f);
-        ImGui::SetCursorScreenPos(
-            ImVec2(timelineMin.x + 8.0f, timelineMin.y + 74.0f));
-        ImGui::Text(
-            "%s / %s / rate %.1f / delay %.2f / duration %.2f / life %.2f-%.2f",
-            effect_renderer_type_name(emitter->rendererType),
-            effect_shape_name(emitter->shape), emitter->emitRate,
-            emitter->startDelay, emitter->duration, emitter->minLifetime,
-            emitter->maxLifetime);
-      }
-    }
-    if (m_hasEffectEditorAsset &&
-        m_effectEditorSelection == EffectEditorSelection::Sprite) {
-      const EffectSystem::EffectSpritePrimitiveDesc *sprite =
-          selected_effect_sprite();
-      if (sprite != nullptr) {
-        const float duration = (std::max)(sprite->timeline.duration, 0.01f);
-        const float startX =
-            timelineMin.x +
-            timelineSize.x * (sprite->timeline.startTime / timelineSeconds);
-        const float durationWidth =
-            (std::min)(timelineSize.x,
-                       timelineSize.x * duration / timelineSeconds);
-        drawList->AddRectFilled(
-            ImVec2(startX + 8.0f, timelineMin.y + 46.0f),
-            ImVec2(startX + 8.0f + durationWidth, timelineMin.y + 70.0f),
-            IM_COL32(120, 190, 255, 190), 3.0f);
-        ImGui::SetCursorScreenPos(
-            ImVec2(timelineMin.x + 8.0f, timelineMin.y + 74.0f));
-        ImGui::Text("Sprite / delay %.2f / duration %.2f / life %.2f / count %u",
-                    sprite->timeline.startTime, sprite->timeline.duration,
-                    sprite->timeline.life, sprite->timeline.spawnCount);
-      }
-    }
-    if (m_hasEffectEditorAsset &&
-        m_effectEditorSelection == EffectEditorSelection::Ribbon) {
-      const EffectSystem::EffectRibbonPrimitiveDesc *ribbon =
-          selected_effect_ribbon();
-      if (ribbon != nullptr) {
-        const float duration = (std::max)(ribbon->timeline.duration, 0.01f);
-        const float startX =
-            timelineMin.x +
-            timelineSize.x * (ribbon->timeline.startTime / timelineSeconds);
-        const float durationWidth =
-            (std::min)(timelineSize.x,
-                       timelineSize.x * duration / timelineSeconds);
-        drawList->AddRectFilled(
-            ImVec2(startX + 8.0f, timelineMin.y + 46.0f),
-            ImVec2(startX + 8.0f + durationWidth, timelineMin.y + 70.0f),
-            IM_COL32(150, 120, 255, 190), 3.0f);
-        ImGui::SetCursorScreenPos(
-            ImVec2(timelineMin.x + 8.0f, timelineMin.y + 74.0f));
-        ImGui::Text("Ribbon / delay %.2f / duration %.2f / life %.2f / count %u",
-                    ribbon->timeline.startTime, ribbon->timeline.duration,
-                    ribbon->timeline.life, ribbon->timeline.spawnCount);
-      }
-    }
+    ImGui::SetCursorScreenPos(timelineMin);
     ImGui::Dummy(timelineSize);
   }
   ImGui::End();
 
-  if (shouldSyncPreview && m_effectPreviewPlaying) {
+  if (shouldSyncPreview) {
     const Result result = sync_effect_editor_preview();
     if (!result) {
       set_status_message(std::string(result.message), true);

@@ -218,6 +218,12 @@ namespace Cue
             m_debugViewProjection = a_viewProjection;
         }
 
+        void set_effect_preview_camera(
+            const GpuData::ViewProjectionGpu& a_viewProjection) noexcept
+        {
+            m_effectPreviewViewProjection = a_viewProjection;
+        }
+
         void set_debug_selection(
             const GpuData::DebugSelectionGpu& a_selection) noexcept
         {

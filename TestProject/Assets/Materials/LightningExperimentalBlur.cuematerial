@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningExperimentalBlur",
+    "color": {
+        "x": 0.45,
+        "y": 0.78,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/ExperimentalBlur.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}

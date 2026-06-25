@@ -5,6 +5,10 @@
 // === RHI includes ===
 #include <FrameGraph.h>
 
+// === C++ includes ===
+#include <string>
+#include <utility>
+
 namespace Cue::DrawSystem
 {
     class DebugGridPass final : public RHI::FrameGraphPass
@@ -17,9 +21,26 @@ namespace Cue::DrawSystem
             , m_isVisible(a_isVisible)
         {}
 
+        DebugGridPass(
+            std::string a_name,
+            std::string a_colorName,
+            std::string a_colorRtvName,
+            std::string a_depthName,
+            std::string a_depthDsvName,
+            RHI::BufferHandle a_viewProjectionBufferHandle,
+            const bool& a_isVisible) noexcept
+            : m_name(std::move(a_name))
+            , m_colorName(std::move(a_colorName))
+            , m_colorRtvName(std::move(a_colorRtvName))
+            , m_depthName(std::move(a_depthName))
+            , m_depthDsvName(std::move(a_depthDsvName))
+            , m_viewProjectionBufferHandle(a_viewProjectionBufferHandle)
+            , m_isVisible(a_isVisible)
+        {}
+
         const char* name() const noexcept override
         {
-            return "DebugGrid";
+            return m_name.c_str();
         }
 
         RHI::CommandListType type() const noexcept override
@@ -29,7 +50,7 @@ namespace Cue::DrawSystem
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            Result result = builder.get_texture("DebugColor", m_colorHandle);
+            Result result = builder.get_texture(m_colorName, m_colorHandle);
             if (!result)
             {
                 return result;
@@ -39,17 +60,17 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.get_view("DebugColorRTV", m_colorRtvHandle);
+            result = builder.get_view(m_colorRtvName, m_colorRtvHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_view("DebugSceneDepthDSV", m_depthDsvHandle);
+            result = builder.get_view(m_depthDsvName, m_depthDsvHandle);
             if (!result)
             {
                 return result;
             }
-            result = builder.get_texture("DebugSceneDepth", m_depthHandle);
+            result = builder.get_texture(m_depthName, m_depthHandle);
             if (!result)
             {
                 return result;
@@ -61,7 +82,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
-            rootSignatureDesc.name = "DebugGridRootSignature";
+            rootSignatureDesc.name = m_name + "RootSignature";
             rootSignatureDesc.parameters.push_back(RHI::RootParameterDesc{
                 RHI::RootParameterType::CBV,
                 RHI::ShaderVisibility::All,
@@ -74,7 +95,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::ShaderCompileDesc vertexShaderDesc{};
-            vertexShaderDesc.name = "DebugGridVS";
+            vertexShaderDesc.name = m_name + "VS";
             vertexShaderDesc.filePath = "Shaders/D3D12/DebugGrid.hlsl";
             vertexShaderDesc.entryPoint = "vs_main";
             vertexShaderDesc.targetProfile = "vs_6_0";
@@ -86,7 +107,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::ShaderCompileDesc pixelShaderDesc{};
-            pixelShaderDesc.name = "DebugGridPS";
+            pixelShaderDesc.name = m_name + "PS";
             pixelShaderDesc.filePath = "Shaders/D3D12/DebugGrid.hlsl";
             pixelShaderDesc.entryPoint = "ps_main";
             pixelShaderDesc.targetProfile = "ps_6_0";
@@ -98,7 +119,7 @@ namespace Cue::DrawSystem
             }
 
             RHI::GraphicsPipelineStateDesc pipelineDesc{};
-            pipelineDesc.name = "DebugGridPipeline";
+            pipelineDesc.name = m_name + "Pipeline";
             pipelineDesc.rootSignatureHandle = m_rootSignatureHandle;
             pipelineDesc.vsHandle = m_vertexShaderHandle;
             pipelineDesc.psHandle = m_pixelShaderHandle;
@@ -183,6 +204,11 @@ namespace Cue::DrawSystem
             (k_halfGridLineCount * 2 + 1) * 2;
         static constexpr uint32_t k_vertexCount = k_lineCount * 2;
 
+        std::string m_name = "DebugGrid";
+        std::string m_colorName = "DebugColor";
+        std::string m_colorRtvName = "DebugColorRTV";
+        std::string m_depthName = "DebugSceneDepth";
+        std::string m_depthDsvName = "DebugSceneDepthDSV";
         RHI::BufferHandle m_viewProjectionBufferHandle{};
         RHI::TextureHandle m_colorHandle{};
         RHI::TextureHandle m_depthHandle{};

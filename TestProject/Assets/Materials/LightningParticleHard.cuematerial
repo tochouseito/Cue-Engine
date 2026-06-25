@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningParticleHard",
+    "color": {
+        "x": 0.85,
+        "y": 0.95,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Particle_Hard.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}

@@ -760,13 +760,6 @@ Result Engine::upload_effect_preview_view_projection(uint32_t a_bufferIndex) {
         "Effect preview view projection upload buffer index is out of range.");
   }
 
-  const float aspectRatio = m_backend != nullptr && m_backend->height() > 0
-                                ? static_cast<float>(m_backend->width()) /
-                                      static_cast<float>(m_backend->height())
-                                : 1.0f;
-  m_effectPreviewViewProjection.projection = Math::perspective_fov_matrix(
-      40.0f * Math::k_pi / 180.0f, aspectRatio, 0.05f, 100.0f);
-
   RHI::SlotUploader<GpuData::ViewProjectionGpu> &uploader =
       m_effectPreviewViewProjectionUploaders[a_bufferIndex];
   uploader.begin_frame();
@@ -1330,6 +1323,10 @@ Result Engine::recreate_render_frame_graph() {
   m_frameGraph->add_pass(std::make_unique<DrawSystem::EffectPreviewClearPass>(
       "EffectPreviewColor", "EffectPreviewColorRTV", "EffectPreviewSceneDepth",
       "EffectPreviewSceneDepthDSV"));
+  m_frameGraph->add_pass(std::make_unique<DrawSystem::DebugGridPass>(
+      "EffectPreviewDebugGrid", "EffectPreviewColor", "EffectPreviewColorRTV",
+      "EffectPreviewSceneDepth", "EffectPreviewSceneDepthDSV",
+      m_effectPreviewViewProjectionBufferHandle, m_isDebugGridVisible));
   m_frameGraph->add_pass(
       std::make_unique<ParticleSystem::ParticleSpriteForwardPass>(
           "EffectPreviewParticleSpriteForward", "EffectPreviewColor",

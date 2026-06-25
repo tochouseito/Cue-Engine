@@ -333,6 +333,7 @@ namespace Cue::Editor
         uint64_t m_scriptSourceVersion = 0;
         DebugView::PickRequest m_pendingDebugPickFallback{};
         DebugCamera m_debugCamera{};
+        DebugCamera m_effectPreviewCamera{};
         ECS::TransformComponent m_debugGizmoStartTransform{};
         GameCore::EntityId m_debugGizmoEntityId =
             GameCore::k_invalidEntityId;

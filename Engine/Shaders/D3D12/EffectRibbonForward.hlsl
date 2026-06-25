@@ -68,7 +68,7 @@ VsOut vs_main(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         return make_empty_output();
     }
 
-    const uint segmentCount = clamp(ribbon.segmentCount, 1u, 16u);
+    const uint segmentCount = clamp(ribbon.segmentCount, 1u, 64u);
     const uint segmentIndex = vertexId / 6u;
     if (segmentIndex >= segmentCount)
     {

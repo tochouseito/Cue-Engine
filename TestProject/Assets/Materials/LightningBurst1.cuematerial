@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningBurst1",
+    "color": {
+        "x": 0.62,
+        "y": 0.84,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Burst_1.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}

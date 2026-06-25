@@ -26,6 +26,14 @@ namespace Cue::Editor
         DebugCamera() = default;
         ~DebugCamera() = default;
 
+        void set_transform(
+            const Math::float3& a_position,
+            const Math::float3& a_rotation) noexcept
+        {
+            m_position = a_position;
+            m_rotation = a_rotation;
+        }
+
         void set_aspect(float a_aspectRatio) noexcept
         {
             if (a_aspectRatio > 0.0f)

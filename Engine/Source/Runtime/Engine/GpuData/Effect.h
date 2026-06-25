@@ -11,7 +11,7 @@
 namespace Cue::GpuData {
 constexpr uint32_t k_maxEffectSpriteCount = 512;
 constexpr uint32_t k_maxEffectRibbonCount = 256;
-constexpr uint32_t k_maxEffectRibbonSegmentCount = 16;
+constexpr uint32_t k_maxEffectRibbonSegmentCount = 64;
 
 struct EffectFrameGpu final {
   float deltaTime = 0.0f;

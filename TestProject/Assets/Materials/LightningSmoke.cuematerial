@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningSmoke",
+    "color": {
+        "x": 0.32,
+        "y": 0.48,
+        "z": 0.7,
+        "w": 1.0
+    },
+    "texture": "Textures/Smoke.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}

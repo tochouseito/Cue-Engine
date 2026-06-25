@@ -1,0 +1,14 @@
+{
+    "version": 4,
+    "name": "LightningFire",
+    "color": {
+        "x": 0.5,
+        "y": 0.75,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "texture": "Textures/Fire.dds",
+    "useTexture": true,
+    "reflectionSkybox": false,
+    "shininess": 1.0
+}
