@@ -32,6 +32,22 @@ namespace Cue::DrawSystem
 
             return Result::ok();
         }
+
+        template <typename T>
+        Result upload_single_slot(RHI::SlotUploader<T>& a_uploader, const T& a_value, const char* a_errorMessage)
+        {
+            a_uploader.begin_frame();
+            if (!a_uploader.push(0, a_value))
+            {
+                return Result::fail(Code::InvalidState, Severity::Error, a_errorMessage);
+            }
+            if (!a_uploader.commit())
+            {
+                return Result::fail(Code::InvalidState, Severity::Error, a_errorMessage);
+            }
+
+            return Result::ok();
+        }
     } // namespace
 
     Result DrawResources::create_renderable_info_buffer(const uint32_t a_maxObjectCount)
@@ -168,7 +184,10 @@ namespace Cue::DrawSystem
             return Result::fail(Code::InvalidArgument, Severity::Error, "DrawResources buffer index is out of range.");
         }
 
-        if (m_renderableInfoUploaders.size() != m_bufferCount || m_transformUploaders.size() != m_bufferCount)
+        if (m_renderableInfoUploaders.size() != m_bufferCount || m_transformUploaders.size() != m_bufferCount ||
+            m_staticMeshIndirectCommandUploaders.size() != m_bufferCount ||
+            m_staticMeshIndirectCommandCountUploaders.size() != m_bufferCount ||
+            m_staticMeshObjectIndexUploaders.size() != m_bufferCount)
         {
             return Result::fail(Code::InvalidState, Severity::Error, "DrawResources uploaders are not initialized.");
         }
@@ -198,6 +217,36 @@ namespace Cue::DrawSystem
             return Result::fail(Code::InvalidState, Severity::Error, "DrawScene object count exceeds uint32_t range.");
         }
 
+        if (a_frameData.staticMeshIndirectCommands.size() > m_maxStaticMeshBatchCount)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "StaticMesh indirect command buffer capacity is too small.");
+        }
+
+        if (a_frameData.staticMeshObjectIndices.size() > m_maxStaticMeshObjectIndexCount)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "StaticMesh object index buffer capacity is too small.");
+        }
+
+        if (a_frameData.staticMeshBatches.size() != a_frameData.staticMeshIndirectCommands.size())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "StaticMesh batch and command arrays are not aligned.");
+        }
+
+        if (a_frameData.staticMeshBatchCount != static_cast<uint32_t>(a_frameData.staticMeshBatches.size()) ||
+            a_frameData.indirectCommandCount != static_cast<uint32_t>(a_frameData.staticMeshIndirectCommands.size()))
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "StaticMesh frame counts are not aligned.");
+        }
+
         Result result = upload_slots(m_renderableInfoUploaders[a_bufferIndex], renderableInfos,
                                      "Failed to upload RenderableInfoBuffer.");
         if (!result)
@@ -206,6 +255,30 @@ namespace Cue::DrawSystem
         }
 
         result = upload_slots(m_transformUploaders[a_bufferIndex], transforms, "Failed to upload TransformBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        result = upload_slots(m_staticMeshIndirectCommandUploaders[a_bufferIndex],
+                              a_frameData.staticMeshIndirectCommands,
+                              "Failed to upload StaticMeshIndirectCommandBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        result = upload_slots(m_staticMeshObjectIndexUploaders[a_bufferIndex],
+                              a_frameData.staticMeshObjectIndices,
+                              "Failed to upload StaticMeshObjectIndexBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        result = upload_single_slot(m_staticMeshIndirectCommandCountUploaders[a_bufferIndex],
+                                    a_frameData.indirectCommandCount,
+                                    "Failed to upload StaticMeshIndirectCommandCountBuffer.");
         if (!result)
         {
             return result;
@@ -254,6 +327,43 @@ namespace Cue::DrawSystem
         }
 
         return Result::ok();
+    }
+
+    std::vector<RHI::SlotUploader<GpuData::IndirectCommand>>&
+    DrawResources::static_mesh_indirect_command_uploaders() noexcept
+    {
+        return m_staticMeshIndirectCommandUploaders;
+    }
+
+    std::vector<RHI::SlotUploader<uint32_t>>&
+    DrawResources::static_mesh_indirect_command_count_uploaders() noexcept
+    {
+        return m_staticMeshIndirectCommandCountUploaders;
+    }
+
+    std::vector<RHI::SlotUploader<uint32_t>>& DrawResources::static_mesh_object_index_uploaders() noexcept
+    {
+        return m_staticMeshObjectIndexUploaders;
+    }
+
+    RHI::BufferHandle DrawResources::static_mesh_indirect_command_buffer_handle() const noexcept
+    {
+        return m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshIndirectCommandBuffer)];
+    }
+
+    RHI::BufferHandle DrawResources::static_mesh_indirect_command_count_buffer_handle() const noexcept
+    {
+        return m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshIndirectCommandCountBuffer)];
+    }
+
+    RHI::BufferHandle DrawResources::static_mesh_object_index_buffer_handle() const noexcept
+    {
+        return m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshObjectIndexBuffer)];
+    }
+
+    RHI::ViewHandle DrawResources::static_mesh_object_index_buffer_srv_handle() const noexcept
+    {
+        return m_viewHandles[static_cast<size_t>(DrawResourceType::StaticMeshObjectIndexBuffer)];
     }
 
     Result DrawResources::create_material_buffer(const uint32_t a_maxMaterialCount)
@@ -390,7 +500,7 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        // - CPU から初期化や debug 用更新ができるよう uploader も作成しておく
+        // - CPU から初期値やフレームごとの RenderObject を書き込めるよう uploader も作成しておく
         result =
             m_bufferManager->create_slot_uploaders(renderObjectBufferHandle, m_bufferCount, m_renderObjectUploaders);
         if (!result)
@@ -482,6 +592,146 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        return Result::ok();
+    }
+
+    Result DrawResources::create_static_mesh_batch_buffers(uint32_t a_maxBatchCount, uint32_t a_maxObjectIndexCount)
+    {
+        if (a_maxBatchCount == 0 || a_maxObjectIndexCount == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "StaticMesh batch buffer capacity must be greater than zero.");
+        }
+
+        // StaticMeshIndirectCommandBuffer は ExecuteIndirect の引数列として使う。
+        RHI::BufferDesc commandBufferDesc{};
+        commandBufferDesc.name = "StaticMeshIndirectCommandBuffer";
+        commandBufferDesc.type = RHI::BufferType::Structured;
+        commandBufferDesc.defaultHeapCount = 0;
+        commandBufferDesc.uploadHeapCount = m_bufferCount;
+        commandBufferDesc.initialState = RHI::ResourceState::IndirectArgument;
+        commandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
+        commandBufferDesc.elementCount = a_maxBatchCount;
+        commandBufferDesc.size = commandBufferDesc.stride * commandBufferDesc.elementCount;
+        commandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
+
+        RHI::BufferHandle& commandBufferHandle =
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshIndirectCommandBuffer)];
+        Result result = m_bufferManager->create_buffer(commandBufferDesc, commandBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            commandBufferHandle,
+            m_bufferCount,
+            m_staticMeshIndirectCommandUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_staticMeshIndirectCommandUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "StaticMeshIndirectCommandBuffer uploader was not created.");
+        }
+
+        // ExecuteIndirect の command count は 1 要素の uint buffer として毎フレーム更新する。
+        RHI::BufferDesc commandCountBufferDesc{};
+        commandCountBufferDesc.name = "StaticMeshIndirectCommandCountBuffer";
+        commandCountBufferDesc.type = RHI::BufferType::Raw;
+        commandCountBufferDesc.defaultHeapCount = 0;
+        commandCountBufferDesc.uploadHeapCount = m_bufferCount;
+        commandCountBufferDesc.initialState = RHI::ResourceState::IndirectArgument;
+        commandCountBufferDesc.stride = sizeof(uint32_t);
+        commandCountBufferDesc.elementCount = 1;
+        commandCountBufferDesc.size = sizeof(uint32_t);
+        commandCountBufferDesc.alignment = alignof(uint32_t);
+
+        RHI::BufferHandle& commandCountBufferHandle =
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshIndirectCommandCountBuffer)];
+        result = m_bufferManager->create_buffer(commandCountBufferDesc, commandCountBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            commandCountBufferHandle,
+            m_bufferCount,
+            m_staticMeshIndirectCommandCountUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_staticMeshIndirectCommandCountUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "StaticMeshIndirectCommandCountBuffer uploader was not created.");
+        }
+
+        // object index buffer は indirect command の drawObjectStartIndex から参照する。
+        RHI::BufferDesc objectIndexBufferDesc{};
+        objectIndexBufferDesc.name = "StaticMeshObjectIndexBuffer";
+        objectIndexBufferDesc.type = RHI::BufferType::Structured;
+        objectIndexBufferDesc.defaultHeapCount = 0;
+        objectIndexBufferDesc.uploadHeapCount = m_bufferCount;
+        objectIndexBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        objectIndexBufferDesc.stride = sizeof(uint32_t);
+        objectIndexBufferDesc.elementCount = a_maxObjectIndexCount;
+        objectIndexBufferDesc.size = objectIndexBufferDesc.stride * objectIndexBufferDesc.elementCount;
+        objectIndexBufferDesc.alignment = alignof(uint32_t);
+
+        RHI::BufferHandle& objectIndexBufferHandle =
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::StaticMeshObjectIndexBuffer)];
+        result = m_bufferManager->create_buffer(objectIndexBufferDesc, objectIndexBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(
+            objectIndexBufferHandle,
+            m_bufferCount,
+            m_staticMeshObjectIndexUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_staticMeshObjectIndexUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(
+                Code::InternalError,
+                Severity::Fatal,
+                "StaticMeshObjectIndexBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc objectIndexBufferSrvDesc{};
+        objectIndexBufferSrvDesc.name = "StaticMeshObjectIndexBufferSRV";
+        objectIndexBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        objectIndexBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        objectIndexBufferSrvDesc.bufferHandle = objectIndexBufferHandle;
+        objectIndexBufferSrvDesc.firstElement = 0;
+        objectIndexBufferSrvDesc.numElements = objectIndexBufferDesc.elementCount;
+        objectIndexBufferSrvDesc.structureByteStride = objectIndexBufferDesc.stride;
+
+        RHI::ViewHandle& objectIndexBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(DrawResourceType::StaticMeshObjectIndexBuffer)];
+        result = m_viewManager->create_view(objectIndexBufferSrvDesc, objectIndexBufferSrvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_maxStaticMeshBatchCount = a_maxBatchCount;
+        m_maxStaticMeshObjectIndexCount = a_maxObjectIndexCount;
         return Result::ok();
     }
 } // namespace Cue::DrawSystem

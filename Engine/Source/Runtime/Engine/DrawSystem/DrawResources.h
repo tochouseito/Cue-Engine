@@ -33,6 +33,9 @@ namespace Cue::DrawSystem
         RenderCellBuffer,         // 空間分割セル情報
         RenderObjectBuffer,       // 可視判定後の描画オブジェクト出力
         VisibleObjectCountBuffer, // 可視オブジェクト数の UAV counter
+        StaticMeshIndirectCommandBuffer,      // StaticMesh の ExecuteIndirect 引数
+        StaticMeshIndirectCommandCountBuffer, // StaticMesh の ExecuteIndirect 発行数
+        StaticMeshObjectIndexBuffer,          // バッチ順に並べた DrawScene object index
         Count                     // 配列サイズ用
     };
 
@@ -73,6 +76,9 @@ namespace Cue::DrawSystem
 
         /// @brief 可視オブジェクト数を保持する raw UAV buffer、uploaders、UAV を作成する
         Result create_object_count_buffer();
+
+        /// @brief StaticMesh indirect draw 用の command / count / object index buffer を作成する
+        Result create_static_mesh_batch_buffers(uint32_t a_maxBatchCount, uint32_t a_maxObjectIndexCount);
 
         /// @brief DrawScene の RenderableInfo / Transform をフレーム別 upload buffer に反映する
         Result upload_draw_scene(uint32_t a_bufferIndex, const DrawScene& a_scene, DrawFrameData& a_frameData);
@@ -119,6 +125,15 @@ namespace Cue::DrawSystem
             return m_viewProjectionUploaders;
         }
 
+        /// @brief StaticMesh indirect command buffer のフレーム別 uploader 配列
+        std::vector<RHI::SlotUploader<GpuData::IndirectCommand>>& static_mesh_indirect_command_uploaders() noexcept;
+
+        /// @brief StaticMesh indirect command count buffer のフレーム別 uploader 配列
+        std::vector<RHI::SlotUploader<uint32_t>>& static_mesh_indirect_command_count_uploaders() noexcept;
+
+        /// @brief StaticMesh object index buffer のフレーム別 uploader 配列
+        std::vector<RHI::SlotUploader<uint32_t>>& static_mesh_object_index_uploaders() noexcept;
+
         /// @brief RenderableInfo buffer の RHI handle
         [[nodiscard]] RHI::BufferHandle renderable_info_buffer_handle() const noexcept
         {
@@ -161,6 +176,15 @@ namespace Cue::DrawSystem
             return m_bufferHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
         }
 
+        /// @brief StaticMesh indirect command buffer の RHI handle
+        [[nodiscard]] RHI::BufferHandle static_mesh_indirect_command_buffer_handle() const noexcept;
+
+        /// @brief StaticMesh indirect command count buffer の RHI handle
+        [[nodiscard]] RHI::BufferHandle static_mesh_indirect_command_count_buffer_handle() const noexcept;
+
+        /// @brief StaticMesh object index buffer の RHI handle
+        [[nodiscard]] RHI::BufferHandle static_mesh_object_index_buffer_handle() const noexcept;
+
         /// @brief RenderableInfo buffer の SRV handle
         [[nodiscard]] RHI::ViewHandle renderable_info_buffer_srv_handle() const noexcept
         {
@@ -197,12 +221,17 @@ namespace Cue::DrawSystem
             return m_viewHandles[static_cast<size_t>(DrawResourceType::VisibleObjectCountBuffer)];
         }
 
+        /// @brief StaticMesh object index buffer の SRV handle
+        [[nodiscard]] RHI::ViewHandle static_mesh_object_index_buffer_srv_handle() const noexcept;
+
     private:
         RHI::IBufferManager* m_bufferManager = nullptr; // buffer の生成と uploader 作成を行う外部 manager
         RHI::IViewManager* m_viewManager = nullptr;     // SRV/UAV view の生成を行う外部 manager
         uint32_t m_bufferCount = 1;                     // フレームごとに用意する upload heap / uploader 数
         uint32_t m_maxRenderableInfoCount = 0;          // RenderableInfoBuffer の最大要素数
         uint32_t m_maxTransformCount = 0;               // TransformBuffer の最大要素数
+        uint32_t m_maxStaticMeshBatchCount = 0;         // StaticMesh indirect command の最大要素数
+        uint32_t m_maxStaticMeshObjectIndexCount = 0;   // StaticMesh object index の最大要素数
 
         std::array<RHI::BufferHandle, static_cast<size_t>(DrawResourceType::Count)>
             m_bufferHandles{}; // 種別ごとの GPU buffer handle
@@ -222,5 +251,11 @@ namespace Cue::DrawSystem
             m_visibleObjectCountUploaders{}; // VisibleObjectCount buffer へのフレーム別 upload 経路
         std::vector<RHI::SlotUploader<GpuData::ViewProjectionGpu>>
             m_viewProjectionUploaders{}; // ViewProjection buffer へのフレーム別 upload 経路
+        std::vector<RHI::SlotUploader<GpuData::IndirectCommand>>
+            m_staticMeshIndirectCommandUploaders{}; // StaticMesh indirect command buffer への upload 経路
+        std::vector<RHI::SlotUploader<uint32_t>>
+            m_staticMeshIndirectCommandCountUploaders{}; // StaticMesh indirect command count への upload 経路
+        std::vector<RHI::SlotUploader<uint32_t>>
+            m_staticMeshObjectIndexUploaders{}; // StaticMesh object index buffer への upload 経路
     };
 } // namespace Cue::DrawSystem

@@ -1491,15 +1491,16 @@ namespace Cue::RHI::DX12
                 "Draw indexed command signature is not initialized.");
         }
 
+        // CPU 生成の indirect command は upload-only buffer として渡される場合がある。
         DX12GpuResource* commandResource = nullptr;
-        Result result = resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+        Result result = resolve_root_descriptor_buffer(commandBufferHandle, &commandResource);
         if (!result)
         {
             return result;
         }
 
         DX12GpuResource* commandCountResource = nullptr;
-        result = resolve_default_buffer(commandCountBufferHandle, 0, &commandCountResource);
+        result = resolve_root_descriptor_buffer(commandCountBufferHandle, &commandCountResource);
         if (!result)
         {
             return result;
@@ -2054,7 +2055,10 @@ namespace Cue::RHI::DX12
             auto context = m_graphicsContextPool.acquire();
             outContext = commandContextLease(
                 context.release(),
-                [](ICommandContext* raw) {delete raw; });
+                [](ICommandContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         case Cue::RHI::CommandListType::Compute:
@@ -2064,7 +2068,10 @@ namespace Cue::RHI::DX12
             auto context = m_computeContextPool.acquire();
             outContext = commandContextLease(
                 context.release(),
-                [](ICommandContext* raw) {delete raw; });
+                [](ICommandContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         case Cue::RHI::CommandListType::Copy:
@@ -2074,7 +2081,10 @@ namespace Cue::RHI::DX12
             auto context = m_copyContextPool.acquire();
             outContext = commandContextLease(
                 context.release(),
-                [](ICommandContext* raw) {delete raw; });
+                [](ICommandContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         default:
@@ -2230,7 +2240,10 @@ namespace Cue::RHI::DX12
             auto context = m_graphicsQueuePool.acquire();
             outContext = queueContextLease(
                 context.release(),
-                [](IQueueContext* raw) {delete raw; });
+                [](IQueueContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         case Cue::RHI::CommandListType::Compute:
@@ -2240,7 +2253,10 @@ namespace Cue::RHI::DX12
             auto context = m_computeQueuePool.acquire();
             outContext = queueContextLease(
                 context.release(),
-                [](IQueueContext* raw) {delete raw; });
+                [](IQueueContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         case Cue::RHI::CommandListType::Copy:
@@ -2250,7 +2266,10 @@ namespace Cue::RHI::DX12
             auto context = m_copyQueuePool.acquire();
             outContext = queueContextLease(
                 context.release(),
-                [](IQueueContext* raw) {delete raw; });
+                [](IQueueContext* raw)
+                {
+                    delete raw;
+                });
         }
         break;
         default:

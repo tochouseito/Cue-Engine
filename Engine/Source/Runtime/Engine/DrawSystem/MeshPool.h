@@ -174,9 +174,6 @@ namespace Cue::DrawSystem
 
         // --- Mesh の割り当てと解放 ---
 
-        /// @brief 原点中心の標準キューブを作成し、MeshPool に登録する
-        Result create_static_cube(MeshHandle& outHandle);
-
         /// @brief MeshData をプールへアップロードし、参照用 MeshHandle を返す
         Result allocate_mesh(const Core::Native::MeshData& meshData, MeshHandle& outHandle);
 

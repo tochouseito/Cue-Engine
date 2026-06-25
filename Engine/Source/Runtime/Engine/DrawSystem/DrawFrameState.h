@@ -7,6 +7,9 @@
 // === Math includes ===
 #include <CueMath.h>
 
+// === Engine includes ===
+#include "DrawSystem/StaticMeshBatch.h"
+
 // === C++ includes ===
 #include <vector>
 
@@ -25,11 +28,16 @@ namespace Cue::DrawSystem
     {
         uint32_t objectCount = 0;
         uint32_t cellCount = 0;
+        uint32_t staticMeshBatchCount = 0;
+        uint32_t indirectCommandCount = 0;
         uint32_t renderWidth = 1;
         uint32_t renderHeight = 1;
         bool useCpuBatching = false;
         std::vector<CpuIndexedDraw> cpuIndexedDraws{};
         std::vector<CpuIndexedDraw> transparentCpuIndexedDraws{};
+        std::vector<StaticMeshBatch> staticMeshBatches{};
+        std::vector<GpuData::IndirectCommand> staticMeshIndirectCommands{};
+        std::vector<uint32_t> staticMeshObjectIndices{};
     };
 
     struct DrawFrameState final

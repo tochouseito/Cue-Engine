@@ -8,11 +8,13 @@
 
 // === Engine includes ===
 #include "Command/PlatformCommandContext.h"
+#include "DrawSystem/StaticMeshBatcher.h"
 #include "GameCore/GameWorldRenderExtractor.h"
 
 // === Frame Passes includes ===
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
+#include "DrawSystem/passes/StaticMeshIndirectPass.h"
 
 // === C++ includes ===
 #include <algorithm>
@@ -164,6 +166,12 @@ namespace Cue
             return r;
         }
 
+        r = m_drawResources->create_static_mesh_batch_buffers(m_maxObjectCount, m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
         // FrameGraph の構築
         r = create_frame_graphs(std::move(a_info.editorPass));
         if (!r)
@@ -285,6 +293,8 @@ namespace Cue
 
         // メインのフレームグラフにパスを追加
         m_frameGraph->add_pass(std::make_unique<DrawSystem::FinalColorClearPass>());
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::StaticMeshIndirectPass>(*m_drawResources, *m_meshPool, m_drawFrameState));
 
         // グラフを構築
         result = m_frameGraph->build();
@@ -331,6 +341,11 @@ namespace Cue
             return Result::fail(Code::InvalidState, Severity::Error, "DrawResources is not initialized.");
         }
 
+        if (m_meshPool == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "MeshPool is not initialized.");
+        }
+
         if (a_bufferIndex >= m_drawScenes.size())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error, "DrawScene buffer index is out of range.");
@@ -344,6 +359,20 @@ namespace Cue
         }
 
         DrawSystem::DrawFrameData& frameData = m_drawFrameState.frame_state(a_bufferIndex);
+        DrawSystem::StaticMeshBatchBuildResult batchBuildResult{};
+        result = DrawSystem::StaticMeshBatcher::build_indirect_commands(drawScene, *m_meshPool, batchBuildResult);
+        if (!result)
+        {
+            return result;
+        }
+
+        frameData.staticMeshBatches = std::move(batchBuildResult.batches);
+        frameData.staticMeshIndirectCommands = std::move(batchBuildResult.commands);
+        frameData.staticMeshObjectIndices = std::move(batchBuildResult.groupedObjectIndices);
+        frameData.staticMeshBatchCount = static_cast<uint32_t>(frameData.staticMeshBatches.size());
+        frameData.indirectCommandCount = static_cast<uint32_t>(frameData.staticMeshIndirectCommands.size());
+        frameData.useCpuBatching = frameData.indirectCommandCount > 0;
+
         return m_drawResources->upload_draw_scene(a_bufferIndex, drawScene, frameData);
     }
 
