@@ -19,7 +19,6 @@ namespace StaticMeshBatching {
 static constexpr uint32_t k_maxMeshBatchCount = 64u;
 static constexpr uint32_t k_maxMaterialBatchCount = 1u;
 static constexpr uint32_t k_depthBinCount = 8u;
-static constexpr uint32_t k_maxRangesPerObject = 16u;
 static constexpr uint32_t k_maxBatchCount =
     k_maxMeshBatchCount * k_maxMaterialBatchCount * k_depthBinCount;
 } // namespace StaticMeshBatching
@@ -29,8 +28,6 @@ public:
   explicit ResetBatchCountersPass(uint32_t maxObjectCount,
                                   bool createResources = true)
       : m_maxObjectCount(maxObjectCount),
-        m_maxRangeDrawCommandCount(maxObjectCount *
-                                   StaticMeshBatching::k_maxRangesPerObject),
         m_createResources(createResources) {}
 
   const char *name() const noexcept override { return "ResetBatchCounters"; }
@@ -70,30 +67,6 @@ public:
       if (!result) {
         return result;
       }
-      result = builder.get_buffer("MeshletRefinedVisibilityBuffer",
-                                  m_refinedVisibilityBuffer);
-      if (!result) {
-        return result;
-      }
-      result =
-          builder.get_buffer("ObjectDrawPathBuffer", m_objectDrawPathBuffer);
-      if (!result) {
-        return result;
-      }
-      result = builder.get_buffer("RangeDrawCommandBuffer",
-                                  m_rangeDrawCommandBuffer);
-      if (!result) {
-        return result;
-      }
-      result =
-          builder.get_buffer("RangeDrawCountBuffer", m_rangeDrawCountBuffer);
-      if (!result) {
-        return result;
-      }
-      result = builder.get_buffer("RangeOverflowBuffer", m_rangeOverflowBuffer);
-      if (!result) {
-        return result;
-      }
       result = builder.get_view("IndirectCommandCountBufferUAV",
                                 m_indirectCommandCountUav);
       if (!result) {
@@ -114,11 +87,7 @@ public:
       if (!result) {
         return result;
       }
-      result = builder.get_view("RangeDrawCountBufferUAV", m_rangeDrawCountUav);
-      if (!result) {
-        return result;
-      }
-      return builder.get_view("RangeOverflowBufferUAV", m_rangeOverflowUav);
+      return result;
     }
 
     RHI::BufferDesc commandBufferDesc{};
@@ -180,114 +149,6 @@ public:
     objectIndexBufferDesc.alignment = alignof(uint32_t);
     result =
         builder.create_buffer(objectIndexBufferDesc, m_renderObjectIndexBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::BufferDesc refinedVisibilityBufferDesc{};
-    refinedVisibilityBufferDesc.name = "MeshletRefinedVisibilityBuffer";
-    refinedVisibilityBufferDesc.type = RHI::BufferType::UnorderedAccess;
-    refinedVisibilityBufferDesc.defaultHeapCount = 1;
-    refinedVisibilityBufferDesc.uploadHeapCount = 0;
-    refinedVisibilityBufferDesc.initialState =
-        RHI::ResourceState::UnorderedAccess;
-    refinedVisibilityBufferDesc.stride = sizeof(uint32_t);
-    refinedVisibilityBufferDesc.elementCount = m_maxObjectCount;
-    refinedVisibilityBufferDesc.size = refinedVisibilityBufferDesc.stride *
-                                       refinedVisibilityBufferDesc.elementCount;
-    refinedVisibilityBufferDesc.alignment = alignof(uint32_t);
-    result = builder.create_buffer(refinedVisibilityBufferDesc,
-                                   m_refinedVisibilityBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::BufferDesc objectDrawPathBufferDesc{};
-    objectDrawPathBufferDesc.name = "ObjectDrawPathBuffer";
-    objectDrawPathBufferDesc.type = RHI::BufferType::UnorderedAccess;
-    objectDrawPathBufferDesc.defaultHeapCount = 1;
-    objectDrawPathBufferDesc.uploadHeapCount = 0;
-    objectDrawPathBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-    objectDrawPathBufferDesc.stride = sizeof(uint32_t);
-    objectDrawPathBufferDesc.elementCount = m_maxObjectCount;
-    objectDrawPathBufferDesc.size =
-        objectDrawPathBufferDesc.stride * objectDrawPathBufferDesc.elementCount;
-    objectDrawPathBufferDesc.alignment = alignof(uint32_t);
-    result =
-        builder.create_buffer(objectDrawPathBufferDesc, m_objectDrawPathBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::BufferDesc rangeCommandBufferDesc{};
-    rangeCommandBufferDesc.name = "RangeDrawCommandBuffer";
-    rangeCommandBufferDesc.type = RHI::BufferType::UnorderedAccess;
-    rangeCommandBufferDesc.defaultHeapCount = 1;
-    rangeCommandBufferDesc.uploadHeapCount = 0;
-    rangeCommandBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-    rangeCommandBufferDesc.stride = sizeof(GpuData::IndirectCommand);
-    rangeCommandBufferDesc.elementCount = m_maxRangeDrawCommandCount;
-    rangeCommandBufferDesc.size =
-        rangeCommandBufferDesc.stride * rangeCommandBufferDesc.elementCount;
-    rangeCommandBufferDesc.alignment = alignof(GpuData::IndirectCommand);
-    result =
-        builder.create_buffer(rangeCommandBufferDesc, m_rangeDrawCommandBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::BufferDesc rangeCountBufferDesc{};
-    rangeCountBufferDesc.name = "RangeDrawCountBuffer";
-    rangeCountBufferDesc.type = RHI::BufferType::Raw;
-    rangeCountBufferDesc.defaultHeapCount = 1;
-    rangeCountBufferDesc.uploadHeapCount = 0;
-    rangeCountBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-    rangeCountBufferDesc.stride = sizeof(uint32_t);
-    rangeCountBufferDesc.elementCount = 1;
-    rangeCountBufferDesc.size = sizeof(uint32_t);
-    rangeCountBufferDesc.alignment = alignof(uint32_t);
-    result =
-        builder.create_buffer(rangeCountBufferDesc, m_rangeDrawCountBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::ViewDesc rangeCountUavDesc{};
-    rangeCountUavDesc.name = "RangeDrawCountBufferUAV";
-    rangeCountUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-    rangeCountUavDesc.bufferKind = RHI::BufferKind::Buffer;
-    rangeCountUavDesc.bufferHandle = m_rangeDrawCountBuffer;
-    rangeCountUavDesc.numElements =
-        rangeCountBufferDesc.size / sizeof(uint32_t);
-    result = builder.create_view(rangeCountUavDesc, m_rangeDrawCountUav);
-    if (!result) {
-      return result;
-    }
-
-    RHI::BufferDesc rangeOverflowBufferDesc{};
-    rangeOverflowBufferDesc.name = "RangeOverflowBuffer";
-    rangeOverflowBufferDesc.type = RHI::BufferType::Raw;
-    rangeOverflowBufferDesc.defaultHeapCount = 1;
-    rangeOverflowBufferDesc.uploadHeapCount = 0;
-    rangeOverflowBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-    rangeOverflowBufferDesc.stride = sizeof(uint32_t);
-    rangeOverflowBufferDesc.elementCount = 1;
-    rangeOverflowBufferDesc.size = sizeof(uint32_t);
-    rangeOverflowBufferDesc.alignment = alignof(uint32_t);
-    result =
-        builder.create_buffer(rangeOverflowBufferDesc, m_rangeOverflowBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::ViewDesc rangeOverflowUavDesc{};
-    rangeOverflowUavDesc.name = "RangeOverflowBufferUAV";
-    rangeOverflowUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-    rangeOverflowUavDesc.bufferKind = RHI::BufferKind::Buffer;
-    rangeOverflowUavDesc.bufferHandle = m_rangeOverflowBuffer;
-    rangeOverflowUavDesc.numElements =
-        rangeOverflowBufferDesc.size / sizeof(uint32_t);
-    result = builder.create_view(rangeOverflowUavDesc, m_rangeOverflowUav);
     if (!result) {
       return result;
     }
@@ -406,17 +267,7 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.use_buffer(m_rangeDrawCountBuffer,
-                                RHI::ResourceAccessType::Write,
-                                RHI::ResourceState::UnorderedAccess,
-                                RHI::ResourceState::UnorderedAccess);
-    if (!result) {
-      return result;
-    }
-    return builder.use_buffer(m_rangeOverflowBuffer,
-                              RHI::ResourceAccessType::Write,
-                              RHI::ResourceState::UnorderedAccess,
-                              RHI::ResourceState::UnorderedAccess);
+    return result;
   }
 
   void execute(RHI::FrameGraphContext &context) override {
@@ -434,24 +285,14 @@ public:
                                                 clearValues);
     commandContext->clear_unordered_access_uint(m_batchObjectOffsetUav,
                                                 clearValues);
-    commandContext->clear_unordered_access_uint(m_rangeDrawCountUav,
-                                                clearValues);
-    commandContext->clear_unordered_access_uint(m_rangeOverflowUav,
-                                                clearValues);
   }
 
 private:
   uint32_t m_maxObjectCount = 0;
-  uint32_t m_maxRangeDrawCommandCount = 0;
   bool m_createResources = true;
   RHI::BufferHandle m_indirectCommandBuffer{};
   RHI::BufferHandle m_indirectCommandCountBuffer{};
   RHI::BufferHandle m_renderObjectIndexBuffer{};
-  RHI::BufferHandle m_refinedVisibilityBuffer{};
-  RHI::BufferHandle m_objectDrawPathBuffer{};
-  RHI::BufferHandle m_rangeDrawCommandBuffer{};
-  RHI::BufferHandle m_rangeDrawCountBuffer{};
-  RHI::BufferHandle m_rangeOverflowBuffer{};
   RHI::BufferHandle m_batchObjectCountBuffer{};
   RHI::BufferHandle m_batchObjectStartBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
@@ -459,21 +300,16 @@ private:
   RHI::ViewHandle m_batchObjectCountUav{};
   RHI::ViewHandle m_batchObjectStartUav{};
   RHI::ViewHandle m_batchObjectOffsetUav{};
-  RHI::ViewHandle m_rangeDrawCountUav{};
-  RHI::ViewHandle m_rangeOverflowUav{};
 };
 
 class BatchCountPass final : public RHI::FrameGraphPass {
 public:
   BatchCountPass(const DrawFrameState &drawFrameState,
                  RHI::BufferHandle renderObjectBuffer,
-                 RHI::BufferHandle visibleObjectCountBuffer,
-                 bool useRefinedVisibility = false, bool useDrawPath = false)
+                 RHI::BufferHandle visibleObjectCountBuffer)
       : m_drawFrameState(drawFrameState),
         m_renderObjectBuffer(renderObjectBuffer),
-        m_visibleObjectCountBuffer(visibleObjectCountBuffer),
-        m_useRefinedVisibility(useRefinedVisibility),
-        m_useDrawPath(useDrawPath) {}
+        m_visibleObjectCountBuffer(visibleObjectCountBuffer) {}
 
   const char *name() const noexcept override { return "BatchCount"; }
   RHI::CommandListType type() const noexcept override {
@@ -494,16 +330,6 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshletRefinedVisibilityBuffer",
-                                m_refinedVisibilityBuffer);
-    if (!result) {
-      return result;
-    }
-    result = builder.get_buffer("ObjectDrawPathBuffer", m_objectDrawPathBuffer);
-    if (!result) {
-      return result;
-    }
-
     RHI::RootSignatureDesc rootSignatureDesc{};
     rootSignatureDesc.name = "BatchCountRootSignature";
     rootSignatureDesc.parameters.push_back(
@@ -516,19 +342,9 @@ public:
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          2});
     rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         3});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         4});
-    rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
@@ -566,18 +382,6 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.use_buffer(
-        m_refinedVisibilityBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(
-        m_objectDrawPathBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
     return builder.use_buffer(m_batchObjectCountBuffer,
                               RHI::ResourceAccessType::Write,
                               RHI::ResourceState::UnorderedAccess,
@@ -602,13 +406,9 @@ public:
     commandContext->set_32bit_constant(
         1, StaticMeshBatching::k_maxMaterialBatchCount);
     commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
-    commandContext->set_32bit_constant(3, m_useRefinedVisibility ? 1u : 0u);
-    commandContext->set_32bit_constant(4, m_useDrawPath ? 1u : 0u);
-    commandContext->set_srv(5, m_renderObjectBuffer);
-    commandContext->set_srv(6, m_visibleObjectCountBuffer);
-    commandContext->set_srv(7, m_refinedVisibilityBuffer);
-    commandContext->set_srv(8, m_objectDrawPathBuffer);
-    commandContext->set_uav(9, m_batchObjectCountBuffer);
+    commandContext->set_srv(3, m_renderObjectBuffer);
+    commandContext->set_srv(4, m_visibleObjectCountBuffer);
+    commandContext->set_uav(5, m_batchObjectCountBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -616,11 +416,7 @@ private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
-  RHI::BufferHandle m_refinedVisibilityBuffer{};
-  RHI::BufferHandle m_objectDrawPathBuffer{};
   RHI::BufferHandle m_batchObjectCountBuffer{};
-  bool m_useRefinedVisibility = false;
-  bool m_useDrawPath = false;
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
   RHI::PipelineStateHandle m_pipeline{};
@@ -733,14 +529,11 @@ public:
   BatchFillPass(const DrawFrameState &drawFrameState,
                 RHI::BufferHandle renderObjectBuffer,
                 RHI::BufferHandle visibleObjectCountBuffer,
-                uint32_t maxDrawInstanceCount,
-                bool useRefinedVisibility = false, bool useDrawPath = false)
+                uint32_t maxDrawInstanceCount)
       : m_drawFrameState(drawFrameState),
         m_renderObjectBuffer(renderObjectBuffer),
         m_visibleObjectCountBuffer(visibleObjectCountBuffer),
-        m_maxDrawInstanceCount(maxDrawInstanceCount),
-        m_useRefinedVisibility(useRefinedVisibility),
-        m_useDrawPath(useDrawPath) {}
+        m_maxDrawInstanceCount(maxDrawInstanceCount) {}
 
   const char *name() const noexcept override { return "BatchFill"; }
   RHI::CommandListType type() const noexcept override {
@@ -766,16 +559,6 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshletRefinedVisibilityBuffer",
-                                m_refinedVisibilityBuffer);
-    if (!result) {
-      return result;
-    }
-    result = builder.get_buffer("ObjectDrawPathBuffer", m_objectDrawPathBuffer);
-    if (!result) {
-      return result;
-    }
-
     RHI::RootSignatureDesc rootSignatureDesc{};
     rootSignatureDesc.name = "BatchFillRootSignature";
     rootSignatureDesc.parameters.push_back(
@@ -791,19 +574,9 @@ public:
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          3});
     rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         4});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         5});
-    rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -843,18 +616,6 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.use_buffer(
-        m_refinedVisibilityBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(
-        m_objectDrawPathBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
     result = builder.use_buffer(m_renderObjectIndexBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -886,14 +647,10 @@ public:
         1, StaticMeshBatching::k_maxMaterialBatchCount);
     commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
     commandContext->set_32bit_constant(3, m_maxDrawInstanceCount);
-    commandContext->set_32bit_constant(4, m_useRefinedVisibility ? 1u : 0u);
-    commandContext->set_32bit_constant(5, m_useDrawPath ? 1u : 0u);
-    commandContext->set_srv(6, m_renderObjectBuffer);
-    commandContext->set_srv(7, m_visibleObjectCountBuffer);
-    commandContext->set_srv(8, m_refinedVisibilityBuffer);
-    commandContext->set_srv(9, m_objectDrawPathBuffer);
-    commandContext->set_uav(10, m_renderObjectIndexBuffer);
-    commandContext->set_uav(11, m_batchObjectOffsetBuffer);
+    commandContext->set_srv(4, m_renderObjectBuffer);
+    commandContext->set_srv(5, m_visibleObjectCountBuffer);
+    commandContext->set_uav(6, m_renderObjectIndexBuffer);
+    commandContext->set_uav(7, m_batchObjectOffsetBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -901,13 +658,9 @@ private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
-  RHI::BufferHandle m_refinedVisibilityBuffer{};
-  RHI::BufferHandle m_objectDrawPathBuffer{};
   RHI::BufferHandle m_renderObjectIndexBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
   uint32_t m_maxDrawInstanceCount = 0;
-  bool m_useRefinedVisibility = false;
-  bool m_useDrawPath = false;
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
   RHI::PipelineStateHandle m_pipeline{};

@@ -21,8 +21,6 @@ struct RenderObject
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 ByteAddressBuffer g_renderObjectCount : register(t1);
-StructuredBuffer<uint> g_refinedVisibility : register(t2);
-StructuredBuffer<uint> g_objectDrawPath : register(t3);
 RWStructuredBuffer<uint> g_renderObjectIndices : register(u0);
 RWByteAddressBuffer g_batchWriteOffsets : register(u1);
 
@@ -44,16 +42,6 @@ cbuffer DepthBinParam : register(b2)
 cbuffer DrawInstanceParam : register(b3)
 {
     uint g_maxDrawInstanceCount;
-};
-
-cbuffer RefinedVisibilityParam : register(b4)
-{
-    uint g_useRefinedVisibility;
-};
-
-cbuffer DrawPathParam : register(b5)
-{
-    uint g_useDrawPath;
 };
 
 uint first_active_lane(uint4 mask)
@@ -79,15 +67,6 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint objectIndex = dispatchThreadId.x;
     const uint visibleObjectCount = g_renderObjectCount.Load(0);
     bool active = objectIndex < visibleObjectCount;
-    if (active && g_useRefinedVisibility != 0u)
-    {
-        active = g_refinedVisibility[objectIndex] != 0u;
-    }
-    if (active && g_useDrawPath != 0u)
-    {
-        const uint drawPath = g_objectDrawPath[objectIndex];
-        active = drawPath == 1u || drawPath == 3u;
-    }
     uint batchId = 0u;
     if (active)
     {

@@ -70,12 +70,27 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             return result;
         }
 
-        result = builder.get_texture("SceneDepth", m_depth);
+        RHI::TextureDesc depthDesc{};
+        depthDesc.name = "SceneDepth";
+        depthDesc.kind = RHI::TextureKind::DepthStencil;
+        depthDesc.width = builder.width();
+        depthDesc.height = builder.height();
+        depthDesc.format = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        depthDesc.clearDepth = 1.0f;
+        depthDesc.clearStencil = 0;
+        result = builder.create_texture(depthDesc, m_depth);
         if (!result)
         {
             return result;
         }
-        result = builder.get_view("SceneDepthDSV", m_depthDsv);
+
+        RHI::ViewDesc depthDsvDesc{};
+        depthDsvDesc.name = "SceneDepthDSV";
+        depthDsvDesc.type = RHI::ViewType::DepthStencil;
+        depthDsvDesc.bufferKind = RHI::BufferKind::Texture;
+        depthDsvDesc.textureHandle = m_depth;
+        depthDsvDesc.colorFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
+        result = builder.create_view(depthDsvDesc, m_depthDsv);
         if (!result)
         {
             return result;
@@ -172,13 +187,6 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
-        result =
-            builder.get_buffer("ObjectDrawPathBuffer", m_objectDrawPathBuffer);
-        if (!result)
-        {
-            return result;
-        }
-
         m_screenWidth = builder.width();
         m_screenHeight = builder.height();
 
@@ -244,8 +252,6 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 7});
         rootSignatureDesc.parameters.push_back(
             {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 8});
-        rootSignatureDesc.parameters.push_back(
-            {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 9});
         result =
             builder.create_root_signature(rootSignatureDesc, m_rootSignature);
         if (!result)
@@ -427,17 +433,10 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
         {
             return result;
         }
-        result = builder.use_buffer(
+        return builder.use_buffer(
             m_clusterLightIndexBuffer, RHI::ResourceAccessType::Read,
             RHI::ResourceState::ShaderResource,
             RHI::ResourceState::ShaderResource);
-        if (!result)
-        {
-            return result;
-        }
-        return builder.use_buffer(
-            m_objectDrawPathBuffer, RHI::ResourceAccessType::Read,
-            RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
     }
 
     void execute(RHI::FrameGraphContext &context) override
@@ -481,7 +480,6 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
             17, float_to_uint32(m_clusterInvLogFarNear));
         commandContext->set_srv(18, m_clusterLightRangeBuffer);
         commandContext->set_srv(19, m_clusterLightIndexBuffer);
-        commandContext->set_srv(20, m_objectDrawPathBuffer);
         commandContext->set_vertex_buffer(0, m_positionBuffer);
         commandContext->set_vertex_buffer(1, m_uvBuffer);
         commandContext->set_vertex_buffer(2, m_normalBuffer);
@@ -524,7 +522,6 @@ class StaticMeshForwardPass final : public RHI::FrameGraphPass
     RHI::BufferHandle m_renderObjectIndexBuffer{};
     RHI::BufferHandle m_clusterLightRangeBuffer{};
     RHI::BufferHandle m_clusterLightIndexBuffer{};
-    RHI::BufferHandle m_objectDrawPathBuffer{};
     uint32_t m_screenWidth = 0;
     uint32_t m_screenHeight = 0;
     uint32_t m_clusterTileCountX = 0;

@@ -1,6 +1,6 @@
-// OccluderDepthOnlyIndirect 用の occluder list を作る pass。
-// 全 object を depth-only に出すと重いため、近い/大きい object または
-// proxy mesh を持つ object だけを抽出する。
+// Final object culling / LOD selection pass.
+// This path keeps only object visibility, frustum culling, distance/screen-size
+// LOD, and screen-edge LOD bias before static mesh batching.
 
 struct RenderableInfo
 {
@@ -128,44 +128,94 @@ bool is_sphere_inside_frustum(float4 boundsCenterRadius)
 
 uint get_lod_mesh_id(RenderableInfo renderableInfo, uint lodIndex)
 {
-    if (lodIndex == 1)
+    if (lodIndex == 1u)
     {
         return renderableInfo.lodMeshId1;
     }
-    if (lodIndex == 2)
+    if (lodIndex == 2u)
     {
         return renderableInfo.lodMeshId2;
     }
-    if (lodIndex == 3)
+    if (lodIndex == 3u)
     {
         return renderableInfo.lodMeshId3;
     }
-    if (lodIndex == 4)
+    if (lodIndex == 4u)
     {
         return renderableInfo.lodMeshId4;
     }
     return renderableInfo.lodMeshId0;
 }
 
-float projected_radius(RenderableInfo renderableInfo, float viewZ)
+uint select_view_center_lod_bias(float4 viewCenter, float projectedRadius)
 {
-    return renderableInfo.boundsCenterRadius.w *
-        abs(g_projectionMatrix[1][1]) /
-        max(viewZ, 0.001f);
+    const float4 clipCenter = mul(viewCenter, g_projectionMatrix);
+    if (abs(clipCenter.w) <= 0.000001f)
+    {
+        return 0u;
+    }
+
+    const float2 ndcCenter = clipCenter.xy / clipCenter.w;
+    const float centerDistance = length(ndcCenter);
+
+    uint bias = 0u;
+    if (centerDistance >= 0.9f)
+    {
+        bias = 2u;
+    }
+    else if (centerDistance >= 0.6f)
+    {
+        bias = 1u;
+    }
+
+    if (projectedRadius >= 0.35f)
+    {
+        bias = min(bias, 1u);
+    }
+    return bias;
 }
 
-bool is_valuable_occluder(RenderableInfo renderableInfo)
+uint select_lod(RenderableInfo renderableInfo)
 {
-    // occlusion に効きやすい「画面上で大きい」または「近くてそこそこ大きい」
-    // object だけを depth occluder にする。遠距離の小物はここで捨てる。
+    const uint lodCount = max(renderableInfo.lodCount, 1u);
+    if (lodCount <= 1u)
+    {
+        return 0u;
+    }
+
     const float4 viewCenter =
         mul(float4(renderableInfo.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
     const float viewZ = max(viewCenter.z, 0.001f);
-    const float screenRadius = projected_radius(renderableInfo, viewZ);
+    const float projectedRadius =
+        renderableInfo.boundsCenterRadius.w *
+        abs(g_projectionMatrix[1][1]) /
+        viewZ;
 
-    const bool largeOnScreen = screenRadius >= 0.08f;
-    const bool nearEnough = viewZ <= 25.0f && screenRadius >= 0.03f;
-    return largeOnScreen || nearEnough;
+    uint lodIndex = 0u;
+    if (projectedRadius < 0.012f)
+    {
+        lodIndex = 4u;
+    }
+    else if (projectedRadius < 0.08f)
+    {
+        lodIndex = 3u;
+    }
+    else if (projectedRadius < 0.18f)
+    {
+        lodIndex = 2u;
+    }
+    else if (projectedRadius < 0.35f)
+    {
+        lodIndex = 1u;
+    }
+
+    const uint viewCenterBias =
+        select_view_center_lod_bias(viewCenter, projectedRadius);
+    if (viewCenterBias == 0u || lodIndex >= 2u)
+    {
+        return min(lodIndex, lodCount - 1u);
+    }
+    return min(lodIndex + viewCenterBias, min(2u, lodCount - 1u));
 }
 
 float project_device_depth(float viewZ)
@@ -199,11 +249,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         renderableInfo = g_renderableInfos[objectId];
         visible =
             renderableInfo.visible != 0u &&
-            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius) &&
-            is_valuable_occluder(renderableInfo);
+            is_sphere_inside_frustum(renderableInfo.boundsCenterRadius);
     }
 
-    // visible lane 数を wave 単位でまとめて append し、object ごとの atomic を避ける。
     const uint waveVisibleCount = WaveActiveCountBits(visible);
     if (waveVisibleCount == 0u)
     {
@@ -223,6 +271,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
+    const uint lodIndex = select_lod(renderableInfo);
     const uint objectOffset = waveBaseOffset + WavePrefixCountBits(visible);
     if (objectOffset >= g_objectCount)
     {
@@ -231,7 +280,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     RenderObject renderObject;
     renderObject.objectId = renderableInfo.objectId;
-    renderObject.meshId = renderableInfo.occluderMeshId;
+    renderObject.meshId = get_lod_mesh_id(renderableInfo, lodIndex);
     renderObject.transformId = renderableInfo.transformId;
     renderObject.materialId = renderableInfo.materialId;
     renderObject.castsShadow = renderableInfo.castsShadow;
@@ -239,9 +288,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     renderObject.shadowCasterMode = renderableInfo.shadowCasterMode;
     renderObject.skinPaletteOffset = renderableInfo.skinPaletteOffset;
     renderObject.skinPaletteCount = renderableInfo.skinPaletteCount;
-    renderObject.drawFlags = 0u;
-    renderObject.depthBin =
-        select_depth_bin(renderableInfo.boundsCenterRadius);
+    renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
+    renderObject.depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
     renderObject.padding = 0u;
     renderObject.boundsCenterRadius = renderableInfo.boundsCenterRadius;
     g_renderObjects[objectOffset] = renderObject;

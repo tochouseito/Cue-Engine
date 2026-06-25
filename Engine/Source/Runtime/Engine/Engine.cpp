@@ -10,19 +10,9 @@
 #include "Command/PlatformCommandContext.h"
 
 // === Frame Passes includes ===
-#include "DrawSystem/passes/BuildHiZDepthPass.h"
-#include "DrawSystem/passes/CellCullingPass.h"
 #include "DrawSystem/passes/ClusteredLightingPass.h"
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
-#include "DrawSystem/passes/FinalColorClearPass.h"
-#include "DrawSystem/passes/GenerateVisibleListPass.h"
-#include "DrawSystem/passes/MeshForwardPass.h"
-#include "DrawSystem/passes/MeshletRangeBuildPass.h"
-#include "DrawSystem/passes/MeshletRangeForwardPass.h"
-#include "DrawSystem/passes/MeshletVisibilityRefinementPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
-#include "DrawSystem/passes/ObjectOcclusionDepthPass.h"
-#include "DrawSystem/passes/OccluderDepthOnlyIndirectPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/passes/StaticMeshForwardPass.h"
@@ -618,14 +608,12 @@ Result Engine::register_model_set(
   m_debugStats.visibleCells = m_debugStats.totalCells;
   m_debugStats.visibleObjects = m_debugStats.totalObjects;
   m_debugStats.instanceCount = m_debugStats.totalObjects;
-  m_debugStats.occluderObjectCount = m_debugStats.totalObjects;
   m_debugStats.frustumCulledObjects = 0;
   m_debugStats.occludedObjects = 0;
   m_debugStats.savedObjectEstimate = 0;
   m_debugStats.indirectDrawCount = 0;
   m_debugStats.submittedTriangleEstimate = 0;
   m_debugStats.savedTriangleEstimate = 0;
-  m_debugStats.occluderTriangleEstimate = 0;
   m_debugStats.lodObjectCounts = {0, 0, 0, 0, 0};
   m_debugStats.impostorCount = 0;
   for (uint32_t objectIndex = 0;
@@ -646,13 +634,6 @@ Result Engine::register_model_set(
         m_meshPool->get_mesh_range(drawModel.lodMeshIds[lodIndex], lodRange)) {
       m_debugStats.submittedTriangleEstimate +=
           static_cast<uint64_t>(lodRange.indexCount / 3u);
-    }
-
-    DrawSystem::MeshRange occluderRange{};
-    if (drawModel.occluderMeshId != UINT32_MAX &&
-        m_meshPool->get_mesh_range(drawModel.occluderMeshId, occluderRange)) {
-      m_debugStats.occluderTriangleEstimate +=
-          static_cast<uint64_t>(occluderRange.indexCount / 3u);
     }
   }
   m_debugStats.pointLightCount = static_cast<uint32_t>(m_pointLights.size());
@@ -880,8 +861,6 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::TransformBufferCopyPass>(
             m_drawFrameState, m_drawResources->transform_buffer_handle()));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::RenderCellCopyPass>(
-        m_drawFrameState, m_drawResources->render_cell_buffer_handle()));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
         "CullViewProjectionCopy",
         m_drawResources->view_projection_buffer_handle()));
@@ -919,8 +898,6 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         std::make_unique<DrawSystem::ClusterLightCullingPass>(
             m_renderBackend->get_buffer_manager(), m_pointLightBufferCapacity,
             &m_debugStats.clusterLightingStats));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::InitializeHiZDepthPass>());
     m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullAndLodPass>(
         m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
         m_drawResources->view_projection_buffer_handle(),
@@ -940,51 +917,6 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::IndirectCommandEmitPass>(
             m_maxObjectCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::OccluderDepthOnlyIndirectPass>(
-            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->view_projection_buffer_handle(),
-            m_maxObjectCount));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::BuildHiZDepthPass>());
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::CellCullingPass>(
-        m_drawFrameState, m_drawResources->render_cell_buffer_handle(),
-        m_drawResources->view_projection_buffer_handle(), m_maxCellCount));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullingPass>(
-        m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
-        m_drawResources->render_cell_buffer_handle(),
-        m_drawResources->view_projection_buffer_handle(),
-        m_drawResources->render_object_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_uav_handle(),
-        m_maxCellCount, k_cellObjectCapacity, m_maxObjectCount));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::ResetBatchCountersPass>(
-        m_maxObjectCount, false));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::MeshletVisibilityRefinementPass>(
-            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->view_projection_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle()));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletRangeBuildPass>(
-        m_drawFrameState, m_renderBackend->get_buffer_manager(),
-        m_drawResources->render_object_buffer_handle(),
-        m_drawResources->transform_buffer_handle(),
-        m_drawResources->view_projection_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
-        &m_debugStats.meshletRangeStats));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(), true, true));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
-        true, true));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::IndirectCommandEmitPass>(
-            m_maxObjectCount));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::SceneDepthClearPass>());
     m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
         m_drawFrameState, m_drawResources->render_object_buffer_handle(),
         m_drawResources->transform_buffer_handle(),
@@ -994,18 +926,6 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_lightResources->frame_buffer_handle(),
         m_lightResources->directional_light_buffer_handle(),
         m_lightResources->point_light_buffer_handle(), m_maxObjectCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::MeshletRangeForwardPass>(
-            m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->render_view_projection_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle(),
-            m_drawResources->material_buffer_handle(),
-            m_lightResources->frame_buffer_handle(),
-            m_lightResources->directional_light_buffer_handle(),
-            m_lightResources->point_light_buffer_handle(),
-            m_maxObjectCount *
-                DrawSystem::StaticMeshBatching::k_maxRangesPerObject));
   }
 
   result = m_frameGraph->build();

@@ -1,7 +1,7 @@
 #pragma once
 
 /// ****************************************************************************
-/// Select valuable occluders and choose low LOD for early Hi-Z culling
+/// Build final visible object list with frustum culling and LOD selection
 /// ****************************************************************************
 
 // === RHI includes ===

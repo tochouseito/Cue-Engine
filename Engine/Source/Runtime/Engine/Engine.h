@@ -26,7 +26,6 @@
 #include "FrameController.h"
 #include "GpuData/Batching.h"
 #include "GpuData/ClusteredLighting.h"
-#include "GpuData/MeshletRangeStats.h"
 #include "GpuData/Transform.h"
 #include "GpuData/ViewProjection.h"
 #include "LightingSystem/GpuData/LightData.h"
@@ -67,10 +66,6 @@ struct EngineDebugStats final
     uint32_t savedObjectEstimate = 0;
     std::array<uint32_t, 5> lodObjectCounts{0, 0, 0, 0, 0};
     uint32_t impostorCount = 0;
-    uint32_t occluderObjectCount = 0;
-    uint64_t occluderTriangleEstimate = 0;
-    bool occluderProxyEnabled = true;
-    bool hiZEnabled = true;
     bool frustumCullingEnabled = true;
     bool lodEnabled = true;
     bool impostorEnabled = true;
@@ -78,7 +73,6 @@ struct EngineDebugStats final
     bool pointLightsEnabled = true;
     uint32_t pointLightCount = 0;
     GpuData::ClusterLightingStatsGpu clusterLightingStats{};
-    GpuData::MeshletRangeStatsGpu meshletRangeStats{};
     Math::float3 cameraPosition = Math::float3::zero();
     uint32_t selectedDepthBin = 0;
 };

@@ -296,24 +296,12 @@ private:
                   pass_gpu_ms(frameStats, {"ClusterLightCulling"}));
       ImGui::Text("ObjectCullAndLod: %.3f ms",
                   pass_gpu_ms(frameStats, {"ObjectCullAndLod"}));
-      ImGui::Text("OccluderDepthOnlyIndirect: %.3f ms",
-                  pass_gpu_ms(frameStats, {"OccluderDepthOnlyIndirect"}));
-      ImGui::Text("BuildHiZ: %.3f ms",
-                  pass_gpu_ms(frameStats, {"BuildHiZDepth"}));
-      ImGui::Text("CellCulling: %.3f ms",
-                  pass_gpu_ms(frameStats, {"CellCulling"}));
-      ImGui::Text("ObjectCulling: %.3f ms",
-                  pass_gpu_ms(frameStats, {"ObjectCulling"}));
-      ImGui::Text("MeshletRangeBuild: %.3f ms",
-                  pass_gpu_ms(frameStats, {"MeshletRangeBuild"}));
       ImGui::Text(
           "Batching: %.3f ms",
           pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
                                    "IndirectCommandEmit"}));
       ImGui::Text("StaticMeshForward: %.3f ms",
                   pass_gpu_ms(frameStats, {"StaticMeshForward"}));
-      ImGui::Text("MeshletRangeForward: %.3f ms",
-                  pass_gpu_ms(frameStats, {"MeshletRangeForward"}));
     }
 
     if (ImGui::CollapsingHeader("Clustered Lighting",
@@ -366,35 +354,6 @@ private:
                       debugStats.submittedTriangleEstimate));
     }
 
-    if (ImGui::CollapsingHeader("Meshlet Range",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
-      const GpuData::MeshletRangeStatsGpu &rangeStats =
-          debugStats.meshletRangeStats;
-      ImGui::Text("candidate objects: %u", rangeStats.candidateObjectCount);
-      ImGui::Text("range / normal / culled objects: %u / %u / %u",
-                  rangeStats.rangeDrawObjectCount,
-                  rangeStats.normalDrawObjectCount,
-                  rangeStats.culledObjectCount);
-      ImGui::Text("fallback objects: %u", rangeStats.fallbackObjectCount);
-      ImGui::Text("range commands: %u", rangeStats.rangeCommandCount);
-      ImGui::Text("overflow: %u", rangeStats.overflow);
-      ImGui::Separator();
-      ImGui::Text("meshlets tested / visible / culled: %u / %u / %u",
-                  rangeStats.testedMeshletCount, rangeStats.visibleMeshletCount,
-                  rangeStats.culledMeshletCount);
-      ImGui::Text("culled by frustum / backface / Hi-Z: %u / %u / %u",
-                  rangeStats.frustumCulledMeshletCount,
-                  rangeStats.backfaceCulledMeshletCount,
-                  rangeStats.hiZCulledMeshletCount);
-      ImGui::Text("visible indices: %u", rangeStats.visibleIndexCount);
-      ImGui::Text("range drawn indices: %u", rangeStats.rangeDrawnIndexCount);
-      ImGui::Text("range culled indices: %u", rangeStats.rangeCulledIndexCount);
-      ImGui::Text("extra gap indices: %u", rangeStats.rangeExtraGapIndexCount);
-      ImGui::TextDisabled(
-          "Meshlets are culled by culling-camera frustum, cone/backface, and "
-          "Hi-Z; visible meshlets are merged into index ranges.");
-    }
-
     if (ImGui::CollapsingHeader("LOD Distribution",
                                 ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::Text("LOD0: %u", debugStats.lodObjectCounts[0]);
@@ -405,20 +364,8 @@ private:
       ImGui::Text("impostor: %u", debugStats.impostorCount);
     }
 
-    if (ImGui::CollapsingHeader("Occluder", ImGuiTreeNodeFlags_DefaultOpen)) {
-      ImGui::Text("occluder object count: %u", debugStats.occluderObjectCount);
-      ImGui::Text(
-          "occluder triangle count: %llu",
-          static_cast<unsigned long long>(debugStats.occluderTriangleEstimate));
-      ImGui::Text("occluder proxy: %s",
-                  debugStats.occluderProxyEnabled ? "ON" : "OFF");
-      ImGui::Text("Hi-Z: %s", debugStats.hiZEnabled ? "ON" : "OFF");
-    }
-
     if (ImGui::CollapsingHeader("Toggles", ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::Checkbox("Frustum Culling", &m_frustumCullingEnabled);
-      ImGui::Checkbox("Hi-Z Occlusion", &m_hiZEnabled);
-      ImGui::Checkbox("Occluder Proxy", &m_occluderProxyEnabled);
       ImGui::Checkbox("LOD Selection", &m_lodEnabled);
       ImGui::Checkbox("Impostor", &m_impostorEnabled);
       if (ImGui::Checkbox("Directional Light", &directionalLightEnabled)) {
@@ -471,8 +418,6 @@ private:
   RHI::ViewHandle m_backBufferRtv{};
   bool m_initialized = false;
   bool m_frustumCullingEnabled = true;
-  bool m_hiZEnabled = true;
-  bool m_occluderProxyEnabled = true;
   bool m_lodEnabled = true;
   bool m_impostorEnabled = true;
   bool m_pointLightsEnabled = true;
