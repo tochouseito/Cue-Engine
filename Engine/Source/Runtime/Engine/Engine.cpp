@@ -14,7 +14,6 @@
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/GeneratedMeshletDepthPass.h"
 #include "DrawSystem/passes/MeshletChunkVisibilityPass.h"
-#include "DrawSystem/passes/MeshletGroupCullPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
@@ -923,41 +922,6 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
         m_drawResources->visible_object_count_buffer_uav_handle()));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
-        m_drawFrameState, m_renderBackend->get_buffer_manager(),
-        &m_debugStats.meshletGroupCullStats,
-        m_drawResources->render_object_buffer_handle(),
-        m_drawResources->transform_buffer_handle(),
-        m_drawResources->render_view_projection_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
-        m_maxObjectCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::MeshletChunkVisibilityResetPass>(
-            m_maxMeshletChunkCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::BuildChunkDepthCommandsPass>(
-            m_drawFrameState, m_renderBackend->get_buffer_manager(),
-            &m_debugStats.meshletChunkVisibilityStats,
-            m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->render_view_projection_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount, std::max<uint32_t>(1u, m_maxObjectCount * 16u),
-            m_maxMeshletChunkCount));
-    static constexpr bool kEnableChunkDepthOnlyDraw = true;
-    if constexpr (kEnableChunkDepthOnlyDraw) {
-      m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::ChunkDepthOnlyDrawPass>(
-              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-              m_drawResources->transform_buffer_handle(),
-              m_drawResources->render_view_projection_buffer_handle(),
-              std::max<uint32_t>(1u, m_maxObjectCount * 16u)));
-      m_frameGraph->add_pass(std::make_unique<DrawSystem::ChunkHiZBuildPass>());
-    }
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::ChunkOcclusionStatsReadbackPass>(
-            m_renderBackend->get_buffer_manager(),
-            &m_debugStats.meshletChunkVisibilityStats));
     static constexpr bool kEnableGeneratedMeshletDepth = false;
     if constexpr (kEnableGeneratedMeshletDepth) {
       m_frameGraph->add_pass(
@@ -1004,6 +968,35 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_lightResources->frame_buffer_handle(),
         m_lightResources->directional_light_buffer_handle(),
         m_lightResources->point_light_buffer_handle(), m_maxObjectCount));
+    // Build chunk visibility/depth after Forward. The resulting Hi-Z is
+    // consumed by ObjectCullAndLod on a later frame.
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::MeshletChunkVisibilityResetPass>(
+            m_maxMeshletChunkCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::BuildChunkDepthCommandsPass>(
+            m_drawFrameState, m_renderBackend->get_buffer_manager(),
+            &m_debugStats.meshletChunkVisibilityStats,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount, std::max<uint32_t>(1u, m_maxObjectCount * 16u),
+            m_maxMeshletChunkCount));
+    static constexpr bool kEnableChunkDepthOnlyDraw = true;
+    if constexpr (kEnableChunkDepthOnlyDraw) {
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::ChunkDepthOnlyDrawPass>(
+              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle(),
+              std::max<uint32_t>(1u, m_maxObjectCount * 16u)));
+      m_frameGraph->add_pass(std::make_unique<DrawSystem::ChunkHiZBuildPass>());
+    }
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::ChunkOcclusionStatsReadbackPass>(
+            m_renderBackend->get_buffer_manager(),
+            &m_debugStats.meshletChunkVisibilityStats));
   }
 
   result = m_frameGraph->build();

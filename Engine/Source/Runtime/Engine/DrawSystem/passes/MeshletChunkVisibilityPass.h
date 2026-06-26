@@ -131,38 +131,43 @@ public:
     m_hizWidth = std::max(1u, builder.width() / 4u);
     m_hizHeight = std::max(1u, builder.height() / 4u);
 
-    RHI::TextureDesc hizDesc{};
-    hizDesc.name = "ChunkHiZ.Texture";
-    hizDesc.kind = RHI::TextureKind::Default;
-    hizDesc.width = m_hizWidth;
-    hizDesc.height = m_hizHeight;
-    hizDesc.format = RHI::ColorFormat::R32_UINT;
-    hizDesc.allowUnorderedAccess = true;
-    Result result = builder.create_texture(hizDesc, m_hizTexture);
-    if (!result) {
-      return result;
-    }
+    Result result = Result::ok();
+    for (uint32_t hizIndex = 0u; hizIndex < 2u; ++hizIndex) {
+      const bool first = hizIndex == 0u;
 
-    RHI::ViewDesc srvDesc{};
-    srvDesc.name = "ChunkHiZ.SRV";
-    srvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
-    srvDesc.bufferKind = RHI::BufferKind::Texture;
-    srvDesc.textureHandle = m_hizTexture;
-    srvDesc.colorFormat = RHI::ColorFormat::R32_UINT;
-    result = builder.create_view(srvDesc, m_hizSrv);
-    if (!result) {
-      return result;
-    }
+      RHI::TextureDesc hizDesc{};
+      hizDesc.name = first ? "ChunkHiZ.Texture0" : "ChunkHiZ.Texture1";
+      hizDesc.kind = RHI::TextureKind::Default;
+      hizDesc.width = m_hizWidth;
+      hizDesc.height = m_hizHeight;
+      hizDesc.format = RHI::ColorFormat::R32_UINT;
+      hizDesc.allowUnorderedAccess = true;
+      result = builder.create_texture(hizDesc, m_hizTextures[hizIndex]);
+      if (!result) {
+        return result;
+      }
 
-    RHI::ViewDesc uavDesc{};
-    uavDesc.name = "ChunkHiZ.UAV";
-    uavDesc.type = RHI::ViewType::UnorderedAccessTexture2D;
-    uavDesc.bufferKind = RHI::BufferKind::Texture;
-    uavDesc.textureHandle = m_hizTexture;
-    uavDesc.colorFormat = RHI::ColorFormat::R32_UINT;
-    result = builder.create_view(uavDesc, m_hizUav);
-    if (!result) {
-      return result;
+      RHI::ViewDesc srvDesc{};
+      srvDesc.name = first ? "ChunkHiZ.SRV0" : "ChunkHiZ.SRV1";
+      srvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
+      srvDesc.bufferKind = RHI::BufferKind::Texture;
+      srvDesc.textureHandle = m_hizTextures[hizIndex];
+      srvDesc.colorFormat = RHI::ColorFormat::R32_UINT;
+      result = builder.create_view(srvDesc, m_hizSrvs[hizIndex]);
+      if (!result) {
+        return result;
+      }
+
+      RHI::ViewDesc uavDesc{};
+      uavDesc.name = first ? "ChunkHiZ.UAV0" : "ChunkHiZ.UAV1";
+      uavDesc.type = RHI::ViewType::UnorderedAccessTexture2D;
+      uavDesc.bufferKind = RHI::BufferKind::Texture;
+      uavDesc.textureHandle = m_hizTextures[hizIndex];
+      uavDesc.colorFormat = RHI::ColorFormat::R32_UINT;
+      result = builder.create_view(uavDesc, m_hizUavs[hizIndex]);
+      if (!result) {
+        return result;
+      }
     }
 
     RHI::BufferDesc statsDesc{};
@@ -209,9 +214,9 @@ private:
   uint32_t m_bufferCount = 1u;
   uint32_t m_hizWidth = 1u;
   uint32_t m_hizHeight = 1u;
-  RHI::TextureHandle m_hizTexture{};
-  RHI::ViewHandle m_hizSrv{};
-  RHI::ViewHandle m_hizUav{};
+  std::array<RHI::TextureHandle, 2> m_hizTextures{};
+  std::array<RHI::ViewHandle, 2> m_hizSrvs{};
+  std::array<RHI::ViewHandle, 2> m_hizUavs{};
   RHI::BufferHandle m_statsBuffer{};
   RHI::ViewHandle m_statsUav{};
 };
@@ -296,7 +301,9 @@ private:
 
 class ChunkHiZBuildPass final : public RHI::FrameGraphPass {
 public:
-  const char *name() const noexcept override { return "ChunkHiZBuild"; }
+  const char *name() const noexcept override {
+    return "ChunkHiZBuildForNextFrame";
+  }
 
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Compute;
@@ -311,13 +318,19 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_texture("ChunkHiZ.Texture", m_hizTexture);
-    if (!result) {
-      return result;
-    }
-    result = builder.get_view("ChunkHiZ.UAV", m_hizUav);
-    if (!result) {
-      return result;
+    for (uint32_t hizIndex = 0u; hizIndex < 2u; ++hizIndex) {
+      const bool first = hizIndex == 0u;
+      result = builder.get_texture(first ? "ChunkHiZ.Texture0"
+                                         : "ChunkHiZ.Texture1",
+                                   m_hizTextures[hizIndex]);
+      if (!result) {
+        return result;
+      }
+      result = builder.get_view(first ? "ChunkHiZ.UAV0" : "ChunkHiZ.UAV1",
+                                m_hizUavs[hizIndex]);
+      if (!result) {
+        return result;
+      }
     }
 
     m_sourceWidth = builder.width();
@@ -364,9 +377,15 @@ public:
     if (!result) {
       return result;
     }
-    return builder.use_texture(m_hizTexture, RHI::ResourceAccessType::Write,
-                               RHI::ResourceState::UnorderedAccess,
-                               RHI::ResourceState::ShaderResource);
+    for (RHI::TextureHandle hizTexture : m_hizTextures) {
+      result = builder.use_texture(hizTexture, RHI::ResourceAccessType::Write,
+                                   RHI::ResourceState::UnorderedAccess,
+                                   RHI::ResourceState::ShaderResource);
+      if (!result) {
+        return result;
+      }
+    }
+    return Result::ok();
   }
 
   void execute(RHI::FrameGraphContext &context) override {
@@ -376,7 +395,8 @@ public:
     }
     commandContext->set_compute_pipeline(m_pipeline);
     commandContext->set_compute_descriptor_table(0, m_depthSrv);
-    commandContext->set_compute_descriptor_table(1, m_hizUav);
+    const uint32_t writeIndex = context.frame_index() & 1u;
+    commandContext->set_compute_descriptor_table(1, m_hizUavs[writeIndex]);
     commandContext->set_32bit_constant(2, m_sourceWidth);
     commandContext->set_32bit_constant(3, m_sourceHeight);
     commandContext->set_32bit_constant(4, m_hizWidth);
@@ -388,8 +408,8 @@ public:
 private:
   RHI::TextureHandle m_depthTexture{};
   RHI::ViewHandle m_depthSrv{};
-  RHI::TextureHandle m_hizTexture{};
-  RHI::ViewHandle m_hizUav{};
+  std::array<RHI::TextureHandle, 2> m_hizTextures{};
+  std::array<RHI::ViewHandle, 2> m_hizUavs{};
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_shader{};
   RHI::PipelineStateHandle m_pipeline{};

@@ -12,6 +12,7 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <array>
 
 namespace Cue::DrawSystem
 {
@@ -64,15 +65,24 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.get_view("ChunkHiZ.SRV", m_hizSrv);
-            if (!result)
+            m_hasPreviousHiZ = false;
+            for (uint32_t hizIndex = 0u; hizIndex < 2u; ++hizIndex)
             {
-                return result;
-            }
-            result = builder.get_texture("ChunkHiZ.Texture", m_hizTexture);
-            if (!result)
-            {
-                return result;
+                const bool first = hizIndex == 0u;
+                result = builder.get_view(
+                    first ? "ChunkHiZ.SRV0" : "ChunkHiZ.SRV1",
+                    m_hizSrvs[hizIndex]);
+                if (!result)
+                {
+                    return result;
+                }
+                result = builder.get_texture(
+                    first ? "ChunkHiZ.Texture0" : "ChunkHiZ.Texture1",
+                    m_hizTextures[hizIndex]);
+                if (!result)
+                {
+                    return result;
+                }
             }
             result = builder.get_buffer("ChunkOcclusionStatsBuffer", m_occlusionStatsBuffer);
             if (!result)
@@ -169,13 +179,16 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.use_texture(
-                m_hizTexture, RHI::ResourceAccessType::Read,
-                RHI::ResourceState::ShaderResource,
-                RHI::ResourceState::ShaderResource);
-            if (!result)
+            for (RHI::TextureHandle hizTexture : m_hizTextures)
             {
-                return result;
+                result = builder.use_texture(
+                    hizTexture, RHI::ResourceAccessType::Read,
+                    RHI::ResourceState::ShaderResource,
+                    RHI::ResourceState::ShaderResource);
+                if (!result)
+                {
+                    return result;
+                }
             }
             return builder.use_buffer(
                 m_occlusionStatsBuffer,
@@ -209,7 +222,9 @@ namespace Cue::DrawSystem
             commandContext->set_srv(2, m_renderableInfoBuffer);
             commandContext->set_uav(3, m_renderObjectBuffer);
             commandContext->set_uav(4, m_visibleObjectCountBuffer);
-            commandContext->set_compute_descriptor_table(5, m_hizSrv);
+            const uint32_t readIndex = (context.frame_index() + 1u) & 1u;
+            commandContext->set_compute_descriptor_table(5,
+                m_hizSrvs[readIndex]);
             commandContext->set_32bit_constant(6, std::max(1u, context.width() / 4u));
             commandContext->set_32bit_constant(7, std::max(1u, context.height() / 4u));
             commandContext->set_32bit_constant(8, m_hasPreviousHiZ ? 1u : 0u);
@@ -225,8 +240,8 @@ namespace Cue::DrawSystem
         RHI::BufferHandle m_renderObjectBuffer{};
         RHI::BufferHandle m_visibleObjectCountBuffer{};
         RHI::ViewHandle m_visibleObjectCountUav{};
-        RHI::ViewHandle m_hizSrv{};
-        RHI::TextureHandle m_hizTexture{};
+        std::array<RHI::ViewHandle, 2> m_hizSrvs{};
+        std::array<RHI::TextureHandle, 2> m_hizTextures{};
         RHI::BufferHandle m_occlusionStatsBuffer{};
         RHI::RootSignatureHandle m_rootSignature{};
         RHI::ShaderBlobHandle m_computeShader{};

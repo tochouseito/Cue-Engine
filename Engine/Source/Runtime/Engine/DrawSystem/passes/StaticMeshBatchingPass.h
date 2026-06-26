@@ -52,6 +52,11 @@ public:
       if (!result) {
         return result;
       }
+      result =
+          builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
+      if (!result) {
+        return result;
+      }
       result = builder.get_buffer("BatchObjectCountBuffer",
                                   m_batchObjectCountBuffer);
       if (!result) {
@@ -69,6 +74,10 @@ public:
       }
       result = builder.get_view("IndirectCommandCountBufferUAV",
                                 m_indirectCommandCountUav);
+      if (!result) {
+        return result;
+      }
+      result = builder.get_view("ObjectDrawModeBufferUAV", m_objectDrawModeUav);
       if (!result) {
         return result;
       }
@@ -149,6 +158,33 @@ public:
     objectIndexBufferDesc.alignment = alignof(uint32_t);
     result =
         builder.create_buffer(objectIndexBufferDesc, m_renderObjectIndexBuffer);
+    if (!result) {
+      return result;
+    }
+
+    RHI::BufferDesc drawModeBufferDesc{};
+    drawModeBufferDesc.name = "ObjectDrawModeBuffer";
+    drawModeBufferDesc.type = RHI::BufferType::UnorderedAccess;
+    drawModeBufferDesc.defaultHeapCount = 1;
+    drawModeBufferDesc.uploadHeapCount = 0;
+    drawModeBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
+    drawModeBufferDesc.stride = sizeof(uint32_t);
+    drawModeBufferDesc.elementCount = m_maxObjectCount;
+    drawModeBufferDesc.size =
+        drawModeBufferDesc.stride * drawModeBufferDesc.elementCount;
+    drawModeBufferDesc.alignment = alignof(uint32_t);
+    result = builder.create_buffer(drawModeBufferDesc, m_objectDrawModeBuffer);
+    if (!result) {
+      return result;
+    }
+
+    RHI::ViewDesc drawModeUavDesc{};
+    drawModeUavDesc.name = "ObjectDrawModeBufferUAV";
+    drawModeUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+    drawModeUavDesc.bufferKind = RHI::BufferKind::Buffer;
+    drawModeUavDesc.bufferHandle = m_objectDrawModeBuffer;
+    drawModeUavDesc.numElements = m_maxObjectCount;
+    result = builder.create_view(drawModeUavDesc, m_objectDrawModeUav);
     if (!result) {
       return result;
     }
@@ -267,6 +303,13 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(m_objectDrawModeBuffer,
+                                RHI::ResourceAccessType::Write,
+                                RHI::ResourceState::UnorderedAccess,
+                                RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     return result;
   }
 
@@ -285,6 +328,8 @@ public:
                                                 clearValues);
     commandContext->clear_unordered_access_uint(m_batchObjectOffsetUav,
                                                 clearValues);
+    commandContext->clear_unordered_access_uint(m_objectDrawModeUav,
+                                                clearValues);
   }
 
 private:
@@ -293,10 +338,12 @@ private:
   RHI::BufferHandle m_indirectCommandBuffer{};
   RHI::BufferHandle m_indirectCommandCountBuffer{};
   RHI::BufferHandle m_renderObjectIndexBuffer{};
+  RHI::BufferHandle m_objectDrawModeBuffer{};
   RHI::BufferHandle m_batchObjectCountBuffer{};
   RHI::BufferHandle m_batchObjectStartBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
   RHI::ViewHandle m_indirectCommandCountUav{};
+  RHI::ViewHandle m_objectDrawModeUav{};
   RHI::ViewHandle m_batchObjectCountUav{};
   RHI::ViewHandle m_batchObjectStartUav{};
   RHI::ViewHandle m_batchObjectOffsetUav{};
