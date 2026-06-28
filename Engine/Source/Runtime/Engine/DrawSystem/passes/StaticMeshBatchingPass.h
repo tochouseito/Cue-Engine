@@ -9,6 +9,8 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderDebugView.h"
+#include "DrawSystem/RenderPath.h"
 #include "GpuData/Batching.h"
 
 namespace Cue::DrawSystem {
@@ -352,9 +354,12 @@ private:
 class BatchCountPass final : public RHI::FrameGraphPass {
 public:
   BatchCountPass(const DrawFrameState &drawFrameState,
+                 const RenderPath &renderPath,
+                 const RenderDebugView &debugView,
                  RHI::BufferHandle renderObjectBuffer,
                  RHI::BufferHandle visibleObjectCountBuffer)
-      : m_drawFrameState(drawFrameState),
+      : m_drawFrameState(drawFrameState), m_renderPath(renderPath),
+        m_debugView(debugView),
         m_renderObjectBuffer(renderObjectBuffer),
         m_visibleObjectCountBuffer(visibleObjectCountBuffer) {}
 
@@ -392,6 +397,9 @@ public:
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         3});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -465,15 +473,25 @@ public:
     commandContext->set_32bit_constant(
         1, StaticMeshBatching::k_maxMaterialBatchCount);
     commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
-    commandContext->set_srv(3, m_renderObjectBuffer);
-    commandContext->set_srv(4, m_visibleObjectCountBuffer);
-    commandContext->set_srv(5, m_objectDrawModeBuffer);
-    commandContext->set_uav(6, m_batchObjectCountBuffer);
+    commandContext->set_32bit_constant(3, batch_filter_mode());
+    commandContext->set_srv(4, m_renderObjectBuffer);
+    commandContext->set_srv(5, m_visibleObjectCountBuffer);
+    commandContext->set_srv(6, m_objectDrawModeBuffer);
+    commandContext->set_uav(7, m_batchObjectCountBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
 private:
+  uint32_t batch_filter_mode() const noexcept {
+    return m_renderPath == RenderPath::VisibilityBuffer &&
+                   m_debugView == RenderDebugView::Forward
+               ? 1u
+               : 0u;
+  }
+
   const DrawFrameState &m_drawFrameState;
+  const RenderPath &m_renderPath;
+  const RenderDebugView &m_debugView;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
   RHI::BufferHandle m_objectDrawModeBuffer{};
@@ -588,10 +606,13 @@ private:
 class BatchFillPass final : public RHI::FrameGraphPass {
 public:
   BatchFillPass(const DrawFrameState &drawFrameState,
+                const RenderPath &renderPath,
+                const RenderDebugView &debugView,
                 RHI::BufferHandle renderObjectBuffer,
                 RHI::BufferHandle visibleObjectCountBuffer,
                 uint32_t maxDrawInstanceCount)
-      : m_drawFrameState(drawFrameState),
+      : m_drawFrameState(drawFrameState), m_renderPath(renderPath),
+        m_debugView(debugView),
         m_renderObjectBuffer(renderObjectBuffer),
         m_visibleObjectCountBuffer(visibleObjectCountBuffer),
         m_maxDrawInstanceCount(maxDrawInstanceCount) {}
@@ -638,6 +659,9 @@ public:
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          3});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         4});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -720,16 +744,26 @@ public:
         1, StaticMeshBatching::k_maxMaterialBatchCount);
     commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
     commandContext->set_32bit_constant(3, m_maxDrawInstanceCount);
-    commandContext->set_srv(4, m_renderObjectBuffer);
-    commandContext->set_srv(5, m_visibleObjectCountBuffer);
-    commandContext->set_srv(6, m_objectDrawModeBuffer);
-    commandContext->set_uav(7, m_renderObjectIndexBuffer);
-    commandContext->set_uav(8, m_batchObjectOffsetBuffer);
+    commandContext->set_32bit_constant(4, batch_filter_mode());
+    commandContext->set_srv(5, m_renderObjectBuffer);
+    commandContext->set_srv(6, m_visibleObjectCountBuffer);
+    commandContext->set_srv(7, m_objectDrawModeBuffer);
+    commandContext->set_uav(8, m_renderObjectIndexBuffer);
+    commandContext->set_uav(9, m_batchObjectOffsetBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
 private:
+  uint32_t batch_filter_mode() const noexcept {
+    return m_renderPath == RenderPath::VisibilityBuffer &&
+                   m_debugView == RenderDebugView::Forward
+               ? 1u
+               : 0u;
+  }
+
   const DrawFrameState &m_drawFrameState;
+  const RenderPath &m_renderPath;
+  const RenderDebugView &m_debugView;
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
   RHI::BufferHandle m_objectDrawModeBuffer{};

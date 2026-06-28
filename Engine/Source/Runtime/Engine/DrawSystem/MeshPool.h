@@ -54,6 +54,8 @@ struct MeshPoolDesc final {
       1u * 1024u * 1024u; // Normal stream 用の常設 staging サイズ
   uint32_t indexStagingSize =
       1u * 1024u * 1024u; // Index stream 用の常設 staging サイズ
+  uint32_t visibilityTriangleStagingSize =
+      1u * 1024u * 1024u; // Visibility resolve 用 triangle stream staging
   uint32_t rangeIndexStagingSize =
       1u * 1024u * 1024u; // Range Index stream 用の常設 staging サイズ
   uint32_t meshletBoundsStagingSize =
@@ -68,6 +70,8 @@ struct MeshPoolDesc final {
   std::string_view uvName = "MeshPool.Uv"; // UV buffer のデバッグ名
   std::string_view normalName = "MeshPool.Normal"; // Normal buffer のデバッグ名
   std::string_view indexName = "MeshPool.Index";   // Index buffer のデバッグ名
+  std::string_view visibilityTriangleName =
+      "MeshPool.VisibilityTriangle"; // Visibility resolve 用 triangle buffer
   std::string_view rangeIndexName =
       "MeshPool.RangeIndex"; // Range 描画用 Index buffer のデバッグ名
   std::string_view meshletBoundsName =
@@ -98,7 +102,8 @@ struct MeshRange final {
   uint32_t rangeStartIndex = 0; // Range Index buffer 内の開始インデックス
   uint32_t rangeIndexCount =
       0; // Range Index buffer 上でこの mesh が占めるインデックス数
-  uint32_t padding2 = 0; // GPU 構造体の 16 byte 境界合わせ
+  uint32_t visibilityTriangleStart =
+      0; // VisibilityTriangle buffer 内の開始 triangle
 };
 
 /// @brief メッシュの中心点と外接球半径
@@ -117,26 +122,40 @@ struct MeshChunkRange final {
 
 /// @brief 複数 meshlet をまとめた coarse visibility / depth 用 chunk
 struct MeshletChunk final {
-  uint32_t startIndex = 0;    // RangeIndex buffer 内の開始 index
-  uint32_t indexCount = 0;    // この chunk が覆う index 数
-  int32_t baseVertex = 0;     // Position buffer 内の基準頂点
-  uint32_t firstMeshlet = 0;  // MeshletBounds buffer 内の開始 meshlet
-  uint32_t meshletCount = 0;  // この chunk が含む meshlet 数
-  uint32_t meshId = 0;        // 所属 meshId
-  uint32_t materialId = 0;    // 将来の material bucket 用。現状は 0。
-  uint32_t lod = 0;           // 将来の LOD bucket 用。現状は 0。
+  uint32_t startIndex = 0;   // RangeIndex buffer 内の開始 index
+  uint32_t indexCount = 0;   // この chunk が覆う index 数
+  int32_t baseVertex = 0;    // Position buffer 内の基準頂点
+  uint32_t firstMeshlet = 0; // MeshletBounds buffer 内の開始 meshlet
+  uint32_t meshletCount = 0; // この chunk が含む meshlet 数
+  uint32_t meshId = 0;       // 所属 meshId
+  uint32_t materialId = 0;   // 将来の material bucket 用。現状は 0。
+  uint32_t lod = 0;          // 将来の LOD bucket 用。現状は 0。
   Math::float3 boundsCenter = Math::float3::zero();
   float boundsRadius = 0.0f;
   Math::float3 coneAxis = Math::float3(0.0f, 0.0f, 1.0f);
   float coneCutoff = -1.0f;
 };
 
+/// @brief VisibilityResolve が 1 triangle を復元するための precomputed data
+struct VisibilityTriangle final {
+  Math::float4 position0 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 position1 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 position2 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 normal0 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 normal1 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 normal2 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 uv01 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+  Math::float4 uv2 = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
+};
+
 /// @brief MeshPool が管理する GPU リソースのハンドルをまとめた構造体
 struct MeshPoolBindings final {
-  BufferHandle positionBuffer = {};      // 頂点位置ストリーム
-  BufferHandle uvBuffer = {};            // UV ストリーム
-  BufferHandle normalBuffer = {};        // 法線ストリーム
-  BufferHandle indexBuffer = {};         // インデックスストリーム
+  BufferHandle positionBuffer = {}; // 頂点位置ストリーム
+  BufferHandle uvBuffer = {};       // UV ストリーム
+  BufferHandle normalBuffer = {};   // 法線ストリーム
+  BufferHandle indexBuffer = {};    // インデックスストリーム
+  BufferHandle visibilityTriangleBuffer =
+      {}; // Visibility resolve 用 triangle ストリーム
   BufferHandle rangeIndexBuffer = {};    // Range 描画用インデックスストリーム
   BufferHandle meshletBoundsBuffer = {}; // Meshlet bounds ストリーム
   BufferHandle meshletChunkBuffer = {};  // MeshletChunk ストリーム
@@ -144,38 +163,40 @@ struct MeshPoolBindings final {
       {}; // meshId から MeshletChunk 範囲を引く structured buffer
   BufferHandle meshRangeBuffer =
       {}; // MeshRange 配列を保持する structured buffer
-  ViewHandle meshletBoundsSrv = {}; // Meshlet bounds を読むための SRV
-  ViewHandle meshletChunkSrv = {};  // MeshletChunk を読むための SRV
-  ViewHandle meshChunkRangeSrv =
-      {}; // MeshChunkRange を読むための SRV
-  ViewHandle meshRangeSrv = {};     // シェーダから MeshRange を読むための SRV
+  ViewHandle meshletBoundsSrv = {};  // Meshlet bounds を読むための SRV
+  ViewHandle meshletChunkSrv = {};   // MeshletChunk を読むための SRV
+  ViewHandle meshChunkRangeSrv = {}; // MeshChunkRange を読むための SRV
+  ViewHandle meshRangeSrv = {};      // シェーダから MeshRange を読むための SRV
 };
 
 /// @brief 登録済みメッシュ 1 件の CPU 側管理情報
 struct MeshRecord final {
-  Core::ResourceNameId nameId = 0;   // メッシュ名から生成した検索用 ID
-  uint32_t meshId = 0;               // MeshRange buffer の要素インデックス
-  uint32_t vertexCount = 0;          // 登録時の頂点数
-  uint32_t indexCount = 0;           // 登録時のインデックス数
-  uint64_t positionByteOffset = 0;   // Position stream 内の開始 byte offset
-  uint64_t positionByteSize = 0;     // Position stream に確保した byte 数
-  uint64_t uvByteOffset = 0;         // UV stream 内の開始 byte offset
-  uint64_t uvByteSize = 0;           // UV stream に確保した byte 数
-  uint64_t normalByteOffset = 0;     // Normal stream 内の開始 byte offset
-  uint64_t normalByteSize = 0;       // Normal stream に確保した byte 数
-  uint64_t indexByteOffset = 0;      // Index stream 内の開始 byte offset
-  uint64_t indexByteSize = 0;        // Index stream に確保した byte 数
+  Core::ResourceNameId nameId = 0; // メッシュ名から生成した検索用 ID
+  uint32_t meshId = 0;             // MeshRange buffer の要素インデックス
+  uint32_t vertexCount = 0;        // 登録時の頂点数
+  uint32_t indexCount = 0;         // 登録時のインデックス数
+  uint64_t positionByteOffset = 0; // Position stream 内の開始 byte offset
+  uint64_t positionByteSize = 0;   // Position stream に確保した byte 数
+  uint64_t uvByteOffset = 0;       // UV stream 内の開始 byte offset
+  uint64_t uvByteSize = 0;         // UV stream に確保した byte 数
+  uint64_t normalByteOffset = 0;   // Normal stream 内の開始 byte offset
+  uint64_t normalByteSize = 0;     // Normal stream に確保した byte 数
+  uint64_t indexByteOffset = 0;    // Index stream 内の開始 byte offset
+  uint64_t indexByteSize = 0;      // Index stream に確保した byte 数
+  uint64_t visibilityTriangleByteOffset =
+      0; // VisibilityTriangle stream 内の開始 byte offset
+  uint64_t visibilityTriangleByteSize =
+      0; // VisibilityTriangle stream に確保した byte 数
   uint64_t rangeIndexByteOffset = 0; // Range Index stream 内の開始 byte offset
   uint64_t rangeIndexByteSize = 0;   // Range Index stream に確保した byte 数
   uint64_t meshletByteOffset = 0; // MeshletBounds stream 内の開始 byte offset
   uint64_t meshletByteSize = 0;   // MeshletBounds stream に確保した byte 数
   uint32_t meshletCount = 0;      // このメッシュに属する meshlet 数
   uint64_t meshletChunkByteOffset =
-      0; // MeshletChunk stream 内の開始 byte offset
-  uint64_t meshletChunkByteSize =
-      0; // MeshletChunk stream に確保した byte 数
-  uint32_t meshletChunkCount = 0; // このメッシュに属する chunk 数
-  MeshBounds bounds{};            // CPU 側で保持するメッシュ境界情報
+      0;                             // MeshletChunk stream 内の開始 byte offset
+  uint64_t meshletChunkByteSize = 0; // MeshletChunk stream に確保した byte 数
+  uint32_t meshletChunkCount = 0;    // このメッシュに属する chunk 数
+  MeshBounds bounds{};               // CPU 側で保持するメッシュ境界情報
   bool hasSkinInfluence = false; // スキニング用 influence stream を使うかどうか
 };
 
@@ -391,23 +412,25 @@ private:
   std::unordered_map<Core::ResourceNameId, MeshHandle>
       m_nameToHandlesMap; // メッシュ名 ID から MeshHandle を引く表
   std::unordered_map<uint32_t, MeshHandle>
-      m_meshIdToHandlesMap;         // meshId から MeshHandle を引く表
-  StreamState m_positionStream{};   // 位置データ用ストリーム
-  StreamState m_uvStream{};         // UV データ用ストリーム
-  StreamState m_normalStream{};     // 法線データ用ストリーム
-  StreamState m_influenceStream{};  // スキニング influence データ用ストリーム
-  StreamState m_indexStream{};      // インデックスデータ用ストリーム
+      m_meshIdToHandlesMap;        // meshId から MeshHandle を引く表
+  StreamState m_positionStream{};  // 位置データ用ストリーム
+  StreamState m_uvStream{};        // UV データ用ストリーム
+  StreamState m_normalStream{};    // 法線データ用ストリーム
+  StreamState m_influenceStream{}; // スキニング influence データ用ストリーム
+  StreamState m_indexStream{};     // インデックスデータ用ストリーム
+  StreamState
+      m_visibilityTriangleStream{}; // Visibility resolve 用 triangle stream
   StreamState m_rangeIndexStream{}; // Range 描画用インデックスデータストリーム
   StreamState
       m_meshletBoundsStream{}; // 追加カリング用 meshlet bounds ストリーム
-  StreamState m_meshletChunkStream{}; // coarse MeshletChunk ストリーム
+  StreamState m_meshletChunkStream{};    // coarse MeshletChunk ストリーム
   ViewHandle m_meshletBoundsSrvHandle{}; // Meshlet bounds buffer の SRV
-  ViewHandle m_meshletChunkSrvHandle{}; // MeshletChunk buffer の SRV
+  ViewHandle m_meshletChunkSrvHandle{};  // MeshletChunk buffer の SRV
   MeshRangeState m_meshRangeState{};     // MeshRange buffer と meshId 管理状態
   MeshChunkRangeState
-      m_meshChunkRangeState{}; // meshId -> MeshletChunk range 管理状態
+      m_meshChunkRangeState{};         // meshId -> MeshletChunk range 管理状態
   uint32_t m_maxMeshletChunkCount = 0; // MeshletChunk buffer の最大 chunk 数
   uint32_t m_allocatedMeshletChunkCount = 0; // 登録済み MeshletChunk 数
-  Result m_initResult = Result::ok();    // コンストラクタ内初期化の結果
+  Result m_initResult = Result::ok();        // コンストラクタ内初期化の結果
 };
 } // namespace Cue::DrawSystem

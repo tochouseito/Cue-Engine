@@ -45,6 +45,14 @@ cbuffer DrawInstanceParam : register(b3)
     uint g_maxDrawInstanceCount;
 };
 
+cbuffer BatchFilterParam : register(b4)
+{
+    uint g_batchFilterMode;
+};
+
+static const uint kBatchFilterVisibility = 1u;
+static const uint kRenderObjectFlagForwardFallback = 1u << 0u;
+
 uint first_active_lane(uint4 mask)
 {
     if (mask.x != 0u)
@@ -82,6 +90,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             renderObject.meshId < g_maxMeshCount &&
             renderObject.materialId < g_maxMaterialCount &&
             renderObject.depthBin < g_depthBinCount;
+        if (active && g_batchFilterMode == kBatchFilterVisibility)
+        {
+            active =
+                (renderObject.padding & kRenderObjectFlagForwardFallback) == 0u;
+        }
 
         if (active)
         {

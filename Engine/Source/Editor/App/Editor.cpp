@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -134,9 +135,202 @@ pass_gpu_ms(const RHI::FrameGraphExecutionStats &stats,
   return total;
 }
 
-void log_render_debug_stats(
-    uint64_t frameIndex, double fps, const EngineDebugStats &debugStats,
-    const RHI::FrameGraphExecutionStats &frameStats) {
+struct CpuFrameTiming final {
+  double totalMs = 0.0;
+  double setupMs = 0.0;
+  double pollMessageMs = 0.0;
+  double platformBeginMs = 0.0;
+  double engineBeginMs = 0.0;
+  double inputCameraMs = 0.0;
+  double engineTickMs = 0.0;
+  double engineEndMs = 0.0;
+  double platformEndMs = 0.0;
+};
+
+[[nodiscard]] const char *
+command_queue_name(RHI::CommandListType type) noexcept;
+
+struct TimingAccumulator final {
+  uint64_t samples = 0;
+  double sumMs = 0.0;
+  double minMs = std::numeric_limits<double>::max();
+  double maxMs = 0.0;
+
+  void add(double valueMs) noexcept {
+    ++samples;
+    sumMs += valueMs;
+    minMs = (std::min)(minMs, valueMs);
+    maxMs = (std::max)(maxMs, valueMs);
+  }
+
+  [[nodiscard]] double average_ms() const noexcept {
+    return samples > 0 ? sumMs / static_cast<double>(samples) : 0.0;
+  }
+
+  [[nodiscard]] double min_or_zero_ms() const noexcept {
+    return samples > 0 ? minMs : 0.0;
+  }
+};
+
+struct PassTimingAggregate final {
+  std::string graphName{};
+  std::string name{};
+  RHI::CommandListType queueType = RHI::CommandListType::Graphics;
+  TimingAccumulator cpuExecute{};
+  TimingAccumulator cpuRecordTotal{};
+  TimingAccumulator gpuExecute{};
+  uint64_t submittedCommandLists = 0;
+};
+
+class PassTimingCollector final {
+public:
+  void add_frame(std::string_view graphName,
+                 const RHI::FrameGraphExecutionStats &stats) {
+    for (const RHI::FrameGraphExecutionStats::PassExecutionStats &pass :
+         stats.passStats) {
+      PassTimingAggregate &aggregate = find_or_create(
+          std::string(graphName), std::string(pass.name), pass.queueType);
+      aggregate.queueType = pass.queueType;
+      aggregate.cpuExecute.add(pass.cpuExecuteMs);
+      aggregate.cpuRecordTotal.add(
+          pass.acquireResetSetupMs + pass.preBarrierMs + pass.cpuExecuteMs +
+          pass.postBarrierMs + pass.closeMs + pass.submitExecuteListsMs +
+          pass.submitSignalOnlyMs + pass.submitSignalMs);
+      if (pass.hasGpuExecuteMs) {
+        aggregate.gpuExecute.add(pass.gpuExecuteMs);
+      }
+      aggregate.submittedCommandLists += pass.submittedCommandListCount;
+    }
+  }
+
+  void log_summary() const {
+    Core::IO::log(Core::IO::LogSink::file,
+                  "[PassTimingSummaryBegin] passCount={}",
+                  m_passAggregates.size());
+    for (const PassTimingAggregate &pass : m_passAggregates) {
+      Core::IO::log(
+          Core::IO::LogSink::file,
+          "[PassTimingSummary] graph={} pass={} queue={} cpuSamples={} "
+          "cpuExecuteMs(avg={:.3f} min={:.3f} max={:.3f}) "
+          "cpuRecordTotalMs(avg={:.3f} min={:.3f} max={:.3f}) "
+          "gpuSamples={} gpuExecuteMs(avg={:.3f} min={:.3f} max={:.3f}) "
+          "submittedCommandLists={}",
+          pass.graphName, pass.name, command_queue_name(pass.queueType),
+          pass.cpuExecute.samples, pass.cpuExecute.average_ms(),
+          pass.cpuExecute.min_or_zero_ms(), pass.cpuExecute.maxMs,
+          pass.cpuRecordTotal.average_ms(),
+          pass.cpuRecordTotal.min_or_zero_ms(), pass.cpuRecordTotal.maxMs,
+          pass.gpuExecute.samples, pass.gpuExecute.average_ms(),
+          pass.gpuExecute.min_or_zero_ms(), pass.gpuExecute.maxMs,
+          pass.submittedCommandLists);
+    }
+    Core::IO::log(Core::IO::LogSink::file, "[PassTimingSummaryEnd]");
+  }
+
+private:
+  PassTimingAggregate &find_or_create(std::string graphName, std::string name,
+                                      RHI::CommandListType queueType) {
+    for (PassTimingAggregate &aggregate : m_passAggregates) {
+      if (aggregate.graphName == graphName && aggregate.name == name &&
+          aggregate.queueType == queueType) {
+        return aggregate;
+      }
+    }
+
+    PassTimingAggregate aggregate{};
+    aggregate.graphName = std::move(graphName);
+    aggregate.name = std::move(name);
+    aggregate.queueType = queueType;
+    m_passAggregates.push_back(std::move(aggregate));
+    return m_passAggregates.back();
+  }
+
+  std::vector<PassTimingAggregate> m_passAggregates{};
+};
+
+using TimingClock = std::chrono::steady_clock;
+using TimingPoint = TimingClock::time_point;
+
+[[nodiscard]] double elapsed_ms(TimingPoint begin, TimingPoint end) noexcept {
+  return std::chrono::duration<double, std::milli>(end - begin).count();
+}
+
+[[nodiscard]] const char *
+command_queue_name(RHI::CommandListType type) noexcept {
+  switch (type) {
+  case RHI::CommandListType::Graphics:
+    return "Graphics";
+  case RHI::CommandListType::Compute:
+    return "Compute";
+  case RHI::CommandListType::Copy:
+    return "Copy";
+  default:
+    return "Unknown";
+  }
+}
+
+[[nodiscard]] DrawSystem::RenderDebugView
+next_render_debug_view(DrawSystem::RenderDebugView view) noexcept {
+  switch (view) {
+  case DrawSystem::RenderDebugView::Forward:
+    return DrawSystem::RenderDebugView::VisibilityObjectId;
+  case DrawSystem::RenderDebugView::VisibilityObjectId:
+    return DrawSystem::RenderDebugView::VisibilityPrimitiveId;
+  case DrawSystem::RenderDebugView::VisibilityPrimitiveId:
+    return DrawSystem::RenderDebugView::VisibilityBarycentric;
+  case DrawSystem::RenderDebugView::VisibilityBarycentric:
+    return DrawSystem::RenderDebugView::VisibilityNormal;
+  case DrawSystem::RenderDebugView::VisibilityNormal:
+    return DrawSystem::RenderDebugView::VisibilityUv;
+  case DrawSystem::RenderDebugView::VisibilityUv:
+    return DrawSystem::RenderDebugView::VisibilityLit;
+  case DrawSystem::RenderDebugView::VisibilityLit:
+    return DrawSystem::RenderDebugView::VisibilityMaterial;
+  case DrawSystem::RenderDebugView::VisibilityMaterial:
+  default:
+    return DrawSystem::RenderDebugView::Forward;
+  }
+}
+
+[[nodiscard]] const char *
+render_debug_view_name(DrawSystem::RenderDebugView view) noexcept {
+  switch (view) {
+  case DrawSystem::RenderDebugView::Forward:
+    return "Forward";
+  case DrawSystem::RenderDebugView::VisibilityObjectId:
+    return "Visibility ObjectId";
+  case DrawSystem::RenderDebugView::VisibilityPrimitiveId:
+    return "Visibility PrimitiveId";
+  case DrawSystem::RenderDebugView::VisibilityBarycentric:
+    return "Visibility Barycentric";
+  case DrawSystem::RenderDebugView::VisibilityNormal:
+    return "Visibility Normal";
+  case DrawSystem::RenderDebugView::VisibilityUv:
+    return "Visibility UV";
+  case DrawSystem::RenderDebugView::VisibilityLit:
+    return "Visibility Lit";
+  case DrawSystem::RenderDebugView::VisibilityMaterial:
+    return "Visibility Material";
+  default:
+    return "Forward";
+  }
+}
+
+[[nodiscard]] const char *
+render_path_name(DrawSystem::RenderPath path) noexcept {
+  switch (path) {
+  case DrawSystem::RenderPath::Forward:
+    return "Forward";
+  case DrawSystem::RenderPath::VisibilityBuffer:
+    return "Visibility Buffer";
+  default:
+    return "Forward";
+  }
+}
+
+void log_render_debug_stats(uint64_t frameIndex, double fps,
+                            const EngineDebugStats &debugStats,
+                            const RHI::FrameGraphExecutionStats &frameStats) {
   const GpuData::MeshletChunkVisibilityStatsGpu &chunkStats =
       debugStats.meshletChunkVisibilityStats;
   const GpuData::MeshletGroupCullStatsGpu &groupStats =
@@ -164,8 +358,7 @@ void log_render_debug_stats(
       chunkStats.commandCount, chunkStats.instanceCount,
       chunkStats.currentVisibleChunkCount, chunkStats.previousVisibleChunkCount,
       chunkStats.testedObjectChunkCount, chunkStats.selectedObjectCount,
-      chunkStats.rejectedByObjectFilter,
-      chunkStats.skippedChunksByObjectFilter,
+      chunkStats.rejectedByObjectFilter, chunkStats.skippedChunksByObjectFilter,
       chunkStats.skippedChunksByMaxChunks,
       chunkStats.rejectedByPreviousVisibility, chunkStats.rejectedByFrustum,
       chunkStats.rejectedByOccluderFilter, chunkStats.commandOverflowCount,
@@ -188,6 +381,55 @@ void log_render_debug_stats(
       pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
                                "IndirectCommandEmit"}),
       pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+}
+
+void log_frame_timing(uint64_t frameIndex, double fps,
+                      const CpuFrameTiming &cpuTiming,
+                      const RHI::FrameGraphExecutionStats &frameStats) {
+  Core::IO::log(
+      Core::IO::LogSink::file,
+      "[FrameTiming] frame={} fps={:.2f} cpuMs(total={:.3f} setup={:.3f} "
+      "pollMessage={:.3f} platformBegin={:.3f} engineBegin={:.3f} "
+      "inputCamera={:.3f} engineTick={:.3f} engineEnd={:.3f} "
+      "platformEnd={:.3f}) frameGraphMs(totalExecute={:.3f} submit={:.3f} "
+      "queueWait={:.3f} interQueueWait={:.3f} finalQueueWait={:.3f} "
+      "contextRecycleWait={:.3f} finalGraphicsWait={:.3f} "
+      "finalComputeWait={:.3f} finalCopyWait={:.3f} gpuFrameValid={} "
+      "gpuFrame={:.3f})",
+      frameIndex, fps, cpuTiming.totalMs, cpuTiming.setupMs,
+      cpuTiming.pollMessageMs, cpuTiming.platformBeginMs,
+      cpuTiming.engineBeginMs, cpuTiming.inputCameraMs, cpuTiming.engineTickMs,
+      cpuTiming.engineEndMs, cpuTiming.platformEndMs, frameStats.totalExecuteMs,
+      frameStats.submitMs, frameStats.queueWaitMs, frameStats.interQueueWaitMs,
+      frameStats.finalQueueWaitMs, frameStats.contextRecycleWaitMs,
+      frameStats.finalGraphicsWaitMs, frameStats.finalComputeWaitMs,
+      frameStats.finalCopyWaitMs, frameStats.hasGpuFrameMs,
+      frameStats.hasGpuFrameMs ? frameStats.gpuFrameMs
+                               : frameStats.totalExecuteMs);
+
+  for (const RHI::FrameGraphExecutionStats::PassExecutionStats &pass :
+       frameStats.passStats) {
+    Core::IO::log(
+        Core::IO::LogSink::file,
+        "[GpuPassTiming] frame={} pass={} queue={} gpuValid={} gpuMs={:.3f} "
+        "cpuExecuteMs={:.3f} acquireResetSetupMs={:.3f} preBarrierMs={:.3f} "
+        "postBarrierMs={:.3f} closeMs={:.3f} submitExecuteListsMs={:.3f} "
+        "submitSignalOnlyMs={:.3f} submitSignalMs={:.3f} commandLists={}",
+        frameIndex, pass.name, command_queue_name(pass.queueType),
+        pass.hasGpuExecuteMs, pass.hasGpuExecuteMs ? pass.gpuExecuteMs : 0.0,
+        pass.cpuExecuteMs, pass.acquireResetSetupMs, pass.preBarrierMs,
+        pass.postBarrierMs, pass.closeMs, pass.submitExecuteListsMs,
+        pass.submitSignalOnlyMs, pass.submitSignalMs,
+        pass.submittedCommandListCount);
+
+    for (const RHI::FrameGraphExecutionStats::PassExecutionStats::DetailTiming
+             &detail : pass.detailTimings) {
+      Core::IO::log(Core::IO::LogSink::file,
+                    "[GpuPassTimingDetail] frame={} pass={} label={} "
+                    "elapsedMs={:.3f}",
+                    frameIndex, pass.name, detail.label, detail.elapsedMs);
+    }
+  }
 }
 
 class ImGuiOverlayPass final : public RHI::FrameGraphPass {
@@ -371,6 +613,18 @@ private:
                                    "IndirectCommandEmit"}));
       ImGui::Text("StaticMeshForward: %.3f ms",
                   pass_gpu_ms(frameStats, {"StaticMeshForward"}));
+      ImGui::Text("MeshletGroupCull: %.3f ms",
+                  pass_gpu_ms(frameStats, {"MeshletGroupCull"}));
+      ImGui::Text("VisibilityBuffer: %.3f ms",
+                  pass_gpu_ms(frameStats, {"VisibilityBuffer"}));
+      ImGui::Text("VisibilityBufferRange: %.3f ms",
+                  pass_gpu_ms(frameStats, {"VisibilityBufferRange"}));
+      ImGui::Text("VisibilityResolve: %.3f ms",
+                  pass_gpu_ms(frameStats, {"VisibilityResolve"}));
+      ImGui::Text("VisibilityBufferDebug: %.3f ms",
+                  pass_gpu_ms(frameStats, {"VisibilityBufferDebug"}));
+      ImGui::Text("VisibilityResolveDebug: %.3f ms",
+                  pass_gpu_ms(frameStats, {"VisibilityResolveDebug"}));
     }
 
     if (ImGui::CollapsingHeader("Clustered Lighting",
@@ -489,6 +743,28 @@ private:
 
     if (ImGui::CollapsingHeader("Camera / Debug",
                                 ImGuiTreeNodeFlags_DefaultOpen)) {
+      const char *renderPathItems[] = {"Forward", "Visibility Buffer"};
+      int renderPathIndex = static_cast<int>(m_engine.render_path());
+      if (ImGui::Combo("Render Path", &renderPathIndex, renderPathItems,
+                       IM_ARRAYSIZE(renderPathItems))) {
+        m_engine.set_render_path(
+            static_cast<DrawSystem::RenderPath>(renderPathIndex));
+      }
+
+      const char *debugViewItems[] = {"Forward",
+                                      "Visibility ObjectId",
+                                      "Visibility PrimitiveId",
+                                      "Visibility Barycentric",
+                                      "Visibility Normal",
+                                      "Visibility UV",
+                                      "Visibility Lit",
+                                      "Visibility Material"};
+      int debugViewIndex = static_cast<int>(m_engine.render_debug_view());
+      if (ImGui::Combo("Render Debug View", &debugViewIndex, debugViewItems,
+                       IM_ARRAYSIZE(debugViewItems))) {
+        m_engine.set_render_debug_view(
+            static_cast<DrawSystem::RenderDebugView>(debugViewIndex));
+      }
       ImGui::Text("camera position: %.2f, %.2f, %.2f",
                   debugStats.cameraPosition.x, debugStats.cameraPosition.y,
                   debugStats.cameraPosition.z);
@@ -518,6 +794,8 @@ private:
       ImGui::BulletText("Right mouse drag: look around");
       ImGui::BulletText("C: toggle observer view");
       ImGui::BulletText("Tab: switch main / observer camera");
+      ImGui::BulletText("P: toggle render path");
+      ImGui::BulletText("V: cycle render debug view");
       ImGui::BulletText("Mouse over this window: operate ImGui");
     }
 
@@ -766,25 +1044,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   }
 
   // メインループ
+  static constexpr bool kEnablePeriodicFrameLogs = false;
+  static constexpr uint64_t kPeriodicFrameLogInterval = 120u;
   bool isRunning = true;
   auto previousInputTime = std::chrono::steady_clock::now();
   uint64_t nextRenderStatsLogFrame = 1u;
+  PassTimingCollector passTimingCollector{};
   while (isRunning) {
-    const auto currentInputTime = std::chrono::steady_clock::now();
+    CpuFrameTiming cpuTiming{};
+    const TimingPoint frameTimingBegin = TimingClock::now();
+
+    TimingPoint segmentBegin = TimingClock::now();
+    const auto currentInputTime = segmentBegin;
     const float deltaSeconds = std::clamp(
         std::chrono::duration<float>(currentInputTime - previousInputTime)
             .count(),
         0.0f, 0.1f);
     previousInputTime = currentInputTime;
+    cpuTiming.setupMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // プラットフォームメッセージを処理
+    segmentBegin = TimingClock::now();
     PAL::PlatformMessage message = platform->poll_message();
     if (message == PAL::PlatformMessage::Quit) {
       isRunning = false;
     }
+    cpuTiming.pollMessageMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // フレーム開始
+    segmentBegin = TimingClock::now();
     r = platform->begin_frame();
+    cpuTiming.platformBeginMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // 失敗したらエラーを表示して終了
     if (!r) {
@@ -792,7 +1082,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       return -1;
     }
 
+    segmentBegin = TimingClock::now();
     r = engine->begin_frame();
+    cpuTiming.engineBeginMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // 失敗したらエラーを表示して終了
     if (!r) {
@@ -801,12 +1093,28 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       return -1;
     }
 
+    segmentBegin = TimingClock::now();
     if (was_key_pressed('C')) {
       g_observerViewEnabled = !g_observerViewEnabled;
     }
     if (was_key_pressed(VK_TAB)) {
       g_controlObserverCamera = !g_controlObserverCamera;
       g_observerViewEnabled = g_controlObserverCamera;
+    }
+    if (was_key_pressed('V')) {
+      engine->set_render_debug_view(
+          next_render_debug_view(engine->render_debug_view()));
+      Core::IO::log(Core::IO::LogSink::console, "Render debug view: {}",
+                    render_debug_view_name(engine->render_debug_view()));
+    }
+    if (was_key_pressed('P')) {
+      const DrawSystem::RenderPath nextPath =
+          engine->render_path() == DrawSystem::RenderPath::Forward
+              ? DrawSystem::RenderPath::VisibilityBuffer
+              : DrawSystem::RenderPath::Forward;
+      engine->set_render_path(nextPath);
+      Core::IO::log(Core::IO::LogSink::console, "Render path: {}",
+                    render_path_name(engine->render_path()));
     }
 
     Editor::DebugCamera::Input cameraInput =
@@ -836,9 +1144,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                         r.message.data());
       return -1;
     }
+    cpuTiming.inputCameraMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // --- ここで Engine 側の更新と描画処理を呼び出す ---
+    segmentBegin = TimingClock::now();
     r = engine->tick();
+    cpuTiming.engineTickMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // 失敗したらエラーを表示して終了
     if (!r) {
@@ -854,13 +1165,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
     /*profiler.begin("Test", "Update");
     profiler.end("Test", "Update");
-    if (const auto snapshot = profiler.get_snapshot("Test", "Update"))
+ if
+    (const auto snapshot = profiler.get_snapshot("Test", "Update"))
     {
         Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms",
     snapshot->timer.elapsed_seconds() * 1000.0);
     }*/
 
+    segmentBegin = TimingClock::now();
     r = engine->end_frame();
+    cpuTiming.engineEndMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // 失敗したらエラーを表示して終了
     if (!r) {
@@ -870,7 +1184,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
 
     // フレーム終了
+    segmentBegin = TimingClock::now();
     r = platform->end_frame();
+    cpuTiming.platformEndMs = elapsed_ms(segmentBegin, TimingClock::now());
 
     // 失敗したらエラーを表示して終了
     if (!r) {
@@ -878,15 +1194,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       return -1;
     }
 
-    const uint64_t completedFrameCount = frameCounter.total_frames();
-    if (completedFrameCount >= nextRenderStatsLogFrame) {
-      log_render_debug_stats(completedFrameCount, frameCounter.fps(),
-                             engine->debug_stats(),
-                             engine->render_execution_stats());
-      nextRenderStatsLogFrame = completedFrameCount + 120u;
+    cpuTiming.totalMs = elapsed_ms(frameTimingBegin, TimingClock::now());
+    const RHI::FrameGraphExecutionStats frameStats =
+        engine->render_execution_stats();
+    const RHI::FrameGraphExecutionStats presentFrameStats =
+        engine->present_execution_stats();
+    passTimingCollector.add_frame("Render", frameStats);
+    passTimingCollector.add_frame("Present", presentFrameStats);
+    if constexpr (kEnablePeriodicFrameLogs) {
+      const uint64_t completedFrameCount = frameCounter.total_frames();
+      if (completedFrameCount >= nextRenderStatsLogFrame) {
+        log_render_debug_stats(completedFrameCount, frameCounter.fps(),
+                               engine->debug_stats(), frameStats);
+        log_frame_timing(completedFrameCount, frameCounter.fps(), cpuTiming,
+                         frameStats);
+        nextRenderStatsLogFrame =
+            completedFrameCount + kPeriodicFrameLogInterval;
+      }
     }
   }
 
+  passTimingCollector.log_summary();
   Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
                 "Editor shutdown");
   Core::IO::clear_log_file();

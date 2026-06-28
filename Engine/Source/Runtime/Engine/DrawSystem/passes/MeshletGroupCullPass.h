@@ -9,6 +9,8 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderDebugView.h"
+#include "DrawSystem/RenderPath.h"
 #include "GpuData/Batching.h"
 
 // === C++ includes ===
@@ -18,18 +20,18 @@ namespace Cue::DrawSystem {
 class MeshletGroupCullPass final : public RHI::FrameGraphPass {
 public:
   MeshletGroupCullPass(const DrawFrameState &drawFrameState,
+                       const RenderPath &renderPath,
+                       const RenderDebugView &debugView,
                        RHI::IBufferManager *bufferManager,
                        GpuData::MeshletGroupCullStatsGpu *statsOutput,
                        RHI::BufferHandle renderObjectBuffer,
                        RHI::BufferHandle transformBuffer,
                        RHI::BufferHandle viewProjectionBuffer,
                        RHI::BufferHandle visibleObjectCountBuffer,
-                       uint32_t maxObjectCount,
-                       uint32_t maxRangeCommandCount)
-      : m_drawFrameState(drawFrameState),
-        m_bufferManager(bufferManager),
-        m_statsOutput(statsOutput),
-        m_renderObjectBuffer(renderObjectBuffer),
+                       uint32_t maxObjectCount, uint32_t maxRangeCommandCount)
+      : m_drawFrameState(drawFrameState), m_renderPath(renderPath),
+        m_debugView(debugView), m_bufferManager(bufferManager),
+        m_statsOutput(statsOutput), m_renderObjectBuffer(renderObjectBuffer),
         m_transformBuffer(transformBuffer),
         m_viewProjectionBuffer(viewProjectionBuffer),
         m_visibleObjectCountBuffer(visibleObjectCountBuffer),
@@ -39,6 +41,12 @@ public:
   const char *name() const noexcept override { return "MeshletGroupCull"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Compute;
+  }
+
+  bool is_enabled(uint32_t a_frameIndex) const noexcept override {
+    (void)a_frameIndex;
+    return m_renderPath == RenderPath::VisibilityBuffer &&
+           m_debugView == RenderDebugView::Forward;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -62,12 +70,13 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshPool.MeshletBounds", m_meshletBoundsBuffer);
+    result =
+        builder.get_buffer("MeshPool.MeshletBounds", m_meshletBoundsBuffer);
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshPool.MeshChunkRange",
-                                m_meshChunkRangeBuffer);
+    result =
+        builder.get_buffer("MeshPool.MeshChunkRange", m_meshChunkRangeBuffer);
     if (!result) {
       return result;
     }
@@ -76,17 +85,7 @@ public:
       return result;
     }
 
-    RHI::BufferDesc drawModeDesc{};
-    drawModeDesc.name = "ObjectDrawModeBuffer";
-    drawModeDesc.type = RHI::BufferType::UnorderedAccess;
-    drawModeDesc.defaultHeapCount = 1;
-    drawModeDesc.uploadHeapCount = 0;
-    drawModeDesc.initialState = RHI::ResourceState::UnorderedAccess;
-    drawModeDesc.stride = sizeof(uint32_t);
-    drawModeDesc.elementCount = m_maxObjectCount;
-    drawModeDesc.size = drawModeDesc.stride * drawModeDesc.elementCount;
-    drawModeDesc.alignment = alignof(uint32_t);
-    result = builder.create_buffer(drawModeDesc, m_objectDrawModeBuffer);
+    result = builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
     if (!result) {
       return result;
     }
@@ -164,9 +163,8 @@ public:
           Code::InvalidState, Severity::Error,
           "MeshletGroupCullPass requires a buffer manager for stats readback.");
     }
-    result =
-        m_bufferManager->get_readback_buffer_view(m_statsBuffer,
-                                                  m_statsReadbackView);
+    result = m_bufferManager->get_readback_buffer_view(m_statsBuffer,
+                                                       m_statsReadbackView);
     if (!result) {
       return result;
     }
@@ -281,10 +279,10 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.use_buffer(m_rangeCommandBuffer,
-                                RHI::ResourceAccessType::Write,
-                                RHI::ResourceState::UnorderedAccess,
-                                RHI::ResourceState::IndirectArgument);
+    result =
+        builder.use_buffer(m_rangeCommandBuffer, RHI::ResourceAccessType::Write,
+                           RHI::ResourceState::UnorderedAccess,
+                           RHI::ResourceState::IndirectArgument);
     if (!result) {
       return result;
     }
@@ -376,6 +374,8 @@ private:
   }
 
   const DrawFrameState &m_drawFrameState;
+  const RenderPath &m_renderPath;
+  const RenderDebugView &m_debugView;
   RHI::IBufferManager *m_bufferManager = nullptr;
   GpuData::MeshletGroupCullStatsGpu *m_statsOutput = nullptr;
   RHI::BufferHandle m_renderObjectBuffer{};

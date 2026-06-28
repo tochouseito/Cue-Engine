@@ -14,10 +14,15 @@
 #include "DrawSystem/passes/DrawResourceCopyPasses.h"
 #include "DrawSystem/passes/GeneratedMeshletDepthPass.h"
 #include "DrawSystem/passes/MeshletChunkVisibilityPass.h"
+#include "DrawSystem/passes/MeshletGroupCullPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
 #include "DrawSystem/passes/StaticMeshForwardPass.h"
+#include "DrawSystem/passes/VisibilityBufferDebugPass.h"
+#include "DrawSystem/passes/VisibilityBufferPass.h"
+#include "DrawSystem/passes/VisibilityResolveDebugPass.h"
+#include "DrawSystem/passes/VisibilityResolvePass.h"
 #include "LightingSystem/Passes/LightBufferCopyPass.h"
 
 // === C++ includes ===
@@ -498,6 +503,16 @@ Result Engine::register_model_set(
             gridOrigin.x + spacing * static_cast<float>(x),
             gridOrigin.y + spacing * static_cast<float>(y),
             gridOrigin.z + spacing * static_cast<float>(z));
+        const uint32_t probeZ =
+            a_instanceCounts.z > 0u
+                ? std::min<uint32_t>(a_instanceCounts.z - 1u,
+                                     (a_instanceCounts.z * 3u) / 4u)
+                : 0u;
+        if (x == 0u && y == a_instanceCounts.y / 2u && z == probeZ) {
+          renderableInfo.padding0 =
+              GpuData::RenderObjectFlag_ForwardFallback |
+              GpuData::RenderObjectFlag_TransparentProbe;
+        }
         renderableInfo.boundsCenterRadius =
             Math::float4(position.x + drawModel.scaledBoundsCenter.x,
                          position.y + drawModel.scaledBoundsCenter.y,
@@ -694,6 +709,13 @@ RHI::FrameGraphExecutionStats Engine::render_execution_stats() const noexcept {
   return m_frameGraph->execution_stats_copy();
 }
 
+RHI::FrameGraphExecutionStats Engine::present_execution_stats() const noexcept {
+  if (m_presentFrameGraph == nullptr) {
+    return {};
+  }
+  return m_presentFrameGraph->execution_stats_copy();
+}
+
 void Engine::set_directional_light_enabled(bool enabled) noexcept {
   m_enableDirectionalLight = enabled;
   m_debugStats.directionalLightEnabled = enabled;
@@ -864,6 +886,8 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
   renderFrameGraphDesc.usePresentQueue = true;
   renderFrameGraphDesc.enableProfiling = true;
   renderFrameGraphDesc.waitForCompletion = true;
+  renderFrameGraphDesc.enablePassTimingLog = false;
+  renderFrameGraphDesc.passTimingLogInterval = 120;
   result =
       m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
   if (!result) {
@@ -948,19 +972,53 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
     }
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ResetBatchCountersPass>(m_maxObjectCount));
+    const uint32_t maxMeshletRangeCommandCount =
+        std::max<uint32_t>(1u, m_maxObjectCount * 8u);
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
+        m_drawFrameState, m_renderPath, m_renderDebugView,
+        m_renderBackend->get_buffer_manager(),
+        &m_debugStats.meshletGroupCullStats,
+        m_drawResources->render_object_buffer_handle(),
+        m_drawResources->transform_buffer_handle(),
+        m_drawResources->render_view_projection_buffer_handle(),
+        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
+        maxMeshletRangeCommandCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+        m_drawFrameState, m_renderPath, m_renderDebugView,
+        m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle()));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+        m_drawFrameState, m_renderPath, m_renderDebugView,
+        m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
         m_maxObjectCount));
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::IndirectCommandEmitPass>(
             m_maxObjectCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::ForwardFallbackCommandEmitPass>(
+            m_drawFrameState, m_renderPath, m_renderDebugView,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount));
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibilityBufferPass>(
+        m_drawFrameState, m_renderPath, m_renderDebugView,
+        m_drawResources->render_object_buffer_handle(),
+        m_drawResources->transform_buffer_handle(),
+        m_drawResources->render_view_projection_buffer_handle(),
+        m_drawResources->visible_object_count_buffer_handle(),
+        m_maxObjectCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::VisibilityBufferRangePass>(
+            m_renderPath, m_renderDebugView,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            maxMeshletRangeCommandCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
-        m_drawFrameState, m_drawResources->render_object_buffer_handle(),
+        m_drawFrameState, m_renderPath, m_renderDebugView,
+        m_drawResources->render_object_buffer_handle(),
         m_drawResources->transform_buffer_handle(),
         m_drawResources->render_view_projection_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
@@ -968,6 +1026,38 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_lightResources->frame_buffer_handle(),
         m_lightResources->directional_light_buffer_handle(),
         m_lightResources->point_light_buffer_handle(), m_maxObjectCount));
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibilityResolvePass>(
+        m_renderPath, m_renderDebugView,
+        m_drawResources->render_object_buffer_handle(),
+        m_drawResources->transform_buffer_handle(),
+        m_drawResources->render_view_projection_buffer_handle(),
+        m_drawResources->material_buffer_handle(),
+        m_lightResources->frame_buffer_handle(),
+        m_lightResources->directional_light_buffer_handle(),
+        m_lightResources->point_light_buffer_handle()));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::StaticMeshForwardTransparentPass>(
+            m_drawFrameState, m_renderPath, m_renderDebugView,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_drawResources->material_buffer_handle(),
+            m_lightResources->frame_buffer_handle(),
+            m_lightResources->directional_light_buffer_handle(),
+            m_lightResources->point_light_buffer_handle(), m_maxObjectCount));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::VisibilityBufferDebugPass>(
+            m_renderDebugView));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::VisibilityResolveDebugPass>(
+            m_renderDebugView, m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            m_drawResources->material_buffer_handle(),
+            m_lightResources->frame_buffer_handle(),
+            m_lightResources->directional_light_buffer_handle(),
+            m_lightResources->point_light_buffer_handle()));
     // Build chunk visibility/depth after Forward. The resulting Hi-Z is
     // consumed by ObjectCullAndLod on a later frame.
     m_frameGraph->add_pass(
@@ -1008,6 +1098,8 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
   presentFrameGraphDesc.usePresentQueue = true;
   presentFrameGraphDesc.enableProfiling = true;
   presentFrameGraphDesc.waitForCompletion = true;
+  presentFrameGraphDesc.enablePassTimingLog = false;
+  presentFrameGraphDesc.passTimingLogInterval = 120;
   result = m_renderBackend->create_frame_graph(presentFrameGraphDesc,
                                                m_presentFrameGraph);
   if (!result) {

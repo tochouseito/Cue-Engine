@@ -123,9 +123,11 @@ static const uint kMeshletsPerGroup = 8u;
 static const uint kMaxRangesPerObject = 64u;
 static const uint kMaxMergeGapIndices = 48u;
 static const uint kMaxChunkGroupsPerObjectForRange = 128u;
-static const bool kEnableMeshletRangeDraws = false;
-static const bool kEnableConeCulling = true;
+static const bool kEnableMeshletRangeDraws = true;
+static const bool kEnableConeCulling = false;
+static const uint kRenderObjectFlagForwardFallback = 1u << 0u;
 static const float kMinMeshletRangeProjectedRadius = 0.25f;
+static const float kMeshletRangeFrustumRadiusScale = 1.35f;
 static const uint kMaxRangeDrawnPercent = 92u;
 static const float kConeCutoffEpsilon = 0.02f;
 
@@ -450,7 +452,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const RenderObject renderObject = g_renderObjects[objectIndex];
     const MeshRange meshRange = g_meshRanges[renderObject.meshId];
     const MeshChunkRange chunkRange = g_meshChunkRanges[renderObject.meshId];
-    if ((renderObject.drawFlags & 1u) != 0u ||
+    if ((renderObject.padding & kRenderObjectFlagForwardFallback) != 0u ||
+        (renderObject.drawFlags & 1u) != 0u ||
         meshRange.meshletCount < (kMeshletsPerGroup * 2u) ||
         meshRange.rangeIndexCount == 0u ||
         chunkRange.chunkCount == 0u ||
@@ -501,7 +504,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             mul(float4(chunk.boundsCenter, 1.0f), transform.worldMatrix);
         const float4 viewCenter = mul(worldCenter, g_viewMatrix);
         const float worldRadius = chunk.boundsRadius * radiusScale;
-        if (!is_view_sphere_inside_frustum(viewCenter.xyz, worldRadius))
+        if (!is_view_sphere_inside_frustum(
+                viewCenter.xyz,
+                worldRadius * kMeshletRangeFrustumRadiusScale))
         {
             ++frustumRejectedGroupCount;
             continue;
@@ -528,10 +533,10 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                                coneTestedMeshletCount,
                                coneRejectedMeshletCount, visibleGroupCount);
 
-    if (visibleGroupCount == 0u)
+    if (visibleGroupCount == 0u || coneRejectedMeshletCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsCulledObjectCount, 1u);
-        g_objectDrawModes[objectIndex] = kDrawModeCulled;
+        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
+        g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
 

@@ -13,6 +13,12 @@
 #include <CueMath.h>
 
 namespace Cue::GpuData {
+enum RenderObjectFlags : uint32_t {
+  RenderObjectFlag_None = 0u,
+  RenderObjectFlag_ForwardFallback = 1u << 0u,
+  RenderObjectFlag_TransparentProbe = 1u << 1u,
+};
+
 // 描画可能オブジェクト
 struct RenderableInfo {
   uint32_t objectId = 0;         // オブジェクトID
@@ -51,7 +57,7 @@ struct RenderObject {
   uint32_t skinPaletteCount = 0;
   uint32_t drawFlags = 0;
   uint32_t depthBin = 0;
-  uint32_t padding = 0;
+  uint32_t flags = 0;
   Math::float4 boundsCenterRadius = Math::float4(0.0f, 0.0f, 0.0f, 0.0f);
 };
 

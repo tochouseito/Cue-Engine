@@ -342,6 +342,7 @@ enum class ColorFormat : uint8_t {
   BC7_UNORM_SRGB,
   R32_FLOAT,
   R32_UINT,
+  R32G32_UINT,
   D24_UNorm_S8_UInt,
   R24_UNorm_X8_Typeless
 };
@@ -362,6 +363,8 @@ inline const char *color_format_to_string(ColorFormat format) noexcept {
     return "R32_FLOAT";
   case ColorFormat::R32_UINT:
     return "R32_UINT";
+  case ColorFormat::R32G32_UINT:
+    return "R32G32_UINT";
   case ColorFormat::D24_UNorm_S8_UInt:
     return "D24_UNorm_S8_UInt";
   case ColorFormat::R24_UNorm_X8_Typeless:
@@ -378,6 +381,8 @@ inline uint32_t color_format_byte_size(ColorFormat format) noexcept {
   case ColorFormat::R32_FLOAT:
   case ColorFormat::R32_UINT:
     return 4;
+  case ColorFormat::R32G32_UINT:
+    return 8;
   case ColorFormat::BC6H_UF16:
   case ColorFormat::BC7_UNORM:
   case ColorFormat::BC7_UNORM_SRGB:

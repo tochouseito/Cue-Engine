@@ -316,11 +316,37 @@ bool is_occluded_by_hiz(float4 boundsCenterRadius)
     const uint maxY = max(p0.y, p1.y);
     const uint2 center = uint2((minX + maxX) >> 1u, (minY + maxY) >> 1u);
 
-    const uint maxEncodedDepth = g_occlusionHiZ.Load(int3(center, 0));
+    const uint rectWidth = maxX - minX + 1u;
+    const uint rectHeight = maxY - minY + 1u;
+    if (rectWidth > 8u || rectHeight > 8u)
+    {
+        return false;
+    }
 
-    const float occluderMaxDepth = decode_hiz_depth(maxEncodedDepth);
     const float objectNearDepth = project_device_depth(max(viewZ - radius, 0.001f));
-    return objectNearDepth > occluderMaxDepth + 0.0015f;
+    const float depthBias = 0.003f;
+
+    const uint2 samples[5] =
+    {
+        uint2(minX, minY),
+        uint2(maxX, minY),
+        uint2(minX, maxY),
+        uint2(maxX, maxY),
+        center
+    };
+
+    [unroll]
+    for (uint sampleIndex = 0u; sampleIndex < 5u; ++sampleIndex)
+    {
+        const float occluderMaxDepth =
+            decode_hiz_depth(g_occlusionHiZ.Load(int3(samples[sampleIndex], 0)));
+        if (objectNearDepth <= occluderMaxDepth + depthBias)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 [numthreads(64, 1, 1)]
@@ -385,7 +411,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     renderObject.skinPaletteCount = renderableInfo.skinPaletteCount;
     renderObject.drawFlags = lodIndex == 4u ? 1u : 0u;
     renderObject.depthBin = select_depth_bin(renderableInfo.boundsCenterRadius);
-    renderObject.padding = 0u;
+    renderObject.padding = renderableInfo.padding0;
     renderObject.boundsCenterRadius = renderableInfo.boundsCenterRadius;
     g_renderObjects[objectOffset] = renderObject;
 }

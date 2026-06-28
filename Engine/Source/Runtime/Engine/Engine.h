@@ -23,6 +23,8 @@
 #include "DrawSystem/DrawFrameState.h"
 #include "DrawSystem/DrawResources.h"
 #include "DrawSystem/MeshPool.h"
+#include "DrawSystem/RenderDebugView.h"
+#include "DrawSystem/RenderPath.h"
 #include "FrameController.h"
 #include "GpuData/Batching.h"
 #include "GpuData/ClusteredLighting.h"
@@ -126,7 +128,21 @@ public:
   [[nodiscard]] EngineDebugStats debug_stats() const noexcept;
   [[nodiscard]] RHI::FrameGraphExecutionStats
   render_execution_stats() const noexcept;
+  [[nodiscard]] RHI::FrameGraphExecutionStats
+  present_execution_stats() const noexcept;
   void set_directional_light_enabled(bool enabled) noexcept;
+  void set_render_debug_view(DrawSystem::RenderDebugView view) noexcept {
+    m_renderDebugView = view;
+  }
+  [[nodiscard]] DrawSystem::RenderDebugView render_debug_view() const noexcept {
+    return m_renderDebugView;
+  }
+  void set_render_path(DrawSystem::RenderPath path) noexcept {
+    m_renderPath = path;
+  }
+  [[nodiscard]] DrawSystem::RenderPath render_path() const noexcept {
+    return m_renderPath;
+  }
 
   //
   FrameController &frame_controller() noexcept { return *m_frameController; }
@@ -199,6 +215,9 @@ private:
   std::vector<GpuData::RenderCellGpu> m_renderCells{};
   std::vector<GpuData::ObjectTransformGpu> m_objectTransforms{};
   std::vector<GpuData::PointLightGpu> m_pointLights{};
+  DrawSystem::RenderPath m_renderPath = DrawSystem::RenderPath::Forward;
+  DrawSystem::RenderDebugView m_renderDebugView =
+      DrawSystem::RenderDebugView::Forward;
   EngineDebugStats m_debugStats{};
 };
 } // namespace Cue
