@@ -4,9 +4,10 @@ namespace Cue::Editor
 {
     void DebugView::update()
     {
-        if (!m_backend)
+        if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
         {
             CUE_ASSERT_MSG(false, "DebugView: Backend is null");
+            return;
         }
 
         // resize 後は DebugColorSRV が再作成されるため、handle を毎フレーム解決する
