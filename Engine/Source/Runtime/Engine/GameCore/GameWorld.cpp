@@ -1,6 +1,7 @@
 #include "GameWorld.h"
 
 // === C++ includes ===
+#include <cstdint>
 #include <new>
 #include <stdexcept>
 #include <utility>
@@ -689,6 +690,192 @@ namespace Cue::GameCore
         {
             m_nameIndex.erase(it);
         }
+    }
+
+    Math::float3 GameWorld::rotate_vector(const Math::Quaternion& a_rotation,
+                                          const Math::float3& a_vector) noexcept
+    {
+        const Math::Quaternion rotation = Math::Quaternion::normalize(a_rotation);
+        const Math::Quaternion vector(a_vector.x, a_vector.y, a_vector.z, 0.0f);
+        const Math::Quaternion result = rotation * vector * Math::Quaternion::inverse(rotation);
+        return Math::float3(result.x, result.y, result.z);
+    }
+
+    ECS::WorldTransformComponent GameWorld::compose_world_transform(
+        const ECS::WorldTransformComponent& a_parent,
+        const ECS::TransformComponent& a_local) noexcept
+    {
+        ECS::WorldTransformComponent world{};
+        world.scale = Math::float3(
+            a_parent.scale.x * a_local.scale.x,
+            a_parent.scale.y * a_local.scale.y,
+            a_parent.scale.z * a_local.scale.z);
+        world.rotation = Math::Quaternion::normalize(a_parent.rotation * a_local.rotation);
+
+        // 親 scale を適用した local position を親 rotation で回して world position に合成する。
+        const Math::float3 scaledLocalPosition(
+            a_local.position.x * a_parent.scale.x,
+            a_local.position.y * a_parent.scale.y,
+            a_local.position.z * a_parent.scale.z);
+        world.position = a_parent.position + rotate_vector(a_parent.rotation, scaledLocalPosition);
+        return world;
+    }
+
+    bool GameWorld::resolve_world_transform(EntityId a_entityId,
+                                            std::vector<uint8_t>& a_state,
+                                            ECS::WorldTransformComponent& a_outWorld) noexcept
+    {
+        if (!contains_object(a_entityId) || a_entityId >= a_state.size())
+        {
+            return false;
+        }
+
+        uint8_t& state = a_state[a_entityId];
+        if (state == 2u)
+        {
+            ECS::WorldTransformComponent* resolved =
+                m_ecsManager.get_component<ECS::WorldTransformComponent>(a_entityId);
+            if (resolved == nullptr)
+            {
+                return false;
+            }
+
+            a_outWorld = *resolved;
+            return true;
+        }
+        if (state == 1u)
+        {
+            return false;
+        }
+
+        ECS::TransformComponent* local = m_ecsManager.get_component<ECS::TransformComponent>(a_entityId);
+        if (local == nullptr)
+        {
+            return false;
+        }
+
+        ECS::WorldTransformComponent* world =
+            m_ecsManager.get_component<ECS::WorldTransformComponent>(a_entityId);
+        if (world == nullptr)
+        {
+            world = m_ecsManager.add_component<ECS::WorldTransformComponent>(a_entityId);
+            if (world == nullptr)
+            {
+                return false;
+            }
+        }
+
+        state = 1u;
+
+        const BaseComponent* base = m_ecsManager.get_component<BaseComponent>(a_entityId);
+        const EntityId parent = base != nullptr ? base->parent : k_invalidEntityId;
+        if (parent != k_invalidEntityId && contains_object(parent) &&
+            m_ecsManager.get_component<ECS::TransformComponent>(parent) != nullptr)
+        {
+            ECS::WorldTransformComponent parentWorld{};
+            if (resolve_world_transform(parent, a_state, parentWorld))
+            {
+                *world = compose_world_transform(parentWorld, *local);
+            }
+            else
+            {
+                world->position = local->position;
+                world->rotation = local->rotation;
+                world->scale = local->scale;
+            }
+        }
+        else
+        {
+            world->position = local->position;
+            world->rotation = local->rotation;
+            world->scale = local->scale;
+        }
+
+        state = 2u;
+        a_outWorld = *world;
+        return true;
+    }
+
+    void GameWorld::sync_world_transforms() noexcept
+    {
+        // TransformComponent を持つ Entity だけを対象に、親から子へ WorldTransform を確定する。
+        std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+        for (EntityId entity = 0; entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+        {
+            if (!contains_object(entity) || m_ecsManager.get_component<ECS::TransformComponent>(entity) == nullptr)
+            {
+                continue;
+            }
+
+            ECS::WorldTransformComponent world{};
+            (void)resolve_world_transform(entity, state, world);
+        }
+    }
+
+    void GameWorld::animate_static_mesh_objects(float a_deltaTime)
+    {
+        const std::vector<EntityId> entities = collect_active_static_mesh_entities();
+        for (size_t entityIndex = 0; entityIndex < entities.size(); ++entityIndex)
+        {
+            ECS::TransformComponent* transform =
+                m_ecsManager.get_component<ECS::TransformComponent>(entities[entityIndex]);
+            if (transform == nullptr)
+            {
+                continue;
+            }
+
+            Math::float3 rotation = Math::quaternion_to_euler_xyz(transform->rotation);
+            switch (entityIndex)
+            {
+            case 0:
+                rotation.y += a_deltaTime * 1.25f;
+                break;
+            case 1:
+                rotation.x += a_deltaTime * 0.75f;
+                break;
+            case 2:
+                rotation.y -= a_deltaTime * 1.0f;
+                break;
+            default:
+                rotation.y += a_deltaTime * 0.5f;
+                break;
+            }
+
+            transform->rotation = Math::quaternion_from_euler_xyz(rotation);
+        }
+    }
+
+    std::vector<EntityId> GameWorld::collect_active_static_mesh_entities() const
+    {
+        std::vector<EntityId> entities{};
+        entities.reserve(m_liveObjectCount);
+
+        ECS::ECSManager& ecs = const_cast<ECS::ECSManager&>(m_ecsManager);
+        for (EntityId entity = 0; entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+        {
+            if (!contains_object(entity) || !m_ecsManager.is_entity_active(entity))
+            {
+                continue;
+            }
+
+            const BaseComponent* base = ecs.get_component<BaseComponent>(entity);
+            const ECS::TransformComponent* transform = ecs.get_component<ECS::TransformComponent>(entity);
+            const ECS::MeshFilterComponent* meshFilter = ecs.get_component<ECS::MeshFilterComponent>(entity);
+            const ECS::StaticMeshRendererComponent* renderer =
+                ecs.get_component<ECS::StaticMeshRendererComponent>(entity);
+            if (base == nullptr || transform == nullptr || meshFilter == nullptr || renderer == nullptr)
+            {
+                continue;
+            }
+            if (!base->isActiveSelf || !renderer->visible || meshFilter->meshId == ECS::k_invalidMeshId)
+            {
+                continue;
+            }
+
+            entities.push_back(entity);
+        }
+
+        return entities;
     }
 
     template Result GameWorld::get_component<BaseComponent>(EntityId, BaseComponent*&) noexcept;

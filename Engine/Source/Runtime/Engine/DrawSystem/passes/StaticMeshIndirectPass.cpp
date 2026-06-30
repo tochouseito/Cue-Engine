@@ -75,6 +75,20 @@ namespace Cue::DrawSystem
                 RHI::ShaderVisibility::Vertex,
                 0
             });
+        rootSignatureDesc.parameters.push_back(
+            RHI::RootParameterDesc
+            {
+                RHI::RootParameterType::CBV,
+                RHI::ShaderVisibility::Vertex,
+                1
+            });
+        rootSignatureDesc.parameters.push_back(
+            RHI::RootParameterDesc
+            {
+                RHI::RootParameterType::SRV,
+                RHI::ShaderVisibility::Vertex,
+                1
+            });
 
         result = a_builder.create_root_signature(rootSignatureDesc, m_rootSignature);
         if (!result)
@@ -188,11 +202,31 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        return a_builder.use_buffer(
+        result = a_builder.use_buffer(
             m_meshPoolBindings.indexBuffer,
             RHI::ResourceAccessType::Read,
             RHI::ResourceState::IndexBuffer,
             RHI::ResourceState::IndexBuffer);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = a_builder.use_buffer(
+            m_drawResources.view_projection_buffer_handle(),
+            RHI::ResourceAccessType::Read,
+            RHI::ResourceState::VertexBuffer,
+            RHI::ResourceState::VertexBuffer);
+        if (!result)
+        {
+            return result;
+        }
+
+        return a_builder.use_buffer(
+            m_drawResources.transform_buffer_handle(),
+            RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
     }
 
     void StaticMeshIndirectPass::execute(RHI::FrameGraphContext& a_context)
@@ -218,6 +252,8 @@ namespace Cue::DrawSystem
         commandContext->set_vertex_buffer(2, m_meshPoolBindings.normalBuffer);
         commandContext->set_index_buffer(m_meshPoolBindings.indexBuffer, RHI::IndexFormat::UInt32);
         commandContext->set_srv(1, m_drawResources.static_mesh_object_index_buffer_handle());
+        commandContext->set_cbv(2, m_drawResources.view_projection_buffer_handle());
+        commandContext->set_srv(3, m_drawResources.transform_buffer_handle());
         commandContext->execute_indexed_indirect(
             m_drawResources.static_mesh_indirect_command_buffer_handle(),
             m_drawResources.static_mesh_indirect_command_count_buffer_handle(),

@@ -140,6 +140,12 @@ namespace Cue::GameCore
         /// @brief Entity から Component を削除する
         template <typename T> [[nodiscard]] Result remove_component(EntityId a_entityId) noexcept;
 
+        /// @brief TransformComponent から WorldTransformComponent を同期する
+        void sync_world_transforms() noexcept;
+
+        /// @brief テスト用 StaticMesh object の Transform を回転させる
+        void animate_static_mesh_objects(float a_deltaTime);
+
     private:
         /// @brief 例外を Result に変換して処理を実行する
         [[nodiscard]] static Result capture_result(const std::function<void()>& a_func);
@@ -176,6 +182,23 @@ namespace Cue::GameCore
         /// @brief 重複しない Object 名を生成する
         [[nodiscard]] std::string make_unique_object_name(std::string_view a_requestedName,
                                                           EntityId a_ignoredEntityId = k_invalidEntityId) const;
+
+        /// @brief Quaternion で vector を回転する
+        [[nodiscard]] static Math::float3 rotate_vector(const Math::Quaternion& a_rotation,
+                                                        const Math::float3& a_vector) noexcept;
+
+        /// @brief parent world と local transform から child world を合成する
+        [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::TransformComponent& a_local) noexcept;
+
+        /// @brief Entity の WorldTransform を親子階層込みで解決する
+        [[nodiscard]] bool resolve_world_transform(EntityId a_entityId,
+                                                   std::vector<uint8_t>& a_state,
+                                                   ECS::WorldTransformComponent& a_outWorld) noexcept;
+
+        /// @brief 回転対象になる active static mesh entity を集める
+        [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const;
 
         /// @brief tag index へ Entity を登録する
         void add_object_to_tag_index(EntityId a_entityId, const std::string& a_tag);

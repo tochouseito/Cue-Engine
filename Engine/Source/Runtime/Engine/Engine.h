@@ -91,6 +91,12 @@ namespace Cue
         std::function<void(uint64_t, uint32_t)> present();
         Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
 
+        /// @brief DrawSystem 用の ECS 抽出 pipeline を構築する
+        Result initialize_render_extraction_pipeline();
+
+        /// @brief 最小描画確認用の cube mesh / camera を GameWorld に追加する
+        Result initialize_test_scene();
+
         /// @brief GameWorld の描画対象を frame resource に反映する
         Result update_draw_scene(uint32_t a_bufferIndex);
 
@@ -118,6 +124,7 @@ namespace Cue
         DrawSystem::DrawFrameState m_drawFrameState{};
         std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
         std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
+        ECS::ECSManager::SystemPipeline m_renderExtractionPipeline{};
 
         // --- サブシステム ---
         uint32_t m_bufferCount = 1;

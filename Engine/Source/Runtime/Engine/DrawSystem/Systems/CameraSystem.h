@@ -17,6 +17,7 @@
 
 // === C++ includes ===
 #include <numbers>
+#include <vector>
 
 namespace Cue::ECS
 {
@@ -25,7 +26,7 @@ namespace Cue::ECS
     public:
         /// @brief CameraComponent と WorldTransformComponent から DrawScene 用 camera を収集する。
         CameraSystem(const DrawSystem::DrawFrameState& a_drawFrameState,
-                     DrawSystem::DrawScene& a_drawScene)
+                     std::vector<DrawSystem::DrawScene>& a_drawScenes)
             : ECSManager::System<WorldTransformComponent, CameraComponent>(
                   [this](Entity a_entity,
                          WorldTransformComponent& a_transform,
@@ -35,7 +36,7 @@ namespace Cue::ECS
                       update_component(a_entity, a_transform, a_camera, a_context);
                   })
             , m_drawFrameState(a_drawFrameState)
-            , m_drawScene(a_drawScene)
+            , m_drawScenes(a_drawScenes)
         {
         }
 
@@ -53,6 +54,10 @@ namespace Cue::ECS
                               const UpdateContext& a_context)
         {
             if (a_context.bufferIndex >= m_drawFrameState.frameStates.size())
+            {
+                return;
+            }
+            if (a_context.bufferIndex >= m_drawScenes.size())
             {
                 return;
             }
@@ -91,13 +96,13 @@ namespace Cue::ECS
             drawItem.renderView.farZ = a_camera.farZ;
             drawItem.isMain = a_camera.isMain;
 
-            const Result result = m_drawScene.add_camera(drawItem);
+            const Result result = m_drawScenes[a_context.bufferIndex].add_camera(drawItem);
             CUE_ASSERT_FORMAT(success(result), "Failed to add camera to DrawScene: {}", result.message.data());
         }
 
         // DrawFrameState は描画解像度の参照元。所有権は GameWorld / Engine 側に残す。
         const DrawSystem::DrawFrameState& m_drawFrameState;
-        // CameraSystem は DrawScene へ camera item を積むだけで、GPU upload は DrawResources が行う。
-        DrawSystem::DrawScene& m_drawScene;
+        // CameraSystem は frame resource ごとの DrawScene へ camera item を積むだけ。
+        std::vector<DrawSystem::DrawScene>& m_drawScenes;
     };
 } // namespace Cue::ECS

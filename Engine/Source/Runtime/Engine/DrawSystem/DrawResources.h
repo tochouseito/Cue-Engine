@@ -224,6 +224,24 @@ namespace Cue::DrawSystem
         /// @brief StaticMesh object index buffer の SRV handle
         [[nodiscard]] RHI::ViewHandle static_mesh_object_index_buffer_srv_handle() const noexcept;
 
+        /// @brief RenderableInfoBuffer の確保済み byte 数
+        [[nodiscard]] uint64_t renderable_info_buffer_byte_size() const noexcept
+        {
+            return static_cast<uint64_t>(m_maxRenderableInfoCount) * sizeof(GpuData::RenderableInfo);
+        }
+
+        /// @brief TransformBuffer の確保済み byte 数
+        [[nodiscard]] uint64_t transform_buffer_byte_size() const noexcept
+        {
+            return static_cast<uint64_t>(m_maxTransformCount) * sizeof(GpuData::ObjectTransformGpu);
+        }
+
+        /// @brief ViewProjectionBuffer の byte 数
+        [[nodiscard]] uint64_t view_projection_buffer_byte_size() const noexcept
+        {
+            return sizeof(GpuData::ViewProjectionGpu);
+        }
+
     private:
         RHI::IBufferManager* m_bufferManager = nullptr; // buffer の生成と uploader 作成を行う外部 manager
         RHI::IViewManager* m_viewManager = nullptr;     // SRV/UAV view の生成を行う外部 manager

@@ -12,21 +12,37 @@ struct VsOutput
     float3 color : COLOR0;
 };
 
+struct ObjectTransformGpu
+{
+    row_major float4x4 worldMatrix;
+    row_major float4x4 normalMatrix;
+};
+
 cbuffer DrawObjectIndexConstants : register(b0)
 {
     uint g_drawObjectStartIndex;
 };
 
+cbuffer ViewProjectionBuffer : register(b1)
+{
+    row_major float4x4 g_view;
+    row_major float4x4 g_projection;
+    float4 g_cameraPosition;
+};
+
 StructuredBuffer<uint> g_staticMeshObjectIndices : register(t0);
+StructuredBuffer<ObjectTransformGpu> g_transforms : register(t1);
 
 VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
     const uint objectIndex =
         g_staticMeshObjectIndices[g_drawObjectStartIndex + instanceId];
     const float colorPhase = (float)((objectIndex % 7u) + 1u) / 7.0f;
+    const float4 worldPosition = mul(input.position, g_transforms[objectIndex].worldMatrix);
+    const float4 viewPosition = mul(worldPosition, g_view);
 
     VsOutput output;
-    output.position = float4(input.position.x, input.position.y, input.position.z + 0.5f, 1.0f);
+    output.position = mul(viewPosition, g_projection);
     output.color = saturate(abs(input.position.xyz) + float3(0.15f, 0.1f + colorPhase * 0.2f, 0.25f));
     return output;
 }

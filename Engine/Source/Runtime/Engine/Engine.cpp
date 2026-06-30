@@ -5,13 +5,16 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
+#include <Native/EngineNativeStruct.h>
 
 // === Engine includes ===
 #include "Command/PlatformCommandContext.h"
 #include "DrawSystem/StaticMeshBatcher.h"
-#include "GameCore/GameWorldRenderExtractor.h"
+#include "DrawSystem/Systems/CameraSystem.h"
+#include "DrawSystem/Systems/RenderableObjectSystem.h"
 
 // === Frame Passes includes ===
+#include "DrawSystem/passes/DrawResourceUploadCopyPass.h"
 #include "DrawSystem/passes/FinalColorClearPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshIndirectPass.h"
@@ -22,6 +25,59 @@
 #include <iterator>
 #include <limits>
 #include <utility>
+
+namespace
+{
+    Cue::Core::Native::MeshData make_test_cube_mesh()
+    {
+        using Cue::Math::float2;
+        using Cue::Math::float3;
+        using Cue::Math::float4;
+
+        Cue::Core::Native::MeshData mesh{};
+        mesh.name = "TestCube";
+
+        // 面ごとに法線と UV を持てるよう、cube は 24 頂点で登録する。
+        mesh.positions = {
+            float4(-1.0f, -1.0f, -1.0f, 1.0f), float4(-1.0f, 1.0f, -1.0f, 1.0f),
+            float4(1.0f, 1.0f, -1.0f, 1.0f),   float4(1.0f, -1.0f, -1.0f, 1.0f),
+            float4(1.0f, -1.0f, 1.0f, 1.0f),   float4(1.0f, 1.0f, 1.0f, 1.0f),
+            float4(-1.0f, 1.0f, 1.0f, 1.0f),   float4(-1.0f, -1.0f, 1.0f, 1.0f),
+            float4(-1.0f, -1.0f, 1.0f, 1.0f),  float4(-1.0f, 1.0f, 1.0f, 1.0f),
+            float4(-1.0f, 1.0f, -1.0f, 1.0f),  float4(-1.0f, -1.0f, -1.0f, 1.0f),
+            float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, 1.0f, -1.0f, 1.0f),
+            float4(1.0f, 1.0f, 1.0f, 1.0f),    float4(1.0f, -1.0f, 1.0f, 1.0f),
+            float4(-1.0f, 1.0f, -1.0f, 1.0f),  float4(-1.0f, 1.0f, 1.0f, 1.0f),
+            float4(1.0f, 1.0f, 1.0f, 1.0f),    float4(1.0f, 1.0f, -1.0f, 1.0f),
+            float4(-1.0f, -1.0f, 1.0f, 1.0f),  float4(-1.0f, -1.0f, -1.0f, 1.0f),
+            float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, -1.0f, 1.0f, 1.0f),
+        };
+        mesh.normals = {
+            float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f),
+            float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),
+            float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),  float3(-1.0f, 0.0f, 0.0f),
+            float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f),
+            float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),
+            float3(1.0f, 0.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),
+            float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, -1.0f, 0.0f),
+            float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f),
+        };
+        mesh.uvs = {
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+        };
+        mesh.indices = {
+            0, 1, 2, 0, 2, 3,       4, 5, 6, 4, 6, 7,       8, 9, 10, 8, 10, 11,
+            12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
+        };
+
+        return mesh;
+    }
+} // namespace
 
 namespace Cue
 {
@@ -172,6 +228,18 @@ namespace Cue
             return r;
         }
 
+        r = initialize_render_extraction_pipeline();
+        if (!r)
+        {
+            return r;
+        }
+
+        r = initialize_test_scene();
+        if (!r)
+        {
+            return r;
+        }
+
         // FrameGraph の構築
         r = create_frame_graphs(std::move(a_info.editorPass));
         if (!r)
@@ -293,6 +361,7 @@ namespace Cue
 
         // メインのフレームグラフにパスを追加
         m_frameGraph->add_pass(std::make_unique<DrawSystem::FinalColorClearPass>());
+        m_frameGraph->add_pass(std::make_unique<DrawSystem::DrawResourceUploadCopyPass>(*m_drawResources));
         m_frameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshIndirectPass>(*m_drawResources, *m_meshPool, m_drawFrameState));
 
@@ -334,6 +403,103 @@ namespace Cue
         return Result::ok();
     }
 
+    Result Engine::initialize_render_extraction_pipeline()
+    {
+        ECS::ECSManager* ecs = nullptr;
+        Result result = m_gameWorld.ecs(ecs);
+        if (!result)
+        {
+            return result;
+        }
+        if (ecs == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Fatal, "GameWorld ECS is not initialized.");
+        }
+
+        // Runtime の GameWorld には pipeline を持たせず、Engine 側で描画抽出順だけを定義する。
+        ECS::CameraSystem& cameraSystem = ecs->add_system<ECS::CameraSystem>(m_drawFrameState, m_drawScenes);
+        ECS::RenderableObjectSystem& renderableSystem = ecs->add_system<ECS::RenderableObjectSystem>(m_drawScenes);
+
+        m_renderExtractionPipeline.clear();
+        m_renderExtractionPipeline.add_system(&cameraSystem);
+        m_renderExtractionPipeline.add_system(&renderableSystem);
+        return Result::ok();
+    }
+
+    Result Engine::initialize_test_scene()
+    {
+        if (m_meshPool == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "MeshPool is not initialized.");
+        }
+
+        RHI::MeshHandle cubeHandle{};
+        Result result = m_meshPool->allocate_mesh(make_test_cube_mesh(), cubeHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        uint32_t cubeMeshId = ECS::k_invalidMeshId;
+        result = m_meshPool->get_mesh_id(cubeHandle, cubeMeshId);
+        if (!result)
+        {
+            return result;
+        }
+
+        GameCore::GameObject cube{};
+        result = m_gameWorld.create_static_mesh_object(
+            "TestCube",
+            cubeMeshId,
+            0u,
+            Math::float3(0.0f, 0.0f, 4.0f),
+            cube);
+        if (!result)
+        {
+            return result;
+        }
+
+        GameCore::GameObject camera{};
+        result = m_gameWorld.create_object("MainCamera", camera);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::TransformComponent* cameraTransform = nullptr;
+        result = m_gameWorld.add_component<ECS::TransformComponent>(camera.entity_id(), cameraTransform);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::WorldTransformComponent* cameraWorldTransform = nullptr;
+        result = m_gameWorld.add_component<ECS::WorldTransformComponent>(camera.entity_id(), cameraWorldTransform);
+        if (!result)
+        {
+            return result;
+        }
+
+        ECS::CameraComponent* cameraComponent = nullptr;
+        result = m_gameWorld.add_component<ECS::CameraComponent>(camera.entity_id(), cameraComponent);
+        if (!result)
+        {
+            return result;
+        }
+
+        // identity rotation の camera は +Z 方向を見る。cube は z=4 に置いて最小表示を成立させる。
+        cameraTransform->position = Math::float3::zero();
+        cameraWorldTransform->position = cameraTransform->position;
+        cameraComponent->isMain = true;
+        cameraComponent->fovY = 60.0f;
+        cameraComponent->aspectRatio = 0.0f;
+        cameraComponent->nearZ = 0.1f;
+        cameraComponent->farZ = 1000.0f;
+
+        m_gameWorld.sync_world_transforms();
+        return Result::ok();
+    }
+
     Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     {
         if (m_drawResources == nullptr)
@@ -352,13 +518,38 @@ namespace Cue
         }
 
         DrawSystem::DrawScene& drawScene = m_drawScenes[a_bufferIndex];
-        Result result = GameCore::GameWorldRenderExtractor::extract_static_mesh_draw_scene(m_gameWorld, drawScene);
+        drawScene.clear();
+
+        DrawSystem::DrawFrameData& frameData = m_drawFrameState.frame_state(a_bufferIndex);
+        frameData.renderWidth = m_renderBackend->width();
+        frameData.renderHeight = m_renderBackend->height();
+        frameData.objectCount = 0;
+        frameData.staticMeshBatches.clear();
+        frameData.staticMeshIndirectCommands.clear();
+        frameData.staticMeshObjectIndices.clear();
+        frameData.staticMeshBatchCount = 0;
+        frameData.indirectCommandCount = 0;
+        frameData.useCpuBatching = false;
+
+        // 最小動作確認用に local Transform を回し、描画抽出前に WorldTransform へ同期する。
+        constexpr float k_fixedDeltaTime = 1.0f / 60.0f;
+        m_gameWorld.animate_static_mesh_objects(k_fixedDeltaTime);
+        m_gameWorld.sync_world_transforms();
+
+        ECS::ECSManager* ecs = nullptr;
+        Result result = m_gameWorld.ecs(ecs);
         if (!result)
         {
             return result;
         }
+        if (ecs == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Fatal, "GameWorld ECS is not initialized.");
+        }
 
-        DrawSystem::DrawFrameData& frameData = m_drawFrameState.frame_state(a_bufferIndex);
+        const ECS::UpdateContext updateContext{ a_bufferIndex, k_fixedDeltaTime };
+        m_renderExtractionPipeline.update(*ecs, updateContext);
+
         DrawSystem::StaticMeshBatchBuildResult batchBuildResult{};
         result = DrawSystem::StaticMeshBatcher::build_indirect_commands(drawScene, *m_meshPool, batchBuildResult);
         if (!result)

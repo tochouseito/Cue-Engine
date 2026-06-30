@@ -18,6 +18,7 @@
 #include "ImGuiManager/ImGuiManager.h"
 #include "Workspace/Dockspace.h"
 #include "Workspace/DebugView.h"
+#include "Workspace/GameView.h"
 
 // === Engine includes ===
 #include <Engine.h>
@@ -141,6 +142,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::unique_ptr<Editor::Dockspace> dockspace = std::make_unique<Editor::Dockspace>();
 
     // 各ワークスペースを初期化
+    std::unique_ptr<Editor::GameView> gameView = std::make_unique<Editor::GameView>(renderBackend.get());
     std::unique_ptr<Editor::DebugView> debugView = std::make_unique<Editor::DebugView>(renderBackend.get());
 
     // ウィンドウを表示
@@ -179,6 +181,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             ImGui::End();
 
             dockspace->update();
+            gameView->update();
             debugView->update();
 
 # pragma endregion Editor UI の描画
