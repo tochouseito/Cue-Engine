@@ -697,6 +697,7 @@ namespace Cue::GameCore
     template Result GameWorld::get_component<ECS::TransformComponent>(EntityId, ECS::TransformComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::WorldTransformComponent>(EntityId,
                                                                            ECS::WorldTransformComponent*&) noexcept;
+    template Result GameWorld::get_component<ECS::CameraComponent>(EntityId, ECS::CameraComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::StaticMeshRendererComponent>(
         EntityId, ECS::StaticMeshRendererComponent*&) noexcept;
@@ -705,6 +706,7 @@ namespace Cue::GameCore
     template Result GameWorld::add_component<ECS::RenderableInfoComponent>(EntityId, ECS::RenderableInfoComponent*&);
     template Result GameWorld::add_component<ECS::TransformComponent>(EntityId, ECS::TransformComponent*&);
     template Result GameWorld::add_component<ECS::WorldTransformComponent>(EntityId, ECS::WorldTransformComponent*&);
+    template Result GameWorld::add_component<ECS::CameraComponent>(EntityId, ECS::CameraComponent*&);
     template Result GameWorld::add_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&);
     template Result GameWorld::add_component<ECS::StaticMeshRendererComponent>(EntityId,
                                                                                ECS::StaticMeshRendererComponent*&);
@@ -713,6 +715,7 @@ namespace Cue::GameCore
     template Result GameWorld::has_component<ECS::RenderableInfoComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::TransformComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::WorldTransformComponent>(EntityId, bool&) const noexcept;
+    template Result GameWorld::has_component<ECS::CameraComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::MeshFilterComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::StaticMeshRendererComponent>(EntityId, bool&) const noexcept;
 
@@ -720,6 +723,7 @@ namespace Cue::GameCore
     template Result GameWorld::remove_component<ECS::RenderableInfoComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::TransformComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::WorldTransformComponent>(EntityId) noexcept;
+    template Result GameWorld::remove_component<ECS::CameraComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::MeshFilterComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::StaticMeshRendererComponent>(EntityId) noexcept;
 } // namespace Cue::GameCore

@@ -185,6 +185,7 @@ namespace Cue::DrawSystem
         }
 
         if (m_renderableInfoUploaders.size() != m_bufferCount || m_transformUploaders.size() != m_bufferCount ||
+            m_viewProjectionUploaders.size() != m_bufferCount ||
             m_staticMeshIndirectCommandUploaders.size() != m_bufferCount ||
             m_staticMeshIndirectCommandCountUploaders.size() != m_bufferCount ||
             m_staticMeshObjectIndexUploaders.size() != m_bufferCount)
@@ -195,6 +196,7 @@ namespace Cue::DrawSystem
         const size_t objectCount = a_scene.object_count();
         const std::vector<GpuData::RenderableInfo>& renderableInfos = a_scene.renderable_infos();
         const std::vector<GpuData::ObjectTransformGpu>& transforms = a_scene.transforms();
+        const std::vector<CameraDrawItem>& cameras = a_scene.cameras();
 
         // DrawScene は 3 つの配列を同じ index で対応させる契約。
         if (renderableInfos.size() != objectCount || transforms.size() != objectCount)
@@ -249,6 +251,39 @@ namespace Cue::DrawSystem
 
         Result result = upload_slots(m_renderableInfoUploaders[a_bufferIndex], renderableInfos,
                                      "Failed to upload RenderableInfoBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
+        // camera が無い frame でも前 frame の ViewProjection を残さないよう既定値を upload する。
+        GpuData::ViewProjectionGpu viewProjection = make_view_projection_gpu(RenderView{});
+        if (!cameras.empty())
+        {
+            const CameraDrawItem* selectedCamera = nullptr;
+            for (const CameraDrawItem& camera : cameras)
+            {
+                // CueEngine と同じく main camera を優先し、未指定なら最初の camera を fallback にする。
+                if (camera.isMain)
+                {
+                    selectedCamera = &camera;
+                    break;
+                }
+                if (selectedCamera == nullptr)
+                {
+                    selectedCamera = &camera;
+                }
+            }
+
+            if (selectedCamera != nullptr)
+            {
+                viewProjection = make_view_projection_gpu(selectedCamera->renderView);
+            }
+        }
+
+        result = upload_single_slot(m_viewProjectionUploaders[a_bufferIndex],
+                                    viewProjection,
+                                    "Failed to upload ViewProjectionBuffer.");
         if (!result)
         {
             return result;

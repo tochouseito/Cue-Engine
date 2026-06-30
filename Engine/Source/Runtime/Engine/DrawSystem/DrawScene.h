@@ -10,6 +10,7 @@
 // === Engine includes ===
 #include "GpuData/Batching.h"
 #include "GpuData/Transform.h"
+#include "RenderView.h"
 
 // === C++ includes ===
 #include <cstddef>
@@ -65,6 +66,15 @@ namespace Cue::DrawSystem
         bool receivesShadow = true;
     };
 
+    /// @brief CameraSystem が DrawSystem へ渡す 1 カメラ分の描画視点。
+    struct CameraDrawItem final
+    {
+        // CameraComponent から変換済みの描画入力。GameCore への依存をここで断つ。
+        RenderView renderView{};
+        // 複数 camera がある場合、ViewProjectionBuffer に採用する候補を示す。
+        bool isMain = false;
+    };
+
     /// @brief 1 フレーム分の DrawSystem 入力を保持する。
     ///
     /// StaticMeshDrawObject、RenderableInfo、ObjectTransformGpu は同じ index で対応する。
@@ -90,8 +100,13 @@ namespace Cue::DrawSystem
                                                     const GpuData::RenderableInfo& a_renderableInfo,
                                                     const GpuData::ObjectTransformGpu& a_transform);
 
+        /// @brief Camera 描画視点を追加する。
+        [[nodiscard]] Result add_camera(const CameraDrawItem& a_camera);
+
         /// @brief CPU batching や queue 分類で使う StaticMesh 描画単位。
         [[nodiscard]] const std::vector<StaticMeshDrawObject>& static_mesh_objects() const noexcept;
+        /// @brief ViewProjectionBuffer に upload する camera 候補。
+        [[nodiscard]] const std::vector<CameraDrawItem>& cameras() const noexcept;
         /// @brief RenderableInfoBuffer に upload する連続データ。
         [[nodiscard]] const std::vector<GpuData::RenderableInfo>& renderable_infos() const noexcept;
         /// @brief TransformBuffer に upload する連続データ。
@@ -100,6 +115,8 @@ namespace Cue::DrawSystem
     private:
         // CPU batching や queue 分類で使う StaticMesh 描画単位
         std::vector<StaticMeshDrawObject> m_staticMeshObjects{};
+        // CameraSystem が収集した camera 候補
+        std::vector<CameraDrawItem> m_cameras{};
         // RenderableInfoBuffer へ upload する連続データ
         std::vector<GpuData::RenderableInfo> m_renderableInfos{};
         // TransformBuffer へ upload する連続データ

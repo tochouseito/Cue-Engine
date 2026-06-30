@@ -32,6 +32,16 @@ namespace Cue::ECS
 
     WorldTransformComponent& WorldTransformComponent::operator=(WorldTransformComponent&&) = default;
 
+    CameraComponent::CameraComponent() = default;
+
+    CameraComponent::CameraComponent(const CameraComponent&) = default;
+
+    CameraComponent& CameraComponent::operator=(const CameraComponent&) = default;
+
+    CameraComponent::CameraComponent(CameraComponent&&) = default;
+
+    CameraComponent& CameraComponent::operator=(CameraComponent&&) = default;
+
     MeshFilterComponent::MeshFilterComponent() = default;
 
     MeshFilterComponent::MeshFilterComponent(const MeshFilterComponent&) = default;

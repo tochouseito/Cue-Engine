@@ -74,6 +74,7 @@ namespace Cue::GameCore
     template void GameObjectProto::add_component<ECS::RenderableInfoComponent>(const ECS::RenderableInfoComponent&);
     template void GameObjectProto::add_component<ECS::TransformComponent>(const ECS::TransformComponent&);
     template void GameObjectProto::add_component<ECS::WorldTransformComponent>(const ECS::WorldTransformComponent&);
+    template void GameObjectProto::add_component<ECS::CameraComponent>(const ECS::CameraComponent&);
     template void GameObjectProto::add_component<ECS::MeshFilterComponent>(const ECS::MeshFilterComponent&);
     template void GameObjectProto::add_component<ECS::StaticMeshRendererComponent>(
         const ECS::StaticMeshRendererComponent&);
@@ -82,6 +83,7 @@ namespace Cue::GameCore
     template void GameObjectProto::set_component<ECS::RenderableInfoComponent>(const ECS::RenderableInfoComponent&);
     template void GameObjectProto::set_component<ECS::TransformComponent>(const ECS::TransformComponent&);
     template void GameObjectProto::set_component<ECS::WorldTransformComponent>(const ECS::WorldTransformComponent&);
+    template void GameObjectProto::set_component<ECS::CameraComponent>(const ECS::CameraComponent&);
     template void GameObjectProto::set_component<ECS::MeshFilterComponent>(const ECS::MeshFilterComponent&);
     template void GameObjectProto::set_component<ECS::StaticMeshRendererComponent>(
         const ECS::StaticMeshRendererComponent&);
@@ -90,6 +92,7 @@ namespace Cue::GameCore
     template void GameObjectProto::register_component_type<ECS::RenderableInfoComponent>();
     template void GameObjectProto::register_component_type<ECS::TransformComponent>();
     template void GameObjectProto::register_component_type<ECS::WorldTransformComponent>();
+    template void GameObjectProto::register_component_type<ECS::CameraComponent>();
     template void GameObjectProto::register_component_type<ECS::MeshFilterComponent>();
     template void GameObjectProto::register_component_type<ECS::StaticMeshRendererComponent>();
 } // namespace Cue::GameCore

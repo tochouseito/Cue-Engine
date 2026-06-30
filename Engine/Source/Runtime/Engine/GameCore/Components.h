@@ -99,6 +99,26 @@ namespace Cue::ECS
         Math::float3 scale = Math::float3(1.0f, 1.0f, 1.0f);
     };
 
+    /// @brief 描画に使うカメラ設定
+    struct CameraComponent : public IComponentTag
+    {
+        CameraComponent();
+        CameraComponent(const CameraComponent&);
+        CameraComponent& operator=(const CameraComponent&);
+        CameraComponent(CameraComponent&&);
+        CameraComponent& operator=(CameraComponent&&);
+
+        // main camera として DrawSystem の ViewProjectionBuffer に採用するか
+        bool isMain = true;
+        // 縦方向 FOV。CueEngine と同じく度数法で保持する
+        float fovY = 60.0f;
+        // 0 以下の場合は renderWidth / renderHeight から算出する
+        float aspectRatio = 0.0f;
+        // projection の depth range
+        float nearZ = 0.1f;
+        float farZ = 1000.0f;
+    };
+
     /// @brief StaticMeshPool に登録された Mesh を参照する
     struct MeshFilterComponent : public IComponentTag
     {

@@ -20,6 +20,7 @@ namespace Cue::DrawSystem
     void DrawScene::clear() noexcept
     {
         m_staticMeshObjects.clear();
+        m_cameras.clear();
         m_renderableInfos.clear();
         m_transforms.clear();
     }
@@ -55,9 +56,28 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
+    Result DrawScene::add_camera(const CameraDrawItem& a_camera)
+    {
+        try
+        {
+            m_cameras.push_back(a_camera);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return Result::fail(Code::OutOfMemory, Severity::Error, "DrawScene out of memory.");
+        }
+
+        return Result::ok();
+    }
+
     const std::vector<StaticMeshDrawObject>& DrawScene::static_mesh_objects() const noexcept
     {
         return m_staticMeshObjects;
+    }
+
+    const std::vector<CameraDrawItem>& DrawScene::cameras() const noexcept
+    {
+        return m_cameras;
     }
 
     const std::vector<GpuData::RenderableInfo>& DrawScene::renderable_infos() const noexcept
