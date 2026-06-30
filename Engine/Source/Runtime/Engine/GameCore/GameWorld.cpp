@@ -1,6 +1,7 @@
 #include "GameWorld.h"
 
 // === C++ includes ===
+#include <cmath>
 #include <cstdint>
 #include <new>
 #include <stdexcept>
@@ -8,6 +9,21 @@
 
 namespace Cue::GameCore
 {
+    [[nodiscard]] Math::Quaternion make_axis_angle_quaternion(
+        const Math::float3& a_axis,
+        float a_angleRadians) noexcept
+    {
+        // Quaternion の増分回転を直接作ることで、Euler 変換による表現の揺れを避ける。
+        const float halfAngle = a_angleRadians * 0.5f;
+        const float sinHalfAngle = std::sin(halfAngle);
+        Math::Quaternion rotation(
+            a_axis.x * sinHalfAngle,
+            a_axis.y * sinHalfAngle,
+            a_axis.z * sinHalfAngle,
+            std::cos(halfAngle));
+        return rotation.normalize();
+    }
+
     GameWorld::GameWorld() noexcept = default;
 
     GameWorld::~GameWorld() = default;
@@ -824,24 +840,32 @@ namespace Cue::GameCore
                 continue;
             }
 
-            Math::float3 rotation = Math::quaternion_to_euler_xyz(transform->rotation);
+            Math::float3 axis(0.0f, 1.0f, 0.0f);
+            float angularVelocity = 0.5f;
             switch (entityIndex)
             {
             case 0:
-                rotation.y += a_deltaTime * 1.25f;
+                axis = Math::float3(0.0f, 1.0f, 0.0f);
+                angularVelocity = 1.25f;
                 break;
             case 1:
-                rotation.x += a_deltaTime * 0.75f;
+                axis = Math::float3(1.0f, 0.0f, 0.0f);
+                angularVelocity = 0.75f;
                 break;
             case 2:
-                rotation.y -= a_deltaTime * 1.0f;
+                axis = Math::float3(0.0f, 1.0f, 0.0f);
+                angularVelocity = -1.0f;
                 break;
             default:
-                rotation.y += a_deltaTime * 0.5f;
+                axis = Math::float3(0.0f, 1.0f, 0.0f);
+                angularVelocity = 0.5f;
                 break;
             }
 
-            transform->rotation = Math::quaternion_from_euler_xyz(rotation);
+            const Math::Quaternion deltaRotation =
+                make_axis_angle_quaternion(axis, a_deltaTime * angularVelocity);
+            transform->rotation =
+                Math::Quaternion::normalize(transform->rotation * deltaRotation);
         }
     }
 
