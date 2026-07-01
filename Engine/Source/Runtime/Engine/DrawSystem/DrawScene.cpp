@@ -31,8 +31,8 @@ namespace Cue::DrawSystem
     }
 
     Result DrawScene::add_static_mesh_object(const StaticMeshDrawObject& a_object,
-                                             const GpuData::RenderableInfo& a_renderableInfo,
-                                             const GpuData::ObjectTransformGpu& a_transform)
+        const GpuData::RenderableInfo& a_renderableInfo,
+        const GpuData::ObjectTransformGpu& a_transform)
     {
         // 3 つの配列は同じ index で対応するため、追加は全配列で原子的に扱う。
         const size_t oldObjectCount = m_staticMeshObjects.size();
@@ -68,6 +68,11 @@ namespace Cue::DrawSystem
         }
 
         return Result::ok();
+    }
+
+    void DrawScene::clear_cameras() noexcept
+    {
+        m_cameras.clear();
     }
 
     const std::vector<StaticMeshDrawObject>& DrawScene::static_mesh_objects() const noexcept

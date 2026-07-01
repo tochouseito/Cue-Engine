@@ -11,7 +11,7 @@ find_package(winpixevent CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp" "Workspace/Dockspace.h" "Workspace/Dockspace.cpp" "Workspace/DebugView.h"  "Workspace/DebugView.cpp" "Workspace/GameView.h" "Workspace/GameView.cpp")
+    "App/EditorResources.rc" "DebugCamera.h" "DebugCamera.cpp" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp" "Workspace/Dockspace.h" "Workspace/Dockspace.cpp" "Workspace/DebugView.h"  "Workspace/DebugView.cpp" "Workspace/GameView.h" "Workspace/GameView.cpp")
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE

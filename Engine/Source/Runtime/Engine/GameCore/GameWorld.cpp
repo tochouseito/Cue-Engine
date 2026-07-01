@@ -9,21 +9,6 @@
 
 namespace Cue::GameCore
 {
-    [[nodiscard]] Math::Quaternion make_axis_angle_quaternion(
-        const Math::float3& a_axis,
-        float a_angleRadians) noexcept
-    {
-        // Quaternion の増分回転を直接作ることで、Euler 変換による表現の揺れを避ける。
-        const float halfAngle = a_angleRadians * 0.5f;
-        const float sinHalfAngle = std::sin(halfAngle);
-        Math::Quaternion rotation(
-            a_axis.x * sinHalfAngle,
-            a_axis.y * sinHalfAngle,
-            a_axis.z * sinHalfAngle,
-            std::cos(halfAngle));
-        return rotation.normalize();
-    }
-
     GameWorld::GameWorld() noexcept = default;
 
     GameWorld::~GameWorld() = default;
@@ -706,15 +691,6 @@ namespace Cue::GameCore
         {
             m_nameIndex.erase(it);
         }
-    }
-
-    Math::float3 GameWorld::rotate_vector(const Math::Quaternion& a_rotation,
-                                          const Math::float3& a_vector) noexcept
-    {
-        const Math::Quaternion rotation = Math::Quaternion::normalize(a_rotation);
-        const Math::Quaternion vector(a_vector.x, a_vector.y, a_vector.z, 0.0f);
-        const Math::Quaternion result = rotation * vector * Math::Quaternion::inverse(rotation);
-        return Math::float3(result.x, result.y, result.z);
     }
 
     ECS::WorldTransformComponent GameWorld::compose_world_transform(

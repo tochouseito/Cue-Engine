@@ -183,10 +183,6 @@ namespace Cue::GameCore
         [[nodiscard]] std::string make_unique_object_name(std::string_view a_requestedName,
                                                           EntityId a_ignoredEntityId = k_invalidEntityId) const;
 
-        /// @brief Quaternion で vector を回転する
-        [[nodiscard]] static Math::float3 rotate_vector(const Math::Quaternion& a_rotation,
-                                                        const Math::float3& a_vector) noexcept;
-
         /// @brief parent world と local transform から child world を合成する
         [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
             const ECS::WorldTransformComponent& a_parent,

@@ -243,6 +243,7 @@ namespace Cue::DrawSystem
             return;
         }
 
+        commandContext->clear_render_target(m_finalColorRtvHandle, k_clearColor.data());
         commandContext->set_render_targets(&m_finalColorRtvHandle, 1, {});
         commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         commandContext->set_graphics_pipeline(m_pipelineState);

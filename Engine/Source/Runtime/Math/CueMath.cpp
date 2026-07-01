@@ -24,7 +24,7 @@ namespace Cue::Math
 
         // 次の倍数へ（オーバーフロー検出）
         const uint32_t add = a_step - r;
-        const uint32_t maxValue = (std::numeric_limits<uint32_t>::max)();
+        constexpr uint32_t maxValue = (std::numeric_limits<uint32_t>::max)();
         // a_value + add > maxValue ならオーバーフローする
         if (a_value > (maxValue - add))
         {
@@ -56,7 +56,7 @@ namespace Cue::Math
 
         // 次の倍数へ（オーバーフロー検出）
         const uint64_t add = a_step - r;
-        const uint64_t maxValue = (std::numeric_limits<uint64_t>::max)();
+        constexpr uint64_t maxValue = (std::numeric_limits<uint64_t>::max)();
         // a_value + add > maxValue ならオーバーフローする
         if (a_value > (maxValue - add))
         {
@@ -283,5 +283,22 @@ namespace Cue::Math
     {
         return scale_matrix(a_scale) * quaternion_matrix(a_rotation) *
             translate_matrix(a_translate);
+    }
+
+    [[nodiscard]] Quaternion make_axis_angle_quaternion(const float3& a_axis, float a_angleRadians) noexcept
+    {
+        const float halfAngle = a_angleRadians * 0.5f;
+        const float sinHalfAngle = std::sin(halfAngle);
+        Quaternion rotation(a_axis.x * sinHalfAngle, a_axis.y * sinHalfAngle, a_axis.z * sinHalfAngle,
+            std::cos(halfAngle));
+        return rotation.normalize();
+    }
+
+    [[nodiscard]] float3 rotate_vector(const Quaternion& a_rotation, const float3& a_vector) noexcept
+    {
+        const Quaternion rotation = Quaternion::normalize(a_rotation);
+        const Quaternion vector(a_vector.x, a_vector.y, a_vector.z, 0.0f);
+        const Quaternion result = rotation * vector * Quaternion::inverse(rotation);
+        return float3(result.x, result.y, result.z);
     }
 }

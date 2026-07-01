@@ -110,4 +110,18 @@ namespace Cue::Math
         float3 a_scale,
         Quaternion a_rotation,
         float3 a_translate) noexcept;
+
+    /// @brief 軸と角度からクォータニオンを構築する
+    /// @param a_axis 回転軸
+    /// @param a_angleRadians 回転角（ラジアン）
+    /// @return クォータニオン
+    [[nodiscard]] Quaternion make_axis_angle_quaternion(
+        const float3& a_axis, float a_angleRadians) noexcept;
+
+    /// @brief クォータニオンでベクトルを回転する
+    /// @param a_rotation 回転を表すクォータニオン
+    /// @param a_vector 回転させるベクトル
+    /// @return 回転後のベクトル
+    [[nodiscard]] float3 rotate_vector(
+        const Quaternion& a_rotation, const float3& a_vector) noexcept;
 }

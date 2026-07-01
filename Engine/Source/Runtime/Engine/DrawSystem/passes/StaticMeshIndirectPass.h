@@ -56,5 +56,7 @@ namespace Cue::DrawSystem
         RHI::ShaderBlobHandle m_vertexShader{};      // StaticMesh indirect vertex shader
         RHI::ShaderBlobHandle m_pixelShader{};       // StaticMesh indirect pixel shader
         RHI::PipelineStateHandle m_pipelineState{};  // StaticMesh indirect pipeline
+
+        static constexpr Math::float4 k_clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
     };
 } // namespace Cue::DrawSystem

@@ -41,7 +41,8 @@ namespace Cue::DrawSystem
 
     /// @brief StaticMesh 1 個分の CPU 側描画情報。
     ///
-    /// GPU に直接 upload する構造とは分け、CPU batching や queue 分類で必要な情報を保持する。
+    /// GPU に直接 upload する構造とは分け、CPU batching や queue
+    /// 分類で必要な情報を保持する。
     struct StaticMeshDrawObject final
     {
         // 元 EntityId。DrawSystem からは opaque な追跡用 ID として扱う
@@ -77,7 +78,8 @@ namespace Cue::DrawSystem
 
     /// @brief 1 フレーム分の DrawSystem 入力を保持する。
     ///
-    /// StaticMeshDrawObject、RenderableInfo、ObjectTransformGpu は同じ index で対応する。
+    /// StaticMeshDrawObject、RenderableInfo、ObjectTransformGpu は同じ index
+    /// で対応する。
     class DrawScene final
     {
     public:
@@ -97,11 +99,14 @@ namespace Cue::DrawSystem
 
         /// @brief StaticMesh 描画対象と GPU upload 用データを同じ index に追加する。
         [[nodiscard]] Result add_static_mesh_object(const StaticMeshDrawObject& a_object,
-                                                    const GpuData::RenderableInfo& a_renderableInfo,
-                                                    const GpuData::ObjectTransformGpu& a_transform);
+            const GpuData::RenderableInfo& a_renderableInfo,
+            const GpuData::ObjectTransformGpu& a_transform);
 
         /// @brief Camera 描画視点を追加する。
         [[nodiscard]] Result add_camera(const CameraDrawItem& a_camera);
+
+        /// @brief Camera 描画視点だけを空にする。
+        void clear_cameras() noexcept;
 
         /// @brief CPU batching や queue 分類で使う StaticMesh 描画単位。
         [[nodiscard]] const std::vector<StaticMeshDrawObject>& static_mesh_objects() const noexcept;

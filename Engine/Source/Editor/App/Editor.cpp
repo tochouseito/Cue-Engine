@@ -15,9 +15,10 @@
 #include <D3D12Backend.h>
 
 // === Editor includes ===
+#include "DebugCamera.h"
 #include "ImGuiManager/ImGuiManager.h"
-#include "Workspace/Dockspace.h"
 #include "Workspace/DebugView.h"
+#include "Workspace/Dockspace.h"
 #include "Workspace/GameView.h"
 
 // === Engine includes ===
@@ -64,14 +65,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     Result r = platform->initialize(platformSetupInfo);
 
     // Logger にプラットフォームのファイルシステムをセット
-    Core::IO::set_log_file(platform->file_system(),
-        Core::IO::Path("logs/editor.log"), true);
+    Core::IO::set_log_file(platform->file_system(), Core::IO::Path("logs/editor.log"), true);
 
     // 失敗したらログを出力して終了
     if (!r)
     {
-        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize platform: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize platform: %s",
+                      r.message.data());
         CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s", r.message.data());
         return -1;
     }
@@ -92,8 +92,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 失敗したらログを出力して終了
     if (!r)
     {
-        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize render backend: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize render backend: %s",
+                      r.message.data());
         CUE_ASSERT_FORMAT(false, "Failed to initialize render backend: %s", r.message.data());
         return -1;
     }
@@ -111,11 +111,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // ImGuiMessageHandler を登録
     platform->set_message_handler(
-        [](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-            LRESULT& outResult) -> bool
+        [](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT& outResult) -> bool
         {
-            outResult =
-                ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
+            outResult = ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
             return outResult != 0;
         });
 
@@ -132,8 +130,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 失敗したらログを出力して終了
     if (!r)
     {
-        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to initialize engine: %s", r.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to initialize engine: %s",
+                      r.message.data());
         CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s", r.message.data());
         return -1;
     }
@@ -144,6 +142,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 各ワークスペースを初期化
     std::unique_ptr<Editor::GameView> gameView = std::make_unique<Editor::GameView>(renderBackend.get());
     std::unique_ptr<Editor::DebugView> debugView = std::make_unique<Editor::DebugView>(renderBackend.get());
+    std::unique_ptr<Editor::DebugCamera> debugCamera = std::make_unique<Editor::DebugCamera>();
 
     // ウィンドウを表示
     platform->start();
@@ -159,7 +158,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             break;
         }
 
-# pragma region フレーム開始
+#pragma region フレーム開始
         /// <summary>
         /// 各フレーム開始処理
         /// </summary>
@@ -169,11 +168,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         if (r)
         {
-# pragma region Editor UI の描画
+#pragma region Editor UI の描画
             /// <summary>
             /// Editor UI の描画
             /// </summary>
-            
+
             ImGui::Begin("Test");
 
             ImGui::Text("Test.txt");
@@ -184,7 +183,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             gameView->update();
             debugView->update();
 
-# pragma endregion Editor UI の描画
+            Editor::DebugCameraViewport debugCameraViewport{};
+            debugCameraViewport.width = debugView->viewport_width();
+            debugCameraViewport.height = debugView->viewport_height();
+            debugCameraViewport.isHovered = debugView->is_viewport_hovered();
+            debugCameraViewport.isFocused = debugView->is_focused();
+            debugCamera->update(debugCameraViewport);
+            if (debugCameraViewport.isHovered || debugCameraViewport.isFocused)
+            {
+                engine->set_render_view_override(debugCamera->render_view());
+            }
+            else
+            {
+                engine->clear_render_view_override();
+            }
+
+#pragma endregion Editor UI の描画
 
             imGuiManager->end_frame();
         }
@@ -195,8 +209,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 失敗したらログを出力して終了
         if (!r)
         {
-            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to begin frame: %s", r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to begin frame: %s",
+                          r.message.data());
             CUE_ASSERT_FORMAT(false, "Failed to begin platform frame: %s", r.message.data());
             break;
         }
@@ -207,12 +221,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 失敗したらログを出力して終了
         if (!r)
         {
-            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to begin engine frame: %s", r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to begin engine frame: %s",
+                          r.message.data());
             CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s", r.message.data());
             break;
         }
-# pragma endregion フレーム開始
+#pragma endregion フレーム開始
 
         // エンジンのフレーム処理
         r = engine->tick();
@@ -220,8 +234,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 失敗したらログを出力して終了
         if (!r)
         {
-            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to tick engine: %s", r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to tick engine: %s",
+                          r.message.data());
             CUE_ASSERT_FORMAT(false, "Failed to tick engine: %s", r.message.data());
             break;
         }
@@ -232,8 +246,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 失敗したらログを出力して終了
         if (!r)
         {
-            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to end engine frame: %s", r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to end engine frame: %s",
+                          r.message.data());
             CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s", r.message.data());
             break;
         }
@@ -244,8 +258,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // 失敗したらログを出力して終了
         if (!r)
         {
-            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
-                "Failed to end frame: %s", r.message.data());
+            Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file, "Failed to end frame: %s",
+                          r.message.data());
             CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
             break;
         }

@@ -4,6 +4,9 @@ namespace Cue::Editor
 {
     void DebugView::update()
     {
+        m_isViewportHovered = false;
+        m_isFocused = false;
+
         if (m_backend == nullptr || m_backend->get_view_manager() == nullptr)
         {
             CUE_ASSERT_MSG(false, "DebugView: Backend is null");
@@ -24,6 +27,7 @@ namespace Cue::Editor
             ImGuiWindowFlags_NoScrollWithMouse;
         const bool isVisible =
             ImGui::Begin("DebugView", nullptr, windowFlags);
+        m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
         // ウィンドウが閉じられた場合は描画をスキップ
         if (!isVisible)
@@ -46,6 +50,8 @@ namespace Cue::Editor
 
         // メニュー領域を除いた残りを DebugColor の表示先として使う
         const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
+        m_viewportWidth = static_cast<uint32_t>(std::max(availableRegion.x, 1.0f));
+        m_viewportHeight = static_cast<uint32_t>(std::max(availableRegion.y, 1.0f));
         D3D12_GPU_DESCRIPTOR_HANDLE debugColorSrvGpuDescHandle =
             m_backend->get_gpu_descriptor_handle(
                 m_debugColorSrvHandle,
@@ -71,6 +77,7 @@ namespace Cue::Editor
             ImGui::Image(
                 static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
                 availableRegion);
+            m_isViewportHovered = ImGui::IsItemHovered();
 
             // ImGui 上の表示矩形は dock 配置で変わる
             // overlay と pick は描画結果から毎フレーム取得する
