@@ -96,10 +96,17 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_platform = a_info.platform;
     m_renderBackend = a_info.renderBackend;
     m_bufferCount = a_info.renderBackend->buffer_count();
+    m_debugRenderView = a_info.debugRenderView;
+    m_isDebugRenderingEnabled = a_info.editorPass != nullptr && m_debugRenderView != nullptr;
 
     // FrameState の初期化
     m_drawFrameState.resize(m_bufferCount);
     m_drawScenes.resize(m_bufferCount);
+    if (m_isDebugRenderingEnabled)
+    {
+        m_debugDrawFrameState.resize(m_bufferCount);
+        m_debugDrawScenes.resize(m_bufferCount);
+    }
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         DrawSystem::DrawFrameData& frameState = m_drawFrameState.frame_state(frameIndex);
@@ -128,7 +135,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
-    if (a_info.editorPass)
+    if (m_isDebugRenderingEnabled)
     {
         r = RHI::create_render_target_resources(*m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
                                                 m_debugColorRenderTarget,
@@ -218,6 +225,59 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
+    if (m_isDebugRenderingEnabled)
+    {
+        m_debugDrawResources = std::make_unique<DrawSystem::DrawResources>(bufferManager, viewManager, m_bufferCount);
+
+        r = m_debugDrawResources->create_renderable_info_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_transform_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_view_projection_buffer();
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_material_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_render_cell_buffer(m_maxCellCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_render_object_buffer(m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_object_count_buffer();
+        if (!r)
+        {
+            return r;
+        }
+
+        r = m_debugDrawResources->create_static_mesh_batch_buffers(m_maxObjectCount, m_maxObjectCount);
+        if (!r)
+        {
+            return r;
+        }
+    }
+
     r = initialize_render_extraction_pipeline();
     if (!r)
     {
@@ -261,6 +321,12 @@ void Engine::shutdown()
         if (!destroyResult)
         {
             CUE_ASSERT_FORMAT(false, "Failed to destroy final color render target: %s", destroyResult.message.data());
+        }
+
+        destroyResult = RHI::destroy_render_target_resources(*m_renderBackend, m_debugColorRenderTarget);
+        if (!destroyResult)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to destroy debug color render target: %s", destroyResult.message.data());
         }
     }
 
@@ -319,6 +385,10 @@ std::function<void(uint64_t, uint32_t)> Engine::render()
         {
             (void)m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
         }
+        if (m_renderBackend != nullptr && m_debugFrameGraph != nullptr)
+        {
+            (void)m_renderBackend->render(a_frameNo, a_index, *m_debugFrameGraph);
+        }
     };
 }
 
@@ -364,6 +434,40 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
     if (!result)
     {
         return result;
+    }
+
+    if (m_isDebugRenderingEnabled)
+    {
+        if (m_debugDrawResources == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Fatal, "Debug draw resources are not initialized.");
+        }
+
+        // DebugView 用のフレームグラフ。Main と同じ描画 pass を DebugColor へ向ける。
+        RHI::FrameGraphDesc debugFrameGraphDesc{};
+        debugFrameGraphDesc.usePresentQueue = true;
+        debugFrameGraphDesc.enableProfiling = true;
+        debugFrameGraphDesc.waitForCompletion = true;
+        result = m_renderBackend->create_frame_graph(debugFrameGraphDesc, m_debugFrameGraph);
+        if (!result)
+        {
+            return Result::fail(result.code, Severity::Fatal, "Failed to create debug frame graph.");
+        }
+
+        m_debugFrameGraph->add_pass(std::make_unique<DrawSystem::DrawResourceUploadCopyPass>(*m_debugDrawResources));
+        m_debugFrameGraph->add_pass(
+            std::make_unique<DrawSystem::StaticMeshIndirectPass>(
+                *m_debugDrawResources,
+                *m_meshPool,
+                m_debugDrawFrameState,
+                "DebugStaticMeshIndirect",
+                "DebugColor"));
+
+        result = m_debugFrameGraph->build();
+        if (!result)
+        {
+            return result;
+        }
     }
 
     // present 用のフレームグラフの構築
@@ -577,7 +681,46 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     frameData.indirectCommandCount = static_cast<uint32_t>(frameData.staticMeshIndirectCommands.size());
     frameData.useCpuBatching = frameData.indirectCommandCount > 0;
 
-    return m_drawResources->upload_draw_scene(a_bufferIndex, drawScene, frameData);
+    result = m_drawResources->upload_draw_scene(a_bufferIndex, drawScene, frameData);
+    if (!result)
+    {
+        return result;
+    }
+
+    if (m_isDebugRenderingEnabled)
+    {
+        if (m_debugDrawResources == nullptr || m_debugRenderView == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "Debug rendering is enabled without resources.");
+        }
+        if (a_bufferIndex >= m_debugDrawScenes.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Debug DrawScene buffer index is out of range.");
+        }
+
+        // Debug 描画は Main と同じ描画対象を使い、camera だけ Editor DebugCamera に差し替える。
+        DrawSystem::DrawScene& debugDrawScene = m_debugDrawScenes[a_bufferIndex];
+        debugDrawScene = drawScene;
+        debugDrawScene.clear_cameras();
+
+        DrawSystem::CameraDrawItem debugCamera{};
+        debugCamera.renderView = *m_debugRenderView;
+        result = debugDrawScene.add_camera(debugCamera);
+        if (!result)
+        {
+            return result;
+        }
+
+        DrawSystem::DrawFrameData& debugFrameData = m_debugDrawFrameState.frame_state(a_bufferIndex);
+        debugFrameData = frameData;
+        result = m_debugDrawResources->upload_draw_scene(a_bufferIndex, debugDrawScene, debugFrameData);
+        if (!result)
+        {
+            return result;
+        }
+    }
+
+    return Result::ok();
 }
 
 Result Engine::apply_pending_resize()
@@ -609,6 +752,11 @@ Result Engine::apply_pending_resize()
     {
         return result;
     }
+    result = RHI::destroy_render_target_resources(*m_renderBackend, m_debugColorRenderTarget);
+    if (!result)
+    {
+        return result;
+    }
 
     // バックエンドのリサイズ
     result = m_renderBackend->resize(request.width, request.height);
@@ -625,12 +773,30 @@ Result Engine::apply_pending_resize()
     {
         return result;
     }
+    if (m_isDebugRenderingEnabled)
+    {
+        result = RHI::create_render_target_resources(*m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
+                                                    m_debugColorRenderTarget,
+                                                    Math::float4::from_rgba8(63, 63, 63, 255).data());
+        if (!result)
+        {
+            return result;
+        }
+    }
 
     // フレームグラフの再構築
     result = m_frameGraph->rebuild(m_renderBackend->width(), m_renderBackend->height());
     if (!result)
     {
         return result;
+    }
+    if (m_debugFrameGraph != nullptr)
+    {
+        result = m_debugFrameGraph->rebuild(m_renderBackend->width(), m_renderBackend->height());
+        if (!result)
+        {
+            return result;
+        }
     }
 
     return m_presentFrameGraph->rebuild(m_renderBackend->width(), m_renderBackend->height());

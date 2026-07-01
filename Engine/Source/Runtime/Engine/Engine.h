@@ -41,6 +41,7 @@ struct EngineSetupInfo final
     PAL::IPlatform* platform = nullptr;           // プラットフォームインターフェース
     RHI::IRenderBackend* renderBackend = nullptr; // レンダーバックエンド
     std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
+    const DrawSystem::RenderView* debugRenderView = nullptr; // Editor DebugView 用の描画視点
     Core::CQRS::Bridge* platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
     uint32_t maxFps = 60;                                // 最大フレームレート
 };
@@ -118,6 +119,7 @@ class Engine final
     RHI::IRenderBackend* m_renderBackend = nullptr;        // レンダーバックエンドの非所有ポインタ
 
     std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
+    std::unique_ptr<RHI::FrameGraph> m_debugFrameGraph = nullptr;
     std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
 
     // --- 全体共有リソース ---
@@ -127,10 +129,15 @@ class Engine final
     // --- DrawSystem ---
     GameCore::GameWorld m_gameWorld{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
+    std::vector<DrawSystem::DrawScene> m_debugDrawScenes{};
     DrawSystem::DrawFrameState m_drawFrameState{};
+    DrawSystem::DrawFrameState m_debugDrawFrameState{};
     std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawResources> m_debugDrawResources = nullptr;
     std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
     ECS::ECSManager::SystemPipeline m_renderExtractionPipeline{};
+    const DrawSystem::RenderView* m_debugRenderView = nullptr;
+    bool m_isDebugRenderingEnabled = false;
     DrawSystem::RenderView m_renderViewOverride{};
     bool m_hasRenderViewOverride = false;
 

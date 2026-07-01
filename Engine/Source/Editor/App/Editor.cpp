@@ -117,6 +117,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return outResult != 0;
         });
 
+    // DebugCamera は Engine の DebugFrameGraph が参照するため、Engine 初期化前に用意する。
+    std::unique_ptr<Editor::DebugCamera> debugCamera = std::make_unique<Editor::DebugCamera>();
+
     // エンジンを初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     EngineSetupInfo engineSetupInfo{}; // エンジンのセットアップ情報
@@ -125,6 +128,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineSetupInfo.renderBackend = renderBackend.get();
     engineSetupInfo.maxFps = maxFps;
     engineSetupInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
+    engineSetupInfo.debugRenderView = &debugCamera->render_view();
     r = engine->initialize(engineSetupInfo);
 
     // 失敗したらログを出力して終了
@@ -142,7 +146,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // 各ワークスペースを初期化
     std::unique_ptr<Editor::GameView> gameView = std::make_unique<Editor::GameView>(renderBackend.get());
     std::unique_ptr<Editor::DebugView> debugView = std::make_unique<Editor::DebugView>(renderBackend.get());
-    std::unique_ptr<Editor::DebugCamera> debugCamera = std::make_unique<Editor::DebugCamera>();
 
     // ウィンドウを表示
     platform->start();
@@ -189,14 +192,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             debugCameraViewport.isHovered = debugView->is_viewport_hovered();
             debugCameraViewport.isFocused = debugView->is_focused();
             debugCamera->update(debugCameraViewport);
-            if (debugCameraViewport.isHovered || debugCameraViewport.isFocused)
-            {
-                engine->set_render_view_override(debugCamera->render_view());
-            }
-            else
-            {
-                engine->clear_render_view_override();
-            }
 
 #pragma endregion Editor UI の描画
 

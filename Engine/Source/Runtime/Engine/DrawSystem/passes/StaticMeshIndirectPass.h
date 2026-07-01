@@ -12,6 +12,9 @@
 #include "DrawSystem/DrawResources.h"
 #include "DrawSystem/MeshPool.h"
 
+// === C++ includes ===
+#include <string>
+
 namespace Cue::DrawSystem
 {
     /// @brief MeshPool と CPU batching 結果を使って StaticMesh を indirect draw する
@@ -22,6 +25,12 @@ namespace Cue::DrawSystem
             DrawResources& a_drawResources,
             MeshPool& a_meshPool,
             DrawFrameState& a_drawFrameState);
+        StaticMeshIndirectPass(
+            DrawResources& a_drawResources,
+            MeshPool& a_meshPool,
+            DrawFrameState& a_drawFrameState,
+            std::string a_passName,
+            std::string a_renderTargetName);
         ~StaticMeshIndirectPass() override;
 
         StaticMeshIndirectPass(const StaticMeshIndirectPass&) = delete;
@@ -38,7 +47,7 @@ namespace Cue::DrawSystem
         /// @brief shader、pipeline、render target 参照を構築する
         [[nodiscard]] Result setup(RHI::FrameGraphBuilder& a_builder) override;
 
-        /// @brief MeshPool と FinalColor の使用状態を宣言する
+        /// @brief MeshPool と描画先 color の使用状態を宣言する
         [[nodiscard]] Result describe_resources(RHI::FrameGraphBuilder& a_builder) override;
 
         /// @brief フレームごとの indirect command を使って StaticMesh を描画する
@@ -48,9 +57,12 @@ namespace Cue::DrawSystem
         DrawResources& m_drawResources; // DrawSystem 共通 buffer と batch upload 結果
         MeshPool& m_meshPool;           // vertex/index stream と MeshRange buffer の管理元
         DrawFrameState& m_drawFrameState; // フレームごとの CPU batching 結果
+        std::string m_passName{}; // FrameGraph 上の pass 名
+        std::string m_renderTargetName{}; // StaticMesh の描画先 texture 名
+        std::string m_renderTargetRtvName{}; // StaticMesh の描画先 RTV 名
 
-        RHI::TextureHandle m_finalColorHandle{};     // StaticMesh の描画先 color texture
-        RHI::ViewHandle m_finalColorRtvHandle{};     // StaticMesh の描画先 RTV
+        RHI::TextureHandle m_renderTargetHandle{};   // StaticMesh の描画先 color texture
+        RHI::ViewHandle m_renderTargetRtvHandle{};   // StaticMesh の描画先 RTV
         MeshPoolBindings m_meshPoolBindings{};       // MeshPool が保持する vertex/index buffer 群
         RHI::RootSignatureHandle m_rootSignature{};  // StaticMesh indirect 用 root signature
         RHI::ShaderBlobHandle m_vertexShader{};      // StaticMesh indirect vertex shader

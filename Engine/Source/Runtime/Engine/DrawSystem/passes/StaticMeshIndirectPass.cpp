@@ -1,14 +1,35 @@
 #include "StaticMeshIndirectPass.h"
 
+// === C++ includes ===
+#include <utility>
+
 namespace Cue::DrawSystem
 {
     StaticMeshIndirectPass::StaticMeshIndirectPass(
         DrawResources& a_drawResources,
         MeshPool& a_meshPool,
         DrawFrameState& a_drawFrameState)
+        : StaticMeshIndirectPass(
+            a_drawResources,
+            a_meshPool,
+            a_drawFrameState,
+            "StaticMeshIndirect",
+            "FinalColor")
+    {
+    }
+
+    StaticMeshIndirectPass::StaticMeshIndirectPass(
+        DrawResources& a_drawResources,
+        MeshPool& a_meshPool,
+        DrawFrameState& a_drawFrameState,
+        std::string a_passName,
+        std::string a_renderTargetName)
         : m_drawResources(a_drawResources)
         , m_meshPool(a_meshPool)
         , m_drawFrameState(a_drawFrameState)
+        , m_passName(std::move(a_passName))
+        , m_renderTargetName(std::move(a_renderTargetName))
+        , m_renderTargetRtvName(m_renderTargetName + "RTV")
     {
     }
 
@@ -16,7 +37,7 @@ namespace Cue::DrawSystem
 
     const char* StaticMeshIndirectPass::name() const noexcept
     {
-        return "StaticMeshIndirect";
+        return m_passName.c_str();
     }
 
     RHI::CommandListType StaticMeshIndirectPass::type() const noexcept
@@ -26,31 +47,31 @@ namespace Cue::DrawSystem
 
     Result StaticMeshIndirectPass::setup(RHI::FrameGraphBuilder& a_builder)
     {
-        Result result = a_builder.get_texture("FinalColor", m_finalColorHandle);
+        Result result = a_builder.get_texture(m_renderTargetName, m_renderTargetHandle);
         if (!result)
         {
             return Result::fail(
                 result.code,
                 Severity::Error,
-                "Failed to get final color texture handle for static mesh indirect pass.");
+                "Failed to get color texture handle for static mesh indirect pass.");
         }
 
-        result = a_builder.render(&m_finalColorHandle, 1);
+        result = a_builder.render(&m_renderTargetHandle, 1);
         if (!result)
         {
             return Result::fail(
                 result.code,
                 Severity::Error,
-                "Failed to declare final color as render target for static mesh indirect pass.");
+                "Failed to declare color texture as render target for static mesh indirect pass.");
         }
 
-        result = a_builder.get_view("FinalColorRTV", m_finalColorRtvHandle);
+        result = a_builder.get_view(m_renderTargetRtvName, m_renderTargetRtvHandle);
         if (!result)
         {
             return Result::fail(
                 result.code,
                 Severity::Error,
-                "Failed to get final color RTV view handle for static mesh indirect pass.");
+                "Failed to get color RTV view handle for static mesh indirect pass.");
         }
 
         result = m_meshPool.get_bindings(m_meshPoolBindings);
@@ -60,7 +81,7 @@ namespace Cue::DrawSystem
         }
 
         RHI::RootSignatureDesc rootSignatureDesc{};
-        rootSignatureDesc.name = "StaticMeshIndirectRootSignature";
+        rootSignatureDesc.name = m_passName + "RootSignature";
         rootSignatureDesc.parameters.push_back(
             RHI::RootParameterDesc
             {
@@ -102,7 +123,7 @@ namespace Cue::DrawSystem
         const std::string shaderFilePath = "Shaders/D3D12/StaticMeshIndirectForward.hlsl";
 
         RHI::ShaderCompileDesc vertexShaderDesc{};
-        vertexShaderDesc.name = "StaticMeshIndirectVS";
+        vertexShaderDesc.name = m_passName + "VS";
         vertexShaderDesc.filePath = shaderFilePath;
         vertexShaderDesc.entryPoint = "vs_main";
         vertexShaderDesc.targetProfile = "vs_6_0";
@@ -116,7 +137,7 @@ namespace Cue::DrawSystem
         }
 
         RHI::ShaderCompileDesc pixelShaderDesc{};
-        pixelShaderDesc.name = "StaticMeshIndirectPS";
+        pixelShaderDesc.name = m_passName + "PS";
         pixelShaderDesc.filePath = shaderFilePath;
         pixelShaderDesc.entryPoint = "ps_main";
         pixelShaderDesc.targetProfile = "ps_6_0";
@@ -130,7 +151,7 @@ namespace Cue::DrawSystem
         }
 
         RHI::GraphicsPipelineStateDesc pipelineDesc{};
-        pipelineDesc.name = "StaticMeshIndirectPipeline";
+        pipelineDesc.name = m_passName + "Pipeline";
         pipelineDesc.rootSignatureHandle = m_rootSignature;
         pipelineDesc.vsHandle = m_vertexShader;
         pipelineDesc.psHandle = m_pixelShader;
@@ -163,7 +184,7 @@ namespace Cue::DrawSystem
     Result StaticMeshIndirectPass::describe_resources(RHI::FrameGraphBuilder& a_builder)
     {
         Result result = a_builder.use_texture(
-            m_finalColorHandle,
+            m_renderTargetHandle,
             RHI::ResourceAccessType::Write,
             RHI::ResourceState::RenderTarget,
             RHI::ResourceState::RenderTarget);
@@ -243,8 +264,8 @@ namespace Cue::DrawSystem
             return;
         }
 
-        commandContext->clear_render_target(m_finalColorRtvHandle, k_clearColor.data());
-        commandContext->set_render_targets(&m_finalColorRtvHandle, 1, {});
+        commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
+        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
         commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         commandContext->set_graphics_pipeline(m_pipelineState);
         commandContext->set_primitive_topology(RHI::PrimitiveTopologyType::Triangle);
