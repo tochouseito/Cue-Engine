@@ -412,7 +412,7 @@ Result Engine::initialize_render_extraction_pipeline()
 
     // Runtime の GameWorld には pipeline を持たせず、Engine
     // 側で描画抽出順だけを定義する。
-    ECS::CameraSystem& cameraSystem = ecs->add_system<ECS::CameraSystem>(m_drawFrameState, m_drawScenes);
+    ECS::CameraSystem& cameraSystem = ecs->add_system<ECS::CameraSystem>(m_gameWorld, m_drawFrameState, m_drawScenes);
     ECS::RenderableObjectSystem& renderableSystem = ecs->add_system<ECS::RenderableObjectSystem>(m_drawScenes);
 
     m_renderExtractionPipeline.clear();
@@ -481,11 +481,16 @@ Result Engine::initialize_test_scene()
     // に置いて最小表示を成立させる。
     cameraTransform->position = Math::float3::zero();
     cameraWorldTransform->position = cameraTransform->position;
-    cameraComponent->isMain = true;
     cameraComponent->fovY = 60.0f;
     cameraComponent->aspectRatio = 0.0f;
     cameraComponent->nearZ = 0.1f;
     cameraComponent->farZ = 1000.0f;
+
+    result = m_gameWorld.set_render_camera(camera.entity_id());
+    if (!result)
+    {
+        return result;
+    }
 
     m_gameWorld.sync_world_transforms();
     return Result::ok();
@@ -550,7 +555,6 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
         camera.renderView = m_renderViewOverride;
         camera.renderView.width = frameData.renderWidth;
         camera.renderView.height = frameData.renderHeight;
-        camera.isMain = true;
         drawScene.clear_cameras();
         result = drawScene.add_camera(camera);
         if (!result)

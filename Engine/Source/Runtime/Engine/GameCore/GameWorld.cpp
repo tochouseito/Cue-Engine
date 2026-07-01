@@ -134,6 +134,7 @@ namespace Cue::GameCore
         }
 
         m_pendingDestroyedEntities.clear();
+        clear_render_camera();
         return Result::ok();
     }
 
@@ -427,6 +428,36 @@ namespace Cue::GameCore
             });
     }
 
+    Result GameWorld::set_render_camera(EntityId a_entityId) noexcept
+    {
+        if (!contains_object(a_entityId))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld render camera is not alive.");
+        }
+
+        if (m_ecsManager.get_component<ECS::TransformComponent>(a_entityId) == nullptr ||
+            m_ecsManager.get_component<ECS::CameraComponent>(a_entityId) == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "GameWorld render camera requires TransformComponent and CameraComponent.");
+        }
+
+        m_renderCameraEntity = a_entityId;
+        return Result::ok();
+    }
+
+    void GameWorld::clear_render_camera() noexcept
+    {
+        m_renderCameraEntity = k_invalidEntityId;
+    }
+
+    EntityId GameWorld::render_camera_entity() const noexcept
+    {
+        return m_renderCameraEntity;
+    }
+
     template <typename T> Result GameWorld::has_component(EntityId a_entityId, bool& a_outHasComponent) const noexcept
     {
         a_outHasComponent = false;
@@ -530,6 +561,11 @@ namespace Cue::GameCore
         if (record == nullptr || !record->isAlive)
         {
             return;
+        }
+
+        if (m_renderCameraEntity == a_entityId)
+        {
+            clear_render_camera();
         }
 
         std::string name{};

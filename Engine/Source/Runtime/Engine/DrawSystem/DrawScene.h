@@ -70,10 +70,8 @@ namespace Cue::DrawSystem
     /// @brief CameraSystem が DrawSystem へ渡す 1 カメラ分の描画視点。
     struct CameraDrawItem final
     {
-        // CameraComponent から変換済みの描画入力。GameCore への依存をここで断つ。
+        // GameWorld で選択済みの Camera から変換した描画入力。GameCore への依存をここで断つ。
         RenderView renderView{};
-        // 複数 camera がある場合、ViewProjectionBuffer に採用する候補を示す。
-        bool isMain = false;
     };
 
     /// @brief 1 フレーム分の DrawSystem 入力を保持する。
@@ -110,7 +108,7 @@ namespace Cue::DrawSystem
 
         /// @brief CPU batching や queue 分類で使う StaticMesh 描画単位。
         [[nodiscard]] const std::vector<StaticMeshDrawObject>& static_mesh_objects() const noexcept;
-        /// @brief ViewProjectionBuffer に upload する camera 候補。
+        /// @brief ViewProjectionBuffer に upload する選択済み camera。
         [[nodiscard]] const std::vector<CameraDrawItem>& cameras() const noexcept;
         /// @brief RenderableInfoBuffer に upload する連続データ。
         [[nodiscard]] const std::vector<GpuData::RenderableInfo>& renderable_infos() const noexcept;
@@ -120,7 +118,7 @@ namespace Cue::DrawSystem
     private:
         // CPU batching や queue 分類で使う StaticMesh 描画単位
         std::vector<StaticMeshDrawObject> m_staticMeshObjects{};
-        // CameraSystem が収集した camera 候補
+        // CameraSystem が追加した選択済み camera
         std::vector<CameraDrawItem> m_cameras{};
         // RenderableInfoBuffer へ upload する連続データ
         std::vector<GpuData::RenderableInfo> m_renderableInfos{};

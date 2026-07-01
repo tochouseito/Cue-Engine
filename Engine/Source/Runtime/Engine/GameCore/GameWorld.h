@@ -133,6 +133,15 @@ namespace Cue::GameCore
         template <typename T, typename... Args>
         [[nodiscard]] Result add_component(EntityId a_entityId, T*& a_outComponent, Args&&... a_args);
 
+        /// @brief この World の描画に使う Camera Entity を設定する
+        [[nodiscard]] Result set_render_camera(EntityId a_entityId) noexcept;
+
+        /// @brief この World の描画 Camera Entity を解除する
+        void clear_render_camera() noexcept;
+
+        /// @brief この World の描画 Camera Entity を取得する
+        [[nodiscard]] EntityId render_camera_entity() const noexcept;
+
         /// @brief Entity が Component を持つかを取得する
         template <typename T>
         [[nodiscard]] Result has_component(EntityId a_entityId, bool& a_outHasComponent) const noexcept;
@@ -218,6 +227,8 @@ namespace Cue::GameCore
         std::vector<EntityRecord> m_entityRecords{};
         // 公開 API から要求された遅延削除キュー
         std::vector<EntityId> m_pendingDestroyedEntities{};
+        // この World の描画に使う Camera Entity
+        EntityId m_renderCameraEntity = k_invalidEntityId;
         // 現在生存している Object 数
         size_t m_liveObjectCount = 0;
     };

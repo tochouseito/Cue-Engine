@@ -260,25 +260,8 @@ namespace Cue::DrawSystem
         GpuData::ViewProjectionGpu viewProjection = make_view_projection_gpu(RenderView{});
         if (!cameras.empty())
         {
-            const CameraDrawItem* selectedCamera = nullptr;
-            for (const CameraDrawItem& camera : cameras)
-            {
-                // CueEngine と同じく main camera を優先し、未指定なら最初の camera を fallback にする。
-                if (camera.isMain)
-                {
-                    selectedCamera = &camera;
-                    break;
-                }
-                if (selectedCamera == nullptr)
-                {
-                    selectedCamera = &camera;
-                }
-            }
-
-            if (selectedCamera != nullptr)
-            {
-                viewProjection = make_view_projection_gpu(selectedCamera->renderView);
-            }
+            // DrawScene の camera は GameWorld / CameraSystem で選択済みなので先頭をそのまま使う。
+            viewProjection = make_view_projection_gpu(cameras.front().renderView);
         }
 
         result = upload_single_slot(m_viewProjectionUploaders[a_bufferIndex],

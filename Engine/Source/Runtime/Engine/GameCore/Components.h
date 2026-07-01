@@ -108,8 +108,6 @@ namespace Cue::ECS
         CameraComponent(CameraComponent&&);
         CameraComponent& operator=(CameraComponent&&);
 
-        // main camera として DrawSystem の ViewProjectionBuffer に採用するか
-        bool isMain = true;
         // 縦方向 FOV。CueEngine と同じく度数法で保持する
         float fovY = 60.0f;
         // 0 以下の場合は renderWidth / renderHeight から算出する
