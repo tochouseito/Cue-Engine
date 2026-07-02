@@ -17,6 +17,7 @@ namespace Cue::Editor
             ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoDocking |
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoNavFocus |
             ImGuiWindowFlags_MenuBar;
@@ -40,6 +41,11 @@ namespace Cue::Editor
 
             ImGui::EndMenuBar();
         }
+
+        // fullscreen host window ではなく、この DockSpace node を docking target にする。
+        const ImGuiID dockspaceId = ImGui::GetID("EditorDockSpace");
+        ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
         ImGui::End();
     }
 }

@@ -41,6 +41,7 @@ target_include_directories(Editor PRIVATE
 
 # 定数定義
 target_compile_definitions(Editor PRIVATE
+    $<$<CONFIG:Debug>:CUE_EDITOR_DEBUG_LAYOUT_MIRROR_PATH="${CMAKE_SOURCE_DIR}/config/editor/imgui.ini">
 )
 
 # コンパイルオプション

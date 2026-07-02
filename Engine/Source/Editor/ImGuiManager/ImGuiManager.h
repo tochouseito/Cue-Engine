@@ -71,6 +71,9 @@ namespace Cue::Editor
             return m_codeFont;
         }
     private:
+        /// @brief Debug build だけ repo root 側にも ImGui layout を保存する
+        void save_debug_layout_mirror() noexcept;
+
         std::atomic_bool m_isBeginFrameCalled = false;
         bool m_isInitialized = false;
         std::string m_layoutFilePath{};

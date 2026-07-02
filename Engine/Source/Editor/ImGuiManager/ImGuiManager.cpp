@@ -518,6 +518,14 @@ namespace Cue::Editor
     {
         shutdown();
     }
+
+    void ImGuiManager::save_debug_layout_mirror() noexcept
+    {
+#if defined(CUE_EDITOR_DEBUG_LAYOUT_MIRROR_PATH)
+        ImGui::SaveIniSettingsToDisk(CUE_EDITOR_DEBUG_LAYOUT_MIRROR_PATH);
+#endif
+    }
+
     void ImGuiManager::shutdown()
     {
         if (!m_isInitialized)
@@ -526,6 +534,10 @@ namespace Cue::Editor
         }
 
         m_isBeginFrameCalled = false;
+
+        // 終了時に layout を明示保存する。Debug build では repo root 側にも mirror する。
+        ImGui::SaveIniSettingsToDisk(m_layoutFilePath.c_str());
+        save_debug_layout_mirror();
 
         // プラットフォーム/レンダラーのシャットダウン
         ImGui_ImplDX12_Shutdown();
