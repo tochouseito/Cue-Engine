@@ -18,7 +18,11 @@ namespace Cue::RHI::DX12
         // レンダーデバイスの初期化
         // DXGI factory と ID3D12Device は後続の manager がすべて依存するため最初に作る。
         m_renderDevice = std::make_unique<DX12RenderDevice>();
-        m_renderDevice->initialize(a_info.enableDebugLayer);
+        Result result = m_renderDevice->initialize(a_info.enableDebugLayer);
+        if (!result)
+        {
+            return result;
+        }
 
         // GPU Profiler の初期化
         m_gpuProfiler = std::make_unique<DX12GpuProfiler>(*m_renderDevice);

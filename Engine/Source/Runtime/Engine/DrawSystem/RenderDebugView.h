@@ -13,6 +13,7 @@ enum class RenderDebugView : uint32_t {
   VisibilityUv = 5,
   VisibilityLit = 6,
   VisibilityMaterial = 7,
+  RenderPath = 8,
 };
 
 } // namespace Cue::DrawSystem

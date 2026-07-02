@@ -179,7 +179,7 @@ public:
     rootSignatureDesc.name = "StaticMeshForwardRootSignature";
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
+         1, 1, 0, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -723,7 +723,7 @@ public:
         m_maxIndirectCommandCount(maxIndirectCommandCount) {}
 
   const char *name() const noexcept override {
-    return "StaticMeshForwardTransparent";
+    return "StaticMeshForwardFallback";
   }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Graphics;
@@ -842,10 +842,10 @@ public:
     m_clusterInvLogFarNear = 1.0f / std::log(m_clusterFarZ / m_clusterNearZ);
 
     RHI::RootSignatureDesc rootSignatureDesc{};
-    rootSignatureDesc.name = "StaticMeshForwardTransparentRootSignature";
+    rootSignatureDesc.name = "StaticMeshForwardFallbackRootSignature";
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
+         1, 1, 0, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -898,7 +898,7 @@ public:
     }
 
     RHI::ShaderCompileDesc vsDesc{};
-    vsDesc.name = "StaticMeshForwardTransparentVS";
+    vsDesc.name = "StaticMeshForwardFallbackVS";
     vsDesc.filePath = "Shaders/D3D12/StaticMeshForward.hlsl";
     vsDesc.entryPoint = "vs_main";
     vsDesc.targetProfile = "vs_6_0";
@@ -908,9 +908,9 @@ public:
     }
 
     RHI::ShaderCompileDesc psDesc{};
-    psDesc.name = "StaticMeshForwardTransparentPS";
+    psDesc.name = "StaticMeshForwardFallbackPS";
     psDesc.filePath = "Shaders/D3D12/StaticMeshForward.hlsl";
-    psDesc.entryPoint = "transparent_probe_ps_main";
+    psDesc.entryPoint = "ps_main";
     psDesc.targetProfile = "ps_6_0";
     result = builder.create_shader_blob(psDesc, m_pixelShader);
     if (!result) {
@@ -918,7 +918,7 @@ public:
     }
 
     RHI::GraphicsPipelineStateDesc pipelineDesc{};
-    pipelineDesc.name = "StaticMeshForwardTransparentPipeline";
+    pipelineDesc.name = "StaticMeshForwardFallbackPipeline";
     pipelineDesc.rootSignatureHandle = m_rootSignature;
     pipelineDesc.vsHandle = m_vertexShader;
     pipelineDesc.psHandle = m_pixelShader;
@@ -932,7 +932,7 @@ public:
     pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::Zero;
     pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
     pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
-    pipelineDesc.blendMode = {RHI::BlendMode::Normal};
+    pipelineDesc.blendMode = {RHI::BlendMode::None};
     pipelineDesc.rtvFormats = {RHI::ColorFormat::R8G8B8A8_UNORM};
     return builder.create_graphics_pipeline(pipelineDesc, m_pipeline);
   }

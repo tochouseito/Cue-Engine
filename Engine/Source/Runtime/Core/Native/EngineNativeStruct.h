@@ -45,6 +45,10 @@ struct MeshData {
   std::vector<std::uint32_t> indices;  // インデックスデータ配列
   std::vector<std::uint32_t>
       rangeIndices; // Range 描画用 meshlet 順インデックス
+  std::vector<std::uint32_t>
+      meshletLocalIndices; // MeshShader 用 meshlet ローカル triangle index
+  std::vector<std::uint32_t>
+      meshletVertexIndices; // MeshShader 用 segment-local vertex index
   std::vector<MeshletBounds> meshletBounds; // 追加カリング用 meshlet 境界
 
   /// @brief 頂点数を返す

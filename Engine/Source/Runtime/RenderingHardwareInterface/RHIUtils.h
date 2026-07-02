@@ -25,6 +25,7 @@ namespace Cue::RHI
         RHI::TextureHandle colorHandle{};
         RHI::ViewHandle colorRtvHandle{};
         RHI::ViewHandle colorSrvHandle{};
+        RHI::ViewHandle colorUavHandle{};
     };
 
     Result create_render_target_resources(

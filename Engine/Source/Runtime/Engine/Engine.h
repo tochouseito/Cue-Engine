@@ -76,8 +76,10 @@ struct EngineDebugStats final {
   uint32_t meshletVisibilityWordCount = 0;
   uint32_t currentVisibleMeshletChunkCount = 0;
   uint32_t previousVisibleMeshletChunkCount = 0;
+  GpuData::ObjectCullLodStatsGpu objectCullLodStats{};
   GpuData::MeshletChunkVisibilityStatsGpu meshletChunkVisibilityStats{};
   GpuData::MeshletGroupCullStatsGpu meshletGroupCullStats{};
+  GpuData::StaticMeshBatchStatsGpu staticMeshBatchStats{};
   GpuData::ClusterLightingStatsGpu clusterLightingStats{};
   Math::float3 cameraPosition = Math::float3::zero();
   uint32_t selectedDepthBin = 0;
@@ -215,7 +217,7 @@ private:
   std::vector<GpuData::RenderCellGpu> m_renderCells{};
   std::vector<GpuData::ObjectTransformGpu> m_objectTransforms{};
   std::vector<GpuData::PointLightGpu> m_pointLights{};
-  DrawSystem::RenderPath m_renderPath = DrawSystem::RenderPath::Forward;
+  DrawSystem::RenderPath m_renderPath = DrawSystem::RenderPath::VisibilityBuffer;
   DrawSystem::RenderDebugView m_renderDebugView =
       DrawSystem::RenderDebugView::Forward;
   EngineDebugStats m_debugStats{};

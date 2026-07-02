@@ -42,7 +42,7 @@ float4 ps_main(VisibilityResolveVsOutput input) : SV_Target0
 
     if (g_debugMode == 7u)
     {
-        return payload.material.color;
+        return payload.baseColor;
     }
 
     return float4(saturate(payload.barycentric), 1.0f);

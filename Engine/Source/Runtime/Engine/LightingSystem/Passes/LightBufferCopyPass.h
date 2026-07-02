@@ -35,6 +35,11 @@ namespace Cue::LightingSystem
             return RHI::CommandListType::Copy;
         }
 
+        uint32_t queue_lane() const noexcept override
+        {
+            return 1u;
+        }
+
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
             return builder.read_buffer(m_bufferHandle);

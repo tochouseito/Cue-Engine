@@ -102,13 +102,16 @@ private:
 class ViewProjectionCopyPass final : public RHI::FrameGraphPass {
 public:
   ViewProjectionCopyPass(const char* passName,
-                         RHI::BufferHandle viewProjectionBuffer)
-      : m_passName(passName), m_viewProjectionBuffer(viewProjectionBuffer) {}
+                         RHI::BufferHandle viewProjectionBuffer,
+                         uint32_t queueLane = 0)
+      : m_passName(passName), m_viewProjectionBuffer(viewProjectionBuffer),
+        m_queueLane(queueLane) {}
 
   const char *name() const noexcept override { return m_passName; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
   }
+  uint32_t queue_lane() const noexcept override { return m_queueLane; }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
     return builder.read_buffer(m_viewProjectionBuffer);
@@ -136,17 +139,20 @@ public:
 private:
   const char* m_passName = "ViewProjectionCopy";
   RHI::BufferHandle m_viewProjectionBuffer{};
+  uint32_t m_queueLane = 0;
 };
 
 class MaterialBufferCopyPass final : public RHI::FrameGraphPass {
 public:
-  explicit MaterialBufferCopyPass(RHI::BufferHandle materialBuffer)
-      : m_materialBuffer(materialBuffer) {}
+  explicit MaterialBufferCopyPass(RHI::BufferHandle materialBuffer,
+                                  uint32_t queueLane = 0)
+      : m_materialBuffer(materialBuffer), m_queueLane(queueLane) {}
 
   const char *name() const noexcept override { return "MaterialBufferCopy"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
   }
+  uint32_t queue_lane() const noexcept override { return m_queueLane; }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
     return builder.read_buffer(m_materialBuffer);
@@ -173,6 +179,7 @@ public:
 
 private:
   RHI::BufferHandle m_materialBuffer{};
+  uint32_t m_queueLane = 0;
 };
 
 class RenderCellCopyPass final : public RHI::FrameGraphPass {

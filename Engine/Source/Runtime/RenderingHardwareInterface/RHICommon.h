@@ -245,6 +245,10 @@ public:
                           uint32_t groupCountZ) = 0;
   virtual Result
   execute_dispatch_indirect(BufferHandle commandBufferHandle) = 0;
+  virtual Result dispatch_mesh(uint32_t groupCountX, uint32_t groupCountY,
+                               uint32_t groupCountZ) = 0;
+  virtual Result
+  execute_dispatch_mesh_indirect(BufferHandle commandBufferHandle) = 0;
   virtual Result set_render_targets(const ViewHandle *renderTargetViews,
                                     uint32_t renderTargetCount,
                                     ViewHandle depthStencilView) = 0;

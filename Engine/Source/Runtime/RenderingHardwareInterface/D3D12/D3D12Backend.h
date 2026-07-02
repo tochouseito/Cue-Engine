@@ -53,6 +53,10 @@ namespace Cue::RHI::DX12
         IViewManager* get_view_manager() override { return m_viewManager.get(); }
         ICommandPool* get_command_pool() override { return m_commandPool.get(); }
         IQueuePool* get_queue_pool() override { return m_queuePool.get(); }
+        bool supports_mesh_shader() const noexcept override
+        {
+            return m_renderDevice != nullptr && m_renderDevice->supports_mesh_shader();
+        }
 
         uint32_t width() const noexcept override { return m_width; }
         uint32_t height() const noexcept override { return m_height; }

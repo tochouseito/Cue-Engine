@@ -19,9 +19,22 @@ struct RenderObject
     float4 boundsCenterRadius;
 };
 
+struct MeshRange
+{
+    uint indexCount;
+    uint startIndex;
+    int baseVertex;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint rangeStartIndex;
+    uint rangeIndexCount;
+    uint visibilityTriangleStart;
+};
+
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 ByteAddressBuffer g_renderObjectCount : register(t1);
 StructuredBuffer<uint> g_objectDrawModes : register(t2);
+StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 RWStructuredBuffer<uint> g_renderObjectIndices : register(u0);
 RWByteAddressBuffer g_batchWriteOffsets : register(u1);
 
@@ -52,6 +65,10 @@ cbuffer BatchFilterParam : register(b4)
 
 static const uint kBatchFilterVisibility = 1u;
 static const uint kRenderObjectFlagForwardFallback = 1u << 0u;
+static const uint kDrawFlagImpostor = 1u << 0u;
+static const uint kVisibilityPrimitiveBits = 19u;
+static const uint kMaxPackedVisibilityIndexCount =
+    (1u << kVisibilityPrimitiveBits) * 3u;
 
 uint first_active_lane(uint4 mask)
 {
@@ -92,8 +109,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             renderObject.depthBin < g_depthBinCount;
         if (active && g_batchFilterMode == kBatchFilterVisibility)
         {
+            const MeshRange meshRange = g_meshRanges[renderObject.meshId];
             active =
-                (renderObject.padding & kRenderObjectFlagForwardFallback) == 0u;
+                (renderObject.padding & kRenderObjectFlagForwardFallback) == 0u &&
+                (renderObject.drawFlags & kDrawFlagImpostor) == 0u &&
+                meshRange.indexCount <= kMaxPackedVisibilityIndexCount;
         }
 
         if (active)

@@ -225,8 +225,10 @@ class ChunkOcclusionStatsReadbackPass final : public RHI::FrameGraphPass {
 public:
   ChunkOcclusionStatsReadbackPass(
       RHI::IBufferManager *bufferManager,
-      GpuData::MeshletChunkVisibilityStatsGpu *statsOutput)
-      : m_bufferManager(bufferManager), m_statsOutput(statsOutput) {}
+      GpuData::MeshletChunkVisibilityStatsGpu *statsOutput,
+      bool enableStatsReadback = true)
+      : m_bufferManager(bufferManager), m_statsOutput(statsOutput),
+        m_enableStatsReadback(enableStatsReadback) {}
 
   const char *name() const noexcept override {
     return "ChunkOcclusionStatsReadback";
@@ -242,10 +244,13 @@ public:
     if (!result) {
       return result;
     }
-    if (m_bufferManager == nullptr) {
+    if (m_enableStatsReadback && m_bufferManager == nullptr) {
       return Result::fail(Code::InvalidState, Severity::Error,
                           "ChunkOcclusionStatsReadbackPass requires a buffer "
                           "manager.");
+    }
+    if (!m_enableStatsReadback) {
+      return Result::ok();
     }
     return m_bufferManager->get_readback_buffer_view(m_statsBuffer,
                                                      m_readbackView);
@@ -253,7 +258,7 @@ public:
 
   Result describe_resources(RHI::FrameGraphBuilder &builder) override {
     return builder.use_buffer(m_statsBuffer, RHI::ResourceAccessType::Read,
-                              RHI::ResourceState::CopySource,
+                              RHI::ResourceState::UnorderedAccess,
                               RHI::ResourceState::UnorderedAccess);
   }
 
@@ -263,7 +268,17 @@ public:
       return;
     }
 
-    update_stats_from_readback(context.frame_index());
+    if (m_enableStatsReadback) {
+      update_stats_from_readback(context.frame_index());
+    }
+    if (!m_enableStatsReadback || !should_copy_stats_to_readback()) {
+      return;
+    }
+
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::UnorderedAccess,
+                                 RHI::ResourceState::CopySource});
 
     RHI::BufferToReadbackCopyRegion copyRegion{};
     copyRegion.srcBufferHandle = m_statsBuffer;
@@ -274,9 +289,23 @@ public:
     copyRegion.dstByteOffset = 0u;
     copyRegion.byteSize = 96u;
     commandContext->copy_buffer_region_to_readback(copyRegion);
+
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::CopySource,
+                                 RHI::ResourceState::UnorderedAccess});
   }
 
 private:
+  static constexpr uint64_t kStatsReadbackWarmupFrames = 8u;
+  static constexpr uint64_t kStatsReadbackIntervalFrames = 30u;
+
+  bool should_copy_stats_to_readback() noexcept {
+    const uint64_t frameIndex = m_statsReadbackFrameCount++;
+    return frameIndex < kStatsReadbackWarmupFrames ||
+           (frameIndex % kStatsReadbackIntervalFrames) == 0u;
+  }
+
   void update_stats_from_readback(uint32_t frameIndex) noexcept {
     if (m_statsOutput == nullptr ||
         frameIndex >= m_readbackView.mappedDatas.size()) {
@@ -297,6 +326,8 @@ private:
   GpuData::MeshletChunkVisibilityStatsGpu *m_statsOutput = nullptr;
   RHI::BufferHandle m_statsBuffer{};
   RHI::ReadbackBufferView m_readbackView{};
+  uint64_t m_statsReadbackFrameCount = 0;
+  bool m_enableStatsReadback = true;
 };
 
 class ChunkHiZBuildPass final : public RHI::FrameGraphPass {
@@ -309,12 +340,14 @@ public:
     return RHI::CommandListType::Compute;
   }
 
+  uint32_t queue_lane() const noexcept override { return 2u; }
+
   Result setup(RHI::FrameGraphBuilder &builder) override {
-    Result result = builder.get_texture("ChunkDepth.Texture", m_depthTexture);
+    Result result = builder.get_texture("VisibilityDepth", m_depthTexture);
     if (!result) {
       return result;
     }
-    result = builder.get_view("ChunkDepth.SRV", m_depthSrv);
+    result = builder.get_view("VisibilityDepthSRV", m_depthSrv);
     if (!result) {
       return result;
     }
@@ -800,6 +833,10 @@ public:
     commandContext->set_uav(4, m_statsBuffer);
     commandContext->dispatch((m_visibilityWordCount + 63u) / 64u, 1u, 1u);
 
+    if (!should_copy_stats_to_readback()) {
+      return;
+    }
+
     commandContext->resource_barrier(
         m_statsBuffer,
         RHI::ResourceBarrierDesc{RHI::ResourceState::UnorderedAccess,
@@ -822,6 +859,15 @@ public:
   }
 
 private:
+  static constexpr uint64_t kStatsReadbackWarmupFrames = 8u;
+  static constexpr uint64_t kStatsReadbackIntervalFrames = 30u;
+
+  bool should_copy_stats_to_readback() noexcept {
+    const uint64_t frameIndex = m_statsReadbackFrameCount++;
+    return frameIndex < kStatsReadbackWarmupFrames ||
+           (frameIndex % kStatsReadbackIntervalFrames) == 0u;
+  }
+
   void update_stats_from_readback(uint32_t frameIndex) noexcept {
     if (m_statsOutput == nullptr ||
         frameIndex >= m_statsReadbackView.mappedDatas.size()) {
@@ -865,6 +911,7 @@ private:
   uint32_t m_maxCommandCount = 1u;
   uint32_t m_maxInstanceCount = 1u;
   uint32_t m_visibilityWordCount = 1u;
+  uint64_t m_statsReadbackFrameCount = 0;
   bool m_seedVisibility = true;
 
   static constexpr float k_occluderMinScreenRadiusPx = 24.0f;
@@ -976,7 +1023,7 @@ public:
     rootSignatureDesc.name = "ChunkDepthOnlyRootSignature";
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
+         1, 1, 0, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(

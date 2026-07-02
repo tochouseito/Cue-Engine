@@ -54,6 +54,22 @@ struct ResourceIdHasher final {
   }
 };
 
+struct QueueKey final {
+  CommandListType type = CommandListType::Graphics;
+  uint32_t lane = 0;
+
+  bool operator==(const QueueKey &other) const noexcept {
+    return type == other.type && lane == other.lane;
+  }
+};
+
+struct QueueKeyHasher final {
+  size_t operator()(const QueueKey &key) const noexcept {
+    return (static_cast<size_t>(key.lane) << 8u) ^
+           static_cast<size_t>(key.type);
+  }
+};
+
 // describe_resources() で各パスが宣言するリソース利用情報。
 // build() はこの宣言を使ってパス間依存を作り、execute() は
 // requiredState / finalState から前後の resource barrier を発行する。
@@ -189,6 +205,7 @@ public:
   virtual ~FrameGraphPass() = default;
   virtual const char *name() const noexcept = 0;
   virtual CommandListType type() const noexcept = 0;
+  virtual uint32_t queue_lane() const noexcept { return 0; }
   // false を返したフレームでは execute() されない。
   // 依存関係は build() 時点の宣言を維持するため、フレームごとに変わらない。
   virtual bool is_enabled(uint32_t a_frameIndex) const noexcept {
@@ -206,6 +223,7 @@ public:
 struct PassBuildInfo final {
   std::string_view name{};
   CommandListType queueType = CommandListType::Graphics;
+  uint32_t queueLane = 0;
   std::vector<ResourceAccess> resourceAccesses{};
   std::vector<uint32_t> dependencyPassIndices{};
 };
@@ -214,8 +232,14 @@ struct PassBuildInfo final {
 // waitBatchIndices は別 Queue の producer batch を待つために使う。
 struct QueueBatchInfo final {
   CommandListType queueType = CommandListType::Graphics;
+  uint32_t queueLane = 0;
   std::vector<uint32_t> passIndices{};
   std::vector<uint32_t> waitBatchIndices{};
+};
+
+struct SubmittedQueueFence final {
+  IQueueContext *queue = nullptr;
+  uint64_t fenceValue = 0;
 };
 
 // execute() のプロファイル結果。
@@ -229,6 +253,7 @@ struct FrameGraphExecutionStats final {
 
     std::string_view name{};
     CommandListType queueType = CommandListType::Graphics;
+    uint32_t queueLane = 0;
     double acquireResetSetupMs = 0.0;
     double preBarrierMs = 0.0;
     double cpuExecuteMs = 0.0;
@@ -352,6 +377,10 @@ private:
   std::vector<CompiledPass> m_passes;
   std::vector<PassBuildInfo> m_passBuildInfos;
   std::vector<QueueBatchInfo> m_executionPlan;
+  std::vector<std::unordered_map<QueueKey, SubmittedQueueFence, QueueKeyHasher>>
+      m_frameSlotFences;
+  std::unordered_map<QueueKey, SubmittedQueueFence, QueueKeyHasher>
+      m_previousExecuteFences;
   mutable std::mutex m_executionStatsMutex{};
   FrameGraphExecutionStats m_executionStats{};
   uint64_t m_executeCount = 0;

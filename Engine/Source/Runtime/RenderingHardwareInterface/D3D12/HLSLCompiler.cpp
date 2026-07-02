@@ -240,15 +240,6 @@ namespace Cue::RHI::DX12
         sourceBuffer.Ptr = pSource->GetBufferPointer();
         sourceBuffer.Size = pSource->GetBufferSize();
         sourceBuffer.Encoding = DXC_CP_UTF8;
-        LPCWSTR arguments[] = {
-            filePath.c_str(), // コンパイル対象 hlsl ファイル名
-            L"-E", entryPoint.c_str(), // エントリーポイント指定
-            L"-T", targetProfile.c_str(), // shader profile 設定
-            L"-Zi", L"-Qembed_debug", // デバッグ情報埋込
-            L"-Od", // 最適化無効
-            L"-Zpr", // 行優先メモリレイアウト
-        };
-
         // 可読性のために引数をベクターで管理
         std::vector<LPCWCH> args;
         args.push_back(filePath.c_str()); // コンパイル対象 hlsl ファイル名
@@ -272,8 +263,8 @@ namespace Cue::RHI::DX12
         ComPtr<IDxcResult> pResult = nullptr;
         hr = m_dxcCompiler.Get()->Compile(
             &sourceBuffer, // 読込済みソース
-            arguments, // コンパイル引数
-            _countof(arguments), // 引数数
+            args.data(), // コンパイル引数
+            static_cast<uint32_t>(args.size()), // 引数数
             m_dxcIncludeHandler.Get(), // include handler
             IID_PPV_ARGS(&pResult) // コンパイル結果
         );

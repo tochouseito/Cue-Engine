@@ -23,8 +23,9 @@ namespace Cue::DrawSystem
         static constexpr uint32_t k_clusterCountX = 16u;
         static constexpr uint32_t k_clusterCountY = 9u;
         static constexpr uint32_t k_depthSliceCount = 24u;
-        static constexpr uint32_t k_maxLightsPerCluster = 128u;
+        static constexpr uint32_t k_maxLightsPerCluster = 64u;
         static constexpr uint32_t k_maxClusterLightItemsPerCluster = 64u;
+        static constexpr uint32_t k_clusterLightCullGroupSize = 64u;
     } // namespace ClusteredLighting
 
     class BuildClusterGridPass final : public RHI::FrameGraphPass
@@ -43,6 +44,11 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+
+        uint32_t queue_lane() const noexcept override
+        {
+            return 1u;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -208,6 +214,11 @@ namespace Cue::DrawSystem
             return RHI::CommandListType::Compute;
         }
 
+        uint32_t queue_lane() const noexcept override
+        {
+            return 1u;
+        }
+
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
             // PointLightBuffer は world-space で保持している。
@@ -357,10 +368,12 @@ namespace Cue::DrawSystem
       public:
         ClusterLightCullingPass(RHI::IBufferManager* bufferManager,
                                 uint32_t maxPointLightCount,
-                                GpuData::ClusterLightingStatsGpu* statsOutput)
+                                GpuData::ClusterLightingStatsGpu* statsOutput,
+                                bool enableStatsReadback = true)
             : m_bufferManager(bufferManager),
               m_statsOutput(statsOutput),
-              m_maxPointLightCount(maxPointLightCount)
+              m_maxPointLightCount(maxPointLightCount),
+              m_enableStatsReadback(enableStatsReadback)
         {
         }
 
@@ -372,6 +385,11 @@ namespace Cue::DrawSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Compute;
+        }
+
+        uint32_t queue_lane() const noexcept override
+        {
+            return 1u;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -497,7 +515,8 @@ namespace Cue::DrawSystem
             statsBufferDesc.type = RHI::BufferType::Raw;
             statsBufferDesc.defaultHeapCount = 1;
             statsBufferDesc.uploadHeapCount = 0;
-            statsBufferDesc.readbackHeapCount = builder.buffer_count();
+            statsBufferDesc.readbackHeapCount =
+                m_enableStatsReadback ? builder.buffer_count() : 0u;
             statsBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
             statsBufferDesc.stride = sizeof(GpuData::ClusterLightingStatsGpu);
             statsBufferDesc.elementCount = 1u;
@@ -525,19 +544,22 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            if (m_bufferManager == nullptr)
+            if (m_enableStatsReadback && m_bufferManager == nullptr)
             {
                 return Result::fail(
                     Code::InvalidState,
                     Severity::Error,
                     "ClusterLightCullingPass requires a buffer manager.");
             }
-            result = m_bufferManager->get_readback_buffer_view(
-                m_clusterLightStatsBuffer,
-                m_clusterLightStatsReadbackView);
-            if (!result)
+            if (m_enableStatsReadback)
             {
-                return result;
+                result = m_bufferManager->get_readback_buffer_view(
+                    m_clusterLightStatsBuffer,
+                    m_clusterLightStatsReadbackView);
+                if (!result)
+                {
+                    return result;
+                }
             }
 
             RHI::RootSignatureDesc rootSignatureDesc{};
@@ -651,9 +673,10 @@ namespace Cue::DrawSystem
                 return;
             }
 
-            // 前回この frame slot にコピーされた GPU stats を CPU 側へ反映する。
-            // render graph は waitForCompletion なので、この readback は安定している。
-            update_stats_from_readback(context.frame_index());
+            if (m_enableStatsReadback)
+            {
+                update_stats_from_readback(context.frame_index());
+            }
 
             const uint32_t clearValues[4] = {0u, 0u, 0u, 0u};
 
@@ -675,7 +698,16 @@ namespace Cue::DrawSystem
             commandContext->set_uav(7, m_clusterLightIndexBuffer);
             commandContext->set_uav(8, m_clusterLightItemCounterBuffer);
             commandContext->set_uav(9, m_clusterLightStatsBuffer);
-            commandContext->dispatch((m_clusterCount + 127u) / 128u, 1u, 1u);
+            commandContext->dispatch(
+                (m_clusterCount +
+                 ClusteredLighting::k_clusterLightCullGroupSize - 1u) /
+                    ClusteredLighting::k_clusterLightCullGroupSize,
+                1u, 1u);
+
+            if (!m_enableStatsReadback || !should_copy_stats_to_readback())
+            {
+                return;
+            }
 
             // stats buffer は ImGui 表示用に CPU readback する。
             // UAV 書き込み後なので CopySource へ遷移してから readback heap へコピーする。
@@ -706,6 +738,16 @@ namespace Cue::DrawSystem
         }
 
       private:
+        static constexpr uint64_t kStatsReadbackWarmupFrames = 8u;
+        static constexpr uint64_t kStatsReadbackIntervalFrames = 30u;
+
+        bool should_copy_stats_to_readback() noexcept
+        {
+            const uint64_t frameIndex = m_statsReadbackFrameCount++;
+            return frameIndex < kStatsReadbackWarmupFrames ||
+                   (frameIndex % kStatsReadbackIntervalFrames) == 0u;
+        }
+
         void update_stats_from_readback(uint32_t frameIndex) noexcept
         {
             // GPU stats は 1 buffer に default/readback heap を併設している。
@@ -753,5 +795,7 @@ namespace Cue::DrawSystem
         uint32_t m_clusterCount = 0;
         uint32_t m_maxLightsPerCluster = 0;
         uint32_t m_maxClusterLightItems = 0;
+        uint64_t m_statsReadbackFrameCount = 0;
+        bool m_enableStatsReadback = true;
     };
 } // namespace Cue::DrawSystem

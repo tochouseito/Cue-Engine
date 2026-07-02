@@ -20,7 +20,8 @@ public:
   bool is_enabled(uint32_t a_frameIndex) const noexcept override {
     (void)a_frameIndex;
     return m_debugView == RenderDebugView::VisibilityObjectId ||
-           m_debugView == RenderDebugView::VisibilityPrimitiveId;
+           m_debugView == RenderDebugView::VisibilityPrimitiveId ||
+           m_debugView == RenderDebugView::RenderPath;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {

@@ -44,16 +44,16 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
               ((dst.y + 1u) * g_sourceHeight + g_outputHeight - 1u) /
                   g_outputHeight);
 
-    float maxDepth = 0.0f;
+    float minDepth = 1.0f;
     [loop]
     for (uint y = srcBegin.y; y < min(srcEnd.y, g_sourceHeight); ++y)
     {
         [loop]
         for (uint x = srcBegin.x; x < min(srcEnd.x, g_sourceWidth); ++x)
         {
-            maxDepth = max(maxDepth, g_depth.Load(int3(x, y, 0)));
+            minDepth = min(minDepth, g_depth.Load(int3(x, y, 0)));
         }
     }
 
-    g_outHiZ[dst] = encode_depth(maxDepth);
+    g_outHiZ[dst] = encode_depth(minDepth);
 }

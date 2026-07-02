@@ -106,6 +106,9 @@ public:
   Result dispatch(uint32_t groupCountX, uint32_t groupCountY,
                   uint32_t groupCountZ) override;
   Result execute_dispatch_indirect(BufferHandle commandBufferHandle) override;
+  Result dispatch_mesh(uint32_t groupCountX, uint32_t groupCountY,
+                       uint32_t groupCountZ) override;
+  Result execute_dispatch_mesh_indirect(BufferHandle commandBufferHandle) override;
   Result set_render_targets(const ViewHandle *renderTargetViews,
                             uint32_t renderTargetCount,
                             ViewHandle depthStencilView) override;
@@ -129,6 +132,7 @@ private:
   Result create_command_list(ID3D12Device &device,
                              D3D12_COMMAND_LIST_TYPE type);
   Result create_dispatch_command_signature(ID3D12Device &device);
+  Result create_dispatch_mesh_command_signature(ID3D12Device &device);
   Result create_draw_command_signature(ID3D12Device &device);
   Result
   create_draw_indexed_command_signature(ID3D12Device &device,
@@ -154,6 +158,7 @@ private:
   ComPtr<ID3D12GraphicsCommandList> m_commandList = nullptr;
   ComPtr<ID3D12CommandAllocator> m_commandAllocator = nullptr;
   ComPtr<ID3D12CommandSignature> m_dispatchCommandSignature = nullptr;
+  ComPtr<ID3D12CommandSignature> m_dispatchMeshCommandSignature = nullptr;
   ComPtr<ID3D12CommandSignature> m_drawCommandSignature = nullptr;
   ComPtr<ID3D12CommandSignature> m_drawIndexedCommandSignature = nullptr;
   ID3D12Device *m_device = nullptr;

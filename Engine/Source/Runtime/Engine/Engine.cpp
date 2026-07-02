@@ -15,6 +15,7 @@
 #include "DrawSystem/passes/GeneratedMeshletDepthPass.h"
 #include "DrawSystem/passes/MeshletChunkVisibilityPass.h"
 #include "DrawSystem/passes/MeshletGroupCullPass.h"
+#include "DrawSystem/passes/MeshShaderVisibilityPass.h"
 #include "DrawSystem/passes/ObjectCullAndLodPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshBatchingPass.h"
@@ -27,15 +28,60 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <cstdlib>
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <string_view>
 
 namespace Cue {
 namespace {
 constexpr float k_pi = 3.14159265358979323846f;
 constexpr uint32_t k_maxObjectCount = 50000;
 constexpr uint32_t k_cellObjectCapacity = 256;
+
+[[nodiscard]] GpuData::ViewProjectionGpu
+complete_view_projection(GpuData::ViewProjectionGpu viewProjection) noexcept {
+  viewProjection.viewProjection =
+      viewProjection.view * viewProjection.projection;
+  return viewProjection;
+}
+
+[[nodiscard]] bool env_flag_enabled(const char *name) noexcept {
+  char *value = nullptr;
+  size_t valueSize = 0;
+  if (_dupenv_s(&value, &valueSize, name) != 0 || value == nullptr) {
+    return false;
+  }
+
+  const std::string_view text(value);
+  const bool enabled =
+      text == "1" || text == "true" || text == "TRUE" || text == "on" ||
+      text == "ON";
+  std::free(value);
+  return enabled;
+}
+
+[[nodiscard]] bool env_flag_or_default(const char *name,
+                                       bool defaultValue) noexcept {
+  char *value = nullptr;
+  size_t valueSize = 0;
+  if (_dupenv_s(&value, &valueSize, name) != 0 || value == nullptr) {
+    return defaultValue;
+  }
+
+  const std::string_view text(value);
+  const bool result =
+      text == "1" || text == "true" || text == "TRUE" || text == "on" ||
+              text == "ON"
+          ? true
+      : text == "0" || text == "false" || text == "FALSE" ||
+              text == "off" || text == "OFF"
+          ? false
+          : defaultValue;
+  std::free(value);
+  return result;
+}
 
 struct DrawModelSetup final {
   std::array<uint32_t, 5> lodMeshIds{UINT32_MAX, UINT32_MAX, UINT32_MAX,
@@ -141,7 +187,10 @@ Result Engine::initialize(EngineSetupInfo &a_info) {
   meshPoolDesc.maxVertexCount = 8u * 1024u * 1024u;
   meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
   meshPoolDesc.maxRangeIndexCount = meshPoolDesc.maxIndexCount;
+  meshPoolDesc.maxMeshletLocalIndexCount = meshPoolDesc.maxRangeIndexCount;
   meshPoolDesc.maxMeshletCount = 1024u * 1024u;
+  meshPoolDesc.maxMeshletVertexIndexCount =
+      meshPoolDesc.maxRangeIndexCount + meshPoolDesc.maxMeshletCount * 2u;
   meshPoolDesc.meshletBoundsStagingSize = 1024u * 1024u;
   m_maxMeshletChunkCount = meshPoolDesc.maxMeshletChunkCount;
   m_meshPool = std::make_unique<DrawSystem::MeshPool>(
@@ -217,6 +266,8 @@ Result Engine::initialize(EngineSetupInfo &a_info) {
                                    static_cast<float>(initialRenderWidth) /
                                        static_cast<float>(initialRenderHeight),
                                    0.01f, 100.0f);
+  m_viewProjection.viewProjection =
+      m_viewProjection.view * m_viewProjection.projection;
   m_viewProjection.cameraPosition = Math::float4(0.0f, 0.0f, -5.0f, 1.0f);
   m_renderViewProjection = m_viewProjection;
   r = commit_static_draw_data_to_uploaders();
@@ -476,6 +527,7 @@ Result Engine::register_model_set(
       -0.5f * spacing * static_cast<float>(a_instanceCounts.y - 1u),
       -0.5f * spacing * static_cast<float>(a_instanceCounts.z - 1u));
 
+  static constexpr bool kEnableTransparentProbeObject = false;
   for (uint32_t z = 0; z < a_instanceCounts.z; ++z) {
     for (uint32_t y = 0; y < a_instanceCounts.y; ++y) {
       for (uint32_t x = 0; x < a_instanceCounts.x; ++x) {
@@ -503,15 +555,17 @@ Result Engine::register_model_set(
             gridOrigin.x + spacing * static_cast<float>(x),
             gridOrigin.y + spacing * static_cast<float>(y),
             gridOrigin.z + spacing * static_cast<float>(z));
-        const uint32_t probeZ =
-            a_instanceCounts.z > 0u
-                ? std::min<uint32_t>(a_instanceCounts.z - 1u,
-                                     (a_instanceCounts.z * 3u) / 4u)
-                : 0u;
-        if (x == 0u && y == a_instanceCounts.y / 2u && z == probeZ) {
-          renderableInfo.padding0 =
-              GpuData::RenderObjectFlag_ForwardFallback |
-              GpuData::RenderObjectFlag_TransparentProbe;
+        if constexpr (kEnableTransparentProbeObject) {
+          const uint32_t probeZ =
+              a_instanceCounts.z > 0u
+                  ? std::min<uint32_t>(a_instanceCounts.z - 1u,
+                                       (a_instanceCounts.z * 3u) / 4u)
+                  : 0u;
+          if (x == 0u && y == a_instanceCounts.y / 2u && z == probeZ) {
+            renderableInfo.padding0 =
+                GpuData::RenderObjectFlag_ForwardFallback |
+                GpuData::RenderObjectFlag_TransparentProbe;
+          }
         }
         renderableInfo.boundsCenterRadius =
             Math::float4(position.x + drawModel.scaledBoundsCenter.x,
@@ -687,16 +741,16 @@ Result Engine::register_model_set(
 
 Result Engine::set_view_projection(
     const GpuData::ViewProjectionGpu &a_viewProjection) {
-  m_viewProjection = a_viewProjection;
-  m_debugStats.cameraPosition = Math::float3(a_viewProjection.cameraPosition.x,
-                                             a_viewProjection.cameraPosition.y,
-                                             a_viewProjection.cameraPosition.z);
+  m_viewProjection = complete_view_projection(a_viewProjection);
+  m_debugStats.cameraPosition = Math::float3(m_viewProjection.cameraPosition.x,
+                                             m_viewProjection.cameraPosition.y,
+                                             m_viewProjection.cameraPosition.z);
   return commit_view_projection_to_uploaders();
 }
 
 Result Engine::set_render_view_projection(
     const GpuData::ViewProjectionGpu &a_viewProjection) {
-  m_renderViewProjection = a_viewProjection;
+  m_renderViewProjection = complete_view_projection(a_viewProjection);
   return commit_render_view_projection_to_uploaders();
 }
 
@@ -881,13 +935,98 @@ std::function<void(uint64_t, uint32_t)> Engine::present() {
 Result
 Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
   Result result = Result::ok();
+  const bool useMeshShaderVisibilityAtStartup =
+      env_flag_or_default("CUE_USE_MESH_SHADER_VISIBILITY", true);
+  const bool enableMeshShaderBringupDiagnostics =
+      env_flag_enabled("CUE_MESH_SHADER_DIAGNOSTICS");
+  const bool enableMeshShaderDebugStatsReadback =
+      env_flag_enabled("CUE_MESH_SHADER_DEBUG_STATS_READBACK");
+  const bool enableMeshShaderDraw =
+      !env_flag_enabled("CUE_DISABLE_MESH_SHADER_DRAW");
+  const bool enableMeshShaderCull =
+      !env_flag_enabled("CUE_DISABLE_MESH_SHADER_CULL");
+  const bool enableMeshShaderChunkFrustumCull =
+      env_flag_or_default("CUE_MESH_SHADER_CHUNK_FRUSTUM_CULL", true);
+  const bool enableMeshShaderDepthPrepass =
+      env_flag_or_default("CUE_MESH_SHADER_DEPTH_PREPASS", false);
+  const bool enableMeshShaderVisibilityDepthOnlyTiming =
+      env_flag_enabled("CUE_MESH_SHADER_VISIBILITY_DEPTH_ONLY_TIMING");
+  const bool enableMeshShaderAsHiZOcclusion =
+      env_flag_or_default("CUE_MESH_SHADER_AS_HIZ_OCCLUSION", false);
+  const bool enableMeshShaderChunkHiZOcclusion =
+      env_flag_or_default("CUE_MESH_SHADER_CHUNK_HIZ_OCCLUSION", false);
+  const bool enableMeshShaderMeshletHiZOcclusion =
+      env_flag_or_default("CUE_MESH_SHADER_MESHLET_HIZ_OCCLUSION", false);
+  const bool enableMeshShaderAdvancedLod =
+      env_flag_or_default("CUE_MESH_SHADER_ADVANCED_LOD", true);
+  const bool enableMeshShaderSegmentRemap =
+      env_flag_or_default("CUE_MESH_SHADER_SEGMENT_REMAP", true);
+  const bool enableMeshShaderAmplificationShader =
+      env_flag_or_default("CUE_MESH_SHADER_USE_AS", true);
+  const bool enableMeshShaderAsFallback =
+      env_flag_enabled("CUE_MESH_SHADER_AS_FALLBACK");
+  const bool enableMeshShaderMinimalAs =
+      env_flag_enabled("CUE_MESH_SHADER_AS_MINIMAL");
+  const bool enableMeshShaderPayloadProbeAs =
+      env_flag_enabled("CUE_MESH_SHADER_AS_PAYLOAD_PROBE");
+  const bool enableMeshShaderLiteralPayloadProbeAs =
+      env_flag_enabled("CUE_MESH_SHADER_AS_LITERAL_PAYLOAD_PROBE");
+  const bool enableMeshShaderFixedMsProbeAs =
+      env_flag_enabled("CUE_MESH_SHADER_AS_MS_FIXED_PROBE");
+  const bool enableVisibilityResolveCompute =
+      env_flag_enabled("CUE_VISIBILITY_RESOLVE_COMPUTE");
+  const bool enableGpuDebugReadback = enableMeshShaderDebugStatsReadback;
+  const bool enableFrameGraphProfiling = enableMeshShaderBringupDiagnostics;
+  const bool waitForFrameGraphCompletion = enableMeshShaderBringupDiagnostics;
+  const bool enableFrameGraphPassTimingLog =
+      enableMeshShaderBringupDiagnostics;
+  const bool useMeshShaderVisibilityPipeline =
+      useMeshShaderVisibilityAtStartup &&
+      m_renderBackend != nullptr && m_renderBackend->supports_mesh_shader();
+  const bool visibilitySurfaceRequired =
+      m_renderPath == DrawSystem::RenderPath::VisibilityBuffer ||
+      m_renderDebugView != DrawSystem::RenderDebugView::Forward;
+  const bool runMeshShaderVisibilityPipeline =
+      useMeshShaderVisibilityPipeline && visibilitySurfaceRequired;
+  Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                "[MeshShader] requested={} supported={} selected={} as={} "
+                "asFallback={} asMinimal={} asPayloadProbe={} "
+                "asLiteralPayloadProbe={} asMsFixedProbe={} chunkFrustum={} "
+                "depthPrepass={} depthOnlyTiming={} asHiZ={} chunkHiZ={} "
+                "meshletHiZ={} advancedLod={} segmentRemap={} "
+                "visibilitySurfaceRequired={} active={} resolve={}",
+                useMeshShaderVisibilityAtStartup ? "true" : "false",
+                (m_renderBackend != nullptr &&
+                 m_renderBackend->supports_mesh_shader())
+                    ? "true"
+                    : "false",
+                useMeshShaderVisibilityPipeline ? "MeshShaderVisibility"
+                                                : "ClassicVisibility",
+                enableMeshShaderAmplificationShader ? "true" : "false",
+                enableMeshShaderAsFallback ? "true" : "false",
+                enableMeshShaderMinimalAs ? "true" : "false",
+                enableMeshShaderPayloadProbeAs ? "true" : "false",
+                enableMeshShaderLiteralPayloadProbeAs ? "true" : "false",
+                enableMeshShaderFixedMsProbeAs ? "true" : "false",
+                enableMeshShaderChunkFrustumCull ? "true" : "false",
+                enableMeshShaderDepthPrepass ? "true" : "false",
+                enableMeshShaderVisibilityDepthOnlyTiming ? "true" : "false",
+                enableMeshShaderAsHiZOcclusion ? "true" : "false",
+                enableMeshShaderChunkHiZOcclusion ? "true" : "false",
+                enableMeshShaderMeshletHiZOcclusion ? "true" : "false",
+                enableMeshShaderAdvancedLod ? "true" : "false",
+                enableMeshShaderSegmentRemap ? "true" : "false",
+                visibilitySurfaceRequired ? "true" : "false",
+                runMeshShaderVisibilityPipeline ? "true" : "false",
+                enableVisibilityResolveCompute ? "Compute" : "Graphics");
 
   RHI::FrameGraphDesc renderFrameGraphDesc{};
   renderFrameGraphDesc.usePresentQueue = true;
-  renderFrameGraphDesc.enableProfiling = true;
-  renderFrameGraphDesc.waitForCompletion = true;
-  renderFrameGraphDesc.enablePassTimingLog = false;
-  renderFrameGraphDesc.passTimingLogInterval = 120;
+  renderFrameGraphDesc.enableProfiling = enableFrameGraphProfiling;
+  renderFrameGraphDesc.waitForCompletion = waitForFrameGraphCompletion;
+  renderFrameGraphDesc.enablePassTimingLog = enableFrameGraphPassTimingLog;
+  renderFrameGraphDesc.passTimingLogInterval =
+      enableMeshShaderBringupDiagnostics ? 1u : 120u;
   result =
       m_renderBackend->create_frame_graph(renderFrameGraphDesc, m_frameGraph);
   if (!result) {
@@ -906,9 +1045,9 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_drawResources->view_projection_buffer_handle()));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::ViewProjectionCopyPass>(
         "RenderViewProjectionCopy",
-        m_drawResources->render_view_projection_buffer_handle()));
+        m_drawResources->render_view_projection_buffer_handle(), 1u));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::MaterialBufferCopyPass>(
-        m_drawResources->material_buffer_handle()));
+        m_drawResources->material_buffer_handle(), 1u));
     if (m_lightResources != nullptr) {
       m_frameGraph->add_pass(
           std::make_unique<LightingSystem::LightBufferCopyPass>(
@@ -937,85 +1076,151 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ClusterLightCullingPass>(
             m_renderBackend->get_buffer_manager(), m_pointLightBufferCapacity,
-            &m_debugStats.clusterLightingStats));
+            &m_debugStats.clusterLightingStats, enableGpuDebugReadback));
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ChunkHiZResourcesPass>(m_bufferCount));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::ObjectCullAndLodPass>(
-        m_drawFrameState, m_drawResources->renderable_info_buffer_handle(),
+        m_drawFrameState, m_renderBackend->get_buffer_manager(),
+        &m_debugStats.objectCullLodStats,
+        m_drawResources->renderable_info_buffer_handle(),
         m_drawResources->view_projection_buffer_handle(),
         m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_uav_handle()));
-    static constexpr bool kEnableGeneratedMeshletDepth = false;
-    if constexpr (kEnableGeneratedMeshletDepth) {
+        m_drawResources->visible_object_count_buffer_uav_handle(),
+        !runMeshShaderVisibilityPipeline,
+        visibilitySurfaceRequired,
+        enableGpuDebugReadback));
+    if (runMeshShaderVisibilityPipeline) {
       m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::GeneratedMeshletDepthResetPass>());
+          std::make_unique<DrawSystem::MeshShaderVisibilityResetPass>(
+              enableGpuDebugReadback ? m_bufferCount : 0u));
+      if (enableMeshShaderCull) {
+        m_frameGraph->add_pass(std::make_unique<
+                               DrawSystem::MeshShaderVisibilityCullDispatchArgsPass>(
+            m_drawResources->visible_object_count_buffer_handle(),
+            m_maxObjectCount));
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::MeshShaderVisibilityChunkCullPass>(
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
+                m_drawResources->visible_object_count_buffer_handle(),
+                m_maxObjectCount, m_maxMeshletChunkCount,
+                enableMeshShaderChunkFrustumCull,
+                enableMeshShaderAdvancedLod,
+                enableMeshShaderChunkHiZOcclusion));
+        m_frameGraph->add_pass(
+            std::make_unique<
+                DrawSystem::MeshShaderVisibilityMeshletCullDispatchArgsPass>());
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::MeshShaderVisibilityCullPass>(
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
+                enableMeshShaderMeshletHiZOcclusion));
+      }
       m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::GeneratedMeshletDepthCullPass>(
-              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-              m_drawResources->transform_buffer_handle(),
-              m_drawResources->render_view_projection_buffer_handle(),
-              m_drawResources->visible_object_count_buffer_handle(),
-              m_maxObjectCount));
-      m_frameGraph->add_pass(
-          std::make_unique<
-              DrawSystem::GeneratedMeshletDepthDispatchArgsPass>());
-      m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::GeneratedMeshletDepthStreamBuildPass>());
-      m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::GeneratedMeshletDepthArgsPass>());
-      m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::GeneratedMeshletDepthDrawPass>(
-              m_drawResources->render_object_buffer_handle(),
-              m_drawResources->transform_buffer_handle(),
-              m_drawResources->render_view_projection_buffer_handle()));
+          std::make_unique<DrawSystem::MeshShaderVisibilityDispatchArgsPass>(
+              enableMeshShaderAmplificationShader
+                  ? DrawSystem::MeshShaderVisibility::
+                        k_meshletsPerAmplificationGroup
+                  : 1u));
+      if (enableGpuDebugReadback) {
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::MeshShaderVisibilityStatsReadbackPass>(
+                m_renderBackend->get_buffer_manager(), enableGpuDebugReadback));
+      }
     }
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ResetBatchCountersPass>(m_maxObjectCount));
     const uint32_t maxMeshletRangeCommandCount =
         std::max<uint32_t>(1u, m_maxObjectCount * 8u);
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
-        m_drawFrameState, m_renderPath, m_renderDebugView,
-        m_renderBackend->get_buffer_manager(),
-        &m_debugStats.meshletGroupCullStats,
-        m_drawResources->render_object_buffer_handle(),
-        m_drawResources->transform_buffer_handle(),
-        m_drawResources->render_view_projection_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(), m_maxObjectCount,
-        maxMeshletRangeCommandCount));
+    if (!useMeshShaderVisibilityPipeline) {
+      m_frameGraph->add_pass(std::make_unique<DrawSystem::MeshletGroupCullPass>(
+          m_drawFrameState, m_renderPath, m_renderDebugView,
+          m_renderBackend->get_buffer_manager(),
+          &m_debugStats.meshletGroupCullStats,
+          m_drawResources->render_object_buffer_handle(),
+          m_drawResources->transform_buffer_handle(),
+          m_drawResources->render_view_projection_buffer_handle(),
+          m_drawResources->visible_object_count_buffer_handle(),
+          m_maxObjectCount, maxMeshletRangeCommandCount,
+          enableGpuDebugReadback));
+    }
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchCountPass>(
         m_drawFrameState, m_renderPath, m_renderDebugView,
         m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle()));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>());
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::PrefixSumPass>(
+        m_renderPath, m_renderDebugView,
+        m_renderBackend->get_buffer_manager(),
+        &m_debugStats.staticMeshBatchStats,
+        m_maxObjectCount, enableGpuDebugReadback));
     m_frameGraph->add_pass(std::make_unique<DrawSystem::BatchFillPass>(
         m_drawFrameState, m_renderPath, m_renderDebugView,
         m_drawResources->render_object_buffer_handle(),
         m_drawResources->visible_object_count_buffer_handle(),
         m_maxObjectCount));
     m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::IndirectCommandEmitPass>(
-            m_maxObjectCount));
-    m_frameGraph->add_pass(
         std::make_unique<DrawSystem::ForwardFallbackCommandEmitPass>(
             m_drawFrameState, m_renderPath, m_renderDebugView,
             m_drawResources->render_object_buffer_handle(),
             m_drawResources->visible_object_count_buffer_handle(),
             m_maxObjectCount));
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibilityBufferPass>(
-        m_drawFrameState, m_renderPath, m_renderDebugView,
-        m_drawResources->render_object_buffer_handle(),
-        m_drawResources->transform_buffer_handle(),
-        m_drawResources->render_view_projection_buffer_handle(),
-        m_drawResources->visible_object_count_buffer_handle(),
-        m_maxObjectCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::VisibilityBufferRangePass>(
-            m_renderPath, m_renderDebugView,
-            m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->render_view_projection_buffer_handle(),
-            maxMeshletRangeCommandCount));
+    if (runMeshShaderVisibilityPipeline) {
+      if (enableMeshShaderDepthPrepass) {
+        m_frameGraph->add_pass(
+            std::make_unique<DrawSystem::MeshShaderVisibilityPass>(
+                m_renderPath, m_renderDebugView,
+                m_drawResources->render_object_buffer_handle(),
+                m_drawResources->transform_buffer_handle(),
+                m_drawResources->render_view_projection_buffer_handle(),
+                m_maxObjectCount, enableMeshShaderDraw,
+                enableMeshShaderSegmentRemap,
+                enableMeshShaderAmplificationShader,
+                enableMeshShaderAsFallback,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false));
+      }
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::MeshShaderVisibilityPass>(
+              m_renderPath, m_renderDebugView,
+              m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle(),
+              m_maxObjectCount,
+              enableMeshShaderDraw, enableMeshShaderSegmentRemap,
+              enableMeshShaderAmplificationShader,
+              enableMeshShaderAsFallback,
+              enableMeshShaderMinimalAs,
+              enableMeshShaderPayloadProbeAs,
+              enableMeshShaderLiteralPayloadProbeAs,
+              enableMeshShaderFixedMsProbeAs,
+              false,
+              enableMeshShaderDepthPrepass,
+              enableMeshShaderAsHiZOcclusion,
+              enableMeshShaderVisibilityDepthOnlyTiming));
+    } else {
+      m_frameGraph->add_pass(std::make_unique<DrawSystem::VisibilityBufferPass>(
+          m_drawFrameState, m_renderPath, m_renderDebugView,
+          m_drawResources->render_object_buffer_handle(),
+          m_drawResources->transform_buffer_handle(),
+          m_drawResources->render_view_projection_buffer_handle(),
+          m_drawResources->visible_object_count_buffer_handle(),
+          m_maxObjectCount));
+      m_frameGraph->add_pass(
+          std::make_unique<DrawSystem::VisibilityBufferRangePass>(
+              m_renderPath, m_renderDebugView,
+              m_drawResources->render_object_buffer_handle(),
+              m_drawResources->transform_buffer_handle(),
+              m_drawResources->render_view_projection_buffer_handle(),
+              maxMeshletRangeCommandCount));
+    }
     m_frameGraph->add_pass(std::make_unique<DrawSystem::StaticMeshForwardPass>(
         m_drawFrameState, m_renderPath, m_renderDebugView,
         m_drawResources->render_object_buffer_handle(),
@@ -1034,7 +1239,19 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
         m_drawResources->material_buffer_handle(),
         m_lightResources->frame_buffer_handle(),
         m_lightResources->directional_light_buffer_handle(),
-        m_lightResources->point_light_buffer_handle()));
+        m_lightResources->point_light_buffer_handle(),
+        !enableVisibilityResolveCompute));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::VisibilityResolveComputePass>(
+            m_renderPath, m_renderDebugView,
+            m_drawResources->render_object_buffer_handle(),
+            m_drawResources->transform_buffer_handle(),
+            m_drawResources->render_view_projection_buffer_handle(),
+            m_drawResources->material_buffer_handle(),
+            m_lightResources->frame_buffer_handle(),
+            m_lightResources->directional_light_buffer_handle(),
+            m_lightResources->point_light_buffer_handle(),
+            enableVisibilityResolveCompute));
     m_frameGraph->add_pass(
         std::make_unique<DrawSystem::StaticMeshForwardTransparentPass>(
             m_drawFrameState, m_renderPath, m_renderDebugView,
@@ -1058,35 +1275,14 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
             m_lightResources->frame_buffer_handle(),
             m_lightResources->directional_light_buffer_handle(),
             m_lightResources->point_light_buffer_handle()));
-    // Build chunk visibility/depth after Forward. The resulting Hi-Z is
-    // consumed by ObjectCullAndLod on a later frame.
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::MeshletChunkVisibilityResetPass>(
-            m_maxMeshletChunkCount));
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::BuildChunkDepthCommandsPass>(
-            m_drawFrameState, m_renderBackend->get_buffer_manager(),
-            &m_debugStats.meshletChunkVisibilityStats,
-            m_drawResources->render_object_buffer_handle(),
-            m_drawResources->transform_buffer_handle(),
-            m_drawResources->render_view_projection_buffer_handle(),
-            m_drawResources->visible_object_count_buffer_handle(),
-            m_maxObjectCount, std::max<uint32_t>(1u, m_maxObjectCount * 16u),
-            m_maxMeshletChunkCount));
-    static constexpr bool kEnableChunkDepthOnlyDraw = true;
-    if constexpr (kEnableChunkDepthOnlyDraw) {
+    // Build next-frame occlusion Hi-Z from the actual visibility depth.
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::ChunkHiZBuildPass>());
+    if (enableGpuDebugReadback) {
       m_frameGraph->add_pass(
-          std::make_unique<DrawSystem::ChunkDepthOnlyDrawPass>(
-              m_drawFrameState, m_drawResources->render_object_buffer_handle(),
-              m_drawResources->transform_buffer_handle(),
-              m_drawResources->render_view_projection_buffer_handle(),
-              std::max<uint32_t>(1u, m_maxObjectCount * 16u)));
-      m_frameGraph->add_pass(std::make_unique<DrawSystem::ChunkHiZBuildPass>());
+          std::make_unique<DrawSystem::ChunkOcclusionStatsReadbackPass>(
+              m_renderBackend->get_buffer_manager(),
+              &m_debugStats.meshletChunkVisibilityStats));
     }
-    m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::ChunkOcclusionStatsReadbackPass>(
-            m_renderBackend->get_buffer_manager(),
-            &m_debugStats.meshletChunkVisibilityStats));
   }
 
   result = m_frameGraph->build();
@@ -1096,10 +1292,11 @@ Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass) {
 
   RHI::FrameGraphDesc presentFrameGraphDesc{};
   presentFrameGraphDesc.usePresentQueue = true;
-  presentFrameGraphDesc.enableProfiling = true;
-  presentFrameGraphDesc.waitForCompletion = true;
-  presentFrameGraphDesc.enablePassTimingLog = false;
-  presentFrameGraphDesc.passTimingLogInterval = 120;
+  presentFrameGraphDesc.enableProfiling = enableFrameGraphProfiling;
+  presentFrameGraphDesc.waitForCompletion = waitForFrameGraphCompletion;
+  presentFrameGraphDesc.enablePassTimingLog = enableFrameGraphPassTimingLog;
+  presentFrameGraphDesc.passTimingLogInterval =
+      enableMeshShaderBringupDiagnostics ? 1u : 120u;
   result = m_renderBackend->create_frame_graph(presentFrameGraphDesc,
                                                m_presentFrameGraph);
   if (!result) {

@@ -42,9 +42,15 @@ struct MeshPoolDesc final {
       4u * 1024u * 1024u; // プール内で保持できる最大インデックス数
   uint32_t maxRangeIndexCount =
       4u * 1024u * 1024u; // Range 描画用 IndexBuffer の最大インデックス数
+  uint32_t maxMeshletLocalIndexCount =
+      4u * 1024u *
+      1024u; // MeshShader 用 meshlet local index の最大要素数
   uint32_t maxMeshCount = 4u * 1024u; // プール内で管理できる最大メッシュ数
   uint32_t maxMeshletCount =
       1024u * 1024u; // 追加カリング用 meshlet bounds の最大数
+  uint32_t maxMeshletVertexIndexCount =
+      maxRangeIndexCount +
+      maxMeshletCount * 2u; // MeshShader 用 segment vertex index の最大要素数
   uint32_t maxMeshletChunkCount =
       256u * 1024u; // MeshletChunk visibility 用 chunk の最大数
   uint32_t positionStagingSize =
@@ -58,6 +64,10 @@ struct MeshPoolDesc final {
       1u * 1024u * 1024u; // Visibility resolve 用 triangle stream staging
   uint32_t rangeIndexStagingSize =
       1u * 1024u * 1024u; // Range Index stream 用の常設 staging サイズ
+  uint32_t meshletLocalIndexStagingSize =
+      1u * 1024u * 1024u; // MeshShader local index stream staging
+  uint32_t meshletVertexIndexStagingSize =
+      1u * 1024u * 1024u; // MeshShader vertex index stream staging
   uint32_t meshletBoundsStagingSize =
       1024u * 1024u; // Meshlet bounds 用の常設 staging サイズ
   uint32_t meshletChunkStagingSize =
@@ -74,6 +84,10 @@ struct MeshPoolDesc final {
       "MeshPool.VisibilityTriangle"; // Visibility resolve 用 triangle buffer
   std::string_view rangeIndexName =
       "MeshPool.RangeIndex"; // Range 描画用 Index buffer のデバッグ名
+  std::string_view meshletLocalIndexName =
+      "MeshPool.MeshletLocalIndex"; // MeshShader local triangle index buffer
+  std::string_view meshletVertexIndexName =
+      "MeshPool.MeshletVertexIndex"; // MeshShader unique vertex index buffer
   std::string_view meshletBoundsName =
       "MeshPool.MeshletBounds"; // Meshlet bounds buffer のデバッグ名
   std::string_view meshletBoundsSrvName =
@@ -157,6 +171,10 @@ struct MeshPoolBindings final {
   BufferHandle visibilityTriangleBuffer =
       {}; // Visibility resolve 用 triangle ストリーム
   BufferHandle rangeIndexBuffer = {};    // Range 描画用インデックスストリーム
+  BufferHandle meshletLocalIndexBuffer =
+      {}; // MeshShader 用 local triangle index ストリーム
+  BufferHandle meshletVertexIndexBuffer =
+      {}; // MeshShader 用 unique vertex index ストリーム
   BufferHandle meshletBoundsBuffer = {}; // Meshlet bounds ストリーム
   BufferHandle meshletChunkBuffer = {};  // MeshletChunk ストリーム
   BufferHandle meshChunkRangeBuffer =
@@ -189,6 +207,14 @@ struct MeshRecord final {
       0; // VisibilityTriangle stream に確保した byte 数
   uint64_t rangeIndexByteOffset = 0; // Range Index stream 内の開始 byte offset
   uint64_t rangeIndexByteSize = 0;   // Range Index stream に確保した byte 数
+  uint64_t meshletLocalIndexByteOffset =
+      0; // MeshShader local index stream 内の開始 byte offset
+  uint64_t meshletLocalIndexByteSize =
+      0; // MeshShader local index stream に確保した byte 数
+  uint64_t meshletVertexIndexByteOffset =
+      0; // MeshShader vertex index stream 内の開始 byte offset
+  uint64_t meshletVertexIndexByteSize =
+      0; // MeshShader vertex index stream に確保した byte 数
   uint64_t meshletByteOffset = 0; // MeshletBounds stream 内の開始 byte offset
   uint64_t meshletByteSize = 0;   // MeshletBounds stream に確保した byte 数
   uint32_t meshletCount = 0;      // このメッシュに属する meshlet 数
@@ -421,6 +447,10 @@ private:
   StreamState
       m_visibilityTriangleStream{}; // Visibility resolve 用 triangle stream
   StreamState m_rangeIndexStream{}; // Range 描画用インデックスデータストリーム
+  StreamState
+      m_meshletLocalIndexStream{}; // MeshShader local triangle index stream
+  StreamState
+      m_meshletVertexIndexStream{}; // MeshShader unique vertex index stream
   StreamState
       m_meshletBoundsStream{}; // 追加カリング用 meshlet bounds ストリーム
   StreamState m_meshletChunkStream{};    // coarse MeshletChunk ストリーム

@@ -1,6 +1,6 @@
 // Fullscreen visualization for the visibility buffer.
 
-Texture2D<uint2> g_visibility : register(t0);
+Texture2D<uint> g_visibility : register(t0);
 
 cbuffer DebugModeParam : register(b0)
 {
@@ -52,16 +52,23 @@ float3 id_to_color(uint id)
 float4 ps_main(VsOutput input) : SV_Target0
 {
     const uint2 pixel = uint2(input.position.xy);
-    const uint2 id = g_visibility.Load(int3(pixel, 0));
-    if (id.x == 0u)
+    const uint packedVisibility = g_visibility.Load(int3(pixel, 0));
+    if (packedVisibility == 0u)
     {
         return float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
-    if (g_debugMode == 2u)
+    if (g_debugMode == 8u)
     {
-        return float4(id_to_color(id.y), 1.0f);
+        return float4(0.05f, 0.22f, 1.0f, 1.0f);
     }
 
-    return float4(id_to_color(id.x - 1u), 1.0f);
+    const uint primitiveId = packedVisibility & ((1u << 19u) - 1u);
+    const uint objectId = (packedVisibility >> 19u) - 1u;
+    if (g_debugMode == 2u)
+    {
+        return float4(id_to_color(primitiveId), 1.0f);
+    }
+
+    return float4(id_to_color(objectId), 1.0f);
 }

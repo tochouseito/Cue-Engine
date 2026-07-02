@@ -134,6 +134,25 @@ namespace Cue::RHI::DX12
 
         set_d3d12_name(m_d3d12Device.Get(), L"DX12RenderDevice_D3D12Device");
 
+        D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
+        D3D12_MESH_SHADER_TIER meshShaderTier =
+            D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+        if (SUCCEEDED(m_d3d12Device->CheckFeatureSupport(
+                D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7))))
+        {
+            meshShaderTier = options7.MeshShaderTier;
+            m_supportsMeshShader =
+                options7.MeshShaderTier != D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+        }
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                      "[MeshShader] support={} featureLevel={} tier={} "
+                      "vendorId=0x{:04X} deviceId=0x{:04X}",
+                      m_supportsMeshShader ? "true" : "false",
+                      static_cast<uint32_t>(m_featureLevel),
+                      static_cast<uint32_t>(meshShaderTier),
+                      static_cast<uint32_t>(m_adapterDesc.VendorId),
+                      static_cast<uint32_t>(m_adapterDesc.DeviceId));
+
 #ifndef CUE_RELEASE
         ComPtr<ID3D12InfoQueue> infoQueue;
 

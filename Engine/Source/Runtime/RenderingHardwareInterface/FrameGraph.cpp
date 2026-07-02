@@ -23,13 +23,14 @@ struct QueueExecutionState final {
   IQueueContext *queue = nullptr;
   queueContextLease queueLease{};
   bool submitted = false;
+  uint64_t fenceValue = 0;
 };
 
 // GPU timestamp は command context を submit / wait した後で読み戻すため、
 // パス実行中には読み取りに必要な情報だけを積んでおく。
 struct PendingGpuTiming final {
   ICommandContext *commandContext = nullptr;
-  CommandListType queueType = CommandListType::Graphics;
+  QueueKey queueKey{};
   FrameGraphExecutionStats::PassExecutionStats *passStats = nullptr;
   uint32_t startQueryIndex = 0;
   uint32_t endQueryIndex = 0;
@@ -46,6 +47,10 @@ struct PendingGpuTiming final {
   default:
     return "Unknown";
   }
+}
+
+[[nodiscard]] QueueKey queue_key(const QueueBatchInfo &batch) noexcept {
+  return QueueKey{batch.queueType, batch.queueLane};
 }
 
 // 依存元パスがどの batch に入っているかを探す。
@@ -327,7 +332,8 @@ Result FrameGraphBuilder::register_texture_access(TextureHandle handle,
 }
 
 FrameGraph::FrameGraph(const FrameGraphDesc &desc, const uint32_t &bufferCount)
-    : m_desc(desc), m_bufferCount(bufferCount) {}
+    : m_desc(desc), m_bufferCount(bufferCount),
+      m_frameSlotFences((std::max)(bufferCount, 1u)) {}
 FrameGraph::~FrameGraph() { (void)cleanup_build_resources(); }
 
 Result FrameGraph::cleanup_build_resources() {
@@ -415,16 +421,44 @@ Result FrameGraph::build() {
     compiledPass.buildInfo = {};
     compiledPass.buildInfo.name = compiledPass.pass->name();
     compiledPass.buildInfo.queueType = compiledPass.pass->type();
+    compiledPass.buildInfo.queueLane = compiledPass.pass->queue_lane();
 
     FrameGraphBuilder builder(*this, &compiledPass.buildInfo);
+    if (m_desc.enablePassTimingLog) {
+      Core::IO::log(Core::IO::LogSink::file,
+                    "[FrameGraphBuildSetupBegin] pass={}",
+                    compiledPass.pass->name());
+    }
     Result result = compiledPass.pass->setup(builder);
     if (!result) {
+      Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                    "[FrameGraphBuildSetupFailed] pass={} code={} message={}",
+                    compiledPass.pass->name(),
+                    static_cast<uint32_t>(result.code), result.message);
       return result;
+    }
+    if (m_desc.enablePassTimingLog) {
+      Core::IO::log(Core::IO::LogSink::file,
+                    "[FrameGraphBuildSetupEnd] pass={}",
+                    compiledPass.pass->name());
+      Core::IO::log(Core::IO::LogSink::file,
+                    "[FrameGraphBuildDescribeBegin] pass={}",
+                    compiledPass.pass->name());
     }
 
     result = compiledPass.pass->describe_resources(builder);
     if (!result) {
+      Core::IO::log(
+          Core::IO::LogSink::console | Core::IO::LogSink::file,
+          "[FrameGraphBuildDescribeFailed] pass={} code={} message={}",
+          compiledPass.pass->name(), static_cast<uint32_t>(result.code),
+          result.message);
       return result;
+    }
+    if (m_desc.enablePassTimingLog) {
+      Core::IO::log(Core::IO::LogSink::file,
+                    "[FrameGraphBuildDescribeEnd] pass={}",
+                    compiledPass.pass->name());
     }
   }
 
@@ -497,20 +531,102 @@ Result FrameGraph::execute(uint32_t frameIndex) {
   if (isProfilingEnabled) {
     pendingGpuTimings.reserve(m_passes.size());
   }
-  std::unordered_map<CommandListType, QueueExecutionState> queues{};
+  std::unordered_map<QueueKey, QueueExecutionState, QueueKeyHasher> queues{};
   std::vector<commandContextLease> stagedCommandContexts{};
   stagedCommandContexts.reserve(m_passes.size());
+  std::unordered_map<QueueKey, SubmittedQueueFence, QueueKeyHasher>
+      currentExecuteFences{};
+
+  if (!m_desc.waitForCompletion) {
+    for (auto &[key, submittedFence] : m_previousExecuteFences) {
+      (void)key;
+      if (submittedFence.queue == nullptr || submittedFence.fenceValue == 0) {
+        continue;
+      }
+
+      const Clock::time_point waitStartTime = Clock::now();
+      Result waitResult =
+          submittedFence.queue->wait_for_fence(submittedFence.fenceValue);
+      if (!waitResult) {
+        return Result::fail(
+            waitResult.code, Severity::Error,
+            "Failed to wait for previous frame graph execution fence.");
+      }
+      if (isProfilingEnabled) {
+        const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
+        queueWaitMs += waitElapsedMs;
+        finalQueueWaitMs += waitElapsedMs;
+        switch (submittedFence.queue->type()) {
+        case CommandListType::Graphics:
+          finalGraphicsWaitMs += waitElapsedMs;
+          break;
+        case CommandListType::Compute:
+          finalComputeWaitMs += waitElapsedMs;
+          break;
+        case CommandListType::Copy:
+          finalCopyWaitMs += waitElapsedMs;
+          break;
+        default:
+          break;
+        }
+      }
+    }
+    m_previousExecuteFences.clear();
+  }
+
+  if (m_frameSlotFences.size() != (std::max)(m_bufferCount, 1u)) {
+    m_frameSlotFences.clear();
+    m_frameSlotFences.resize((std::max)(m_bufferCount, 1u));
+  }
+  auto &frameSlotFences = m_frameSlotFences[frameIndex % m_frameSlotFences.size()];
+  if (!m_desc.waitForCompletion) {
+    for (auto &[key, submittedFence] : frameSlotFences) {
+      (void)key;
+      if (submittedFence.queue == nullptr || submittedFence.fenceValue == 0) {
+        continue;
+      }
+
+      const Clock::time_point waitStartTime = Clock::now();
+      Result waitResult =
+          submittedFence.queue->wait_for_fence(submittedFence.fenceValue);
+      if (!waitResult) {
+        return Result::fail(
+            waitResult.code, Severity::Error,
+            "Failed to wait for frame graph frame-slot fence.");
+      }
+      if (isProfilingEnabled) {
+        const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
+        queueWaitMs += waitElapsedMs;
+        finalQueueWaitMs += waitElapsedMs;
+        switch (submittedFence.queue->type()) {
+        case CommandListType::Graphics:
+          finalGraphicsWaitMs += waitElapsedMs;
+          break;
+        case CommandListType::Compute:
+          finalComputeWaitMs += waitElapsedMs;
+          break;
+        case CommandListType::Copy:
+          finalCopyWaitMs += waitElapsedMs;
+          break;
+        default:
+          break;
+        }
+      }
+    }
+  }
+  frameSlotFences.clear();
 
   // 実行計画に登場した queue だけを遅延取得する。
   // Graphics は swapchain present と同じ queue を使えるように特別扱いしている。
-  auto ensure_queue = [&](CommandListType queueType) -> Result {
-    if (queues.contains(queueType)) {
+  auto ensure_queue = [&](QueueKey key) -> Result {
+    if (queues.contains(key)) {
       return Result::ok();
     }
 
     QueueExecutionState queueState{};
     const bool usePresentQueue =
-        m_desc.usePresentQueue && queueType == CommandListType::Graphics;
+        m_desc.usePresentQueue && key.type == CommandListType::Graphics &&
+        key.lane == 0;
     if (usePresentQueue) {
       queueState.queue = m_desc.queuePool->get_present_queue_context();
       if (queueState.queue == nullptr) {
@@ -520,7 +636,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       }
     } else {
       Result result =
-          m_desc.queuePool->get_queue_context(queueType, queueState.queueLease);
+          m_desc.queuePool->get_queue_context(key.type, queueState.queueLease);
       if (!result) {
         return Result::fail(
             result.code, Severity::Error,
@@ -528,7 +644,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       }
       queueState.queue = queueState.queueLease.get();
     }
-    queues.insert_or_assign(queueType, std::move(queueState));
+    queues.insert_or_assign(key, std::move(queueState));
     return Result::ok();
   };
 
@@ -562,7 +678,8 @@ Result FrameGraph::execute(uint32_t frameIndex) {
     // batch は同じ queue に投げられるパスのまとまり。
     // batch 内の各パスは個別の command context に記録し、最後にまとめて submit
     // する。
-    Result queueResult = ensure_queue(batch.queueType);
+    const QueueKey batchQueueKey = queue_key(batch);
+    Result queueResult = ensure_queue(batchQueueKey);
     if (!queueResult) {
       return_all_command_contexts();
       return_all_queue_contexts();
@@ -599,7 +716,8 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       if (isProfilingEnabled) {
         m_executionStats.passStats.push_back(
             FrameGraphExecutionStats::PassExecutionStats{
-                compiledPass.pass->name(), compiledPass.pass->type()});
+                compiledPass.pass->name(), compiledPass.pass->type(),
+                compiledPass.pass->queue_lane()});
         passStats = &m_executionStats.passStats.back();
       }
       commandContextLease commandContext{};
@@ -781,7 +899,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       commandContextPointers.push_back(commandContext.get());
       if (supportsTimestamps) {
         pendingGpuTimings.push_back(PendingGpuTiming{
-            commandContext.get(), batch.queueType, passStats, 0, 1});
+            commandContext.get(), batchQueueKey, passStats, 0, 1});
       }
       stagedCommandContexts.push_back(std::move(commandContext));
       if (passStats != nullptr) {
@@ -789,7 +907,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       }
     }
 
-    QueueExecutionState &queueState = queues.at(batch.queueType);
+    QueueExecutionState &queueState = queues.at(batchQueueKey);
     // 別 queue の producer batch がある場合は、submit 前に queue 間 wait
     // を入れる。 同一 queue 内の順序は submit 順で保証されるため
     // waitBatchIndices には入らない。
@@ -802,8 +920,9 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       }
 
       const QueueBatchInfo &producerBatch = m_executionPlan[waitBatchIndex];
+      const QueueKey producerQueueKey = queue_key(producerBatch);
       QueueExecutionState &producerQueueState =
-          queues.at(producerBatch.queueType);
+          queues.at(producerQueueKey);
       if (producerQueueState.queue == nullptr || queueState.queue == nullptr) {
         return_all_command_contexts();
         return_all_queue_contexts();
@@ -863,7 +982,12 @@ Result FrameGraph::execute(uint32_t frameIndex) {
                                                    signaledFenceValue);
         }
       }
+      frameSlotFences[batchQueueKey] =
+          SubmittedQueueFence{queueState.queue, signaledFenceValue};
+      currentExecuteFences[batchQueueKey] =
+          SubmittedQueueFence{queueState.queue, signaledFenceValue};
     }
+    queueState.fenceValue = signaledFenceValue;
 
     switch (batch.queueType) {
     case CommandListType::Graphics:
@@ -910,27 +1034,13 @@ Result FrameGraph::execute(uint32_t frameIndex) {
   if (m_desc.waitForCompletion) {
     // フレーム末尾で全 queue の完了を待つモード。
     // プロファイルと GPU timestamp 読み戻しにはこの完了待ちが必要になる。
-    for (auto &[queueType, queueState] : queues) {
-      (void)queueType;
+    for (auto &[key, queueState] : queues) {
       if (!queueState.submitted || queueState.queue == nullptr) {
         continue;
       }
 
       const Clock::time_point waitStartTime = Clock::now();
-      uint64_t fenceValue = 0;
-      switch (queueType) {
-      case CommandListType::Graphics:
-        fenceValue = m_executionStats.graphicsFenceValue;
-        break;
-      case CommandListType::Compute:
-        fenceValue = m_executionStats.computeFenceValue;
-        break;
-      case CommandListType::Copy:
-        fenceValue = m_executionStats.copyFenceValue;
-        break;
-      default:
-        break;
-      }
+      const uint64_t fenceValue = queueState.fenceValue;
 
       Result waitResult = queueState.queue->wait_for_fence(fenceValue);
       if (!waitResult) {
@@ -943,7 +1053,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
         const double waitElapsedMs = ms_since(waitStartTime, Clock::now());
         queueWaitMs += waitElapsedMs;
         finalQueueWaitMs += waitElapsedMs;
-        switch (queueType) {
+        switch (key.type) {
         case CommandListType::Graphics:
           finalGraphicsWaitMs += waitElapsedMs;
           break;
@@ -963,16 +1073,16 @@ Result FrameGraph::execute(uint32_t frameIndex) {
   // timestamp query を GPU 時間へ変換する。
   // queue ごとに frequency が違う可能性があるため、queue
   // 種別単位でキャッシュする。
-  std::unordered_map<CommandListType, uint64_t> queueFrequencies{};
+  std::unordered_map<QueueKey, uint64_t, QueueKeyHasher> queueFrequencies{};
   for (const PendingGpuTiming &gpuTiming : pendingGpuTimings) {
     if (gpuTiming.commandContext == nullptr || gpuTiming.passStats == nullptr) {
       continue;
     }
 
     uint64_t frequency = 0;
-    auto frequencyIt = queueFrequencies.find(gpuTiming.queueType);
+    auto frequencyIt = queueFrequencies.find(gpuTiming.queueKey);
     if (frequencyIt == queueFrequencies.end()) {
-      QueueExecutionState &queueState = queues.at(gpuTiming.queueType);
+      QueueExecutionState &queueState = queues.at(gpuTiming.queueKey);
       if (queueState.queue == nullptr) {
         continue;
       }
@@ -983,7 +1093,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
         continue;
       }
 
-      queueFrequencies.emplace(gpuTiming.queueType, frequency);
+      queueFrequencies.emplace(gpuTiming.queueKey, frequency);
     } else {
       frequency = frequencyIt->second;
     }
@@ -1007,7 +1117,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
                     "[PassTimingGpu] execute={} frameIndex={} pass={} queue={} "
                     "gpuMs={:.3f} timestampDelta={} frequency={}",
                     executeCount, frameIndex, gpuTiming.passStats->name,
-                    command_queue_name(gpuTiming.queueType),
+                    command_queue_name(gpuTiming.queueKey.type),
                     gpuTiming.passStats->gpuExecuteMs,
                     endTimestamp - startTimestamp, frequency);
     }
@@ -1015,6 +1125,11 @@ Result FrameGraph::execute(uint32_t frameIndex) {
 
   return_all_command_contexts();
   return_all_queue_contexts();
+  if (!m_desc.waitForCompletion) {
+    m_previousExecuteFences = std::move(currentExecuteFences);
+  } else {
+    m_previousExecuteFences.clear();
+  }
   if (isProfilingEnabled) {
     // submitMs は CPU 上の execute() 時間から queue wait を除いた値として扱う。
     m_executionStats.totalExecuteMs = ms_since(executeStartTime, Clock::now());
@@ -1238,23 +1353,26 @@ Result FrameGraph::build_execution_plan() {
 
   uint32_t processedCount = 0;
   while (!readyPassIndices.empty()) {
-    // 同じトポロジカル段階にあるパスを Queue 種別ごとにまとめる。
+    // 同じトポロジカル段階にあるパスを Queue 種別 + lane ごとにまとめる。
     // これにより依存のない Graphics / Compute / Copy batch は並行 submit
-    // できる。
-    std::unordered_map<CommandListType, std::vector<uint32_t>> stageBatches{};
+    // でき、Compute/Copy は複数 queue lane へ分散できる。
+    std::unordered_map<QueueKey, std::vector<uint32_t>, QueueKeyHasher>
+        stageBatches{};
     std::vector<uint32_t> currentReadyPassIndices = readyPassIndices;
     readyPassIndices.clear();
 
     for (uint32_t passIndex : currentReadyPassIndices) {
       const CommandListType queueType = m_passes[passIndex].buildInfo.queueType;
-      stageBatches[queueType].push_back(passIndex);
+      const uint32_t queueLane = m_passes[passIndex].buildInfo.queueLane;
+      stageBatches[QueueKey{queueType, queueLane}].push_back(passIndex);
     }
 
     std::vector<uint32_t> stageBatchIndices{};
     stageBatchIndices.reserve(stageBatches.size());
-    for (auto &[queueType, passIndices] : stageBatches) {
+    for (auto &[key, passIndices] : stageBatches) {
       QueueBatchInfo batch{};
-      batch.queueType = queueType;
+      batch.queueType = key.type;
+      batch.queueLane = key.lane;
       batch.passIndices = std::move(passIndices);
       m_executionPlan.push_back(std::move(batch));
       stageBatchIndices.push_back(
@@ -1264,8 +1382,13 @@ Result FrameGraph::build_execution_plan() {
     std::sort(
         stageBatchIndices.begin(), stageBatchIndices.end(),
         [&](uint32_t a_left, uint32_t a_right) {
-          return static_cast<uint32_t>(m_executionPlan[a_left].queueType) <
-                 static_cast<uint32_t>(m_executionPlan[a_right].queueType);
+          const QueueBatchInfo &left = m_executionPlan[a_left];
+          const QueueBatchInfo &right = m_executionPlan[a_right];
+          if (left.queueType != right.queueType) {
+            return static_cast<uint32_t>(left.queueType) <
+                   static_cast<uint32_t>(right.queueType);
+          }
+          return left.queueLane < right.queueLane;
         });
 
     for (uint32_t batchIndex : stageBatchIndices) {
@@ -1286,7 +1409,8 @@ Result FrameGraph::build_execution_plan() {
                                 "building execution plan.");
           }
 
-          if (producerBatch->queueType != batch.queueType) {
+          if (producerBatch->queueType != batch.queueType ||
+              producerBatch->queueLane != batch.queueLane) {
             waitBatchSet.insert(producerBatchIndex);
           }
         }

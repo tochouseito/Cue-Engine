@@ -48,12 +48,19 @@ struct ClusterLightRange
 uint cue_compute_depth_slice(float viewZ)
 {
     const uint depthSliceCount = max(g_clusterDepthSliceCount, 1u);
-    const float safeNearZ = max(g_clusterNearZ, 0.0001f);
-    const float safeFarZ = max(g_clusterFarZ, safeNearZ + 0.0001f);
+    const float projectionA = g_projectionMatrix[2][2];
+    const float projectionB = g_projectionMatrix[3][2];
+    const float projectedNearZ =
+        max(projectionB / (-1.0f - projectionA), 0.0001f);
+    const float projectedFarZ =
+        max(projectionB / (1.0f - projectionA), projectedNearZ + 0.0001f);
+    const float safeNearZ = projectedNearZ;
+    const float safeFarZ = projectedFarZ;
+    const float invLogFarNear = rcp(max(log(safeFarZ / safeNearZ), 0.0001f));
     const float safeViewZ = clamp(viewZ, safeNearZ, safeFarZ);
     const float slice =
         log(safeViewZ / safeNearZ) *
-        max(g_clusterInvLogFarNear, 0.0001f) *
+        invLogFarNear *
         (float)depthSliceCount;
     return min((uint)slice, depthSliceCount - 1u);
 }

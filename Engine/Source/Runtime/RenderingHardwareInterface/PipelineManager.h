@@ -25,7 +25,9 @@ namespace Cue::RHI
     {
         All,
         Vertex,
-        Pixel
+        Pixel,
+        Amplification,
+        Mesh
     };
 
     struct RootParameterDesc
@@ -35,6 +37,7 @@ namespace Cue::RHI
         uint32_t shaderRegister;
         uint32_t descriptorCount = 1;
         uint32_t registerSpace = 0;
+        uint32_t num32BitValues = 1;
     };
 
     struct RootSignatureDesc
@@ -112,6 +115,8 @@ namespace Cue::RHI
         std::string name = {};
         RootSignatureHandle rootSignatureHandle = {};
         ShaderBlobHandle vsHandle = {};
+        ShaderBlobHandle asHandle = {};
+        ShaderBlobHandle msHandle = {};
         ShaderBlobHandle psHandle = {};
         std::vector<InputElementDesc> inputElements = {};
         std::vector<BlendMode> blendMode = { BlendMode::None };

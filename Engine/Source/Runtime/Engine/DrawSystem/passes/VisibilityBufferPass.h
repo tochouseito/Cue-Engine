@@ -43,7 +43,7 @@ public:
     visibilityDesc.kind = RHI::TextureKind::RenderTarget;
     visibilityDesc.width = builder.width();
     visibilityDesc.height = builder.height();
-    visibilityDesc.format = RHI::ColorFormat::R32G32_UINT;
+    visibilityDesc.format = RHI::ColorFormat::R32_UINT;
     visibilityDesc.clearColor[0] = 0.0f;
     visibilityDesc.clearColor[1] = 0.0f;
     visibilityDesc.clearColor[2] = 0.0f;
@@ -63,7 +63,7 @@ public:
     visibilityRtvDesc.type = RHI::ViewType::RenderTarget;
     visibilityRtvDesc.bufferKind = RHI::BufferKind::Texture;
     visibilityRtvDesc.textureHandle = m_visibility;
-    visibilityRtvDesc.colorFormat = RHI::ColorFormat::R32G32_UINT;
+    visibilityRtvDesc.colorFormat = RHI::ColorFormat::R32_UINT;
     result = builder.create_view(visibilityRtvDesc, m_visibilityRtv);
     if (!result) {
       return result;
@@ -74,7 +74,7 @@ public:
     visibilitySrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
     visibilitySrvDesc.bufferKind = RHI::BufferKind::Texture;
     visibilitySrvDesc.textureHandle = m_visibility;
-    visibilitySrvDesc.colorFormat = RHI::ColorFormat::R32G32_UINT;
+    visibilitySrvDesc.colorFormat = RHI::ColorFormat::R32_UINT;
     visibilitySrvDesc.mipLevels = 1;
     result = builder.create_view(visibilitySrvDesc, m_visibilitySrv);
     if (!result) {
@@ -105,6 +105,17 @@ public:
       return result;
     }
 
+    RHI::ViewDesc depthSrvDesc{};
+    depthSrvDesc.name = "VisibilityDepthSRV";
+    depthSrvDesc.type = RHI::ViewType::ShaderResourceTexture2D;
+    depthSrvDesc.bufferKind = RHI::BufferKind::Texture;
+    depthSrvDesc.textureHandle = m_depth;
+    depthSrvDesc.colorFormat = RHI::ColorFormat::R24_UNorm_X8_Typeless;
+    result = builder.create_view(depthSrvDesc, m_depthSrv);
+    if (!result) {
+      return result;
+    }
+
     result = builder.read_buffer(m_renderObjectBuffer);
     if (!result) {
       return result;
@@ -126,7 +137,7 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshPool.Index", m_indexBuffer);
+    result = builder.get_buffer("MeshPool.RangeIndex", m_indexBuffer);
     if (!result) {
       return result;
     }
@@ -145,12 +156,11 @@ public:
     if (!result) {
       return result;
     }
-
     RHI::RootSignatureDesc rootSignatureDesc{};
     rootSignatureDesc.name = "VisibilityBufferRootSignature";
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
+         1, 1, 0, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -198,7 +208,7 @@ public:
     pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
     pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
     pipelineDesc.blendMode = {RHI::BlendMode::None};
-    pipelineDesc.rtvFormats = {RHI::ColorFormat::R32G32_UINT};
+    pipelineDesc.rtvFormats = {RHI::ColorFormat::R32_UINT};
     return builder.create_graphics_pipeline(pipelineDesc, m_pipeline);
   }
 
@@ -211,31 +221,35 @@ public:
     }
     result = builder.use_texture(m_depth, RHI::ResourceAccessType::Write,
                                  RHI::ResourceState::DepthWrite,
-                                 RHI::ResourceState::Common);
+                                 RHI::ResourceState::DepthWrite);
     if (!result) {
       return result;
     }
     result = builder.use_buffer(
         m_renderObjectBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        RHI::ResourceState::ShaderResource,
+        RHI::ResourceState::ShaderResource);
     if (!result) {
       return result;
     }
     result = builder.use_buffer(
         m_transformBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        RHI::ResourceState::ShaderResource,
+        RHI::ResourceState::ShaderResource);
     if (!result) {
       return result;
     }
     result = builder.use_buffer(
         m_viewProjectionBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        RHI::ResourceState::ShaderResource,
+        RHI::ResourceState::ShaderResource);
     if (!result) {
       return result;
     }
     result = builder.use_buffer(
         m_visibleObjectCountBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        RHI::ResourceState::ShaderResource,
+        RHI::ResourceState::ShaderResource);
     if (!result) {
       return result;
     }
@@ -253,19 +267,26 @@ public:
     }
     result = builder.use_buffer(
         m_indirectCommandBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
+        RHI::ResourceState::IndirectArgument,
+        RHI::ResourceState::IndirectArgument);
     if (!result) {
       return result;
     }
     result = builder.use_buffer(
         m_indirectCommandCountBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::IndirectArgument, RHI::ResourceState::Common);
+        RHI::ResourceState::IndirectArgument,
+        RHI::ResourceState::IndirectArgument);
     if (!result) {
       return result;
     }
-    return builder.use_buffer(
+    result = builder.use_buffer(
         m_renderObjectIndexBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
+        RHI::ResourceState::ShaderResource,
+        RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
+    return Result::ok();
   }
 
   void execute(RHI::FrameGraphContext &context) override {
@@ -292,13 +313,11 @@ public:
 
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
-    if (frameState.objectCount == 0) {
-      return;
+    if (frameState.objectCount != 0) {
+      commandContext->execute_indexed_indirect(m_indirectCommandBuffer,
+                                               m_indirectCommandCountBuffer,
+                                               m_maxIndirectCommandCount);
     }
-
-    commandContext->execute_indexed_indirect(m_indirectCommandBuffer,
-                                             m_indirectCommandCountBuffer,
-                                             m_maxIndirectCommandCount);
   }
 
 private:
@@ -310,6 +329,7 @@ private:
   RHI::ViewHandle m_visibilityRtv{};
   RHI::ViewHandle m_visibilitySrv{};
   RHI::ViewHandle m_depthDsv{};
+  RHI::ViewHandle m_depthSrv{};
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_transformBuffer{};
   RHI::BufferHandle m_viewProjectionBuffer{};
@@ -386,7 +406,7 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.get_buffer("MeshPool.Index", m_indexBuffer);
+    result = builder.get_buffer("MeshPool.RangeIndex", m_indexBuffer);
     if (!result) {
       return result;
     }
@@ -410,7 +430,7 @@ public:
     rootSignatureDesc.name = "VisibilityBufferRangeRootSignature";
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
+         1, 1, 0, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::CBV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -458,7 +478,7 @@ public:
     pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
     pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
     pipelineDesc.blendMode = {RHI::BlendMode::None};
-    pipelineDesc.rtvFormats = {RHI::ColorFormat::R32G32_UINT};
+    pipelineDesc.rtvFormats = {RHI::ColorFormat::R32_UINT};
     return builder.create_graphics_pipeline(pipelineDesc, m_pipeline);
   }
 

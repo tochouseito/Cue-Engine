@@ -62,6 +62,7 @@ namespace Cue::RHI
         virtual IViewManager* get_view_manager() = 0;
         virtual ICommandPool* get_command_pool() = 0;
         virtual IQueuePool* get_queue_pool() = 0;
+        virtual bool supports_mesh_shader() const noexcept = 0;
         
         // --- パラメーターの取得 ---
         virtual uint32_t width() const noexcept = 0;

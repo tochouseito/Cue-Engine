@@ -225,7 +225,6 @@ namespace Cue::RHI::DX12
             break;
         }
         case ViewType::ShaderResourceBuffer:
-        case ViewType::ShaderResourceRawBuffer:
         {
             // SRV を作成する
             TableID tableId = m_descriptorAllocator.allocate(convert_view_kind(desc.type));
@@ -236,6 +235,22 @@ namespace Cue::RHI::DX12
                     Code::CreateFailed,
                     Severity::Error,
                     "Failed to create SRV for the resource.");
+            }
+            ids.emplace_back(tableId);
+            break;
+        }
+        case ViewType::ShaderResourceRawBuffer:
+        {
+            TableID tableId =
+                m_descriptorAllocator.allocate(convert_view_kind(desc.type));
+            Result result = m_descriptorAllocator.create_srv_raw_buffer(
+                tableId, &resource, desc.firstElement, desc.numElements);
+            if (!result)
+            {
+                return Result::fail(
+                    Code::CreateFailed,
+                    Severity::Error,
+                    "Failed to create RAW SRV for the resource.");
             }
             ids.emplace_back(tableId);
             break;

@@ -27,6 +27,7 @@ namespace Cue::RHI
         colorDesc.width = a_backend.width();
         colorDesc.height = a_backend.height();
         colorDesc.format = a_format;
+        colorDesc.allowUnorderedAccess = true;
         Math::float4 clearColor = Math::float4::from_rgba8(63, 63, 63, 255);
         if (a_clearColor != nullptr)
         {
@@ -83,6 +84,19 @@ namespace Cue::RHI
             return result;
         }
 
+        RHI::ViewDesc colorUavDesc{};
+        colorUavDesc.name = colorName + "UAV";
+        colorUavDesc.type = RHI::ViewType::UnorderedAccessTexture2D;
+        colorUavDesc.bufferKind = RHI::BufferKind::Texture;
+        colorUavDesc.textureHandle = a_outResources.colorHandle;
+        colorUavDesc.colorFormat = a_format;
+        result = viewManager->create_view(
+            colorUavDesc, a_outResources.colorUavHandle);
+        if (!result)
+        {
+            return result;
+        }
+
         return Result::ok();
     }
 
@@ -95,6 +109,17 @@ namespace Cue::RHI
 
         if (viewManager != nullptr)
         {
+            if (a_resources.colorUavHandle.valid())
+            {
+                Result result =
+                    viewManager->destroy_view(a_resources.colorUavHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                a_resources.colorUavHandle = {};
+            }
+
             if (a_resources.colorSrvHandle.valid())
             {
                 Result result =

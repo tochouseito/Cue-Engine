@@ -14,6 +14,8 @@
 #include "GpuData/Batching.h"
 
 // === C++ includes ===
+#include <algorithm>
+#include <array>
 #include <cstring>
 
 namespace Cue::DrawSystem {
@@ -28,7 +30,8 @@ public:
                        RHI::BufferHandle transformBuffer,
                        RHI::BufferHandle viewProjectionBuffer,
                        RHI::BufferHandle visibleObjectCountBuffer,
-                       uint32_t maxObjectCount, uint32_t maxRangeCommandCount)
+                       uint32_t maxObjectCount, uint32_t maxRangeCommandCount,
+                       bool enableStatsReadback = true)
       : m_drawFrameState(drawFrameState), m_renderPath(renderPath),
         m_debugView(debugView), m_bufferManager(bufferManager),
         m_statsOutput(statsOutput), m_renderObjectBuffer(renderObjectBuffer),
@@ -36,7 +39,8 @@ public:
         m_viewProjectionBuffer(viewProjectionBuffer),
         m_visibleObjectCountBuffer(visibleObjectCountBuffer),
         m_maxObjectCount(maxObjectCount),
-        m_maxRangeCommandCount(maxRangeCommandCount) {}
+        m_maxRangeCommandCount(maxRangeCommandCount),
+        m_enableStatsReadback(enableStatsReadback) {}
 
   const char *name() const noexcept override { return "MeshletGroupCull"; }
   RHI::CommandListType type() const noexcept override {
@@ -83,6 +87,21 @@ public:
     result = builder.get_buffer("MeshPool.MeshletChunk", m_meshletChunkBuffer);
     if (!result) {
       return result;
+    }
+    m_hasPreviousHiZ = false;
+    for (uint32_t hizIndex = 0u; hizIndex < 2u; ++hizIndex) {
+      const bool first = hizIndex == 0u;
+      result = builder.get_view(first ? "ChunkHiZ.SRV0" : "ChunkHiZ.SRV1",
+                                m_hizSrvs[hizIndex]);
+      if (!result) {
+        return result;
+      }
+      result =
+          builder.get_texture(first ? "ChunkHiZ.Texture0" : "ChunkHiZ.Texture1",
+                              m_hizTextures[hizIndex]);
+      if (!result) {
+        return result;
+      }
     }
 
     result = builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
@@ -136,7 +155,8 @@ public:
     statsDesc.type = RHI::BufferType::Raw;
     statsDesc.defaultHeapCount = 1u;
     statsDesc.uploadHeapCount = 0u;
-    statsDesc.readbackHeapCount = builder.buffer_count();
+    statsDesc.readbackHeapCount =
+        m_enableStatsReadback ? builder.buffer_count() : 0u;
     statsDesc.initialState = RHI::ResourceState::UnorderedAccess;
     statsDesc.stride = sizeof(GpuData::MeshletGroupCullStatsGpu);
     statsDesc.elementCount = 1u;
@@ -158,15 +178,17 @@ public:
       return result;
     }
 
-    if (m_bufferManager == nullptr) {
+    if (m_enableStatsReadback && m_bufferManager == nullptr) {
       return Result::fail(
           Code::InvalidState, Severity::Error,
           "MeshletGroupCullPass requires a buffer manager for stats readback.");
     }
-    result = m_bufferManager->get_readback_buffer_view(m_statsBuffer,
-                                                       m_statsReadbackView);
-    if (!result) {
-      return result;
+    if (m_enableStatsReadback) {
+      result = m_bufferManager->get_readback_buffer_view(m_statsBuffer,
+                                                         m_statsReadbackView);
+      if (!result) {
+        return result;
+      }
     }
 
     RHI::RootSignatureDesc rootSignatureDesc{};
@@ -201,6 +223,18 @@ public:
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 3});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::DescriptorTableSRV,
+         RHI::ShaderVisibility::All, 7});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         3});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         4});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         5});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
     if (!result) {
       return result;
@@ -272,6 +306,14 @@ public:
     if (!result) {
       return result;
     }
+    for (RHI::TextureHandle hizTexture : m_hizTextures) {
+      result = builder.use_texture(hizTexture, RHI::ResourceAccessType::Read,
+                                   RHI::ResourceState::ShaderResource,
+                                   RHI::ResourceState::ShaderResource);
+      if (!result) {
+        return result;
+      }
+    }
     result = builder.use_buffer(m_objectDrawModeBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -304,7 +346,9 @@ public:
       return;
     }
 
-    update_stats_from_readback(context.frame_index());
+    if (m_enableStatsReadback) {
+      update_stats_from_readback(context.frame_index());
+    }
 
     const uint32_t clearValues[4] = {0, 0, 0, 0};
     commandContext->clear_unordered_access_uint(m_rangeCommandCountUav,
@@ -314,6 +358,13 @@ public:
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
     if (frameState.objectCount == 0) {
+      copy_stats_to_readback(*commandContext, context.frame_index(), true);
+      return;
+    }
+
+    const uint64_t logicalFrameIndex = m_executeFrameCount++;
+    if (!should_run_cull(logicalFrameIndex)) {
+      copy_stats_to_readback(*commandContext, context.frame_index(), true);
       return;
     }
 
@@ -332,10 +383,56 @@ public:
     commandContext->set_uav(11, m_rangeCommandBuffer);
     commandContext->set_uav(12, m_rangeCommandCountBuffer);
     commandContext->set_uav(13, m_statsBuffer);
+    const uint32_t readHiZIndex = (context.frame_index() + 1u) & 1u;
+    commandContext->set_compute_descriptor_table(14, m_hizSrvs[readHiZIndex]);
+    commandContext->set_32bit_constant(15, std::max(1u, context.width() / 4u));
+    commandContext->set_32bit_constant(16, std::max(1u, context.height() / 4u));
+    commandContext->set_32bit_constant(17, m_hasPreviousHiZ ? 1u : 0u);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
+    m_hasPreviousHiZ = true;
 
-    commandContext->uav_barrier(m_statsBuffer);
-    commandContext->resource_barrier(
+    copy_stats_to_readback(*commandContext, context.frame_index(), true);
+  }
+
+private:
+  static constexpr uint32_t kProbeIntervalFrames = 30u;
+  static constexpr uint32_t kWarmupProbeFrames = 8u;
+  static constexpr uint32_t kMinUsefulRangeObjects = 16u;
+  static constexpr uint32_t kMinUsefulSavedIndices = 4u * 1000u * 1000u;
+  static constexpr uint64_t kStatsReadbackWarmupFrames = 8u;
+  static constexpr uint64_t kStatsReadbackIntervalFrames = 30u;
+
+  bool should_run_cull(uint64_t frameIndex) const noexcept {
+    if (frameIndex < kWarmupProbeFrames || !m_hasLastStats) {
+      return true;
+    }
+    if ((frameIndex % kProbeIntervalFrames) == 0u) {
+      return true;
+    }
+
+    const uint32_t savedIndices =
+        m_lastStats.totalIndexCount > m_lastStats.rangeIndexCount
+            ? m_lastStats.totalIndexCount - m_lastStats.rangeIndexCount
+            : 0u;
+    return m_lastStats.rangeObjectCount >= kMinUsefulRangeObjects &&
+           savedIndices >= kMinUsefulSavedIndices;
+  }
+
+  bool should_copy_stats_to_readback() noexcept {
+    const uint64_t frameIndex = m_statsReadbackFrameCount++;
+    return frameIndex < kStatsReadbackWarmupFrames ||
+           (frameIndex % kStatsReadbackIntervalFrames) == 0u;
+  }
+
+  void copy_stats_to_readback(RHI::ICommandContext &commandContext,
+                              uint32_t frameIndex, bool requireUavBarrier) {
+    if (!m_enableStatsReadback || !should_copy_stats_to_readback()) {
+      return;
+    }
+    if (requireUavBarrier) {
+      commandContext.uav_barrier(m_statsBuffer);
+    }
+    commandContext.resource_barrier(
         m_statsBuffer,
         RHI::ResourceBarrierDesc{RHI::ResourceState::UnorderedAccess,
                                  RHI::ResourceState::CopySource});
@@ -345,18 +442,17 @@ public:
     statsCopyRegion.srcDefaultResourceIndex = 0u;
     statsCopyRegion.srcByteOffset = 0u;
     statsCopyRegion.dstBufferHandle = m_statsBuffer;
-    statsCopyRegion.dstReadbackResourceIndex = context.frame_index();
+    statsCopyRegion.dstReadbackResourceIndex = frameIndex;
     statsCopyRegion.dstByteOffset = 0u;
     statsCopyRegion.byteSize = sizeof(GpuData::MeshletGroupCullStatsGpu);
-    commandContext->copy_buffer_region_to_readback(statsCopyRegion);
+    commandContext.copy_buffer_region_to_readback(statsCopyRegion);
 
-    commandContext->resource_barrier(
+    commandContext.resource_barrier(
         m_statsBuffer,
         RHI::ResourceBarrierDesc{RHI::ResourceState::CopySource,
                                  RHI::ResourceState::UnorderedAccess});
   }
 
-private:
   void update_stats_from_readback(uint32_t frameIndex) noexcept {
     if (m_statsOutput == nullptr ||
         frameIndex >= m_statsReadbackView.mappedDatas.size()) {
@@ -370,6 +466,8 @@ private:
 
     GpuData::MeshletGroupCullStatsGpu stats{};
     std::memcpy(&stats, mappedData, sizeof(stats));
+    m_lastStats = stats;
+    m_hasLastStats = true;
     *m_statsOutput = stats;
   }
 
@@ -388,6 +486,8 @@ private:
   RHI::BufferHandle m_meshletBoundsBuffer{};
   RHI::BufferHandle m_meshChunkRangeBuffer{};
   RHI::BufferHandle m_meshletChunkBuffer{};
+  std::array<RHI::TextureHandle, 2> m_hizTextures{};
+  std::array<RHI::ViewHandle, 2> m_hizSrvs{};
   RHI::BufferHandle m_objectDrawModeBuffer{};
   RHI::BufferHandle m_rangeCommandBuffer{};
   RHI::BufferHandle m_rangeCommandCountBuffer{};
@@ -398,5 +498,11 @@ private:
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
   RHI::PipelineStateHandle m_pipeline{};
+  GpuData::MeshletGroupCullStatsGpu m_lastStats{};
+  uint64_t m_executeFrameCount = 0;
+  uint64_t m_statsReadbackFrameCount = 0;
+  bool m_hasLastStats = false;
+  bool m_hasPreviousHiZ = false;
+  bool m_enableStatsReadback = true;
 };
 } // namespace Cue::DrawSystem

@@ -44,6 +44,18 @@ struct RenderObject
     float4 boundsCenterRadius;
 };
 
+struct MeshRange
+{
+    uint indexCount;
+    uint startIndex;
+    int baseVertex;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint rangeStartIndex;
+    uint rangeIndexCount;
+    uint visibilityTriangleStart;
+};
+
 cbuffer DispatchParam : register(b0)
 {
     uint g_objectCount;
@@ -57,6 +69,7 @@ cbuffer ViewProjection : register(b1)
 
 StructuredBuffer<RenderableInfo> g_renderableInfos : register(t0);
 Texture2D<uint> g_occlusionHiZ : register(t1);
+StructuredBuffer<MeshRange> g_meshRanges : register(t2);
 RWStructuredBuffer<RenderObject> g_renderObjects : register(u0);
 RWByteAddressBuffer g_renderObjectCount : register(u1);
 
@@ -75,11 +88,30 @@ cbuffer OcclusionEnabledParam : register(b4)
     uint g_occlusionEnabled;
 };
 
+cbuffer PreferVisibilityPackableParam : register(b5)
+{
+    uint g_preferVisibilityPackable;
+};
+
 RWByteAddressBuffer g_occlusionStats : register(u2);
+RWByteAddressBuffer g_lodStats : register(u3);
 
 static const uint kOcclusionStatsEnabled = 84u;
 static const uint kOcclusionStatsTested = 88u;
 static const uint kOcclusionStatsRejected = 92u;
+static const uint kLodStatsLod0 = 0u;
+static const uint kLodStatsImpostor = 20u;
+static const uint kLodStatsSelectedObjectCount = 24u;
+static const bool kEnableLod4Impostor = false;
+static const float kLod4ProjectedRadiusThreshold = 0.025f;
+static const uint kVisibilityPrimitiveBits = 19u;
+static const uint kMaxPackedVisibilityIndexCount =
+    (1u << kVisibilityPrimitiveBits) * 3u;
+static const uint kMaxMeshCount = 4096u;
+static const uint kMaxOcclusionRectTexels = 32u;
+static const uint kCenterDepthOcclusionRectTexels = 12u;
+static const float kOcclusionDepthBias = 0.006f;
+static const bool kUseCenterDepthForSmallOcclusion = true;
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -214,7 +246,7 @@ uint select_lod(RenderableInfo renderableInfo)
         viewZ;
 
     uint lodIndex = 0u;
-    if (projectedRadius < 0.012f)
+    if (kEnableLod4Impostor && projectedRadius < kLod4ProjectedRadiusThreshold)
     {
         lodIndex = 4u;
     }
@@ -238,6 +270,35 @@ uint select_lod(RenderableInfo renderableInfo)
         return min(lodIndex, lodCount - 1u);
     }
     return min(lodIndex + viewCenterBias, min(2u, lodCount - 1u));
+}
+
+uint select_visibility_packable_lod(RenderableInfo renderableInfo,
+                                    uint selectedLodIndex)
+{
+    if (g_preferVisibilityPackable == 0u)
+    {
+        return selectedLodIndex;
+    }
+
+    const uint lodCount = min(max(renderableInfo.lodCount, 1u), 5u);
+    [loop]
+    for (uint lodIndex = selectedLodIndex; lodIndex < 5u; ++lodIndex)
+    {
+        if (lodIndex >= lodCount)
+        {
+            break;
+        }
+
+        const uint meshId = get_lod_mesh_id(renderableInfo, lodIndex);
+        if (meshId != 0xffffffffu &&
+            meshId < kMaxMeshCount &&
+            g_meshRanges[meshId].indexCount <= kMaxPackedVisibilityIndexCount)
+        {
+            return lodIndex;
+        }
+    }
+
+    return selectedLodIndex;
 }
 
 float project_device_depth(float viewZ)
@@ -318,25 +379,40 @@ bool is_occluded_by_hiz(float4 boundsCenterRadius)
 
     const uint rectWidth = maxX - minX + 1u;
     const uint rectHeight = maxY - minY + 1u;
-    if (rectWidth > 8u || rectHeight > 8u)
+    if (rectWidth > kMaxOcclusionRectTexels ||
+        rectHeight > kMaxOcclusionRectTexels)
     {
         return false;
     }
 
-    const float objectNearDepth = project_device_depth(max(viewZ - radius, 0.001f));
-    const float depthBias = 0.003f;
+    const bool smallOcclusionRect =
+        rectWidth <= kCenterDepthOcclusionRectTexels &&
+        rectHeight <= kCenterDepthOcclusionRectTexels;
+    const float objectNearDepth = project_device_depth(
+        kUseCenterDepthForSmallOcclusion && smallOcclusionRect
+            ? max(viewZ, 0.001f)
+            : max(viewZ - radius, 0.001f));
+    const float depthBias = kOcclusionDepthBias;
 
-    const uint2 samples[5] =
+    const uint quarterX0 = (minX + center.x) >> 1u;
+    const uint quarterX1 = (maxX + center.x + 1u) >> 1u;
+    const uint quarterY0 = (minY + center.y) >> 1u;
+    const uint quarterY1 = (maxY + center.y + 1u) >> 1u;
+    const uint2 samples[9] =
     {
-        uint2(minX, minY),
-        uint2(maxX, minY),
-        uint2(minX, maxY),
-        uint2(maxX, maxY),
-        center
+        center,
+        uint2(quarterX0, center.y),
+        uint2(quarterX1, center.y),
+        uint2(center.x, quarterY0),
+        uint2(center.x, quarterY1),
+        uint2(quarterX0, quarterY0),
+        uint2(quarterX1, quarterY0),
+        uint2(quarterX0, quarterY1),
+        uint2(quarterX1, quarterY1)
     };
 
     [unroll]
-    for (uint sampleIndex = 0u; sampleIndex < 5u; ++sampleIndex)
+    for (uint sampleIndex = 0u; sampleIndex < 9u; ++sampleIndex)
     {
         const float occluderMaxDepth =
             decode_hiz_depth(g_occlusionHiZ.Load(int3(samples[sampleIndex], 0)));
@@ -392,12 +468,21 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    const uint lodIndex = select_lod(renderableInfo);
+    const uint lodIndex =
+        select_visibility_packable_lod(renderableInfo,
+                                       select_lod(renderableInfo));
     const uint objectOffset = waveBaseOffset + WavePrefixCountBits(visible);
     if (objectOffset >= g_objectCount)
     {
         return;
     }
+
+    g_lodStats.InterlockedAdd(kLodStatsLod0 + min(lodIndex, 4u) * 4u, 1u);
+    if (lodIndex == 4u)
+    {
+        g_lodStats.InterlockedAdd(kLodStatsImpostor, 1u);
+    }
+    g_lodStats.InterlockedAdd(kLodStatsSelectedObjectCount, 1u);
 
     RenderObject renderObject;
     renderObject.objectId = renderableInfo.objectId;

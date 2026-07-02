@@ -13,6 +13,9 @@
 #include "DrawSystem/RenderPath.h"
 #include "GpuData/Batching.h"
 
+// === C++ includes ===
+#include <cstring>
+
 namespace Cue::DrawSystem {
 namespace StaticMeshBatching {
 // Fixed bucket batching currently targets the TestProject mesh set.
@@ -277,28 +280,7 @@ public:
   }
 
   Result describe_resources(RHI::FrameGraphBuilder &builder) override {
-    Result result = builder.use_buffer(m_indirectCommandCountBuffer,
-                                       RHI::ResourceAccessType::Write,
-                                       RHI::ResourceState::UnorderedAccess,
-                                       RHI::ResourceState::UnorderedAccess);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(m_batchObjectCountBuffer,
-                                RHI::ResourceAccessType::Write,
-                                RHI::ResourceState::UnorderedAccess,
-                                RHI::ResourceState::UnorderedAccess);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(m_batchObjectStartBuffer,
-                                RHI::ResourceAccessType::Write,
-                                RHI::ResourceState::UnorderedAccess,
-                                RHI::ResourceState::UnorderedAccess);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(m_batchObjectOffsetBuffer,
+    Result result = builder.use_buffer(m_batchObjectCountBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
                                 RHI::ResourceState::UnorderedAccess);
@@ -322,13 +304,7 @@ public:
     }
 
     const uint32_t clearValues[4] = {0, 0, 0, 0};
-    commandContext->clear_unordered_access_uint(m_indirectCommandCountUav,
-                                                clearValues);
     commandContext->clear_unordered_access_uint(m_batchObjectCountUav,
-                                                clearValues);
-    commandContext->clear_unordered_access_uint(m_batchObjectStartUav,
-                                                clearValues);
-    commandContext->clear_unordered_access_uint(m_batchObjectOffsetUav,
                                                 clearValues);
     commandContext->clear_unordered_access_uint(m_objectDrawModeUav,
                                                 clearValues);
@@ -381,6 +357,10 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
+    if (!result) {
+      return result;
+    }
     result =
         builder.get_buffer("BatchObjectCountBuffer", m_batchObjectCountBuffer);
     if (!result) {
@@ -406,6 +386,8 @@ public:
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
@@ -449,6 +431,12 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_meshRangeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     return builder.use_buffer(m_batchObjectCountBuffer,
                               RHI::ResourceAccessType::Write,
                               RHI::ResourceState::UnorderedAccess,
@@ -477,7 +465,8 @@ public:
     commandContext->set_srv(4, m_renderObjectBuffer);
     commandContext->set_srv(5, m_visibleObjectCountBuffer);
     commandContext->set_srv(6, m_objectDrawModeBuffer);
-    commandContext->set_uav(7, m_batchObjectCountBuffer);
+    commandContext->set_srv(7, m_meshRangeBuffer);
+    commandContext->set_uav(8, m_batchObjectCountBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -495,6 +484,7 @@ private:
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
   RHI::BufferHandle m_objectDrawModeBuffer{};
+  RHI::BufferHandle m_meshRangeBuffer{};
   RHI::BufferHandle m_batchObjectCountBuffer{};
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
@@ -503,7 +493,16 @@ private:
 
 class PrefixSumPass final : public RHI::FrameGraphPass {
 public:
-  PrefixSumPass() {}
+  PrefixSumPass(const RenderPath &renderPath,
+                const RenderDebugView &debugView,
+                RHI::IBufferManager *bufferManager,
+                GpuData::StaticMeshBatchStatsGpu *statsOutput,
+                uint32_t maxIndirectCommandCount,
+                bool enableStatsReadback = true)
+      : m_renderPath(renderPath), m_debugView(debugView),
+        m_bufferManager(bufferManager), m_statsOutput(statsOutput),
+        m_maxIndirectCommandCount(maxIndirectCommandCount),
+        m_enableStatsReadback(enableStatsReadback) {}
 
   const char *name() const noexcept override { return "PrefixSum"; }
   RHI::CommandListType type() const noexcept override {
@@ -526,6 +525,61 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
+    if (!result) {
+      return result;
+    }
+    result =
+        builder.get_buffer("IndirectCommandBuffer", m_indirectCommandBuffer);
+    if (!result) {
+      return result;
+    }
+    result = builder.get_buffer("IndirectCommandCountBuffer",
+                                m_indirectCommandCountBuffer);
+    if (!result) {
+      return result;
+    }
+
+    RHI::BufferDesc statsDesc{};
+    statsDesc.name = "StaticMeshBatchStatsBuffer";
+    statsDesc.type = RHI::BufferType::Raw;
+    statsDesc.defaultHeapCount = 1u;
+    statsDesc.uploadHeapCount = 0u;
+    statsDesc.readbackHeapCount =
+        m_enableStatsReadback ? builder.buffer_count() : 0u;
+    statsDesc.initialState = RHI::ResourceState::UnorderedAccess;
+    statsDesc.stride = sizeof(GpuData::StaticMeshBatchStatsGpu);
+    statsDesc.elementCount = 1u;
+    statsDesc.size = sizeof(GpuData::StaticMeshBatchStatsGpu);
+    statsDesc.alignment = alignof(GpuData::StaticMeshBatchStatsGpu);
+    result = builder.create_buffer(statsDesc, m_statsBuffer);
+    if (!result) {
+      return result;
+    }
+
+    RHI::ViewDesc statsUavDesc{};
+    statsUavDesc.name = "StaticMeshBatchStatsBufferUAV";
+    statsUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
+    statsUavDesc.bufferKind = RHI::BufferKind::Buffer;
+    statsUavDesc.bufferHandle = m_statsBuffer;
+    statsUavDesc.numElements = statsDesc.size / sizeof(uint32_t);
+    result = builder.create_view(statsUavDesc, m_statsUav);
+    if (!result) {
+      return result;
+    }
+
+    if (m_enableStatsReadback && m_bufferManager == nullptr) {
+      return Result::fail(
+          Code::InvalidState, Severity::Error,
+          "PrefixSumPass requires a buffer manager for stats readback.");
+    }
+    if (m_enableStatsReadback) {
+      result = m_bufferManager->get_readback_buffer_view(m_statsBuffer,
+                                                         m_statsReadbackView);
+      if (!result) {
+        return result;
+      }
+    }
 
     RHI::RootSignatureDesc rootSignatureDesc{};
     rootSignatureDesc.name = "PrefixSumRootSignature";
@@ -533,11 +587,31 @@ public:
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          0});
     rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         1});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         3});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         4});
+    rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 3});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 4});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
     if (!result) {
       return result;
@@ -567,6 +641,12 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_meshRangeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     result = builder.use_buffer(m_batchObjectStartBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -574,8 +654,28 @@ public:
     if (!result) {
       return result;
     }
-    return builder.use_buffer(m_batchObjectOffsetBuffer,
-                              RHI::ResourceAccessType::Write,
+    result = builder.use_buffer(m_batchObjectOffsetBuffer,
+                                RHI::ResourceAccessType::Write,
+                                RHI::ResourceState::UnorderedAccess,
+                                RHI::ResourceState::UnorderedAccess);
+    if (!result) {
+      return result;
+    }
+    result = builder.use_buffer(m_indirectCommandBuffer,
+                                RHI::ResourceAccessType::Write,
+                                RHI::ResourceState::UnorderedAccess,
+                                RHI::ResourceState::IndirectArgument);
+    if (!result) {
+      return result;
+    }
+    result = builder.use_buffer(m_indirectCommandCountBuffer,
+                                RHI::ResourceAccessType::Write,
+                                RHI::ResourceState::UnorderedAccess,
+                                RHI::ResourceState::IndirectArgument);
+    if (!result) {
+      return result;
+    }
+    return builder.use_buffer(m_statsBuffer, RHI::ResourceAccessType::Write,
                               RHI::ResourceState::UnorderedAccess,
                               RHI::ResourceState::UnorderedAccess);
   }
@@ -586,21 +686,102 @@ public:
       return;
     }
 
+    if (m_enableStatsReadback) {
+      update_stats_from_readback(context.frame_index());
+    }
+
     commandContext->set_compute_pipeline(m_pipeline);
     commandContext->set_32bit_constant(0, StaticMeshBatching::k_maxBatchCount);
-    commandContext->set_srv(1, m_batchObjectCountBuffer);
-    commandContext->set_uav(2, m_batchObjectStartBuffer);
-    commandContext->set_uav(3, m_batchObjectOffsetBuffer);
+    commandContext->set_32bit_constant(
+        1, StaticMeshBatching::k_maxMaterialBatchCount);
+    commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
+    commandContext->set_32bit_constant(3, m_maxIndirectCommandCount);
+    commandContext->set_32bit_constant(4, use_range_index_stream() ? 1u : 0u);
+    commandContext->set_srv(5, m_batchObjectCountBuffer);
+    commandContext->set_srv(6, m_meshRangeBuffer);
+    commandContext->set_uav(7, m_batchObjectStartBuffer);
+    commandContext->set_uav(8, m_batchObjectOffsetBuffer);
+    commandContext->set_uav(9, m_indirectCommandBuffer);
+    commandContext->set_uav(10, m_indirectCommandCountBuffer);
+    commandContext->set_uav(11, m_statsBuffer);
     commandContext->dispatch(1, 1, 1);
+
+    if (!m_enableStatsReadback || !should_copy_stats_to_readback()) {
+      return;
+    }
+
+    commandContext->uav_barrier(m_statsBuffer);
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::UnorderedAccess,
+                                 RHI::ResourceState::CopySource});
+
+    RHI::BufferToReadbackCopyRegion statsCopyRegion{};
+    statsCopyRegion.srcBufferHandle = m_statsBuffer;
+    statsCopyRegion.srcDefaultResourceIndex = 0u;
+    statsCopyRegion.srcByteOffset = 0u;
+    statsCopyRegion.dstBufferHandle = m_statsBuffer;
+    statsCopyRegion.dstReadbackResourceIndex = context.frame_index();
+    statsCopyRegion.dstByteOffset = 0u;
+    statsCopyRegion.byteSize = sizeof(GpuData::StaticMeshBatchStatsGpu);
+    commandContext->copy_buffer_region_to_readback(statsCopyRegion);
+
+    commandContext->resource_barrier(
+        m_statsBuffer,
+        RHI::ResourceBarrierDesc{RHI::ResourceState::CopySource,
+                                 RHI::ResourceState::UnorderedAccess});
   }
 
 private:
+  static constexpr uint64_t kStatsReadbackWarmupFrames = 8u;
+  static constexpr uint64_t kStatsReadbackIntervalFrames = 30u;
+
+  bool should_copy_stats_to_readback() noexcept {
+    const uint64_t frameIndex = m_statsReadbackFrameCount++;
+    return frameIndex < kStatsReadbackWarmupFrames ||
+           (frameIndex % kStatsReadbackIntervalFrames) == 0u;
+  }
+
+  bool use_range_index_stream() const noexcept {
+    return m_renderPath == RenderPath::VisibilityBuffer ||
+           m_debugView != RenderDebugView::Forward;
+  }
+
+  void update_stats_from_readback(uint32_t frameIndex) noexcept {
+    if (m_statsOutput == nullptr ||
+        frameIndex >= m_statsReadbackView.mappedDatas.size()) {
+      return;
+    }
+
+    const std::byte *mappedData = m_statsReadbackView.mappedDatas[frameIndex];
+    if (mappedData == nullptr) {
+      return;
+    }
+
+    GpuData::StaticMeshBatchStatsGpu stats{};
+    std::memcpy(&stats, mappedData, sizeof(stats));
+    *m_statsOutput = stats;
+  }
+
+  const RenderPath &m_renderPath;
+  const RenderDebugView &m_debugView;
+  RHI::IBufferManager *m_bufferManager = nullptr;
+  GpuData::StaticMeshBatchStatsGpu *m_statsOutput = nullptr;
   RHI::BufferHandle m_batchObjectCountBuffer{};
   RHI::BufferHandle m_batchObjectStartBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
+  RHI::BufferHandle m_meshRangeBuffer{};
+  RHI::BufferHandle m_indirectCommandBuffer{};
+  RHI::BufferHandle m_indirectCommandCountBuffer{};
+  RHI::BufferHandle m_statsBuffer{};
+  RHI::ViewHandle m_statsUav{};
+  RHI::ReadbackBufferView m_statsReadbackView{};
   RHI::RootSignatureHandle m_rootSignature{};
   RHI::ShaderBlobHandle m_computeShader{};
   RHI::PipelineStateHandle m_pipeline{};
+  uint32_t m_maxIndirectCommandCount = 0;
+  uint64_t m_statsReadbackFrameCount = 0;
+  bool m_enableStatsReadback = true;
 };
 
 class BatchFillPass final : public RHI::FrameGraphPass {
@@ -632,6 +813,10 @@ public:
       return result;
     }
     result = builder.get_buffer("ObjectDrawModeBuffer", m_objectDrawModeBuffer);
+    if (!result) {
+      return result;
+    }
+    result = builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
     if (!result) {
       return result;
     }
@@ -668,6 +853,8 @@ public:
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 3});
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
     rootSignatureDesc.parameters.push_back(
@@ -713,6 +900,12 @@ public:
     if (!result) {
       return result;
     }
+    result = builder.use_buffer(
+        m_meshRangeBuffer, RHI::ResourceAccessType::Read,
+        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
+    if (!result) {
+      return result;
+    }
     result = builder.use_buffer(m_renderObjectIndexBuffer,
                                 RHI::ResourceAccessType::Write,
                                 RHI::ResourceState::UnorderedAccess,
@@ -748,8 +941,9 @@ public:
     commandContext->set_srv(5, m_renderObjectBuffer);
     commandContext->set_srv(6, m_visibleObjectCountBuffer);
     commandContext->set_srv(7, m_objectDrawModeBuffer);
-    commandContext->set_uav(8, m_renderObjectIndexBuffer);
-    commandContext->set_uav(9, m_batchObjectOffsetBuffer);
+    commandContext->set_srv(8, m_meshRangeBuffer);
+    commandContext->set_uav(9, m_renderObjectIndexBuffer);
+    commandContext->set_uav(10, m_batchObjectOffsetBuffer);
     commandContext->dispatch((frameState.objectCount + 63u) / 64u, 1, 1);
   }
 
@@ -767,6 +961,7 @@ private:
   RHI::BufferHandle m_renderObjectBuffer{};
   RHI::BufferHandle m_visibleObjectCountBuffer{};
   RHI::BufferHandle m_objectDrawModeBuffer{};
+  RHI::BufferHandle m_meshRangeBuffer{};
   RHI::BufferHandle m_renderObjectIndexBuffer{};
   RHI::BufferHandle m_batchObjectOffsetBuffer{};
   uint32_t m_maxDrawInstanceCount = 0;
@@ -775,149 +970,4 @@ private:
   RHI::PipelineStateHandle m_pipeline{};
 };
 
-class IndirectCommandEmitPass final : public RHI::FrameGraphPass {
-public:
-  explicit IndirectCommandEmitPass(uint32_t maxIndirectCommandCount)
-      : m_maxIndirectCommandCount(maxIndirectCommandCount) {}
-
-  const char *name() const noexcept override { return "IndirectCommandEmit"; }
-  RHI::CommandListType type() const noexcept override {
-    return RHI::CommandListType::Compute;
-  }
-
-  Result setup(RHI::FrameGraphBuilder &builder) override {
-    Result result = builder.get_buffer("MeshPool.MeshRange", m_meshRangeBuffer);
-    if (!result) {
-      return result;
-    }
-    result =
-        builder.get_buffer("BatchObjectCountBuffer", m_batchObjectCountBuffer);
-    if (!result) {
-      return result;
-    }
-    result =
-        builder.get_buffer("BatchObjectStartBuffer", m_batchObjectStartBuffer);
-    if (!result) {
-      return result;
-    }
-    result =
-        builder.get_buffer("IndirectCommandBuffer", m_indirectCommandBuffer);
-    if (!result) {
-      return result;
-    }
-    result = builder.get_buffer("IndirectCommandCountBuffer",
-                                m_indirectCommandCountBuffer);
-    if (!result) {
-      return result;
-    }
-
-    RHI::RootSignatureDesc rootSignatureDesc{};
-    rootSignatureDesc.name = "IndirectCommandEmitRootSignature";
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         0});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         1});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         2});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
-         3});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 2});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
-    rootSignatureDesc.parameters.push_back(
-        {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1});
-    result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
-    if (!result) {
-      return result;
-    }
-
-    RHI::ShaderCompileDesc shaderDesc{};
-    shaderDesc.name = "IndirectCommandEmitCS";
-    shaderDesc.filePath = "Shaders/D3D12/StaticMeshIndirectCommandEmit.hlsl";
-    shaderDesc.entryPoint = "CSMain";
-    shaderDesc.targetProfile = "cs_6_0";
-    result = builder.create_shader_blob(shaderDesc, m_computeShader);
-    if (!result) {
-      return result;
-    }
-
-    RHI::ComputePipelineStateDesc pipelineDesc{};
-    pipelineDesc.name = "IndirectCommandEmitPipeline";
-    pipelineDesc.rootSignatureHandle = m_rootSignature;
-    pipelineDesc.csHandle = m_computeShader;
-    return builder.create_compute_pipeline(pipelineDesc, m_pipeline);
-  }
-
-  Result describe_resources(RHI::FrameGraphBuilder &builder) override {
-    Result result = builder.use_buffer(
-        m_meshRangeBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(
-        m_batchObjectCountBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(
-        m_batchObjectStartBuffer, RHI::ResourceAccessType::Read,
-        RHI::ResourceState::ShaderResource, RHI::ResourceState::ShaderResource);
-    if (!result) {
-      return result;
-    }
-    result = builder.use_buffer(m_indirectCommandBuffer,
-                                RHI::ResourceAccessType::Write,
-                                RHI::ResourceState::UnorderedAccess,
-                                RHI::ResourceState::IndirectArgument);
-    if (!result) {
-      return result;
-    }
-    return builder.use_buffer(m_indirectCommandCountBuffer,
-                              RHI::ResourceAccessType::Write,
-                              RHI::ResourceState::UnorderedAccess,
-                              RHI::ResourceState::IndirectArgument);
-  }
-
-  void execute(RHI::FrameGraphContext &context) override {
-    RHI::ICommandContext *commandContext = context.commandContext();
-    if (commandContext == nullptr) {
-      return;
-    }
-
-    commandContext->set_compute_pipeline(m_pipeline);
-    commandContext->set_32bit_constant(0, StaticMeshBatching::k_maxBatchCount);
-    commandContext->set_32bit_constant(
-        1, StaticMeshBatching::k_maxMaterialBatchCount);
-    commandContext->set_32bit_constant(2, StaticMeshBatching::k_depthBinCount);
-    commandContext->set_32bit_constant(3, m_maxIndirectCommandCount);
-    commandContext->set_srv(4, m_meshRangeBuffer);
-    commandContext->set_srv(5, m_batchObjectCountBuffer);
-    commandContext->set_srv(6, m_batchObjectStartBuffer);
-    commandContext->set_uav(7, m_indirectCommandBuffer);
-    commandContext->set_uav(8, m_indirectCommandCountBuffer);
-    commandContext->dispatch(1, 1, 1);
-  }
-
-private:
-  RHI::BufferHandle m_meshRangeBuffer{};
-  RHI::BufferHandle m_batchObjectCountBuffer{};
-  RHI::BufferHandle m_batchObjectStartBuffer{};
-  RHI::BufferHandle m_indirectCommandBuffer{};
-  RHI::BufferHandle m_indirectCommandCountBuffer{};
-  uint32_t m_maxIndirectCommandCount = 0;
-  RHI::RootSignatureHandle m_rootSignature{};
-  RHI::ShaderBlobHandle m_computeShader{};
-  RHI::PipelineStateHandle m_pipeline{};
-};
 } // namespace Cue::DrawSystem

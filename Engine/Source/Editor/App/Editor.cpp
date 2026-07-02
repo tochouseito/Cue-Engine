@@ -47,6 +47,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd,
 namespace {
 bool g_observerViewEnabled = false;
 bool g_controlObserverCamera = false;
+static constexpr uint64_t kPassTimingWarmupSamples = 120;
 
 [[nodiscard]] bool is_key_down(int virtualKey) noexcept {
   return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
@@ -155,12 +156,14 @@ struct TimingAccumulator final {
   double sumMs = 0.0;
   double minMs = std::numeric_limits<double>::max();
   double maxMs = 0.0;
+  std::vector<double> values{};
 
-  void add(double valueMs) noexcept {
+  void add(double valueMs) {
     ++samples;
     sumMs += valueMs;
     minMs = (std::min)(minMs, valueMs);
     maxMs = (std::max)(maxMs, valueMs);
+    values.push_back(valueMs);
   }
 
   [[nodiscard]] double average_ms() const noexcept {
@@ -172,10 +175,64 @@ struct TimingAccumulator final {
   }
 };
 
+struct TimingSummaryStats final {
+  uint64_t samples = 0;
+  uint64_t warmupSkipped = 0;
+  double average = 0.0;
+  double min = 0.0;
+  double max = 0.0;
+  double p50 = 0.0;
+  double p95 = 0.0;
+  double p99 = 0.0;
+};
+
+[[nodiscard]] double percentile_from_sorted(const std::vector<double> &values,
+                                            double percentile) noexcept {
+  if (values.empty()) {
+    return 0.0;
+  }
+  const size_t lastIndex = values.size() - 1u;
+  const double scaledIndex = percentile * static_cast<double>(lastIndex);
+  const size_t index = (std::min)(
+      lastIndex, static_cast<size_t>(scaledIndex + 0.5));
+  return values[index];
+}
+
+[[nodiscard]] TimingSummaryStats
+summarize_values_after_warmup(const TimingAccumulator &accumulator,
+                              uint64_t warmupSamples) {
+  TimingSummaryStats result{};
+  if (accumulator.values.empty()) {
+    return result;
+  }
+
+  const size_t sampleCount = accumulator.values.size();
+  const size_t beginIndex =
+      sampleCount > warmupSamples ? static_cast<size_t>(warmupSamples) : 0u;
+  result.warmupSkipped = static_cast<uint64_t>(beginIndex);
+
+  std::vector<double> values(accumulator.values.begin() + beginIndex,
+                             accumulator.values.end());
+  std::sort(values.begin(), values.end());
+  result.samples = static_cast<uint64_t>(values.size());
+  result.min = values.front();
+  result.max = values.back();
+  double sum = 0.0;
+  for (double value : values) {
+    sum += value;
+  }
+  result.average = sum / static_cast<double>(values.size());
+  result.p50 = percentile_from_sorted(values, 0.50);
+  result.p95 = percentile_from_sorted(values, 0.95);
+  result.p99 = percentile_from_sorted(values, 0.99);
+  return result;
+}
+
 struct PassTimingAggregate final {
   std::string graphName{};
   std::string name{};
   RHI::CommandListType queueType = RHI::CommandListType::Graphics;
+  uint32_t queueLane = 0;
   TimingAccumulator cpuExecute{};
   TimingAccumulator cpuRecordTotal{};
   TimingAccumulator gpuExecute{};
@@ -189,8 +246,10 @@ public:
     for (const RHI::FrameGraphExecutionStats::PassExecutionStats &pass :
          stats.passStats) {
       PassTimingAggregate &aggregate = find_or_create(
-          std::string(graphName), std::string(pass.name), pass.queueType);
+          std::string(graphName), std::string(pass.name), pass.queueType,
+          pass.queueLane);
       aggregate.queueType = pass.queueType;
+      aggregate.queueLane = pass.queueLane;
       aggregate.cpuExecute.add(pass.cpuExecuteMs);
       aggregate.cpuRecordTotal.add(
           pass.acquireResetSetupMs + pass.preBarrierMs + pass.cpuExecuteMs +
@@ -205,23 +264,36 @@ public:
 
   void log_summary() const {
     Core::IO::log(Core::IO::LogSink::file,
-                  "[PassTimingSummaryBegin] passCount={}",
-                  m_passAggregates.size());
+                  "[PassTimingSummaryBegin] passCount={} warmupSamples={}",
+                  m_passAggregates.size(), kPassTimingWarmupSamples);
     for (const PassTimingAggregate &pass : m_passAggregates) {
+      const TimingSummaryStats cpuExecute =
+          summarize_values_after_warmup(pass.cpuExecute,
+                                        kPassTimingWarmupSamples);
+      const TimingSummaryStats cpuRecordTotal =
+          summarize_values_after_warmup(pass.cpuRecordTotal,
+                                        kPassTimingWarmupSamples);
+      const TimingSummaryStats gpuExecute =
+          summarize_values_after_warmup(pass.gpuExecute,
+                                        kPassTimingWarmupSamples);
       Core::IO::log(
           Core::IO::LogSink::file,
-          "[PassTimingSummary] graph={} pass={} queue={} cpuSamples={} "
-          "cpuExecuteMs(avg={:.3f} min={:.3f} max={:.3f}) "
-          "cpuRecordTotalMs(avg={:.3f} min={:.3f} max={:.3f}) "
-          "gpuSamples={} gpuExecuteMs(avg={:.3f} min={:.3f} max={:.3f}) "
+          "[PassTimingSummary] graph={} pass={} queue={} lane={} cpuSamples={} "
+          "cpuWarmupSkipped={} cpuExecuteMs(avg={:.3f} min={:.3f} "
+          "max={:.3f} p50={:.3f} p95={:.3f} p99={:.3f}) "
+          "cpuRecordTotalMs(avg={:.3f} min={:.3f} max={:.3f} p50={:.3f} "
+          "p95={:.3f} p99={:.3f}) gpuSamples={} gpuWarmupSkipped={} "
+          "gpuExecuteMs(avg={:.3f} min={:.3f} max={:.3f} p50={:.3f} "
+          "p95={:.3f} p99={:.3f}) "
           "submittedCommandLists={}",
           pass.graphName, pass.name, command_queue_name(pass.queueType),
-          pass.cpuExecute.samples, pass.cpuExecute.average_ms(),
-          pass.cpuExecute.min_or_zero_ms(), pass.cpuExecute.maxMs,
-          pass.cpuRecordTotal.average_ms(),
-          pass.cpuRecordTotal.min_or_zero_ms(), pass.cpuRecordTotal.maxMs,
-          pass.gpuExecute.samples, pass.gpuExecute.average_ms(),
-          pass.gpuExecute.min_or_zero_ms(), pass.gpuExecute.maxMs,
+          pass.queueLane, pass.cpuExecute.samples, cpuExecute.warmupSkipped,
+          cpuExecute.average, cpuExecute.min, cpuExecute.max, cpuExecute.p50,
+          cpuExecute.p95, cpuExecute.p99, cpuRecordTotal.average,
+          cpuRecordTotal.min, cpuRecordTotal.max, cpuRecordTotal.p50,
+          cpuRecordTotal.p95, cpuRecordTotal.p99, pass.gpuExecute.samples,
+          gpuExecute.warmupSkipped, gpuExecute.average, gpuExecute.min,
+          gpuExecute.max, gpuExecute.p50, gpuExecute.p95, gpuExecute.p99,
           pass.submittedCommandLists);
     }
     Core::IO::log(Core::IO::LogSink::file, "[PassTimingSummaryEnd]");
@@ -229,10 +301,11 @@ public:
 
 private:
   PassTimingAggregate &find_or_create(std::string graphName, std::string name,
-                                      RHI::CommandListType queueType) {
+                                      RHI::CommandListType queueType,
+                                      uint32_t queueLane) {
     for (PassTimingAggregate &aggregate : m_passAggregates) {
       if (aggregate.graphName == graphName && aggregate.name == name &&
-          aggregate.queueType == queueType) {
+          aggregate.queueType == queueType && aggregate.queueLane == queueLane) {
         return aggregate;
       }
     }
@@ -241,11 +314,132 @@ private:
     aggregate.graphName = std::move(graphName);
     aggregate.name = std::move(name);
     aggregate.queueType = queueType;
+    aggregate.queueLane = queueLane;
     m_passAggregates.push_back(std::move(aggregate));
     return m_passAggregates.back();
   }
 
   std::vector<PassTimingAggregate> m_passAggregates{};
+};
+
+struct RenderWorkloadMetric final {
+  std::string name{};
+  TimingAccumulator values{};
+};
+
+class RenderWorkloadCollector final {
+public:
+  void add_frame(const EngineDebugStats &debugStats) {
+    const GpuData::MeshletChunkVisibilityStatsGpu &chunkStats =
+        debugStats.meshletChunkVisibilityStats;
+    const GpuData::MeshletGroupCullStatsGpu &groupStats =
+        debugStats.meshletGroupCullStats;
+    const GpuData::StaticMeshBatchStatsGpu &batchStats =
+        debugStats.staticMeshBatchStats;
+    const GpuData::ObjectCullLodStatsGpu &lodStats =
+        debugStats.objectCullLodStats;
+
+    add_metric("objects.total", debugStats.totalObjects);
+    add_metric("objects.cpuVisible", debugStats.visibleObjects);
+    add_metric("objects.gpuVisible", lodStats.selectedObjectCount);
+    add_metric("objects.gpuCulled",
+               debugStats.totalObjects > lodStats.selectedObjectCount
+                   ? debugStats.totalObjects - lodStats.selectedObjectCount
+                   : 0u);
+    add_metric("objects.selectedForChunkDepth",
+               chunkStats.selectedObjectCount);
+    add_metric("chunks.depthCommands", chunkStats.commandCount);
+    add_metric("chunks.depthInstances", chunkStats.instanceCount);
+    add_metric("chunks.currentVisible", chunkStats.currentVisibleChunkCount);
+    add_metric("chunks.previousVisible", chunkStats.previousVisibleChunkCount);
+    add_metric("chunks.testedObjectChunks", chunkStats.testedObjectChunkCount);
+    add_metric("chunks.rejectedByPreviousVisibility",
+               chunkStats.rejectedByPreviousVisibility);
+    add_metric("chunks.rejectedByFrustum", chunkStats.rejectedByFrustum);
+    add_metric("chunks.rejectedByOccluder",
+               chunkStats.rejectedByOccluderFilter);
+    add_metric("occlusion.enabled", chunkStats.occlusionEnabled);
+    add_metric("occlusion.tested", chunkStats.occlusionTestedCount);
+    add_metric("occlusion.rejected", chunkStats.occlusionRejectedCount);
+    add_metric("chunks.commandOverflow", chunkStats.commandOverflowCount);
+    add_metric("staticBatch.commandCount", batchStats.commandCount);
+    add_metric("staticBatch.instanceCount", batchStats.instanceCount);
+    add_metric("staticBatch.submittedIndexCount",
+               batchStats.submittedIndexCount);
+    add_metric("staticBatch.overflowCount", batchStats.overflowCount);
+    add_metric("visibility.submittedIndexCount",
+               static_cast<uint64_t>(batchStats.submittedIndexCount) +
+                   static_cast<uint64_t>(groupStats.rangeIndexCount));
+    add_metric("objectCullLod.selectedObjects", lodStats.selectedObjectCount);
+    add_metric("objectCullLod.lod0", lodStats.lodObjectCounts[0]);
+    add_metric("objectCullLod.lod1", lodStats.lodObjectCounts[1]);
+    add_metric("objectCullLod.lod2", lodStats.lodObjectCounts[2]);
+    add_metric("objectCullLod.lod3", lodStats.lodObjectCounts[3]);
+    add_metric("objectCullLod.lod4", lodStats.lodObjectCounts[4]);
+    add_metric("objectCullLod.impostor", lodStats.impostorCount);
+    add_metric("meshletGroup.candidateObjects",
+               groupStats.candidateObjectCount);
+    add_metric("meshletGroup.testedGroups", groupStats.testedGroupCount);
+    add_metric("meshletGroup.visibleGroups", groupStats.visibleGroupCount);
+    add_metric("meshletGroup.fallbackObjects",
+               groupStats.fallbackObjectCount);
+    add_metric("meshletGroup.rangeObjects", groupStats.rangeObjectCount);
+    add_metric("meshletGroup.rangeCommands", groupStats.rangeCommandCount);
+    add_metric("meshletGroup.rangeIndices", groupStats.rangeIndexCount);
+    add_metric("meshletGroup.totalIndices", groupStats.totalIndexCount);
+    add_metric("meshletGroup.occlusionTested",
+               groupStats.occlusionTestedCount);
+    add_metric("meshletGroup.occlusionRejected",
+               groupStats.occlusionRejectedCount);
+    add_metric("lod.lod0", debugStats.lodObjectCounts[0]);
+    add_metric("lod.lod1", debugStats.lodObjectCounts[1]);
+    add_metric("lod.lod2", debugStats.lodObjectCounts[2]);
+    add_metric("lod.lod3", debugStats.lodObjectCounts[3]);
+    add_metric("lod.lod4", debugStats.lodObjectCounts[4]);
+    add_metric("lod.impostor", debugStats.impostorCount);
+  }
+
+  void log_summary() const {
+    Core::IO::log(Core::IO::LogSink::file,
+                  "[RenderWorkloadSummaryBegin] metricCount={} "
+                  "warmupSamples={}",
+                  m_metrics.size(), kPassTimingWarmupSamples);
+    for (const RenderWorkloadMetric &metric : m_metrics) {
+      const TimingSummaryStats stats =
+          summarize_values_after_warmup(metric.values,
+                                        kPassTimingWarmupSamples);
+      Core::IO::log(
+          Core::IO::LogSink::file,
+          "[RenderWorkloadSummary] metric={} samples={} warmupSkipped={} "
+          "value(avg={:.3f} min={:.3f} max={:.3f} p50={:.3f} p95={:.3f} "
+          "p99={:.3f})",
+          metric.name, metric.values.samples, stats.warmupSkipped,
+          stats.average, stats.min, stats.max, stats.p50, stats.p95,
+          stats.p99);
+    }
+    Core::IO::log(Core::IO::LogSink::file, "[RenderWorkloadSummaryEnd]");
+  }
+
+private:
+  void add_metric(std::string_view name, uint64_t value) {
+    RenderWorkloadMetric &metric = find_or_create(name);
+    metric.values.add(static_cast<double>(value));
+  }
+
+  RenderWorkloadMetric &find_or_create(std::string_view name) {
+    for (RenderWorkloadMetric &metric : m_metrics) {
+      if (metric.name == name) {
+        return metric;
+      }
+    }
+
+    RenderWorkloadMetric metric{};
+    metric.name = std::string(name);
+    m_metrics.push_back(std::move(metric));
+    return m_metrics.back();
+  }
+
+  std::vector<RenderWorkloadMetric> m_metrics{};
 };
 
 using TimingClock = std::chrono::steady_clock;
@@ -287,6 +481,8 @@ next_render_debug_view(DrawSystem::RenderDebugView view) noexcept {
   case DrawSystem::RenderDebugView::VisibilityLit:
     return DrawSystem::RenderDebugView::VisibilityMaterial;
   case DrawSystem::RenderDebugView::VisibilityMaterial:
+    return DrawSystem::RenderDebugView::RenderPath;
+  case DrawSystem::RenderDebugView::RenderPath:
   default:
     return DrawSystem::RenderDebugView::Forward;
   }
@@ -311,6 +507,8 @@ render_debug_view_name(DrawSystem::RenderDebugView view) noexcept {
     return "Visibility Lit";
   case DrawSystem::RenderDebugView::VisibilityMaterial:
     return "Visibility Material";
+  case DrawSystem::RenderDebugView::RenderPath:
+    return "Render Path";
   default:
     return "Forward";
   }
@@ -378,8 +576,7 @@ void log_render_debug_stats(uint64_t frameIndex, double fps,
       pass_gpu_ms(frameStats, {"BuildChunkDepthCommands"}),
       pass_gpu_ms(frameStats, {"ChunkDepthOnlyDraw"}),
       pass_gpu_ms(frameStats, {"ChunkHiZBuild"}),
-      pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
-                               "IndirectCommandEmit"}),
+      pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill"}),
       pass_gpu_ms(frameStats, {"StaticMeshForward"}));
 }
 
@@ -411,15 +608,17 @@ void log_frame_timing(uint64_t frameIndex, double fps,
        frameStats.passStats) {
     Core::IO::log(
         Core::IO::LogSink::file,
-        "[GpuPassTiming] frame={} pass={} queue={} gpuValid={} gpuMs={:.3f} "
+        "[GpuPassTiming] frame={} pass={} queue={} lane={} gpuValid={} "
+        "gpuMs={:.3f} "
         "cpuExecuteMs={:.3f} acquireResetSetupMs={:.3f} preBarrierMs={:.3f} "
         "postBarrierMs={:.3f} closeMs={:.3f} submitExecuteListsMs={:.3f} "
         "submitSignalOnlyMs={:.3f} submitSignalMs={:.3f} commandLists={}",
         frameIndex, pass.name, command_queue_name(pass.queueType),
-        pass.hasGpuExecuteMs, pass.hasGpuExecuteMs ? pass.gpuExecuteMs : 0.0,
-        pass.cpuExecuteMs, pass.acquireResetSetupMs, pass.preBarrierMs,
-        pass.postBarrierMs, pass.closeMs, pass.submitExecuteListsMs,
-        pass.submitSignalOnlyMs, pass.submitSignalMs,
+        pass.queueLane, pass.hasGpuExecuteMs,
+        pass.hasGpuExecuteMs ? pass.gpuExecuteMs : 0.0, pass.cpuExecuteMs,
+        pass.acquireResetSetupMs, pass.preBarrierMs, pass.postBarrierMs,
+        pass.closeMs, pass.submitExecuteListsMs, pass.submitSignalOnlyMs,
+        pass.submitSignalMs,
         pass.submittedCommandListCount);
 
     for (const RHI::FrameGraphExecutionStats::PassExecutionStats::DetailTiming
@@ -609,8 +808,7 @@ private:
                                            "GeneratedMeshletDepthDraw"}));
       ImGui::Text(
           "Batching: %.3f ms",
-          pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill",
-                                   "IndirectCommandEmit"}));
+          pass_gpu_ms(frameStats, {"BatchCount", "PrefixSum", "BatchFill"}));
       ImGui::Text("StaticMeshForward: %.3f ms",
                   pass_gpu_ms(frameStats, {"StaticMeshForward"}));
       ImGui::Text("MeshletGroupCull: %.3f ms",
@@ -758,7 +956,8 @@ private:
                                       "Visibility Normal",
                                       "Visibility UV",
                                       "Visibility Lit",
-                                      "Visibility Material"};
+                                      "Visibility Material",
+                                      "Render Path"};
       int debugViewIndex = static_cast<int>(m_engine.render_debug_view());
       if (ImGui::Combo("Render Debug View", &debugViewIndex, debugViewItems,
                        IM_ARRAYSIZE(debugViewItems))) {
@@ -912,10 +1111,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       renderBackend.get(); // レンダーバックエンドを Engine にセット
   r = engine->initialize(engineSetupInfo);
   if (!r) {
-    CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s",
-                      r.message.data());
     Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
                   "Failed to initialize engine: %s", r.message.data());
+    CUE_ASSERT_FORMAT(false, "Failed to initialize engine: %s",
+                      r.message.data());
     return -1;
   }
 
@@ -1045,11 +1244,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // メインループ
   static constexpr bool kEnablePeriodicFrameLogs = false;
+  static constexpr bool kEnableRuntimeTimingCollectors = false;
   static constexpr uint64_t kPeriodicFrameLogInterval = 120u;
   bool isRunning = true;
   auto previousInputTime = std::chrono::steady_clock::now();
   uint64_t nextRenderStatsLogFrame = 1u;
   PassTimingCollector passTimingCollector{};
+  RenderWorkloadCollector renderWorkloadCollector{};
   while (isRunning) {
     CpuFrameTiming cpuTiming{};
     const TimingPoint frameTimingBegin = TimingClock::now();
@@ -1199,13 +1400,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         engine->render_execution_stats();
     const RHI::FrameGraphExecutionStats presentFrameStats =
         engine->present_execution_stats();
-    passTimingCollector.add_frame("Render", frameStats);
-    passTimingCollector.add_frame("Present", presentFrameStats);
+    const EngineDebugStats debugStats = engine->debug_stats();
+    if constexpr (kEnableRuntimeTimingCollectors) {
+      passTimingCollector.add_frame("Render", frameStats);
+      passTimingCollector.add_frame("Present", presentFrameStats);
+      renderWorkloadCollector.add_frame(debugStats);
+    }
     if constexpr (kEnablePeriodicFrameLogs) {
       const uint64_t completedFrameCount = frameCounter.total_frames();
       if (completedFrameCount >= nextRenderStatsLogFrame) {
         log_render_debug_stats(completedFrameCount, frameCounter.fps(),
-                               engine->debug_stats(), frameStats);
+                               debugStats, frameStats);
         log_frame_timing(completedFrameCount, frameCounter.fps(), cpuTiming,
                          frameStats);
         nextRenderStatsLogFrame =
@@ -1214,7 +1419,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
   }
 
-  passTimingCollector.log_summary();
+  if constexpr (kEnableRuntimeTimingCollectors) {
+    renderWorkloadCollector.log_summary();
+    passTimingCollector.log_summary();
+  }
   Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
                 "Editor shutdown");
   Core::IO::clear_log_file();

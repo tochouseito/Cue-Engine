@@ -33,6 +33,7 @@ struct VsOutput
 {
     float4 position : SV_POSITION;
     nointerpolation uint renderObjectIndex : TEXCOORD0;
+    nointerpolation uint primitiveBase : TEXCOORD1;
 };
 
 cbuffer ViewProjection : register(b0)
@@ -44,6 +45,7 @@ cbuffer ViewProjection : register(b0)
 struct DrawObjectIndexConstants
 {
     uint drawObjectIndex;
+    uint primitiveBase;
 };
 
 ConstantBuffer<DrawObjectIndexConstants> g_drawObjectIndex : register(b1);
@@ -52,13 +54,19 @@ StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 StructuredBuffer<uint> g_renderObjectIndices : register(t6);
 
-VsOutput build_vs_output(VsInput input, uint renderObjectIndex)
+static const uint kVisibilityPrimitiveBits = 19u;
+static const uint kVisibilityPrimitiveMask = (1u << kVisibilityPrimitiveBits) - 1u;
+static const uint kVisibilityObjectShift = kVisibilityPrimitiveBits;
+static const uint kVisibilityMaxObjectId = (1u << (32u - kVisibilityPrimitiveBits)) - 1u;
+
+VsOutput build_vs_output(VsInput input, uint renderObjectIndex, uint primitiveBase)
 {
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
 
     VsOutput output;
     output.renderObjectIndex = renderObjectIndex;
+    output.primitiveBase = primitiveBase;
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
@@ -83,15 +91,26 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
     const uint renderObjectIndex =
         g_renderObjectIndices[g_drawObjectIndex.drawObjectIndex + instanceId];
-    return build_vs_output(input, renderObjectIndex);
+    return build_vs_output(input, renderObjectIndex,
+                           g_drawObjectIndex.primitiveBase);
 }
 
-VsOutput range_vs_main(VsInput input)
+VsOutput range_vs_main(VsInput input, uint instanceId : SV_InstanceID)
 {
-    return build_vs_output(input, g_drawObjectIndex.drawObjectIndex);
+    (void)instanceId;
+    return build_vs_output(input, g_drawObjectIndex.drawObjectIndex,
+                           g_drawObjectIndex.primitiveBase);
 }
 
-uint2 ps_main(VsOutput input, uint primitiveId : SV_PrimitiveID) : SV_Target0
+uint ps_main(VsOutput input, uint primitiveId : SV_PrimitiveID) : SV_Target0
 {
-    return uint2(input.renderObjectIndex + 1u, primitiveId);
+    const uint objectId = input.renderObjectIndex + 1u;
+    const uint meshPrimitiveId = input.primitiveBase + primitiveId;
+    if (objectId == 0u || objectId > kVisibilityMaxObjectId ||
+        meshPrimitiveId > kVisibilityPrimitiveMask)
+    {
+        return 0u;
+    }
+
+    return (objectId << kVisibilityObjectShift) | meshPrimitiveId;
 }

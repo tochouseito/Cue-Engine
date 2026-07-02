@@ -80,11 +80,26 @@ struct MaterialGpu {
 // インダイレクト描画コマンド
 struct IndirectCommand {
   uint32_t drawObjectStartIndex = 0;
+  uint32_t primitiveBase = 0;
   uint32_t indexCountPerInstance = 0;
   uint32_t instanceCount = 0;
   uint32_t startIndexLocation = 0;
   int32_t baseVertexLocation = 0;
   uint32_t startInstanceLocation = 0;
+};
+
+struct StaticMeshBatchStatsGpu {
+  uint32_t commandCount = 0;
+  uint32_t instanceCount = 0;
+  uint32_t submittedIndexCount = 0;
+  uint32_t overflowCount = 0;
+};
+
+struct ObjectCullLodStatsGpu {
+  uint32_t lodObjectCounts[5] = {0, 0, 0, 0, 0};
+  uint32_t impostorCount = 0;
+  uint32_t selectedObjectCount = 0;
+  uint32_t padding0 = 0;
 };
 
 struct MeshletChunkVisibilityStatsGpu {
@@ -129,5 +144,8 @@ struct MeshletGroupCullStatsGpu {
   uint32_t rangeIndexCount = 0;
   uint32_t totalIndexCount = 0;
   uint32_t settings = 0;
+  uint32_t occlusionEnabled = 0;
+  uint32_t occlusionTestedCount = 0;
+  uint32_t occlusionRejectedCount = 0;
 };
 } // namespace Cue::GpuData

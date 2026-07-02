@@ -50,6 +50,7 @@ struct MeshletChunk
 struct IndirectCommand
 {
     uint drawObjectStartIndex;
+    uint primitiveBase;
     uint indexCountPerInstance;
     uint instanceCount;
     uint startIndexLocation;
@@ -401,6 +402,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
         IndirectCommand command;
         command.drawObjectStartIndex = commandIndex;
+        command.primitiveBase = 0u;
         command.indexCountPerInstance = chunk.indexCount;
         command.instanceCount = 1u;
         command.startIndexLocation = chunk.startIndex;

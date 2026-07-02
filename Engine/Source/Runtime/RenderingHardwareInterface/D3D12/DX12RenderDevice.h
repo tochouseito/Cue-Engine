@@ -27,6 +27,8 @@ namespace Cue::RHI::DX12
         /// @brief D3D12 デバイスを取得する
         ID3D12Device* get_d3d12_device() const noexcept { return m_d3d12Device.Get(); }
 
+        [[nodiscard]] bool supports_mesh_shader() const noexcept { return m_supportsMeshShader; }
+
         /// @brief 選択された GPU アダプタのを取得する
         IDXGIAdapter4* get_adapter() const noexcept { return m_adapter.Get(); }
 
@@ -46,5 +48,6 @@ namespace Cue::RHI::DX12
         ComPtr<ID3D12Device> m_d3d12Device = nullptr; // d3d12 デバイス
         DXGI_ADAPTER_DESC3 m_adapterDesc = {}; // アダプタ情報
         D3D_FEATURE_LEVEL m_featureLevel = {}; // 機能レベル
+        bool m_supportsMeshShader = false;
     };
 }

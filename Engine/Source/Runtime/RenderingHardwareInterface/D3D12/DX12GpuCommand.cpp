@@ -13,6 +13,7 @@ constexpr size_t k_eventNameCapacity = 256;
 
 struct IndirectDrawIndexedCommand final {
   uint32_t drawObjectStartIndex = 0;
+  uint32_t primitiveBase = 0;
   uint32_t indexCountPerInstance = 0;
   uint32_t instanceCount = 0;
   uint32_t startIndexLocation = 0;
@@ -1185,6 +1186,54 @@ Result DX12GpuCommandContext::execute_dispatch_indirect(
                                  0);
   return Result::ok();
 }
+Result DX12GpuCommandContext::dispatch_mesh(uint32_t groupCountX,
+                                            uint32_t groupCountY,
+                                            uint32_t groupCountZ) {
+  if (type() != CommandListType::Graphics) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "DispatchMesh can only be issued on a graphics command context.");
+  }
+
+  ComPtr<ID3D12GraphicsCommandList6> commandList6;
+  HRESULT hr = m_commandList.As(&commandList6);
+  if (FAILED(hr) || commandList6 == nullptr) {
+    return Result::fail(PAL::Win::convert_hresult_code(hr), Severity::Error,
+                        "Graphics command list does not support DispatchMesh.");
+  }
+
+  commandList6->DispatchMesh(groupCountX, groupCountY, groupCountZ);
+  return Result::ok();
+}
+Result DX12GpuCommandContext::execute_dispatch_mesh_indirect(
+    BufferHandle commandBufferHandle) {
+  if (type() != CommandListType::Graphics) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "DispatchMesh indirect can only be issued on a graphics command context.");
+  }
+  if (m_device == nullptr) {
+    return Result::fail(
+        Code::InvalidState, Severity::Error,
+        "D3D12 device is not initialized for indirect mesh dispatch.");
+  }
+  if (!m_dispatchMeshCommandSignature) {
+    Result signatureResult = create_dispatch_mesh_command_signature(*m_device);
+    if (!signatureResult) {
+      return signatureResult;
+    }
+  }
+
+  DX12GpuResource *commandResource = nullptr;
+  Result result =
+      resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+  if (!result) {
+    return result;
+  }
+
+  m_commandList->ExecuteIndirect(m_dispatchMeshCommandSignature.Get(), 1,
+                                 commandResource->get_resource(), 0, nullptr,
+                                 0);
+  return Result::ok();
+}
 Result
 DX12GpuCommandContext::set_render_targets(const ViewHandle *renderTargetViews,
                                           uint32_t renderTargetCount,
@@ -1393,6 +1442,27 @@ DX12GpuCommandContext::create_dispatch_command_signature(ID3D12Device &device) {
   return Result::ok();
 }
 Result
+DX12GpuCommandContext::create_dispatch_mesh_command_signature(
+    ID3D12Device &device) {
+  D3D12_INDIRECT_ARGUMENT_DESC argumentDesc{};
+  argumentDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
+
+  D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};
+  signatureDesc.ByteStride = sizeof(IndirectDispatchCommand);
+  signatureDesc.NumArgumentDescs = 1;
+  signatureDesc.pArgumentDescs = &argumentDesc;
+
+  HRESULT hr = device.CreateCommandSignature(
+      &signatureDesc, nullptr,
+      IID_PPV_ARGS(m_dispatchMeshCommandSignature.ReleaseAndGetAddressOf()));
+  if (FAILED(hr)) {
+    return Result::fail(PAL::Win::convert_hresult_code(hr), Severity::Error,
+                        "Failed to create dispatch mesh command signature.");
+  }
+
+  return Result::ok();
+}
+Result
 DX12GpuCommandContext::create_draw_command_signature(ID3D12Device &device) {
   D3D12_INDIRECT_ARGUMENT_DESC argumentDesc{};
   argumentDesc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
@@ -1424,7 +1494,7 @@ Result DX12GpuCommandContext::create_draw_indexed_command_signature(
   argumentDescs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
   argumentDescs[0].Constant.RootParameterIndex = 0;
   argumentDescs[0].Constant.DestOffsetIn32BitValues = 0;
-  argumentDescs[0].Constant.Num32BitValuesToSet = 1;
+  argumentDescs[0].Constant.Num32BitValuesToSet = 2;
   argumentDescs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
 
   D3D12_COMMAND_SIGNATURE_DESC signatureDesc{};

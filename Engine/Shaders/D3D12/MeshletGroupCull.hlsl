@@ -79,6 +79,7 @@ struct MeshletChunk
 struct IndirectCommand
 {
     uint drawObjectStartIndex;
+    uint primitiveBase;
     uint indexCountPerInstance;
     uint instanceCount;
     uint startIndexLocation;
@@ -102,6 +103,21 @@ cbuffer ViewProjection : register(b2)
     row_major float4x4 g_projectionMatrix;
 };
 
+cbuffer HiZWidthParam : register(b3)
+{
+    uint g_hizWidth;
+};
+
+cbuffer HiZHeightParam : register(b4)
+{
+    uint g_hizHeight;
+};
+
+cbuffer OcclusionParam : register(b5)
+{
+    uint g_occlusionEnabled;
+};
+
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_renderObjectCount : register(t2);
@@ -109,6 +125,7 @@ StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 StructuredBuffer<MeshletBounds> g_meshletBounds : register(t4);
 StructuredBuffer<MeshChunkRange> g_meshChunkRanges : register(t5);
 StructuredBuffer<MeshletChunk> g_meshletChunks : register(t6);
+Texture2D<uint> g_occlusionHiZ : register(t7);
 
 RWStructuredBuffer<uint> g_objectDrawModes : register(u0);
 RWStructuredBuffer<IndirectCommand> g_rangeCommands : register(u1);
@@ -126,9 +143,11 @@ static const uint kMaxChunkGroupsPerObjectForRange = 128u;
 static const bool kEnableMeshletRangeDraws = true;
 static const bool kEnableConeCulling = false;
 static const uint kRenderObjectFlagForwardFallback = 1u << 0u;
-static const float kMinMeshletRangeProjectedRadius = 0.25f;
+static const float kMinMeshletRangeProjectedRadius = 0.08f;
+static const uint kMinMeshletRangeIndexCount = 50000u;
+static const float kObjectFrustumEdgeRadiusScale = 0.75f;
 static const float kMeshletRangeFrustumRadiusScale = 1.35f;
-static const uint kMaxRangeDrawnPercent = 92u;
+static const uint kMaxRangeDrawnPercent = 55u;
 static const float kConeCutoffEpsilon = 0.02f;
 
 static const uint kStatsVisibleObjectCount = 0u;
@@ -145,6 +164,28 @@ static const uint kStatsRangeCommandCount = 40u;
 static const uint kStatsRangeIndexCount = 44u;
 static const uint kStatsTotalIndexCount = 48u;
 static const uint kStatsSettings = 52u;
+static const uint kStatsOcclusionEnabled = 56u;
+static const uint kStatsOcclusionTested = 60u;
+static const uint kStatsOcclusionRejected = 64u;
+static const bool kEnableMeshletGroupStats = true;
+static const float kOcclusionDepthBias = 0.0015f;
+static const uint kMaxOcclusionRectTexels = 20u;
+
+void stats_store(uint byteOffset, uint value)
+{
+    if (kEnableMeshletGroupStats)
+    {
+        g_stats.Store(byteOffset, value);
+    }
+}
+
+void stats_add(uint byteOffset, uint value)
+{
+    if (kEnableMeshletGroupStats && value != 0u)
+    {
+        g_stats.InterlockedAdd(byteOffset, value);
+    }
+}
 
 bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
 {
@@ -203,6 +244,58 @@ bool is_view_sphere_inside_frustum(float3 viewCenter, float radius)
     return true;
 }
 
+float signed_distance_to_plane(float4 plane, float3 center)
+{
+    const float invPlaneLength =
+        rsqrt(max(dot(plane.xyz, plane.xyz), 0.000000000001f));
+    return (dot(plane.xyz, center) + plane.w) * invPlaneLength;
+}
+
+bool is_view_sphere_near_frustum_edge(float3 viewCenter, float radius)
+{
+    const float4 projectionColumn0 =
+        float4(g_projectionMatrix[0][0], g_projectionMatrix[1][0],
+               g_projectionMatrix[2][0], g_projectionMatrix[3][0]);
+    const float4 projectionColumn1 =
+        float4(g_projectionMatrix[0][1], g_projectionMatrix[1][1],
+               g_projectionMatrix[2][1], g_projectionMatrix[3][1]);
+    const float4 projectionColumn2 =
+        float4(g_projectionMatrix[0][2], g_projectionMatrix[1][2],
+               g_projectionMatrix[2][2], g_projectionMatrix[3][2]);
+    const float4 projectionColumn3 =
+        float4(g_projectionMatrix[0][3], g_projectionMatrix[1][3],
+               g_projectionMatrix[2][3], g_projectionMatrix[3][3]);
+
+    const float edgeRadius = radius * kObjectFrustumEdgeRadiusScale;
+    if (signed_distance_to_plane(projectionColumn3 + projectionColumn0,
+                                 viewCenter) < edgeRadius)
+    {
+        return true;
+    }
+    if (signed_distance_to_plane(projectionColumn3 - projectionColumn0,
+                                 viewCenter) < edgeRadius)
+    {
+        return true;
+    }
+    if (signed_distance_to_plane(projectionColumn3 + projectionColumn1,
+                                 viewCenter) < edgeRadius)
+    {
+        return true;
+    }
+    if (signed_distance_to_plane(projectionColumn3 - projectionColumn1,
+                                 viewCenter) < edgeRadius)
+    {
+        return true;
+    }
+    if (signed_distance_to_plane(projectionColumn3 + projectionColumn2,
+                                 viewCenter) < edgeRadius)
+    {
+        return true;
+    }
+    return signed_distance_to_plane(projectionColumn3 - projectionColumn2,
+                                    viewCenter) < edgeRadius;
+}
+
 float transform_radius_scale(float4x4 worldMatrix)
 {
     return max(length(worldMatrix[0].xyz),
@@ -215,6 +308,103 @@ float projected_radius(float4 boundsCenterRadius)
         mul(float4(boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
     const float viewZ = max(viewCenter.z, 0.001f);
     return boundsCenterRadius.w * abs(g_projectionMatrix[1][1]) / viewZ;
+}
+
+float project_device_depth(float viewZ)
+{
+    const float4 clipPosition =
+        mul(float4(0.0f, 0.0f, viewZ, 1.0f), g_projectionMatrix);
+    if (abs(clipPosition.w) <= 0.000001f)
+    {
+        return 1.0f;
+    }
+
+    return saturate(clipPosition.z / clipPosition.w);
+}
+
+float decode_hiz_depth(uint depth)
+{
+    return (float)depth * (1.0f / 4294967295.0f);
+}
+
+bool is_chunk_occluded_by_hiz(float3 viewCenter, float radius)
+{
+    if (g_occlusionEnabled == 0u || g_hizWidth == 0u || g_hizHeight == 0u)
+    {
+        return false;
+    }
+
+    const float viewZ = viewCenter.z;
+    if (viewZ <= radius + 0.001f || radius <= 0.0f)
+    {
+        return false;
+    }
+
+    const float4 clipCenter = mul(float4(viewCenter, 1.0f), g_projectionMatrix);
+    if (abs(clipCenter.w) <= 0.000001f)
+    {
+        return false;
+    }
+
+    const float2 ndc = clipCenter.xy / clipCenter.w;
+    const float projectedRadiusNdc =
+        radius * abs(g_projectionMatrix[1][1]) / max(viewZ, 0.001f);
+    const float2 minNdc = clamp(ndc - projectedRadiusNdc, -1.0f, 1.0f);
+    const float2 maxNdc = clamp(ndc + projectedRadiusNdc, -1.0f, 1.0f);
+    if (maxNdc.x <= -1.0f || minNdc.x >= 1.0f ||
+        maxNdc.y <= -1.0f || minNdc.y >= 1.0f)
+    {
+        return false;
+    }
+
+    const float2 hizSize = float2((float)g_hizWidth, (float)g_hizHeight);
+    const uint2 p0 =
+        min((uint2)(((minNdc * float2(0.5f, -0.5f) +
+                      float2(0.5f, 0.5f)) *
+                     hizSize)),
+            uint2(g_hizWidth - 1u, g_hizHeight - 1u));
+    const uint2 p1 =
+        min((uint2)(((maxNdc * float2(0.5f, -0.5f) +
+                      float2(0.5f, 0.5f)) *
+                     hizSize)),
+            uint2(g_hizWidth - 1u, g_hizHeight - 1u));
+
+    const uint minX = min(p0.x, p1.x);
+    const uint maxX = max(p0.x, p1.x);
+    const uint minY = min(p0.y, p1.y);
+    const uint maxY = max(p0.y, p1.y);
+    const uint rectWidth = maxX - minX + 1u;
+    const uint rectHeight = maxY - minY + 1u;
+    if (rectWidth > kMaxOcclusionRectTexels ||
+        rectHeight > kMaxOcclusionRectTexels)
+    {
+        return false;
+    }
+
+    const uint2 center = uint2((minX + maxX) >> 1u, (minY + maxY) >> 1u);
+    const float chunkNearDepth =
+        project_device_depth(max(viewZ - radius, 0.001f));
+    const uint2 samples[5] =
+    {
+        center,
+        uint2((minX + center.x) >> 1u, center.y),
+        uint2((maxX + center.x + 1u) >> 1u, center.y),
+        uint2(center.x, (minY + center.y) >> 1u),
+        uint2(center.x, (maxY + center.y + 1u) >> 1u)
+    };
+
+    [unroll]
+    for (uint sampleIndex = 0u; sampleIndex < 5u; ++sampleIndex)
+    {
+        const float occluderDepth =
+            decode_hiz_depth(g_occlusionHiZ.Load(int3(samples[sampleIndex], 0)));
+        if (chunkNearDepth <= occluderDepth + kOcclusionDepthBias)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool is_meshlet_backfacing(
@@ -272,7 +462,6 @@ bool append_visible_meshlets_in_group(
     uint firstMeshlet,
     uint meshletCount,
     uint groupIndex,
-    uint rangeStartIndex,
     Transform transform,
     float radiusScale,
     inout uint rangeCount,
@@ -299,7 +488,7 @@ bool append_visible_meshlets_in_group(
             continue;
         }
 
-        const uint meshletRangeStart = rangeStartIndex + bounds.firstIndex;
+        const uint meshletRangeStart = bounds.firstIndex;
         const uint meshletRangeEnd = meshletRangeStart + bounds.indexCount;
         append_or_merge_range(meshletRangeStart, meshletRangeEnd, rangeCount,
                               rangeStarts, rangeEnds, rangeOverflow);
@@ -318,26 +507,26 @@ void publish_object_group_stats(
 {
     if (testedGroupCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsTestedGroupCount, testedGroupCount);
+        stats_add(kStatsTestedGroupCount, testedGroupCount);
     }
     if (frustumRejectedGroupCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsFrustumRejectedGroupCount,
-                               frustumRejectedGroupCount);
+        stats_add(kStatsFrustumRejectedGroupCount,
+                  frustumRejectedGroupCount);
     }
     if (coneTestedMeshletCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsConeTestedMeshletCount,
-                               coneTestedMeshletCount);
+        stats_add(kStatsConeTestedMeshletCount,
+                  coneTestedMeshletCount);
     }
     if (coneRejectedMeshletCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsConeRejectedMeshletCount,
-                               coneRejectedMeshletCount);
+        stats_add(kStatsConeRejectedMeshletCount,
+                  coneRejectedMeshletCount);
     }
     if (visibleGroupCount != 0u)
     {
-        g_stats.InterlockedAdd(kStatsVisibleGroupCount, visibleGroupCount);
+        stats_add(kStatsVisibleGroupCount, visibleGroupCount);
     }
 }
 
@@ -378,6 +567,7 @@ void append_or_merge_range(
 bool emit_range_commands(
     uint objectIndex,
     int baseVertex,
+    uint rangeStartIndex,
     uint rangeCount,
     uint rangeStarts[kMaxRangesPerObject],
     uint rangeEnds[kMaxRangesPerObject])
@@ -414,6 +604,10 @@ bool emit_range_commands(
         const uint commandIndex = commandBase + i;
         IndirectCommand command;
         command.drawObjectStartIndex = objectIndex;
+        command.primitiveBase =
+            rangeStarts[i] >= rangeStartIndex
+                ? (rangeStarts[i] - rangeStartIndex) / 3u
+                : 0u;
         command.indexCountPerInstance = rangeEnds[i] - rangeStarts[i];
         command.instanceCount = 1u;
         command.startIndexLocation = rangeStarts[i];
@@ -431,11 +625,14 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint visibleObjectCount = g_renderObjectCount.Load(0);
     if (objectIndex == 0u)
     {
-        g_stats.Store(kStatsVisibleObjectCount, visibleObjectCount);
-        g_stats.Store(
+        stats_store(kStatsVisibleObjectCount, visibleObjectCount);
+        stats_store(
             kStatsSettings,
             (kEnableMeshletRangeDraws ? 1u : 0u) |
-                (kEnableConeCulling ? 2u : 0u));
+                (kEnableConeCulling ? 2u : 0u) |
+                (g_occlusionEnabled != 0u ? 4u : 0u));
+        stats_store(kStatsOcclusionEnabled,
+                    g_occlusionEnabled != 0u ? 1u : 0u);
     }
 
     if (objectIndex >= visibleObjectCount || objectIndex >= g_objectCount)
@@ -451,27 +648,42 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     const RenderObject renderObject = g_renderObjects[objectIndex];
     const MeshRange meshRange = g_meshRanges[renderObject.meshId];
-    const MeshChunkRange chunkRange = g_meshChunkRanges[renderObject.meshId];
     if ((renderObject.padding & kRenderObjectFlagForwardFallback) != 0u ||
         (renderObject.drawFlags & 1u) != 0u ||
         meshRange.meshletCount < (kMeshletsPerGroup * 2u) ||
-        meshRange.rangeIndexCount == 0u ||
-        chunkRange.chunkCount == 0u ||
-        chunkRange.chunkCount > kMaxChunkGroupsPerObjectForRange)
+        meshRange.rangeIndexCount == 0u)
     {
         return;
     }
 
     // Meshlet range draws break instance batching, so keep mid/far LODs on the
     // ordinary batched path unless the object is large enough on screen.
-    if (projected_radius(renderObject.boundsCenterRadius) <
-        kMinMeshletRangeProjectedRadius)
+    const float objectProjectedRadius =
+        projected_radius(renderObject.boundsCenterRadius);
+    if (objectProjectedRadius < kMinMeshletRangeProjectedRadius ||
+        meshRange.rangeIndexCount < kMinMeshletRangeIndexCount)
     {
         return;
     }
 
-    g_stats.InterlockedAdd(kStatsCandidateObjectCount, 1u);
-    g_stats.InterlockedAdd(kStatsTotalIndexCount, meshRange.rangeIndexCount);
+    const float4 objectViewCenter =
+        mul(float4(renderObject.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    if (!kEnableConeCulling &&
+        !is_view_sphere_near_frustum_edge(objectViewCenter.xyz,
+                                          renderObject.boundsCenterRadius.w))
+    {
+        return;
+    }
+
+    const MeshChunkRange chunkRange = g_meshChunkRanges[renderObject.meshId];
+    if (chunkRange.chunkCount == 0u ||
+        chunkRange.chunkCount > kMaxChunkGroupsPerObjectForRange)
+    {
+        return;
+    }
+
+    stats_add(kStatsCandidateObjectCount, 1u);
+    stats_add(kStatsTotalIndexCount, meshRange.rangeIndexCount);
 
     const Transform transform = g_transforms[renderObject.transformId];
     const float radiusScale = transform_radius_scale(transform.worldMatrix);
@@ -486,6 +698,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint frustumRejectedGroupCount = 0u;
     uint coneTestedMeshletCount = 0u;
     uint coneRejectedMeshletCount = 0u;
+    uint occlusionTestedCount = 0u;
+    uint occlusionRejectedCount = 0u;
     bool rangeOverflow = false;
 
     [loop]
@@ -512,9 +726,19 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             continue;
         }
 
+        if (g_occlusionEnabled != 0u)
+        {
+            ++occlusionTestedCount;
+            if (is_chunk_occluded_by_hiz(viewCenter.xyz, worldRadius))
+            {
+                ++occlusionRejectedCount;
+                continue;
+            }
+        }
+
         if (!append_visible_meshlets_in_group(
                 chunk.firstMeshlet, chunk.meshletCount, 0u,
-                meshRange.rangeStartIndex, transform, radiusScale, rangeCount,
+                transform, radiusScale, rangeCount,
                 rangeStarts, rangeEnds, rangeOverflow, visibleIndexCount,
                 coneTestedMeshletCount,
                 coneRejectedMeshletCount))
@@ -532,17 +756,19 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     publish_object_group_stats(testedGroupCount, frustumRejectedGroupCount,
                                coneTestedMeshletCount,
                                coneRejectedMeshletCount, visibleGroupCount);
+    stats_add(kStatsOcclusionTested, occlusionTestedCount);
+    stats_add(kStatsOcclusionRejected, occlusionRejectedCount);
 
-    if (visibleGroupCount == 0u || coneRejectedMeshletCount != 0u)
+    if (visibleGroupCount == 0u)
     {
-        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
+        stats_add(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
 
     if (rangeOverflow || rangeCount == 0u)
     {
-        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
+        stats_add(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
@@ -558,22 +784,23 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         meshRange.rangeIndexCount * kMaxRangeDrawnPercent;
     if (weakSavings)
     {
-        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
+        stats_add(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
         return;
     }
 
-    if (emit_range_commands(objectIndex, meshRange.baseVertex, rangeCount,
-                            rangeStarts, rangeEnds))
+    if (emit_range_commands(objectIndex, meshRange.baseVertex,
+                            meshRange.rangeStartIndex, rangeCount, rangeStarts,
+                            rangeEnds))
     {
-        g_stats.InterlockedAdd(kStatsRangeObjectCount, 1u);
-        g_stats.InterlockedAdd(kStatsRangeCommandCount, rangeCount);
-        g_stats.InterlockedAdd(kStatsRangeIndexCount, rangeDrawnIndexCount);
+        stats_add(kStatsRangeObjectCount, 1u);
+        stats_add(kStatsRangeCommandCount, rangeCount);
+        stats_add(kStatsRangeIndexCount, rangeDrawnIndexCount);
         g_objectDrawModes[objectIndex] = kDrawModeGroupRange;
     }
     else
     {
-        g_stats.InterlockedAdd(kStatsFallbackObjectCount, 1u);
+        stats_add(kStatsFallbackObjectCount, 1u);
         g_objectDrawModes[objectIndex] = kDrawModeFallback;
     }
 }

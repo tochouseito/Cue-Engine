@@ -18,6 +18,10 @@ static_assert(sizeof(Core::Native::MeshletBounds) == 64u,
               "MeshletBounds must match the HLSL structured buffer layout.");
 
 namespace {
+constexpr uint32_t kMeshShaderSegmentVertexOffsetBits = 26u;
+constexpr uint32_t kMeshShaderSegmentVertexOffsetMask =
+    (1u << kMeshShaderSegmentVertexOffsetBits) - 1u;
+
 [[nodiscard]] bool allocate_from_free_ranges(std::vector<FreeRange> &freeRanges,
                                              uint64_t byteSize,
                                              uint32_t alignment,
@@ -101,16 +105,31 @@ template <typename T>
          static_cast<uint64_t>(sizeof(T));
 }
 
-[[nodiscard]] std::vector<VisibilityTriangle>
-build_visibility_triangles(const Core::Native::MeshData &meshData) {
-  std::vector<VisibilityTriangle> triangles;
-  triangles.reserve(meshData.indices.size() / 3u);
+[[nodiscard]] uint64_t packed_u8_byte_size(size_t valueCount) noexcept {
+  return Math::round_up_to_multiple(static_cast<uint64_t>(valueCount), 4ull);
+}
 
-  for (size_t indexOffset = 0; indexOffset + 2 < meshData.indices.size();
+[[nodiscard]] std::vector<uint32_t>
+pack_meshlet_local_indices_u8(const std::vector<uint32_t> &localIndices) {
+  std::vector<uint32_t> packed((localIndices.size() + 3u) / 4u, 0u);
+  for (size_t index = 0; index < localIndices.size(); ++index) {
+    const uint32_t byteValue = localIndices[index] & 0xffu;
+    packed[index >> 2u] |= byteValue << ((index & 3u) * 8u);
+  }
+  return packed;
+}
+
+[[nodiscard]] std::vector<VisibilityTriangle> build_visibility_triangles(
+    const Core::Native::MeshData &meshData,
+    const std::vector<uint32_t> &indices) {
+  std::vector<VisibilityTriangle> triangles;
+  triangles.reserve(indices.size() / 3u);
+
+  for (size_t indexOffset = 0; indexOffset + 2 < indices.size();
        indexOffset += 3) {
-    const uint32_t i0 = meshData.indices[indexOffset + 0];
-    const uint32_t i1 = meshData.indices[indexOffset + 1];
-    const uint32_t i2 = meshData.indices[indexOffset + 2];
+    const uint32_t i0 = indices[indexOffset + 0];
+    const uint32_t i1 = indices[indexOffset + 1];
+    const uint32_t i2 = indices[indexOffset + 2];
 
     VisibilityTriangle triangle{};
     triangle.position0 = meshData.positions[i0];
@@ -319,6 +338,8 @@ MeshPool::~MeshPool() {
   destroy_stream_state(m_indexStream);
   destroy_stream_state(m_visibilityTriangleStream);
   destroy_stream_state(m_rangeIndexStream);
+  destroy_stream_state(m_meshletLocalIndexStream);
+  destroy_stream_state(m_meshletVertexIndexStream);
   destroy_stream_state(m_meshletBoundsStream);
   destroy_stream_state(m_meshletChunkStream);
   destroy_stream_state(m_influenceStream);
@@ -383,6 +404,29 @@ Result MeshPool::initialize_streams(const MeshPoolDesc &desc) {
       static_cast<uint64_t>(desc.maxRangeIndexCount) * sizeof(uint32_t),
       desc.rangeIndexStagingSize, sizeof(uint32_t), desc.maxRangeIndexCount,
       alignof(uint32_t), m_rangeIndexStream);
+  if (!result) {
+    return result;
+  }
+
+  const uint64_t maxPackedMeshletLocalIndexBytes =
+      packed_u8_byte_size(desc.maxMeshletLocalIndexCount);
+  result = create_stream_state(
+      desc.meshletLocalIndexName, BufferType::Raw,
+      maxPackedMeshletLocalIndexBytes, desc.meshletLocalIndexStagingSize,
+      sizeof(uint32_t),
+      static_cast<uint32_t>(maxPackedMeshletLocalIndexBytes / sizeof(uint32_t)),
+      alignof(uint32_t), m_meshletLocalIndexStream);
+  if (!result) {
+    return result;
+  }
+
+  result = create_stream_state(
+      desc.meshletVertexIndexName, BufferType::Raw,
+      static_cast<uint64_t>(desc.maxMeshletVertexIndexCount) *
+          sizeof(uint32_t),
+      desc.meshletVertexIndexStagingSize, sizeof(uint32_t),
+      desc.maxMeshletVertexIndexCount, alignof(uint32_t),
+      m_meshletVertexIndexStream);
   if (!result) {
     return result;
   }
@@ -896,6 +940,9 @@ void MeshPool::release_upload_range(MeshChunkRangeState &meshChunkRangeState,
 void MeshPool::write_upload_bytes(const UploadAllocation &allocation,
                                   const void *sourceData, uint64_t byteSize) {
   // - upload staging へ直接書き込み、データ未指定の属性はゼロで埋める
+  if (byteSize == 0) {
+    return;
+  }
   std::byte *dst = allocation.mappedData + allocation.byteOffset;
   if (sourceData == nullptr) {
     std::memset(dst, 0, static_cast<size_t>(byteSize));
@@ -1133,8 +1180,34 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   MeshRecord record{};
   const std::vector<uint32_t> &rangeIndices =
       meshData.rangeIndices.empty() ? meshData.indices : meshData.rangeIndices;
+  if (!meshData.meshletBounds.empty() &&
+      (meshData.meshletLocalIndices.empty() ||
+       meshData.meshletVertexIndices.empty())) {
+    return Result::fail(
+        Code::InvalidArgument, Severity::Error,
+        "MeshData with meshlet bounds must include MeshShader local index data.");
+  }
+  if (!meshData.meshletBounds.empty() &&
+      meshData.meshletVertexIndices.size() < meshData.meshletBounds.size()) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "MeshData meshlet vertex index stream is incomplete.");
+  }
+  if (!meshData.meshletBounds.empty() &&
+      meshData.meshletLocalIndices.size() != rangeIndices.size()) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "MeshData meshlet local index count must match range indices.");
+  }
+  for (const uint32_t localIndex : meshData.meshletLocalIndices) {
+    if (localIndex > 255u) {
+      return Result::fail(
+          Code::InvalidArgument, Severity::Error,
+          "MeshData meshlet local index exceeds the packed 8-bit range.");
+    }
+  }
   const std::vector<VisibilityTriangle> visibilityTriangles =
-      build_visibility_triangles(meshData);
+      build_visibility_triangles(meshData, rangeIndices);
+  const std::vector<uint32_t> packedMeshletLocalIndices =
+      pack_meshlet_local_indices_u8(meshData.meshletLocalIndices);
   record.vertexCount = vertexCount;
   record.indexCount = static_cast<uint32_t>(meshData.indices.size());
   record.positionByteSize = byte_size_of(meshData.positions);
@@ -1144,6 +1217,9 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   record.indexByteSize = byte_size_of(meshData.indices);
   record.visibilityTriangleByteSize = byte_size_of(visibilityTriangles);
   record.rangeIndexByteSize = byte_size_of(rangeIndices);
+  record.meshletLocalIndexByteSize = byte_size_of(packedMeshletLocalIndices);
+  record.meshletVertexIndexByteSize =
+      byte_size_of(meshData.meshletVertexIndices);
   record.meshletCount = static_cast<uint32_t>(meshData.meshletBounds.size());
   record.meshletByteSize = byte_size_of(meshData.meshletBounds);
   record.meshletChunkCount =
@@ -1229,6 +1305,53 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     return result;
   }
 
+  if (record.meshletLocalIndexByteSize > 0) {
+    result = allocate_stream_range(
+        m_meshletLocalIndexStream, record.meshletLocalIndexByteSize,
+        alignof(uint32_t), record.meshletLocalIndexByteOffset);
+    if (!result) {
+      release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                           record.rangeIndexByteSize);
+      release_stream_range(m_visibilityTriangleStream,
+                           record.visibilityTriangleByteOffset,
+                           record.visibilityTriangleByteSize);
+      release_stream_range(m_indexStream, record.indexByteOffset,
+                           record.indexByteSize);
+      release_stream_range(m_normalStream, record.normalByteOffset,
+                           record.normalByteSize);
+      release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+      release_stream_range(m_positionStream, record.positionByteOffset,
+                           record.positionByteSize);
+      release_mesh_id(record.meshId);
+      return result;
+    }
+  }
+
+  if (record.meshletVertexIndexByteSize > 0) {
+    result = allocate_stream_range(
+        m_meshletVertexIndexStream, record.meshletVertexIndexByteSize,
+        alignof(uint32_t), record.meshletVertexIndexByteOffset);
+    if (!result) {
+      release_stream_range(m_meshletLocalIndexStream,
+                           record.meshletLocalIndexByteOffset,
+                           record.meshletLocalIndexByteSize);
+      release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                           record.rangeIndexByteSize);
+      release_stream_range(m_visibilityTriangleStream,
+                           record.visibilityTriangleByteOffset,
+                           record.visibilityTriangleByteSize);
+      release_stream_range(m_indexStream, record.indexByteOffset,
+                           record.indexByteSize);
+      release_stream_range(m_normalStream, record.normalByteOffset,
+                           record.normalByteSize);
+      release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+      release_stream_range(m_positionStream, record.positionByteOffset,
+                           record.positionByteSize);
+      release_mesh_id(record.meshId);
+      return result;
+    }
+  }
+
   if (record.meshletByteSize > 0) {
     result = allocate_stream_range(
         m_meshletBoundsStream, record.meshletByteSize,
@@ -1236,6 +1359,16 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     if (!result) {
       // - meshlet bounds は追加カリング用の任意データなので、容量不足時は
       //   メッシュ登録自体は継続し、後段では常に visible 扱いにする。
+      release_stream_range(m_meshletVertexIndexStream,
+                           record.meshletVertexIndexByteOffset,
+                           record.meshletVertexIndexByteSize);
+      release_stream_range(m_meshletLocalIndexStream,
+                           record.meshletLocalIndexByteOffset,
+                           record.meshletLocalIndexByteSize);
+      record.meshletVertexIndexByteOffset = 0;
+      record.meshletVertexIndexByteSize = 0;
+      record.meshletLocalIndexByteOffset = 0;
+      record.meshletLocalIndexByteSize = 0;
       record.meshletByteOffset = 0;
       record.meshletByteSize = 0;
       record.meshletCount = 0;
@@ -1266,6 +1399,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   UploadAllocation indexUpload{};
   UploadAllocation visibilityTriangleUpload{};
   UploadAllocation rangeIndexUpload{};
+  UploadAllocation meshletLocalIndexUpload{};
+  UploadAllocation meshletVertexIndexUpload{};
   UploadAllocation meshletUpload{};
   UploadAllocation meshletChunkUpload{};
 
@@ -1276,6 +1411,12 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                          record.meshletChunkByteSize);
     release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                          record.meshletByteSize);
+    release_stream_range(m_meshletVertexIndexStream,
+                         record.meshletVertexIndexByteOffset,
+                         record.meshletVertexIndexByteSize);
+    release_stream_range(m_meshletLocalIndexStream,
+                         record.meshletLocalIndexByteOffset,
+                         record.meshletLocalIndexByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_visibilityTriangleStream,
@@ -1423,16 +1564,108 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     return result;
   }
 
+  if (record.meshletLocalIndexByteSize > 0) {
+    result = allocate_upload_range(
+        m_meshletLocalIndexStream, record.meshletLocalIndexByteSize,
+        alignof(uint32_t), meshletLocalIndexUpload);
+    if (!result) {
+      release_upload_range(m_rangeIndexStream, rangeIndexUpload);
+      release_upload_range(m_visibilityTriangleStream,
+                           visibilityTriangleUpload);
+      release_upload_range(m_indexStream, indexUpload);
+      release_upload_range(m_normalStream, normalUpload);
+      release_upload_range(m_uvStream, uvUpload);
+      release_upload_range(m_positionStream, positionUpload);
+      release_stream_range(m_meshletVertexIndexStream,
+                           record.meshletVertexIndexByteOffset,
+                           record.meshletVertexIndexByteSize);
+      release_stream_range(m_meshletLocalIndexStream,
+                           record.meshletLocalIndexByteOffset,
+                           record.meshletLocalIndexByteSize);
+      release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                           record.meshletByteSize);
+      release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                           record.meshletChunkByteSize);
+      release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                           record.rangeIndexByteSize);
+      release_stream_range(m_visibilityTriangleStream,
+                           record.visibilityTriangleByteOffset,
+                           record.visibilityTriangleByteSize);
+      release_stream_range(m_indexStream, record.indexByteOffset,
+                           record.indexByteSize);
+      release_stream_range(m_normalStream, record.normalByteOffset,
+                           record.normalByteSize);
+      release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+      release_stream_range(m_positionStream, record.positionByteOffset,
+                           record.positionByteSize);
+      release_mesh_id(record.meshId);
+      return result;
+    }
+  }
+
+  if (record.meshletVertexIndexByteSize > 0) {
+    result = allocate_upload_range(
+        m_meshletVertexIndexStream, record.meshletVertexIndexByteSize,
+        alignof(uint32_t), meshletVertexIndexUpload);
+    if (!result) {
+      release_upload_range(m_meshletLocalIndexStream, meshletLocalIndexUpload);
+      release_upload_range(m_rangeIndexStream, rangeIndexUpload);
+      release_upload_range(m_visibilityTriangleStream,
+                           visibilityTriangleUpload);
+      release_upload_range(m_indexStream, indexUpload);
+      release_upload_range(m_normalStream, normalUpload);
+      release_upload_range(m_uvStream, uvUpload);
+      release_upload_range(m_positionStream, positionUpload);
+      release_stream_range(m_meshletVertexIndexStream,
+                           record.meshletVertexIndexByteOffset,
+                           record.meshletVertexIndexByteSize);
+      release_stream_range(m_meshletLocalIndexStream,
+                           record.meshletLocalIndexByteOffset,
+                           record.meshletLocalIndexByteSize);
+      release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
+                           record.meshletByteSize);
+      release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
+                           record.meshletChunkByteSize);
+      release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
+                           record.rangeIndexByteSize);
+      release_stream_range(m_visibilityTriangleStream,
+                           record.visibilityTriangleByteOffset,
+                           record.visibilityTriangleByteSize);
+      release_stream_range(m_indexStream, record.indexByteOffset,
+                           record.indexByteSize);
+      release_stream_range(m_normalStream, record.normalByteOffset,
+                           record.normalByteSize);
+      release_stream_range(m_uvStream, record.uvByteOffset, record.uvByteSize);
+      release_stream_range(m_positionStream, record.positionByteOffset,
+                           record.positionByteSize);
+      release_mesh_id(record.meshId);
+      return result;
+    }
+  }
+
   if (record.meshletByteSize > 0) {
     result = allocate_upload_range(
         m_meshletBoundsStream, record.meshletByteSize,
         alignof(Core::Native::MeshletBounds), meshletUpload);
     if (!result) {
       // - meshlet bounds の upload だけ失敗した場合も描画は継続する。
+      release_upload_range(m_meshletVertexIndexStream,
+                           meshletVertexIndexUpload);
+      release_upload_range(m_meshletLocalIndexStream, meshletLocalIndexUpload);
+      release_stream_range(m_meshletVertexIndexStream,
+                           record.meshletVertexIndexByteOffset,
+                           record.meshletVertexIndexByteSize);
+      release_stream_range(m_meshletLocalIndexStream,
+                           record.meshletLocalIndexByteOffset,
+                           record.meshletLocalIndexByteSize);
       release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                            record.meshletByteSize);
       release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
                            record.meshletChunkByteSize);
+      record.meshletVertexIndexByteOffset = 0;
+      record.meshletVertexIndexByteSize = 0;
+      record.meshletLocalIndexByteOffset = 0;
+      record.meshletLocalIndexByteSize = 0;
       record.meshletByteOffset = 0;
       record.meshletByteSize = 0;
       record.meshletCount = 0;
@@ -1485,6 +1718,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   if (!result) {
     release_upload_range(m_meshletChunkStream, meshletChunkUpload);
     release_upload_range(m_meshletBoundsStream, meshletUpload);
+    release_upload_range(m_meshletVertexIndexStream, meshletVertexIndexUpload);
+    release_upload_range(m_meshletLocalIndexStream, meshletLocalIndexUpload);
     release_upload_range(m_rangeIndexStream, rangeIndexUpload);
     release_upload_range(m_visibilityTriangleStream, visibilityTriangleUpload);
     release_upload_range(m_indexStream, indexUpload);
@@ -1495,6 +1730,12 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                          record.meshletByteSize);
     release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
                          record.meshletChunkByteSize);
+    release_stream_range(m_meshletVertexIndexStream,
+                         record.meshletVertexIndexByteOffset,
+                         record.meshletVertexIndexByteSize);
+    release_stream_range(m_meshletLocalIndexStream,
+                         record.meshletLocalIndexByteOffset,
+                         record.meshletLocalIndexByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_visibilityTriangleStream,
@@ -1517,6 +1758,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     release_upload_range(m_meshRangeState, meshRangeUpload);
     release_upload_range(m_meshletChunkStream, meshletChunkUpload);
     release_upload_range(m_meshletBoundsStream, meshletUpload);
+    release_upload_range(m_meshletVertexIndexStream, meshletVertexIndexUpload);
+    release_upload_range(m_meshletLocalIndexStream, meshletLocalIndexUpload);
     release_upload_range(m_rangeIndexStream, rangeIndexUpload);
     release_upload_range(m_visibilityTriangleStream, visibilityTriangleUpload);
     release_upload_range(m_indexStream, indexUpload);
@@ -1527,6 +1770,12 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                          record.meshletByteSize);
     release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
                          record.meshletChunkByteSize);
+    release_stream_range(m_meshletVertexIndexStream,
+                         record.meshletVertexIndexByteOffset,
+                         record.meshletVertexIndexByteSize);
+    release_stream_range(m_meshletLocalIndexStream,
+                         record.meshletLocalIndexByteOffset,
+                         record.meshletLocalIndexByteSize);
     release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                          record.rangeIndexByteSize);
     release_stream_range(m_visibilityTriangleStream,
@@ -1560,13 +1809,50 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
                      record.visibilityTriangleByteSize);
   write_upload_bytes(rangeIndexUpload, rangeIndices.data(),
                      record.rangeIndexByteSize);
+  write_upload_bytes(meshletLocalIndexUpload,
+                     packedMeshletLocalIndices.data(),
+                     record.meshletLocalIndexByteSize);
+  std::vector<uint32_t> gpuMeshletVertexIndices{};
+  const uint32_t meshletVertexIndexStart = static_cast<uint32_t>(
+      record.meshletVertexIndexByteOffset / sizeof(uint32_t));
+  if (record.meshletVertexIndexByteSize > 0) {
+    gpuMeshletVertexIndices = meshData.meshletVertexIndices;
+    for (const Core::Native::MeshletBounds &meshletBounds :
+         meshData.meshletBounds) {
+      const uint32_t localFirstSegmentRange = meshletBounds.padding1;
+      const uint32_t segmentCount =
+          (meshletBounds.indexCount + 383u) / 384u;
+      for (uint32_t segmentIndex = 0u; segmentIndex < segmentCount;
+           ++segmentIndex) {
+        const uint32_t rangeIndex = localFirstSegmentRange + segmentIndex;
+        if (rangeIndex >= gpuMeshletVertexIndices.size()) {
+          continue;
+        }
+        const uint32_t packedRange = gpuMeshletVertexIndices[rangeIndex];
+        const uint32_t vertexStart =
+            packedRange & kMeshShaderSegmentVertexOffsetMask;
+        const uint32_t vertexCountMinusOne =
+            packedRange >> kMeshShaderSegmentVertexOffsetBits;
+        gpuMeshletVertexIndices[rangeIndex] =
+            (vertexCountMinusOne << kMeshShaderSegmentVertexOffsetBits) |
+            ((vertexStart + meshletVertexIndexStart) &
+             kMeshShaderSegmentVertexOffsetMask);
+      }
+    }
+  }
+  write_upload_bytes(meshletVertexIndexUpload, gpuMeshletVertexIndices.data(),
+                     record.meshletVertexIndexByteSize);
   if (record.meshletByteSize > 0) {
     std::vector<Core::Native::MeshletBounds> rangeMeshletBounds =
         meshData.meshletBounds;
     const uint32_t rangeStartIndex =
         static_cast<uint32_t>(record.rangeIndexByteOffset / sizeof(uint32_t));
+    const uint32_t meshletLocalIndexStart =
+        static_cast<uint32_t>(record.meshletLocalIndexByteOffset);
     for (Core::Native::MeshletBounds &meshletBounds : rangeMeshletBounds) {
       meshletBounds.firstIndex += rangeStartIndex;
+      meshletBounds.padding0 += meshletLocalIndexStart;
+      meshletBounds.padding1 += meshletVertexIndexStart;
     }
     write_upload_bytes(meshletUpload, rangeMeshletBounds.data(),
                        record.meshletByteSize);
@@ -1673,6 +1959,30 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
     uploadRegions.erase(uploadRegions.begin() +
                         static_cast<std::ptrdiff_t>(meshletChunkRegionIndex));
   }
+  if (record.meshletLocalIndexByteSize > 0) {
+    uploadRegions.push_back(
+        BufferCopyRegion{.srcBufferHandle =
+                             meshletLocalIndexUpload.bufferHandle,
+                         .srcUploadResourceIndex = 0,
+                         .srcByteOffset = meshletLocalIndexUpload.byteOffset,
+                         .dstBufferHandle =
+                             m_meshletLocalIndexStream.defaultBufferHandle,
+                         .dstDefaultResourceIndex = 0,
+                         .dstByteOffset = record.meshletLocalIndexByteOffset,
+                         .byteSize = record.meshletLocalIndexByteSize});
+  }
+  if (record.meshletVertexIndexByteSize > 0) {
+    uploadRegions.push_back(
+        BufferCopyRegion{.srcBufferHandle =
+                             meshletVertexIndexUpload.bufferHandle,
+                         .srcUploadResourceIndex = 0,
+                         .srcByteOffset = meshletVertexIndexUpload.byteOffset,
+                         .dstBufferHandle =
+                             m_meshletVertexIndexStream.defaultBufferHandle,
+                         .dstDefaultResourceIndex = 0,
+                         .dstByteOffset = record.meshletVertexIndexByteOffset,
+                         .byteSize = record.meshletVertexIndexByteSize});
+  }
 
   result = copy_upload_regions(uploadRegions);
 
@@ -1681,6 +1991,8 @@ Result MeshPool::allocate_mesh(const Core::Native::MeshData &meshData,
   release_upload_range(m_meshRangeState, meshRangeUpload);
   release_upload_range(m_meshletChunkStream, meshletChunkUpload);
   release_upload_range(m_meshletBoundsStream, meshletUpload);
+  release_upload_range(m_meshletVertexIndexStream, meshletVertexIndexUpload);
+  release_upload_range(m_meshletLocalIndexStream, meshletLocalIndexUpload);
   release_upload_range(m_rangeIndexStream, rangeIndexUpload);
   release_upload_range(m_visibilityTriangleStream, visibilityTriangleUpload);
   release_upload_range(m_indexStream, indexUpload);
@@ -1746,6 +2058,12 @@ Result MeshPool::free_mesh(MeshHandle handle) {
                        record.visibilityTriangleByteSize);
   release_stream_range(m_rangeIndexStream, record.rangeIndexByteOffset,
                        record.rangeIndexByteSize);
+  release_stream_range(m_meshletLocalIndexStream,
+                       record.meshletLocalIndexByteOffset,
+                       record.meshletLocalIndexByteSize);
+  release_stream_range(m_meshletVertexIndexStream,
+                       record.meshletVertexIndexByteOffset,
+                       record.meshletVertexIndexByteSize);
   release_stream_range(m_meshletBoundsStream, record.meshletByteOffset,
                        record.meshletByteSize);
   release_stream_range(m_meshletChunkStream, record.meshletChunkByteOffset,
@@ -1804,6 +2122,10 @@ Result MeshPool::get_bindings(MeshPoolBindings &outBindings) const {
   outBindings.visibilityTriangleBuffer =
       m_visibilityTriangleStream.defaultBufferHandle;
   outBindings.rangeIndexBuffer = m_rangeIndexStream.defaultBufferHandle;
+  outBindings.meshletLocalIndexBuffer =
+      m_meshletLocalIndexStream.defaultBufferHandle;
+  outBindings.meshletVertexIndexBuffer =
+      m_meshletVertexIndexStream.defaultBufferHandle;
   outBindings.meshletBoundsBuffer = m_meshletBoundsStream.defaultBufferHandle;
   outBindings.meshletChunkBuffer = m_meshletChunkStream.defaultBufferHandle;
   outBindings.meshChunkRangeBuffer = m_meshChunkRangeState.defaultBufferHandle;

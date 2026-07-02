@@ -226,12 +226,6 @@ public:
     if (!result) {
       return result;
     }
-    result = builder.use_buffer(m_materialBuffer, RHI::ResourceAccessType::Read,
-                                RHI::ResourceState::ShaderResource,
-                                RHI::ResourceState::Common);
-    if (!result) {
-      return result;
-    }
     result = builder.use_buffer(
         m_lightFrameBuffer, RHI::ResourceAccessType::Read,
         RHI::ResourceState::ShaderResource, RHI::ResourceState::Common);
@@ -286,7 +280,6 @@ public:
     commandContext->set_srv(5, m_renderObjectBuffer);
     commandContext->set_srv(6, m_meshRangeBuffer);
     commandContext->set_srv(7, m_transformBuffer);
-    commandContext->set_srv(8, m_materialBuffer);
     commandContext->set_cbv(9, m_lightFrameBuffer);
     commandContext->set_srv(10, m_directionalLightBuffer);
     commandContext->set_srv(11, m_pointLightBuffer);

@@ -3,7 +3,7 @@
 
 #include "ClusteredForwardLighting.hlsli"
 
-Texture2D<uint2> g_visibility : register(t0);
+Texture2D<uint> g_visibility : register(t0);
 
 struct RenderObject
 {
@@ -103,7 +103,6 @@ cbuffer ClusterInvLogFarNearParam : register(b10)
 StructuredBuffer<RenderObject> g_renderObjects : register(t1);
 StructuredBuffer<MeshRange> g_meshRanges : register(t2);
 StructuredBuffer<Transform> g_transforms : register(t5);
-StructuredBuffer<Material> g_materials : register(t8);
 StructuredBuffer<DirectionalLight> g_directionalLights : register(t9);
 StructuredBuffer<PointLight> g_pointLights : register(t10);
 StructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(t11);
@@ -127,12 +126,15 @@ struct VisibilityResolvePayload
     float3 viewPosition;
     float3 worldNormal;
     float2 uv;
-    Material material;
+    float4 baseColor;
 };
 
 static const uint kVisibilityResolveBackground = 0u;
 static const uint kVisibilityResolveInvalid = 1u;
 static const uint kVisibilityResolveHit = 2u;
+static const uint kVisibilityPrimitiveBits = 19u;
+static const uint kVisibilityPrimitiveMask = (1u << kVisibilityPrimitiveBits) - 1u;
+static const uint kVisibilityObjectShift = kVisibilityPrimitiveBits;
 
 VisibilityResolveVsOutput visibility_resolve_vs_main(uint vertexId)
 {
@@ -198,30 +200,28 @@ VisibilityResolvePayload visibility_resolve_sample(float2 pixelPosition)
     payload.viewPosition = float3(0.0f, 0.0f, 0.0f);
     payload.worldNormal = float3(0.0f, 0.0f, 1.0f);
     payload.uv = float2(0.0f, 0.0f);
-    payload.material.color = float4(1.0f, 0.0f, 1.0f, 1.0f);
-    payload.material.textureId = 0u;
-    payload.material.useTexture = 0u;
-    payload.material.useReflectionSkybox = 0u;
-    payload.material.shininess = 32.0f;
+    payload.baseColor = float4(0.82f, 0.82f, 0.78f, 1.0f);
 
     const uint2 pixel = uint2(pixelPosition);
-    const uint2 id = g_visibility.Load(int3(pixel, 0));
-    if (id.x == 0u)
+    const uint packedVisibility = g_visibility.Load(int3(pixel, 0));
+    if (packedVisibility == 0u)
     {
         return payload;
     }
 
-    const uint renderObjectIndex = id.x - 1u;
+    const uint renderObjectIndex =
+        (packedVisibility >> kVisibilityObjectShift) - 1u;
+    const uint primitiveId = packedVisibility & kVisibilityPrimitiveMask;
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const MeshRange meshRange = g_meshRanges[renderObject.meshId];
-    if (id.y * 3u + 2u >= meshRange.indexCount)
+    if (primitiveId * 3u + 2u >= meshRange.indexCount)
     {
         payload.status = kVisibilityResolveInvalid;
         return payload;
     }
 
     const VisibilityTriangle tri =
-        g_visibilityTriangles[meshRange.visibilityTriangleStart + id.y];
+        g_visibilityTriangles[meshRange.visibilityTriangleStart + primitiveId];
     const Transform transform = g_transforms[renderObject.transformId];
 
     float4 w0;
@@ -285,7 +285,6 @@ VisibilityResolvePayload visibility_resolve_sample(float2 pixelPosition)
     payload.worldNormal = normal;
     payload.uv = tri.uv01.xy * pc.x + tri.uv01.zw * pc.y +
                  tri.uv2.xy * pc.z;
-    payload.material = g_materials[renderObject.materialId];
     return payload;
 }
 
@@ -298,8 +297,7 @@ float4 visibility_resolve_lit(VisibilityResolvePayload payload,
                                             payload.viewPosition,
                                             payload.worldNormal),
             0.0f);
-    return float4(payload.material.color.rgb * lighting,
-                  payload.material.color.a);
+    return float4(payload.baseColor.rgb * lighting, payload.baseColor.a);
 }
 
 #endif

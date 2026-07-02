@@ -32,6 +32,7 @@ struct MeshRange
 struct IndirectCommand
 {
     uint drawObjectStartIndex;
+    uint primitiveBase;
     uint indexCountPerInstance;
     uint instanceCount;
     uint startIndexLocation;
@@ -40,6 +41,10 @@ struct IndirectCommand
 };
 
 static const uint kRenderObjectFlagForwardFallback = 1u << 0u;
+static const uint kDrawFlagImpostor = 1u << 0u;
+static const uint kVisibilityPrimitiveBits = 19u;
+static const uint kMaxPackedVisibilityIndexCount =
+    (1u << kVisibilityPrimitiveBits) * 3u;
 
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 ByteAddressBuffer g_renderObjectCount : register(t1);
@@ -65,12 +70,16 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     const RenderObject renderObject = g_renderObjects[objectIndex];
-    if ((renderObject.padding & kRenderObjectFlagForwardFallback) == 0u)
+    const MeshRange meshRange = g_meshRanges[renderObject.meshId];
+    const bool isForwardFallback =
+        (renderObject.padding & kRenderObjectFlagForwardFallback) != 0u ||
+        (renderObject.drawFlags & kDrawFlagImpostor) != 0u ||
+        meshRange.indexCount > kMaxPackedVisibilityIndexCount;
+    if (!isForwardFallback)
     {
         return;
     }
 
-    const MeshRange meshRange = g_meshRanges[renderObject.meshId];
     if (meshRange.indexCount == 0u)
     {
         return;
@@ -87,6 +96,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     IndirectCommand command;
     command.drawObjectStartIndex = commandIndex;
+    command.primitiveBase = 0u;
     command.indexCountPerInstance = meshRange.indexCount;
     command.instanceCount = 1u;
     command.startIndexLocation = meshRange.startIndex;

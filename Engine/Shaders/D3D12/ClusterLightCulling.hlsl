@@ -2,8 +2,8 @@
 // BuildClusterGrid の cluster AABB と PreparePointLights の view-space lights を使い、
 // cluster ごとの light list を compact buffer に作る。
 
-#define GROUP_SIZE 128
-#define MAX_LIGHTS_PER_CLUSTER 128
+#define GROUP_SIZE 64
+#define MAX_LIGHTS_PER_CLUSTER 64
 
 // ViewPointLightBuffer に事前変換済みの point light。
 // cluster assignment では view-space AABB と比較するため、ここでは
@@ -38,13 +38,12 @@ struct ClusterLightRange
 };
 
 // 1 thread が 1 cluster を担当し、workgroup 全体で light を shared memory に
-// batch 読み込みする。global memory から同じ light を cluster 数ぶん読む
-// naive 実装を避けるための scratch 領域。
-groupshared ViewPointLight s_lights[GROUP_SIZE];
+// batch 読み込みする。culling で使う field だけを cache し、LDS 使用量を抑える。
+groupshared float4 s_lightPositionRadii[GROUP_SIZE];
+groupshared uint s_lightSourceIds[GROUP_SIZE];
 groupshared uint s_hashes[GROUP_SIZE];
 groupshared uint s_starts[GROUP_SIZE];
-groupshared uint s_counts[GROUP_SIZE];
-groupshared uint s_overflows[GROUP_SIZE];
+groupshared uint s_countOverflows[GROUP_SIZE];
 groupshared uint s_firstLightIds[GROUP_SIZE];
 groupshared uint s_lastLightIds[GROUP_SIZE];
 
@@ -55,6 +54,9 @@ RWStructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(u0);
 RWStructuredBuffer<uint> g_clusterLightIndices : register(u1);
 RWByteAddressBuffer g_clusterLightItemCounter : register(u2);
 RWByteAddressBuffer g_clusterLightStats : register(u3);
+
+static const float kClusterAabbPaddingScale = 0.08f;
+static const float kClusterLightRadiusCullScale = 1.15f;
 
 // ClusterLightingStatsGpu の uint offset。ImGui で「cluster assignment が
 // どれだけ compact できているか」を見るため、GPU 側で直接集計する。
@@ -90,9 +92,15 @@ cbuffer MaxLightsPerClusterParam : register(b3)
 bool sphere_intersects_aabb(float3 center, float radius, float3 minPoint,
                             float3 maxPoint)
 {
-    const float3 closest = clamp(center, minPoint, maxPoint);
+    const float3 padding =
+        max((maxPoint - minPoint) * kClusterAabbPaddingScale,
+            float3(0.001f, 0.001f, 0.001f));
+    const float3 expandedMinPoint = minPoint - padding;
+    const float3 expandedMaxPoint = maxPoint + padding;
+    const float expandedRadius = radius * kClusterLightRadiusCullScale;
+    const float3 closest = clamp(center, expandedMinPoint, expandedMaxPoint);
     const float3 delta = center - closest;
-    return dot(delta, delta) <= radius * radius;
+    return dot(delta, delta) <= expandedRadius * expandedRadius;
 }
 
 uint hash_init()
@@ -146,7 +154,9 @@ void CSMain(uint3 groupId : SV_GroupID,
         const uint lightIndex = batchStart + localId;
         if (lightIndex < g_pointLightCount)
         {
-            s_lights[localId] = g_viewPointLights[lightIndex];
+            const ViewPointLight light = g_viewPointLights[lightIndex];
+            s_lightPositionRadii[localId] = light.positionRadius;
+            s_lightSourceIds[localId] = light.sourceIndex;
         }
 
         // 全 thread が s_lights を読み始める前に、batch load 完了を保証する。
@@ -157,26 +167,27 @@ void CSMain(uint3 groupId : SV_GroupID,
         {
             for (uint i = 0u; i < batchCount; ++i)
             {
-                const ViewPointLight light = s_lights[i];
+                const float4 lightPositionRadius = s_lightPositionRadii[i];
+                const uint lightSourceIndex = s_lightSourceIds[i];
 
                 // light sphere と cluster AABB の交差判定。
                 // 交差した light だけを pixel shader の評価対象にする。
-                if (sphere_intersects_aabb(light.positionRadius.xyz,
-                                           light.positionRadius.w,
+                if (sphere_intersects_aabb(lightPositionRadius.xyz,
+                                           lightPositionRadius.w,
                                            cluster.minPoint.xyz,
                                            cluster.maxPoint.xyz))
                 {
                     if (localLightCount < MAX_LIGHTS_PER_CLUSTER &&
                         localLightCount < g_maxLightsPerCluster)
                     {
-                        localLightIds[localLightCount] = light.sourceIndex;
+                        localLightIds[localLightCount] = lightSourceIndex;
                         if (localLightCount == 0u)
                         {
-                            firstLightId = light.sourceIndex;
+                            firstLightId = lightSourceIndex;
                         }
-                        lastLightId = light.sourceIndex;
+                        lastLightId = lightSourceIndex;
                         ++localLightCount;
-                        hash = hash_next(hash, light.sourceIndex);
+                        hash = hash_next(hash, lightSourceIndex);
                     }
                     else
                     {
@@ -201,8 +212,7 @@ void CSMain(uint3 groupId : SV_GroupID,
     // shared memory に公開する。private array 自体は他 thread から読めない。
     s_hashes[localId] = hash;
     s_starts[localId] = 0u;
-    s_counts[localId] = localLightCount;
-    s_overflows[localId] = overflow;
+    s_countOverflows[localId] = localLightCount | (overflow << 31u);
     s_firstLightIds[localId] = firstLightId;
     s_lastLightIds[localId] = lastLightId;
 
@@ -247,7 +257,7 @@ void CSMain(uint3 groupId : SV_GroupID,
             }
 
             if (s_hashes[i] == hash &&
-                s_counts[i] == localLightCount &&
+                (s_countOverflows[i] & 0x7fffffffu) == localLightCount &&
                 s_firstLightIds[i] == firstLightId &&
                 s_lastLightIds[i] == lastLightId)
             {
@@ -282,15 +292,14 @@ void CSMain(uint3 groupId : SV_GroupID,
             }
 
             s_starts[localId] = start;
-            s_counts[localId] = localLightCount;
+            s_countOverflows[localId] = localLightCount | (overflow << 31u);
         }
         else
         {
             // compact buffer 自体が満杯になった。範囲外参照を防ぐため
             // 空 list として保存し、stats で容量不足を見える化する。
             s_starts[localId] = 0u;
-            s_counts[localId] = 0u;
-            s_overflows[localId] = 1u;
+            s_countOverflows[localId] = 1u << 31u;
             g_clusterLightStats.InterlockedAdd(k_statOverflowClusterCount, 1u);
         }
 
@@ -313,9 +322,9 @@ void CSMain(uint3 groupId : SV_GroupID,
         // offset/count は compact buffer 内の範囲、hash/overflow は debug 用。
         ClusterLightRange range;
         range.offset = s_starts[firstLocalId];
-        range.count = s_counts[firstLocalId];
+        range.count = s_countOverflows[firstLocalId] & 0x7fffffffu;
         range.hash = hash;
-        range.overflow = s_overflows[firstLocalId];
+        range.overflow = s_countOverflows[firstLocalId] >> 31u;
 
         g_clusterLightRanges[clusterIndex] = range;
     }

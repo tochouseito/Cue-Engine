@@ -1,10 +1,137 @@
 #include "DX12PipelineManager.h"
 
+#include <IO/Logger.h>
+
+#include <cstddef>
+#include <vector>
+
 namespace Cue::RHI::DX12
 {
     namespace
     {
         std::string g_lastRootSignatureSerializeError{};
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
+        template <typename T, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE Type>
+        struct alignas(void*) PipelineStreamSubobject final
+        {
+            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type = Type;
+            T value{};
+        };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
+        struct MeshPipelineStream final
+        {
+            PipelineStreamSubobject<ID3D12RootSignature*, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE> rootSignature;
+            PipelineStreamSubobject<D3D12_SHADER_BYTECODE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS> ms;
+            PipelineStreamSubobject<D3D12_SHADER_BYTECODE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS> ps;
+            PipelineStreamSubobject<D3D12_BLEND_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND> blend;
+            PipelineStreamSubobject<D3D12_RASTERIZER_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER> rasterizer;
+            PipelineStreamSubobject<D3D12_DEPTH_STENCIL_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL> depthStencil;
+            PipelineStreamSubobject<D3D12_PRIMITIVE_TOPOLOGY_TYPE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY> primitiveTopology;
+            PipelineStreamSubobject<D3D12_RT_FORMAT_ARRAY, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS> rtvFormats;
+            PipelineStreamSubobject<DXGI_FORMAT, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT> dsvFormat;
+            PipelineStreamSubobject<DXGI_SAMPLE_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC> sampleDesc;
+            PipelineStreamSubobject<UINT, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK> sampleMask;
+        };
+
+        struct MeshPipelineStreamWithAs final
+        {
+            PipelineStreamSubobject<ID3D12RootSignature*, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE> rootSignature;
+            PipelineStreamSubobject<D3D12_SHADER_BYTECODE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS> as;
+            PipelineStreamSubobject<D3D12_SHADER_BYTECODE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS> ms;
+            PipelineStreamSubobject<D3D12_SHADER_BYTECODE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS> ps;
+            PipelineStreamSubobject<D3D12_BLEND_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND> blend;
+            PipelineStreamSubobject<D3D12_RASTERIZER_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER> rasterizer;
+            PipelineStreamSubobject<D3D12_DEPTH_STENCIL_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL> depthStencil;
+            PipelineStreamSubobject<D3D12_PRIMITIVE_TOPOLOGY_TYPE, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY> primitiveTopology;
+            PipelineStreamSubobject<D3D12_RT_FORMAT_ARRAY, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS> rtvFormats;
+            PipelineStreamSubobject<DXGI_FORMAT, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT> dsvFormat;
+            PipelineStreamSubobject<DXGI_SAMPLE_DESC, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC> sampleDesc;
+            PipelineStreamSubobject<UINT, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK> sampleMask;
+        };
+
+        D3D12_SHADER_BYTECODE shader_bytecode(const ShaderBlobRecord& record)
+        {
+            D3D12_SHADER_BYTECODE bytecode{};
+            bytecode.pShaderBytecode = record.shaderBlob->GetBufferPointer();
+            bytecode.BytecodeLength = record.shaderBlob->GetBufferSize();
+            return bytecode;
+        }
+
+        uint64_t info_queue_message_count(ID3D12Device* device)
+        {
+            ComPtr<ID3D12InfoQueue> infoQueue;
+            if (device == nullptr ||
+                FAILED(device->QueryInterface(IID_PPV_ARGS(&infoQueue))) ||
+                infoQueue == nullptr)
+            {
+                return 0;
+            }
+            return infoQueue->GetNumStoredMessages();
+        }
+
+        void log_info_queue_messages(ID3D12Device* device,
+                                     uint64_t firstMessageIndex)
+        {
+            ComPtr<ID3D12InfoQueue> infoQueue;
+            if (device == nullptr ||
+                FAILED(device->QueryInterface(IID_PPV_ARGS(&infoQueue))) ||
+                infoQueue == nullptr)
+            {
+                Core::IO::log(Core::IO::LogSink::console |
+                                  Core::IO::LogSink::file,
+                              "[D3D12][InfoQueue] unavailable");
+                return;
+            }
+
+            const uint64_t messageCount = infoQueue->GetNumStoredMessages();
+            for (uint64_t i = firstMessageIndex; i < messageCount; ++i)
+            {
+                SIZE_T messageLength = 0;
+                if (FAILED(infoQueue->GetMessage(i, nullptr, &messageLength)) ||
+                    messageLength == 0)
+                {
+                    continue;
+                }
+
+                std::vector<std::byte> storage(messageLength);
+                auto* message =
+                    reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+                if (FAILED(infoQueue->GetMessage(i, message, &messageLength)) ||
+                    message == nullptr)
+                {
+                    continue;
+                }
+
+                Core::IO::log(
+                    Core::IO::LogSink::console | Core::IO::LogSink::file,
+                    "[D3D12][InfoQueue] category={} severity={} id={} {}",
+                    static_cast<uint32_t>(message->Category),
+                    static_cast<uint32_t>(message->Severity),
+                    static_cast<uint32_t>(message->ID),
+                    message->pDescription != nullptr ? message->pDescription
+                                                     : "");
+            }
+        }
+
+        Result get_device2(ID3D12Device* device, ComPtr<ID3D12Device2>& out)
+        {
+            out.Reset();
+            HRESULT hr = device->QueryInterface(IID_PPV_ARGS(&out));
+            if (FAILED(hr) || out == nullptr)
+            {
+                return Result::fail(PAL::Win::convert_hresult_code(hr),
+                                    Severity::Error,
+                                    "D3D12 device does not support ID3D12Device2.");
+            }
+            return Result::ok();
+        }
 
         D3D12_INPUT_ELEMENT_DESC convert_input_element_desc(const InputElementDesc& desc)
         {
@@ -191,6 +318,10 @@ namespace Cue::RHI::DX12
                 return D3D12_SHADER_VISIBILITY_VERTEX;
             case ShaderVisibility::Pixel:
                 return D3D12_SHADER_VISIBILITY_PIXEL;
+            case ShaderVisibility::Amplification:
+                return D3D12_SHADER_VISIBILITY_AMPLIFICATION;
+            case ShaderVisibility::Mesh:
+                return D3D12_SHADER_VISIBILITY_MESH;
             default:
                 return D3D12_SHADER_VISIBILITY_ALL;
             }
@@ -226,6 +357,178 @@ namespace Cue::RHI::DX12
                 Code::NotFound,
                 Severity::Error,
                 "Root signature not found for the given handle.");
+        }
+
+        if (desc.msHandle.valid())
+        {
+            ShaderBlobRecord* msBlobRecord = m_shaderBlobRegistry.ref_get(desc.msHandle);
+            if (!msBlobRecord)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Mesh shader blob not found for the given handle.");
+            }
+            ShaderBlobRecord* psBlobRecord = m_shaderBlobRegistry.ref_get(desc.psHandle);
+            if (!psBlobRecord)
+            {
+                return Result::fail(
+                    Code::NotFound,
+                    Severity::Error,
+                    "Pixel shader blob not found for the given handle.");
+            }
+
+            D3D12_RT_FORMAT_ARRAY rtvFormats{};
+            rtvFormats.NumRenderTargets = static_cast<UINT>(desc.rtvFormats.size());
+            for (size_t i = 0; i < desc.rtvFormats.size() && i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+            {
+                rtvFormats.RTFormats[i] = convert_color_format(desc.rtvFormats[i]);
+            }
+
+            ComPtr<ID3D12PipelineState> pipelineState;
+            ComPtr<ID3D12Device2> device2;
+            Result device2Result =
+                get_device2(m_renderDevice.get_d3d12_device(), device2);
+            if (!device2Result)
+            {
+                return device2Result;
+            }
+            HRESULT hr = S_OK;
+            uint64_t infoQueueMessageStart = 0;
+            size_t asBlobSize = 0;
+            const size_t msBlobSize =
+                msBlobRecord->shaderBlob != nullptr
+                    ? msBlobRecord->shaderBlob->GetBufferSize()
+                    : 0;
+            const size_t psBlobSize =
+                psBlobRecord->shaderBlob != nullptr
+                    ? psBlobRecord->shaderBlob->GetBufferSize()
+                    : 0;
+            if (desc.asHandle.valid())
+            {
+                ShaderBlobRecord* asBlobRecord = m_shaderBlobRegistry.ref_get(desc.asHandle);
+                if (!asBlobRecord)
+                {
+                    return Result::fail(
+                        Code::NotFound,
+                        Severity::Error,
+                        "Amplification shader blob not found for the given handle.");
+                }
+                asBlobSize = asBlobRecord->shaderBlob != nullptr
+                                 ? asBlobRecord->shaderBlob->GetBufferSize()
+                                 : 0;
+
+                MeshPipelineStreamWithAs stream{};
+                stream.rootSignature.value = rootSignatureRecord->rootSignature.Get();
+                stream.as.value = shader_bytecode(*asBlobRecord);
+                stream.ms.value = shader_bytecode(*msBlobRecord);
+                stream.ps.value = shader_bytecode(*psBlobRecord);
+                stream.blend.value = blendDesc;
+                stream.rasterizer.value = rasterizerDesc;
+                stream.depthStencil.value = depthStencilDesc;
+                stream.primitiveTopology.value = convert_primitive_topology_type(desc.primitiveTopologyType);
+                stream.rtvFormats.value = rtvFormats;
+                stream.dsvFormat.value = convert_color_format(desc.dsvFormat);
+                stream.sampleDesc.value = DXGI_SAMPLE_DESC{1, 0};
+                stream.sampleMask.value = D3D12_DEFAULT_SAMPLE_MASK;
+                D3D12_PIPELINE_STATE_STREAM_DESC streamDesc{};
+                streamDesc.SizeInBytes = sizeof(stream);
+                streamDesc.pPipelineStateSubobjectStream = &stream;
+                infoQueueMessageStart =
+                    info_queue_message_count(m_renderDevice.get_d3d12_device());
+                Core::IO::log(
+                    Core::IO::LogSink::console | Core::IO::LogSink::file,
+                    "[D3D12][MeshPSO] create name={} as=true streamBytes={} "
+                    "asBytes={} msBytes={} psBytes={} rtvCount={} dsv={}",
+                    desc.name, static_cast<uint64_t>(streamDesc.SizeInBytes),
+                    static_cast<uint64_t>(asBlobSize),
+                    static_cast<uint64_t>(msBlobSize),
+                    static_cast<uint64_t>(psBlobSize),
+                    static_cast<uint32_t>(rtvFormats.NumRenderTargets),
+                    static_cast<uint32_t>(stream.dsvFormat.value));
+                Core::IO::log(
+                    Core::IO::LogSink::console | Core::IO::LogSink::file,
+                    "[D3D12][MeshPSO] streamOffsets root={} as={} ms={} ps={} "
+                    "blend={} raster={} depth={} topology={} rtv={} dsv={} "
+                    "sampleDesc={} sampleMask={}",
+                    static_cast<uint64_t>(offsetof(MeshPipelineStreamWithAs,
+                                                   rootSignature)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, as)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, ms)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, ps)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, blend)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, rasterizer)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, depthStencil)),
+                    static_cast<uint64_t>(offsetof(
+                        MeshPipelineStreamWithAs, primitiveTopology)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, rtvFormats)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, dsvFormat)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, sampleDesc)),
+                    static_cast<uint64_t>(
+                        offsetof(MeshPipelineStreamWithAs, sampleMask)));
+                hr = device2->CreatePipelineState(
+                    &streamDesc, IID_PPV_ARGS(&pipelineState));
+            }
+            else
+            {
+                MeshPipelineStream stream{};
+                stream.rootSignature.value = rootSignatureRecord->rootSignature.Get();
+                stream.ms.value = shader_bytecode(*msBlobRecord);
+                stream.ps.value = shader_bytecode(*psBlobRecord);
+                stream.blend.value = blendDesc;
+                stream.rasterizer.value = rasterizerDesc;
+                stream.depthStencil.value = depthStencilDesc;
+                stream.primitiveTopology.value = convert_primitive_topology_type(desc.primitiveTopologyType);
+                stream.rtvFormats.value = rtvFormats;
+                stream.dsvFormat.value = convert_color_format(desc.dsvFormat);
+                stream.sampleDesc.value = DXGI_SAMPLE_DESC{1, 0};
+                stream.sampleMask.value = D3D12_DEFAULT_SAMPLE_MASK;
+                D3D12_PIPELINE_STATE_STREAM_DESC streamDesc{};
+                streamDesc.SizeInBytes = sizeof(stream);
+                streamDesc.pPipelineStateSubobjectStream = &stream;
+                infoQueueMessageStart =
+                    info_queue_message_count(m_renderDevice.get_d3d12_device());
+                hr = device2->CreatePipelineState(
+                    &streamDesc, IID_PPV_ARGS(&pipelineState));
+            }
+
+            if (FAILED(hr))
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::console | Core::IO::LogSink::file,
+                    "[D3D12][MeshPSO] failed name={} as={} hr=0x{:08X} "
+                    "asBytes={} msBytes={} psBytes={}",
+                    desc.name, desc.asHandle.valid() ? "true" : "false",
+                    static_cast<uint32_t>(hr),
+                    static_cast<uint64_t>(asBlobSize),
+                    static_cast<uint64_t>(msBlobSize),
+                    static_cast<uint64_t>(psBlobSize));
+                log_info_queue_messages(m_renderDevice.get_d3d12_device(),
+                                        infoQueueMessageStart);
+                return Result::fail(
+                    PAL::Win::convert_hresult_code(hr),
+                    Severity::Error,
+                    "Failed to create mesh shader graphics pipeline state.");
+            }
+
+            record.pipelineState = pipelineState;
+            record.desc = desc;
+            PipelineStateHandle handle = m_pipelineRegistry.create(record);
+            if (!desc.name.empty())
+            {
+                m_pipelineNameMap[Core::fnv1a64(desc.name)] = handle;
+            }
+            out = handle;
+            return Result::ok();
         }
 
         // シェーダーブロブをRegistryから取得する
@@ -435,18 +738,19 @@ namespace Cue::RHI::DX12
     {
         // RHI の root parameter 記述を D3D12_ROOT_SIGNATURE_DESC へ展開する。
         // descriptor range の配列は serialize 完了まで生存している必要があるため、関数内 vector に保持する。
-        // D3D12_ROOT_SIGNATURE_DESC を構築する
-        D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
-        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        // Mesh/Amplification shader から GPU 更新済み SRV/UAV を参照できるよう、
+        // Root Signature 1.1 の volatility flags を明示して作成する。
+        constexpr D3D12_ROOT_SIGNATURE_FLAGS k_rootSignatureFlags =
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         // RootParameterDesc を descriptor table / constants に変換し、FrameGraph の descriptor 解決結果をそのまま bind できる形にする
-        std::vector<D3D12_ROOT_PARAMETER> d3dParameters;
-        std::vector<D3D12_DESCRIPTOR_RANGE> d3dDescriptorRanges;
+        std::vector<D3D12_ROOT_PARAMETER1> d3dParameters;
+        std::vector<D3D12_DESCRIPTOR_RANGE1> d3dDescriptorRanges;
         d3dParameters.reserve(desc.parameters.size());
         d3dDescriptorRanges.reserve(desc.parameters.size());
         for (const RootParameterDesc& parmDesc : desc.parameters)
         {
-            D3D12_ROOT_PARAMETER d3dParam{};
+            D3D12_ROOT_PARAMETER1 d3dParam{};
             d3dParam.ShaderVisibility = convert_shader_visibility(parmDesc.visibility);
 
             if (parmDesc.type == RootParameterType::_32BitConstants)
@@ -454,14 +758,14 @@ namespace Cue::RHI::DX12
                 d3dParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
                 d3dParam.Constants.ShaderRegister = parmDesc.shaderRegister;
                 d3dParam.Constants.RegisterSpace = parmDesc.registerSpace;
-                d3dParam.Constants.Num32BitValues = 1;
+                d3dParam.Constants.Num32BitValues = parmDesc.num32BitValues;
                 d3dParameters.push_back(d3dParam);
                 continue;
             }
 
             if (is_descriptor_table_parameter(parmDesc.type))
             {
-                D3D12_DESCRIPTOR_RANGE descriptorRange{};
+                D3D12_DESCRIPTOR_RANGE1 descriptorRange{};
                 descriptorRange.RangeType = convert_descriptor_range_type(parmDesc.type);
                 descriptorRange.NumDescriptors =
                     parmDesc.descriptorCount == 0
@@ -469,6 +773,9 @@ namespace Cue::RHI::DX12
                     : parmDesc.descriptorCount;
                 descriptorRange.BaseShaderRegister = parmDesc.shaderRegister;
                 descriptorRange.RegisterSpace = parmDesc.registerSpace;
+                descriptorRange.Flags =
+                    D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE |
+                    D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
                 descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
                 d3dDescriptorRanges.push_back(descriptorRange);
 
@@ -482,12 +789,9 @@ namespace Cue::RHI::DX12
             d3dParam.ParameterType = convert_root_parameter_type(parmDesc.type);
             d3dParam.Descriptor.ShaderRegister = parmDesc.shaderRegister;
             d3dParam.Descriptor.RegisterSpace = parmDesc.registerSpace;
+            d3dParam.Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE;
             d3dParameters.push_back(d3dParam);
         }
-
-        // D3D12_ROOT_SIGNATURE_DESC にパラメータをセットする
-        rootSignatureDesc.NumParameters = static_cast<UINT>(d3dParameters.size());
-        rootSignatureDesc.pParameters = d3dParameters.data();
 
         D3D12_STATIC_SAMPLER_DESC staticSampler{};
         staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -503,15 +807,20 @@ namespace Cue::RHI::DX12
         staticSampler.ShaderRegister = 0;
         staticSampler.RegisterSpace = 0;
         staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-        rootSignatureDesc.NumStaticSamplers = 1;
-        rootSignatureDesc.pStaticSamplers = &staticSampler;
 
-        // D3D12_ROOT_SIGNATURE_DESC をシリアライズしてバイナリ化する
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc{};
+        rootSignatureDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        rootSignatureDesc.Desc_1_1.NumParameters =
+            static_cast<UINT>(d3dParameters.size());
+        rootSignatureDesc.Desc_1_1.pParameters = d3dParameters.data();
+        rootSignatureDesc.Desc_1_1.NumStaticSamplers = 1;
+        rootSignatureDesc.Desc_1_1.pStaticSamplers = &staticSampler;
+        rootSignatureDesc.Desc_1_1.Flags = k_rootSignatureFlags;
+
         ComPtr<ID3DBlob> serializedRootSig;
         ComPtr<ID3DBlob> errorBlob;
-        HRESULT hr = D3D12SerializeRootSignature(
+        HRESULT hr = D3D12SerializeVersionedRootSignature(
             &rootSignatureDesc,
-            D3D_ROOT_SIGNATURE_VERSION_1,
             &serializedRootSig,
             &errorBlob);
         if (FAILED(hr))
@@ -613,6 +922,7 @@ namespace Cue::RHI::DX12
         // Shader blob は PSO と分離して cache し、同じ shader を複数 pipeline から再利用できるようにする。
         // HLSLCompiler の失敗を Result で受け、失敗時に無効ハンドルを成功扱いしない
         ShaderBlobRecord blobRecord{};
+        blobRecord.desc = desc;
         Result result = m_hlslCompiler.compile_shader_raw(desc, &blobRecord.shaderBlob);
         if (!result)
         {

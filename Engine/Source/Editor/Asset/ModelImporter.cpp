@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -201,9 +202,13 @@ struct MeshoptPosition final {
 void build_meshlet_ranges(Core::Native::MeshData &meshData) {
   static constexpr size_t k_maxMeshletVertices = 64u;
   static constexpr size_t k_maxMeshletTriangles = 128u;
+  static constexpr size_t k_maxMeshletSegmentTriangles = 128u;
+  static constexpr uint32_t k_meshletSegmentVertexOffsetBits = 26u;
   static constexpr float k_coneWeight = 0.25f;
 
   meshData.rangeIndices.clear();
+  meshData.meshletLocalIndices.clear();
+  meshData.meshletVertexIndices.clear();
   meshData.meshletBounds.clear();
   if (meshData.positions.empty() || meshData.indices.size() < 3u) {
     return;
@@ -226,6 +231,9 @@ void build_meshlet_ranges(Core::Native::MeshData &meshData) {
   meshlets.resize(meshletCount);
   meshData.meshletBounds.reserve(meshletCount);
   meshData.rangeIndices.reserve(meshData.indices.size());
+  meshData.meshletLocalIndices.reserve(meshData.indices.size());
+  meshData.meshletVertexIndices.reserve(meshletCount *
+                                        (k_maxMeshletVertices + 1u));
 
   for (const meshopt_Meshlet &meshlet : meshlets) {
     if (meshlet.triangle_count == 0u || meshlet.vertex_count == 0u) {
@@ -263,6 +271,16 @@ void build_meshlet_ranges(Core::Native::MeshData &meshData) {
     meshletBounds.firstIndex =
         static_cast<uint32_t>(meshData.rangeIndices.size());
     meshletBounds.indexCount = meshlet.triangle_count * 3u;
+    meshletBounds.padding0 =
+        static_cast<uint32_t>(meshData.meshletLocalIndices.size());
+    meshletBounds.padding1 =
+        static_cast<uint32_t>(meshData.meshletVertexIndices.size());
+    const uint32_t segmentCount = static_cast<uint32_t>(
+        (static_cast<size_t>(meshlet.triangle_count) +
+         k_maxMeshletSegmentTriangles - 1u) /
+        k_maxMeshletSegmentTriangles);
+    const size_t firstSegmentRange = meshData.meshletVertexIndices.size();
+    meshData.meshletVertexIndices.resize(firstSegmentRange + segmentCount);
 
     for (uint32_t triangleIndex = 0u; triangleIndex < meshlet.triangle_count;
          ++triangleIndex) {
@@ -271,6 +289,49 @@ void build_meshlet_ranges(Core::Native::MeshData &meshData) {
       meshData.rangeIndices.push_back(localVertices[triangle[0]]);
       meshData.rangeIndices.push_back(localVertices[triangle[1]]);
       meshData.rangeIndices.push_back(localVertices[triangle[2]]);
+    }
+
+    uint32_t segmentIndex = 0u;
+    for (uint32_t segmentTriangleStart = 0u;
+         segmentTriangleStart < meshlet.triangle_count;
+         segmentTriangleStart += k_maxMeshletSegmentTriangles, ++segmentIndex) {
+      std::array<uint32_t, k_maxMeshletVertices> localToSegment{};
+      localToSegment.fill((std::numeric_limits<uint32_t>::max)());
+      std::array<uint32_t, k_maxMeshletVertices> segmentVertices{};
+      uint32_t segmentVertexCount = 0u;
+      const uint32_t segmentTriangleEnd = static_cast<uint32_t>(
+          (std::min)(static_cast<size_t>(meshlet.triangle_count),
+                     static_cast<size_t>(segmentTriangleStart) +
+                         k_maxMeshletSegmentTriangles));
+
+      for (uint32_t triangleIndex = segmentTriangleStart;
+           triangleIndex < segmentTriangleEnd; ++triangleIndex) {
+        const unsigned char *triangle =
+            localTriangles + static_cast<size_t>(triangleIndex) * 3u;
+        for (uint32_t corner = 0u; corner < 3u; ++corner) {
+          const uint32_t meshletLocalVertex = triangle[corner];
+          uint32_t segmentLocalVertex = localToSegment[meshletLocalVertex];
+          if (segmentLocalVertex ==
+              (std::numeric_limits<uint32_t>::max)()) {
+            segmentLocalVertex = segmentVertexCount;
+            localToSegment[meshletLocalVertex] = segmentLocalVertex;
+            segmentVertices[segmentVertexCount] =
+                localVertices[meshletLocalVertex];
+            ++segmentVertexCount;
+          }
+          meshData.meshletLocalIndices.push_back(segmentLocalVertex);
+        }
+      }
+
+      const uint32_t segmentVertexStart =
+          static_cast<uint32_t>(meshData.meshletVertexIndices.size());
+      meshData.meshletVertexIndices[firstSegmentRange + segmentIndex] =
+          ((segmentVertexCount - 1u) << k_meshletSegmentVertexOffsetBits) |
+          segmentVertexStart;
+      for (uint32_t vertexIndex = 0u; vertexIndex < segmentVertexCount;
+           ++vertexIndex) {
+        meshData.meshletVertexIndices.push_back(segmentVertices[vertexIndex]);
+      }
     }
 
     meshData.meshletBounds.push_back(meshletBounds);
@@ -499,6 +560,65 @@ make_billboard_lod_mesh(const Core::Native::MeshData &baseMesh) {
   return billboardMesh;
 }
 
+[[nodiscard]] Core::Native::MeshData
+make_hlod_proxy_mesh(const Core::Native::MeshData &baseMesh) {
+  Core::Native::MeshData proxyMesh{};
+  proxyMesh.name = baseMesh.name + "_lod4_hlod_proxy";
+  if (baseMesh.positions.empty()) {
+    return proxyMesh;
+  }
+
+  Math::float3 minPosition(baseMesh.positions[0].x, baseMesh.positions[0].y,
+                           baseMesh.positions[0].z);
+  Math::float3 maxPosition = minPosition;
+  for (const Math::float4 &position : baseMesh.positions) {
+    minPosition.x = (std::min)(minPosition.x, position.x);
+    minPosition.y = (std::min)(minPosition.y, position.y);
+    minPosition.z = (std::min)(minPosition.z, position.z);
+    maxPosition.x = (std::max)(maxPosition.x, position.x);
+    maxPosition.y = (std::max)(maxPosition.y, position.y);
+    maxPosition.z = (std::max)(maxPosition.z, position.z);
+  }
+
+  const Math::float3 center = (minPosition + maxPosition) * 0.5f;
+  proxyMesh.positions = {
+      Math::float4(minPosition.x, minPosition.y, minPosition.z, 1.0f),
+      Math::float4(maxPosition.x, minPosition.y, minPosition.z, 1.0f),
+      Math::float4(maxPosition.x, maxPosition.y, minPosition.z, 1.0f),
+      Math::float4(minPosition.x, maxPosition.y, minPosition.z, 1.0f),
+      Math::float4(minPosition.x, minPosition.y, maxPosition.z, 1.0f),
+      Math::float4(maxPosition.x, minPosition.y, maxPosition.z, 1.0f),
+      Math::float4(maxPosition.x, maxPosition.y, maxPosition.z, 1.0f),
+      Math::float4(minPosition.x, maxPosition.y, maxPosition.z, 1.0f),
+  };
+  proxyMesh.uvs = {
+      Math::float2(0.0f, 1.0f), Math::float2(1.0f, 1.0f),
+      Math::float2(1.0f, 0.0f), Math::float2(0.0f, 0.0f),
+      Math::float2(0.0f, 1.0f), Math::float2(1.0f, 1.0f),
+      Math::float2(1.0f, 0.0f), Math::float2(0.0f, 0.0f),
+  };
+  proxyMesh.normals.reserve(proxyMesh.positions.size());
+  for (const Math::float4 &position : proxyMesh.positions) {
+    Math::float3 normal(position.x - center.x, position.y - center.y,
+                        position.z - center.z);
+    const float lengthSq =
+        normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+    if (lengthSq > 0.000001f) {
+      const float invLength = 1.0f / std::sqrt(lengthSq);
+      normal = normal * invLength;
+    } else {
+      normal = Math::float3(0.0f, 1.0f, 0.0f);
+    }
+    proxyMesh.normals.push_back(normal);
+  }
+  proxyMesh.indices = {
+      0u, 1u, 2u, 0u, 2u, 3u, 5u, 4u, 7u, 5u, 7u, 6u,
+      4u, 0u, 3u, 4u, 3u, 7u, 1u, 5u, 6u, 1u, 6u, 2u,
+      3u, 2u, 6u, 3u, 6u, 7u, 4u, 5u, 1u, 4u, 1u, 0u,
+  };
+  return proxyMesh;
+}
+
 [[nodiscard]] float lod_target_error(uint32_t lodIndex) noexcept {
   if (lodIndex >= 3u) {
     return 0.30f;
@@ -661,12 +781,14 @@ ModelImporter::import_model(const Core::IO::Path &filePath,
           : lodGroupSettings.indexRatios.back() * 0.5f;
   Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
                 "[ModelImporter][LODGroup] model='{}' group='{}' lod1={:.2f}% "
-                "lod2={:.2f}% lod3={:.2f}% occluder={:.2f}% billboard={}",
+                "lod2={:.2f}% lod3={:.2f}% occluder={:.2f}% hlodProxy={} "
+                "billboard={}",
                 modelName, lodGroupSettings.name,
                 lodGroupSettings.indexRatios[0] * 100.0f,
                 lodGroupSettings.indexRatios[1] * 100.0f,
                 lodGroupSettings.indexRatios[2] * 100.0f,
                 effectiveOccluderIndexRatio * 100.0f,
+                lodGroupSettings.generateHlodProxy ? "true" : "false",
                 lodGroupSettings.generateBillboardLod ? "true" : "false");
 
   Assimp::Importer importer{};
@@ -836,7 +958,18 @@ ModelImporter::import_model(const Core::IO::Path &filePath,
     }
     sourceMeshOccluderMeshIndices[meshIndex] = occluderMeshIndex;
 
-    if (lodGroupSettings.generateBillboardLod) {
+    if (lodGroupSettings.generateHlodProxy) {
+      Core::Native::MeshData proxyMesh = make_hlod_proxy_mesh(remappedMesh);
+      if (!proxyMesh.positions.empty() && !proxyMesh.indices.empty()) {
+        log_mesh_lod_result(outModelData.meshes[baseMeshIndex].name, 4u,
+                            baseIndexCount, proxyMesh.indices.size(),
+                            proxyMesh.indices.size(), true, nullptr);
+        const uint32_t proxyMeshIndex =
+            static_cast<uint32_t>(outModelData.meshes.size());
+        sourceMeshLodIndices[meshIndex].push_back(proxyMeshIndex);
+        outModelData.meshes.push_back(optimize_mesh_for_render(proxyMesh));
+      }
+    } else if (lodGroupSettings.generateBillboardLod) {
       Core::Native::MeshData billboardMesh =
           make_billboard_lod_mesh(remappedMesh);
       if (!billboardMesh.positions.empty() && !billboardMesh.indices.empty()) {
