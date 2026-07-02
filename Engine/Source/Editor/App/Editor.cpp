@@ -16,10 +16,8 @@
 
 // === Editor includes ===
 #include "DebugCamera.h"
+#include "EditorManager.h"
 #include "ImGuiManager/ImGuiManager.h"
-#include "Workspace/DebugView.h"
-#include "Workspace/Dockspace.h"
-#include "Workspace/GameView.h"
 
 // === Engine includes ===
 #include <Engine.h>
@@ -140,12 +138,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
-    // Dockspace を初期化
-    std::unique_ptr<Editor::Dockspace> dockspace = std::make_unique<Editor::Dockspace>();
-
-    // 各ワークスペースを初期化
-    std::unique_ptr<Editor::GameView> gameView = std::make_unique<Editor::GameView>(renderBackend.get());
-    std::unique_ptr<Editor::DebugView> debugView = std::make_unique<Editor::DebugView>(renderBackend.get());
+    // Editor UI の所有と更新順は EditorManager に集約する。
+    std::unique_ptr<Editor::EditorManager> editorManager = std::make_unique<Editor::EditorManager>();
+    Editor::EditorManagerSetupInfo editorManagerSetupInfo{};
+    editorManagerSetupInfo.backend = renderBackend.get();
+    editorManagerSetupInfo.engine = engine.get();
+    editorManagerSetupInfo.debugCamera = debugCamera.get();
+    editorManager->initialize(editorManagerSetupInfo);
 
     // ウィンドウを表示
     platform->start();
@@ -176,22 +175,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             /// Editor UI の描画
             /// </summary>
 
-            ImGui::Begin("Test");
-
-            ImGui::Text("Test.txt");
-
-            ImGui::End();
-
-            dockspace->update();
-            gameView->update();
-            debugView->update();
-
-            Editor::DebugCameraViewport debugCameraViewport{};
-            debugCameraViewport.width = debugView->viewport_width();
-            debugCameraViewport.height = debugView->viewport_height();
-            debugCameraViewport.isHovered = debugView->is_viewport_hovered();
-            debugCameraViewport.isFocused = debugView->is_focused();
-            debugCamera->update(debugCameraViewport);
+            editorManager->update();
 
 #pragma endregion Editor UI の描画
 
