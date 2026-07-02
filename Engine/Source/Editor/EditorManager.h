@@ -26,6 +26,8 @@ namespace Cue::Editor
     class DebugView;
     class Dockspace;
     class GameView;
+    class Hierarchy;
+    class Inspector;
 
     struct EditorManagerSetupInfo final
     {
@@ -83,6 +85,8 @@ namespace Cue::Editor
         std::unique_ptr<Dockspace> m_dockspace = nullptr;
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
+        std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
+        std::unique_ptr<Inspector> m_inspector = nullptr;
 
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;

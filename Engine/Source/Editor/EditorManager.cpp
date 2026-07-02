@@ -5,9 +5,14 @@
 
 // === Editor includes ===
 #include "DebugCamera.h"
+#include "Hierarchy.h"
+#include "Inspector.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/Dockspace.h"
 #include "Workspace/GameView.h"
+
+// === Runtime includes ===
+#include <Engine.h>
 
 namespace Cue::Editor
 {
@@ -28,6 +33,13 @@ namespace Cue::Editor
         m_dockspace = std::make_unique<Dockspace>();
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend);
+        if (m_engine != nullptr)
+        {
+            m_hierarchy = std::make_unique<Hierarchy>(
+                &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
+            m_inspector = std::make_unique<Inspector>(
+                &m_engine->game_world(), &m_selectedEntityId);
+        }
     }
 
     void EditorManager::update()
@@ -43,6 +55,16 @@ namespace Cue::Editor
         if (m_debugView != nullptr)
         {
             m_debugView->update();
+        }
+        if (m_engine != nullptr && m_hierarchy != nullptr)
+        {
+            m_hierarchy->set_game_world(&m_engine->game_world());
+            m_hierarchy->update();
+        }
+        if (m_engine != nullptr && m_inspector != nullptr)
+        {
+            m_inspector->set_game_world(&m_engine->game_world());
+            m_inspector->update();
         }
 
         if (m_debugCamera == nullptr || m_debugView == nullptr)
