@@ -38,6 +38,14 @@ namespace Cue::Editor
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("View"))
+            {
+                if (m_viewMenuCallback != nullptr)
+                {
+                    m_viewMenuCallback(m_viewMenuContext);
+                }
+                ImGui::EndMenu();
+            }
 
             ImGui::EndMenuBar();
         }

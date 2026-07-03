@@ -9,6 +9,7 @@
 
 // === C++ includes ===
 #include <memory>
+#include <string>
 
 namespace Cue
 {
@@ -78,6 +79,11 @@ namespace Cue::Editor
         }
 
     private:
+        void draw_view_menu_items();
+        void show_and_focus_window(const char* a_windowName);
+        bool prepare_window_focus(const char* a_windowName);
+        void focus_pending_window();
+
         RHI::DX12::D3D12Backend* m_backend = nullptr; // View 生成時と SRV 解決に使う非所有 backend
         Engine* m_engine = nullptr;                   // 今後 Hierarchy / Inspector が参照する非所有 Engine
         DebugCamera* m_debugCamera = nullptr;         // Engine が参照している DebugCamera
@@ -90,5 +96,6 @@ namespace Cue::Editor
 
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;
+        std::string m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
     };
 } // namespace Cue::Editor
