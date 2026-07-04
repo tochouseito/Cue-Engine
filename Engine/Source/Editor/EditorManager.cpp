@@ -5,6 +5,7 @@
 
 // === Editor includes ===
 #include "DebugCamera.h"
+#include "EffectEditor.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
 #include "Workspace/DebugView.h"
@@ -39,6 +40,8 @@ namespace Cue::Editor
                 &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
             m_inspector = std::make_unique<Inspector>(
                 &m_engine->game_world(), &m_selectedEntityId);
+            m_effectEditor = std::make_unique<EffectEditor>(
+                &m_engine->game_world(), &m_selectedEntityId);
         }
     }
 
@@ -65,6 +68,11 @@ namespace Cue::Editor
         {
             m_inspector->set_game_world(&m_engine->game_world());
             m_inspector->update();
+        }
+        if (m_engine != nullptr && m_effectEditor != nullptr)
+        {
+            m_effectEditor->set_game_world(&m_engine->game_world());
+            m_effectEditor->update();
         }
 
         if (m_debugCamera == nullptr || m_debugView == nullptr)

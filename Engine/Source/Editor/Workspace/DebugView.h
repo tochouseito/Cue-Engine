@@ -32,19 +32,19 @@ namespace Cue::Editor
         /// @brief 更新処理
         void update();
 
-        /// @brief DebugColor を表示した領域の幅
+        /// @brief 表示領域の幅
         [[nodiscard]] uint32_t viewport_width() const noexcept
         {
             return m_viewportWidth;
         }
 
-        /// @brief DebugColor を表示した領域の高さ
+        /// @brief 表示領域の高さ
         [[nodiscard]] uint32_t viewport_height() const noexcept
         {
             return m_viewportHeight;
         }
 
-        /// @brief mouse が DebugColor 表示領域上にあるか
+        /// @brief mouse が表示領域上にあるか
         [[nodiscard]] bool is_viewport_hovered() const noexcept
         {
             return m_isViewportHovered;
@@ -58,7 +58,7 @@ namespace Cue::Editor
 
     private:
         RHI::DX12::D3D12Backend* m_backend = nullptr; // 非所有 backend
-        RHI::ViewHandle m_debugColorSrvHandle{}; // デバッグ用カラーターゲットビュー
+        RHI::ViewHandle m_finalColorSrvHandle{}; // 表示用カラーターゲットビュー
         uint32_t m_viewportWidth = 1; // DebugCamera の projection に使う表示幅
         uint32_t m_viewportHeight = 1; // DebugCamera の projection に使う表示高
         bool m_isViewportHovered = false; // DebugCamera 操作開始判定用

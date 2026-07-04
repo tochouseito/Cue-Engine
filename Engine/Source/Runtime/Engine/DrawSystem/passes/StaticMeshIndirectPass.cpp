@@ -258,15 +258,16 @@ namespace Cue::DrawSystem
             return;
         }
 
+        commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
+        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
+        commandContext->set_viewport_scissor(a_context.width(), a_context.height());
+
         const DrawFrameData& frameData = m_drawFrameState.frame_state(a_context.frame_index());
         if (frameData.indirectCommandCount == 0)
         {
             return;
         }
 
-        commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
-        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
-        commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         commandContext->set_graphics_pipeline(m_pipelineState);
         commandContext->set_primitive_topology(RHI::PrimitiveTopologyType::Triangle);
         commandContext->set_vertex_buffer(0, m_meshPoolBindings.positionBuffer);

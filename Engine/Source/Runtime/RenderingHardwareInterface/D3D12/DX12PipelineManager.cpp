@@ -73,6 +73,13 @@ namespace Cue::RHI::DX12
                     rtDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
                     rtDesc.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
                     break;
+                case BlendMode::Additive:
+                    rtDesc.BlendEnable = TRUE;
+                    rtDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+                    rtDesc.DestBlend = D3D12_BLEND_ONE;
+                    rtDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+                    rtDesc.DestBlendAlpha = D3D12_BLEND_ONE;
+                    break;
                 default:
                     rtDesc.BlendEnable = FALSE;
                     break;

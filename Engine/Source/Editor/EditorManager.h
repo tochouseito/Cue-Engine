@@ -25,6 +25,7 @@ namespace Cue::Editor
     class DebugCamera;
     class DebugView;
     class Dockspace;
+    class EffectEditor;
     class GameView;
     class Hierarchy;
     class Inspector;
@@ -85,6 +86,7 @@ namespace Cue::Editor
         std::unique_ptr<Dockspace> m_dockspace = nullptr;
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
+        std::unique_ptr<EffectEditor> m_effectEditor = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
 

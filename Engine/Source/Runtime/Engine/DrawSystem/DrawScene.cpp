@@ -23,11 +23,17 @@ namespace Cue::DrawSystem
         m_cameras.clear();
         m_renderableInfos.clear();
         m_transforms.clear();
+        m_particleSprites.clear();
     }
 
     size_t DrawScene::object_count() const noexcept
     {
         return m_staticMeshObjects.size();
+    }
+
+    size_t DrawScene::particle_count() const noexcept
+    {
+        return m_particleSprites.size();
     }
 
     Result DrawScene::add_static_mesh_object(const StaticMeshDrawObject& a_object,
@@ -50,6 +56,20 @@ namespace Cue::DrawSystem
             m_staticMeshObjects.resize(oldObjectCount);
             m_renderableInfos.resize(oldRenderableInfoCount);
             m_transforms.resize(oldTransformCount);
+            return Result::fail(Code::OutOfMemory, Severity::Error, "DrawScene out of memory.");
+        }
+
+        return Result::ok();
+    }
+
+    Result DrawScene::add_particle_sprite(const GpuData::ParticleSpriteGpu& a_particle)
+    {
+        try
+        {
+            m_particleSprites.push_back(a_particle);
+        }
+        catch (const std::bad_alloc&)
+        {
             return Result::fail(Code::OutOfMemory, Severity::Error, "DrawScene out of memory.");
         }
 
@@ -93,5 +113,10 @@ namespace Cue::DrawSystem
     const std::vector<GpuData::ObjectTransformGpu>& DrawScene::transforms() const noexcept
     {
         return m_transforms;
+    }
+
+    const std::vector<GpuData::ParticleSpriteGpu>& DrawScene::particle_sprites() const noexcept
+    {
+        return m_particleSprites;
     }
 } // namespace Cue::DrawSystem

@@ -152,9 +152,6 @@ namespace Cue::GameCore
         /// @brief TransformComponent から WorldTransformComponent を同期する
         void sync_world_transforms() noexcept;
 
-        /// @brief テスト用 StaticMesh object の Transform を回転させる
-        void animate_static_mesh_objects(float a_deltaTime);
-
     private:
         /// @brief 例外を Result に変換して処理を実行する
         [[nodiscard]] static Result capture_result(const std::function<void()>& a_func);
@@ -201,9 +198,6 @@ namespace Cue::GameCore
         [[nodiscard]] bool resolve_world_transform(EntityId a_entityId,
                                                    std::vector<uint8_t>& a_state,
                                                    ECS::WorldTransformComponent& a_outWorld) noexcept;
-
-        /// @brief 回転対象になる active static mesh entity を集める
-        [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const;
 
         /// @brief tag index へ Entity を登録する
         void add_object_to_tag_index(EntityId a_entityId, const std::string& a_tag);

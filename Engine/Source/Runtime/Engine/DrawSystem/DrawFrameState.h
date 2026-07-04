@@ -27,6 +27,7 @@ namespace Cue::DrawSystem
     struct DrawFrameData final
     {
         uint32_t objectCount = 0;
+        uint32_t particleCount = 0;
         uint32_t cellCount = 0;
         uint32_t staticMeshBatchCount = 0;
         uint32_t indirectCommandCount = 0;

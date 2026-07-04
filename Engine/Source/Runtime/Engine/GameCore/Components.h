@@ -172,6 +172,97 @@ namespace Cue::ECS
         bool usesReflectionSkybox = false;
     };
 
+    struct ParticleInstance final
+    {
+        Math::float3 position = Math::float3::zero();
+        Math::float3 velocity = Math::float3::zero();
+        Math::float3 acceleration = Math::float3::zero();
+        Math::float4 startColor = Math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+        Math::float4 endColor = Math::float4(1.0f, 1.0f, 1.0f, 0.0f);
+        float age = 0.0f;
+        float lifetime = 1.0f;
+        float startSize = 1.0f;
+        float endSize = 1.0f;
+        int32_t emitterNodeIndex = -1;
+    };
+
+    enum class EffectNodeKind : uint8_t
+    {
+        Root,
+        Emitter,
+        Generation,
+        Lifetime,
+        Position,
+        Velocity,
+        Color,
+        Renderer,
+        Statistics,
+    };
+
+    struct EffectNode final
+    {
+        std::string name{};
+        Math::float3 position = Math::float3::zero();
+        Math::float3 initialVelocity = Math::float3(0.0f, 2.0f, 0.0f);
+        Math::float3 velocitySpread = Math::float3(0.9f, 0.5f, 0.9f);
+        Math::float3 acceleration = Math::float3(0.0f, -0.6f, 0.0f);
+        Math::float4 startColor = Math::float4(1.0f, 0.55f, 0.12f, 0.85f);
+        Math::float4 endColor = Math::float4(0.15f, 0.45f, 1.0f, 0.0f);
+        float spawnRate = 40.0f;
+        float spawnAccumulator = 0.0f;
+        float particleLifetime = 1.4f;
+        float startSize = 0.18f;
+        float endSize = 0.04f;
+        uint32_t maxParticles = 256;
+        int32_t parentIndex = -1;
+        EffectNodeKind kind = EffectNodeKind::Root;
+        bool isEnabled = true;
+        bool isAdditive = true;
+    };
+
+    /// @brief Effekseer の Manager/Instance 相当を CueEngine ECS で扱う最小 sprite emitter
+    struct ParticleEffectComponent : public IComponentTag
+    {
+        ParticleEffectComponent();
+        ParticleEffectComponent(const ParticleEffectComponent&);
+        ParticleEffectComponent& operator=(const ParticleEffectComponent&);
+        ParticleEffectComponent(ParticleEffectComponent&&);
+        ParticleEffectComponent& operator=(ParticleEffectComponent&&);
+
+        std::vector<EffectNode> nodes{};
+        Math::float3 initialVelocity = Math::float3(0.0f, 2.0f, 0.0f);
+        Math::float3 velocitySpread = Math::float3(0.9f, 0.5f, 0.9f);
+        Math::float3 acceleration = Math::float3(0.0f, -0.6f, 0.0f);
+        Math::float4 startColor = Math::float4(1.0f, 0.55f, 0.12f, 0.85f);
+        Math::float4 endColor = Math::float4(0.15f, 0.45f, 1.0f, 0.0f);
+        std::vector<ParticleInstance> particles{};
+        float spawnRate = 40.0f;
+        float spawnAccumulator = 0.0f;
+        float particleLifetime = 1.4f;
+        float startSize = 0.18f;
+        float endSize = 0.04f;
+        uint32_t maxParticles = 256;
+        uint32_t randomSeed = 1u;
+        bool isPlaying = true;
+        bool isLooping = true;
+        bool isAdditive = false;
+    };
+
+    void reset_effect_nodes_from_component(ParticleEffectComponent& a_effect);
+    void ensure_effect_nodes(ParticleEffectComponent& a_effect);
+    void apply_effect_nodes_to_component(ParticleEffectComponent& a_effect);
+    [[nodiscard]] int32_t add_effect_emitter_node(ParticleEffectComponent& a_effect);
+    void remove_effect_emitter_node(ParticleEffectComponent& a_effect, int32_t a_emitterNodeIndex);
+    [[nodiscard]] EffectNode* find_effect_node(ParticleEffectComponent& a_effect, EffectNodeKind a_kind) noexcept;
+    [[nodiscard]] const EffectNode* find_effect_node(const ParticleEffectComponent& a_effect,
+                                                     EffectNodeKind a_kind) noexcept;
+    [[nodiscard]] EffectNode* find_effect_child_node(ParticleEffectComponent& a_effect,
+                                                     int32_t a_parentIndex,
+                                                     EffectNodeKind a_kind) noexcept;
+    [[nodiscard]] const EffectNode* find_effect_child_node(const ParticleEffectComponent& a_effect,
+                                                           int32_t a_parentIndex,
+                                                           EffectNodeKind a_kind) noexcept;
+
     /// @brief IndirectCommand batching に渡す StaticMesh 描画設定
     struct StaticMeshRendererComponent : public IComponentTag
     {

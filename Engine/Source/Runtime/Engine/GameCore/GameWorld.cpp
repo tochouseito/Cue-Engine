@@ -840,80 +840,6 @@ namespace Cue::GameCore
         }
     }
 
-    void GameWorld::animate_static_mesh_objects(float a_deltaTime)
-    {
-        const std::vector<EntityId> entities = collect_active_static_mesh_entities();
-        for (size_t entityIndex = 0; entityIndex < entities.size(); ++entityIndex)
-        {
-            ECS::TransformComponent* transform =
-                m_ecsManager.get_component<ECS::TransformComponent>(entities[entityIndex]);
-            if (transform == nullptr)
-            {
-                continue;
-            }
-
-            Math::float3 axis(0.0f, 1.0f, 0.0f);
-            float angularVelocity = 0.5f;
-            switch (entityIndex)
-            {
-            case 0:
-                axis = Math::float3(0.0f, 1.0f, 0.0f);
-                angularVelocity = 1.25f;
-                break;
-            case 1:
-                axis = Math::float3(1.0f, 0.0f, 0.0f);
-                angularVelocity = 0.75f;
-                break;
-            case 2:
-                axis = Math::float3(0.0f, 1.0f, 0.0f);
-                angularVelocity = -1.0f;
-                break;
-            default:
-                axis = Math::float3(0.0f, 1.0f, 0.0f);
-                angularVelocity = 0.5f;
-                break;
-            }
-
-            const Math::Quaternion deltaRotation =
-                make_axis_angle_quaternion(axis, a_deltaTime * angularVelocity);
-            transform->rotation =
-                Math::Quaternion::normalize(transform->rotation * deltaRotation);
-        }
-    }
-
-    std::vector<EntityId> GameWorld::collect_active_static_mesh_entities() const
-    {
-        std::vector<EntityId> entities{};
-        entities.reserve(m_liveObjectCount);
-
-        ECS::ECSManager& ecs = const_cast<ECS::ECSManager&>(m_ecsManager);
-        for (EntityId entity = 0; entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
-        {
-            if (!contains_object(entity) || !m_ecsManager.is_entity_active(entity))
-            {
-                continue;
-            }
-
-            const BaseComponent* base = ecs.get_component<BaseComponent>(entity);
-            const ECS::TransformComponent* transform = ecs.get_component<ECS::TransformComponent>(entity);
-            const ECS::MeshFilterComponent* meshFilter = ecs.get_component<ECS::MeshFilterComponent>(entity);
-            const ECS::StaticMeshRendererComponent* renderer =
-                ecs.get_component<ECS::StaticMeshRendererComponent>(entity);
-            if (base == nullptr || transform == nullptr || meshFilter == nullptr || renderer == nullptr)
-            {
-                continue;
-            }
-            if (!base->isActiveSelf || !renderer->visible || meshFilter->meshId == ECS::k_invalidMeshId)
-            {
-                continue;
-            }
-
-            entities.push_back(entity);
-        }
-
-        return entities;
-    }
-
     template Result GameWorld::get_component<BaseComponent>(EntityId, BaseComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::RenderableInfoComponent>(EntityId,
                                                                            ECS::RenderableInfoComponent*&) noexcept;
@@ -922,6 +848,8 @@ namespace Cue::GameCore
                                                                            ECS::WorldTransformComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::CameraComponent>(EntityId, ECS::CameraComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&) noexcept;
+    template Result GameWorld::get_component<ECS::ParticleEffectComponent>(
+        EntityId, ECS::ParticleEffectComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::StaticMeshRendererComponent>(
         EntityId, ECS::StaticMeshRendererComponent*&) noexcept;
 
@@ -931,6 +859,8 @@ namespace Cue::GameCore
     template Result GameWorld::add_component<ECS::WorldTransformComponent>(EntityId, ECS::WorldTransformComponent*&);
     template Result GameWorld::add_component<ECS::CameraComponent>(EntityId, ECS::CameraComponent*&);
     template Result GameWorld::add_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&);
+    template Result GameWorld::add_component<ECS::ParticleEffectComponent>(
+        EntityId, ECS::ParticleEffectComponent*&);
     template Result GameWorld::add_component<ECS::StaticMeshRendererComponent>(EntityId,
                                                                                ECS::StaticMeshRendererComponent*&);
 
@@ -940,6 +870,7 @@ namespace Cue::GameCore
     template Result GameWorld::has_component<ECS::WorldTransformComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::CameraComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::MeshFilterComponent>(EntityId, bool&) const noexcept;
+    template Result GameWorld::has_component<ECS::ParticleEffectComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::StaticMeshRendererComponent>(EntityId, bool&) const noexcept;
 
     template Result GameWorld::remove_component<BaseComponent>(EntityId) noexcept;
@@ -948,5 +879,6 @@ namespace Cue::GameCore
     template Result GameWorld::remove_component<ECS::WorldTransformComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::CameraComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::MeshFilterComponent>(EntityId) noexcept;
+    template Result GameWorld::remove_component<ECS::ParticleEffectComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::StaticMeshRendererComponent>(EntityId) noexcept;
 } // namespace Cue::GameCore

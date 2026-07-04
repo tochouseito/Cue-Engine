@@ -64,7 +64,8 @@ namespace Cue::RHI
     enum class BlendMode : uint8_t
     {
         None,
-        Normal
+        Normal,
+        Additive
     };
 
     enum class CullMode : uint8_t

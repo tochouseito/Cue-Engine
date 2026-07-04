@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "GpuData/Batching.h"
+#include "GpuData/Effect.h"
 #include "GpuData/Transform.h"
 #include "GpuData/ViewProjection.h"
 
@@ -36,6 +37,7 @@ namespace Cue::DrawSystem
         StaticMeshIndirectCommandBuffer,      // StaticMesh の ExecuteIndirect 引数
         StaticMeshIndirectCommandCountBuffer, // StaticMesh の ExecuteIndirect 発行数
         StaticMeshObjectIndexBuffer,          // バッチ順に並べた DrawScene object index
+        ParticleSpriteBuffer,                 // Effect sprite particle の描画インスタンス
         Count                     // 配列サイズ用
     };
 
@@ -79,6 +81,9 @@ namespace Cue::DrawSystem
 
         /// @brief StaticMesh indirect draw 用の command / count / object index buffer を作成する
         Result create_static_mesh_batch_buffers(uint32_t a_maxBatchCount, uint32_t a_maxObjectIndexCount);
+
+        /// @brief Effect sprite particle 用 structured buffer、uploaders、SRV を作成する
+        Result create_particle_sprite_buffer(uint32_t a_maxParticleCount);
 
         /// @brief DrawScene の RenderableInfo / Transform をフレーム別 upload buffer に反映する
         Result upload_draw_scene(uint32_t a_bufferIndex, const DrawScene& a_scene, DrawFrameData& a_frameData);
@@ -134,6 +139,9 @@ namespace Cue::DrawSystem
         /// @brief StaticMesh object index buffer のフレーム別 uploader 配列
         std::vector<RHI::SlotUploader<uint32_t>>& static_mesh_object_index_uploaders() noexcept;
 
+        /// @brief ParticleSprite buffer のフレーム別 uploader 配列
+        std::vector<RHI::SlotUploader<GpuData::ParticleSpriteGpu>>& particle_sprite_uploaders() noexcept;
+
         /// @brief RenderableInfo buffer の RHI handle
         [[nodiscard]] RHI::BufferHandle renderable_info_buffer_handle() const noexcept
         {
@@ -185,6 +193,9 @@ namespace Cue::DrawSystem
         /// @brief StaticMesh object index buffer の RHI handle
         [[nodiscard]] RHI::BufferHandle static_mesh_object_index_buffer_handle() const noexcept;
 
+        /// @brief ParticleSprite buffer の RHI handle
+        [[nodiscard]] RHI::BufferHandle particle_sprite_buffer_handle() const noexcept;
+
         /// @brief RenderableInfo buffer の SRV handle
         [[nodiscard]] RHI::ViewHandle renderable_info_buffer_srv_handle() const noexcept
         {
@@ -224,6 +235,9 @@ namespace Cue::DrawSystem
         /// @brief StaticMesh object index buffer の SRV handle
         [[nodiscard]] RHI::ViewHandle static_mesh_object_index_buffer_srv_handle() const noexcept;
 
+        /// @brief ParticleSprite buffer の SRV handle
+        [[nodiscard]] RHI::ViewHandle particle_sprite_buffer_srv_handle() const noexcept;
+
         /// @brief RenderableInfoBuffer の確保済み byte 数
         [[nodiscard]] uint64_t renderable_info_buffer_byte_size() const noexcept
         {
@@ -242,6 +256,12 @@ namespace Cue::DrawSystem
             return sizeof(GpuData::ViewProjectionGpu);
         }
 
+        /// @brief ParticleSpriteBuffer の確保済み byte 数
+        [[nodiscard]] uint64_t particle_sprite_buffer_byte_size() const noexcept
+        {
+            return static_cast<uint64_t>(m_maxParticleSpriteCount) * sizeof(GpuData::ParticleSpriteGpu);
+        }
+
     private:
         RHI::IBufferManager* m_bufferManager = nullptr; // buffer の生成と uploader 作成を行う外部 manager
         RHI::IViewManager* m_viewManager = nullptr;     // SRV/UAV view の生成を行う外部 manager
@@ -250,6 +270,7 @@ namespace Cue::DrawSystem
         uint32_t m_maxTransformCount = 0;               // TransformBuffer の最大要素数
         uint32_t m_maxStaticMeshBatchCount = 0;         // StaticMesh indirect command の最大要素数
         uint32_t m_maxStaticMeshObjectIndexCount = 0;   // StaticMesh object index の最大要素数
+        uint32_t m_maxParticleSpriteCount = 0;           // ParticleSpriteBuffer の最大要素数
 
         std::array<RHI::BufferHandle, static_cast<size_t>(DrawResourceType::Count)>
             m_bufferHandles{}; // 種別ごとの GPU buffer handle
@@ -275,5 +296,7 @@ namespace Cue::DrawSystem
             m_staticMeshIndirectCommandCountUploaders{}; // StaticMesh indirect command count への upload 経路
         std::vector<RHI::SlotUploader<uint32_t>>
             m_staticMeshObjectIndexUploaders{}; // StaticMesh object index buffer への upload 経路
+        std::vector<RHI::SlotUploader<GpuData::ParticleSpriteGpu>>
+            m_particleSpriteUploaders{}; // ParticleSprite buffer への upload 経路
     };
 } // namespace Cue::DrawSystem

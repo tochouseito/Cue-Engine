@@ -92,8 +92,6 @@ namespace Cue::Editor
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            m_debugColorHandle = {};
-
             // スワップチェインのバックバッファをフレームグラフに宣言する
             Result result = builder.get_texture("BackBuffer", m_backBufferHandle);
             if (!result)
@@ -138,13 +136,6 @@ namespace Cue::Editor
                     "Failed to get final color texture handle for present pass.");
             }
 
-            // DebugView が存在する構成では DebugColor も ImGui から SRV として読む。
-            result = builder.get_texture("DebugColor", m_debugColorHandle);
-            if (!result)
-            {
-                m_debugColorHandle = {};
-            }
-
             return Result::ok();
         }
 
@@ -170,16 +161,7 @@ namespace Cue::Editor
                 return result;
             }
 
-            if (!m_debugColorHandle.valid())
-            {
-                return Result::ok();
-            }
-
-            return builder.use_texture(
-                m_debugColorHandle,
-                RHI::ResourceAccessType::Read,
-                RHI::ResourceState::ShaderResource,
-                RHI::ResourceState::ShaderResource);
+            return Result::ok();
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -203,7 +185,6 @@ namespace Cue::Editor
         ImGuiManager& m_imguiManager;
         RHI::TextureHandle m_backBufferHandle{};
         RHI::TextureHandle m_finalColorHandle{};
-        RHI::TextureHandle m_debugColorHandle{};
         RHI::ViewHandle m_backBufferRtvHandle{};
         RHI::ViewHandle m_finalColorSrvHandle{};
     };

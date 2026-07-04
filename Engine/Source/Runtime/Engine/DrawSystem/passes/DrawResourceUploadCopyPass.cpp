@@ -73,7 +73,16 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        return a_builder.use_buffer(m_drawResources.view_projection_buffer_handle(),
+        result = a_builder.use_buffer(m_drawResources.view_projection_buffer_handle(),
+                                      RHI::ResourceAccessType::Write,
+                                      RHI::ResourceState::CopyDest,
+                                      RHI::ResourceState::CopyDest);
+        if (!result)
+        {
+            return result;
+        }
+
+        return a_builder.use_buffer(m_drawResources.particle_sprite_buffer_handle(),
                                     RHI::ResourceAccessType::Write,
                                     RHI::ResourceState::CopyDest,
                                     RHI::ResourceState::CopyDest);
@@ -106,6 +115,13 @@ namespace Cue::DrawSystem
                                        frameIndex,
                                        m_drawResources.view_projection_buffer_byte_size());
         CUE_ASSERT_FORMAT(success(result), "Failed to copy ViewProjectionBuffer upload data: {}",
+                          result.message.data());
+
+        result = copy_buffer_if_needed(*commandContext,
+                                       m_drawResources.particle_sprite_buffer_handle(),
+                                       frameIndex,
+                                       m_drawResources.particle_sprite_buffer_byte_size());
+        CUE_ASSERT_FORMAT(success(result), "Failed to copy ParticleSpriteBuffer upload data: {}",
                           result.message.data());
     }
 } // namespace Cue::DrawSystem

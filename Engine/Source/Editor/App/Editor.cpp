@@ -115,7 +115,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return outResult != 0;
         });
 
-    // DebugCamera は Engine の DebugFrameGraph が参照するため、Engine 初期化前に用意する。
+    // DebugCamera は Editor の viewport 操作用状態として Engine 初期化前に用意する。
     std::unique_ptr<Editor::DebugCamera> debugCamera = std::make_unique<Editor::DebugCamera>();
 
     // エンジンを初期化
@@ -126,7 +126,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     engineSetupInfo.renderBackend = renderBackend.get();
     engineSetupInfo.maxFps = maxFps;
     engineSetupInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
-    engineSetupInfo.debugRenderView = &debugCamera->render_view();
     r = engine->initialize(engineSetupInfo);
 
     // 失敗したらログを出力して終了

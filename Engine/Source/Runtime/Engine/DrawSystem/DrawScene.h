@@ -9,6 +9,7 @@
 
 // === Engine includes ===
 #include "GpuData/Batching.h"
+#include "GpuData/Effect.h"
 #include "GpuData/Transform.h"
 #include "RenderView.h"
 
@@ -95,10 +96,16 @@ namespace Cue::DrawSystem
         /// @brief StaticMesh 描画対象数。
         [[nodiscard]] size_t object_count() const noexcept;
 
+        /// @brief Particle sprite 描画対象数。
+        [[nodiscard]] size_t particle_count() const noexcept;
+
         /// @brief StaticMesh 描画対象と GPU upload 用データを同じ index に追加する。
         [[nodiscard]] Result add_static_mesh_object(const StaticMeshDrawObject& a_object,
             const GpuData::RenderableInfo& a_renderableInfo,
             const GpuData::ObjectTransformGpu& a_transform);
+
+        /// @brief EffectSystem が生成した sprite particle を追加する。
+        [[nodiscard]] Result add_particle_sprite(const GpuData::ParticleSpriteGpu& a_particle);
 
         /// @brief Camera 描画視点を追加する。
         [[nodiscard]] Result add_camera(const CameraDrawItem& a_camera);
@@ -114,6 +121,8 @@ namespace Cue::DrawSystem
         [[nodiscard]] const std::vector<GpuData::RenderableInfo>& renderable_infos() const noexcept;
         /// @brief TransformBuffer に upload する連続データ。
         [[nodiscard]] const std::vector<GpuData::ObjectTransformGpu>& transforms() const noexcept;
+        /// @brief ParticleSpriteBuffer に upload する連続データ。
+        [[nodiscard]] const std::vector<GpuData::ParticleSpriteGpu>& particle_sprites() const noexcept;
 
     private:
         // CPU batching や queue 分類で使う StaticMesh 描画単位
@@ -124,5 +133,7 @@ namespace Cue::DrawSystem
         std::vector<GpuData::RenderableInfo> m_renderableInfos{};
         // TransformBuffer へ upload する連続データ
         std::vector<GpuData::ObjectTransformGpu> m_transforms{};
+        // ParticleSpriteBuffer へ upload する連続データ
+        std::vector<GpuData::ParticleSpriteGpu> m_particleSprites{};
     };
 } // namespace Cue::DrawSystem

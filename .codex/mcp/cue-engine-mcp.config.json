@@ -1,0 +1,34 @@
+{
+  "repoRoot": "C:/Users/sinse/source/repos/CueEngineDevRef",
+  "logDirectory": "logs",
+  "allowedPresets": [
+    "win-x64-debug",
+    "win-x64-relwithdebinfo",
+    "win-x64-release"
+  ],
+  "allowedConfigurations": [
+    "Debug",
+    "Release",
+    "RelWithDebInfo"
+  ],
+  "targets": {
+    "Editor": {
+      "cmakeTarget": "Editor",
+      "exePath": "generated/outputs/Editor/Debug/Editor.exe",
+      "extraArgs": []
+    },
+    "EditorRelease": {
+      "cmakeTarget": "Editor",
+      "exePath": "generated/outputs/Editor/Release/Editor.exe",
+      "extraArgs": []
+    },
+    "RendererRelease": {
+      "cmakeTarget": "Renderer",
+      "exePath": "generated/outputs/Renderer/Release/Renderer.exe",
+      "extraArgs": []
+    }
+  },
+  "scenes": [
+    "GpuDrivenDemo"
+  ]
+}

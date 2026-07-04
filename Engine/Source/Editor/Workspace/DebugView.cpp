@@ -13,11 +13,11 @@ namespace Cue::Editor
             return;
         }
 
-        // resize 後は DebugColorSRV が再作成されるため、handle を毎フレーム解決する
+        // resize 後は FinalColorSRV が再作成されるため、handle を毎フレーム解決する
         Result viewResult =
-            m_backend->get_view_manager()->get_view("DebugColorSRV",
-                m_debugColorSrvHandle);
-        CUE_ASSERT_FORMAT(success(viewResult), "Failed to get DebugColorSRV: {}", viewResult.message.data());
+            m_backend->get_view_manager()->get_view("FinalColorSRV",
+                m_finalColorSrvHandle);
+        CUE_ASSERT_FORMAT(success(viewResult), "Failed to get FinalColorSRV: {}", viewResult.message.data());
 
         // ImGui ウィンドウの描画
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -48,23 +48,23 @@ namespace Cue::Editor
             ImGui::EndMenuBar();
         }
 
-        // メニュー領域を除いた残りを DebugColor の表示先として使う
+        // メニュー領域を除いた残りを表示先として使う
         const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
         m_viewportWidth = static_cast<uint32_t>(std::max(availableRegion.x, 1.0f));
         m_viewportHeight = static_cast<uint32_t>(std::max(availableRegion.y, 1.0f));
-        D3D12_GPU_DESCRIPTOR_HANDLE debugColorSrvGpuDescHandle =
+        D3D12_GPU_DESCRIPTOR_HANDLE finalColorSrvGpuDescHandle =
             m_backend->get_gpu_descriptor_handle(
-                m_debugColorSrvHandle,
+                m_finalColorSrvHandle,
                 m_backend->current_back_buffer_index(),
                 m_backend->buffer_count());
 
         // backend のサイズは FrameController のリサイズセーフポイント適用後に更新される
-        // DebugColor はこのサイズで再作成されるため、pick 用 pixel 座標の基準にする
-        const uint32_t debugColorWidth = m_backend->width();
-        const uint32_t debugColorHeight = m_backend->height();
+        // FinalColor はこのサイズで再作成されるため、pick 用 pixel 座標の基準にする
+        const uint32_t finalColorWidth = m_backend->width();
+        const uint32_t finalColorHeight = m_backend->height();
 
-        if (debugColorSrvGpuDescHandle.ptr != 0 &&
-            debugColorWidth > 0 && debugColorHeight > 0 &&
+        if (finalColorSrvGpuDescHandle.ptr != 0 &&
+            finalColorWidth > 0 && finalColorHeight > 0 &&
             availableRegion.x > 0.0f && availableRegion.y > 0.0f)
         {
             if (availableRegion.x <= 0.0f || availableRegion.y <= 0.0f)
@@ -75,7 +75,7 @@ namespace Cue::Editor
             }
 
             ImGui::Image(
-                static_cast<ImTextureID>(debugColorSrvGpuDescHandle.ptr),
+                static_cast<ImTextureID>(finalColorSrvGpuDescHandle.ptr),
                 availableRegion);
             m_isViewportHovered = ImGui::IsItemHovered();
 

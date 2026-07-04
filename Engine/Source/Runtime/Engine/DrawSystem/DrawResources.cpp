@@ -178,6 +178,7 @@ namespace Cue::DrawSystem
                                             DrawFrameData& a_frameData)
     {
         a_frameData.objectCount = 0;
+        a_frameData.particleCount = 0;
 
         if (a_bufferIndex >= m_bufferCount)
         {
@@ -188,7 +189,8 @@ namespace Cue::DrawSystem
             m_viewProjectionUploaders.size() != m_bufferCount ||
             m_staticMeshIndirectCommandUploaders.size() != m_bufferCount ||
             m_staticMeshIndirectCommandCountUploaders.size() != m_bufferCount ||
-            m_staticMeshObjectIndexUploaders.size() != m_bufferCount)
+            m_staticMeshObjectIndexUploaders.size() != m_bufferCount ||
+            m_particleSpriteUploaders.size() != m_bufferCount)
         {
             return Result::fail(Code::InvalidState, Severity::Error, "DrawResources uploaders are not initialized.");
         }
@@ -197,6 +199,7 @@ namespace Cue::DrawSystem
         const std::vector<GpuData::RenderableInfo>& renderableInfos = a_scene.renderable_infos();
         const std::vector<GpuData::ObjectTransformGpu>& transforms = a_scene.transforms();
         const std::vector<CameraDrawItem>& cameras = a_scene.cameras();
+        const std::vector<GpuData::ParticleSpriteGpu>& particles = a_scene.particle_sprites();
 
         // DrawScene は 3 つの配列を同じ index で対応させる契約。
         if (renderableInfos.size() != objectCount || transforms.size() != objectCount)
@@ -217,6 +220,16 @@ namespace Cue::DrawSystem
         if (objectCount > (std::numeric_limits<uint32_t>::max)())
         {
             return Result::fail(Code::InvalidState, Severity::Error, "DrawScene object count exceeds uint32_t range.");
+        }
+
+        if (particles.size() > m_maxParticleSpriteCount)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "ParticleSpriteBuffer capacity is too small.");
+        }
+
+        if (particles.size() > (std::numeric_limits<uint32_t>::max)())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "DrawScene particle count exceeds uint32_t range.");
         }
 
         if (a_frameData.staticMeshIndirectCommands.size() > m_maxStaticMeshBatchCount)
@@ -302,7 +315,16 @@ namespace Cue::DrawSystem
             return result;
         }
 
+        result = upload_slots(m_particleSpriteUploaders[a_bufferIndex],
+                              particles,
+                              "Failed to upload ParticleSpriteBuffer.");
+        if (!result)
+        {
+            return result;
+        }
+
         a_frameData.objectCount = static_cast<uint32_t>(objectCount);
+        a_frameData.particleCount = static_cast<uint32_t>(particles.size());
         return Result::ok();
     }
 
@@ -382,6 +404,82 @@ namespace Cue::DrawSystem
     RHI::ViewHandle DrawResources::static_mesh_object_index_buffer_srv_handle() const noexcept
     {
         return m_viewHandles[static_cast<size_t>(DrawResourceType::StaticMeshObjectIndexBuffer)];
+    }
+
+    std::vector<RHI::SlotUploader<GpuData::ParticleSpriteGpu>>&
+    DrawResources::particle_sprite_uploaders() noexcept
+    {
+        return m_particleSpriteUploaders;
+    }
+
+    RHI::BufferHandle DrawResources::particle_sprite_buffer_handle() const noexcept
+    {
+        return m_bufferHandles[static_cast<size_t>(DrawResourceType::ParticleSpriteBuffer)];
+    }
+
+    RHI::ViewHandle DrawResources::particle_sprite_buffer_srv_handle() const noexcept
+    {
+        return m_viewHandles[static_cast<size_t>(DrawResourceType::ParticleSpriteBuffer)];
+    }
+
+    Result DrawResources::create_particle_sprite_buffer(uint32_t a_maxParticleCount)
+    {
+        if (a_maxParticleCount == 0)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "Particle sprite buffer capacity must be greater than zero.");
+        }
+
+        RHI::BufferDesc particleBufferDesc{};
+        particleBufferDesc.name = "ParticleSpriteBuffer";
+        particleBufferDesc.type = RHI::BufferType::Structured;
+        particleBufferDesc.defaultHeapCount = 1;
+        particleBufferDesc.uploadHeapCount = m_bufferCount;
+        particleBufferDesc.initialState = RHI::ResourceState::ShaderResource;
+        particleBufferDesc.stride = sizeof(GpuData::ParticleSpriteGpu);
+        particleBufferDesc.elementCount = a_maxParticleCount;
+        particleBufferDesc.size = particleBufferDesc.stride * particleBufferDesc.elementCount;
+        particleBufferDesc.alignment = alignof(GpuData::ParticleSpriteGpu);
+
+        RHI::BufferHandle& particleBufferHandle =
+            m_bufferHandles[static_cast<size_t>(DrawResourceType::ParticleSpriteBuffer)];
+        Result result = m_bufferManager->create_buffer(particleBufferDesc, particleBufferHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_bufferManager->create_slot_uploaders(particleBufferHandle, m_bufferCount, m_particleSpriteUploaders);
+        if (!result)
+        {
+            return result;
+        }
+        if (m_particleSpriteUploaders.size() != m_bufferCount)
+        {
+            return Result::fail(Code::InternalError, Severity::Fatal, "ParticleSpriteBuffer uploader was not created.");
+        }
+
+        RHI::ViewDesc particleBufferSrvDesc{};
+        particleBufferSrvDesc.name = "ParticleSpriteBufferSRV";
+        particleBufferSrvDesc.type = RHI::ViewType::ShaderResourceBuffer;
+        particleBufferSrvDesc.bufferKind = RHI::BufferKind::Buffer;
+        particleBufferSrvDesc.bufferHandle = particleBufferHandle;
+        particleBufferSrvDesc.firstElement = 0;
+        particleBufferSrvDesc.numElements = particleBufferDesc.elementCount;
+        particleBufferSrvDesc.structureByteStride = particleBufferDesc.stride;
+
+        RHI::ViewHandle& particleBufferSrvHandle =
+            m_viewHandles[static_cast<size_t>(DrawResourceType::ParticleSpriteBuffer)];
+        result = m_viewManager->create_view(particleBufferSrvDesc, particleBufferSrvHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_maxParticleSpriteCount = a_maxParticleCount;
+        return Result::ok();
     }
 
     Result DrawResources::create_material_buffer(const uint32_t a_maxMaterialCount)

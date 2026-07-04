@@ -1,0 +1,112 @@
+# ~/.codex/rules/default.rules
+#
+# 目的:
+# - MCP server 起動コマンドの確認を不要にする。
+# - node / pwsh 全体は許可しない。
+# - 固定エントリポイントだけ allow する。
+# - CueEngine の標準ビルドスクリプトは prompt のままにする。
+#
+# 注意:
+# - prefix_rule は完全一致ではなく先頭一致。
+# - 危険操作は MCP tool approval 側で制御する。
+
+# --- CueEngine build ---------------------------------------------------------
+
+prefix_rule(
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/codex_build.ps1",
+            "./scripts/codex_build.ps1",
+            ".\\scripts\\codex_build.ps1",
+        ],
+    ],
+    decision = "prompt",
+    justification = "CueEngine の標準ビルドスクリプトだけを承認対象にする。",
+    match = [
+        "pwsh -NoProfile -File scripts/codex_build.ps1",
+        "pwsh -NoProfile -File ./scripts/codex_build.ps1",
+        "pwsh -NoProfile -File '.\\scripts\\codex_build.ps1'",
+    ],
+    not_match = [
+        "pwsh -NoProfile -Command Get-ChildItem",
+        "pwsh -NoProfile -File scripts/other.ps1",
+    ],
+)
+
+# --- Custom MCP server launchers --------------------------------------------
+
+prefix_rule(
+    pattern = [
+        ["node", "node.exe"],
+        "C:/Users/sinse/source/repos/cue-memory-mcp/dist/index.js",
+    ],
+    decision = "allow",
+    justification = "cue-memory-mcp の固定エントリポイントのみ許可する。",
+)
+
+prefix_rule(
+    pattern = [
+        ["node", "node.exe"],
+        "C:/Users/sinse/source/repos/cue-engine-mcp/dist/index.js",
+    ],
+    decision = "allow",
+    justification = "cue-engine-mcp の固定エントリポイントのみ許可する。",
+)
+
+prefix_rule(
+    pattern = [
+        ["node", "node.exe"],
+        "C:/Users/sinse/source/repos/cue-editor-mcp/dist/index.js",
+    ],
+    decision = "allow",
+    justification = "cue-editor-mcp の固定エントリポイントのみ許可する。",
+)
+
+prefix_rule(
+    pattern = [
+        ["node", "node.exe"],
+        "C:/Users/sinse/source/repos/pix-mcp/dist/index.js",
+    ],
+    decision = "allow",
+    justification = "pix-mcp の固定エントリポイントのみ許可する。",
+)
+
+prefix_rule(
+    pattern = [
+        ["node", "node.exe"],
+        "C:/Users/sinse/source/repos/nsight-graphics-mcp/dist/index.js",
+    ],
+    decision = "allow",
+    justification = "nsight-graphics-mcp の固定エントリポイントのみ許可する。",
+)
+
+# --- External MCP server launchers ------------------------------------------
+
+prefix_rule(
+    pattern = [
+        ["uvx", "uvx.exe"],
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "codex",
+    ],
+    decision = "allow",
+    justification = "Serena MCP の固定起動コマンドのみ許可する。",
+)
+
+# GitHub MCP は実行ファイルが存在し、config 側で enabled = true に戻してから使う。
+# まだ Tools: (none) または os error 3 が出るなら、この rule 以前に config を直す。
+# prefix_rule(
+#     pattern = [
+#         "C:\\Tools\\github-mcp-server\\github-mcp-server.exe",
+#         "stdio",
+#         "--read-only",
+#     ],
+#     decision = "allow",
+#     justification = "GitHub MCP を read-only で起動する固定コマンドのみ許可する。",
+# )
