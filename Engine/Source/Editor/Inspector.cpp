@@ -134,6 +134,7 @@ namespace Cue::Editor
         GameCore::GameObject object{};
         if (!find_selected_object(object))
         {
+            // Hierarchy 側の削除や Scene 切替後に残った選択は Editor 共有状態からも破棄する
             *m_selectedEntityId = GameCore::k_invalidEntityId;
             ImGui::TextUnformatted("選択中の GameObject は存在しません。");
             ImGui::End();
@@ -230,6 +231,7 @@ namespace Cue::Editor
             };
             if (ImGui::DragFloat4("Rotation", rotation, 0.01f))
             {
+                // quaternion は積み重ね編集で長さが崩れやすいため保存前に正規化する
                 edited.rotation =
                     Math::Quaternion(rotation[0], rotation[1], rotation[2], rotation[3]).normalize();
                 submit_transform_component(a_object.entity_id(), edited);
@@ -284,12 +286,14 @@ namespace Cue::Editor
             }
             if (ImGui::DragFloat("NearZ", &edited.nearZ, 0.01f, 0.001f, edited.farZ))
             {
+                // projection 行列の破綻を避けるため near/far の最小間隔を維持する
                 edited.nearZ = std::max(0.001f, edited.nearZ);
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
                 submit_camera_component(a_object.entity_id(), edited);
             }
             if (ImGui::DragFloat("FarZ", &edited.farZ, 0.1f, edited.nearZ + 0.001f, 100000.0f))
             {
+                // UI 入力の順序に依存せず CameraComponent 側の不変条件を保つ
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
                 submit_camera_component(a_object.entity_id(), edited);
             }
@@ -416,6 +420,7 @@ namespace Cue::Editor
             return;
         }
 
+        // Component 変更は GameWorld の整合更新を通すため直接書き換えず command 化する
         (void)m_commandBridge->submit_command(
             make_set_transform_component_command(a_entityId, a_component));
     }
@@ -429,6 +434,7 @@ namespace Cue::Editor
             return;
         }
 
+        // Camera 更新後の描画 View 再計算を Engine 側の更新経路へ集約する
         (void)m_commandBridge->submit_command(
             make_set_camera_component_command(a_entityId, a_component));
     }
@@ -442,6 +448,7 @@ namespace Cue::Editor
             return;
         }
 
+        // RendererComponent は DrawSystem 抽出に関わるため CQRS 経由で変更順序を揃える
         (void)m_commandBridge->submit_command(
             make_set_static_mesh_renderer_component_command(a_entityId, a_component));
     }

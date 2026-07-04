@@ -118,6 +118,7 @@ namespace Cue::Editor
                     GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
                     if (a_object.get_component(base) && base != nullptr)
                     {
+                        // EditorPreview は検証用の一時 Object で、Scene 階層の編集対象から外す
                         if (base->tag == "EditorPreview")
                         {
                             return;
@@ -160,6 +161,7 @@ namespace Cue::Editor
             if (parentIt != m_objectIndexById.end() &&
                 m_objects[parentIt->second].sceneId == object.sceneId)
             {
+                // Scene をまたぐ親子関係は Scene serialize 時の所有境界を曖昧にするため root 扱いにする
                 m_objects[parentIt->second].children.push_back(objectIndex);
                 continue;
             }
@@ -285,6 +287,7 @@ namespace Cue::Editor
         }
         else if (escapePressed || deactivated)
         {
+            // 未編集の focus 喪失はキャンセル扱いにし、意図しない空 rename を送らない
             cancel_rename();
         }
     }
@@ -350,6 +353,7 @@ namespace Cue::Editor
                     dragPayload.entityId != a_object.entityId &&
                     !is_descendant_of(a_object.entityId, dragPayload.entityId))
                 {
+                    // 親子付け替えは Scene 所有境界と木構造の非循環性を保てる場合だけ許可する
                     submit_parent_command(dragPayload.entityId, a_object.entityId);
                 }
             }
