@@ -1,11 +1,14 @@
 #include "Inspector.h"
 
 // === Runtime includes ===
+#include <Command/Commands.h>
+#include <CQRS/CQRS.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
 #include <GameCore/GameWorld.h>
 
 // === C++ includes ===
+#include <algorithm>
 #include <string>
 
 // === ImGui includes ===
@@ -13,29 +16,55 @@
 
 namespace
 {
-    const char* render_queue_name(Cue::ECS::RenderQueue a_queue) noexcept
+    int render_queue_index(Cue::ECS::RenderQueue a_queue) noexcept
     {
         switch (a_queue)
         {
         case Cue::ECS::RenderQueue::Opaque:
-            return "Opaque";
+            return 0;
         case Cue::ECS::RenderQueue::Transparent:
-            return "Transparent";
+            return 1;
         case Cue::ECS::RenderQueue::Auto:
         default:
-            return "Auto";
+            return 2;
         }
     }
 
-    const char* shadow_caster_mode_name(Cue::ECS::ShadowCasterMode a_mode) noexcept
+    Cue::ECS::RenderQueue render_queue_from_index(int a_index) noexcept
+    {
+        switch (a_index)
+        {
+        case 0:
+            return Cue::ECS::RenderQueue::Opaque;
+        case 1:
+            return Cue::ECS::RenderQueue::Transparent;
+        case 2:
+        default:
+            return Cue::ECS::RenderQueue::Auto;
+        }
+    }
+
+    int shadow_caster_mode_index(Cue::ECS::ShadowCasterMode a_mode) noexcept
     {
         switch (a_mode)
         {
         case Cue::ECS::ShadowCasterMode::TwoSided:
-            return "TwoSided";
+            return 1;
         case Cue::ECS::ShadowCasterMode::Solid:
         default:
-            return "Solid";
+            return 0;
+        }
+    }
+
+    Cue::ECS::ShadowCasterMode shadow_caster_mode_from_index(int a_index) noexcept
+    {
+        switch (a_index)
+        {
+        case 1:
+            return Cue::ECS::ShadowCasterMode::TwoSided;
+        case 0:
+        default:
+            return Cue::ECS::ShadowCasterMode::Solid;
         }
     }
 
@@ -70,10 +99,12 @@ namespace
 
 namespace Cue::Editor
 {
-    Inspector::Inspector(GameCore::GameWorld* a_gameWorld,
+    Inspector::Inspector(Core::CQRS::Bridge* a_commandBridge,
+                         GameCore::GameWorld* a_gameWorld,
                          GameCore::EntityId* a_selectedEntityId) noexcept
         : m_gameWorld(a_gameWorld),
-          m_selectedEntityId(a_selectedEntityId)
+          m_selectedEntityId(a_selectedEntityId),
+          m_commandBridge(a_commandBridge)
     {
     }
 
@@ -182,9 +213,34 @@ namespace Cue::Editor
 
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            text_float3("Position", transform->position);
-            text_quaternion("Rotation", transform->rotation);
-            text_float3("Scale", transform->scale);
+            ECS::TransformComponent edited = *transform;
+
+            float position[3] = { edited.position.x, edited.position.y, edited.position.z };
+            if (ImGui::DragFloat3("Position", position, 0.05f))
+            {
+                edited.position = Math::float3(position[0], position[1], position[2]);
+                submit_transform_component(a_object.entity_id(), edited);
+            }
+
+            float rotation[4] = {
+                edited.rotation.x,
+                edited.rotation.y,
+                edited.rotation.z,
+                edited.rotation.w
+            };
+            if (ImGui::DragFloat4("Rotation", rotation, 0.01f))
+            {
+                edited.rotation =
+                    Math::Quaternion(rotation[0], rotation[1], rotation[2], rotation[3]).normalize();
+                submit_transform_component(a_object.entity_id(), edited);
+            }
+
+            float scale[3] = { edited.scale.x, edited.scale.y, edited.scale.z };
+            if (ImGui::DragFloat3("Scale", scale, 0.05f))
+            {
+                edited.scale = Math::float3(scale[0], scale[1], scale[2]);
+                submit_transform_component(a_object.entity_id(), edited);
+            }
         }
     }
 
@@ -214,10 +270,29 @@ namespace Cue::Editor
 
         if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("FovY: %.3f", camera->fovY);
-            ImGui::Text("AspectRatio: %.3f", camera->aspectRatio);
-            ImGui::Text("NearZ: %.3f", camera->nearZ);
-            ImGui::Text("FarZ: %.3f", camera->farZ);
+            ECS::CameraComponent edited = *camera;
+
+            if (ImGui::DragFloat("FovY", &edited.fovY, 0.1f, 1.0f, 179.0f, "%.3f deg"))
+            {
+                edited.fovY = std::clamp(edited.fovY, 1.0f, 179.0f);
+                submit_camera_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::DragFloat("AspectRatio", &edited.aspectRatio, 0.01f, 0.0f, 8.0f))
+            {
+                edited.aspectRatio = std::max(0.0f, edited.aspectRatio);
+                submit_camera_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::DragFloat("NearZ", &edited.nearZ, 0.01f, 0.001f, edited.farZ))
+            {
+                edited.nearZ = std::max(0.001f, edited.nearZ);
+                edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
+                submit_camera_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::DragFloat("FarZ", &edited.farZ, 0.1f, edited.nearZ + 0.001f, 100000.0f))
+            {
+                edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
+                submit_camera_component(a_object.entity_id(), edited);
+            }
         }
     }
 
@@ -246,21 +321,74 @@ namespace Cue::Editor
 
         if (ImGui::CollapsingHeader("Static Mesh Renderer", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("MaterialId: %u", renderer->materialId);
-            ImGui::Text("RenderQueue: %s", render_queue_name(renderer->renderQueue));
-            ImGui::Text("ShadowCaster: %s", shadow_caster_mode_name(renderer->shadowCasterMode));
-            ImGui::Text("Visible: %s", renderer->visible ? "true" : "false");
-            ImGui::Text("CastsShadow: %s", renderer->castsShadow ? "true" : "false");
-            ImGui::Text("ReceivesShadow: %s", renderer->receivesShadow ? "true" : "false");
-            ImGui::Text("OverrideMask: %u", renderer->propertyBlock.overrideMask);
-            ImGui::Text("Color: %.3f, %.3f, %.3f, %.3f",
-                renderer->propertyBlock.color.x,
-                renderer->propertyBlock.color.y,
-                renderer->propertyBlock.color.z,
-                renderer->propertyBlock.color.w);
-            ImGui::Text("Shininess: %.3f", renderer->propertyBlock.shininess);
-            ImGui::Text("UsesReflectionSkybox: %s",
-                renderer->propertyBlock.usesReflectionSkybox ? "true" : "false");
+            ECS::StaticMeshRendererComponent edited = *renderer;
+
+            if (ImGui::InputScalar("MaterialId", ImGuiDataType_U32, &edited.materialId))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            const char* renderQueueItems[] = { "Opaque", "Transparent", "Auto" };
+            int renderQueueIndex = render_queue_index(edited.renderQueue);
+            if (ImGui::Combo("RenderQueue", &renderQueueIndex, renderQueueItems, IM_ARRAYSIZE(renderQueueItems)))
+            {
+                edited.renderQueue = render_queue_from_index(renderQueueIndex);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            const char* shadowCasterItems[] = { "Solid", "TwoSided" };
+            int shadowCasterIndex = shadow_caster_mode_index(edited.shadowCasterMode);
+            if (ImGui::Combo("ShadowCaster", &shadowCasterIndex, shadowCasterItems, IM_ARRAYSIZE(shadowCasterItems)))
+            {
+                edited.shadowCasterMode = shadow_caster_mode_from_index(shadowCasterIndex);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            if (ImGui::Checkbox("Visible", &edited.visible))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::Checkbox("CastsShadow", &edited.castsShadow))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::Checkbox("ReceivesShadow", &edited.receivesShadow))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            if (ImGui::InputScalar(
+                    "OverrideMask",
+                    ImGuiDataType_U32,
+                    &edited.propertyBlock.overrideMask))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            float color[4] = {
+                edited.propertyBlock.color.x,
+                edited.propertyBlock.color.y,
+                edited.propertyBlock.color.z,
+                edited.propertyBlock.color.w
+            };
+            if (ImGui::ColorEdit4("Color", color))
+            {
+                edited.propertyBlock.color =
+                    Math::float4(color[0], color[1], color[2], color[3]);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+
+            if (ImGui::DragFloat("Shininess", &edited.propertyBlock.shininess, 0.1f, 0.0f, 4096.0f))
+            {
+                edited.propertyBlock.shininess = std::max(0.0f, edited.propertyBlock.shininess);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
+            if (ImGui::Checkbox(
+                    "UsesReflectionSkybox",
+                    &edited.propertyBlock.usesReflectionSkybox))
+            {
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+            }
         }
     }
 
@@ -277,5 +405,44 @@ namespace Cue::Editor
             ImGui::Text("ObjectId: %u", renderableInfo->objectId);
             ImGui::Text("TransformId: %u", renderableInfo->transformId);
         }
+    }
+
+    void Inspector::submit_transform_component(
+        GameCore::EntityId a_entityId,
+        const ECS::TransformComponent& a_component)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            make_set_transform_component_command(a_entityId, a_component));
+    }
+
+    void Inspector::submit_camera_component(
+        GameCore::EntityId a_entityId,
+        const ECS::CameraComponent& a_component)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            make_set_camera_component_command(a_entityId, a_component));
+    }
+
+    void Inspector::submit_static_mesh_renderer_component(
+        GameCore::EntityId a_entityId,
+        const ECS::StaticMeshRendererComponent& a_component)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            make_set_static_mesh_renderer_component_command(a_entityId, a_component));
     }
 } // namespace Cue::Editor

@@ -16,6 +16,11 @@ namespace Cue
     class Engine;
 }
 
+namespace Cue::Core::CQRS
+{
+    class Bridge;
+}
+
 namespace Cue::RHI::DX12
 {
     class D3D12Backend;
@@ -35,6 +40,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* backend = nullptr; // Editor View が参照する描画 backend
         Engine* engine = nullptr;                   // GameWorld など Editor が参照する Runtime
         DebugCamera* debugCamera = nullptr;         // DebugView の入力で更新する Editor camera
+        Core::CQRS::Bridge* gameCommandBridge = nullptr; // GameWorld 編集コマンドの送信先
     };
 
     /// @brief CueEngine の EditorManager と同じく、Editor の共有状態と UI 更新順を集約する。
@@ -87,6 +93,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* m_backend = nullptr; // View 生成時と SRV 解決に使う非所有 backend
         Engine* m_engine = nullptr;                   // 今後 Hierarchy / Inspector が参照する非所有 Engine
         DebugCamera* m_debugCamera = nullptr;         // Engine が参照している DebugCamera
+        Core::CQRS::Bridge* m_gameCommandBridge = nullptr; // Editor から GameWorld を編集する command bridge
 
         std::unique_ptr<Dockspace> m_dockspace = nullptr;
         std::unique_ptr<GameView> m_gameView = nullptr;

@@ -11,10 +11,12 @@
 #include <CQRS/CQRS.h>
 
 // === GameCore includes ===
+#include <GameCore/Components.h>
 #include <GameCore/GameCoreTypes.h>
 
 // === C++ includes ===
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,6 +36,30 @@ namespace Cue
             GameCore::EntityId a_objectId,
             GameCore::EntityId a_parentId,
             bool a_keepsWorldTransform) = 0;
+
+        /// @brief Editor からの Component 編集を GameWorld の安全な更新フェーズへ遅延する。
+        virtual Result get_transform_component(
+            GameCore::EntityId a_objectId,
+            ECS::TransformComponent& a_outComponent) = 0;
+        virtual Result set_transform_component(
+            GameCore::EntityId a_objectId,
+            const ECS::TransformComponent& a_component) = 0;
+
+        /// @brief CameraComponent を描画入力へ変換する前の GameCore 状態として編集する。
+        virtual Result get_camera_component(
+            GameCore::EntityId a_objectId,
+            ECS::CameraComponent& a_outComponent) = 0;
+        virtual Result set_camera_component(
+            GameCore::EntityId a_objectId,
+            const ECS::CameraComponent& a_component) = 0;
+
+        /// @brief Renderable 収集前の描画設定を GameObject 単位で編集する。
+        virtual Result get_static_mesh_renderer_component(
+            GameCore::EntityId a_objectId,
+            ECS::StaticMeshRendererComponent& a_outComponent) = 0;
+        virtual Result set_static_mesh_renderer_component(
+            GameCore::EntityId a_objectId,
+            const ECS::StaticMeshRendererComponent& a_component) = 0;
     };
 
     class RenameObjectCommand final : public Core::CQRS::IUndoableCommand
@@ -200,4 +226,19 @@ namespace Cue
         bool m_keepsWorldTransform = true;
         bool m_hasOldParent = false;
     };
+
+    /// @brief Inspector で編集した local Transform を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_transform_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::TransformComponent& a_component);
+
+    /// @brief Inspector で編集した Camera 設定を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_camera_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::CameraComponent& a_component);
+
+    /// @brief Inspector で編集した StaticMesh 描画設定を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_static_mesh_renderer_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::StaticMeshRendererComponent& a_component);
 }

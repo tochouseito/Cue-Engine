@@ -31,6 +31,7 @@ namespace Cue::Editor
         m_backend = a_info.backend;
         m_engine = a_info.engine;
         m_debugCamera = a_info.debugCamera;
+        m_gameCommandBridge = a_info.gameCommandBridge;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
         m_dockspace = std::make_unique<Dockspace>();
@@ -45,9 +46,9 @@ namespace Cue::Editor
         if (m_engine != nullptr)
         {
             m_hierarchy = std::make_unique<Hierarchy>(
-                &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
+                m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
             m_inspector = std::make_unique<Inspector>(
-                &m_engine->game_world(), &m_selectedEntityId);
+                m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId);
         }
     }
 

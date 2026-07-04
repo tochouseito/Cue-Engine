@@ -1,7 +1,7 @@
 #pragma once
 
 /// **********************************************************************
-/// 選択中 GameObject の読み取り情報を表示する Editor View
+/// 選択中 GameObject の Component 情報を表示、編集する Editor View
 /// **********************************************************************
 
 // === Runtime includes ===
@@ -13,13 +13,26 @@ namespace Cue::GameCore
     class GameWorld;
 }
 
+namespace Cue::Core::CQRS
+{
+    class Bridge;
+}
+
+namespace Cue::ECS
+{
+    struct CameraComponent;
+    struct StaticMeshRendererComponent;
+    struct TransformComponent;
+}
+
 namespace Cue::Editor
 {
-    /// @brief EditorManager の選択状態を参照して GameObject の Component 情報を表示する。
+    /// @brief EditorManager の選択状態を参照して GameObject の Component 情報を表示、編集する。
     class Inspector final
     {
     public:
-        Inspector(GameCore::GameWorld* a_gameWorld,
+        Inspector(Core::CQRS::Bridge* a_commandBridge,
+                  GameCore::GameWorld* a_gameWorld,
                   GameCore::EntityId* a_selectedEntityId) noexcept;
         ~Inspector() = default;
 
@@ -40,8 +53,18 @@ namespace Cue::Editor
         void draw_mesh_filter_component(GameCore::GameObject& a_object);
         void draw_static_mesh_renderer_component(GameCore::GameObject& a_object);
         void draw_renderable_info_component(GameCore::GameObject& a_object);
+        void submit_transform_component(
+            GameCore::EntityId a_entityId,
+            const ECS::TransformComponent& a_component);
+        void submit_camera_component(
+            GameCore::EntityId a_entityId,
+            const ECS::CameraComponent& a_component);
+        void submit_static_mesh_renderer_component(
+            GameCore::EntityId a_entityId,
+            const ECS::StaticMeshRendererComponent& a_component);
 
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
+        Core::CQRS::Bridge* m_commandBridge = nullptr;
     };
 } // namespace Cue::Editor

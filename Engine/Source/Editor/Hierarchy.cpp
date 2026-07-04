@@ -1,22 +1,29 @@
 #include "Hierarchy.h"
 
 // === Runtime includes ===
+#include <Command/Commands.h>
+#include <CQRS/CQRS.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
 #include <GameCore/GameWorld.h>
 
 // === C++ includes ===
 #include <algorithm>
+#include <cstring>
+#include <memory>
+#include <utility>
 
 // === ImGui includes ===
 #include <imgui.h>
 
 namespace Cue::Editor
 {
-    Hierarchy::Hierarchy(GameCore::GameWorld* a_gameWorld,
+    Hierarchy::Hierarchy(Core::CQRS::Bridge* a_commandBridge,
+                         GameCore::GameWorld* a_gameWorld,
                          GameCore::EntityId* a_selectedEntityId,
                          GameCore::SceneId* a_selectedSceneId) noexcept
-        : m_gameWorld(a_gameWorld),
+        : m_commandBridge(a_commandBridge),
+          m_gameWorld(a_gameWorld),
           m_selectedEntityId(a_selectedEntityId),
           m_selectedSceneId(a_selectedSceneId)
     {
@@ -66,6 +73,7 @@ namespace Cue::Editor
             set_selected_entity_id(GameCore::k_invalidEntityId);
             set_selected_scene_id(GameCore::k_invalidSceneId);
         }
+        draw_world_drop_target();
 
         if (isOpen)
         {
@@ -181,6 +189,17 @@ namespace Cue::Editor
             set_selected_entity_id(GameCore::k_invalidEntityId);
             set_selected_scene_id(GameCore::k_invalidSceneId);
         }
+
+        const bool hasRenamingObject =
+            std::any_of(m_objects.begin(), m_objects.end(),
+                [this](const ObjectEntry& a_object)
+                {
+                    return a_object.entityId == m_renamingEntityId;
+                });
+        if (!hasRenamingObject)
+        {
+            cancel_rename();
+        }
     }
 
     void Hierarchy::draw_object_node(size_t a_objectIndex)
@@ -192,6 +211,13 @@ namespace Cue::Editor
 
         const ObjectEntry& object = m_objects[a_objectIndex];
         ImGui::PushID(static_cast<int>(object.entityId));
+
+        if (m_renamingEntityId == object.entityId)
+        {
+            draw_rename_input(object);
+            ImGui::PopID();
+            return;
+        }
 
         ImGuiTreeNodeFlags flags =
             ImGuiTreeNodeFlags_OpenOnArrow |
@@ -211,6 +237,15 @@ namespace Cue::Editor
             set_selected_entity_id(object.entityId);
             set_selected_scene_id(object.sceneId);
         }
+        if (ImGui::IsItemHovered() &&
+            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            begin_rename(object);
+        }
+
+        draw_object_drag_source(object);
+        draw_object_drop_target(object);
+        draw_object_context_menu(object);
 
         if (isOpen)
         {
@@ -222,6 +257,234 @@ namespace Cue::Editor
         }
 
         ImGui::PopID();
+    }
+
+    void Hierarchy::draw_rename_input(const ObjectEntry& a_object)
+    {
+        if (m_focusRenameInput)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_focusRenameInput = false;
+        }
+
+        const bool submitted = ImGui::InputText(
+            "##Rename",
+            m_renameBuffer.data(),
+            m_renameBuffer.size(),
+            ImGuiInputTextFlags_AutoSelectAll |
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool deactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
+        const bool deactivated = ImGui::IsItemDeactivated();
+        const bool isActive = ImGui::IsItemActive();
+        const bool escapePressed =
+            isActive && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+
+        if (submitted || deactivatedAfterEdit)
+        {
+            submit_rename_command(a_object.entityId);
+        }
+        else if (escapePressed || deactivated)
+        {
+            cancel_rename();
+        }
+    }
+
+    void Hierarchy::draw_world_drop_target()
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            const ImGuiPayload* payload =
+                ImGui::AcceptDragDropPayload(k_objectDragPayloadType);
+            if (payload != nullptr && payload->DataSize == sizeof(DragObjectPayload))
+            {
+                const DragObjectPayload& dragPayload =
+                    *static_cast<const DragObjectPayload*>(payload->Data);
+                submit_parent_command(
+                    dragPayload.entityId,
+                    GameCore::k_invalidEntityId);
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+
+    void Hierarchy::draw_object_drag_source(const ObjectEntry& a_object)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+        {
+            DragObjectPayload payload{};
+            payload.entityId = a_object.entityId;
+            payload.sceneId = a_object.sceneId;
+            ImGui::SetDragDropPayload(
+                k_objectDragPayloadType, &payload, sizeof(payload));
+            ImGui::TextUnformatted(a_object.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+    }
+
+    void Hierarchy::draw_object_drop_target(const ObjectEntry& a_object)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            const ImGuiPayload* payload =
+                ImGui::AcceptDragDropPayload(k_objectDragPayloadType);
+            if (payload != nullptr && payload->DataSize == sizeof(DragObjectPayload))
+            {
+                const DragObjectPayload& dragPayload =
+                    *static_cast<const DragObjectPayload*>(payload->Data);
+                if (dragPayload.sceneId == a_object.sceneId &&
+                    dragPayload.entityId != a_object.entityId &&
+                    !is_descendant_of(a_object.entityId, dragPayload.entityId))
+                {
+                    submit_parent_command(dragPayload.entityId, a_object.entityId);
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+
+    void Hierarchy::draw_object_context_menu(const ObjectEntry& a_object)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        if (ImGui::BeginPopupContextItem("HierarchyContextMenu"))
+        {
+            set_selected_entity_id(a_object.entityId);
+            set_selected_scene_id(a_object.sceneId);
+
+            if (ImGui::MenuItem("名前変更"))
+            {
+                begin_rename(a_object);
+            }
+            if (ImGui::MenuItem("削除"))
+            {
+                submit_delete_command(a_object.entityId);
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
+    void Hierarchy::begin_rename(const ObjectEntry& a_object)
+    {
+        set_selected_entity_id(a_object.entityId);
+        set_selected_scene_id(a_object.sceneId);
+        m_renamingEntityId = a_object.entityId;
+        m_focusRenameInput = true;
+        std::fill(m_renameBuffer.begin(), m_renameBuffer.end(), '\0');
+        const size_t copyLength =
+            (std::min)(a_object.name.size(), m_renameBuffer.size() - 1u);
+        if (copyLength > 0)
+        {
+            std::memcpy(m_renameBuffer.data(), a_object.name.data(), copyLength);
+        }
+    }
+
+    void Hierarchy::cancel_rename() noexcept
+    {
+        m_renamingEntityId = GameCore::k_invalidEntityId;
+        m_focusRenameInput = false;
+        std::fill(m_renameBuffer.begin(), m_renameBuffer.end(), '\0');
+    }
+
+    void Hierarchy::submit_rename_command(GameCore::EntityId a_entityId)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            cancel_rename();
+            return;
+        }
+
+        std::string newName = m_renameBuffer.data();
+        const auto objectIt = std::find_if(m_objects.begin(), m_objects.end(),
+            [a_entityId](const ObjectEntry& a_object)
+            {
+                return a_object.entityId == a_entityId;
+            });
+
+        if (objectIt != m_objects.end() && objectIt->name != newName)
+        {
+            (void)m_commandBridge->submit_command(
+                std::make_unique<RenameObjectCommand>(a_entityId, std::move(newName)));
+        }
+
+        cancel_rename();
+    }
+
+    void Hierarchy::submit_delete_command(GameCore::EntityId a_entityId)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            std::make_unique<DeleteObjectCommand>(a_entityId));
+        if (selected_entity_id() == a_entityId)
+        {
+            set_selected_entity_id(GameCore::k_invalidEntityId);
+            set_selected_scene_id(GameCore::k_invalidSceneId);
+        }
+        if (m_renamingEntityId == a_entityId)
+        {
+            cancel_rename();
+        }
+    }
+
+    void Hierarchy::submit_parent_command(
+        GameCore::EntityId a_entityId,
+        GameCore::EntityId a_parentId)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            std::make_unique<SetParentCommand>(a_entityId, a_parentId, true));
+    }
+
+    bool Hierarchy::is_descendant_of(
+        GameCore::EntityId a_entityId,
+        GameCore::EntityId a_possibleAncestor) const noexcept
+    {
+        GameCore::EntityId current = a_entityId;
+        size_t visitedCount = 0;
+        while (current != GameCore::k_invalidEntityId && visitedCount <= m_objects.size())
+        {
+            if (current == a_possibleAncestor)
+            {
+                return true;
+            }
+
+            const auto it = m_objectIndexById.find(current);
+            if (it == m_objectIndexById.end())
+            {
+                return false;
+            }
+
+            current = m_objects[it->second].parent;
+            ++visitedCount;
+        }
+
+        return false;
     }
 
     GameCore::EntityId Hierarchy::selected_entity_id() const noexcept
