@@ -43,6 +43,7 @@ struct EngineSetupInfo final
     std::unique_ptr<RHI::FrameGraphPass> editorPass = nullptr;
     const DrawSystem::RenderView* debugRenderView = nullptr; // Editor DebugView 用の描画視点
     Core::CQRS::Bridge* platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
+    Core::CQRS::Bridge* gameCommandBridge = nullptr; // GameWorld 編集コマンドを受け取るためのブリッジ
     uint32_t maxFps = 60;                                // 最大フレームレート
 };
 
@@ -117,6 +118,7 @@ class Engine final
     Core::CQRS::Bridge* m_platformCommandBridge = nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
     PAL::PlatformRuntimeState m_platformRuntimeState;      // プラットフォームランタイム状態
     RHI::IRenderBackend* m_renderBackend = nullptr;        // レンダーバックエンドの非所有ポインタ
+    Core::CQRS::Bridge* m_gameCommandBridge = nullptr; // GameWorld 編集コマンドのブリッジ
 
     std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
     std::unique_ptr<RHI::FrameGraph> m_debugFrameGraph = nullptr;

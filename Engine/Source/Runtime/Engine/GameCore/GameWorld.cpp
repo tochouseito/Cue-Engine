@@ -280,6 +280,127 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    Result GameWorld::get_parent(EntityId a_entityId, EntityId& a_outParent) const noexcept
+    {
+        a_outParent = k_invalidEntityId;
+        if (!contains_object(a_entityId))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
+        }
+
+        const BaseComponent* base = const_cast<GameWorld*>(this)->m_ecsManager.get_component<BaseComponent>(a_entityId);
+        if (base == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "GameWorld BaseComponent is missing.");
+        }
+
+        a_outParent = base->parent;
+        return Result::ok();
+    }
+
+    Result GameWorld::set_parent(EntityId a_childEntityId, EntityId a_parentEntityId,
+                                 bool a_keepsWorldTransform) noexcept
+    {
+        if (!contains_object(a_childEntityId) || !contains_object(a_parentEntityId))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
+        }
+        if (a_childEntityId == a_parentEntityId)
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "GameWorld parent cannot be the child itself.");
+        }
+        if (is_descendant_of(a_parentEntityId, a_childEntityId))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "GameWorld parent cycle was rejected.");
+        }
+
+        ECS::TransformComponent* childTransform = m_ecsManager.get_component<ECS::TransformComponent>(a_childEntityId);
+        ECS::TransformComponent* parentTransform = m_ecsManager.get_component<ECS::TransformComponent>(a_parentEntityId);
+        if (childTransform == nullptr || parentTransform == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "GameWorld parent update requires TransformComponent.");
+        }
+
+        ECS::WorldTransformComponent childWorld{};
+        ECS::WorldTransformComponent parentWorld{};
+        if (a_keepsWorldTransform)
+        {
+            std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+            if (!resolve_world_transform(a_childEntityId, state, childWorld) ||
+                !resolve_world_transform(a_parentEntityId, state, parentWorld))
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "GameWorld world transform could not be resolved.");
+            }
+        }
+
+        BaseComponent* childBase = m_ecsManager.get_component<BaseComponent>(a_childEntityId);
+        if (childBase == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "GameWorld BaseComponent is missing.");
+        }
+
+        childBase->parent = a_parentEntityId;
+        if (a_keepsWorldTransform)
+        {
+            *childTransform = make_local_transform(parentWorld, childWorld);
+        }
+
+        sync_world_transforms();
+        return Result::ok();
+    }
+
+    Result GameWorld::detach_parent(EntityId a_childEntityId, bool a_keepsWorldTransform) noexcept
+    {
+        if (!contains_object(a_childEntityId))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
+        }
+
+        BaseComponent* childBase = m_ecsManager.get_component<BaseComponent>(a_childEntityId);
+        ECS::TransformComponent* childTransform = m_ecsManager.get_component<ECS::TransformComponent>(a_childEntityId);
+        if (childBase == nullptr)
+        {
+            return Result::fail(Code::InvalidState, Severity::Error, "GameWorld BaseComponent is missing.");
+        }
+        if (childTransform == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "GameWorld parent detach requires TransformComponent.");
+        }
+
+        ECS::WorldTransformComponent childWorld{};
+        if (a_keepsWorldTransform)
+        {
+            std::vector<uint8_t> state(m_entityRecords.size(), 0u);
+            if (!resolve_world_transform(a_childEntityId, state, childWorld))
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "GameWorld world transform could not be resolved.");
+            }
+        }
+
+        childBase->parent = k_invalidEntityId;
+        if (a_keepsWorldTransform)
+        {
+            childTransform->position = childWorld.position;
+            childTransform->rotation = childWorld.rotation;
+            childTransform->scale = childWorld.scale;
+        }
+
+        sync_world_transforms();
+        return Result::ok();
+    }
+
     Result GameWorld::find_objects_by_tag(std::string_view a_tag, std::vector<GameObject>& a_outObjects)
     {
         a_outObjects.clear();
@@ -747,6 +868,53 @@ namespace Cue::GameCore
             a_local.position.z * a_parent.scale.z);
         world.position = a_parent.position + rotate_vector(a_parent.rotation, scaledLocalPosition);
         return world;
+    }
+
+    ECS::TransformComponent GameWorld::make_local_transform(
+        const ECS::WorldTransformComponent& a_parent,
+        const ECS::WorldTransformComponent& a_world) noexcept
+    {
+        auto divide_safe = [](float a_value, float a_divisor) noexcept
+        {
+            return std::abs(a_divisor) > std::numeric_limits<float>::epsilon()
+                ? a_value / a_divisor
+                : 0.0f;
+        };
+
+        ECS::TransformComponent local{};
+        const Math::Quaternion inverseParentRotation = Math::Quaternion::inverse(a_parent.rotation);
+        const Math::float3 unrotatedPosition =
+            rotate_vector(inverseParentRotation, a_world.position - a_parent.position);
+
+        local.position = Math::float3(
+            divide_safe(unrotatedPosition.x, a_parent.scale.x),
+            divide_safe(unrotatedPosition.y, a_parent.scale.y),
+            divide_safe(unrotatedPosition.z, a_parent.scale.z));
+        local.rotation = Math::Quaternion::normalize(inverseParentRotation * a_world.rotation);
+        local.scale = Math::float3(
+            divide_safe(a_world.scale.x, a_parent.scale.x),
+            divide_safe(a_world.scale.y, a_parent.scale.y),
+            divide_safe(a_world.scale.z, a_parent.scale.z));
+        return local;
+    }
+
+    bool GameWorld::is_descendant_of(EntityId a_entityId, EntityId a_possibleAncestor) const noexcept
+    {
+        EntityId current = a_entityId;
+        size_t visitedCount = 0;
+        while (current != k_invalidEntityId && visitedCount <= m_entityRecords.size())
+        {
+            if (current == a_possibleAncestor)
+            {
+                return true;
+            }
+
+            const BaseComponent* base = const_cast<GameWorld*>(this)->m_ecsManager.get_component<BaseComponent>(current);
+            current = base != nullptr ? base->parent : k_invalidEntityId;
+            ++visitedCount;
+        }
+
+        return false;
     }
 
     bool GameWorld::resolve_world_transform(EntityId a_entityId,

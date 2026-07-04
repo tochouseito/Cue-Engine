@@ -114,6 +114,16 @@ namespace Cue::GameCore
         /// @brief GameObject の永続 Object フラグを変更する
         [[nodiscard]] Result set_object_persistent(EntityId a_entityId, bool a_isPersistent);
 
+        /// @brief GameObject の親 Entity を取得する
+        [[nodiscard]] Result get_parent(EntityId a_entityId, EntityId& a_outParent) const noexcept;
+
+        /// @brief GameObject の親を設定する。必要なら現在の world transform を維持する。
+        [[nodiscard]] Result set_parent(EntityId a_childEntityId, EntityId a_parentEntityId,
+                                        bool a_keepsWorldTransform = true) noexcept;
+
+        /// @brief GameObject を親から切り離す。必要なら現在の world transform を維持する。
+        [[nodiscard]] Result detach_parent(EntityId a_childEntityId, bool a_keepsWorldTransform = true) noexcept;
+
         /// @brief 指定タグの GameObject を列挙する
         [[nodiscard]] Result find_objects_by_tag(std::string_view a_tag, std::vector<GameObject>& a_outObjects);
 
@@ -197,10 +207,18 @@ namespace Cue::GameCore
             const ECS::WorldTransformComponent& a_parent,
             const ECS::TransformComponent& a_local) noexcept;
 
+        /// @brief parent world と child world から child local transform を復元する
+        [[nodiscard]] static ECS::TransformComponent make_local_transform(
+            const ECS::WorldTransformComponent& a_parent,
+            const ECS::WorldTransformComponent& a_world) noexcept;
+
         /// @brief Entity の WorldTransform を親子階層込みで解決する
         [[nodiscard]] bool resolve_world_transform(EntityId a_entityId,
                                                    std::vector<uint8_t>& a_state,
                                                    ECS::WorldTransformComponent& a_outWorld) noexcept;
+
+        /// @brief a_entityId が a_possibleAncestor の子孫かを返す
+        [[nodiscard]] bool is_descendant_of(EntityId a_entityId, EntityId a_possibleAncestor) const noexcept;
 
         /// @brief 回転対象になる active static mesh entity を集める
         [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const;

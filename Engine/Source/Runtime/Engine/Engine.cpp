@@ -8,6 +8,7 @@
 #include <Native/EngineNativeStruct.h>
 
 // === Engine includes ===
+#include "Command/EngineCommandContext.h"
 #include "Command/PlatformCommandContext.h"
 #include "DrawSystem/StaticMeshBatcher.h"
 #include "DrawSystem/Systems/CameraSystem.h"
@@ -93,6 +94,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
 
     // 依存オブジェクトの保存
     m_platformCommandBridge = a_info.platformCommandBridge;
+    m_gameCommandBridge = a_info.gameCommandBridge;
     m_platform = a_info.platform;
     m_renderBackend = a_info.renderBackend;
     m_bufferCount = a_info.renderBackend->buffer_count();
@@ -332,6 +334,7 @@ void Engine::shutdown()
 
     // 依存オブジェクトの解放
     m_platformCommandBridge = nullptr;
+    m_gameCommandBridge = nullptr;
 }
 
 Result Engine::begin_frame()
@@ -343,6 +346,15 @@ Result Engine::begin_frame()
     {
         PlatformCommandContext platformCommandContext(m_platformRuntimeState, m_frameController.get());
         Result result = m_platformCommandBridge->drain_commands(platformCommandContext);
+        if (!result)
+        {
+            return result;
+        }
+    }
+    if (m_gameCommandBridge)
+    {
+        EngineCommandContext gameCommandContext(m_gameWorld);
+        Result result = m_gameCommandBridge->drain_commands(gameCommandContext);
         if (!result)
         {
             return result;

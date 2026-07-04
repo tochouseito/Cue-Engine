@@ -53,6 +53,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     // Windows プラットフォームの初期化
     std::unique_ptr<Core::CQRS::Bridge> platformBridge = std::make_unique<Core::CQRS::Bridge>();
+    std::unique_ptr<Core::CQRS::Bridge> gameBridge = std::make_unique<Core::CQRS::Bridge>();
     std::unique_ptr<PAL::Win::WinPlatform> platform = std::make_unique<PAL::Win::WinPlatform>();
     platform->set_command_bridge(platformBridge.get());
     PAL::PlatformSetupInfo platformSetupInfo{}; // プラットフォームのセットアップ情報
@@ -123,6 +124,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     EngineSetupInfo engineSetupInfo{}; // エンジンのセットアップ情報
     engineSetupInfo.platform = platform.get();
     engineSetupInfo.platformCommandBridge = platformBridge.get();
+    engineSetupInfo.gameCommandBridge = gameBridge.get();
     engineSetupInfo.renderBackend = renderBackend.get();
     engineSetupInfo.maxFps = maxFps;
     engineSetupInfo.editorPass = std::make_unique<Editor::ImGuiPass>(*imGuiManager);
