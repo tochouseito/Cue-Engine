@@ -18,7 +18,9 @@ namespace Cue
     public:
         explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld) noexcept;
 
+        Result create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId) override;
         Result destroy_object(GameCore::EntityId a_objectId) override;
+        Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) override;
         Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) override;
         Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) override;
         Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) override;
@@ -38,6 +40,12 @@ namespace Cue
         Result set_camera_component(
             GameCore::EntityId a_objectId,
             const ECS::CameraComponent& a_component) override;
+        Result get_mesh_filter_component(
+            GameCore::EntityId a_objectId,
+            ECS::MeshFilterComponent& a_outComponent) override;
+        Result set_mesh_filter_component(
+            GameCore::EntityId a_objectId,
+            const ECS::MeshFilterComponent& a_component) override;
         Result get_static_mesh_renderer_component(
             GameCore::EntityId a_objectId,
             ECS::StaticMeshRendererComponent& a_outComponent) override;

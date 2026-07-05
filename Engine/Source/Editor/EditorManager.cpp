@@ -12,6 +12,8 @@
 #include "Workspace/GameView.h"
 
 // === Runtime includes ===
+#include <Command/Commands.h>
+#include <CQRS/CQRS.h>
 #include <Engine.h>
 
 // === ImGui includes ===
@@ -41,6 +43,12 @@ namespace Cue::Editor
             {
                 static_cast<EditorManager*>(a_context)->draw_view_menu_items();
             });
+        m_dockspace->set_add_menu_callback(
+            this,
+            [](void* a_context)
+            {
+                static_cast<EditorManager*>(a_context)->draw_add_menu_items();
+            });
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend);
         if (m_engine != nullptr)
@@ -48,7 +56,7 @@ namespace Cue::Editor
             m_hierarchy = std::make_unique<Hierarchy>(
                 m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
             m_inspector = std::make_unique<Inspector>(
-                m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId);
+                m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(), &m_selectedEntityId);
         }
     }
 
@@ -77,6 +85,7 @@ namespace Cue::Editor
         if (m_engine != nullptr && m_inspector != nullptr)
         {
             m_inspector->set_game_world(&m_engine->game_world());
+            m_inspector->set_mesh_pool(m_engine->mesh_pool());
             prepare_window_focus("インスペクター");
             m_inspector->update();
         }
@@ -93,6 +102,14 @@ namespace Cue::Editor
         debugCameraViewport.isHovered = m_debugView->is_viewport_hovered();
         debugCameraViewport.isFocused = m_debugView->is_focused();
         m_debugCamera->update(debugCameraViewport);
+    }
+
+    void EditorManager::draw_add_menu_items()
+    {
+        if (ImGui::MenuItem("空の GameObject"))
+        {
+            submit_empty_object_command();
+        }
     }
 
     void EditorManager::draw_view_menu_items()
@@ -113,6 +130,17 @@ namespace Cue::Editor
         {
             show_and_focus_window("インスペクター");
         }
+    }
+
+    void EditorManager::submit_empty_object_command()
+    {
+        if (m_gameCommandBridge == nullptr)
+        {
+            return;
+        }
+
+        // GameWorld の変更は Engine の command drain に集約し、描画更新と同じ frame 境界で反映する
+        (void)m_gameCommandBridge->submit_command(std::make_unique<CreateObjectCommand>("GameObject"));
     }
 
     void EditorManager::show_and_focus_window(const char* a_windowName)

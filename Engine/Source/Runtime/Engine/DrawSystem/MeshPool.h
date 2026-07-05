@@ -15,6 +15,15 @@
 // === Core includes ===
 #include <Native/EngineNativeStruct.h>
 
+// === C++ includes ===
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
 namespace Cue::DrawSystem
 {
     using RHI::BufferCopyRegion;
@@ -70,6 +79,20 @@ namespace Cue::DrawSystem
         float radius = 0.0f;                        // center から最遠頂点までの距離
     };
 
+    /// @brief Editor など CPU 側 UI に公開する名前付き mesh 情報
+    struct MeshListItem final
+    {
+        std::string name{}; // MeshData から登録された表示名
+        uint32_t meshId = 0; // Shader 参照用の MeshRange index
+    };
+
+    /// @brief Engine が標準で用意する簡易 primitive mesh
+    enum class PrimitiveMeshKind : uint8_t
+    {
+        Cube,
+        Count
+    };
+
     /// @brief MeshPool が管理する GPU リソースのハンドルをまとめた構造体
     struct MeshPoolBindings final
     {
@@ -85,6 +108,7 @@ namespace Cue::DrawSystem
     struct MeshRecord final
     {
         Core::ResourceNameId nameId = 0; // メッシュ名から生成した検索用 ID
+        std::string name{};              // Editor 表示と名前一覧生成で使う登録名
         uint32_t meshId = 0;             // MeshRange buffer の要素インデックス
         uint32_t vertexCount = 0;        // 登録時の頂点数
         uint32_t indexCount = 0;         // 登録時のインデックス数
@@ -174,7 +198,11 @@ namespace Cue::DrawSystem
 
         // --- Mesh の割り当てと解放 ---
 
+        /// @brief 標準 primitive mesh を構築してプールへ登録する
+        Result initialize_primitives();
+
         /// @brief MeshData をプールへアップロードし、参照用 MeshHandle を返す
+        /// @details 空でない登録名は MeshPool 内で一意である必要がある
         Result allocate_mesh(const Core::Native::MeshData& meshData, MeshHandle& outHandle);
 
         /// @brief MeshHandle に対応する領域と meshId を解放する
@@ -182,6 +210,21 @@ namespace Cue::DrawSystem
 
         /// @brief MeshHandle からシェーダ参照用の meshId を取得する
         Result get_mesh_id(MeshHandle handle, uint32_t& outMeshId) const;
+
+        /// @brief MeshData の登録名から MeshHandle を取得する
+        Result find_mesh_by_name(std::string_view a_name, MeshHandle& a_outHandle) const;
+
+        /// @brief MeshData の登録名から shader 参照用 meshId を取得する
+        Result get_mesh_id_by_name(std::string_view a_name, uint32_t& a_outMeshId) const;
+
+        /// @brief 名前付きで登録された mesh を UI 表示用に列挙する
+        Result collect_named_meshes(std::vector<MeshListItem>& a_outItems) const;
+
+        /// @brief 標準 primitive mesh の MeshHandle を取得する
+        Result get_primitive_mesh_handle(PrimitiveMeshKind a_kind, MeshHandle& a_outHandle) const;
+
+        /// @brief 標準 primitive mesh の shader 参照用 meshId を取得する
+        Result get_primitive_mesh_id(PrimitiveMeshKind a_kind, uint32_t& a_outMeshId) const;
 
         /// @brief meshId に対応する描画範囲を取得する
         Result get_mesh_range(uint32_t meshId, MeshRange& outMeshRange) const;
@@ -251,6 +294,8 @@ namespace Cue::DrawSystem
         Result upload_mesh_range(uint32_t meshId, const MeshRange& meshRange);
 
     private:
+        static constexpr size_t k_primitiveMeshCount = static_cast<size_t>(PrimitiveMeshKind::Count);
+
         RHI::IBufferManager& m_bufferManager;                    // buffer の生成/破棄を行う外部 manager
         RHI::IViewManager& m_viewManager;                        // SRV などの view を生成/破棄する外部 manager
         RHI::ICommandPool& m_commandPool;                        // GPU コピー用 command context の取得元
@@ -265,6 +310,7 @@ namespace Cue::DrawSystem
         StreamState m_influenceStream{};                               // スキニング influence データ用ストリーム
         StreamState m_indexStream{};                                   // インデックスデータ用ストリーム
         MeshRangeState m_meshRangeState{};                             // MeshRange buffer と meshId 管理状態
+        std::array<MeshHandle, k_primitiveMeshCount> m_primitiveMeshHandles{}; // 標準 primitive mesh の handle
         Result m_initResult = Result::ok();                            // コンストラクタ内初期化の結果
     };
 } // namespace Cue::DrawSystem

@@ -85,7 +85,9 @@ namespace Cue::Editor
         }
 
     private:
+        void draw_add_menu_items();
         void draw_view_menu_items();
+        void submit_empty_object_command();
         void show_and_focus_window(const char* a_windowName);
         bool prepare_window_focus(const char* a_windowName);
         void focus_pending_window();

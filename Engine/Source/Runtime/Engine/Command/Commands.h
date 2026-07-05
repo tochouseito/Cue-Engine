@@ -23,12 +23,22 @@
 
 namespace Cue
 {
+    enum class ComponentKind : uint8_t
+    {
+        Transform,
+        Camera,
+        MeshFilter,
+        StaticMeshRenderer,
+    };
+
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext
     {
     public:
         ~IGameCommandContext() override = default;
 
+        virtual Result create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId) = 0;
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
+        virtual Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) = 0;
         virtual Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) = 0;
         virtual Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) = 0;
@@ -53,6 +63,14 @@ namespace Cue
             GameCore::EntityId a_objectId,
             const ECS::CameraComponent& a_component) = 0;
 
+        /// @brief MeshFilterComponent の mesh 参照を描画抽出前の GameCore 状態として編集する。
+        virtual Result get_mesh_filter_component(
+            GameCore::EntityId a_objectId,
+            ECS::MeshFilterComponent& a_outComponent) = 0;
+        virtual Result set_mesh_filter_component(
+            GameCore::EntityId a_objectId,
+            const ECS::MeshFilterComponent& a_component) = 0;
+
         /// @brief Renderable 収集前の描画設定を GameObject 単位で編集する。
         virtual Result get_static_mesh_renderer_component(
             GameCore::EntityId a_objectId,
@@ -60,6 +78,100 @@ namespace Cue
         virtual Result set_static_mesh_renderer_component(
             GameCore::EntityId a_objectId,
             const ECS::StaticMeshRendererComponent& a_component) = 0;
+    };
+
+    class CreateObjectCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        explicit CreateObjectCommand(std::string a_name)
+            : m_name(std::move(a_name))
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support object creation.");
+            }
+
+            Result result = gameCommandContext->create_object(m_name, m_objectId);
+            if (result)
+            {
+                m_hasObject = true;
+            }
+
+            return result;
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support object creation undo.");
+            }
+
+            if (!m_hasObject)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Create object command has not been executed.");
+            }
+
+            Result result = gameCommandContext->destroy_object(m_objectId);
+            if (result)
+            {
+                m_objectId = GameCore::k_invalidEntityId;
+                m_hasObject = false;
+            }
+
+            return result;
+        }
+
+    private:
+        std::string m_name{};
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        bool m_hasObject = false;
+    };
+
+    class AddComponentCommand final : public Core::CQRS::ICommand
+    {
+    public:
+        AddComponentCommand(GameCore::EntityId a_objectId, ComponentKind a_kind) noexcept
+            : m_objectId(a_objectId)
+            , m_kind(a_kind)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component addition.");
+            }
+
+            return gameCommandContext->add_component(m_objectId, m_kind);
+        }
+
+    private:
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        ComponentKind m_kind = ComponentKind::Transform;
     };
 
     class RenameObjectCommand final : public Core::CQRS::IUndoableCommand
@@ -236,6 +348,11 @@ namespace Cue
     [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_camera_component_command(
         GameCore::EntityId a_objectId,
         const ECS::CameraComponent& a_component);
+
+    /// @brief Inspector で選択した MeshPool 上の mesh 参照を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_mesh_filter_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::MeshFilterComponent& a_component);
 
     /// @brief Inspector で編集した StaticMesh 描画設定を undo 可能な GameWorld 更新として扱う。
     [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_static_mesh_renderer_component_command(

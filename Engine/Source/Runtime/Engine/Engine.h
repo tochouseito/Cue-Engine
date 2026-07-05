@@ -84,6 +84,11 @@ class Engine final
         return m_gameWorld;
     }
 
+    DrawSystem::MeshPool* mesh_pool() noexcept
+    {
+        return m_meshPool.get();
+    }
+
     /// @brief GameCore camera の代わりに使う描画視点を設定する。
     void set_render_view_override(const DrawSystem::RenderView& a_renderView) noexcept;
 
@@ -102,8 +107,8 @@ class Engine final
     /// @brief DrawSystem 用の ECS 抽出 pipeline を構築する
     Result initialize_render_extraction_pipeline();
 
-    /// @brief 最小描画確認用の cube mesh / camera を GameWorld に追加する
-    Result initialize_test_scene();
+    /// @brief 初期描画に必要な Camera を GameWorld に追加する
+    Result initialize_default_camera();
 
     /// @brief GameWorld の描画対象を frame resource に反映する
     Result update_draw_scene(uint32_t a_bufferIndex);

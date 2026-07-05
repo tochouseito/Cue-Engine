@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <new>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace Cue::GameCore
@@ -32,7 +33,14 @@ namespace Cue::GameCore
             {
                 const EntityId entity = create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
 
-                initialize_base_component(entity, a_name, a_tag, k_invalidSceneId, k_invalidEntityId, true, false);
+                initialize_required_components(
+                    entity,
+                    a_name,
+                    a_tag,
+                    k_invalidSceneId,
+                    k_invalidEntityId,
+                    true,
+                    false);
 
                 a_outObject = make_handle(entity);
             });
@@ -52,12 +60,19 @@ namespace Cue::GameCore
             {
                 const EntityId entity = create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
 
-                initialize_base_component(entity, a_name, "Default", k_invalidSceneId, k_invalidEntityId, true, false);
+                initialize_required_components(
+                    entity,
+                    a_name,
+                    "Default",
+                    k_invalidSceneId,
+                    k_invalidEntityId,
+                    true,
+                    false);
 
                 // DrawSystem へ渡す最小 component 群を追加する
-                ECS::TransformComponent* transform = m_ecsManager.add_component<ECS::TransformComponent>(entity);
+                ECS::TransformComponent* transform = m_ecsManager.get_component<ECS::TransformComponent>(entity);
                 ECS::WorldTransformComponent* worldTransform =
-                    m_ecsManager.add_component<ECS::WorldTransformComponent>(entity);
+                    m_ecsManager.get_component<ECS::WorldTransformComponent>(entity);
                 ECS::MeshFilterComponent* meshFilter = m_ecsManager.add_component<ECS::MeshFilterComponent>(entity);
                 ECS::StaticMeshRendererComponent* renderer =
                     m_ecsManager.add_component<ECS::StaticMeshRendererComponent>(entity);
@@ -89,8 +104,14 @@ namespace Cue::GameCore
                 a_proto.restore_components_into(entity, m_ecsManager);
 
                 // 復元済み Entity に GameWorld 共通 component を補う
-                initialize_base_component(entity, a_proto.name(), a_proto.tag(), k_invalidSceneId, k_invalidEntityId,
-                                          true, false);
+                initialize_required_components(
+                    entity,
+                    a_proto.name(),
+                    a_proto.tag(),
+                    k_invalidSceneId,
+                    k_invalidEntityId,
+                    true,
+                    false);
 
                 a_outObject = make_handle(entity);
             });
@@ -599,9 +620,18 @@ namespace Cue::GameCore
         {
             return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
         }
-
-        m_ecsManager.remove_component<T>(a_entityId);
-        return Result::ok();
+        if constexpr (std::is_same_v<T, ECS::TransformComponent>)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "GameWorld required TransformComponent cannot be removed.");
+        }
+        else
+        {
+            m_ecsManager.remove_component<T>(a_entityId);
+            return Result::ok();
+        }
     }
 
     EntityId GameWorld::create_entity_record(SceneId a_sourceSceneId, LocalObjectId a_localObjectId)
@@ -636,13 +666,17 @@ namespace Cue::GameCore
         return entity;
     }
 
-    void GameWorld::initialize_base_component(EntityId a_entityId, std::string_view a_name, std::string_view a_tag,
-                                              SceneId a_owningSceneId, EntityId a_parent, bool a_isActive,
-                                              bool a_isPersistent)
+    void GameWorld::initialize_required_components(EntityId a_entityId, std::string_view a_name, std::string_view a_tag,
+                                                   SceneId a_owningSceneId, EntityId a_parent, bool a_isActive,
+                                                   bool a_isPersistent)
     {
         BaseComponent* base = m_ecsManager.get_component<BaseComponent>(a_entityId);
         ECS::RenderableInfoComponent* renderableInfo =
             m_ecsManager.get_component<ECS::RenderableInfoComponent>(a_entityId);
+        ECS::TransformComponent* transform = m_ecsManager.get_component<ECS::TransformComponent>(a_entityId);
+        ECS::WorldTransformComponent* worldTransform =
+            m_ecsManager.get_component<ECS::WorldTransformComponent>(a_entityId);
+        bool addedWorldTransform = false;
 
         if (base == nullptr)
         {
@@ -654,9 +688,20 @@ namespace Cue::GameCore
             renderableInfo = m_ecsManager.add_component<ECS::RenderableInfoComponent>(a_entityId);
         }
 
-        if (base == nullptr || renderableInfo == nullptr)
+        if (transform == nullptr)
         {
-            throw std::runtime_error("GameWorld failed to initialize base components.");
+            transform = m_ecsManager.add_component<ECS::TransformComponent>(a_entityId);
+        }
+
+        if (worldTransform == nullptr)
+        {
+            worldTransform = m_ecsManager.add_component<ECS::WorldTransformComponent>(a_entityId);
+            addedWorldTransform = true;
+        }
+
+        if (base == nullptr || renderableInfo == nullptr || transform == nullptr || worldTransform == nullptr)
+        {
+            throw std::runtime_error("GameWorld failed to initialize required components.");
         }
 
         base->name = make_unique_object_name(a_name, a_entityId);
@@ -669,6 +714,13 @@ namespace Cue::GameCore
         // DrawSystem 側の登録 ID はまだ未割り当てにしておく
         renderableInfo->objectId = ECS::k_invalidRenderableId;
         renderableInfo->transformId = ECS::k_invalidRenderableId;
+
+        if (addedWorldTransform)
+        {
+            worldTransform->position = transform->position;
+            worldTransform->rotation = transform->rotation;
+            worldTransform->scale = transform->scale;
+        }
 
         add_object_to_name_index(a_entityId, base->name);
         add_object_to_tag_index(a_entityId, base->tag);

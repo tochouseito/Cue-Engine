@@ -57,10 +57,10 @@ namespace Cue::GameCore
         /// @brief 内部 ECSManager への非所有ポインタを取得する
         [[nodiscard]] Result ecs(ECS::ECSManager*& a_outEcs) noexcept;
 
-        /// @brief 既定タグを持つ空の GameObject を生成する
+        /// @brief 既定タグと必須 Component を持つ GameObject を生成する
         [[nodiscard]] Result create_object(std::string_view a_name, GameObject& a_outObject);
 
-        /// @brief 指定名とタグを持つ空の GameObject を生成する
+        /// @brief 指定名、タグ、必須 Component を持つ GameObject を生成する
         [[nodiscard]] Result create_object(std::string_view a_name, std::string_view a_tag, GameObject& a_outObject);
 
         /// @brief 既定名と既定位置で StaticMesh GameObject を生成する
@@ -172,10 +172,10 @@ namespace Cue::GameCore
         /// @brief ECS Entity と GameWorld 管理レコードを生成する
         [[nodiscard]] EntityId create_entity_record(SceneId a_sourceSceneId, LocalObjectId a_localObjectId);
 
-        /// @brief 全 GameObject 共通の Base/RenderableInfo component を初期化する
-        void initialize_base_component(EntityId a_entityId, std::string_view a_name, std::string_view a_tag,
-                                       SceneId a_owningSceneId, EntityId a_parent, bool a_isActive,
-                                       bool a_isPersistent);
+        /// @brief 全 GameObject が必ず持つ Component を初期化する
+        void initialize_required_components(EntityId a_entityId, std::string_view a_name, std::string_view a_tag,
+                                            SceneId a_owningSceneId, EntityId a_parent, bool a_isActive,
+                                            bool a_isPersistent);
 
         /// @brief 指定 Entity を即座に破棄する
         void destroy_object_immediately(EntityId a_entityId) noexcept;

@@ -3,13 +3,18 @@
 // === Runtime includes ===
 #include <Command/Commands.h>
 #include <CQRS/CQRS.h>
+#include <DrawSystem/MeshPool.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
 #include <GameCore/GameWorld.h>
 
 // === C++ includes ===
 #include <algorithm>
+#include <cmath>
+#include <memory>
+#include <numbers>
 #include <string>
+#include <vector>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -90,10 +95,53 @@ namespace
             a_label, a_value.x, a_value.y, a_value.z);
     }
 
-    void text_quaternion(const char* a_label, const Cue::Math::Quaternion& a_value)
+    [[nodiscard]] Cue::Math::float3 radians_to_degrees(const Cue::Math::float3& a_radians) noexcept
     {
-        ImGui::Text("%s: %.3f, %.3f, %.3f, %.3f",
-            a_label, a_value.x, a_value.y, a_value.z, a_value.w);
+        constexpr float radToDeg = 180.0f / std::numbers::pi_v<float>;
+        return Cue::Math::float3(a_radians.x * radToDeg, a_radians.y * radToDeg, a_radians.z * radToDeg);
+    }
+
+    [[nodiscard]] Cue::Math::float3 degrees_to_radians(const Cue::Math::float3& a_degrees) noexcept
+    {
+        constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
+        return Cue::Math::float3(a_degrees.x * degToRad, a_degrees.y * degToRad, a_degrees.z * degToRad);
+    }
+
+    [[nodiscard]] bool equivalent_rotation(
+        const Cue::Math::Quaternion& a_left,
+        const Cue::Math::Quaternion& a_right) noexcept
+    {
+        constexpr float epsilon = 0.0001f;
+        const Cue::Math::Quaternion left = Cue::Math::Quaternion::normalize(a_left);
+        const Cue::Math::Quaternion right = Cue::Math::Quaternion::normalize(a_right);
+        const Cue::Math::Quaternion negatedRight(-right.x, -right.y, -right.z, -right.w);
+        return Cue::Math::Quaternion::equals_epsilon(left, right, epsilon) ||
+            Cue::Math::Quaternion::equals_epsilon(left, negatedRight, epsilon);
+    }
+
+    [[nodiscard]] Cue::Math::float3 euler_degrees_from_quaternion(
+        const Cue::Math::Quaternion& a_rotation) noexcept
+    {
+        return radians_to_degrees(Cue::Math::quaternion_to_euler_xyz(a_rotation));
+    }
+
+    [[nodiscard]] Cue::Math::Quaternion quaternion_from_euler_degrees(
+        const Cue::Math::float3& a_eulerDegrees) noexcept
+    {
+        return Cue::Math::quaternion_from_euler_xyz(degrees_to_radians(a_eulerDegrees));
+    }
+
+    void text_euler_degrees(const char* a_label, const Cue::Math::Quaternion& a_value)
+    {
+        const Cue::Math::float3 euler = euler_degrees_from_quaternion(a_value);
+        ImGui::Text("%s: %.3f, %.3f, %.3f deg", a_label, euler.x, euler.y, euler.z);
+    }
+
+    template <typename Component>
+    [[nodiscard]] bool object_has_component(Cue::GameCore::GameObject& a_object) noexcept
+    {
+        bool hasComponent = false;
+        return a_object.has_component<Component>(hasComponent) && hasComponent;
     }
 }
 
@@ -101,8 +149,10 @@ namespace Cue::Editor
 {
     Inspector::Inspector(Core::CQRS::Bridge* a_commandBridge,
                          GameCore::GameWorld* a_gameWorld,
+                         DrawSystem::MeshPool* a_meshPool,
                          GameCore::EntityId* a_selectedEntityId) noexcept
         : m_gameWorld(a_gameWorld),
+          m_meshPool(a_meshPool),
           m_selectedEntityId(a_selectedEntityId),
           m_commandBridge(a_commandBridge)
     {
@@ -111,6 +161,11 @@ namespace Cue::Editor
     void Inspector::set_game_world(GameCore::GameWorld* a_gameWorld) noexcept
     {
         m_gameWorld = a_gameWorld;
+    }
+
+    void Inspector::set_mesh_pool(DrawSystem::MeshPool* a_meshPool) noexcept
+    {
+        m_meshPool = a_meshPool;
     }
 
     void Inspector::update()
@@ -152,6 +207,9 @@ namespace Cue::Editor
         text_entity_id("EntityId", object.entity_id());
         ImGui::Separator();
 
+        draw_add_component_menu(object);
+        ImGui::Separator();
+
         draw_base_component(object);
         draw_transform_component(object);
         draw_world_transform_component(object);
@@ -185,6 +243,47 @@ namespace Cue::Editor
         return result && found;
     }
 
+    void Inspector::draw_add_component_menu(GameCore::GameObject& a_object)
+    {
+        const bool hasTransform = object_has_component<ECS::TransformComponent>(a_object);
+        const bool hasCamera = object_has_component<ECS::CameraComponent>(a_object);
+        const bool hasMeshFilter = object_has_component<ECS::MeshFilterComponent>(a_object);
+        const bool hasStaticMeshRenderer = object_has_component<ECS::StaticMeshRendererComponent>(a_object);
+        const bool hasAddableComponent =
+            !hasTransform || !hasCamera || !hasMeshFilter || !hasStaticMeshRenderer;
+
+        if (ImGui::Button("Add Component"))
+        {
+            ImGui::OpenPopup("AddComponentPopup");
+        }
+
+        if (ImGui::BeginPopup("AddComponentPopup"))
+        {
+            if (!hasTransform && ImGui::MenuItem("Transform"))
+            {
+                submit_add_component(a_object.entity_id(), ComponentKind::Transform);
+            }
+            if (!hasCamera && ImGui::MenuItem("Camera"))
+            {
+                submit_add_component(a_object.entity_id(), ComponentKind::Camera);
+            }
+            if (!hasMeshFilter && ImGui::MenuItem("Mesh Filter"))
+            {
+                submit_add_component(a_object.entity_id(), ComponentKind::MeshFilter);
+            }
+            if (!hasStaticMeshRenderer && ImGui::MenuItem("Static Mesh Renderer"))
+            {
+                submit_add_component(a_object.entity_id(), ComponentKind::StaticMeshRenderer);
+            }
+            if (!hasAddableComponent)
+            {
+                ImGui::MenuItem("追加可能な Component はありません", nullptr, false, false);
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
     void Inspector::draw_base_component(GameCore::GameObject& a_object)
     {
         GameCore::BaseComponent* base = nullptr;
@@ -215,6 +314,7 @@ namespace Cue::Editor
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ECS::TransformComponent edited = *transform;
+            sync_rotation_cache(a_object.entity_id(), edited);
 
             float position[3] = { edited.position.x, edited.position.y, edited.position.z };
             if (ImGui::DragFloat3("Position", position, 0.05f))
@@ -223,19 +323,19 @@ namespace Cue::Editor
                 submit_transform_component(a_object.entity_id(), edited);
             }
 
-            float rotation[4] = {
-                edited.rotation.x,
-                edited.rotation.y,
-                edited.rotation.z,
-                edited.rotation.w
+            float rotation[3] = {
+                m_rotationEulerDegrees.x,
+                m_rotationEulerDegrees.y,
+                m_rotationEulerDegrees.z
             };
-            if (ImGui::DragFloat4("Rotation", rotation, 0.01f))
+            if (ImGui::DragFloat3("Rotation", rotation, 0.1f, 0.0f, 0.0f, "%.3f deg"))
             {
-                // quaternion は積み重ね編集で長さが崩れやすいため保存前に正規化する
-                edited.rotation =
-                    Math::Quaternion(rotation[0], rotation[1], rotation[2], rotation[3]).normalize();
+                m_rotationEulerDegrees = Math::float3(rotation[0], rotation[1], rotation[2]);
+                edited.rotation = quaternion_from_euler_degrees(m_rotationEulerDegrees);
+                m_rotationSource = edited.rotation;
                 submit_transform_component(a_object.entity_id(), edited);
             }
+            m_isRotationEditing = ImGui::IsItemActive();
 
             float scale[3] = { edited.scale.x, edited.scale.y, edited.scale.z };
             if (ImGui::DragFloat3("Scale", scale, 0.05f))
@@ -257,7 +357,7 @@ namespace Cue::Editor
         if (ImGui::CollapsingHeader("World Transform"))
         {
             text_float3("Position", worldTransform->position);
-            text_quaternion("Rotation", worldTransform->rotation);
+            text_euler_degrees("Rotation", worldTransform->rotation);
             text_float3("Scale", worldTransform->scale);
         }
     }
@@ -310,8 +410,69 @@ namespace Cue::Editor
 
         if (ImGui::CollapsingHeader("Mesh Filter", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("ModelName: %s", meshFilter->modelName.c_str());
             ImGui::Text("MeshId: %u", meshFilter->meshId);
+            if (m_meshPool == nullptr)
+            {
+                ImGui::TextUnformatted("MeshPool が初期化されていません。");
+                return;
+            }
+
+            std::vector<DrawSystem::MeshListItem> meshItems{};
+            Result result = m_meshPool->collect_named_meshes(meshItems);
+            if (!result)
+            {
+                ImGui::TextUnformatted("Mesh 一覧を取得できません。");
+                return;
+            }
+
+            std::string currentName =
+                meshFilter->meshId == ECS::k_invalidMeshId ? "None" : meshFilter->modelName;
+            for (const DrawSystem::MeshListItem& item : meshItems)
+            {
+                if (item.meshId == meshFilter->meshId)
+                {
+                    currentName = item.name;
+                    break;
+                }
+            }
+            if (currentName.empty())
+            {
+                currentName = "Unknown";
+            }
+
+            if (ImGui::BeginCombo("Mesh", currentName.c_str()))
+            {
+                const bool isNoneSelected = meshFilter->meshId == ECS::k_invalidMeshId;
+                if (ImGui::Selectable("None", isNoneSelected))
+                {
+                    ECS::MeshFilterComponent edited = *meshFilter;
+                    edited.modelName.clear();
+                    edited.meshId = ECS::k_invalidMeshId;
+                    submit_mesh_filter_component(a_object.entity_id(), edited);
+                }
+                if (isNoneSelected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+
+                for (const DrawSystem::MeshListItem& item : meshItems)
+                {
+                    const bool isSelected = item.meshId == meshFilter->meshId;
+                    if (ImGui::Selectable(item.name.c_str(), isSelected))
+                    {
+                        ECS::MeshFilterComponent edited = *meshFilter;
+                        edited.modelName = item.name;
+                        edited.meshId = item.meshId;
+                        submit_mesh_filter_component(a_object.entity_id(), edited);
+                    }
+                    if (isSelected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
         }
     }
 
@@ -411,6 +572,33 @@ namespace Cue::Editor
         }
     }
 
+    void Inspector::sync_rotation_cache(
+        GameCore::EntityId a_entityId,
+        const ECS::TransformComponent& a_component) noexcept
+    {
+        const Math::Quaternion rotation = Math::Quaternion::normalize(a_component.rotation);
+        if (!m_hasRotationCache || m_rotationEntityId != a_entityId)
+        {
+            m_rotationEntityId = a_entityId;
+            m_rotationEulerDegrees = euler_degrees_from_quaternion(rotation);
+            m_rotationSource = rotation;
+            m_hasRotationCache = true;
+            m_isRotationEditing = false;
+            return;
+        }
+
+        if (m_isRotationEditing)
+        {
+            return;
+        }
+
+        if (!equivalent_rotation(rotation, m_rotationSource))
+        {
+            m_rotationEulerDegrees = euler_degrees_from_quaternion(rotation);
+            m_rotationSource = rotation;
+        }
+    }
+
     void Inspector::submit_transform_component(
         GameCore::EntityId a_entityId,
         const ECS::TransformComponent& a_component)
@@ -439,6 +627,20 @@ namespace Cue::Editor
             make_set_camera_component_command(a_entityId, a_component));
     }
 
+    void Inspector::submit_mesh_filter_component(
+        GameCore::EntityId a_entityId,
+        const ECS::MeshFilterComponent& a_component)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // MeshFilter の参照先変更は描画抽出の直前状態として Engine 側の更新順に揃える
+        (void)m_commandBridge->submit_command(
+            make_set_mesh_filter_component_command(a_entityId, a_component));
+    }
+
     void Inspector::submit_static_mesh_renderer_component(
         GameCore::EntityId a_entityId,
         const ECS::StaticMeshRendererComponent& a_component)
@@ -451,5 +653,17 @@ namespace Cue::Editor
         // RendererComponent は DrawSystem 抽出に関わるため CQRS 経由で変更順序を揃える
         (void)m_commandBridge->submit_command(
             make_set_static_mesh_renderer_component_command(a_entityId, a_component));
+    }
+
+    void Inspector::submit_add_component(GameCore::EntityId a_entityId, ComponentKind a_kind)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // Component 追加も Engine の更新境界へ集約し、ECS 走査中の構造変更を避ける
+        (void)m_commandBridge->submit_command(
+            std::make_unique<AddComponentCommand>(a_entityId, a_kind));
     }
 } // namespace Cue::Editor

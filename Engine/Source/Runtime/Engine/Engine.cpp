@@ -5,7 +5,6 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
-#include <Native/EngineNativeStruct.h>
 
 // === Engine includes ===
 #include "Command/EngineCommandContext.h"
@@ -22,55 +21,7 @@
 // === C++ includes ===
 #include <algorithm>
 #include <cstdint>
-#include <iterator>
-#include <limits>
 #include <utility>
-
-namespace
-{
-Cue::Core::Native::MeshData make_test_cube_mesh()
-{
-    using Cue::Math::float2;
-    using Cue::Math::float3;
-    using Cue::Math::float4;
-
-    Cue::Core::Native::MeshData mesh{};
-    mesh.name = "TestCube";
-
-    // 面ごとに法線と UV を持てるよう、cube は 24 頂点で登録する。
-    mesh.positions = {
-        float4(-1.0f, -1.0f, -1.0f, 1.0f), float4(-1.0f, 1.0f, -1.0f, 1.0f), float4(1.0f, 1.0f, -1.0f, 1.0f),
-        float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, -1.0f, 1.0f, 1.0f),  float4(1.0f, 1.0f, 1.0f, 1.0f),
-        float4(-1.0f, 1.0f, 1.0f, 1.0f),   float4(-1.0f, -1.0f, 1.0f, 1.0f), float4(-1.0f, -1.0f, 1.0f, 1.0f),
-        float4(-1.0f, 1.0f, 1.0f, 1.0f),   float4(-1.0f, 1.0f, -1.0f, 1.0f), float4(-1.0f, -1.0f, -1.0f, 1.0f),
-        float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, 1.0f, -1.0f, 1.0f),  float4(1.0f, 1.0f, 1.0f, 1.0f),
-        float4(1.0f, -1.0f, 1.0f, 1.0f),   float4(-1.0f, 1.0f, -1.0f, 1.0f), float4(-1.0f, 1.0f, 1.0f, 1.0f),
-        float4(1.0f, 1.0f, 1.0f, 1.0f),    float4(1.0f, 1.0f, -1.0f, 1.0f),  float4(-1.0f, -1.0f, 1.0f, 1.0f),
-        float4(-1.0f, -1.0f, -1.0f, 1.0f), float4(1.0f, -1.0f, -1.0f, 1.0f), float4(1.0f, -1.0f, 1.0f, 1.0f),
-    };
-    mesh.normals = {
-        float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f),
-        float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),
-        float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f),
-        float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),
-        float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),
-        float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f),
-    };
-    mesh.uvs = {
-        float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f), float2(0.0f, 1.0f),
-        float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f), float2(0.0f, 1.0f), float2(0.0f, 0.0f),
-        float2(1.0f, 0.0f), float2(1.0f, 1.0f), float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f),
-        float2(1.0f, 1.0f), float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
-        float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
-    };
-    mesh.indices = {
-        0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,  8,  9,  10, 8,  10, 11,
-        12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
-    };
-
-    return mesh;
-}
-} // namespace
 
 namespace Cue
 {
@@ -173,6 +124,11 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
     m_meshPool =
         std::make_unique<DrawSystem::MeshPool>(meshPoolDesc, *bufferManager, *viewManager, *commandPool, *queuePool);
+    r = m_meshPool->initialize_primitives();
+    if (!r)
+    {
+        return r;
+    }
 
     // 描画用リソース作成
     m_drawResources = std::make_unique<DrawSystem::DrawResources>(bufferManager, viewManager, m_bufferCount);
@@ -286,7 +242,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
-    r = initialize_test_scene();
+    r = initialize_default_camera();
     if (!r)
     {
         return r;
@@ -537,36 +493,10 @@ Result Engine::initialize_render_extraction_pipeline()
     return Result::ok();
 }
 
-Result Engine::initialize_test_scene()
+Result Engine::initialize_default_camera()
 {
-    if (m_meshPool == nullptr)
-    {
-        return Result::fail(Code::InvalidState, Severity::Error, "MeshPool is not initialized.");
-    }
-
-    RHI::MeshHandle cubeHandle{};
-    Result result = m_meshPool->allocate_mesh(make_test_cube_mesh(), cubeHandle);
-    if (!result)
-    {
-        return result;
-    }
-
-    uint32_t cubeMeshId = ECS::k_invalidMeshId;
-    result = m_meshPool->get_mesh_id(cubeHandle, cubeMeshId);
-    if (!result)
-    {
-        return result;
-    }
-
-    GameCore::GameObject cube{};
-    result = m_gameWorld.create_static_mesh_object("TestCube", cubeMeshId, 0u, Math::float3(0.0f, 0.0f, 4.0f), cube);
-    if (!result)
-    {
-        return result;
-    }
-
     GameCore::GameObject camera{};
-    result = m_gameWorld.create_object("MainCamera", camera);
+    Result result = m_gameWorld.create_object("MainCamera", camera);
     if (!result)
     {
         return result;
@@ -593,8 +523,7 @@ Result Engine::initialize_test_scene()
         return result;
     }
 
-    // identity rotation の camera は +Z 方向を見る。cube は z=4
-    // に置いて最小表示を成立させる。
+    // 初期 Scene が空でも GameView の描画視点だけは成立させる
     cameraTransform->position = Math::float3::zero();
     cameraWorldTransform->position = cameraTransform->position;
     cameraComponent->fovY = 60.0f;
@@ -643,10 +572,8 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     frameData.indirectCommandCount = 0;
     frameData.useCpuBatching = false;
 
-    // 最小動作確認用に local Transform を回し、描画抽出前に WorldTransform
-    // へ同期する。
+    // 描画抽出は WorldTransform を参照するため、GameWorld の階層変換を先に確定する
     constexpr float k_fixedDeltaTime = 1.0f / 60.0f;
-    m_gameWorld.animate_static_mesh_objects(k_fixedDeltaTime);
     m_gameWorld.sync_world_transforms();
 
     ECS::ECSManager* ecs = nullptr;

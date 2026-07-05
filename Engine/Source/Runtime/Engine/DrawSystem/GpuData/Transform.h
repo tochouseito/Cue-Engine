@@ -18,7 +18,7 @@ namespace Cue::GpuData
     struct LocalTransform
     {
         Math::float3 position{ 0.0f, 0.0f, 0.0f }; // ローカル位置
-        Math::float3 rotation{ 0.0f, 0.0f, 0.0f }; // ローカル回転（オイラー角）
+        Math::Quaternion rotation{};               // ローカル回転
         Math::float3 scale{ 1.0f, 1.0f, 1.0f };    // ローカルスケール
     };
 

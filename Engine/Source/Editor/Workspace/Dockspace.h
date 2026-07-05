@@ -26,9 +26,18 @@ namespace Cue::Editor
             m_viewMenuCallback = a_callback;
         }
 
+        /// @brief メインメニューバーの追加メニュー項目を描画する callback を設定する
+        void set_add_menu_callback(void* a_context, MenuCallback a_callback) noexcept
+        {
+            m_addMenuContext = a_context;
+            m_addMenuCallback = a_callback;
+        }
+
         void update();
     private:
         void* m_viewMenuContext = nullptr;
         MenuCallback m_viewMenuCallback = nullptr;
+        void* m_addMenuContext = nullptr;
+        MenuCallback m_addMenuCallback = nullptr;
     };
 }

@@ -138,6 +138,61 @@ namespace Cue::DrawSystem
             return bounds;
         }
 
+        [[nodiscard]] Core::Native::MeshData make_cube_mesh()
+        {
+            using Math::float2;
+            using Math::float3;
+            using Math::float4;
+
+            Core::Native::MeshData mesh{};
+            mesh.name = "Primitive.Cube";
+
+            // 面ごとに法線と UV を分け、flat shading と texture sampling の基準 primitive にする
+            mesh.positions = {
+                float4(-1.0f, -1.0f, -1.0f, 1.0f), float4(-1.0f, 1.0f, -1.0f, 1.0f),
+                float4(1.0f, 1.0f, -1.0f, 1.0f),   float4(1.0f, -1.0f, -1.0f, 1.0f),
+                float4(1.0f, -1.0f, 1.0f, 1.0f),   float4(1.0f, 1.0f, 1.0f, 1.0f),
+                float4(-1.0f, 1.0f, 1.0f, 1.0f),   float4(-1.0f, -1.0f, 1.0f, 1.0f),
+                float4(-1.0f, -1.0f, 1.0f, 1.0f),  float4(-1.0f, 1.0f, 1.0f, 1.0f),
+                float4(-1.0f, 1.0f, -1.0f, 1.0f),  float4(-1.0f, -1.0f, -1.0f, 1.0f),
+                float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, 1.0f, -1.0f, 1.0f),
+                float4(1.0f, 1.0f, 1.0f, 1.0f),    float4(1.0f, -1.0f, 1.0f, 1.0f),
+                float4(-1.0f, 1.0f, -1.0f, 1.0f),  float4(-1.0f, 1.0f, 1.0f, 1.0f),
+                float4(1.0f, 1.0f, 1.0f, 1.0f),    float4(1.0f, 1.0f, -1.0f, 1.0f),
+                float4(-1.0f, -1.0f, 1.0f, 1.0f),  float4(-1.0f, -1.0f, -1.0f, 1.0f),
+                float4(1.0f, -1.0f, -1.0f, 1.0f),  float4(1.0f, -1.0f, 1.0f, 1.0f),
+            };
+            mesh.normals = {
+                float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, -1.0f),
+                float3(0.0f, 0.0f, -1.0f), float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),
+                float3(0.0f, 0.0f, 1.0f),  float3(0.0f, 0.0f, 1.0f),  float3(-1.0f, 0.0f, 0.0f),
+                float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f), float3(-1.0f, 0.0f, 0.0f),
+                float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),  float3(1.0f, 0.0f, 0.0f),
+                float3(1.0f, 0.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),
+                float3(0.0f, 1.0f, 0.0f),  float3(0.0f, 1.0f, 0.0f),  float3(0.0f, -1.0f, 0.0f),
+                float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f), float3(0.0f, -1.0f, 0.0f),
+            };
+            mesh.uvs = {
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+                float2(0.0f, 1.0f), float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
+            };
+            mesh.indices = {
+                0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,  8,  9,  10, 8,  10, 11,
+                12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
+            };
+
+            return mesh;
+        }
+
+        [[nodiscard]] size_t primitive_index(PrimitiveMeshKind a_kind) noexcept
+        {
+            return static_cast<size_t>(a_kind);
+        }
+
     } // namespace
 
     MeshPool::MeshPool(const MeshPoolDesc& desc, RHI::IBufferManager& bufferManager, RHI::IViewManager& viewManager,
@@ -727,6 +782,25 @@ namespace Cue::DrawSystem
         return result;
     }
 
+    Result MeshPool::initialize_primitives()
+    {
+        const size_t cubeIndex = primitive_index(PrimitiveMeshKind::Cube);
+        if (m_primitiveMeshHandles[cubeIndex].valid())
+        {
+            return Result::ok();
+        }
+
+        MeshHandle cubeHandle{};
+        Result result = allocate_mesh(make_cube_mesh(), cubeHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_primitiveMeshHandles[cubeIndex] = cubeHandle;
+        return Result::ok();
+    }
+
     Result MeshPool::allocate_mesh(const Core::Native::MeshData& meshData, MeshHandle& outHandle)
     {
         // - 初期化状態と入力データを検証し、壊れた pool での割り当てを防ぐ
@@ -750,8 +824,23 @@ namespace Cue::DrawSystem
             return Result::fail(Code::InvalidArgument, Severity::Error, "Normal count must match the position count.");
         }
 
+        Core::ResourceNameId nameId = 0;
+        if (!meshData.name.empty())
+        {
+            nameId = Core::fnv1a64(meshData.name);
+            if (m_nameToHandlesMap.contains(nameId))
+            {
+                return Result::fail(Code::InvalidState, Severity::Error, "Mesh name is already registered.");
+            }
+        }
+
         // - 常駐先の空き領域を先に押さえ、どれか一つでも足りなければ全体を巻き戻す
         MeshRecord record{};
+        if (nameId != 0)
+        {
+            record.nameId = nameId;
+            record.name = meshData.name;
+        }
         record.vertexCount = vertexCount;
         record.indexCount = static_cast<uint32_t>(meshData.indices.size());
         record.positionByteSize = byte_size_of(meshData.positions);
@@ -947,11 +1036,6 @@ namespace Cue::DrawSystem
         }
 
         // - 転送完了後にメッシュレコードを登録し、必要なら名前引きも更新する
-        if (!meshData.name.empty())
-        {
-            record.nameId = Core::fnv1a64(meshData.name);
-        }
-
         MeshHandle handle = m_meshRegistry.create(record);
         m_meshIdToHandlesMap[record.meshId] = handle;
         if (record.nameId != 0)
@@ -1005,6 +1089,39 @@ namespace Cue::DrawSystem
         return Result::ok();
     }
 
+    Result MeshPool::get_primitive_mesh_handle(PrimitiveMeshKind a_kind, MeshHandle& a_outHandle) const
+    {
+        a_outHandle = {};
+        const size_t index = primitive_index(a_kind);
+        if (index >= m_primitiveMeshHandles.size())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Primitive mesh kind is out of range.");
+        }
+
+        const MeshHandle handle = m_primitiveMeshHandles[index];
+        if (!handle.valid())
+        {
+            return Result::fail(Code::NotFound, Severity::Error, "Primitive mesh is not initialized.");
+        }
+
+        a_outHandle = handle;
+        return Result::ok();
+    }
+
+    Result MeshPool::get_primitive_mesh_id(PrimitiveMeshKind a_kind, uint32_t& a_outMeshId) const
+    {
+        a_outMeshId = 0;
+
+        MeshHandle handle{};
+        Result result = get_primitive_mesh_handle(a_kind, handle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return get_mesh_id(handle, a_outMeshId);
+    }
+
     Result MeshPool::get_mesh_id(MeshHandle handle, uint32_t& outMeshId) const
     {
         // - handle を registry で解決し、GPU 側 MeshRange の添字を返す
@@ -1015,6 +1132,76 @@ namespace Cue::DrawSystem
         }
 
         outMeshId = record.meshId;
+        return Result::ok();
+    }
+
+    Result MeshPool::find_mesh_by_name(std::string_view a_name, MeshHandle& a_outHandle) const
+    {
+        a_outHandle = {};
+        if (a_name.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Mesh name must not be empty.");
+        }
+
+        const Core::ResourceNameId nameId = Core::fnv1a64(a_name);
+        const auto it = m_nameToHandlesMap.find(nameId);
+        if (it == m_nameToHandlesMap.end())
+        {
+            return Result::fail(Code::NotFound, Severity::Error, "Named mesh was not found.");
+        }
+
+        a_outHandle = it->second;
+        return Result::ok();
+    }
+
+    Result MeshPool::get_mesh_id_by_name(std::string_view a_name, uint32_t& a_outMeshId) const
+    {
+        a_outMeshId = 0;
+
+        MeshHandle handle{};
+        Result result = find_mesh_by_name(a_name, handle);
+        if (!result)
+        {
+            return result;
+        }
+
+        return get_mesh_id(handle, a_outMeshId);
+    }
+
+    Result MeshPool::collect_named_meshes(std::vector<MeshListItem>& a_outItems) const
+    {
+        a_outItems.clear();
+        if (!m_initResult)
+        {
+            return m_initResult;
+        }
+
+        a_outItems.reserve(m_nameToHandlesMap.size());
+        for (const auto& [nameId, handle] : m_nameToHandlesMap)
+        {
+            MeshRecord record{};
+            if (!m_meshRegistry.try_copy_get(handle, record))
+            {
+                continue;
+            }
+            if (record.nameId != nameId || record.name.empty())
+            {
+                continue;
+            }
+
+            a_outItems.push_back(MeshListItem{
+                .name = record.name,
+                .meshId = record.meshId,
+            });
+        }
+
+        std::sort(
+            a_outItems.begin(),
+            a_outItems.end(),
+            [](const MeshListItem& a_left, const MeshListItem& a_right)
+            {
+                return a_left.name < a_right.name;
+            });
         return Result::ok();
     }
 

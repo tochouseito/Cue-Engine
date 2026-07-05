@@ -93,6 +93,27 @@ namespace Cue
             const char* m_notExecutedMessage = nullptr;
             bool m_hasOldComponent = false;
         };
+
+        template <typename Component>
+        Result add_component_if_missing(
+            GameCore::GameWorld& a_gameWorld,
+            GameCore::EntityId a_objectId,
+            const char* a_existingMessage)
+        {
+            bool hasComponent = false;
+            Result result = a_gameWorld.has_component<Component>(a_objectId, hasComponent);
+            if (!result)
+            {
+                return result;
+            }
+            if (hasComponent)
+            {
+                return Result::fail(Code::InvalidState, Severity::Warning, a_existingMessage);
+            }
+
+            Component* component = nullptr;
+            return a_gameWorld.add_component<Component>(a_objectId, component);
+        }
     } // namespace
 
     std::unique_ptr<Core::CQRS::ICommand> make_set_transform_component_command(
@@ -119,6 +140,18 @@ namespace Cue
             "Camera component command has not been executed.");
     }
 
+    std::unique_ptr<Core::CQRS::ICommand> make_set_mesh_filter_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::MeshFilterComponent& a_component)
+    {
+        return std::make_unique<SetComponentCommand<ECS::MeshFilterComponent>>(
+            a_objectId,
+            a_component,
+            &IGameCommandContext::get_mesh_filter_component,
+            &IGameCommandContext::set_mesh_filter_component,
+            "Mesh filter component command has not been executed.");
+    }
+
     std::unique_ptr<Core::CQRS::ICommand> make_set_static_mesh_renderer_component_command(
         GameCore::EntityId a_objectId,
         const ECS::StaticMeshRendererComponent& a_component)
@@ -136,6 +169,22 @@ namespace Cue
     {
     }
 
+    Result EngineCommandContext::create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId)
+    {
+        a_outObjectId = GameCore::k_invalidEntityId;
+
+        GameCore::GameObject object{};
+        Result result = m_gameWorld.create_object(a_name, object);
+        if (!result)
+        {
+            return result;
+        }
+
+        a_outObjectId = object.entity_id();
+        m_gameWorld.sync_world_transforms();
+        return Result::ok();
+    }
+
     Result EngineCommandContext::destroy_object(GameCore::EntityId a_objectId)
     {
         Result result = m_gameWorld.destroy_object(a_objectId);
@@ -145,6 +194,41 @@ namespace Cue
         }
 
         return result;
+    }
+
+    Result EngineCommandContext::add_component(GameCore::EntityId a_objectId, ComponentKind a_kind)
+    {
+        Result result = Result::ok();
+        switch (a_kind)
+        {
+        case ComponentKind::Transform:
+            result = add_component_if_missing<ECS::TransformComponent>(
+                m_gameWorld,
+                a_objectId,
+                "TransformComponent already exists.");
+            if (result)
+            {
+                m_gameWorld.sync_world_transforms();
+            }
+            return result;
+        case ComponentKind::Camera:
+            return add_component_if_missing<ECS::CameraComponent>(
+                m_gameWorld,
+                a_objectId,
+                "CameraComponent already exists.");
+        case ComponentKind::MeshFilter:
+            return add_component_if_missing<ECS::MeshFilterComponent>(
+                m_gameWorld,
+                a_objectId,
+                "MeshFilterComponent already exists.");
+        case ComponentKind::StaticMeshRenderer:
+            return add_component_if_missing<ECS::StaticMeshRendererComponent>(
+                m_gameWorld,
+                a_objectId,
+                "StaticMeshRendererComponent already exists.");
+        default:
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Unknown component kind.");
+        }
     }
 
     Result EngineCommandContext::get_object_name(GameCore::EntityId a_objectId, std::string& a_outName)
@@ -228,6 +312,36 @@ namespace Cue
         const ECS::CameraComponent& a_component)
     {
         ECS::CameraComponent* component = nullptr;
+        Result result = m_gameWorld.get_component(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        *component = a_component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::get_mesh_filter_component(
+        GameCore::EntityId a_objectId,
+        ECS::MeshFilterComponent& a_outComponent)
+    {
+        ECS::MeshFilterComponent* component = nullptr;
+        Result result = m_gameWorld.get_component(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        a_outComponent = *component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::set_mesh_filter_component(
+        GameCore::EntityId a_objectId,
+        const ECS::MeshFilterComponent& a_component)
+    {
+        ECS::MeshFilterComponent* component = nullptr;
         Result result = m_gameWorld.get_component(a_objectId, component);
         if (!result || component == nullptr)
         {
