@@ -9,6 +9,7 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
+#include <IO/Path.h>
 
 // === PAL includes ===
 #include <PAL.h>
@@ -89,6 +90,15 @@ class Engine final
         return m_meshPool.get();
     }
 
+    /// @brief Project の Assets フォルダを設定する。
+    void set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept;
+
+    /// @brief Project の Assets フォルダを返す。
+    [[nodiscard]] const Core::IO::Path& asset_root_path() const noexcept
+    {
+        return m_assetRootPath;
+    }
+
     /// @brief GameCore camera の代わりに使う描画視点を設定する。
     void set_render_view_override(const DrawSystem::RenderView& a_renderView) noexcept;
 
@@ -147,6 +157,7 @@ class Engine final
     bool m_isDebugRenderingEnabled = false;
     DrawSystem::RenderView m_renderViewOverride{};
     bool m_hasRenderViewOverride = false;
+    Core::IO::Path m_assetRootPath{}; // Project 由来の Assets フォルダ
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;

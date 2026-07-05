@@ -293,6 +293,11 @@ void Engine::shutdown()
     m_gameCommandBridge = nullptr;
 }
 
+void Engine::set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
+{
+    m_assetRootPath = a_assetRootPath.normalize();
+}
+
 Result Engine::begin_frame()
 {
     // フレーム開始処理

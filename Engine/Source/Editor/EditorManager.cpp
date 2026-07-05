@@ -7,6 +7,8 @@
 #include "DebugCamera.h"
 #include "Hierarchy.h"
 #include "Inspector.h"
+#include "Project/ProjectSelector.h"
+#include "Project/ProjectSettings.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/Dockspace.h"
 #include "Workspace/GameView.h"
@@ -29,14 +31,22 @@ namespace Cue::Editor
     {
         CUE_ASSERT_MSG(a_info.backend != nullptr, "EditorManager: backend is null");
         CUE_ASSERT_MSG(a_info.debugCamera != nullptr, "EditorManager: debug camera is null");
+        CUE_ASSERT_MSG(a_info.fileSystem != nullptr, "EditorManager: file system is null");
 
         m_backend = a_info.backend;
         m_engine = a_info.engine;
         m_debugCamera = a_info.debugCamera;
+        m_fileSystem = a_info.fileSystem;
         m_gameCommandBridge = a_info.gameCommandBridge;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
         m_dockspace = std::make_unique<Dockspace>();
+        m_dockspace->set_file_menu_callback(
+            this,
+            [](void* a_context)
+            {
+                static_cast<EditorManager*>(a_context)->draw_file_menu_items();
+            });
         m_dockspace->set_view_menu_callback(
             this,
             [](void* a_context)
@@ -58,6 +68,36 @@ namespace Cue::Editor
             m_inspector = std::make_unique<Inspector>(
                 m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(), &m_selectedEntityId);
         }
+
+        m_projectSelector = std::make_unique<ProjectSelector>(*m_fileSystem);
+        m_projectSelector->open_from_executable_directory();
+    }
+
+    Result EditorManager::load_project(const Core::IO::Path& a_root)
+    {
+        if (m_fileSystem == nullptr || m_engine == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "EditorManager project dependencies are not initialized.");
+        }
+
+        ProjectSettings settings{};
+        Result result = load_project_settings(*m_fileSystem, a_root, settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_projectRootPath = settings.root;
+        m_assetRootPath = settings.assetRoot;
+        m_projectName = settings.name;
+        m_startupScene = settings.startupScene;
+
+        // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み時点で Engine に共有する
+        m_engine->set_asset_root_path(m_assetRootPath);
+        return Result::ok();
     }
 
     void EditorManager::update()
@@ -66,6 +106,7 @@ namespace Cue::Editor
         {
             m_dockspace->update();
         }
+        update_project_selector();
         if (m_gameView != nullptr)
         {
             prepare_window_focus("GameView");
@@ -104,6 +145,20 @@ namespace Cue::Editor
         m_debugCamera->update(debugCameraViewport);
     }
 
+    void EditorManager::draw_file_menu_items()
+    {
+        if (ImGui::MenuItem("プロジェクト選択..."))
+        {
+            open_project_selector();
+        }
+
+        if (!m_projectName.empty())
+        {
+            ImGui::Separator();
+            ImGui::TextDisabled("%s", m_projectName.c_str());
+        }
+    }
+
     void EditorManager::draw_add_menu_items()
     {
         if (ImGui::MenuItem("空の GameObject"))
@@ -130,6 +185,44 @@ namespace Cue::Editor
         {
             show_and_focus_window("インスペクター");
         }
+    }
+
+    void EditorManager::open_project_selector()
+    {
+        if (m_projectSelector == nullptr)
+        {
+            return;
+        }
+
+        m_projectSelector->open();
+    }
+
+    void EditorManager::update_project_selector()
+    {
+        if (m_projectSelector == nullptr)
+        {
+            return;
+        }
+
+        m_projectSelector->update();
+
+        Core::IO::Path selectedProjectRoot{};
+        if (!m_projectSelector->consume_selected_project(selectedProjectRoot))
+        {
+            return;
+        }
+
+        const Result result = load_project(selectedProjectRoot);
+        if (result)
+        {
+            return;
+        }
+
+        Core::IO::log(
+            Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to load project: %s",
+            result.message.data());
+        m_projectSelector->show_error(result.message);
     }
 
     void EditorManager::submit_empty_object_command()

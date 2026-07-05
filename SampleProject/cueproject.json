@@ -1,0 +1,6 @@
+{
+    "assetRoot": "Assets",
+    "engineVersion": 1,
+    "name": "SampleProject",
+    "startupScene": "Assets/Scenes/Main.cuescene"
+}

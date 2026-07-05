@@ -32,6 +32,10 @@ namespace Cue::Editor
         {
             if (ImGui::BeginMenu("File"))
             {
+                if (m_fileMenuCallback != nullptr)
+                {
+                    m_fileMenuCallback(m_fileMenuContext);
+                }
                 if (ImGui::MenuItem("Exit"))
                 {
                     // Handle exit action

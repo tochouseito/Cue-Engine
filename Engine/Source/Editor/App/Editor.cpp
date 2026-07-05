@@ -146,6 +146,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManagerSetupInfo.backend = renderBackend.get();
     editorManagerSetupInfo.engine = engine.get();
     editorManagerSetupInfo.debugCamera = debugCamera.get();
+    editorManagerSetupInfo.fileSystem = &platform->file_system();
     editorManagerSetupInfo.gameCommandBridge = gameBridge.get();
     editorManager->initialize(editorManagerSetupInfo);
 
