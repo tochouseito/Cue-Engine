@@ -7,6 +7,20 @@
 /// === Windows API includes ===
 #include <shobjidl.h>
 
+namespace
+{
+    void to_native_separator(std::wstring& a_path) noexcept
+    {
+        for (wchar_t& character : a_path)
+        {
+            if (character == L'/')
+            {
+                character = L'\\';
+            }
+        }
+    }
+}
+
 namespace Cue::PAL::Win
 {
     WinFolderDialog::WinFolderDialog(HWND a_ownerWindow) noexcept
@@ -87,17 +101,38 @@ namespace Cue::PAL::Win
             {
                 return pathResult;
             }
+            to_native_separator(initialDirectory);
 
             Microsoft::WRL::ComPtr<IShellItem> folder = nullptr;
             hresult = ::SHCreateItemFromParsingName(
                 initialDirectory.c_str(),
                 nullptr,
                 IID_PPV_ARGS(&folder));
-            if (SUCCEEDED(hresult))
+            if (FAILED(hresult))
             {
-                // 既定フォルダと現在フォルダの両方を指定し、前回選択履歴より Project 候補を優先する
-                (void)dialog->SetDefaultFolder(folder.Get());
-                (void)dialog->SetFolder(folder.Get());
+                return Result::fail(
+                    convert_hresult_code(hresult),
+                    Severity::Error,
+                    "Failed to create initial folder shell item.");
+            }
+
+            // 既定フォルダと現在フォルダの両方を指定し、Shell 履歴より Project 候補を優先する
+            hresult = dialog->SetDefaultFolder(folder.Get());
+            if (FAILED(hresult))
+            {
+                return Result::fail(
+                    convert_hresult_code(hresult),
+                    Severity::Error,
+                    "Failed to set default folder.");
+            }
+
+            hresult = dialog->SetFolder(folder.Get());
+            if (FAILED(hresult))
+            {
+                return Result::fail(
+                    convert_hresult_code(hresult),
+                    Severity::Error,
+                    "Failed to set initial folder.");
             }
         }
 
