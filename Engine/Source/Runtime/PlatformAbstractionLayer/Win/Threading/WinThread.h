@@ -58,6 +58,7 @@ namespace Cue::PAL::Win
 
             Core::Threading::threadProc proc = nullptr;
             void* user = nullptr;
+            Core::Threading::ThreadApartmentModel apartmentModel = Core::Threading::ThreadApartmentModel::None;
             Core::Threading::StopSource stopSource{};
             std::atomic<uint32_t> exitCode{ 0 }; // スレッド終了コード
         };

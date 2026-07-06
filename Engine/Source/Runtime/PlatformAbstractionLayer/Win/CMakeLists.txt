@@ -6,6 +6,8 @@ add_library(win_platform STATIC
     "App/WinApp.h"
     "ConvertHresult.h"
     "ConvertUTF.h"
+    "Dialog/WinFolderDialog.cpp"
+    "Dialog/WinFolderDialog.h"
     "IO/WinFile.cpp"
     "IO/WinFile.h"
     "IO/WinFileSystem.cpp"

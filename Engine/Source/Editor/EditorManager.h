@@ -30,6 +30,11 @@ namespace Cue::Core::IO
     class IFileSystem;
 }
 
+namespace Cue::PAL
+{
+    class IDialogService;
+}
+
 namespace Cue::RHI::DX12
 {
     class D3D12Backend;
@@ -50,6 +55,7 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* backend = nullptr; // Editor View が参照する描画 backend
         Engine* engine = nullptr;                   // GameWorld など Editor が参照する Runtime
         DebugCamera* debugCamera = nullptr;         // DebugView の入力で更新する Editor camera
+        PAL::IDialogService* dialogService = nullptr; // OS 標準 UI を呼び出す非所有サービス
         Core::IO::IFileSystem* fileSystem = nullptr; // Project 設定を読み込む非所有 FileSystem
         Core::CQRS::Bridge* gameCommandBridge = nullptr; // GameWorld 編集コマンドの送信先
     };

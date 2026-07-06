@@ -8,29 +8,26 @@
 #include <IO/Path.h>
 
 // === C++ includes ===
-#include <array>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace Cue::Core::IO
 {
     class IFileSystem;
 }
 
+namespace Cue::PAL
+{
+    class IDialogService;
+}
+
 namespace Cue::Editor
 {
-    struct ProjectCandidate final
-    {
-        std::string name{};
-        Core::IO::Path root{};
-    };
-
     /// @brief Project 読み込み前に cueproject.json を持つフォルダを選択する。
     class ProjectSelector final
     {
     public:
-        explicit ProjectSelector(Core::IO::IFileSystem& a_fileSystem) noexcept;
+        ProjectSelector(PAL::IDialogService& a_dialogService, Core::IO::IFileSystem& a_fileSystem) noexcept;
         ~ProjectSelector() = default;
 
         /// @brief 実行ファイルの配置場所から上位へ探索し、Project 選択 UI を開く。
@@ -54,21 +51,14 @@ namespace Cue::Editor
         }
 
     private:
-        void refresh_candidates_from_buffer();
-        void set_search_root(const Core::IO::Path& a_root);
-        bool collect_candidates(const Core::IO::Path& a_root, std::vector<ProjectCandidate>& a_outCandidates);
-        bool validate_project_directory(const std::string& a_projectPath);
-        void set_project_path_text(std::string_view a_text);
-        void set_search_root_text(std::string_view a_text);
-        [[nodiscard]] std::string trim_text(const char* a_text) const;
+        void open_project_folder_dialog();
+        bool validate_project_directory(const Core::IO::Path& a_projectPath);
 
-        std::vector<ProjectCandidate> m_candidates{};
-        std::array<char, 1024> m_searchRootBuffer{};
-        std::array<char, 1024> m_projectPathBuffer{};
-        Core::IO::Path m_searchRoot{};
+        Core::IO::Path m_initialDirectory{};
         Core::IO::Path m_selectedRoot{};
         std::string m_errorMessage{};
-        Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 候補の検出に使う非所有 FileSystem
+        PAL::IDialogService* m_dialogService = nullptr; // OS 標準ダイアログを表示する非所有サービス
+        Core::IO::IFileSystem* m_fileSystem = nullptr; // Project フォルダ検証に使う非所有 FileSystem
         bool m_isOpen = false;
         bool m_hasSelectedProject = false;
     };

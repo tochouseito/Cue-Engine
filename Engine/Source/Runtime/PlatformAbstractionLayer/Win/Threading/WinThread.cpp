@@ -59,6 +59,23 @@ namespace Cue::PAL::Win
                 ::SetThreadAffinityMask(a_threadHandle, static_cast<DWORD_PTR>(a_desc.affinityMask));
             }
         }
+
+        static bool initialize_com_apartment(Cue::Core::Threading::ThreadApartmentModel a_apartmentModel) noexcept
+        {
+            if (a_apartmentModel == Cue::Core::Threading::ThreadApartmentModel::None)
+            {
+                return false;
+            }
+
+            DWORD flags = COINIT_MULTITHREADED;
+            if (a_apartmentModel == Cue::Core::Threading::ThreadApartmentModel::SingleThreaded)
+            {
+                flags = COINIT_APARTMENTTHREADED;
+            }
+
+            const HRESULT result = ::CoInitializeEx(nullptr, flags);
+            return SUCCEEDED(result);
+        }
     }
 
     WinThread::~WinThread()
@@ -140,6 +157,7 @@ namespace Cue::PAL::Win
         // コンテキスト設定
         a_outThread.m_ctx->proc = a_proc;
         a_outThread.m_ctx->user = a_user;
+        a_outThread.m_ctx->apartmentModel = a_desc.apartmentModel;
         a_outThread.m_ctx->stopSource.reset();
         a_outThread.m_ctx->exitCode.store(0, std::memory_order_relaxed);
 
@@ -256,12 +274,26 @@ namespace Cue::PAL::Win
             return 0;
         }
 
+        const bool isComInitialized = initialize_com_apartment(context->apartmentModel);
+        if (context->apartmentModel != Core::Threading::ThreadApartmentModel::None && !isComInitialized)
+        {
+            constexpr uint32_t k_comInitializeFailed = 1;
+            context->exitCode.store(k_comInitializeFailed, std::memory_order_relaxed);
+            ::_endthreadex(k_comInitializeFailed);
+            return k_comInitializeFailed;
+        }
+
         // StopToken を作ってユーザー処理を実行
         const Cue::Core::Threading::StopToken token = context->stopSource.token();
         const uint32_t code = context->proc(token, context->user);
 
         // 終了コード保存
         context->exitCode.store(code, std::memory_order_relaxed);
+
+        if (isComInitialized)
+        {
+            ::CoUninitialize();
+        }
 
         // 終了
         ::_endthreadex(code);

@@ -9,6 +9,7 @@
 #include <Time/FrameCounter.h>
 
 // === WinPlatform includes ===
+#include <Dialog/WinFolderDialog.h>
 #include <win_platform.h>
 
 // === D3D12Backend includes ===
@@ -74,6 +75,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s", r.message.data());
         return -1;
     }
+
+    // OS 標準 UI は Platform 本体から分離し、Editor が必要なサービスだけを受け取る
+    std::unique_ptr<PAL::Win::WinFolderDialog> folderDialog =
+        std::make_unique<PAL::Win::WinFolderDialog>(platform->get_window_handle());
 
     // PerformanceCounter を初期化
     Core::PerformanceCounter profiler(platform->clock());
@@ -146,6 +151,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManagerSetupInfo.backend = renderBackend.get();
     editorManagerSetupInfo.engine = engine.get();
     editorManagerSetupInfo.debugCamera = debugCamera.get();
+    editorManagerSetupInfo.dialogService = folderDialog.get();
     editorManagerSetupInfo.fileSystem = &platform->file_system();
     editorManagerSetupInfo.gameCommandBridge = gameBridge.get();
     editorManager->initialize(editorManagerSetupInfo);
@@ -253,6 +259,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiManager.reset();
     engine->shutdown();
     engine.reset();
+    folderDialog.reset();
     renderBackend->shutdown();
     renderBackend.reset();
     platform->shutdown();

@@ -5,13 +5,13 @@
 
 // === Editor includes ===
 #include "DebugCamera.h"
-#include "Hierarchy.h"
-#include "Inspector.h"
 #include "Project/ProjectSelector.h"
 #include "Project/ProjectSettings.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/Dockspace.h"
 #include "Workspace/GameView.h"
+#include "Workspace/Hierarchy.h"
+#include "Workspace/Inspector.h"
 
 // === Runtime includes ===
 #include <Command/Commands.h>
@@ -31,6 +31,7 @@ namespace Cue::Editor
     {
         CUE_ASSERT_MSG(a_info.backend != nullptr, "EditorManager: backend is null");
         CUE_ASSERT_MSG(a_info.debugCamera != nullptr, "EditorManager: debug camera is null");
+        CUE_ASSERT_MSG(a_info.dialogService != nullptr, "EditorManager: dialog service is null");
         CUE_ASSERT_MSG(a_info.fileSystem != nullptr, "EditorManager: file system is null");
 
         m_backend = a_info.backend;
@@ -69,7 +70,7 @@ namespace Cue::Editor
                 m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(), &m_selectedEntityId);
         }
 
-        m_projectSelector = std::make_unique<ProjectSelector>(*m_fileSystem);
+        m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService, *m_fileSystem);
         m_projectSelector->open_from_executable_directory();
     }
 

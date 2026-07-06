@@ -1,14 +1,11 @@
 #include "ProjectSelector.h"
 
 // === Runtime includes ===
+#include <Dialog/DialogService.h>
 #include <IO/IFileSystem.h>
 
 // === ImGui includes ===
 #include <imgui.h>
-
-// === C++ includes ===
-#include <algorithm>
-#include <cstring>
 
 namespace Cue::Editor
 {
@@ -17,9 +14,13 @@ namespace Cue::Editor
         constexpr const char* k_projectFileName = "cueproject.json";
     }
 
-    ProjectSelector::ProjectSelector(Core::IO::IFileSystem& a_fileSystem) noexcept
-        : m_fileSystem(&a_fileSystem)
-    {}
+    ProjectSelector::ProjectSelector(
+        PAL::IDialogService& a_dialogService,
+        Core::IO::IFileSystem& a_fileSystem) noexcept
+        : m_dialogService(&a_dialogService)
+        , m_fileSystem(&a_fileSystem)
+    {
+    }
 
     void ProjectSelector::open_from_executable_directory()
     {
@@ -27,6 +28,12 @@ namespace Cue::Editor
         m_hasSelectedProject = false;
         m_selectedRoot = {};
         m_errorMessage.clear();
+
+        if (m_fileSystem == nullptr)
+        {
+            m_errorMessage = "FileSystem が初期化されていません。";
+            return;
+        }
 
         Core::IO::Path executableDirectory{};
         const Result executableResult = m_fileSystem->executable_directory(executableDirectory);
@@ -36,29 +43,7 @@ namespace Cue::Editor
             return;
         }
 
-        Core::IO::Path current = executableDirectory.normalize();
-        while (!current.is_empty())
-        {
-            std::vector<ProjectCandidate> candidates{};
-            if (collect_candidates(current, candidates) && !candidates.empty())
-            {
-                m_searchRoot = current;
-                m_candidates = std::move(candidates);
-                set_search_root_text(m_searchRoot.utf8());
-                set_project_path_text(m_candidates.front().root.utf8());
-                return;
-            }
-
-            const Core::IO::Path parent = current.parent();
-            if (parent.utf8() == current.utf8())
-            {
-                break;
-            }
-            current = parent;
-        }
-
-        set_search_root(executableDirectory);
-        m_errorMessage = "cueproject.json を持つ Project が見つかりませんでした。";
+        m_initialDirectory = executableDirectory.normalize();
     }
 
     void ProjectSelector::open() noexcept
@@ -66,6 +51,7 @@ namespace Cue::Editor
         m_isOpen = true;
         m_hasSelectedProject = false;
         m_selectedRoot = {};
+        m_errorMessage.clear();
     }
 
     void ProjectSelector::update()
@@ -75,38 +61,13 @@ namespace Cue::Editor
             return;
         }
 
-        ImGui::SetNextWindowSize(ImVec2(560.0f, 420.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(320.0f, 120.0f), ImGuiCond_FirstUseEver);
         ImGui::Begin("プロジェクト選択", nullptr, ImGuiWindowFlags_NoCollapse);
 
-        ImGui::TextUnformatted("検索フォルダ");
-        ImGui::SetNextItemWidth(-96.0f);
-        ImGui::InputText("##ProjectSearchRoot", m_searchRootBuffer.data(), m_searchRootBuffer.size());
-        ImGui::SameLine();
-        if (ImGui::Button("再検索"))
+        if (ImGui::Button("プロジェクトを選択", ImVec2(-1.0f, 0.0f)))
         {
-            refresh_candidates_from_buffer();
+            open_project_folder_dialog();
         }
-
-        ImGui::Spacing();
-        ImGui::BeginChild("ProjectCandidateList", ImVec2(0.0f, 180.0f), true);
-        for (const ProjectCandidate& candidate : m_candidates)
-        {
-            const bool isSelected = trim_text(m_projectPathBuffer.data()) == candidate.root.utf8();
-            if (ImGui::Selectable(candidate.name.c_str(), isSelected))
-            {
-                set_project_path_text(candidate.root.utf8());
-            }
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("%s", candidate.root.utf8().c_str());
-            }
-        }
-        ImGui::EndChild();
-
-        ImGui::Spacing();
-        ImGui::TextUnformatted("プロジェクトフォルダ");
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText("##ProjectPath", m_projectPathBuffer.data(), m_projectPathBuffer.size());
 
         if (!m_errorMessage.empty())
         {
@@ -114,19 +75,6 @@ namespace Cue::Editor
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 96, 96, 255));
             ImGui::TextWrapped("%s", m_errorMessage.c_str());
             ImGui::PopStyleColor();
-        }
-
-        ImGui::Spacing();
-        if (ImGui::Button("読み込み"))
-        {
-            const std::string projectPath = trim_text(m_projectPathBuffer.data());
-            if (validate_project_directory(projectPath))
-            {
-                m_selectedRoot = Core::IO::Path(projectPath).normalize();
-                m_hasSelectedProject = true;
-                m_isOpen = false;
-                m_errorMessage.clear();
-            }
         }
 
         ImGui::End();
@@ -151,104 +99,58 @@ namespace Cue::Editor
         m_isOpen = true;
     }
 
-    void ProjectSelector::refresh_candidates_from_buffer()
+    void ProjectSelector::open_project_folder_dialog()
     {
-        set_search_root(Core::IO::Path(trim_text(m_searchRootBuffer.data())));
-    }
+        if (m_dialogService == nullptr)
+        {
+            m_errorMessage = "DialogService が初期化されていません。";
+            return;
+        }
 
-    void ProjectSelector::set_search_root(const Core::IO::Path& a_root)
-    {
-        m_searchRoot = a_root.normalize();
-        set_search_root_text(m_searchRoot.utf8());
+        PAL::FolderDialogDesc desc{};
+        desc.title = "プロジェクトフォルダを選択";
+        desc.initialDirectory = m_initialDirectory;
 
-        std::vector<ProjectCandidate> candidates{};
-        if (!collect_candidates(m_searchRoot, candidates))
+        Core::IO::Path selectedPath{};
+        bool isSelected = false;
+        const Result result = m_dialogService->open_folder_dialog(desc, selectedPath, isSelected);
+        if (!result)
+        {
+            m_errorMessage = "フォルダ選択ダイアログを開けませんでした。";
+            return;
+        }
+        if (!isSelected)
         {
             return;
         }
 
-        m_candidates = std::move(candidates);
-        m_errorMessage.clear();
-        if (!m_candidates.empty())
+        if (!validate_project_directory(selectedPath))
         {
-            set_project_path_text(m_candidates.front().root.utf8());
+            return;
         }
+
+        m_initialDirectory = selectedPath;
+        m_selectedRoot = selectedPath.normalize();
+        m_hasSelectedProject = true;
+        m_isOpen = false;
+        m_errorMessage.clear();
     }
 
-    bool ProjectSelector::collect_candidates(const Core::IO::Path& a_root, std::vector<ProjectCandidate>& a_outCandidates)
+    bool ProjectSelector::validate_project_directory(const Core::IO::Path& a_projectPath)
     {
-        a_outCandidates.clear();
         if (m_fileSystem == nullptr)
         {
             m_errorMessage = "FileSystem が初期化されていません。";
             return false;
         }
-
-        Core::IO::FileStat rootStat{};
-        Result result = m_fileSystem->stat(a_root, &rootStat);
-        if (!result || rootStat.type != Core::IO::FileType::directory)
-        {
-            m_errorMessage = "検索フォルダを開けませんでした。";
-            return false;
-        }
-
-        std::vector<Core::IO::Path> entries{};
-        result = m_fileSystem->list_directory(a_root, &entries);
-        if (!result)
-        {
-            m_errorMessage = "検索フォルダを列挙できませんでした。";
-            return false;
-        }
-
-        for (const Core::IO::Path& entry : entries)
-        {
-            Core::IO::FileStat entryStat{};
-            result = m_fileSystem->stat(entry, &entryStat);
-            if (!result || entryStat.type != Core::IO::FileType::directory)
-            {
-                continue;
-            }
-
-            const Core::IO::Path projectFilePath =
-                Core::IO::Path::join(entry, Core::IO::Path(k_projectFileName));
-            bool projectFileExists = false;
-            result = m_fileSystem->exists(projectFilePath, &projectFileExists);
-            if (!result || !projectFileExists)
-            {
-                continue;
-            }
-
-            Core::IO::FileStat projectFileStat{};
-            result = m_fileSystem->stat(projectFilePath, &projectFileStat);
-            if (!result || projectFileStat.type != Core::IO::FileType::regular)
-            {
-                continue;
-            }
-
-            a_outCandidates.push_back(ProjectCandidate{ entry.filename(), entry.normalize() });
-        }
-
-        std::sort(
-            a_outCandidates.begin(),
-            a_outCandidates.end(),
-            [](const ProjectCandidate& a_left, const ProjectCandidate& a_right)
-            {
-                return a_left.name < a_right.name;
-            });
-        return true;
-    }
-
-    bool ProjectSelector::validate_project_directory(const std::string& a_projectPath)
-    {
-        if (a_projectPath.empty())
+        if (a_projectPath.is_empty())
         {
             m_errorMessage = "プロジェクトフォルダを指定してください。";
             return false;
         }
 
-        const Core::IO::Path projectPath(a_projectPath);
         Core::IO::FileStat directoryStat{};
-        Result result = m_fileSystem->stat(projectPath, &directoryStat);
+        Result result = m_fileSystem->stat(a_projectPath, &directoryStat);
         if (!result)
         {
             m_errorMessage = "プロジェクトフォルダの情報取得に失敗しました。";
@@ -261,7 +163,7 @@ namespace Cue::Editor
         }
 
         const Core::IO::Path projectFilePath =
-            Core::IO::Path::join(projectPath, Core::IO::Path(k_projectFileName));
+            Core::IO::Path::join(a_projectPath, Core::IO::Path(k_projectFileName));
         Core::IO::FileStat projectFileStat{};
         result = m_fileSystem->stat(projectFilePath, &projectFileStat);
         if (!result)
@@ -276,37 +178,5 @@ namespace Cue::Editor
         }
 
         return true;
-    }
-
-    void ProjectSelector::set_project_path_text(std::string_view a_text)
-    {
-        m_projectPathBuffer.fill('\0');
-        const size_t count = (std::min)(a_text.size(), m_projectPathBuffer.size() - 1);
-        std::memcpy(m_projectPathBuffer.data(), a_text.data(), count);
-    }
-
-    void ProjectSelector::set_search_root_text(std::string_view a_text)
-    {
-        m_searchRootBuffer.fill('\0');
-        const size_t count = (std::min)(a_text.size(), m_searchRootBuffer.size() - 1);
-        std::memcpy(m_searchRootBuffer.data(), a_text.data(), count);
-    }
-
-    std::string ProjectSelector::trim_text(const char* a_text) const
-    {
-        if (a_text == nullptr)
-        {
-            return {};
-        }
-
-        std::string text = a_text;
-        const size_t first = text.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos)
-        {
-            return {};
-        }
-
-        const size_t last = text.find_last_not_of(" \t\r\n");
-        return text.substr(first, (last - first) + 1);
     }
 } // namespace Cue::Editor

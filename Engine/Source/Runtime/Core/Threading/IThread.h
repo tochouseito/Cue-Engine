@@ -17,6 +17,14 @@
 
 namespace Cue::Core::Threading
 {
+    /// @brief Thread 起動時に要求する native apartment model
+    enum class ThreadApartmentModel : uint32_t
+    {
+        None,
+        SingleThreaded,
+        MultiThreaded,
+    };
+
     /// @brief スレッド生成時の指定内容
     struct ThreadDesc final
     {
@@ -31,6 +39,9 @@ namespace Cue::Core::Threading
 
         // アフィニティ（0なら未指定）
         uint64_t affinityMask = 0;
+
+        // apartment model を持つ platform でのみ解釈する thread 単位の指定
+        ThreadApartmentModel apartmentModel = ThreadApartmentModel::None;
     };
 
     using threadProc = uint32_t(*)(StopToken a_token, void* a_user) noexcept;

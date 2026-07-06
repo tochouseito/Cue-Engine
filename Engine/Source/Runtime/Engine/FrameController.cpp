@@ -6,7 +6,7 @@
 namespace Cue
 {
     bool FrameJob::start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock,
-        const char* a_name, jobFunc a_func)
+        const char* a_name, Core::Threading::ThreadApartmentModel a_apartmentModel, jobFunc a_func)
     {
         // 実行関数をメンバへ保持する
         // 要求受付ループのスレッドを開始する
@@ -23,6 +23,7 @@ namespace Cue
         {
             desc.name = a_name;
         }
+        desc.apartmentModel = a_apartmentModel;
 
         std::unique_ptr<Core::Threading::IThread> thread{};
         const auto result = a_factory.create_thread(desc, &FrameJob::thread_entry, this, thread);
@@ -242,6 +243,7 @@ namespace Cue
         }
 
         if (!m_updateJob.start(m_threadFactory, m_clock, "UpdateJob",
+            Core::Threading::ThreadApartmentModel::MultiThreaded,
             [this](uint64_t frameNo, uint32_t index) { m_updateFunc(frameNo, index); }))
         {
             CUE_ASSERT_MSG(false, "UpdateJob の開始に失敗しました。");
@@ -249,6 +251,7 @@ namespace Cue
         }
 
         if (!m_renderJob.start(m_threadFactory, m_clock, "RenderJob",
+            Core::Threading::ThreadApartmentModel::MultiThreaded,
             [this](uint64_t frameNo, uint32_t index) { m_renderFunc(frameNo, index); }))
         {
             CUE_ASSERT_MSG(false, "RenderJob の開始に失敗しました。");

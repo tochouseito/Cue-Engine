@@ -62,8 +62,8 @@ namespace Cue::PAL::Win
         // が OS に勝手に拡大縮小されるのを避けるため、アプリケーション単位で DPI 対応する
         dpi_awareness();
 
-        // COM を初期化する
-        const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        // Windows UI と Shell API は STA COM を前提にするため、main UI thread を STA に固定する
+        const HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         if (success(convert_hresult_code(result)))
         {
             m_isComInitialized = true;

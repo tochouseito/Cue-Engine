@@ -52,7 +52,7 @@ namespace Cue
 
         /// @brief スレッド開始
         bool start(Core::Threading::IThreadFactory& a_factory, const Core::Time::IClock& a_clock, const char* a_name,
-            jobFunc a_func);
+            Core::Threading::ThreadApartmentModel a_apartmentModel, jobFunc a_func);
 
         /// @brief 実行要求投入
         void kick(uint64_t frameNo, uint32_t index);
