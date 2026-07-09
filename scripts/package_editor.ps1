@@ -159,6 +159,10 @@ $packageEditorRoot = Join-Path $packageRoot "Editor"
 $packageSdkRoot = Join-Path $packageRoot "Sdk"
 $cmakeCachePath = Join-Path $repoRoot (Join-Path $BuildDirectory "CMakeCache.txt")
 $buildRoot = Join-Path $repoRoot $BuildDirectory
+$repoParent = Split-Path -Parent $repoRoot
+$repoName = Split-Path -Leaf $repoRoot
+$vcpkgInstalledDir = Join-Path $repoParent ".vcpkg/$repoName"
+$vcpkgBuildtreesDir = Join-Path $vcpkgInstalledDir "buildtrees"
 $editorProjectPath = Join-Path $buildRoot "Engine/Source/Editor/Editor.vcxproj"
 $msbuildExe = Resolve-MSBuildExe
 $configuredTargetTriplet = Get-CMakeCacheValue `
@@ -187,6 +191,8 @@ if ($shouldConfigure)
             "-DVCPKG_OVERLAY_TRIPLETS=$repoRoot/config/vcpkg/triplets" `
             "-DVCPKG_TARGET_TRIPLET=$TargetTriplet" `
             "-DVCPKG_HOST_TRIPLET=$HostTriplet" `
+            "-DVCPKG_INSTALLED_DIR=$vcpkgInstalledDir" `
+            "-DVCPKG_INSTALL_OPTIONS=--x-buildtrees-root=$vcpkgBuildtreesDir" `
             "-DVCPKG_MANIFEST_INSTALL=$manifestInstallValue"
         if ($LASTEXITCODE -ne 0)
         {

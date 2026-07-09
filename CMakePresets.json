@@ -11,6 +11,8 @@
         "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/config/vcpkg/triplets",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
         "VCPKG_HOST_TRIPLET": "x64-windows",
+        "VCPKG_INSTALLED_DIR": "${sourceParentDir}/.vcpkg/${sourceDirName}",
+        "VCPKG_INSTALL_OPTIONS": "--x-buildtrees-root=${sourceParentDir}/.vcpkg/${sourceDirName}/buildtrees",
         "VCPKG_MANIFEST_INSTALL": "ON"
       },
       "installDir": "${sourceDir}/out/install/${presetName}",
