@@ -2,11 +2,12 @@
 
 // === Base includes ===
 #include <CueAssert.h>
+#include <CueResult.h>
 
 // === Editor includes ===
 #include "DebugCamera.h"
+#include "Project/EditorProject.h"
 #include "Project/ProjectSelector.h"
-#include "Project/ProjectSettings.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/GameView.h"
 #include "Workspace/Hierarchy.h"
@@ -16,6 +17,7 @@
 #include <Command/Commands.h>
 #include <CQRS/CQRS.h>
 #include <Engine.h>
+#include <IO/Path.h>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -36,7 +38,6 @@ namespace Cue::Editor
         m_backend = a_info.backend;
         m_engine = a_info.engine;
         m_debugCamera = a_info.debugCamera;
-        m_fileSystem = a_info.fileSystem;
         m_gameCommandBridge = a_info.gameCommandBridge;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
@@ -50,35 +51,9 @@ namespace Cue::Editor
                 m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(), &m_selectedEntityId);
         }
 
-        m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService, *m_fileSystem);
+        m_project = std::make_unique<EditorProject>(*a_info.fileSystem);
+        m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService, *a_info.fileSystem);
         m_projectSelector->open_from_executable_directory();
-    }
-
-    Result EditorManager::load_project(const Core::IO::Path& a_root)
-    {
-        if (m_fileSystem == nullptr || m_engine == nullptr)
-        {
-            return Result::fail(
-                Code::InvalidState,
-                Severity::Error,
-                "EditorManager project dependencies are not initialized.");
-        }
-
-        ProjectSettings settings{};
-        Result result = load_project_settings(*m_fileSystem, a_root, settings);
-        if (!result)
-        {
-            return result;
-        }
-
-        m_projectRootPath = settings.root;
-        m_assetRootPath = settings.assetRoot;
-        m_projectName = settings.name;
-        m_startupScene = settings.startupScene;
-
-        // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み時点で Engine に共有する
-        m_engine->set_asset_root_path(m_assetRootPath);
-        return Result::ok();
     }
 
     void EditorManager::update()
@@ -188,10 +163,10 @@ namespace Cue::Editor
             open_project_selector();
         }
 
-        if (!m_projectName.empty())
+        if (m_project != nullptr && !m_project->name().empty())
         {
             ImGui::Separator();
-            ImGui::TextDisabled("%s", m_projectName.c_str());
+            ImGui::TextDisabled("%s", m_project->name().c_str());
         }
     }
 
@@ -248,9 +223,20 @@ namespace Cue::Editor
             return;
         }
 
-        const Result result = load_project(selectedProjectRoot);
+        if (m_project == nullptr)
+        {
+            m_projectSelector->show_error("Editor project is not initialized.");
+            return;
+        }
+
+        const Result result = m_project->load(selectedProjectRoot);
         if (result)
         {
+            // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に Engine へ共有する
+            if (m_engine != nullptr)
+            {
+                m_engine->set_asset_root_path(m_project->asset_root_path());
+            }
             return;
         }
 

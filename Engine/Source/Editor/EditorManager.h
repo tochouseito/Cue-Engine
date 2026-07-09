@@ -4,12 +4,8 @@
 /// Editor 全体の UI 状態と各 View 更新を管理する
 /// **********************************************************************
 
-// === Base includes ===
-#include <CueResult.h>
-
 // === Runtime includes ===
 #include <GameCore/GameCoreTypes.h>
-#include <IO/Path.h>
 
 // === C++ includes ===
 #include <memory>
@@ -47,6 +43,7 @@ namespace Cue::Editor
     class GameView;
     class Hierarchy;
     class Inspector;
+    class EditorProject;
     class ProjectSelector;
 
     struct EditorManagerSetupInfo final
@@ -72,9 +69,6 @@ namespace Cue::Editor
 
         /// @brief Editor の依存と最小 View 群を初期化する。
         void initialize(const EditorManagerSetupInfo& a_info);
-
-        /// @brief Project 設定を読み込み、Engine から Assets フォルダを参照できるようにする。
-        [[nodiscard]] Result load_project(const Core::IO::Path& a_root);
 
         /// @brief 1 frame 分の Editor UI を描画し、DebugCamera 入力を反映する。
         void update();
@@ -119,21 +113,17 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* m_backend = nullptr; // View 生成時と SRV 解決に使う非所有 backend
         Engine* m_engine = nullptr;                   // 今後 Hierarchy / Inspector が参照する非所有 Engine
         DebugCamera* m_debugCamera = nullptr;         // Engine が参照している DebugCamera
-        Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 設定ファイルの読み込み元
         Core::CQRS::Bridge* m_gameCommandBridge = nullptr; // Editor から GameWorld を編集する command bridge
 
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
+        std::unique_ptr<EditorProject> m_project = nullptr;
         std::unique_ptr<ProjectSelector> m_projectSelector = nullptr;
 
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;
-        Core::IO::Path m_projectRootPath{};
-        Core::IO::Path m_assetRootPath{};
-        std::string m_projectName{};
-        std::string m_startupScene{};
         std::string m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
     };
 } // namespace Cue::Editor
