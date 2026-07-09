@@ -40,6 +40,7 @@ namespace Cue::Editor
 {
     class DebugCamera;
     class DebugView;
+    class EditorSceneManager;
     class GameView;
     class Hierarchy;
     class Inspector;
@@ -121,6 +122,7 @@ namespace Cue::Editor
         std::unique_ptr<Inspector> m_inspector = nullptr;
         std::unique_ptr<EditorProject> m_project = nullptr;
         std::unique_ptr<ProjectSelector> m_projectSelector = nullptr;
+        std::unique_ptr<EditorSceneManager> m_sceneManager = nullptr;
 
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;

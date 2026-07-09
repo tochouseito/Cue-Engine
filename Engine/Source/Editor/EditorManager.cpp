@@ -8,6 +8,7 @@
 #include "DebugCamera.h"
 #include "Project/EditorProject.h"
 #include "Project/ProjectSelector.h"
+#include "Scene/EditorSceneManager.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/GameView.h"
 #include "Workspace/Hierarchy.h"
@@ -52,6 +53,10 @@ namespace Cue::Editor
         }
 
         m_project = std::make_unique<EditorProject>(*a_info.fileSystem);
+        if (m_engine != nullptr)
+        {
+            m_sceneManager = std::make_unique<EditorSceneManager>(*a_info.fileSystem, m_engine->game_world());
+        }
         m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService, *a_info.fileSystem);
         m_projectSelector->open_from_executable_directory();
     }
@@ -236,6 +241,19 @@ namespace Cue::Editor
             if (m_engine != nullptr)
             {
                 m_engine->set_asset_root_path(m_project->asset_root_path());
+            }
+
+            if (m_sceneManager != nullptr)
+            {
+                const Result sceneResult = m_sceneManager->open_scene(m_project->startup_scene_path());
+                if (!sceneResult)
+                {
+                    Core::IO::log(
+                        Core::IO::LogSink::console | Core::IO::LogSink::file,
+                        "Failed to load startup scene: %s",
+                        sceneResult.message.data());
+                    m_projectSelector->show_error(sceneResult.message);
+                }
             }
             return;
         }
