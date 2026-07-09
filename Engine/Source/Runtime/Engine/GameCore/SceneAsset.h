@@ -1,22 +1,22 @@
 #pragma once
 
 /// ************************************************************************************
-/// Editor が保存する Scene asset の最小データ構造
+/// Runtime と Editor が共有する Scene asset の最小データ構造
 /// ************************************************************************************
 
 // === Math includes ===
 #include <CueMath.h>
 
 // === Engine includes ===
-#include "GameCore/Components.h"
-#include "GameCore/GameCoreTypes.h"
+#include "Components.h"
+#include "GameCoreTypes.h"
 
 // === C++ includes ===
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace Cue::Editor
+namespace Cue::GameCore
 {
     struct SceneTransform final
     {
@@ -50,8 +50,8 @@ namespace Cue::Editor
     {
         std::string name{};
         std::string tag{"Default"};
-        GameCore::LocalObjectId localId = GameCore::k_invalidLocalObjectId;
-        GameCore::LocalObjectId parentLocalId = GameCore::k_invalidLocalObjectId;
+        LocalObjectId localId = k_invalidLocalObjectId;
+        LocalObjectId parentLocalId = k_invalidLocalObjectId;
         SceneTransform transform{};
         SceneCamera camera{};
         SceneRenderable renderable{};
@@ -68,4 +68,4 @@ namespace Cue::Editor
         std::vector<SceneObject> objects{};
         std::uint32_t version = 1;
     };
-} // namespace Cue::Editor
+} // namespace Cue::GameCore

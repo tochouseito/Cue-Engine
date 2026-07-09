@@ -77,16 +77,14 @@ namespace Cue::Editor
             return result;
         }
 
+        const Core::IO::Path startupScenePath =
+            resolve_startup_scene_path(settings.root, settings.assetRoot, settings.startupScene);
+
         m_rootPath = settings.root;
         m_assetRootPath = settings.assetRoot;
         m_name = settings.name;
         m_startupScene = settings.startupScene;
-        m_startupScenePath = resolve_startup_scene_path(m_rootPath, m_assetRootPath, m_startupScene);
-
-        // Scene の読み込みに失敗した状態が Project 切り替え後へ残らないよう、Project load で所有状態を初期化する
-        m_activeScenePath = {};
-        m_activeScene = {};
-        m_hasActiveScene = false;
+        m_startupScenePath = startupScenePath;
         return Result::ok();
     }
 } // namespace Cue::Editor

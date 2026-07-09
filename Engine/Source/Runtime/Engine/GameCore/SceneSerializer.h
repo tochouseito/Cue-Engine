@@ -10,7 +10,7 @@
 // === Core includes ===
 #include <IO/Path.h>
 
-// === Editor includes ===
+// === Engine includes ===
 #include "SceneAsset.h"
 
 namespace Cue::Core::IO
@@ -18,17 +18,17 @@ namespace Cue::Core::IO
     class IFileSystem;
 }
 
-namespace Cue::Editor
+namespace Cue::GameCore
 {
-    /// @brief Scene asset を JSON ファイルから読み込む。
+    /// @brief Scene asset を JSON ファイルから読み込む
     [[nodiscard]] Result load_scene_asset(
         Core::IO::IFileSystem& a_fileSystem,
         const Core::IO::Path& a_path,
         SceneAsset& a_outScene) noexcept;
 
-    /// @brief Scene asset を JSON ファイルへ保存する。
+    /// @brief Scene asset を JSON ファイルへ保存する
     [[nodiscard]] Result save_scene_asset(
         Core::IO::IFileSystem& a_fileSystem,
         const Core::IO::Path& a_path,
         const SceneAsset& a_scene) noexcept;
-} // namespace Cue::Editor
+} // namespace Cue::GameCore

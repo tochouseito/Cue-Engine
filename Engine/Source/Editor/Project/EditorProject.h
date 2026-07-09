@@ -10,9 +10,6 @@
 // === Runtime includes ===
 #include <IO/Path.h>
 
-// === Editor includes ===
-#include "Scene/SceneAsset.h"
-
 // === C++ includes ===
 #include <string>
 
@@ -62,33 +59,12 @@ namespace Cue::Editor
             return m_startupScenePath;
         }
 
-        /// @brief Project で現在開いている Scene があるかを返す
-        [[nodiscard]] bool has_active_scene() const noexcept
-        {
-            return m_hasActiveScene;
-        }
-
-        /// @brief 現在開いている Scene asset を返す
-        [[nodiscard]] const SceneAsset& active_scene() const noexcept
-        {
-            return m_activeScene;
-        }
-
-        /// @brief 現在開いている Scene asset の保存先を返す
-        [[nodiscard]] const Core::IO::Path& active_scene_path() const noexcept
-        {
-            return m_activeScenePath;
-        }
-
     private:
         Core::IO::Path m_rootPath{};
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_startupScenePath{};
-        Core::IO::Path m_activeScenePath{};
-        SceneAsset m_activeScene{};
         std::string m_name{};
         std::string m_startupScene{};
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 設定を読み込む非所有 FileSystem
-        bool m_hasActiveScene = false;
     };
 } // namespace Cue::Editor

@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace Cue::Editor
+namespace Cue::GameCore
 {
     namespace
     {
@@ -358,4 +358,4 @@ namespace Cue::Editor
                 "Scene file could not be written.");
         }
     }
-} // namespace Cue::Editor
+} // namespace Cue::GameCore

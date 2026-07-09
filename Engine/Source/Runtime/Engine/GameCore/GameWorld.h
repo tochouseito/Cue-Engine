@@ -31,6 +31,8 @@
 
 namespace Cue::GameCore
 {
+    struct SceneAsset;
+
     struct EntityRecord final
     {
         // 古い GameObject ハンドルを無効化するための世代番号
@@ -83,6 +85,9 @@ namespace Cue::GameCore
 
         /// @brief GameWorld 内の全 GameObject を破棄する
         [[nodiscard]] Result clear() noexcept;
+
+        /// @brief SceneAsset の内容で GameWorld を置き換える
+        [[nodiscard]] Result load_scene(const SceneAsset& a_scene);
 
         /// @brief 現在生存している GameObject 数を取得する
         [[nodiscard]] Result object_count(size_t& a_outCount) const noexcept;
@@ -247,6 +252,8 @@ namespace Cue::GameCore
         std::vector<EntityId> m_pendingDestroyedEntities{};
         // この World の描画に使う Camera Entity
         EntityId m_renderCameraEntity = k_invalidEntityId;
+        // 読み込まれた Scene ごとに異なる SceneId を割り当てる
+        SceneId m_nextSceneId = 1;
         // 現在生存している Object 数
         size_t m_liveObjectCount = 0;
     };

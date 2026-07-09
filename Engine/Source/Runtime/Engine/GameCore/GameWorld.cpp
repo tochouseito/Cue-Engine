@@ -1,5 +1,8 @@
 #include "GameWorld.h"
 
+// === Engine includes ===
+#include "SceneAsset.h"
+
 // === C++ includes ===
 #include <cmath>
 #include <cstdint>
@@ -156,6 +159,155 @@ namespace Cue::GameCore
 
         m_pendingDestroyedEntities.clear();
         clear_render_camera();
+        return Result::ok();
+    }
+
+    Result GameWorld::load_scene(const SceneAsset& a_scene)
+    {
+        Result result = clear();
+        if (!result)
+        {
+            return result;
+        }
+
+        const SceneId sceneId = m_nextSceneId;
+        ++m_nextSceneId;
+        if (m_nextSceneId == k_invalidSceneId)
+        {
+            m_nextSceneId = 1;
+        }
+
+        std::unordered_map<LocalObjectId, EntityId> entityMap{};
+        EntityId firstCameraEntity = k_invalidEntityId;
+        result = capture_result(
+            [&]()
+            {
+                for (const SceneObject& object : a_scene.objects)
+                {
+                    if (object.localId != k_invalidLocalObjectId && entityMap.contains(object.localId))
+                    {
+                        throw std::runtime_error("Scene local object id is duplicated.");
+                    }
+
+                    const SceneId owningSceneId = object.isPersistent ? k_invalidSceneId : sceneId;
+                    const EntityId entity = create_entity_record(sceneId, object.localId);
+                    initialize_required_components(
+                        entity,
+                        object.name,
+                        object.tag,
+                        owningSceneId,
+                        k_invalidEntityId,
+                        object.isActive,
+                        object.isPersistent);
+
+                    ECS::TransformComponent* transform = m_ecsManager.get_component<ECS::TransformComponent>(entity);
+                    ECS::WorldTransformComponent* worldTransform =
+                        m_ecsManager.get_component<ECS::WorldTransformComponent>(entity);
+                    if (transform == nullptr || worldTransform == nullptr)
+                    {
+                        throw std::runtime_error("Scene object transform components are missing.");
+                    }
+
+                    if (object.hasTransform)
+                    {
+                        transform->position = object.transform.position;
+                        transform->rotation = object.transform.rotation;
+                        transform->scale = object.transform.scale;
+                        worldTransform->position = object.transform.position;
+                        worldTransform->rotation = object.transform.rotation;
+                        worldTransform->scale = object.transform.scale;
+                    }
+
+                    if (object.hasCamera)
+                    {
+                        ECS::CameraComponent* camera = m_ecsManager.add_component<ECS::CameraComponent>(entity);
+                        if (camera == nullptr)
+                        {
+                            throw std::runtime_error("Scene object camera component could not be created.");
+                        }
+
+                        camera->fovY = object.camera.fovY;
+                        camera->aspectRatio = object.camera.aspectRatio;
+                        camera->nearZ = object.camera.nearZ;
+                        camera->farZ = object.camera.farZ;
+
+                        if (firstCameraEntity == k_invalidEntityId)
+                        {
+                            firstCameraEntity = entity;
+                        }
+                    }
+
+                    if (object.hasRenderable)
+                    {
+                        ECS::MeshFilterComponent* meshFilter =
+                            m_ecsManager.add_component<ECS::MeshFilterComponent>(entity);
+                        ECS::StaticMeshRendererComponent* renderer =
+                            m_ecsManager.add_component<ECS::StaticMeshRendererComponent>(entity);
+                        if (meshFilter == nullptr || renderer == nullptr)
+                        {
+                            throw std::runtime_error("Scene object renderable components could not be created.");
+                        }
+
+                        meshFilter->modelName = object.renderable.modelName;
+                        meshFilter->meshId = object.renderable.meshId;
+                        renderer->materialId = object.renderable.materialId;
+                        renderer->propertyBlock = object.renderable.propertyBlock;
+                        renderer->renderQueue = object.renderable.renderQueue;
+                        renderer->shadowCasterMode = object.renderable.shadowCasterMode;
+                        renderer->visible = object.renderable.visible;
+                        renderer->castsShadow = object.renderable.castsShadow;
+                        renderer->receivesShadow = object.renderable.receivesShadow;
+                    }
+
+                    if (object.localId != k_invalidLocalObjectId)
+                    {
+                        entityMap.emplace(object.localId, entity);
+                    }
+                }
+            });
+        if (!result)
+        {
+            (void)clear();
+            return result;
+        }
+
+        for (const SceneObject& object : a_scene.objects)
+        {
+            if (object.parentLocalId == k_invalidLocalObjectId)
+            {
+                continue;
+            }
+
+            const auto childIterator = entityMap.find(object.localId);
+            const auto parentIterator = entityMap.find(object.parentLocalId);
+            if (childIterator == entityMap.end() || parentIterator == entityMap.end())
+            {
+                (void)clear();
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Scene parent reference could not be resolved.");
+            }
+
+            result = set_parent(childIterator->second, parentIterator->second, false);
+            if (!result)
+            {
+                (void)clear();
+                return result;
+            }
+        }
+
+        if (firstCameraEntity != k_invalidEntityId)
+        {
+            result = set_render_camera(firstCameraEntity);
+            if (!result)
+            {
+                (void)clear();
+                return result;
+            }
+        }
+
+        sync_world_transforms();
         return Result::ok();
     }
 
