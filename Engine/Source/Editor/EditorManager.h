@@ -44,7 +44,6 @@ namespace Cue::Editor
 {
     class DebugCamera;
     class DebugView;
-    class Dockspace;
     class GameView;
     class Hierarchy;
     class Inspector;
@@ -105,6 +104,8 @@ namespace Cue::Editor
         }
 
     private:
+        void draw_dockspace();
+        void draw_menu_bar();
         void draw_file_menu_items();
         void draw_add_menu_items();
         void draw_view_menu_items();
@@ -121,7 +122,6 @@ namespace Cue::Editor
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 設定ファイルの読み込み元
         Core::CQRS::Bridge* m_gameCommandBridge = nullptr; // Editor から GameWorld を編集する command bridge
 
-        std::unique_ptr<Dockspace> m_dockspace = nullptr;
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;

@@ -8,7 +8,6 @@
 #include "Project/ProjectSelector.h"
 #include "Project/ProjectSettings.h"
 #include "Workspace/DebugView.h"
-#include "Workspace/Dockspace.h"
 #include "Workspace/GameView.h"
 #include "Workspace/Hierarchy.h"
 #include "Workspace/Inspector.h"
@@ -41,25 +40,6 @@ namespace Cue::Editor
         m_gameCommandBridge = a_info.gameCommandBridge;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
-        m_dockspace = std::make_unique<Dockspace>();
-        m_dockspace->set_file_menu_callback(
-            this,
-            [](void* a_context)
-            {
-                static_cast<EditorManager*>(a_context)->draw_file_menu_items();
-            });
-        m_dockspace->set_view_menu_callback(
-            this,
-            [](void* a_context)
-            {
-                static_cast<EditorManager*>(a_context)->draw_view_menu_items();
-            });
-        m_dockspace->set_add_menu_callback(
-            this,
-            [](void* a_context)
-            {
-                static_cast<EditorManager*>(a_context)->draw_add_menu_items();
-            });
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend);
         if (m_engine != nullptr)
@@ -103,10 +83,7 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
-        if (m_dockspace != nullptr)
-        {
-            m_dockspace->update();
-        }
+        draw_dockspace();
         update_project_selector();
         if (m_gameView != nullptr)
         {
@@ -144,6 +121,64 @@ namespace Cue::Editor
         debugCameraViewport.isHovered = m_debugView->is_viewport_hovered();
         debugCameraViewport.isFocused = m_debugView->is_focused();
         m_debugCamera->update(debugCameraViewport);
+    }
+
+    void EditorManager::draw_dockspace()
+    {
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+        ImGui::SetNextWindowViewport(viewport->ID);
+
+        const ImGuiWindowFlags windowFlags =
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoDocking |
+            ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoNavFocus |
+            ImGuiWindowFlags_MenuBar;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+        ImGui::Begin("DockSpace Window", nullptr, windowFlags);
+        ImGui::PopStyleVar(2);
+
+        draw_menu_bar();
+
+        // fullscreen host window ではなく、この DockSpace node を docking target にする
+        const ImGuiID dockspaceId = ImGui::GetID("EditorDockSpace");
+        ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+        ImGui::End();
+    }
+
+    void EditorManager::draw_menu_bar()
+    {
+        if (!ImGui::BeginMenuBar())
+        {
+            return;
+        }
+
+        if (ImGui::BeginMenu("File"))
+        {
+            draw_file_menu_items();
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("追加"))
+        {
+            draw_add_menu_items();
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("View"))
+        {
+            draw_view_menu_items();
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndMenuBar();
     }
 
     void EditorManager::draw_file_menu_items()
