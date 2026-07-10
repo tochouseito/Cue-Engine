@@ -55,6 +55,24 @@ namespace Cue
             GameCore::EntityId& a_outObjectId) = 0;
         virtual Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) = 0;
+
+        /// @brief GameObject の Tag を取得する
+        virtual Result get_object_tag(GameCore::EntityId a_objectId, std::string& a_outTag) = 0;
+
+        /// @brief GameObject の Tag を変更する
+        virtual Result set_object_tag(GameCore::EntityId a_objectId, std::string_view a_tag) = 0;
+
+        /// @brief GameObject の ActiveSelf 状態を取得する
+        virtual Result get_object_active(GameCore::EntityId a_objectId, bool& a_outIsActive) = 0;
+
+        /// @brief GameObject の ActiveSelf 状態を変更する
+        virtual Result set_object_active(GameCore::EntityId a_objectId, bool a_isActive) = 0;
+
+        /// @brief GameObject の Persistent 状態を取得する
+        virtual Result get_object_persistent(GameCore::EntityId a_objectId, bool& a_outIsPersistent) = 0;
+
+        /// @brief GameObject の Persistent 状態を変更する
+        virtual Result set_object_persistent(GameCore::EntityId a_objectId, bool a_isPersistent) = 0;
         virtual Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) = 0;
         virtual Result set_parent(
             GameCore::EntityId a_objectId,
@@ -568,6 +586,21 @@ namespace Cue
         bool m_keepsWorldTransform = true;
         bool m_hasOldParent = false;
     };
+
+    /// @brief Inspector で編集した Tag を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_object_tag_command(
+        GameCore::EntityId a_objectId,
+        std::string a_tag);
+
+    /// @brief Inspector で編集した ActiveSelf を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_object_active_command(
+        GameCore::EntityId a_objectId,
+        bool a_isActive);
+
+    /// @brief Inspector で編集した Persistent を undo 可能な GameWorld 更新として扱う。
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_object_persistent_command(
+        GameCore::EntityId a_objectId,
+        bool a_isPersistent);
 
     /// @brief Inspector で編集した local Transform を undo 可能な GameWorld 更新として扱う。
     [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_transform_component_command(

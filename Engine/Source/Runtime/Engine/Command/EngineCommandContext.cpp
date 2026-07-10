@@ -7,6 +7,94 @@ namespace Cue
 {
     namespace
     {
+        template <typename Value, typename Getter, typename Setter>
+        class SetObjectValueCommand final : public Core::CQRS::IUndoableCommand
+        {
+        public:
+            SetObjectValueCommand(
+                GameCore::EntityId a_objectId,
+                Value a_newValue,
+                Getter a_getter,
+                Setter a_setter,
+                const char* a_notExecutedMessage)
+                : m_oldValue()
+                , m_newValue(std::move(a_newValue))
+                , m_objectId(a_objectId)
+                , m_getter(a_getter)
+                , m_setter(a_setter)
+                , m_notExecutedMessage(a_notExecutedMessage)
+            {
+            }
+
+            Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+            {
+                IGameCommandContext* gameCommandContext =
+                    dynamic_cast<IGameCommandContext*>(&a_commandContext);
+                if (gameCommandContext == nullptr)
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Command context does not support object property updates.");
+                }
+
+                if (!m_hasOldValue)
+                {
+                    Result captureResult =
+                        (gameCommandContext->*m_getter)(m_objectId, m_oldValue);
+                    if (!captureResult)
+                    {
+                        return captureResult;
+                    }
+
+                    m_hasOldValue = true;
+                }
+
+                return (gameCommandContext->*m_setter)(m_objectId, m_newValue);
+            }
+
+            Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+            {
+                IGameCommandContext* gameCommandContext =
+                    dynamic_cast<IGameCommandContext*>(&a_commandContext);
+                if (gameCommandContext == nullptr)
+                {
+                    return Result::fail(
+                        Code::InvalidArgument,
+                        Severity::Error,
+                        "Command context does not support object property update undo.");
+                }
+
+                if (!m_hasOldValue)
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error, m_notExecutedMessage);
+                }
+
+                return (gameCommandContext->*m_setter)(m_objectId, m_oldValue);
+            }
+
+        private:
+            Value m_oldValue{};
+            Value m_newValue{};
+            GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+            Getter m_getter = nullptr;
+            Setter m_setter = nullptr;
+            const char* m_notExecutedMessage = nullptr;
+            bool m_hasOldValue = false;
+        };
+
+        template <typename Value, typename Getter, typename Setter>
+        [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_object_value_command(
+            GameCore::EntityId a_objectId,
+            Value a_newValue,
+            Getter a_getter,
+            Setter a_setter,
+            const char* a_notExecutedMessage)
+        {
+            return std::make_unique<SetObjectValueCommand<Value, Getter, Setter>>(
+                a_objectId, std::move(a_newValue), a_getter, a_setter, a_notExecutedMessage);
+        }
+
         template <typename Component>
         class SetComponentCommand final : public Core::CQRS::IUndoableCommand
         {
@@ -129,6 +217,42 @@ namespace Cue
             return a_gameWorld.add_component<Component>(a_objectId, component);
         }
     } // namespace
+
+    std::unique_ptr<Core::CQRS::ICommand> make_set_object_tag_command(
+        GameCore::EntityId a_objectId,
+        std::string a_tag)
+    {
+        return make_set_object_value_command(
+            a_objectId,
+            std::move(a_tag),
+            &IGameCommandContext::get_object_tag,
+            &IGameCommandContext::set_object_tag,
+            "Object tag command has not been executed.");
+    }
+
+    std::unique_ptr<Core::CQRS::ICommand> make_set_object_active_command(
+        GameCore::EntityId a_objectId,
+        bool a_isActive)
+    {
+        return make_set_object_value_command(
+            a_objectId,
+            a_isActive,
+            &IGameCommandContext::get_object_active,
+            &IGameCommandContext::set_object_active,
+            "Object active command has not been executed.");
+    }
+
+    std::unique_ptr<Core::CQRS::ICommand> make_set_object_persistent_command(
+        GameCore::EntityId a_objectId,
+        bool a_isPersistent)
+    {
+        return make_set_object_value_command(
+            a_objectId,
+            a_isPersistent,
+            &IGameCommandContext::get_object_persistent,
+            &IGameCommandContext::set_object_persistent,
+            "Object persistent command has not been executed.");
+    }
 
     std::unique_ptr<Core::CQRS::ICommand> make_set_transform_component_command(
         GameCore::EntityId a_objectId,
@@ -298,6 +422,48 @@ namespace Cue
     Result EngineCommandContext::rename_object(GameCore::EntityId a_objectId, std::string_view a_name)
     {
         return m_gameWorld.set_object_name(a_objectId, a_name);
+    }
+
+    Result EngineCommandContext::get_object_tag(
+        GameCore::EntityId a_objectId,
+        std::string& a_outTag)
+    {
+        return m_gameWorld.get_object_tag(a_objectId, a_outTag);
+    }
+
+    Result EngineCommandContext::set_object_tag(
+        GameCore::EntityId a_objectId,
+        std::string_view a_tag)
+    {
+        return m_gameWorld.set_object_tag(a_objectId, a_tag);
+    }
+
+    Result EngineCommandContext::get_object_active(
+        GameCore::EntityId a_objectId,
+        bool& a_outIsActive)
+    {
+        return m_gameWorld.is_object_active(a_objectId, a_outIsActive);
+    }
+
+    Result EngineCommandContext::set_object_active(
+        GameCore::EntityId a_objectId,
+        bool a_isActive)
+    {
+        return m_gameWorld.set_object_active(a_objectId, a_isActive);
+    }
+
+    Result EngineCommandContext::get_object_persistent(
+        GameCore::EntityId a_objectId,
+        bool& a_outIsPersistent)
+    {
+        return m_gameWorld.is_object_persistent(a_objectId, a_outIsPersistent);
+    }
+
+    Result EngineCommandContext::set_object_persistent(
+        GameCore::EntityId a_objectId,
+        bool a_isPersistent)
+    {
+        return m_gameWorld.set_object_persistent(a_objectId, a_isPersistent);
     }
 
     Result EngineCommandContext::get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId)

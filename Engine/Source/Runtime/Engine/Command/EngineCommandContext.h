@@ -32,6 +32,12 @@ namespace Cue
             GameCore::EntityId& a_outObjectId) override;
         Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) override;
         Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) override;
+        Result get_object_tag(GameCore::EntityId a_objectId, std::string& a_outTag) override;
+        Result set_object_tag(GameCore::EntityId a_objectId, std::string_view a_tag) override;
+        Result get_object_active(GameCore::EntityId a_objectId, bool& a_outIsActive) override;
+        Result set_object_active(GameCore::EntityId a_objectId, bool a_isActive) override;
+        Result get_object_persistent(GameCore::EntityId a_objectId, bool& a_outIsPersistent) override;
+        Result set_object_persistent(GameCore::EntityId a_objectId, bool a_isPersistent) override;
         Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) override;
         Result set_parent(
             GameCore::EntityId a_objectId,

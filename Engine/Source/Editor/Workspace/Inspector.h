@@ -14,7 +14,9 @@
 #include <CueMath.h>
 
 // === C++ includes ===
+#include <array>
 #include <cstdint>
+#include <string>
 
 namespace Cue
 {
@@ -83,7 +85,7 @@ namespace Cue::Editor
         /// @brief 選択中 GameObject に追加できる Component の menu を描画する
         void draw_add_component_menu(GameCore::GameObject& a_object);
 
-        /// @brief Scene 所有や親子関係など Object の基礎情報を読み取り専用で表示する
+        /// @brief Scene 所有や親子関係を表示し、編集可能な Object 基礎情報を CQRS へ送信する
         void draw_base_component(GameCore::GameObject& a_object);
 
         /// @brief local transform を編集し、GameWorld への反映は CQRS に委譲する
@@ -145,6 +147,18 @@ namespace Cue::Editor
         void submit_remove_component(GameCore::EntityId a_entityId,
                                      ComponentKind a_kind);
 
+        /// @brief Object 名の変更を CQRS 経由で要求する
+        void submit_rename_object(GameCore::EntityId a_entityId, std::string a_name);
+
+        /// @brief Object Tag の変更を CQRS 経由で要求する
+        void submit_object_tag(GameCore::EntityId a_entityId, std::string a_tag);
+
+        /// @brief Object ActiveSelf の変更を CQRS 経由で要求する
+        void submit_object_active(GameCore::EntityId a_entityId, bool a_isActive);
+
+        /// @brief Object Persistent の変更を CQRS 経由で要求する
+        void submit_object_persistent(GameCore::EntityId a_entityId, bool a_isPersistent);
+
         GameCore::GameWorld* m_gameWorld = nullptr;
         DrawSystem::MeshPool* m_meshPool = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
@@ -153,10 +167,15 @@ namespace Cue::Editor
         Math::float3 m_rotationEulerDegrees = Math::float3::zero();
         Math::Quaternion m_rotationSource = Math::Quaternion::identity();
         GameCore::EntityId m_rotationEntityId = GameCore::k_invalidEntityId;
+        GameCore::EntityId m_baseEntityId = GameCore::k_invalidEntityId;
+        std::array<char, 256> m_nameBuffer{};
+        std::array<char, 256> m_tagBuffer{};
         uint64_t m_nextHistoryTransactionId = 1;
         uint64_t m_activeHistoryTransactionId = 0;
         uint32_t m_activeHistoryItemId = 0;
         bool m_hasRotationCache = false;
         bool m_isRotationEditing = false;
+        bool m_isNameEditing = false;
+        bool m_isTagEditing = false;
     };
 } // namespace Cue::Editor

@@ -10,6 +10,7 @@
 
 // === C++ includes ===
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <memory>
 #include <numbers>
@@ -151,6 +152,17 @@ namespace
     {
         bool hasComponent = false;
         return a_object.has_component<Component>(hasComponent) && hasComponent;
+    }
+
+    template <size_t Size>
+    void copy_text_to_buffer(std::array<char, Size>& a_buffer, std::string_view a_text)
+    {
+        std::fill(a_buffer.begin(), a_buffer.end(), '\0');
+        const size_t copyLength = (std::min)(a_text.size(), a_buffer.size() - 1u);
+        if (copyLength > 0)
+        {
+            std::memcpy(a_buffer.data(), a_text.data(), copyLength);
+        }
     }
 } // namespace
 
@@ -327,14 +339,67 @@ namespace Cue::Editor
             return;
         }
 
+        if (m_baseEntityId != a_object.entity_id())
+        {
+            m_baseEntityId = a_object.entity_id();
+            m_isNameEditing = false;
+            m_isTagEditing = false;
+            copy_text_to_buffer(m_nameBuffer, base->name);
+            copy_text_to_buffer(m_tagBuffer, base->tag);
+        }
+
         if (ImGui::CollapsingHeader("Base", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("Name: %s", base->name.c_str());
-            ImGui::Text("Tag: %s", base->tag.c_str());
+            if (!m_isNameEditing)
+            {
+                copy_text_to_buffer(m_nameBuffer, base->name);
+            }
+            const bool isNameSubmitted = ImGui::InputText(
+                "Name", m_nameBuffer.data(), m_nameBuffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue);
+            const bool isNameDeactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
+            m_isNameEditing = ImGui::IsItemActive();
+            if (isNameSubmitted || isNameDeactivatedAfterEdit)
+            {
+                const std::string name = m_nameBuffer.data();
+                if (name != base->name)
+                {
+                    submit_rename_object(a_object.entity_id(), name);
+                }
+            }
+
+            if (!m_isTagEditing)
+            {
+                copy_text_to_buffer(m_tagBuffer, base->tag);
+            }
+            const bool isTagSubmitted = ImGui::InputText(
+                "Tag", m_tagBuffer.data(), m_tagBuffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue);
+            const bool isTagDeactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
+            m_isTagEditing = ImGui::IsItemActive();
+            if (isTagSubmitted || isTagDeactivatedAfterEdit)
+            {
+                const std::string tag = m_tagBuffer.data();
+                if (tag != base->tag)
+                {
+                    submit_object_tag(a_object.entity_id(), tag);
+                }
+            }
+
             text_scene_id("OwningScene", base->owningSceneId);
             text_entity_id("Parent", base->parent);
-            ImGui::Text("ActiveSelf: %s", base->isActiveSelf ? "true" : "false");
-            ImGui::Text("Persistent: %s", base->isPersistent ? "true" : "false");
+
+            bool isActive = base->isActiveSelf;
+            if (ImGui::Checkbox("ActiveSelf", &isActive))
+            {
+                submit_object_active(a_object.entity_id(), isActive);
+            }
+
+            bool isPersistent = base->isPersistent;
+            if (ImGui::Checkbox("Persistent", &isPersistent))
+            {
+                submit_object_persistent(a_object.entity_id(), isPersistent);
+            }
         }
     }
 
@@ -800,5 +865,55 @@ namespace Cue::Editor
         // Component の復元値を Command 側で保持し、Undo 時に削除前の設定を再現する。
         (void)m_commandBridge->submit_command(
             std::make_unique<RemoveComponentCommand>(a_entityId, a_kind));
+    }
+
+    void Inspector::submit_rename_object(GameCore::EntityId a_entityId, std::string a_name)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // Name index の正規化を GameWorld へ集約するため、Inspector は新しい表示名だけを渡す。
+        (void)m_commandBridge->submit_command(
+            std::make_unique<RenameObjectCommand>(a_entityId, std::move(a_name)));
+    }
+
+    void Inspector::submit_object_tag(GameCore::EntityId a_entityId, std::string a_tag)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // Tag index の更新と空 Tag の正規化を GameWorld 側へ残す。
+        (void)m_commandBridge->submit_command(
+            make_set_object_tag_command(a_entityId, std::move(a_tag)));
+    }
+
+    void Inspector::submit_object_active(GameCore::EntityId a_entityId, bool a_isActive)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // ECS の有効状態も同期する必要があるため BaseComponent を直接変更しない。
+        (void)m_commandBridge->submit_command(
+            make_set_object_active_command(a_entityId, a_isActive));
+    }
+
+    void Inspector::submit_object_persistent(
+        GameCore::EntityId a_entityId,
+        bool a_isPersistent)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // Persistent 化に伴う Scene 所属の調整は GameWorld が一貫して扱う。
+        (void)m_commandBridge->submit_command(
+            make_set_object_persistent_command(a_entityId, a_isPersistent));
     }
 } // namespace Cue::Editor

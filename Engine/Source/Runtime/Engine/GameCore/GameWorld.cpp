@@ -751,17 +751,19 @@ namespace Cue::GameCore
 
     Result GameWorld::set_object_persistent(EntityId a_entityId, bool a_isPersistent)
     {
+        EntityRecord* record = try_get_entity_record(a_entityId);
         BaseComponent* base = m_ecsManager.get_component<BaseComponent>(a_entityId);
-        if (base == nullptr || !contains_object(a_entityId))
+        if (record == nullptr || base == nullptr || !contains_object(a_entityId))
         {
             return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
         }
 
-        // Scene 所属を導入した時に永続 Object を Scene から切り離せるよう値を整える
+        // Persistent 解除時は生成元 Scene へ戻し、Undo で保存対象の所属まで復元できるようにする。
         if (base->isPersistent != a_isPersistent)
         {
             base->isPersistent = a_isPersistent;
-            base->owningSceneId = a_isPersistent ? k_invalidSceneId : base->owningSceneId;
+            base->owningSceneId =
+                a_isPersistent ? k_invalidSceneId : record->sourceSceneId;
             record_scene_edit();
         }
         return Result::ok();
