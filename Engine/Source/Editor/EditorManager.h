@@ -133,6 +133,7 @@ namespace Cue::Editor
         void draw_file_menu_items();
         void draw_edit_menu_items();
         void draw_add_menu_items();
+        void draw_game_menu_items();
         void draw_view_menu_items();
         void process_edit_shortcuts();
         void open_project_selector();

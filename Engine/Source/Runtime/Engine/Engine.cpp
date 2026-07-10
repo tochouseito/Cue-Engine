@@ -12,6 +12,7 @@
 #include "DrawSystem/StaticMeshBatcher.h"
 #include "DrawSystem/Systems/CameraSystem.h"
 #include "DrawSystem/Systems/RenderableObjectSystem.h"
+#include "GameCore/SceneAsset.h"
 
 // === Frame Passes includes ===
 #include "DrawSystem/passes/DrawResourceUploadCopyPass.h"
@@ -236,7 +237,14 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         }
     }
 
-    r = initialize_render_extraction_pipeline();
+    r = initialize_render_extraction_pipeline(m_gameWorld, m_renderExtractionPipeline);
+    if (!r)
+    {
+        return r;
+    }
+
+    r = initialize_render_extraction_pipeline(
+        m_runtimeGameWorld, m_runtimeRenderExtractionPipeline);
     if (!r)
     {
         return r;
@@ -322,7 +330,7 @@ Result Engine::begin_frame()
         }
     }
 
-    return Result::ok();
+    return apply_pending_play_request();
 }
 
 Result Engine::end_frame()
@@ -337,6 +345,71 @@ Result Engine::tick()
     m_frameController->step();
 
     return Result::ok();
+}
+
+Result Engine::request_start_play()
+{
+    if (m_playState != PlayState::editing || m_pendingPlayRequest != PlayRequest::none)
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "Play mode is already requested or active.");
+    }
+
+    m_pendingPlayRequest = PlayRequest::start;
+    return Result::ok();
+}
+
+Result Engine::request_pause_play()
+{
+    if (m_playState != PlayState::playing || m_pendingPlayRequest != PlayRequest::none)
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "Play mode is not running.");
+    }
+
+    m_pendingPlayRequest = PlayRequest::pause;
+    return Result::ok();
+}
+
+Result Engine::request_resume_play()
+{
+    if (m_playState != PlayState::paused || m_pendingPlayRequest != PlayRequest::none)
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "Play mode is not paused.");
+    }
+
+    m_pendingPlayRequest = PlayRequest::resume;
+    return Result::ok();
+}
+
+Result Engine::request_step_play()
+{
+    if (m_playState != PlayState::paused || m_pendingPlayRequest != PlayRequest::none)
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "Play mode is not paused.");
+    }
+
+    m_pendingPlayRequest = PlayRequest::step;
+    return Result::ok();
+}
+
+Result Engine::request_stop_play()
+{
+    if (m_playState == PlayState::editing || m_pendingPlayRequest != PlayRequest::none)
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning, "Play mode is not active.");
+    }
+
+    m_pendingPlayRequest = PlayRequest::stop;
+    return Result::ok();
+}
+
+bool Engine::is_playing() const noexcept
+{
+    return m_playState != PlayState::editing;
+}
+
+bool Engine::is_play_paused() const noexcept
+{
+    return m_playState == PlayState::paused;
 }
 
 std::function<void(uint64_t, uint32_t)> Engine::update()
@@ -474,10 +547,12 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
     return Result::ok();
 }
 
-Result Engine::initialize_render_extraction_pipeline()
+Result Engine::initialize_render_extraction_pipeline(
+    GameCore::GameWorld& a_world,
+    ECS::ECSManager::SystemPipeline& a_outPipeline)
 {
     ECS::ECSManager* ecs = nullptr;
-    Result result = m_gameWorld.ecs(ecs);
+    Result result = a_world.ecs(ecs);
     if (!result)
     {
         return result;
@@ -487,14 +562,14 @@ Result Engine::initialize_render_extraction_pipeline()
         return Result::fail(Code::InvalidState, Severity::Fatal, "GameWorld ECS is not initialized.");
     }
 
-    // Runtime の GameWorld には pipeline を持たせず、Engine
-    // 側で描画抽出順だけを定義する。
-    ECS::CameraSystem& cameraSystem = ecs->add_system<ECS::CameraSystem>(m_gameWorld, m_drawFrameState, m_drawScenes);
+    // GameWorld は描画層へ依存させず、Engine 側で World ごとの描画抽出順だけを定義する
+    ECS::CameraSystem& cameraSystem =
+        ecs->add_system<ECS::CameraSystem>(a_world, m_drawFrameState, m_drawScenes);
     ECS::RenderableObjectSystem& renderableSystem = ecs->add_system<ECS::RenderableObjectSystem>(m_drawScenes);
 
-    m_renderExtractionPipeline.clear();
-    m_renderExtractionPipeline.add_system(&cameraSystem);
-    m_renderExtractionPipeline.add_system(&renderableSystem);
+    a_outPipeline.clear();
+    a_outPipeline.add_system(&cameraSystem);
+    a_outPipeline.add_system(&renderableSystem);
     return Result::ok();
 }
 
@@ -577,12 +652,22 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     frameData.indirectCommandCount = 0;
     frameData.useCpuBatching = false;
 
-    // 描画抽出は WorldTransform を参照するため、GameWorld の階層変換を先に確定する
+    GameCore::GameWorld& activeWorld = active_game_world();
+    ECS::ECSManager::SystemPipeline& activePipeline = active_render_extraction_pipeline();
+
+    // runtime World だけを進め、Editor World は Play 中も保存可能な authoring 状態のまま保つ
     constexpr float k_fixedDeltaTime = 1.0f / 60.0f;
-    m_gameWorld.sync_world_transforms();
+    if (m_playState == PlayState::playing || m_isPlayStepRequested)
+    {
+        activeWorld.animate_static_mesh_objects(k_fixedDeltaTime);
+        m_isPlayStepRequested = false;
+    }
+
+    // 描画抽出は WorldTransform を参照するため、階層変換を先に確定する
+    activeWorld.sync_world_transforms();
 
     ECS::ECSManager* ecs = nullptr;
-    Result result = m_gameWorld.ecs(ecs);
+    Result result = activeWorld.ecs(ecs);
     if (!result)
     {
         return result;
@@ -593,7 +678,7 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     }
 
     const ECS::UpdateContext updateContext{a_bufferIndex, k_fixedDeltaTime};
-    m_renderExtractionPipeline.update(*ecs, updateContext);
+    activePipeline.update(*ecs, updateContext);
 
     if (m_hasRenderViewOverride)
     {
@@ -755,6 +840,73 @@ void Engine::set_render_view_override(const DrawSystem::RenderView& a_renderView
 void Engine::clear_render_view_override() noexcept
 {
     m_hasRenderViewOverride = false;
+}
+
+Result Engine::apply_pending_play_request()
+{
+    const PlayRequest request = m_pendingPlayRequest;
+    m_pendingPlayRequest = PlayRequest::none;
+
+    switch (request)
+    {
+    case PlayRequest::none:
+        return Result::ok();
+    case PlayRequest::start:
+        return start_play();
+    case PlayRequest::pause:
+        m_playState = PlayState::paused;
+        return Result::ok();
+    case PlayRequest::resume:
+        m_playState = PlayState::playing;
+        return Result::ok();
+    case PlayRequest::step:
+        m_isPlayStepRequested = true;
+        return Result::ok();
+    case PlayRequest::stop:
+        return stop_play();
+    default:
+        return Result::fail(Code::InvalidArgument, Severity::Error, "Unknown play request.");
+    }
+}
+
+Result Engine::start_play()
+{
+    GameCore::SceneAsset runtimeScene{};
+    Result result = m_gameWorld.make_scene_asset("Runtime", runtimeScene);
+    if (!result)
+    {
+        return result;
+    }
+
+    result = m_runtimeGameWorld.load_scene(runtimeScene);
+    if (!result)
+    {
+        return result;
+    }
+
+    m_playState = PlayState::playing;
+    m_isPlayStepRequested = false;
+    return Result::ok();
+}
+
+Result Engine::stop_play()
+{
+    // 描画側が runtime World を参照しない状態に戻してから、実行中の Entity を破棄する
+    m_playState = PlayState::editing;
+    m_isPlayStepRequested = false;
+    return m_runtimeGameWorld.clear();
+}
+
+GameCore::GameWorld& Engine::active_game_world() noexcept
+{
+    return m_playState == PlayState::editing ? m_gameWorld : m_runtimeGameWorld;
+}
+
+ECS::ECSManager::SystemPipeline& Engine::active_render_extraction_pipeline() noexcept
+{
+    return m_playState == PlayState::editing
+               ? m_renderExtractionPipeline
+               : m_runtimeRenderExtractionPipeline;
 }
 
 } // namespace Cue

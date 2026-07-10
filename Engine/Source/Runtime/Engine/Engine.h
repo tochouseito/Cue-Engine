@@ -85,6 +85,27 @@ class Engine final
         return m_gameWorld;
     }
 
+    /// @brief Editor World を複製した runtime World の実行を開始する
+    [[nodiscard]] Result request_start_play();
+
+    /// @brief runtime World の更新を停止し、現在の描画状態を維持する
+    [[nodiscard]] Result request_pause_play();
+
+    /// @brief 停止中の runtime World 更新を再開する
+    [[nodiscard]] Result request_resume_play();
+
+    /// @brief 停止中の runtime World を 1 update だけ進める
+    [[nodiscard]] Result request_step_play();
+
+    /// @brief runtime World を破棄して Editor World の描画へ戻す
+    [[nodiscard]] Result request_stop_play();
+
+    /// @brief runtime World が生成されているかを返す
+    [[nodiscard]] bool is_playing() const noexcept;
+
+    /// @brief runtime World の更新が停止中かを返す
+    [[nodiscard]] bool is_play_paused() const noexcept;
+
     DrawSystem::MeshPool* mesh_pool() noexcept
     {
         return m_meshPool.get();
@@ -114,14 +135,31 @@ class Engine final
     std::function<void(uint64_t, uint32_t)> present();
     Result create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editorPass);
 
-    /// @brief DrawSystem 用の ECS 抽出 pipeline を構築する
-    Result initialize_render_extraction_pipeline();
+    /// @brief 指定 GameWorld 用の DrawSystem 抽出 pipeline を構築する
+    Result initialize_render_extraction_pipeline(
+        GameCore::GameWorld& a_world,
+        ECS::ECSManager::SystemPipeline& a_outPipeline);
 
     /// @brief 初期描画に必要な Camera を GameWorld に追加する
     Result initialize_default_camera();
 
     /// @brief GameWorld の描画対象を frame resource に反映する
     Result update_draw_scene(uint32_t a_bufferIndex);
+
+    /// @brief Editor UI から保留された Play 状態遷移を command drain 後に適用する
+    Result apply_pending_play_request();
+
+    /// @brief Editor World の保存可能な snapshot から runtime World を構築する
+    Result start_play();
+
+    /// @brief runtime World の実行状態を破棄する
+    Result stop_play();
+
+    /// @brief 現在描画する World を返す
+    [[nodiscard]] GameCore::GameWorld& active_game_world() noexcept;
+
+    /// @brief 現在描画する World に対応する抽出 pipeline を返す
+    [[nodiscard]] ECS::ECSManager::SystemPipeline& active_render_extraction_pipeline() noexcept;
 
     /// @brief リサイズの適用
     /// @return
@@ -144,7 +182,25 @@ class Engine final
     RHI::RenderTargetResources m_debugColorRenderTarget{};
 
     // --- DrawSystem ---
+    enum class PlayState : uint8_t
+    {
+        editing,
+        playing,
+        paused,
+    };
+
+    enum class PlayRequest : uint8_t
+    {
+        none,
+        start,
+        pause,
+        resume,
+        step,
+        stop,
+    };
+
     GameCore::GameWorld m_gameWorld{};
+    GameCore::GameWorld m_runtimeGameWorld{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
     std::vector<DrawSystem::DrawScene> m_debugDrawScenes{};
     DrawSystem::DrawFrameState m_drawFrameState{};
@@ -153,10 +209,14 @@ class Engine final
     std::unique_ptr<DrawSystem::DrawResources> m_debugDrawResources = nullptr;
     std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
     ECS::ECSManager::SystemPipeline m_renderExtractionPipeline{};
+    ECS::ECSManager::SystemPipeline m_runtimeRenderExtractionPipeline{};
     const DrawSystem::RenderView* m_debugRenderView = nullptr;
     bool m_isDebugRenderingEnabled = false;
     DrawSystem::RenderView m_renderViewOverride{};
     bool m_hasRenderViewOverride = false;
+    PlayState m_playState = PlayState::editing;
+    PlayRequest m_pendingPlayRequest = PlayRequest::none;
+    bool m_isPlayStepRequested = false;
     Core::IO::Path m_assetRootPath{}; // Project 由来の Assets フォルダ
 
     // --- サブシステム ---

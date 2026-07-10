@@ -78,8 +78,10 @@ namespace Cue::Editor
         draw_dockspace();
         update_project_selector();
         draw_scene_transition_dialog();
+        const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
         if (m_assetBrowser != nullptr)
         {
+            ImGui::BeginDisabled(isPlaying);
             if (m_project != nullptr)
             {
                 m_assetBrowser->set_asset_root_path(m_project->asset_root_path());
@@ -110,6 +112,7 @@ namespace Cue::Editor
             {
                 select_asset(assetSelection);
             }
+            ImGui::EndDisabled();
         }
         if (m_gameView != nullptr)
         {
@@ -125,14 +128,18 @@ namespace Cue::Editor
         {
             m_hierarchy->set_game_world(&m_engine->game_world());
             prepare_window_focus("ヒエラルキー");
+            ImGui::BeginDisabled(isPlaying);
             m_hierarchy->update();
+            ImGui::EndDisabled();
         }
         if (m_engine != nullptr && m_inspector != nullptr)
         {
             m_inspector->set_game_world(&m_engine->game_world());
             m_inspector->set_mesh_pool(m_engine->mesh_pool());
             prepare_window_focus("インスペクター");
+            ImGui::BeginDisabled(isPlaying);
             m_inspector->update();
+            ImGui::EndDisabled();
         }
         focus_pending_window();
 
@@ -218,6 +225,11 @@ namespace Cue::Editor
             draw_add_menu_items();
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Game"))
+        {
+            draw_game_menu_items();
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("View"))
         {
             draw_view_menu_items();
@@ -230,8 +242,9 @@ namespace Cue::Editor
 
     void EditorManager::draw_file_menu_items()
     {
+        const bool canChangeScene = m_engine == nullptr || !m_engine->is_playing();
         const bool canCreateScene =
-            m_project != nullptr && !m_project->root_path().is_empty();
+            canChangeScene && m_project != nullptr && !m_project->root_path().is_empty();
         if (ImGui::MenuItem("新規 Scene", nullptr, false, canCreateScene))
         {
             request_scene_transition(SceneTransition::newScene);
@@ -261,7 +274,7 @@ namespace Cue::Editor
             }
         }
 
-        if (ImGui::MenuItem("プロジェクト選択..."))
+        if (ImGui::MenuItem("プロジェクト選択...", nullptr, false, canChangeScene))
         {
             open_project_selector();
         }
@@ -285,15 +298,47 @@ namespace Cue::Editor
 
     void EditorManager::draw_add_menu_items()
     {
-        if (ImGui::MenuItem("空の GameObject"))
+        const bool canEditScene = m_engine == nullptr || !m_engine->is_playing();
+        if (ImGui::MenuItem("空の GameObject", nullptr, false, canEditScene))
         {
             submit_empty_object_command();
+        }
+    }
+
+    void EditorManager::draw_game_menu_items()
+    {
+        const bool hasEngine = m_engine != nullptr;
+        const bool isPlaying = hasEngine && m_engine->is_playing();
+        const bool isPaused = hasEngine && m_engine->is_play_paused();
+
+        if (ImGui::MenuItem("Play", nullptr, isPlaying && !isPaused,
+                            hasEngine && !isPlaying))
+        {
+            (void)m_engine->request_start_play();
+        }
+        if (ImGui::MenuItem("Pause", nullptr, isPaused,
+                            hasEngine && isPlaying && !isPaused))
+        {
+            (void)m_engine->request_pause_play();
+        }
+        if (ImGui::MenuItem("Resume", nullptr, false, hasEngine && isPaused))
+        {
+            (void)m_engine->request_resume_play();
+        }
+        if (ImGui::MenuItem("Step", nullptr, false, hasEngine && isPaused))
+        {
+            (void)m_engine->request_step_play();
+        }
+        if (ImGui::MenuItem("Stop", nullptr, false, hasEngine && isPlaying))
+        {
+            (void)m_engine->request_stop_play();
         }
     }
 
     void EditorManager::draw_edit_menu_items()
     {
         const bool canUndo =
+            (m_engine == nullptr || !m_engine->is_playing()) &&
             m_gameCommandBridge != nullptr && m_gameCommandBridge->can_undo();
         if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo))
         {
@@ -301,6 +346,7 @@ namespace Cue::Editor
         }
 
         const bool canRedo =
+            (m_engine == nullptr || !m_engine->is_playing()) &&
             m_gameCommandBridge != nullptr && m_gameCommandBridge->can_redo();
         if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
         {
@@ -412,6 +458,13 @@ namespace Cue::Editor
         SceneTransition a_transition, const Core::IO::Path& a_projectRoot)
     {
         if (a_transition == SceneTransition::none)
+        {
+            return;
+        }
+
+        // Play 中は Editor World と runtime World の対応を維持するため、終了以外の遷移を受け付けない
+        if (a_transition != SceneTransition::exit &&
+            m_engine != nullptr && m_engine->is_playing())
         {
             return;
         }
@@ -673,7 +726,8 @@ namespace Cue::Editor
 
     void EditorManager::submit_empty_object_command()
     {
-        if (m_gameCommandBridge == nullptr)
+        if (m_gameCommandBridge == nullptr ||
+            (m_engine != nullptr && m_engine->is_playing()))
         {
             return;
         }
@@ -686,6 +740,11 @@ namespace Cue::Editor
 
     void EditorManager::process_edit_shortcuts()
     {
+        if (m_engine != nullptr && m_engine->is_playing())
+        {
+            return;
+        }
+
         const ImGuiIO& io = ImGui::GetIO();
         if (io.WantTextInput || !io.KeyCtrl)
         {
@@ -712,7 +771,8 @@ namespace Cue::Editor
 
     void EditorManager::request_undo()
     {
-        if (m_gameCommandBridge == nullptr)
+        if (m_gameCommandBridge == nullptr ||
+            (m_engine != nullptr && m_engine->is_playing()))
         {
             return;
         }
@@ -726,7 +786,8 @@ namespace Cue::Editor
 
     void EditorManager::request_redo()
     {
-        if (m_gameCommandBridge == nullptr)
+        if (m_gameCommandBridge == nullptr ||
+            (m_engine != nullptr && m_engine->is_playing()))
         {
             return;
         }
