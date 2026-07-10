@@ -66,7 +66,7 @@ namespace Cue::Editor
         if (m_engine != nullptr)
         {
             m_sceneManager = std::make_unique<EditorSceneManager>(
-                *a_info.fileSystem, m_engine->game_world());
+                *a_info.fileSystem, m_engine->game_world(), m_gameCommandBridge);
         }
         m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService,
                                                               *a_info.fileSystem);

@@ -5,12 +5,16 @@
 #include <GameCore/SceneAsset.h>
 #include <GameCore/SceneSerializer.h>
 #include <IO/IFileSystem.h>
+#include <CQRS/CQRS.h>
 
 namespace Cue::Editor
 {
-    EditorSceneManager::EditorSceneManager(Core::IO::IFileSystem& a_fileSystem, GameCore::GameWorld& a_world) noexcept
+    EditorSceneManager::EditorSceneManager(Core::IO::IFileSystem& a_fileSystem,
+                                           GameCore::GameWorld& a_world,
+                                           Core::CQRS::Bridge* a_commandBridge) noexcept
         : m_fileSystem(&a_fileSystem),
-          m_world(&a_world)
+          m_world(&a_world),
+          m_commandBridge(a_commandBridge)
     {
     }
 
@@ -63,9 +67,16 @@ namespace Cue::Editor
 
         m_currentScenePath = a_path;
         m_sceneName = scene.name.empty() ? a_path.stem() : scene.name;
+        if (m_commandBridge != nullptr)
+        {
+            m_commandBridge->reset_history();
+            m_savedHistoryCursor = m_commandBridge->history_cursor();
+        }
+
         // 読み込み直後の World は保存済み状態として扱い、既存 Scene を開いただけで dirty 化しない。
         m_savedSceneRevision = m_world->scene_revision();
         m_hasScene = true;
+        m_isUntitledScene = false;
         return Result::ok();
     }
 
@@ -100,8 +111,14 @@ namespace Cue::Editor
 
         m_currentScenePath = {};
         m_sceneName = "Untitled";
+        if (m_commandBridge != nullptr)
+        {
+            m_commandBridge->reset_history();
+            m_savedHistoryCursor = m_commandBridge->history_cursor();
+        }
         m_savedSceneRevision = m_world->scene_revision();
         m_hasScene = true;
+        m_isUntitledScene = true;
 
         // 保存先を持たない新規 Scene も未保存として扱い、保存操作へ導く。
         m_world->record_scene_edit();
@@ -149,6 +166,9 @@ namespace Cue::Editor
         m_currentScenePath = a_path;
         m_sceneName = a_name;
         m_savedSceneRevision = sceneRevision;
+        m_savedHistoryCursor =
+            m_commandBridge != nullptr ? m_commandBridge->history_cursor() : 0;
+        m_isUntitledScene = false;
         return Result::ok();
     }
 
@@ -161,12 +181,33 @@ namespace Cue::Editor
 
         m_currentScenePath = {};
         m_sceneName.clear();
+        if (m_commandBridge != nullptr)
+        {
+            m_commandBridge->reset_history();
+            m_savedHistoryCursor = m_commandBridge->history_cursor();
+        }
         m_savedSceneRevision = m_world != nullptr ? m_world->scene_revision() : 0;
         m_hasScene = false;
+        m_isUntitledScene = false;
     }
 
     bool EditorSceneManager::is_dirty() const noexcept
     {
-        return m_hasScene && m_world != nullptr && m_world->scene_revision() != m_savedSceneRevision;
+        if (!m_hasScene || m_world == nullptr)
+        {
+            return false;
+        }
+
+        if (m_isUntitledScene)
+        {
+            return true;
+        }
+
+        if (m_commandBridge != nullptr)
+        {
+            return m_commandBridge->history_cursor() != m_savedHistoryCursor;
+        }
+
+        return m_world->scene_revision() != m_savedSceneRevision;
     }
 } // namespace Cue::Editor

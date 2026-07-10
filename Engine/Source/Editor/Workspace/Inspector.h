@@ -106,7 +106,8 @@ namespace Cue::Editor
 
         /// @brief TransformComponent の変更を CQRS 経由で要求する
         void submit_transform_component(GameCore::EntityId a_entityId,
-                                        const ECS::TransformComponent& a_component);
+                                        const ECS::TransformComponent& a_component,
+                                        uint64_t a_historyTransactionId = 0);
 
         /// @brief Quaternion から Editor 表示用 Euler 角を同期する
         void sync_rotation_cache(GameCore::EntityId a_entityId,
@@ -114,7 +115,8 @@ namespace Cue::Editor
 
         /// @brief CameraComponent の変更を CQRS 経由で要求する
         void submit_camera_component(GameCore::EntityId a_entityId,
-                                     const ECS::CameraComponent& a_component);
+                                     const ECS::CameraComponent& a_component,
+                                     uint64_t a_historyTransactionId = 0);
 
         /// @brief MeshFilterComponent の変更を CQRS 経由で要求する
         void
@@ -124,7 +126,11 @@ namespace Cue::Editor
         /// @brief StaticMeshRendererComponent の変更を CQRS 経由で要求する
         void submit_static_mesh_renderer_component(
             GameCore::EntityId a_entityId,
-            const ECS::StaticMeshRendererComponent& a_component);
+            const ECS::StaticMeshRendererComponent& a_component,
+            uint64_t a_historyTransactionId = 0);
+
+        /// @brief 現在の ImGui 入力操作に対応する履歴統合用 ID を取得する
+        [[nodiscard]] uint64_t current_history_transaction();
 
         /// @brief Component 追加を CQRS 経由で要求する
         void submit_add_component(GameCore::EntityId a_entityId,
@@ -138,6 +144,9 @@ namespace Cue::Editor
         Math::float3 m_rotationEulerDegrees = Math::float3::zero();
         Math::Quaternion m_rotationSource = Math::Quaternion::identity();
         GameCore::EntityId m_rotationEntityId = GameCore::k_invalidEntityId;
+        uint64_t m_nextHistoryTransactionId = 1;
+        uint64_t m_activeHistoryTransactionId = 0;
+        uint32_t m_activeHistoryItemId = 0;
         bool m_hasRotationCache = false;
         bool m_isRotationEditing = false;
     };

@@ -84,6 +84,20 @@ namespace Cue
                 return (gameCommandContext->*m_setter)(m_objectId, m_oldComponent);
             }
 
+            bool try_merge(const Core::CQRS::IUndoableCommand& a_command) override
+            {
+                const auto* command = dynamic_cast<const SetComponentCommand*>(&a_command);
+                if (command == nullptr || command->m_objectId != m_objectId ||
+                    command->m_setter != m_setter)
+                {
+                    return false;
+                }
+
+                // 最初の Command が保持する編集前 snapshot を残し、Redo 用の最終値だけ更新する。
+                m_newComponent = command->m_newComponent;
+                return true;
+            }
+
         private:
             Component m_oldComponent{};
             Component m_newComponent{};

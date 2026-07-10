@@ -353,29 +353,36 @@ namespace Cue::Editor
 
             float position[3] = {edited.position.x, edited.position.y,
                                  edited.position.z};
-            if (ImGui::DragFloat3("Position", position, 0.05f))
+            const bool hasPositionChanged = ImGui::DragFloat3("Position", position, 0.05f);
+            const uint64_t positionTransactionId = current_history_transaction();
+            if (hasPositionChanged)
             {
                 edited.position = Math::float3(position[0], position[1], position[2]);
-                submit_transform_component(a_object.entity_id(), edited);
+                submit_transform_component(a_object.entity_id(), edited, positionTransactionId);
             }
 
             float rotation[3] = {m_rotationEulerDegrees.x, m_rotationEulerDegrees.y,
                                  m_rotationEulerDegrees.z};
-            if (ImGui::DragFloat3("Rotation", rotation, 0.1f, 0.0f, 0.0f, "%.3f deg"))
+            const bool hasRotationChanged =
+                ImGui::DragFloat3("Rotation", rotation, 0.1f, 0.0f, 0.0f, "%.3f deg");
+            const uint64_t rotationTransactionId = current_history_transaction();
+            if (hasRotationChanged)
             {
                 m_rotationEulerDegrees =
                     Math::float3(rotation[0], rotation[1], rotation[2]);
                 edited.rotation = quaternion_from_euler_degrees(m_rotationEulerDegrees);
                 m_rotationSource = edited.rotation;
-                submit_transform_component(a_object.entity_id(), edited);
+                submit_transform_component(a_object.entity_id(), edited, rotationTransactionId);
             }
             m_isRotationEditing = ImGui::IsItemActive();
 
             float scale[3] = {edited.scale.x, edited.scale.y, edited.scale.z};
-            if (ImGui::DragFloat3("Scale", scale, 0.05f))
+            const bool hasScaleChanged = ImGui::DragFloat3("Scale", scale, 0.05f);
+            const uint64_t scaleTransactionId = current_history_transaction();
+            if (hasScaleChanged)
             {
                 edited.scale = Math::float3(scale[0], scale[1], scale[2]);
-                submit_transform_component(a_object.entity_id(), edited);
+                submit_transform_component(a_object.entity_id(), edited, scaleTransactionId);
             }
         }
     }
@@ -408,31 +415,41 @@ namespace Cue::Editor
         {
             ECS::CameraComponent edited = *camera;
 
-            if (ImGui::DragFloat("FovY", &edited.fovY, 0.1f, 1.0f, 179.0f,
-                                 "%.3f deg"))
+            const bool hasFovYChanged = ImGui::DragFloat("FovY", &edited.fovY, 0.1f, 1.0f,
+                                                          179.0f, "%.3f deg");
+            const uint64_t fovYTransactionId = current_history_transaction();
+            if (hasFovYChanged)
             {
                 edited.fovY = std::clamp(edited.fovY, 1.0f, 179.0f);
-                submit_camera_component(a_object.entity_id(), edited);
+                submit_camera_component(a_object.entity_id(), edited, fovYTransactionId);
             }
-            if (ImGui::DragFloat("AspectRatio", &edited.aspectRatio, 0.01f, 0.0f,
-                                 8.0f))
+            const bool hasAspectRatioChanged =
+                ImGui::DragFloat("AspectRatio", &edited.aspectRatio, 0.01f, 0.0f, 8.0f);
+            const uint64_t aspectRatioTransactionId = current_history_transaction();
+            if (hasAspectRatioChanged)
             {
                 edited.aspectRatio = std::max(0.0f, edited.aspectRatio);
-                submit_camera_component(a_object.entity_id(), edited);
+                submit_camera_component(a_object.entity_id(), edited,
+                                        aspectRatioTransactionId);
             }
-            if (ImGui::DragFloat("NearZ", &edited.nearZ, 0.01f, 0.001f, edited.farZ))
+            const bool hasNearZChanged =
+                ImGui::DragFloat("NearZ", &edited.nearZ, 0.01f, 0.001f, edited.farZ);
+            const uint64_t nearZTransactionId = current_history_transaction();
+            if (hasNearZChanged)
             {
                 // projection 行列の破綻を避けるため near/far の最小間隔を維持する
                 edited.nearZ = std::max(0.001f, edited.nearZ);
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
-                submit_camera_component(a_object.entity_id(), edited);
+                submit_camera_component(a_object.entity_id(), edited, nearZTransactionId);
             }
-            if (ImGui::DragFloat("FarZ", &edited.farZ, 0.1f, edited.nearZ + 0.001f,
-                                 100000.0f))
+            const bool hasFarZChanged = ImGui::DragFloat("FarZ", &edited.farZ, 0.1f,
+                                                          edited.nearZ + 0.001f, 100000.0f);
+            const uint64_t farZTransactionId = current_history_transaction();
+            if (hasFarZChanged)
             {
                 // UI 入力の順序に依存せず CameraComponent 側の不変条件を保つ
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
-                submit_camera_component(a_object.entity_id(), edited);
+                submit_camera_component(a_object.entity_id(), edited, farZTransactionId);
             }
         }
     }
@@ -528,10 +545,13 @@ namespace Cue::Editor
         {
             ECS::StaticMeshRendererComponent edited = *renderer;
 
-            if (ImGui::InputScalar("MaterialId", ImGuiDataType_U32,
-                                   &edited.materialId))
+            const bool hasMaterialIdChanged =
+                ImGui::InputScalar("MaterialId", ImGuiDataType_U32, &edited.materialId);
+            const uint64_t materialIdTransactionId = current_history_transaction();
+            if (hasMaterialIdChanged)
             {
-                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited,
+                                                      materialIdTransactionId);
             }
 
             const char* renderQueueItems[] = {"Opaque", "Transparent", "Auto"};
@@ -566,28 +586,37 @@ namespace Cue::Editor
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
-            if (ImGui::InputScalar("OverrideMask", ImGuiDataType_U32,
-                                   &edited.propertyBlock.overrideMask))
+            const bool hasOverrideMaskChanged = ImGui::InputScalar(
+                "OverrideMask", ImGuiDataType_U32, &edited.propertyBlock.overrideMask);
+            const uint64_t overrideMaskTransactionId = current_history_transaction();
+            if (hasOverrideMaskChanged)
             {
-                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited,
+                                                      overrideMaskTransactionId);
             }
 
             float color[4] = {
                 edited.propertyBlock.color.x, edited.propertyBlock.color.y,
                 edited.propertyBlock.color.z, edited.propertyBlock.color.w};
-            if (ImGui::ColorEdit4("Color", color))
+            const bool hasColorChanged = ImGui::ColorEdit4("Color", color);
+            const uint64_t colorTransactionId = current_history_transaction();
+            if (hasColorChanged)
             {
                 edited.propertyBlock.color =
                     Math::float4(color[0], color[1], color[2], color[3]);
-                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited,
+                                                      colorTransactionId);
             }
 
-            if (ImGui::DragFloat("Shininess", &edited.propertyBlock.shininess, 0.1f,
-                                 0.0f, 4096.0f))
+            const bool hasShininessChanged = ImGui::DragFloat(
+                "Shininess", &edited.propertyBlock.shininess, 0.1f, 0.0f, 4096.0f);
+            const uint64_t shininessTransactionId = current_history_transaction();
+            if (hasShininessChanged)
             {
                 edited.propertyBlock.shininess =
                     std::max(0.0f, edited.propertyBlock.shininess);
-                submit_static_mesh_renderer_component(a_object.entity_id(), edited);
+                submit_static_mesh_renderer_component(a_object.entity_id(), edited,
+                                                      shininessTransactionId);
             }
             if (ImGui::Checkbox("UsesReflectionSkybox",
                                 &edited.propertyBlock.usesReflectionSkybox))
@@ -641,7 +670,8 @@ namespace Cue::Editor
     }
 
     void Inspector::submit_transform_component(
-        GameCore::EntityId a_entityId, const ECS::TransformComponent& a_component)
+        GameCore::EntityId a_entityId, const ECS::TransformComponent& a_component,
+        uint64_t a_historyTransactionId)
     {
         if (m_commandBridge == nullptr)
         {
@@ -651,11 +681,12 @@ namespace Cue::Editor
         // Component 変更は GameWorld の整合更新を通すため直接書き換えず command
         // 化する
         (void)m_commandBridge->submit_command(
-            make_set_transform_component_command(a_entityId, a_component));
+            make_set_transform_component_command(a_entityId, a_component), a_historyTransactionId);
     }
 
     void Inspector::submit_camera_component(
-        GameCore::EntityId a_entityId, const ECS::CameraComponent& a_component)
+        GameCore::EntityId a_entityId, const ECS::CameraComponent& a_component,
+        uint64_t a_historyTransactionId)
     {
         if (m_commandBridge == nullptr)
         {
@@ -664,7 +695,7 @@ namespace Cue::Editor
 
         // Camera 更新後の描画 View 再計算を Engine 側の更新経路へ集約する
         (void)m_commandBridge->submit_command(
-            make_set_camera_component_command(a_entityId, a_component));
+            make_set_camera_component_command(a_entityId, a_component), a_historyTransactionId);
     }
 
     void Inspector::submit_mesh_filter_component(
@@ -683,7 +714,8 @@ namespace Cue::Editor
 
     void Inspector::submit_static_mesh_renderer_component(
         GameCore::EntityId a_entityId,
-        const ECS::StaticMeshRendererComponent& a_component)
+        const ECS::StaticMeshRendererComponent& a_component,
+        uint64_t a_historyTransactionId)
     {
         if (m_commandBridge == nullptr)
         {
@@ -693,7 +725,30 @@ namespace Cue::Editor
         // RendererComponent は DrawSystem 抽出に関わるため CQRS
         // 経由で変更順序を揃える
         (void)m_commandBridge->submit_command(
-            make_set_static_mesh_renderer_component_command(a_entityId, a_component));
+            make_set_static_mesh_renderer_component_command(a_entityId, a_component),
+            a_historyTransactionId);
+    }
+
+    uint64_t Inspector::current_history_transaction()
+    {
+        const uint32_t itemId = static_cast<uint32_t>(ImGui::GetItemID());
+        if (ImGui::IsItemActivated())
+        {
+            m_activeHistoryItemId = itemId;
+            m_activeHistoryTransactionId = m_nextHistoryTransactionId++;
+        }
+
+        const uint64_t transactionId = m_activeHistoryItemId == itemId
+                                           ? m_activeHistoryTransactionId
+                                           : 0;
+        if (m_activeHistoryItemId == itemId && ImGui::IsItemDeactivatedAfterEdit())
+        {
+            // 次の入力で同じ ImGui ID が再利用されても、別操作として履歴を分離する。
+            m_activeHistoryItemId = 0;
+            m_activeHistoryTransactionId = 0;
+        }
+
+        return transactionId;
     }
 
     void Inspector::submit_add_component(GameCore::EntityId a_entityId,

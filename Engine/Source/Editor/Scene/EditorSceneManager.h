@@ -24,13 +24,19 @@ namespace Cue::GameCore
     class GameWorld;
 }
 
+namespace Cue::Core::CQRS
+{
+    class Bridge;
+}
+
 namespace Cue::Editor
 {
     /// @brief Editor の current scene 状態と GameWorld への読み込みを管理する
     class EditorSceneManager final
     {
     public:
-        EditorSceneManager(Core::IO::IFileSystem& a_fileSystem, GameCore::GameWorld& a_world) noexcept;
+        EditorSceneManager(Core::IO::IFileSystem& a_fileSystem, GameCore::GameWorld& a_world,
+                           Core::CQRS::Bridge* a_commandBridge) noexcept;
 
         /// @brief Scene file を読み込み、GameWorld の内容を置き換える
         [[nodiscard]] Result open_scene(const Core::IO::Path& a_path) noexcept;
@@ -81,7 +87,10 @@ namespace Cue::Editor
         std::string m_sceneName{};
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Scene file を読み書きする非所有 FileSystem
         GameCore::GameWorld* m_world = nullptr;        // Scene を展開する非所有 GameWorld
+        Core::CQRS::Bridge* m_commandBridge = nullptr; // Scene 編集履歴を保持する非所有 Bridge
         std::uint64_t m_savedSceneRevision = 0;
+        std::uint64_t m_savedHistoryCursor = 0;
         bool m_hasScene = false;
+        bool m_isUntitledScene = false;
     };
 } // namespace Cue::Editor

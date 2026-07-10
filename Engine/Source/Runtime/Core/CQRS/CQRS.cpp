@@ -2,7 +2,8 @@
 
 namespace Cue::Core::CQRS
 {
-    Result Bridge::submit_command(std::unique_ptr<ICommand> a_command)
+    Result Bridge::submit_command(std::unique_ptr<ICommand> a_command,
+                                  uint64_t a_historyTransactionId)
     {
         // null command を拒否し、呼び出し側の組み立て漏れを早期に検出する。
         if (a_command == nullptr)
@@ -11,7 +12,10 @@ namespace Cue::Core::CQRS
         }
 
         // 実行タイミングは Engine 側で制御できるよう queue へ積むだけにする。
-        m_pendingCommands.push_back(std::move(a_command));
+        PendingCommand pendingCommand{};
+        pendingCommand.command = std::move(a_command);
+        pendingCommand.historyTransactionId = a_historyTransactionId;
+        m_pendingCommands.push_back(std::move(pendingCommand));
         return Result::ok();
     }
 
@@ -20,8 +24,10 @@ namespace Cue::Core::CQRS
         // command は submit 順で処理し、Engine の安全なフェーズだけで状態を書き換える。
         while (!m_pendingCommands.empty())
         {
-            std::unique_ptr<ICommand> command = std::move(m_pendingCommands.front());
+            PendingCommand pendingCommand = std::move(m_pendingCommands.front());
             m_pendingCommands.pop_front();
+
+            std::unique_ptr<ICommand> command = std::move(pendingCommand.command);
 
             Result result = command->execute(a_commandContext);
             if (!result)
@@ -35,8 +41,21 @@ namespace Cue::Core::CQRS
             IUndoableCommand* undoableCommand = dynamic_cast<IUndoableCommand*>(command.get());
             if (undoableCommand != nullptr)
             {
-                (void)command.release();
-                m_undoStack.push_back(std::unique_ptr<IUndoableCommand>(undoableCommand));
+                const bool canMerge =
+                    pendingCommand.historyTransactionId != 0 &&
+                    !m_undoStack.empty() &&
+                    m_undoStack.back().transactionId == pendingCommand.historyTransactionId;
+                if (canMerge && m_undoStack.back().command->try_merge(*undoableCommand))
+                {
+                    continue;
+                }
+
+                HistoryEntry historyEntry{};
+                historyEntry.command = std::unique_ptr<IUndoableCommand>(
+                    static_cast<IUndoableCommand*>(command.release()));
+                historyEntry.id = m_nextHistoryId++;
+                historyEntry.transactionId = pendingCommand.historyTransactionId;
+                m_undoStack.push_back(std::move(historyEntry));
             }
         }
 
@@ -67,18 +86,18 @@ namespace Cue::Core::CQRS
         }
 
         // 失敗時は履歴位置を元へ戻し、履歴破損を防ぐ。
-        std::unique_ptr<IUndoableCommand> command = std::move(m_undoStack.back());
+        HistoryEntry historyEntry = std::move(m_undoStack.back());
         m_undoStack.pop_back();
 
-        Result result = command->undo(a_commandContext);
+        Result result = historyEntry.command->undo(a_commandContext);
         if (!result)
         {
-            m_undoStack.push_back(std::move(command));
+            m_undoStack.push_back(std::move(historyEntry));
             return result;
         }
 
         // undo 成功後だけ redo 履歴へ移し、再適用可能な状態を保持する。
-        m_redoStack.push_back(std::move(command));
+        m_redoStack.push_back(std::move(historyEntry));
         return Result::ok();
     }
 
@@ -91,18 +110,18 @@ namespace Cue::Core::CQRS
         }
 
         // 再実行に失敗した場合は redo 履歴へ戻し、再試行余地を残す。
-        std::unique_ptr<IUndoableCommand> command = std::move(m_redoStack.back());
+        HistoryEntry historyEntry = std::move(m_redoStack.back());
         m_redoStack.pop_back();
 
-        Result result = command->execute(a_commandContext);
+        Result result = historyEntry.command->execute(a_commandContext);
         if (!result)
         {
-            m_redoStack.push_back(std::move(command));
+            m_redoStack.push_back(std::move(historyEntry));
             return result;
         }
 
         // 成功時だけ undo 履歴へ戻し、履歴の往復を保証する。
-        m_undoStack.push_back(std::move(command));
+        m_undoStack.push_back(std::move(historyEntry));
         return Result::ok();
     }
 
@@ -128,5 +147,19 @@ namespace Cue::Core::CQRS
         // Editor thread から GameWorld を直接変更せず、通常 Command と同じ更新境界へ要求を送る
         m_pendingHistoryRequests.push_back(HistoryRequest::redo);
         return Result::ok();
+    }
+
+    uint64_t Bridge::history_cursor() const noexcept
+    {
+        return m_undoStack.empty() ? m_historyRootId : m_undoStack.back().id;
+    }
+
+    void Bridge::reset_history() noexcept
+    {
+        // Scene 切替後に以前の GameWorld を対象とする Command を実行しないよう履歴要求も破棄する。
+        m_undoStack.clear();
+        m_redoStack.clear();
+        m_pendingHistoryRequests.clear();
+        m_historyRootId = m_nextHistoryId++;
     }
 }
