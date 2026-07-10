@@ -17,6 +17,7 @@
 // === Runtime includes ===
 #include <Command/Commands.h>
 #include <CQRS/CQRS.h>
+#include <Dialog/DialogService.h>
 #include <Engine.h>
 #include <IO/Path.h>
 
@@ -39,6 +40,7 @@ namespace Cue::Editor
         m_backend = a_info.backend;
         m_engine = a_info.engine;
         m_debugCamera = a_info.debugCamera;
+        m_dialogService = a_info.dialogService;
         m_gameCommandBridge = a_info.gameCommandBridge;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
@@ -65,6 +67,7 @@ namespace Cue::Editor
     {
         draw_dockspace();
         update_project_selector();
+        draw_scene_transition_dialog();
         if (m_gameView != nullptr)
         {
             prepare_window_focus("GameView");
@@ -101,6 +104,24 @@ namespace Cue::Editor
         debugCameraViewport.isHovered = m_debugView->is_viewport_hovered();
         debugCameraViewport.isFocused = m_debugView->is_focused();
         m_debugCamera->update(debugCameraViewport);
+    }
+
+    bool EditorManager::request_exit()
+    {
+        if (m_sceneManager == nullptr || !m_sceneManager->is_dirty())
+        {
+            return false;
+        }
+
+        request_scene_transition(SceneTransition::exit);
+        return true;
+    }
+
+    bool EditorManager::consume_exit_request() noexcept
+    {
+        const bool isRequested = m_isExitRequested;
+        m_isExitRequested = false;
+        return isRequested;
     }
 
     void EditorManager::draw_dockspace()
@@ -163,10 +184,32 @@ namespace Cue::Editor
 
     void EditorManager::draw_file_menu_items()
     {
+        const bool canCreateScene = m_project != nullptr && !m_project->root_path().is_empty();
+        if (ImGui::MenuItem("新規 Scene", nullptr, false, canCreateScene))
+        {
+            request_scene_transition(SceneTransition::newScene);
+        }
+
         const bool canSaveScene = m_sceneManager != nullptr && m_sceneManager->is_dirty();
         if (ImGui::MenuItem("保存", nullptr, false, canSaveScene))
         {
-            save_current_scene();
+            bool isSaved = false;
+            const Result result = save_current_scene(isSaved);
+            if (!result)
+            {
+                show_scene_error(result);
+            }
+        }
+
+        const bool canSaveSceneAs = m_sceneManager != nullptr && m_sceneManager->has_scene();
+        if (ImGui::MenuItem("名前を付けて保存...", nullptr, false, canSaveSceneAs))
+        {
+            bool isSaved = false;
+            const Result result = save_scene_as(false, isSaved);
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
 
         if (ImGui::MenuItem("プロジェクト選択..."))
@@ -182,7 +225,8 @@ namespace Cue::Editor
 
         if (m_sceneManager != nullptr && m_sceneManager->has_scene())
         {
-            const std::string sceneName = m_sceneManager->current_scene_path().filename();
+            const std::string sceneName =
+                m_sceneManager->has_save_path() ? m_sceneManager->current_scene_path().filename() : m_sceneManager->scene_name();
             ImGui::TextDisabled("%s%s", m_sceneManager->is_dirty() ? "* " : "", sceneName.c_str());
         }
     }
@@ -240,67 +284,241 @@ namespace Cue::Editor
             return;
         }
 
-        if (m_project == nullptr)
-        {
-            m_projectSelector->show_error("Editor project is not initialized.");
-            return;
-        }
-
-        const Result result = m_project->load(selectedProjectRoot);
-        if (result)
-        {
-            // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に Engine へ共有する
-            if (m_engine != nullptr)
-            {
-                m_engine->set_asset_root_path(m_project->asset_root_path());
-            }
-
-            if (m_sceneManager != nullptr)
-            {
-                const Result sceneResult = m_sceneManager->open_scene(m_project->startup_scene_path());
-
-                // Scene 読み込みは GameWorld を置き換えるため、以前の Entity / Scene 選択は無効になる。
-                clear_selection();
-
-                if (!sceneResult)
-                {
-                    Core::IO::log(
-                        Core::IO::LogSink::console | Core::IO::LogSink::file,
-                        "Failed to load startup scene: %s",
-                        sceneResult.message.data());
-                    m_projectSelector->show_error(sceneResult.message);
-                }
-            }
-            return;
-        }
-
-        Core::IO::log(
-            Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to load project: %s",
-            result.message.data());
-        m_projectSelector->show_error(result.message);
+        request_scene_transition(SceneTransition::openProject, selectedProjectRoot);
     }
 
-    void EditorManager::save_current_scene()
+    void EditorManager::draw_scene_transition_dialog()
     {
+        if (m_shouldOpenSceneTransitionDialog)
+        {
+            ImGui::OpenPopup("未保存の変更");
+            m_shouldOpenSceneTransitionDialog = false;
+        }
+
+        if (!ImGui::BeginPopupModal("未保存の変更", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui::TextUnformatted("Scene に未保存の変更があります。");
+        if (ImGui::Button("保存"))
+        {
+            bool isSaved = false;
+            const Result result = save_current_scene(isSaved);
+            if (!result)
+            {
+                show_scene_error(result);
+            }
+            else if (isSaved)
+            {
+                ImGui::CloseCurrentPopup();
+                apply_scene_transition();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("破棄"))
+        {
+            ImGui::CloseCurrentPopup();
+            apply_scene_transition();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_pendingSceneTransition = SceneTransition::none;
+            m_pendingProjectRoot = {};
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    void EditorManager::request_scene_transition(
+        SceneTransition a_transition,
+        const Core::IO::Path& a_projectRoot)
+    {
+        if (a_transition == SceneTransition::none)
+        {
+            return;
+        }
+
+        m_pendingSceneTransition = a_transition;
+        m_pendingProjectRoot = a_projectRoot;
+        if (m_sceneManager != nullptr && m_sceneManager->is_dirty())
+        {
+            m_shouldOpenSceneTransitionDialog = true;
+            return;
+        }
+
+        apply_scene_transition();
+    }
+
+    void EditorManager::apply_scene_transition()
+    {
+        const SceneTransition transition = m_pendingSceneTransition;
+        const Core::IO::Path projectRoot = m_pendingProjectRoot;
+        m_pendingSceneTransition = SceneTransition::none;
+        m_pendingProjectRoot = {};
+
+        switch (transition)
+        {
+        case SceneTransition::newScene:
+        {
+            if (m_sceneManager == nullptr)
+            {
+                return;
+            }
+
+            const Result result = m_sceneManager->new_scene();
+            if (!result)
+            {
+                show_scene_error(result);
+                return;
+            }
+
+            clear_selection();
+            return;
+        }
+        case SceneTransition::openProject:
+            load_project(projectRoot);
+            return;
+        case SceneTransition::exit:
+            m_isExitRequested = true;
+            return;
+        case SceneTransition::none:
+            return;
+        }
+    }
+
+    void EditorManager::load_project(const Core::IO::Path& a_projectRoot)
+    {
+        if (m_project == nullptr)
+        {
+            if (m_projectSelector != nullptr)
+            {
+                m_projectSelector->show_error("Editor project is not initialized.");
+            }
+            return;
+        }
+
+        const Result result = m_project->load(a_projectRoot);
+        if (!result)
+        {
+            show_scene_error(result);
+            return;
+        }
+
+        // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に Engine へ共有する
+        if (m_engine != nullptr)
+        {
+            m_engine->set_asset_root_path(m_project->asset_root_path());
+        }
+
         if (m_sceneManager == nullptr)
         {
             return;
         }
 
+        const Result sceneResult = m_sceneManager->open_scene(m_project->startup_scene_path());
+
+        // Scene 読み込みは GameWorld を置き換えるため、以前の Entity / Scene 選択は無効になる。
+        clear_selection();
+
+        if (!sceneResult)
+        {
+            show_scene_error(sceneResult);
+        }
+    }
+
+    Result EditorManager::save_current_scene(bool& a_outSaved)
+    {
+        a_outSaved = false;
+        if (m_sceneManager == nullptr || !m_sceneManager->has_scene())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "Editor does not have a scene to save.");
+        }
+
+        if (!m_sceneManager->has_save_path())
+        {
+            return save_scene_as(true, a_outSaved);
+        }
+
         const Result result = m_sceneManager->save_scene();
         if (result)
         {
-            return;
+            a_outSaved = true;
+        }
+        return result;
+    }
+
+    Result EditorManager::save_scene_as(bool a_setsStartupScene, bool& a_outSaved)
+    {
+        a_outSaved = false;
+        if (m_sceneManager == nullptr || m_dialogService == nullptr || !m_sceneManager->has_scene())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "Editor scene save dialog is not initialized.");
         }
 
+        Core::IO::Path initialDirectory{};
+        if (m_sceneManager->has_save_path())
+        {
+            initialDirectory = m_sceneManager->current_scene_path().parent();
+        }
+        else if (m_project != nullptr)
+        {
+            initialDirectory = m_project->asset_root_path();
+        }
+
+        const std::string defaultFileName = m_sceneManager->scene_name() + ".cuescene";
+        PAL::SaveFileDialogDesc desc{};
+        desc.title = "Scene を保存";
+        desc.defaultFileName = defaultFileName.c_str();
+        desc.defaultExtension = "cuescene";
+        desc.filterName = "Cue Scene (*.cuescene)";
+        desc.filterPattern = "*.cuescene";
+        desc.initialDirectory = initialDirectory;
+
+        Core::IO::Path selectedPath{};
+        bool isSelected = false;
+        Result result = m_dialogService->save_file_dialog(desc, selectedPath, isSelected);
+        if (!result || !isSelected)
+        {
+            return result;
+        }
+
+        result = m_sceneManager->save_scene_as(selectedPath);
+        if (!result)
+        {
+            return result;
+        }
+
+        if (a_setsStartupScene && m_project != nullptr)
+        {
+            result = m_project->set_startup_scene_path(selectedPath);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
+        a_outSaved = true;
+        return Result::ok();
+    }
+
+    void EditorManager::show_scene_error(const Result& a_result)
+    {
         Core::IO::log(
             Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Failed to save scene: %s",
-            result.message.data());
+            "Editor scene operation failed: %s",
+            a_result.message.data());
         if (m_projectSelector != nullptr)
         {
-            m_projectSelector->show_error(result.message);
+            m_projectSelector->show_error(a_result.message);
         }
     }
 

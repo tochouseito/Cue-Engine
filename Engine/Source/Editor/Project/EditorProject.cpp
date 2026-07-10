@@ -53,6 +53,27 @@ namespace Cue::Editor
 
             return Core::IO::Path::join(a_assetRootPath, normalizedScenePath);
         }
+
+        [[nodiscard]] std::string make_startup_scene_path(
+            const Core::IO::Path& a_rootPath,
+            const Core::IO::Path& a_scenePath)
+        {
+            const Core::IO::Path normalizedScenePath = a_scenePath.normalize();
+            if (!normalizedScenePath.is_absolute())
+            {
+                return normalizedScenePath.utf8();
+            }
+
+            const Core::IO::Path normalizedRootPath = a_rootPath.normalize();
+            const std::string& rootText = normalizedRootPath.utf8();
+            const std::string& sceneText = normalizedScenePath.utf8();
+            if (starts_with_path_segment(sceneText, rootText) && sceneText.size() > rootText.size())
+            {
+                return sceneText.substr(rootText.size() + 1u);
+            }
+
+            return sceneText;
+        }
     } // namespace
 
     EditorProject::EditorProject(Core::IO::IFileSystem& a_fileSystem) noexcept
@@ -84,6 +105,36 @@ namespace Cue::Editor
         m_assetRootPath = settings.assetRoot;
         m_name = settings.name;
         m_startupScene = settings.startupScene;
+        m_startupScenePath = startupScenePath;
+        m_engineVersion = settings.engineVersion;
+        return Result::ok();
+    }
+
+    Result EditorProject::set_startup_scene_path(const Core::IO::Path& a_path) noexcept
+    {
+        if (m_fileSystem == nullptr || m_rootPath.is_empty() || a_path.is_empty())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Editor project is not initialized.");
+        }
+
+        const Core::IO::Path startupScenePath = a_path.normalize();
+        ProjectSettings settings{};
+        settings.name = m_name;
+        settings.startupScene = make_startup_scene_path(m_rootPath, startupScenePath);
+        settings.root = m_rootPath;
+        settings.assetRoot = m_assetRootPath;
+        settings.engineVersion = m_engineVersion;
+
+        Result result = save_project_settings(*m_fileSystem, settings);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_startupScene = std::move(settings.startupScene);
         m_startupScenePath = startupScenePath;
         return Result::ok();
     }

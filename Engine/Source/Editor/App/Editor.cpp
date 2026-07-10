@@ -9,7 +9,7 @@
 #include <Time/FrameCounter.h>
 
 // === WinPlatform includes ===
-#include <Dialog/WinFolderDialog.h>
+#include <Dialog/WinDialogService.h>
 #include <win_platform.h>
 
 // === D3D12Backend includes ===
@@ -77,8 +77,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // OS 標準 UI は Platform 本体から分離し、Editor が必要なサービスだけを受け取る
-    std::unique_ptr<PAL::Win::WinFolderDialog> folderDialog =
-        std::make_unique<PAL::Win::WinFolderDialog>(platform->get_window_handle());
+    std::unique_ptr<PAL::Win::WinDialogService> dialogService =
+        std::make_unique<PAL::Win::WinDialogService>(platform->get_window_handle());
 
     // PerformanceCounter を初期化
     Core::PerformanceCounter profiler(platform->clock());
@@ -151,10 +151,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManagerSetupInfo.backend = renderBackend.get();
     editorManagerSetupInfo.engine = engine.get();
     editorManagerSetupInfo.debugCamera = debugCamera.get();
-    editorManagerSetupInfo.dialogService = folderDialog.get();
+    editorManagerSetupInfo.dialogService = dialogService.get();
     editorManagerSetupInfo.fileSystem = &platform->file_system();
     editorManagerSetupInfo.gameCommandBridge = gameBridge.get();
     editorManager->initialize(editorManagerSetupInfo);
+
+    platform->set_message_handler(
+        [&editorManager](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT& outResult) -> bool
+        {
+            if (message == WM_CLOSE && editorManager->request_exit())
+            {
+                outResult = 0;
+                return true;
+            }
+
+            outResult = ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
+            return outResult != 0;
+        });
 
     // ウィンドウを表示
     platform->start();
@@ -177,6 +190,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         // ImGui マネージャー
         r = imGuiManager->begin_frame();
+        bool shouldExit = false;
 
         if (r)
         {
@@ -187,9 +201,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
             editorManager->update();
 
+            shouldExit = editorManager->consume_exit_request();
+
 #pragma endregion Editor UI の描画
 
             imGuiManager->end_frame();
+        }
+
+        if (shouldExit)
+        {
+            break;
         }
 
         // プラットフォーム
@@ -259,7 +280,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     imGuiManager.reset();
     engine->shutdown();
     engine.reset();
-    folderDialog.reset();
+    dialogService.reset();
     renderBackend->shutdown();
     renderBackend.reset();
     platform->shutdown();

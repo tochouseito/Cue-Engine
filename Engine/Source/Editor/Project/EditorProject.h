@@ -11,6 +11,7 @@
 #include <IO/Path.h>
 
 // === C++ includes ===
+#include <cstdint>
 #include <string>
 
 namespace Cue::Core::IO
@@ -59,12 +60,16 @@ namespace Cue::Editor
             return m_startupScenePath;
         }
 
+        /// @brief 指定 Scene を次回起動時の Startup Scene に設定する
+        [[nodiscard]] Result set_startup_scene_path(const Core::IO::Path& a_path) noexcept;
+
     private:
         Core::IO::Path m_rootPath{};
         Core::IO::Path m_assetRootPath{};
         Core::IO::Path m_startupScenePath{};
         std::string m_name{};
         std::string m_startupScene{};
+        std::uint32_t m_engineVersion = 1;
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 設定を読み込む非所有 FileSystem
     };
 } // namespace Cue::Editor

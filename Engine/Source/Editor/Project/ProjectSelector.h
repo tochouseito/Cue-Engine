@@ -4,10 +4,14 @@
 /// cueproject.json を持つ Project を選択する Editor UI
 /// ************************************************************************************
 
+// === Base includes ===
+#include <CueResult.h>
+
 // === Runtime includes ===
 #include <IO/Path.h>
 
 // === C++ includes ===
+#include <array>
 #include <string>
 #include <string_view>
 
@@ -52,14 +56,21 @@ namespace Cue::Editor
 
     private:
         void open_project_folder_dialog();
+        void begin_create_project();
+        void draw_create_project_dialog();
+        void select_project_parent_directory();
+        [[nodiscard]] Result create_project();
         bool validate_project_directory(const Core::IO::Path& a_projectPath);
 
         Core::IO::Path m_initialDirectory{};
         Core::IO::Path m_selectedRoot{};
+        Core::IO::Path m_createParentDirectory{};
         std::string m_errorMessage{};
+        std::array<char, 128> m_projectName{};
         PAL::IDialogService* m_dialogService = nullptr; // OS 標準ダイアログを表示する非所有サービス
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Project フォルダ検証に使う非所有 FileSystem
         bool m_isOpen = false;
+        bool m_isCreateProjectDialogOpen = false;
         bool m_hasSelectedProject = false;
     };
 } // namespace Cue::Editor

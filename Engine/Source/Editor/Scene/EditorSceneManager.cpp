@@ -78,20 +78,74 @@ namespace Cue::Editor
                 "EditorSceneManager does not have a scene to save.");
         }
 
+        return save_scene_to(m_currentScenePath, m_sceneName);
+    }
+
+    Result EditorSceneManager::new_scene() noexcept
+    {
+        if (m_world == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "EditorSceneManager world is not initialized.");
+        }
+
+        Result result = m_world->clear();
+        if (!result)
+        {
+            return result;
+        }
+
+        m_currentScenePath = {};
+        m_sceneName = "Untitled";
+        m_savedSceneRevision = m_world->scene_revision();
+        m_hasScene = true;
+
+        // 保存先を持たない新規 Scene も未保存として扱い、保存操作へ導く。
+        m_world->record_scene_edit();
+        return Result::ok();
+    }
+
+    Result EditorSceneManager::save_scene_as(const Core::IO::Path& a_path) noexcept
+    {
+        if (a_path.is_empty())
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Warning,
+                "Scene save path is empty.");
+        }
+
+        return save_scene_to(a_path.normalize(), a_path.stem());
+    }
+
+    Result EditorSceneManager::save_scene_to(const Core::IO::Path& a_path, const std::string& a_name) noexcept
+    {
+        if (m_fileSystem == nullptr || m_world == nullptr || !m_hasScene)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "EditorSceneManager does not have a scene to save.");
+        }
+
         GameCore::SceneAsset scene{};
-        Result result = m_world->make_scene_asset(m_sceneName, scene);
+        Result result = m_world->make_scene_asset(a_name, scene);
         if (!result)
         {
             return result;
         }
 
         const std::uint64_t sceneRevision = m_world->scene_revision();
-        result = GameCore::save_scene_asset(*m_fileSystem, m_currentScenePath, scene);
+        result = GameCore::save_scene_asset(*m_fileSystem, a_path, scene);
         if (!result)
         {
             return result;
         }
 
+        m_currentScenePath = a_path;
+        m_sceneName = a_name;
         m_savedSceneRevision = sceneRevision;
         return Result::ok();
     }
