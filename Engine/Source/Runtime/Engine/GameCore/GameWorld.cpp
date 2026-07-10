@@ -462,6 +462,165 @@ namespace Cue::GameCore
         return Result::ok();
     }
 
+    Result GameWorld::capture_object_snapshot(
+        const EntityId a_entityId,
+        ObjectSnapshot& a_outSnapshot) const
+    {
+        a_outSnapshot = {};
+
+        const EntityRecord* record = try_get_entity_record(a_entityId);
+        const BaseComponent* base =
+            const_cast<GameWorld*>(this)->m_ecsManager.get_component<BaseComponent>(a_entityId);
+        const ECS::TransformComponent* transform =
+            const_cast<GameWorld*>(this)->m_ecsManager.get_component<ECS::TransformComponent>(a_entityId);
+        if (record == nullptr || !record->isAlive || record->isPendingDestroy ||
+            base == nullptr || transform == nullptr)
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "GameWorld object cannot be captured for undo.");
+        }
+
+        a_outSnapshot.entityId = a_entityId;
+        a_outSnapshot.name = base->name;
+        a_outSnapshot.tag = base->tag;
+        a_outSnapshot.parentId = base->parent;
+        a_outSnapshot.owningSceneId = base->owningSceneId;
+        a_outSnapshot.sourceSceneId = record->sourceSceneId;
+        a_outSnapshot.sourceLocalObjectId = record->sourceLocalObjectId;
+        a_outSnapshot.isActive = base->isActiveSelf;
+        a_outSnapshot.isPersistent = base->isPersistent;
+        a_outSnapshot.isRenderCamera = m_renderCameraEntity == a_entityId;
+        a_outSnapshot.transform = *transform;
+
+        const ECS::CameraComponent* camera =
+            const_cast<GameWorld*>(this)->m_ecsManager.get_component<ECS::CameraComponent>(a_entityId);
+        if (camera != nullptr)
+        {
+            a_outSnapshot.camera = *camera;
+            a_outSnapshot.hasCamera = true;
+        }
+
+        const ECS::MeshFilterComponent* meshFilter =
+            const_cast<GameWorld*>(this)->m_ecsManager.get_component<ECS::MeshFilterComponent>(a_entityId);
+        if (meshFilter != nullptr)
+        {
+            a_outSnapshot.meshFilter = *meshFilter;
+            a_outSnapshot.hasMeshFilter = true;
+        }
+
+        const ECS::StaticMeshRendererComponent* staticMeshRenderer =
+            const_cast<GameWorld*>(this)->m_ecsManager.get_component<ECS::StaticMeshRendererComponent>(a_entityId);
+        if (staticMeshRenderer != nullptr)
+        {
+            a_outSnapshot.staticMeshRenderer = *staticMeshRenderer;
+            a_outSnapshot.hasStaticMeshRenderer = true;
+        }
+
+        return Result::ok();
+    }
+
+    Result GameWorld::restore_object_snapshot(
+        const ObjectSnapshot& a_snapshot,
+        EntityId& a_outEntityId)
+    {
+        a_outEntityId = k_invalidEntityId;
+        if (a_snapshot.entityId == k_invalidEntityId)
+        {
+            return Result::fail(
+                Code::InvalidArgument,
+                Severity::Error,
+                "GameWorld undo snapshot does not have an entity ID.");
+        }
+        if (contains_object(a_snapshot.entityId))
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "GameWorld undo snapshot entity is already alive.");
+        }
+
+        const Result result = capture_result(
+            [&]()
+            {
+                const EntityId entity = create_entity_record(
+                    a_snapshot.sourceSceneId,
+                    a_snapshot.sourceLocalObjectId);
+                if (entity != a_snapshot.entityId)
+                {
+                    destroy_object_immediately(entity);
+                    throw std::runtime_error("GameWorld undo could not restore the original entity ID.");
+                }
+
+                initialize_required_components(
+                    entity,
+                    a_snapshot.name,
+                    a_snapshot.tag,
+                    a_snapshot.owningSceneId,
+                    a_snapshot.parentId,
+                    a_snapshot.isActive,
+                    a_snapshot.isPersistent);
+
+                ECS::TransformComponent* transform =
+                    m_ecsManager.get_component<ECS::TransformComponent>(entity);
+                if (transform == nullptr)
+                {
+                    throw std::runtime_error("GameWorld undo transform component is missing.");
+                }
+                *transform = a_snapshot.transform;
+
+                if (a_snapshot.hasCamera)
+                {
+                    ECS::CameraComponent* camera = m_ecsManager.add_component<ECS::CameraComponent>(entity);
+                    if (camera == nullptr)
+                    {
+                        throw std::runtime_error("GameWorld undo camera component could not be restored.");
+                    }
+                    *camera = a_snapshot.camera;
+                }
+                if (a_snapshot.hasMeshFilter)
+                {
+                    ECS::MeshFilterComponent* meshFilter =
+                        m_ecsManager.add_component<ECS::MeshFilterComponent>(entity);
+                    if (meshFilter == nullptr)
+                    {
+                        throw std::runtime_error("GameWorld undo mesh filter component could not be restored.");
+                    }
+                    *meshFilter = a_snapshot.meshFilter;
+                }
+                if (a_snapshot.hasStaticMeshRenderer)
+                {
+                    ECS::StaticMeshRendererComponent* staticMeshRenderer =
+                        m_ecsManager.add_component<ECS::StaticMeshRendererComponent>(entity);
+                    if (staticMeshRenderer == nullptr)
+                    {
+                        throw std::runtime_error("GameWorld undo static mesh renderer component could not be restored.");
+                    }
+                    *staticMeshRenderer = a_snapshot.staticMeshRenderer;
+                }
+                if (a_snapshot.isRenderCamera)
+                {
+                    const Result setRenderCameraResult = set_render_camera(entity);
+                    if (!setRenderCameraResult)
+                    {
+                        throw std::runtime_error("GameWorld undo render camera could not be restored.");
+                    }
+                }
+
+                a_outEntityId = entity;
+            });
+        if (!result)
+        {
+            return result;
+        }
+
+        // 削除時と同じ Entity ID を復元して親子関係と既存履歴の参照を維持する
+        sync_world_transforms();
+        record_scene_edit();
+        return Result::ok();
+    }
+
     Result GameWorld::is_alive(EntityId a_entityId, Generation a_generation, bool& a_outIsAlive) const noexcept
     {
         // EntityRecord と世代番号の一致で GameObject ハンドルの有効性を判定する

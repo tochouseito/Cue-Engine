@@ -131,8 +131,10 @@ namespace Cue::Editor
         void draw_dockspace();
         void draw_menu_bar();
         void draw_file_menu_items();
+        void draw_edit_menu_items();
         void draw_add_menu_items();
         void draw_view_menu_items();
+        void process_edit_shortcuts();
         void open_project_selector();
         void update_project_selector();
         void draw_scene_transition_dialog();
@@ -148,6 +150,8 @@ namespace Cue::Editor
         void show_scene_error(const Result& a_result);
         void clear_selection() noexcept;
         void submit_empty_object_command();
+        void request_undo();
+        void request_redo();
         void show_and_focus_window(const char* a_windowName);
         bool prepare_window_focus(const char* a_windowName);
         void focus_pending_window();

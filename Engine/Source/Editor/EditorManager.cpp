@@ -208,6 +208,11 @@ namespace Cue::Editor
             draw_file_menu_items();
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Edit"))
+        {
+            draw_edit_menu_items();
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("追加"))
         {
             draw_add_menu_items();
@@ -219,6 +224,7 @@ namespace Cue::Editor
             ImGui::EndMenu();
         }
 
+        process_edit_shortcuts();
         ImGui::EndMenuBar();
     }
 
@@ -282,6 +288,23 @@ namespace Cue::Editor
         if (ImGui::MenuItem("空の GameObject"))
         {
             submit_empty_object_command();
+        }
+    }
+
+    void EditorManager::draw_edit_menu_items()
+    {
+        const bool canUndo =
+            m_gameCommandBridge != nullptr && m_gameCommandBridge->can_undo();
+        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, canUndo))
+        {
+            request_undo();
+        }
+
+        const bool canRedo =
+            m_gameCommandBridge != nullptr && m_gameCommandBridge->can_redo();
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, canRedo))
+        {
+            request_redo();
         }
     }
 
@@ -659,6 +682,60 @@ namespace Cue::Editor
         // 境界で反映する
         (void)m_gameCommandBridge->submit_command(
             std::make_unique<CreateObjectCommand>("GameObject"));
+    }
+
+    void EditorManager::process_edit_shortcuts()
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        if (io.WantTextInput || !io.KeyCtrl)
+        {
+            return;
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+        {
+            if (io.KeyShift)
+            {
+                request_redo();
+                return;
+            }
+
+            request_undo();
+            return;
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+        {
+            request_redo();
+        }
+    }
+
+    void EditorManager::request_undo()
+    {
+        if (m_gameCommandBridge == nullptr)
+        {
+            return;
+        }
+
+        const Result result = m_gameCommandBridge->request_undo();
+        if (!result)
+        {
+            show_scene_error(result);
+        }
+    }
+
+    void EditorManager::request_redo()
+    {
+        if (m_gameCommandBridge == nullptr)
+        {
+            return;
+        }
+
+        const Result result = m_gameCommandBridge->request_redo();
+        if (!result)
+        {
+            show_scene_error(result);
+        }
     }
 
     void EditorManager::show_and_focus_window(const char* a_windowName)

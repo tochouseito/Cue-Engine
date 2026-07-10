@@ -13,6 +13,7 @@
 // === GameCore includes ===
 #include <GameCore/Components.h>
 #include <GameCore/GameCoreTypes.h>
+#include <GameCore/ObjectSnapshot.h>
 
 // === C++ includes ===
 #include <cstdint>
@@ -39,6 +40,13 @@ namespace Cue
         virtual Result create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId) = 0;
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) = 0;
+        virtual Result remove_component(GameCore::EntityId a_objectId, ComponentKind a_kind) = 0;
+        virtual Result capture_object_snapshot(
+            GameCore::EntityId a_objectId,
+            GameCore::ObjectSnapshot& a_outSnapshot) = 0;
+        virtual Result restore_object_snapshot(
+            const GameCore::ObjectSnapshot& a_snapshot,
+            GameCore::EntityId& a_outObjectId) = 0;
         virtual Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) = 0;
         virtual Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) = 0;
         virtual Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) = 0;
@@ -145,7 +153,7 @@ namespace Cue
         bool m_hasObject = false;
     };
 
-    class AddComponentCommand final : public Core::CQRS::ICommand
+    class AddComponentCommand final : public Core::CQRS::IUndoableCommand
     {
     public:
         AddComponentCommand(GameCore::EntityId a_objectId, ComponentKind a_kind) noexcept
@@ -167,6 +175,21 @@ namespace Cue
             }
 
             return gameCommandContext->add_component(m_objectId, m_kind);
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component addition undo.");
+            }
+
+            return gameCommandContext->remove_component(m_objectId, m_kind);
         }
 
     private:
@@ -239,7 +262,7 @@ namespace Cue
         bool m_hasCapturedOldName = false;
     };
 
-    class DeleteObjectCommand final : public Core::CQRS::ICommand
+    class DeleteObjectCommand final : public Core::CQRS::IUndoableCommand
     {
     public:
         explicit DeleteObjectCommand(GameCore::EntityId a_objectId) noexcept
@@ -259,11 +282,62 @@ namespace Cue
                     "Command context does not support object deletion.");
             }
 
+            if (!m_hasSnapshot)
+            {
+                Result captureResult =
+                    gameCommandContext->capture_object_snapshot(m_objectId, m_snapshot);
+                if (!captureResult)
+                {
+                    return captureResult;
+                }
+
+                m_hasSnapshot = true;
+            }
+
             return gameCommandContext->destroy_object(m_objectId);
         }
 
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support object deletion undo.");
+            }
+            if (!m_hasSnapshot)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Delete object command has not been executed.");
+            }
+
+            GameCore::EntityId restoredObjectId = GameCore::k_invalidEntityId;
+            const Result result =
+                gameCommandContext->restore_object_snapshot(m_snapshot, restoredObjectId);
+            if (!result)
+            {
+                return result;
+            }
+            if (restoredObjectId != m_objectId)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Delete object undo restored an unexpected entity ID.");
+            }
+
+            return Result::ok();
+        }
+
     private:
+        GameCore::ObjectSnapshot m_snapshot{};
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        bool m_hasSnapshot = false;
     };
 
     class SetParentCommand final : public Core::CQRS::IUndoableCommand

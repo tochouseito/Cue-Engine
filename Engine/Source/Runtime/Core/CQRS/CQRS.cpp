@@ -40,6 +40,20 @@ namespace Cue::Core::CQRS
             }
         }
 
+        while (!m_pendingHistoryRequests.empty())
+        {
+            const HistoryRequest request = m_pendingHistoryRequests.front();
+            m_pendingHistoryRequests.pop_front();
+
+            const Result result = request == HistoryRequest::undo
+                ? undo_last_command(a_commandContext)
+                : redo_last_command(a_commandContext);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
         // すべて成功したら ok を返し、partial success の境界を呼び出し側へ明確にする。
         return Result::ok();
     }
@@ -89,6 +103,30 @@ namespace Cue::Core::CQRS
 
         // 成功時だけ undo 履歴へ戻し、履歴の往復を保証する。
         m_undoStack.push_back(std::move(command));
+        return Result::ok();
+    }
+
+    Result Bridge::request_undo()
+    {
+        if (!can_undo())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "No command to undo");
+        }
+
+        // Editor thread から GameWorld を直接変更せず、通常 Command と同じ更新境界へ要求を送る
+        m_pendingHistoryRequests.push_back(HistoryRequest::undo);
+        return Result::ok();
+    }
+
+    Result Bridge::request_redo()
+    {
+        if (!can_redo())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning, "No command to redo");
+        }
+
+        // Editor thread から GameWorld を直接変更せず、通常 Command と同じ更新境界へ要求を送る
+        m_pendingHistoryRequests.push_back(HistoryRequest::redo);
         return Result::ok();
     }
 }

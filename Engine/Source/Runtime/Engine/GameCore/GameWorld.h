@@ -19,6 +19,7 @@
 #include "GameCoreTypes.h"
 #include "GameObject.h"
 #include "GameObjectProto.h"
+#include "ObjectSnapshot.h"
 
 // === C++ includes ===
 #include <cstddef>
@@ -100,6 +101,16 @@ namespace Cue::GameCore
 
         /// @brief 現在生存している GameObject 数を取得する
         [[nodiscard]] Result object_count(size_t& a_outCount) const noexcept;
+
+        /// @brief 指定 GameObject の Undo 用 authoring 状態を取得する
+        [[nodiscard]] Result capture_object_snapshot(
+            EntityId a_entityId,
+            ObjectSnapshot& a_outSnapshot) const;
+
+        /// @brief 削除前の Entity ID を再利用して GameObject を復元する
+        [[nodiscard]] Result restore_object_snapshot(
+            const ObjectSnapshot& a_snapshot,
+            EntityId& a_outEntityId);
 
         /// @brief EntityId と世代番号が現在も有効かを返す
         [[nodiscard]] Result is_alive(EntityId a_entityId, Generation a_generation, bool& a_outIsAlive) const noexcept;

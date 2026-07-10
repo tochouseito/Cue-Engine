@@ -231,6 +231,40 @@ namespace Cue
         }
     }
 
+    Result EngineCommandContext::remove_component(GameCore::EntityId a_objectId, ComponentKind a_kind)
+    {
+        switch (a_kind)
+        {
+        case ComponentKind::Transform:
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "TransformComponent is required and cannot be removed.");
+        case ComponentKind::Camera:
+            return m_gameWorld.remove_component<ECS::CameraComponent>(a_objectId);
+        case ComponentKind::MeshFilter:
+            return m_gameWorld.remove_component<ECS::MeshFilterComponent>(a_objectId);
+        case ComponentKind::StaticMeshRenderer:
+            return m_gameWorld.remove_component<ECS::StaticMeshRendererComponent>(a_objectId);
+        default:
+            return Result::fail(Code::InvalidArgument, Severity::Error, "Unknown component kind.");
+        }
+    }
+
+    Result EngineCommandContext::capture_object_snapshot(
+        GameCore::EntityId a_objectId,
+        GameCore::ObjectSnapshot& a_outSnapshot)
+    {
+        return m_gameWorld.capture_object_snapshot(a_objectId, a_outSnapshot);
+    }
+
+    Result EngineCommandContext::restore_object_snapshot(
+        const GameCore::ObjectSnapshot& a_snapshot,
+        GameCore::EntityId& a_outObjectId)
+    {
+        return m_gameWorld.restore_object_snapshot(a_snapshot, a_outObjectId);
+    }
+
     Result EngineCommandContext::get_object_name(GameCore::EntityId a_objectId, std::string& a_outName)
     {
         return m_gameWorld.get_object_name(a_objectId, a_outName);

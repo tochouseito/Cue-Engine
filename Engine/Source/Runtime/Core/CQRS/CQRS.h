@@ -8,6 +8,7 @@
 #include "CueResult.h"
 
 // === C++ includes ===
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <vector>
@@ -76,6 +77,12 @@ namespace Cue::Core::CQRS
         /// @brief 最後のコマンドをリドゥ
         Result redo_last_command(ICommandContext&);
 
+        /// @brief 次の command drain で Undo を実行する
+        [[nodiscard]] Result request_undo();
+
+        /// @brief 次の command drain で Redo を実行する
+        [[nodiscard]] Result request_redo();
+
         /// @brief クエリーを実行
         Result execute_query(const IQuery& a_query, const IQueryContext& a_context, IQueryResult& outResult) const
         {
@@ -100,7 +107,14 @@ namespace Cue::Core::CQRS
             return !m_redoStack.empty();
         }
     private:
+        enum class HistoryRequest : uint8_t
+        {
+            undo,
+            redo,
+        };
+
         std::deque<std::unique_ptr<ICommand>> m_pendingCommands; // 保留中のコマンド
+        std::deque<HistoryRequest> m_pendingHistoryRequests; // Engine 更新境界で処理する履歴操作
         std::vector<std::unique_ptr<IUndoableCommand>> m_undoStack; // アンドゥ可能なコマンドのスタック
         std::vector<std::unique_ptr<IUndoableCommand>> m_redoStack; // リドゥ可能なコマンドのスタック
     };

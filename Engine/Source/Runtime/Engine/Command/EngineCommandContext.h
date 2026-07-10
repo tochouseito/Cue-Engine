@@ -21,6 +21,13 @@ namespace Cue
         Result create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId) override;
         Result destroy_object(GameCore::EntityId a_objectId) override;
         Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) override;
+        Result remove_component(GameCore::EntityId a_objectId, ComponentKind a_kind) override;
+        Result capture_object_snapshot(
+            GameCore::EntityId a_objectId,
+            GameCore::ObjectSnapshot& a_outSnapshot) override;
+        Result restore_object_snapshot(
+            const GameCore::ObjectSnapshot& a_snapshot,
+            GameCore::EntityId& a_outObjectId) override;
         Result get_object_name(GameCore::EntityId a_objectId, std::string& a_outName) override;
         Result rename_object(GameCore::EntityId a_objectId, std::string_view a_name) override;
         Result get_parent(GameCore::EntityId a_objectId, GameCore::EntityId& a_outParentId) override;
