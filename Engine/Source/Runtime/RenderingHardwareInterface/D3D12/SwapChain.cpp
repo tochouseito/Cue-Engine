@@ -138,7 +138,9 @@ namespace Cue::RHI::DX12
     }
     void SwapChain::shutdown()
     {
-        (void)destroy_back_buffer_resources();
+        // back buffer の view を残したまま DXGI resource を破棄すると stale handle が残るため、終了時も失敗を検出します
+        const Result result = destroy_back_buffer_resources();
+        CUE_ASSERT_FORMAT(success(result), "Failed to destroy SwapChain back buffer resources: {}", result.message.data());
 
         // SwapChain を破棄
         m_swapChain.Reset();

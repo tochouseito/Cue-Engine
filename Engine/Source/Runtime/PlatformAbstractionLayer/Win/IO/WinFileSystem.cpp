@@ -763,21 +763,26 @@ namespace Cue::PAL::Win
             return r;
         }
 
+        const auto close_after_failure = [&f](const Result& a_failure) -> Result
+        {
+            // read 失敗後も handle を閉じ、close 自体の失敗で OS handle を失った状態を隠しません
+            const Result closeResult = f->close();
+            return closeResult ? a_failure : closeResult;
+        };
+
         // size
         uint64_t sz = 0;
         r = f->size(&sz);
         if (!r)
         {
-            (void)f->close();
-            return r;
+            return close_after_failure(r);
         }
 
         if (sz > static_cast<uint64_t>(SIZE_MAX))
         {
-            (void)f->close();
-            return Result::fail(
+            return close_after_failure(Result::fail(
                 Code::OutOfMemory, Severity::Error,
-                "File is too large to read into memory.");
+                "File is too large to read into memory."));
         }
 
         // 読み込み
@@ -787,9 +792,8 @@ namespace Cue::PAL::Win
         r = f->read(std::span<std::byte>{ a_outData->data(), a_outData->size() }, &got);
         if (!r)
         {
-            (void)f->close();
             a_outData->clear();
-            return r;
+            return close_after_failure(r);
         }
 
         // 期待サイズ未満なら詰める
@@ -798,8 +802,7 @@ namespace Cue::PAL::Win
             a_outData->resize(static_cast<size_t>(got));
         }
 
-        (void)f->close();
-        return Result::ok();
+        return f->close();
     }
 
     Result WinFileSystem::write_all(const Core::IO::Path& a_path, std::span<const std::byte> a_data, bool a_createParentDirs) noexcept
@@ -831,32 +834,35 @@ namespace Cue::PAL::Win
             return r;
         }
 
+        const auto close_after_failure = [&f](const Result& a_failure) -> Result
+        {
+            // 書き込み失敗後の close 失敗はデータの永続性を判断できなくするため、呼び出し元へ返します
+            const Result closeResult = f->close();
+            return closeResult ? a_failure : closeResult;
+        };
+
         // write
         uint64_t written = 0;
         r = f->write(a_data, &written);
         if (!r)
         {
-            (void)f->close();
-            return r;
+            return close_after_failure(r);
         }
 
         if (written != static_cast<uint64_t>(a_data.size()))
         {
-            (void)f->close();
-            return Result::fail(
+            return close_after_failure(Result::fail(
                 Code::InternalError, Severity::Error,
-                "Failed to write all data to file.");
+                "Failed to write all data to file."));
         }
 
         // flush
         r = f->flush();
         if (!r)
         {
-            (void)f->close();
-            return r;
+            return close_after_failure(r);
         }
 
-        (void)f->close();
-        return Result::ok();
+        return f->close();
     }
 }

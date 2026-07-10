@@ -386,7 +386,9 @@ namespace Cue::RHI
     {}
     FrameGraph::~FrameGraph()
     {
-        (void)cleanup_build_resources();
+        // build resource の解放失敗は manager の lifetime 破綻を示すため、destructor でも検出を失いません
+        const Result result = cleanup_build_resources();
+        CUE_ASSERT_FORMAT(success(result), "Failed to clean up frame graph build resources: {}", result.message.data());
     }
 
     Result FrameGraph::cleanup_build_resources()
@@ -703,6 +705,37 @@ namespace Cue::RHI
                     passStats = &m_executionStats.passStats.back();
                 }
                 commandContextLease commandContext{};
+                bool isCommandListRecording = false;
+                auto return_current_command_context = [&]()
+                    {
+                        if (!commandContext)
+                        {
+                            return;
+                        }
+
+                        // reset 後に失敗した command list は close してから返し、次回の allocator reset を有効に保つ
+                        if (isCommandListRecording)
+                        {
+                            const Result closeResult = commandContext->close();
+                            if (!closeResult)
+                            {
+                                commandContext.reset();
+                                return;
+                            }
+                            isCommandListRecording = false;
+                        }
+
+                        const Result returnResult = m_desc.commandPool->return_command_context(commandContext);
+                        if (!returnResult)
+                        {
+                            commandContext.reset();
+                        }
+                    };
+                auto discard_current_command_context = [&]()
+                    {
+                        // reset 失敗時は command list の記録状態を保証できないため、pool へ戻さず破棄する
+                        commandContext.reset();
+                    };
                 const Clock::time_point acquireStartTime = Clock::now();
                 Result result = m_desc.commandPool->get_command_context(
                     compiledPass.pass->type(), commandContext);
@@ -719,7 +752,7 @@ namespace Cue::RHI
                 result = commandContext->reset();
                 if (!result)
                 {
-                    m_desc.commandPool->return_command_context(commandContext);
+                    discard_current_command_context();
                     return_all_command_contexts();
                     return_all_queue_contexts();
                     return Result::fail(
@@ -727,11 +760,12 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to reset command context for frame graph batch.");
                 }
+                isCommandListRecording = true;
 
                 result = commandContext->setup(frameIndex, m_bufferCount);
                 if (!result)
                 {
-                    m_desc.commandPool->return_command_context(commandContext);
+                    return_current_command_context();
                     return_all_command_contexts();
                     return_all_queue_contexts();
                     return Result::fail(
@@ -766,7 +800,7 @@ namespace Cue::RHI
 
                     if (!result)
                     {
-                        m_desc.commandPool->return_command_context(commandContext);
+                        return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
                         return Result::fail(
@@ -795,7 +829,7 @@ namespace Cue::RHI
                     result = commandContext->write_timestamp(0);
                     if (!result)
                     {
-                        m_desc.commandPool->return_command_context(commandContext);
+                        return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
                         return Result::fail(
@@ -812,7 +846,7 @@ namespace Cue::RHI
                     result = commandContext->write_timestamp(1);
                     if (!result)
                     {
-                        m_desc.commandPool->return_command_context(commandContext);
+                        return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
                         return Result::fail(
@@ -853,7 +887,7 @@ namespace Cue::RHI
 
                     if (!result)
                     {
-                        m_desc.commandPool->return_command_context(commandContext);
+                        return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
                         return Result::fail(
@@ -873,7 +907,7 @@ namespace Cue::RHI
                     result = commandContext->resolve_timestamps(0, 2);
                     if (!result)
                     {
-                        m_desc.commandPool->return_command_context(commandContext);
+                        return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
                         return Result::fail(
@@ -887,7 +921,7 @@ namespace Cue::RHI
                 result = commandContext->close();
                 if (!result)
                 {
-                    m_desc.commandPool->return_command_context(commandContext);
+                    discard_current_command_context();
                     return_all_command_contexts();
                     return_all_queue_contexts();
                     return Result::fail(
@@ -895,6 +929,7 @@ namespace Cue::RHI
                         Severity::Error,
                         "Failed to close command context for frame graph batch.");
                 }
+                isCommandListRecording = false;
                 if (passStats != nullptr)
                 {
                     passStats->closeMs = ms_since(closeStartTime, Clock::now());

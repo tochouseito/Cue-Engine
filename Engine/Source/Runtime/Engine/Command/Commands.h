@@ -285,7 +285,12 @@ namespace Cue
             if (!result)
             {
                 // Component が既定値のまま残ると次回の Redo/Undo で状態が崩れるため復元失敗時は取り消す。
-                (void)gameCommandContext->remove_component(m_objectId, m_kind);
+                const Result rollbackResult =
+                    gameCommandContext->remove_component(m_objectId, m_kind);
+                if (!rollbackResult)
+                {
+                    return rollbackResult;
+                }
                 return result;
             }
 

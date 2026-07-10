@@ -115,8 +115,16 @@ namespace Cue::Core::IO
         if (result && written == static_cast<uint64_t>(a_message.size()))
         {
             // デバッグ用途のため書き込みごとに永続化
-            (void)file->flush();
+            result = file->flush();
+            if (!result)
+            {
+                out_debug_console("Failed to flush log file.\n");
+            }
         }
-        (void)file->close();
+        result = file->close();
+        if (!result)
+        {
+            out_debug_console("Failed to close log file.\n");
+        }
     }
 }

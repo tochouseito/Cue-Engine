@@ -1,5 +1,8 @@
 #include "GameWorld.h"
 
+// === Base includes ===
+#include <CueAssert.h>
+
 // === Engine includes ===
 #include "SceneAsset.h"
 
@@ -187,6 +190,13 @@ namespace Cue::GameCore
             return result;
         }
 
+        const auto clear_after_failure = [this](const Result& a_failure) -> Result
+        {
+            // load 中に作った Entity を残すと、次回の load で Scene ID と親子関係が混在するため失敗時に必ず戻します
+            const Result clearResult = clear();
+            return clearResult ? a_failure : clearResult;
+        };
+
         const SceneId sceneId = m_nextSceneId;
         ++m_nextSceneId;
         if (m_nextSceneId == k_invalidSceneId)
@@ -284,8 +294,7 @@ namespace Cue::GameCore
             });
         if (!result)
         {
-            (void)clear();
-            return result;
+            return clear_after_failure(result);
         }
 
         for (const SceneObject& object : a_scene.objects)
@@ -299,18 +308,16 @@ namespace Cue::GameCore
             const auto parentIterator = entityMap.find(object.parentLocalId);
             if (childIterator == entityMap.end() || parentIterator == entityMap.end())
             {
-                (void)clear();
-                return Result::fail(
+                return clear_after_failure(Result::fail(
                     Code::InvalidArgument,
                     Severity::Error,
-                    "Scene parent reference could not be resolved.");
+                    "Scene parent reference could not be resolved."));
             }
 
             result = set_parent(childIterator->second, parentIterator->second, false);
             if (!result)
             {
-                (void)clear();
-                return result;
+                return clear_after_failure(result);
             }
         }
 
@@ -319,8 +326,7 @@ namespace Cue::GameCore
             result = set_render_camera(firstCameraEntity);
             if (!result)
             {
-                (void)clear();
-                return result;
+                return clear_after_failure(result);
             }
         }
 
@@ -1227,8 +1233,11 @@ namespace Cue::GameCore
 
         std::string name{};
         std::string tag{};
-        (void)get_object_name(a_entityId, name);
-        (void)get_object_tag(a_entityId, tag);
+        // alive record の名前と tag を取得できない場合は index の整合性を保てないため、削除を続行しません
+        const Result nameResult = get_object_name(a_entityId, name);
+        CUE_ASSERT_FORMAT(success(nameResult), "Failed to get object name before destruction: {}", nameResult.message.data());
+        const Result tagResult = get_object_tag(a_entityId, tag);
+        CUE_ASSERT_FORMAT(success(tagResult), "Failed to get object tag before destruction: {}", tagResult.message.data());
         remove_object_from_name_index(a_entityId, name);
         remove_object_from_tag_index(a_entityId, tag);
 

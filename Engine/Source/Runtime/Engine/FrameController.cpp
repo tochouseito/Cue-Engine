@@ -78,7 +78,9 @@ namespace Cue
             m_thread->request_stop();
             if (m_thread->joinable())
             {
-                (void)m_thread->join();
+                // 実行中の job を保持したまま thread を破棄すると次回起動時に競合するため、終了失敗を隠しません
+                const Result result = m_thread->join();
+                CUE_ASSERT_FORMAT(success(result), "Failed to join frame job thread: {}", result.message.data());
             }
             m_thread.reset();
         }

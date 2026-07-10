@@ -2,6 +2,9 @@
 #include "ConvertHresult.h"
 #include "ConvertUTF.h"
 
+// === Base includes ===
+#include <CueAssert.h>
+
 namespace Cue::PAL::Win
 {
     namespace
@@ -84,7 +87,9 @@ namespace Cue::PAL::Win
         if (m_joinable)
         {
             request_stop();
-            join();
+            // destructor で未完了 thread を残すと handle の再利用時に競合するため、join 失敗を検出します
+            const Result result = join();
+            CUE_ASSERT_FORMAT(success(result), "Failed to join thread during destruction: {}", result.message.data());
         }
 
         // ハンドルを閉じる
@@ -108,7 +113,9 @@ namespace Cue::PAL::Win
             if (m_joinable)
             {
                 request_stop();
-                join();
+                // move 前に現在の実行を完了させ、移動先と同じ native handle を同時に所有しないようにします
+                const Result result = join();
+                CUE_ASSERT_FORMAT(success(result), "Failed to join thread before move assignment: {}", result.message.data());
             }
             close_handle_no_wait();
             m_ctx.reset();

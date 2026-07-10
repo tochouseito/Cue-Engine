@@ -51,7 +51,7 @@ namespace Cue::Editor
         [[nodiscard]] Result save_scene_as(const Core::IO::Path& a_path) noexcept;
 
         /// @brief 開いている Scene 状態を破棄し、GameWorld を空にする
-        void close_scene() noexcept;
+        [[nodiscard]] Result close_scene() noexcept;
 
         /// @brief 現在開いている Scene があるかを返す
         [[nodiscard]] bool has_scene() const noexcept

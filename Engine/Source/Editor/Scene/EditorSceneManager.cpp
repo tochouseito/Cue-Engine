@@ -30,39 +30,41 @@ namespace Cue::Editor
 
         if (a_path.is_empty())
         {
-            close_scene();
-            return Result::ok();
+            return close_scene();
         }
+
+        const auto close_after_failure = [this](const Result& a_failure) -> Result
+        {
+            // 読み込み失敗後に中途半端な World を残すと、次回保存で破損した Scene を上書きするため必ず破棄します
+            const Result closeResult = close_scene();
+            return closeResult ? a_failure : closeResult;
+        };
 
         bool exists = false;
         Result result = m_fileSystem->exists(a_path, &exists);
         if (!result)
         {
-            close_scene();
-            return result;
+            return close_after_failure(result);
         }
         if (!exists)
         {
-            close_scene();
-            return Result::fail(
+            return close_after_failure(Result::fail(
                 Code::NotFound,
                 Severity::Error,
-                "Startup scene file was not found.");
+                "Startup scene file was not found."));
         }
 
         GameCore::SceneAsset scene{};
         result = GameCore::load_scene_asset(*m_fileSystem, a_path, scene);
         if (!result)
         {
-            close_scene();
-            return result;
+            return close_after_failure(result);
         }
 
         result = m_world->load_scene(scene);
         if (!result)
         {
-            close_scene();
-            return result;
+            return close_after_failure(result);
         }
 
         m_currentScenePath = a_path;
@@ -172,11 +174,15 @@ namespace Cue::Editor
         return Result::ok();
     }
 
-    void EditorSceneManager::close_scene() noexcept
+    Result EditorSceneManager::close_scene() noexcept
     {
         if (m_world != nullptr)
         {
-            (void)m_world->clear();
+            const Result result = m_world->clear();
+            if (!result)
+            {
+                return result;
+            }
         }
 
         m_currentScenePath = {};
@@ -189,6 +195,7 @@ namespace Cue::Editor
         m_savedSceneRevision = m_world != nullptr ? m_world->scene_revision() : 0;
         m_hasScene = false;
         m_isUntitledScene = false;
+        return Result::ok();
     }
 
     bool EditorSceneManager::is_dirty() const noexcept

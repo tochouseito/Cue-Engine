@@ -314,24 +314,44 @@ namespace Cue::Editor
         if (ImGui::MenuItem("Play", nullptr, isPlaying && !isPaused,
                             hasEngine && !isPlaying))
         {
-            (void)m_engine->request_start_play();
+            const Result result = m_engine->request_start_play();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
         if (ImGui::MenuItem("Pause", nullptr, isPaused,
                             hasEngine && isPlaying && !isPaused))
         {
-            (void)m_engine->request_pause_play();
+            const Result result = m_engine->request_pause_play();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
         if (ImGui::MenuItem("Resume", nullptr, false, hasEngine && isPaused))
         {
-            (void)m_engine->request_resume_play();
+            const Result result = m_engine->request_resume_play();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
         if (ImGui::MenuItem("Step", nullptr, false, hasEngine && isPaused))
         {
-            (void)m_engine->request_step_play();
+            const Result result = m_engine->request_step_play();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
         if (ImGui::MenuItem("Stop", nullptr, false, hasEngine && isPlaying))
         {
-            (void)m_engine->request_stop_play();
+            const Result result = m_engine->request_stop_play();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
         }
     }
 
@@ -700,7 +720,11 @@ namespace Cue::Editor
 
         if (m_assetBrowser != nullptr)
         {
-            (void)m_assetBrowser->refresh();
+            result = m_assetBrowser->refresh();
+            if (!result)
+            {
+                return result;
+            }
         }
 
         a_outSaved = true;

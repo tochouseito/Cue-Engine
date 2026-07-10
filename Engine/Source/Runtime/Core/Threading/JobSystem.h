@@ -5,6 +5,7 @@
 /// *********************************************************************************
 
 // === Base includes ===
+#include <CueAssert.h>
 #include <CueResult.h>
 
 // === Core includes ===
@@ -626,7 +627,9 @@ namespace Cue::Core::Threading
             {
                 if (worker)
                 {
-                    (void)worker->join();
+                    // worker を破棄する前に終了を確認し、未完了 thread を解放して競合しないようにする
+                    const Result result = worker->join();
+                    CUE_ASSERT_FORMAT(success(result), "Failed to join job worker thread: {}", result.message.data());
                     worker.reset();
                 }
             }

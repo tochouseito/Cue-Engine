@@ -28,7 +28,12 @@ namespace Cue::Editor
 
         m_assetRootPath = normalizedPath;
         m_currentScenePath = {};
-        (void)refresh();
+        // refresh は失敗内容を AssetBrowser 内に保持するため、更新失敗後も UI で原因を確認できます
+        const Result result = refresh();
+        if (!result)
+        {
+            return;
+        }
     }
 
     void AssetBrowser::set_current_scene_path(
