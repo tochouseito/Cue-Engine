@@ -274,6 +274,7 @@ namespace Cue::Editor
         }
         if (alreadyExists)
         {
+            // 既存 folder に対する初期 template の上書きは user asset を破壊し得るため拒否する。
             return Result::fail(
                 Code::CreateFailed,
                 Severity::Warning,
@@ -307,6 +308,7 @@ namespace Cue::Editor
         GameCore::SceneAsset scene{};
         scene.name = "Main";
         const Core::IO::Path scenePath = Core::IO::Path::join(projectRoot, Core::IO::Path(k_defaultScenePath));
+        // cueproject.json の startupScene が作成直後から解決できるよう、設定より先に空 Scene を配置する。
         result = GameCore::save_scene_asset(*m_fileSystem, scenePath, scene);
         if (!result)
         {

@@ -156,6 +156,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManagerSetupInfo.gameCommandBridge = gameBridge.get();
     editorManager->initialize(editorManagerSetupInfo);
 
+    // WM_CLOSE は Platform の終了確定前に Editor へ渡し、未保存 Scene の確認を完了させる。
     platform->set_message_handler(
         [&editorManager](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT& outResult) -> bool
         {

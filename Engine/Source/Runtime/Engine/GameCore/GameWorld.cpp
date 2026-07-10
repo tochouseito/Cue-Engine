@@ -332,6 +332,7 @@ namespace Cue::GameCore
     Result GameWorld::make_scene_asset(std::string_view a_name, SceneAsset& a_outScene) const
     {
         a_outScene = {};
+        // Scene asset には再構築可能な authoring data だけを保存し、描画登録 ID や派生 Transform は持ち込まない。
         return capture_result(
             [&]()
             {
@@ -420,6 +421,7 @@ namespace Cue::GameCore
                     scene.objects.push_back(std::move(object));
                 }
 
+                // 子が親より先に列挙されても親参照を復元できるよう、全 local ID を確定してから結び直す。
                 for (size_t objectIndex = 0; objectIndex < entities.size(); ++objectIndex)
                 {
                     const BaseComponent* base = ecs.get_component<BaseComponent>(entities[objectIndex]);
@@ -446,6 +448,7 @@ namespace Cue::GameCore
 
     void GameWorld::record_scene_edit() noexcept
     {
+        // 毎 frame 更新される runtime animation は保存対象にしないため、authoring 操作だけがこの revision を進める。
         ++m_sceneRevision;
         if (m_sceneRevision == 0)
         {

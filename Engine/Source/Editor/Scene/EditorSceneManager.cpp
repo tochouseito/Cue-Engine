@@ -63,6 +63,7 @@ namespace Cue::Editor
 
         m_currentScenePath = a_path;
         m_sceneName = scene.name.empty() ? a_path.stem() : scene.name;
+        // 読み込み直後の World は保存済み状態として扱い、既存 Scene を開いただけで dirty 化しない。
         m_savedSceneRevision = m_world->scene_revision();
         m_hasScene = true;
         return Result::ok();
@@ -137,6 +138,7 @@ namespace Cue::Editor
             return result;
         }
 
+        // 書き込み中に後続 command が反映された場合も dirty 状態を保てるよう、保存した snapshot の revision を記録する。
         const std::uint64_t sceneRevision = m_world->scene_revision();
         result = GameCore::save_scene_asset(*m_fileSystem, a_path, scene);
         if (!result)

@@ -33,6 +33,7 @@ namespace Cue::Editor
             const Core::IO::Path& a_projectRoot,
             const Core::IO::Path& a_path)
         {
+            // Project 内の asset path は相対化し、Project folder を移動しても cueproject.json を再利用できるようにする。
             const Core::IO::Path normalizedRoot = a_projectRoot.normalize();
             const Core::IO::Path normalizedPath = a_path.normalize();
             const std::string& rootText = normalizedRoot.utf8();

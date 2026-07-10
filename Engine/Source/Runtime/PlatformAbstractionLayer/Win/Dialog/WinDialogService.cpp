@@ -179,6 +179,7 @@ namespace Cue::PAL::Win
                 "Failed to get folder dialog options.");
         }
 
+        // Shell dialog が Editor process の working directory を変更すると相対 asset path の基準が壊れるため抑止する。
         hresult = dialog->SetOptions(
             options |
             FOS_PICKFOLDERS |
@@ -252,6 +253,7 @@ namespace Cue::PAL::Win
                 "Failed to get save file dialog options.");
         }
 
+        // Shell dialog が Editor process の working directory を変更すると相対 asset path の基準が壊れるため抑止する。
         hresult = dialog->SetOptions(
             options |
             FOS_FORCEFILESYSTEM |

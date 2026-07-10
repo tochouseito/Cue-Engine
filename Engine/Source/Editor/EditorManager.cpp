@@ -345,6 +345,7 @@ namespace Cue::Editor
         m_pendingProjectRoot = a_projectRoot;
         if (m_sceneManager != nullptr && m_sceneManager->is_dirty())
         {
+            // Project 切替や終了で未保存 World を失わないよう、実行を確認ダイアログの応答まで保留する。
             m_shouldOpenSceneTransitionDialog = true;
             return;
         }
@@ -354,6 +355,7 @@ namespace Cue::Editor
 
     void EditorManager::apply_scene_transition()
     {
+        // 遷移処理が dialog 表示や Project 読み込みを再入させても同じ要求を二重実行しないよう、先に待機状態を消費する。
         const SceneTransition transition = m_pendingSceneTransition;
         const Core::IO::Path projectRoot = m_pendingProjectRoot;
         m_pendingSceneTransition = SceneTransition::none;
@@ -499,6 +501,7 @@ namespace Cue::Editor
 
         if (a_setsStartupScene && m_project != nullptr)
         {
+            // 新規 Scene の初回保存だけを次回起動対象にし、既存 Scene の Save As で Project 設定を意図せず変更しない。
             result = m_project->set_startup_scene_path(selectedPath);
             if (!result)
             {
