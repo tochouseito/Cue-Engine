@@ -259,14 +259,15 @@ namespace Cue::DrawSystem
         }
 
         const DrawFrameData& frameData = m_drawFrameState.frame_state(a_context.frame_index());
+        // ImGui が SRV として読む color target は無描画 frame でも alpha を含めて定義済みにする
+        commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
+        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
+        commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         if (frameData.indirectCommandCount == 0)
         {
             return;
         }
 
-        commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
-        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
-        commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         commandContext->set_graphics_pipeline(m_pipelineState);
         commandContext->set_primitive_topology(RHI::PrimitiveTopologyType::Triangle);
         commandContext->set_vertex_buffer(0, m_meshPoolBindings.positionBuffer);

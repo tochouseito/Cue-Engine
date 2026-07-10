@@ -1,5 +1,55 @@
 {
-    "version": 1,
     "name": "Main",
-    "objects": []
+    "objects": [
+        {
+            "components": {
+                "renderable": {
+                    "castsShadow": true,
+                    "material": {
+                        "color": [
+                            1.0,
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        "overrideMask": 0,
+                        "shininess": 32.0,
+                        "usesReflectionSkybox": false
+                    },
+                    "materialId": 4294967295,
+                    "meshId": 0,
+                    "modelName": "Primitive.Cube",
+                    "receivesShadow": true,
+                    "renderQueue": "Auto",
+                    "shadowCasterMode": "Solid",
+                    "visible": true
+                },
+                "transform": {
+                    "position": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rotation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ]
+                }
+            },
+            "id": 1,
+            "isActive": true,
+            "isPersistent": false,
+            "name": "GameObject",
+            "parent": 0,
+            "tag": "Default"
+        }
+    ],
+    "version": 1
 }
