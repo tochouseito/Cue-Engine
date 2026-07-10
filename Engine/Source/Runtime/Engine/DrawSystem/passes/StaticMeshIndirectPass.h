@@ -9,7 +9,9 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
-#include "DrawSystem/DrawResources.h"
+#include "DrawSystem/DrawSceneResources.h"
+#include "DrawSystem/DrawViewResources.h"
+#include "DrawSystem/DrawVisibilityResources.h"
 #include "DrawSystem/MeshPool.h"
 
 // === C++ includes ===
@@ -22,11 +24,15 @@ namespace Cue::DrawSystem
     {
     public:
         StaticMeshIndirectPass(
-            DrawResources& a_drawResources,
+            DrawSceneResources& a_sceneResources,
+            DrawViewResources& a_viewResources,
+            DrawVisibilityResources& a_visibilityResources,
             MeshPool& a_meshPool,
             DrawFrameState& a_drawFrameState);
         StaticMeshIndirectPass(
-            DrawResources& a_drawResources,
+            DrawSceneResources& a_sceneResources,
+            DrawViewResources& a_viewResources,
+            DrawVisibilityResources& a_visibilityResources,
             MeshPool& a_meshPool,
             DrawFrameState& a_drawFrameState,
             std::string a_passName,
@@ -54,7 +60,9 @@ namespace Cue::DrawSystem
         void execute(RHI::FrameGraphContext& a_context) override;
 
     private:
-        DrawResources& m_drawResources; // DrawSystem 共通 buffer と batch upload 結果
+        DrawSceneResources& m_sceneResources; // 全 View で共有する DrawScene 入力
+        DrawViewResources& m_viewResources; // camera 行列を持つ描画 View
+        DrawVisibilityResources& m_visibilityResources; // culling と indirect draw の View 固有出力
         MeshPool& m_meshPool;           // vertex/index stream と MeshRange buffer の管理元
         DrawFrameState& m_drawFrameState; // フレームごとの CPU batching 結果
         std::string m_passName{}; // FrameGraph 上の pass 名

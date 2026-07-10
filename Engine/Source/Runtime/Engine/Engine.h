@@ -24,8 +24,10 @@
 #include "FrameController.h"
 
 #include "DrawSystem/DrawFrameState.h"
-#include "DrawSystem/DrawResources.h"
 #include "DrawSystem/DrawScene.h"
+#include "DrawSystem/DrawSceneResources.h"
+#include "DrawSystem/DrawViewResources.h"
+#include "DrawSystem/DrawVisibilityResources.h"
 #include "DrawSystem/MeshPool.h"
 #include "GameCore/GameWorld.h"
 
@@ -202,11 +204,12 @@ class Engine final
     GameCore::GameWorld m_gameWorld{};
     GameCore::GameWorld m_runtimeGameWorld{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
-    std::vector<DrawSystem::DrawScene> m_debugDrawScenes{};
     DrawSystem::DrawFrameState m_drawFrameState{};
-    DrawSystem::DrawFrameState m_debugDrawFrameState{};
-    std::unique_ptr<DrawSystem::DrawResources> m_drawResources = nullptr;
-    std::unique_ptr<DrawSystem::DrawResources> m_debugDrawResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawSceneResources> m_drawSceneResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawViewResources> m_gameViewResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawViewResources> m_debugViewResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawVisibilityResources> m_gameVisibilityResources = nullptr;
+    std::unique_ptr<DrawSystem::DrawVisibilityResources> m_debugVisibilityResources = nullptr;
     std::unique_ptr<DrawSystem::MeshPool> m_meshPool = nullptr;
     ECS::ECSManager::SystemPipeline m_renderExtractionPipeline{};
     ECS::ECSManager::SystemPipeline m_runtimeRenderExtractionPipeline{};

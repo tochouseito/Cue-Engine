@@ -6,11 +6,15 @@
 namespace Cue::DrawSystem
 {
     StaticMeshIndirectPass::StaticMeshIndirectPass(
-        DrawResources& a_drawResources,
+        DrawSceneResources& a_sceneResources,
+        DrawViewResources& a_viewResources,
+        DrawVisibilityResources& a_visibilityResources,
         MeshPool& a_meshPool,
         DrawFrameState& a_drawFrameState)
         : StaticMeshIndirectPass(
-            a_drawResources,
+            a_sceneResources,
+            a_viewResources,
+            a_visibilityResources,
             a_meshPool,
             a_drawFrameState,
             "StaticMeshIndirect",
@@ -19,12 +23,16 @@ namespace Cue::DrawSystem
     }
 
     StaticMeshIndirectPass::StaticMeshIndirectPass(
-        DrawResources& a_drawResources,
+        DrawSceneResources& a_sceneResources,
+        DrawViewResources& a_viewResources,
+        DrawVisibilityResources& a_visibilityResources,
         MeshPool& a_meshPool,
         DrawFrameState& a_drawFrameState,
         std::string a_passName,
         std::string a_renderTargetName)
-        : m_drawResources(a_drawResources)
+        : m_sceneResources(a_sceneResources)
+        , m_viewResources(a_viewResources)
+        , m_visibilityResources(a_visibilityResources)
         , m_meshPool(a_meshPool)
         , m_drawFrameState(a_drawFrameState)
         , m_passName(std::move(a_passName))
@@ -234,7 +242,7 @@ namespace Cue::DrawSystem
         }
 
         result = a_builder.use_buffer(
-            m_drawResources.view_projection_buffer_handle(),
+            m_viewResources.view_projection_buffer_handle(),
             RHI::ResourceAccessType::Read,
             RHI::ResourceState::VertexBuffer,
             RHI::ResourceState::VertexBuffer);
@@ -243,11 +251,41 @@ namespace Cue::DrawSystem
             return result;
         }
 
-        return a_builder.use_buffer(
-            m_drawResources.transform_buffer_handle(),
+        result = a_builder.use_buffer(
+            m_sceneResources.transform_buffer_handle(),
             RHI::ResourceAccessType::Read,
             RHI::ResourceState::ShaderResource,
             RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = a_builder.use_buffer(
+            m_visibilityResources.static_mesh_object_index_buffer_handle(),
+            RHI::ResourceAccessType::Read,
+            RHI::ResourceState::ShaderResource,
+            RHI::ResourceState::ShaderResource);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = a_builder.use_buffer(
+            m_visibilityResources.static_mesh_indirect_command_buffer_handle(),
+            RHI::ResourceAccessType::Read,
+            RHI::ResourceState::IndirectArgument,
+            RHI::ResourceState::IndirectArgument);
+        if (!result)
+        {
+            return result;
+        }
+
+        return a_builder.use_buffer(
+            m_visibilityResources.static_mesh_indirect_command_count_buffer_handle(),
+            RHI::ResourceAccessType::Read,
+            RHI::ResourceState::IndirectArgument,
+            RHI::ResourceState::IndirectArgument);
     }
 
     void StaticMeshIndirectPass::execute(RHI::FrameGraphContext& a_context)
@@ -274,12 +312,12 @@ namespace Cue::DrawSystem
         commandContext->set_vertex_buffer(1, m_meshPoolBindings.uvBuffer);
         commandContext->set_vertex_buffer(2, m_meshPoolBindings.normalBuffer);
         commandContext->set_index_buffer(m_meshPoolBindings.indexBuffer, RHI::IndexFormat::UInt32);
-        commandContext->set_srv(1, m_drawResources.static_mesh_object_index_buffer_handle());
-        commandContext->set_cbv(2, m_drawResources.view_projection_buffer_handle());
-        commandContext->set_srv(3, m_drawResources.transform_buffer_handle());
+        commandContext->set_srv(1, m_visibilityResources.static_mesh_object_index_buffer_handle());
+        commandContext->set_cbv(2, m_viewResources.view_projection_buffer_handle());
+        commandContext->set_srv(3, m_sceneResources.transform_buffer_handle());
         commandContext->execute_indexed_indirect(
-            m_drawResources.static_mesh_indirect_command_buffer_handle(),
-            m_drawResources.static_mesh_indirect_command_count_buffer_handle(),
+            m_visibilityResources.static_mesh_indirect_command_buffer_handle(),
+            m_visibilityResources.static_mesh_indirect_command_count_buffer_handle(),
             frameData.indirectCommandCount);
     }
 } // namespace Cue::DrawSystem

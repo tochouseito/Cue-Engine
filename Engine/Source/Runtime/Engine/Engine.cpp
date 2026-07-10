@@ -15,7 +15,9 @@
 #include "GameCore/SceneAsset.h"
 
 // === Frame Passes includes ===
-#include "DrawSystem/passes/DrawResourceUploadCopyPass.h"
+#include "DrawSystem/passes/DrawSceneUploadCopyPass.h"
+#include "DrawSystem/passes/DrawViewUploadCopyPass.h"
+#include "DrawSystem/passes/DrawVisibilityUploadCopyPass.h"
 #include "DrawSystem/passes/PresentToSwapChain.h"
 #include "DrawSystem/passes/StaticMeshIndirectPass.h"
 
@@ -51,16 +53,12 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_renderBackend = a_info.renderBackend;
     m_bufferCount = a_info.renderBackend->buffer_count();
     m_debugRenderView = a_info.debugRenderView;
+    // Editor pass と DebugCamera が揃う場合だけ Debug 用 GPU resource を確保し、Runtime の常駐メモリを増やさない
     m_isDebugRenderingEnabled = a_info.editorPass != nullptr && m_debugRenderView != nullptr;
 
-    // FrameState の初期化
+    // Game と Debug は同じ Scene 抽出結果を使うため、CPU 側 DrawScene と batch 結果は frame ごとに一組だけ保持する
     m_drawFrameState.resize(m_bufferCount);
     m_drawScenes.resize(m_bufferCount);
-    if (m_isDebugRenderingEnabled)
-    {
-        m_debugDrawFrameState.resize(m_bufferCount);
-        m_debugDrawScenes.resize(m_bufferCount);
-    }
     for (uint32_t frameIndex = 0; frameIndex < m_bufferCount; ++frameIndex)
     {
         DrawSystem::DrawFrameData& frameState = m_drawFrameState.frame_state(frameIndex);
@@ -91,6 +89,7 @@ Result Engine::initialize(EngineSetupInfo& a_info)
 
     if (m_isDebugRenderingEnabled)
     {
+        // DebugColor は Editor が SRV として読むため、DebugView を実際に描画する場合だけ作成する
         r = RHI::create_render_target_resources(*m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
                                                 m_debugColorRenderTarget,
                                                 Math::float4::from_rgba8(63, 63, 63, 255).data());
@@ -131,54 +130,31 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
-    // 描画用リソース作成
-    m_drawResources = std::make_unique<DrawSystem::DrawResources>(bufferManager, viewManager, m_bufferCount);
+    // Scene 入力は GameView と DebugView で共有し、camera と visibility だけを View ごとに分離する
+    // 同じ最大 object 数を Scene と Visibility に使い、culling 結果が Scene object index を直接参照できるようにする
+    m_drawSceneResources =
+        std::make_unique<DrawSystem::DrawSceneResources>(bufferManager, viewManager, m_bufferCount);
     m_maxObjectCount = k_maxObjectCount;
     m_maxCellCount = (m_maxObjectCount + k_cellObjectCapacity - 1u) / k_cellObjectCapacity;
 
-    r = m_drawResources->create_renderable_info_buffer(m_maxObjectCount);
+    r = m_drawSceneResources->initialize(m_maxObjectCount, m_maxCellCount);
     if (!r)
     {
         return r;
     }
 
-    r = m_drawResources->create_transform_buffer(m_maxObjectCount);
+    m_gameViewResources =
+        std::make_unique<DrawSystem::DrawViewResources>(bufferManager, m_bufferCount, "Game");
+    r = m_gameViewResources->initialize();
     if (!r)
     {
         return r;
     }
 
-    r = m_drawResources->create_view_projection_buffer();
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_material_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_render_cell_buffer(m_maxCellCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_render_object_buffer(m_maxObjectCount);
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_object_count_buffer();
-    if (!r)
-    {
-        return r;
-    }
-
-    r = m_drawResources->create_static_mesh_batch_buffers(m_maxObjectCount, m_maxObjectCount);
+    // GameView は Editor の有無に関係なく描画するため、View と Visibility resource を常に確保する
+    m_gameVisibilityResources = std::make_unique<DrawSystem::DrawVisibilityResources>(
+        bufferManager, viewManager, m_bufferCount, "Game");
+    r = m_gameVisibilityResources->initialize(m_maxObjectCount, m_maxObjectCount, m_maxObjectCount);
     if (!r)
     {
         return r;
@@ -186,51 +162,18 @@ Result Engine::initialize(EngineSetupInfo& a_info)
 
     if (m_isDebugRenderingEnabled)
     {
-        m_debugDrawResources = std::make_unique<DrawSystem::DrawResources>(bufferManager, viewManager, m_bufferCount);
-
-        r = m_debugDrawResources->create_renderable_info_buffer(m_maxObjectCount);
+        // DebugView は camera と可視集合だけを GameView から分離し、shared Scene buffer を再確保しない
+        m_debugViewResources =
+            std::make_unique<DrawSystem::DrawViewResources>(bufferManager, m_bufferCount, "Debug");
+        r = m_debugViewResources->initialize();
         if (!r)
         {
             return r;
         }
 
-        r = m_debugDrawResources->create_transform_buffer(m_maxObjectCount);
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_view_projection_buffer();
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_material_buffer(m_maxObjectCount);
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_render_cell_buffer(m_maxCellCount);
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_render_object_buffer(m_maxObjectCount);
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_object_count_buffer();
-        if (!r)
-        {
-            return r;
-        }
-
-        r = m_debugDrawResources->create_static_mesh_batch_buffers(m_maxObjectCount, m_maxObjectCount);
+        m_debugVisibilityResources = std::make_unique<DrawSystem::DrawVisibilityResources>(
+            bufferManager, viewManager, m_bufferCount, "Debug");
+        r = m_debugVisibilityResources->initialize(m_maxObjectCount, m_maxObjectCount, m_maxObjectCount);
         if (!r)
         {
             return r;
@@ -464,10 +407,24 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
         return Result::fail(result.code, Severity::Fatal, "Failed to create render frame graph.");
     }
 
-    // メインのフレームグラフにパスを追加
-    m_frameGraph->add_pass(std::make_unique<DrawSystem::DrawResourceUploadCopyPass>(*m_drawResources));
+    if (m_drawSceneResources == nullptr || m_gameViewResources == nullptr ||
+        m_gameVisibilityResources == nullptr || m_meshPool == nullptr)
+    {
+        return Result::fail(Code::InvalidState, Severity::Fatal, "Game draw resources are not initialized.");
+    }
+
+    // Main は shared Scene 入力と GameView 固有の camera / visibility を組み合わせて描画する
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::DrawSceneUploadCopyPass>(*m_drawSceneResources));
+    m_frameGraph->add_pass(std::make_unique<DrawSystem::DrawViewUploadCopyPass>(*m_gameViewResources));
     m_frameGraph->add_pass(
-        std::make_unique<DrawSystem::StaticMeshIndirectPass>(*m_drawResources, *m_meshPool, m_drawFrameState));
+        std::make_unique<DrawSystem::DrawVisibilityUploadCopyPass>(*m_gameVisibilityResources));
+    m_frameGraph->add_pass(
+        std::make_unique<DrawSystem::StaticMeshIndirectPass>(
+            *m_drawSceneResources,
+            *m_gameViewResources,
+            *m_gameVisibilityResources,
+            *m_meshPool,
+            m_drawFrameState));
 
     // editor パスが存在する場合は、メインのフレームグラフに追加
     if (a_editorPass)
@@ -484,9 +441,9 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
 
     if (m_isDebugRenderingEnabled)
     {
-        if (m_debugDrawResources == nullptr)
+        if (m_debugViewResources == nullptr || m_debugVisibilityResources == nullptr)
         {
-            return Result::fail(Code::InvalidState, Severity::Fatal, "Debug draw resources are not initialized.");
+            return Result::fail(Code::InvalidState, Severity::Fatal, "Debug view resources are not initialized.");
         }
 
         // DebugView 用のフレームグラフ。Main と同じ描画 pass を DebugColor へ向ける。
@@ -500,12 +457,16 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
             return Result::fail(result.code, Severity::Fatal, "Failed to create debug frame graph.");
         }
 
-        m_debugFrameGraph->add_pass(std::make_unique<DrawSystem::DrawResourceUploadCopyPass>(*m_debugDrawResources));
+        m_debugFrameGraph->add_pass(std::make_unique<DrawSystem::DrawViewUploadCopyPass>(*m_debugViewResources));
+        m_debugFrameGraph->add_pass(
+            std::make_unique<DrawSystem::DrawVisibilityUploadCopyPass>(*m_debugVisibilityResources));
         m_debugFrameGraph->add_pass(
             std::make_unique<DrawSystem::StaticMeshIndirectPass>(
-                *m_debugDrawResources,
+                *m_drawSceneResources,
+                *m_debugViewResources,
+                *m_debugVisibilityResources,
                 *m_meshPool,
-                m_debugDrawFrameState,
+                m_drawFrameState,
                 "DebugStaticMeshIndirect",
                 "DebugColor"));
 
@@ -623,9 +584,10 @@ Result Engine::initialize_default_camera()
 
 Result Engine::update_draw_scene(uint32_t a_bufferIndex)
 {
-    if (m_drawResources == nullptr)
+    if (m_drawSceneResources == nullptr || m_gameViewResources == nullptr ||
+        m_gameVisibilityResources == nullptr)
     {
-        return Result::fail(Code::InvalidState, Severity::Error, "DrawResources is not initialized.");
+        return Result::fail(Code::InvalidState, Severity::Error, "Game draw resources are not initialized.");
     }
 
     if (m_meshPool == nullptr)
@@ -710,7 +672,26 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     frameData.indirectCommandCount = static_cast<uint32_t>(frameData.staticMeshIndirectCommands.size());
     frameData.useCpuBatching = frameData.indirectCommandCount > 0;
 
-    result = m_drawResources->upload_draw_scene(a_bufferIndex, drawScene, frameData);
+    result = m_drawSceneResources->upload_draw_scene(a_bufferIndex, drawScene);
+    if (!result)
+    {
+        return result;
+    }
+
+    // GameView は GameCore が選択した camera を使い、camera が無い frame では既定値を upload する
+    DrawSystem::RenderView gameRenderView{};
+    const std::vector<DrawSystem::CameraDrawItem>& gameCameras = drawScene.cameras();
+    if (!gameCameras.empty())
+    {
+        gameRenderView = gameCameras.front().renderView;
+    }
+    result = m_gameViewResources->upload_view(a_bufferIndex, gameRenderView);
+    if (!result)
+    {
+        return result;
+    }
+
+    result = m_gameVisibilityResources->upload_visibility(a_bufferIndex, frameData);
     if (!result)
     {
         return result;
@@ -718,31 +699,19 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
 
     if (m_isDebugRenderingEnabled)
     {
-        if (m_debugDrawResources == nullptr || m_debugRenderView == nullptr)
+        if (m_debugViewResources == nullptr || m_debugVisibilityResources == nullptr ||
+            m_debugRenderView == nullptr)
         {
-            return Result::fail(Code::InvalidState, Severity::Error, "Debug rendering is enabled without resources.");
-        }
-        if (a_bufferIndex >= m_debugDrawScenes.size())
-        {
-            return Result::fail(Code::InvalidArgument, Severity::Error, "Debug DrawScene buffer index is out of range.");
+            return Result::fail(Code::InvalidState, Severity::Error, "Debug view resources are not initialized.");
         }
 
-        // Debug 描画は Main と同じ描画対象を使い、camera だけ Editor DebugCamera に差し替える。
-        DrawSystem::DrawScene& debugDrawScene = m_debugDrawScenes[a_bufferIndex];
-        debugDrawScene = drawScene;
-        debugDrawScene.clear_cameras();
-
-        DrawSystem::CameraDrawItem debugCamera{};
-        debugCamera.renderView = *m_debugRenderView;
-        result = debugDrawScene.add_camera(debugCamera);
+        // DebugView は shared Scene 入力を再 upload せず、Editor camera と visibility だけを差し替える
+        result = m_debugViewResources->upload_view(a_bufferIndex, *m_debugRenderView);
         if (!result)
         {
             return result;
         }
-
-        DrawSystem::DrawFrameData& debugFrameData = m_debugDrawFrameState.frame_state(a_bufferIndex);
-        debugFrameData = frameData;
-        result = m_debugDrawResources->upload_draw_scene(a_bufferIndex, debugDrawScene, debugFrameData);
+        result = m_debugVisibilityResources->upload_visibility(a_bufferIndex, frameData);
         if (!result)
         {
             return result;
