@@ -1103,6 +1103,14 @@ namespace Cue::GameCore
         else
         {
             m_ecsManager.remove_component<T>(a_entityId);
+            if constexpr (std::is_same_v<T, ECS::CameraComponent>)
+            {
+                // 存在しない Camera を描画入力に変換しないよう、削除対象が render camera のときだけ解除する。
+                if (m_renderCameraEntity == a_entityId)
+                {
+                    clear_render_camera();
+                }
+            }
             record_scene_edit();
             return Result::ok();
         }

@@ -132,9 +132,18 @@ namespace Cue::Editor
         /// @brief 現在の ImGui 入力操作に対応する履歴統合用 ID を取得する
         [[nodiscard]] uint64_t current_history_transaction();
 
+        /// @brief Component header の削除操作を CQRS 経由で要求する
+        void draw_remove_component_button(GameCore::EntityId a_entityId,
+                                          ComponentKind a_kind,
+                                          const char* a_componentName);
+
         /// @brief Component 追加を CQRS 経由で要求する
         void submit_add_component(GameCore::EntityId a_entityId,
                                   ComponentKind a_kind);
+
+        /// @brief Component 削除を CQRS 経由で要求する
+        void submit_remove_component(GameCore::EntityId a_entityId,
+                                     ComponentKind a_kind);
 
         GameCore::GameWorld* m_gameWorld = nullptr;
         DrawSystem::MeshPool* m_meshPool = nullptr;

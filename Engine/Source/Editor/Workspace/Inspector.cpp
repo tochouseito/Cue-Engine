@@ -411,7 +411,9 @@ namespace Cue::Editor
             return;
         }
 
-        if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+        const bool isOpen = ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen);
+        draw_remove_component_button(a_object.entity_id(), ComponentKind::Camera, "Camera");
+        if (isOpen)
         {
             ECS::CameraComponent edited = *camera;
 
@@ -462,7 +464,10 @@ namespace Cue::Editor
             return;
         }
 
-        if (ImGui::CollapsingHeader("Mesh Filter", ImGuiTreeNodeFlags_DefaultOpen))
+        const bool isOpen = ImGui::CollapsingHeader("Mesh Filter", ImGuiTreeNodeFlags_DefaultOpen);
+        draw_remove_component_button(a_object.entity_id(), ComponentKind::MeshFilter,
+                                     "Mesh Filter");
+        if (isOpen)
         {
             ImGui::Text("MeshId: %u", meshFilter->meshId);
             if (m_meshPool == nullptr)
@@ -540,8 +545,11 @@ namespace Cue::Editor
             return;
         }
 
-        if (ImGui::CollapsingHeader("Static Mesh Renderer",
-                                    ImGuiTreeNodeFlags_DefaultOpen))
+        const bool isOpen = ImGui::CollapsingHeader("Static Mesh Renderer",
+                                                    ImGuiTreeNodeFlags_DefaultOpen);
+        draw_remove_component_button(a_object.entity_id(), ComponentKind::StaticMeshRenderer,
+                                     "Static Mesh Renderer");
+        if (isOpen)
         {
             ECS::StaticMeshRendererComponent edited = *renderer;
 
@@ -751,6 +759,23 @@ namespace Cue::Editor
         return transactionId;
     }
 
+    void Inspector::draw_remove_component_button(GameCore::EntityId a_entityId,
+                                                 ComponentKind a_kind,
+                                                 const char* a_componentName)
+    {
+        ImGui::SameLine();
+        ImGui::PushID(a_componentName);
+        if (ImGui::SmallButton("x"))
+        {
+            submit_remove_component(a_entityId, a_kind);
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Remove %s Component", a_componentName);
+        }
+        ImGui::PopID();
+    }
+
     void Inspector::submit_add_component(GameCore::EntityId a_entityId,
                                          ComponentKind a_kind)
     {
@@ -762,5 +787,18 @@ namespace Cue::Editor
         // Component 追加も Engine の更新境界へ集約し、ECS 走査中の構造変更を避ける
         (void)m_commandBridge->submit_command(
             std::make_unique<AddComponentCommand>(a_entityId, a_kind));
+    }
+
+    void Inspector::submit_remove_component(GameCore::EntityId a_entityId,
+                                            ComponentKind a_kind)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        // Component の復元値を Command 側で保持し、Undo 時に削除前の設定を再現する。
+        (void)m_commandBridge->submit_command(
+            std::make_unique<RemoveComponentCommand>(a_entityId, a_kind));
     }
 } // namespace Cue::Editor

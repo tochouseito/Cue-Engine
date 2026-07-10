@@ -41,6 +41,12 @@ namespace Cue
         virtual Result destroy_object(GameCore::EntityId a_objectId) = 0;
         virtual Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) = 0;
         virtual Result remove_component(GameCore::EntityId a_objectId, ComponentKind a_kind) = 0;
+
+        /// @brief 現在の描画 Camera Entity を取得する
+        virtual Result get_render_camera(GameCore::EntityId& a_outObjectId) = 0;
+
+        /// @brief 描画に使用する Camera Entity を設定する
+        virtual Result set_render_camera(GameCore::EntityId a_objectId) = 0;
         virtual Result capture_object_snapshot(
             GameCore::EntityId a_objectId,
             GameCore::ObjectSnapshot& a_outSnapshot) = 0;
@@ -195,6 +201,156 @@ namespace Cue
     private:
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         ComponentKind m_kind = ComponentKind::Transform;
+    };
+
+    class RemoveComponentCommand final : public Core::CQRS::IUndoableCommand
+    {
+    public:
+        RemoveComponentCommand(GameCore::EntityId a_objectId, ComponentKind a_kind) noexcept
+            : m_objectId(a_objectId)
+            , m_kind(a_kind)
+        {
+        }
+
+        Result execute(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component removal.");
+            }
+
+            if (!m_hasSnapshot)
+            {
+                Result result = capture_component(*gameCommandContext);
+                if (!result)
+                {
+                    return result;
+                }
+
+                m_hasSnapshot = true;
+            }
+
+            return gameCommandContext->remove_component(m_objectId, m_kind);
+        }
+
+        Result undo(Core::CQRS::ICommandContext& a_commandContext) override
+        {
+            IGameCommandContext* gameCommandContext =
+                dynamic_cast<IGameCommandContext*>(&a_commandContext);
+            if (gameCommandContext == nullptr)
+            {
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Command context does not support component removal undo.");
+            }
+            if (!m_hasSnapshot)
+            {
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Error,
+                    "Remove component command has not been executed.");
+            }
+
+            Result result = gameCommandContext->add_component(m_objectId, m_kind);
+            if (!result)
+            {
+                return result;
+            }
+
+            result = restore_component(*gameCommandContext);
+            if (!result)
+            {
+                // Component が既定値のまま残ると次回の Redo/Undo で状態が崩れるため復元失敗時は取り消す。
+                (void)gameCommandContext->remove_component(m_objectId, m_kind);
+                return result;
+            }
+
+            if (m_kind == ComponentKind::Camera && m_wasRenderCamera)
+            {
+                return gameCommandContext->set_render_camera(m_objectId);
+            }
+
+            return Result::ok();
+        }
+
+    private:
+        Result capture_component(IGameCommandContext& a_commandContext)
+        {
+            switch (m_kind)
+            {
+            case ComponentKind::Camera: {
+                Result result = a_commandContext.get_camera_component(
+                    m_objectId, m_cameraComponent);
+                if (!result)
+                {
+                    return result;
+                }
+
+                GameCore::EntityId renderCameraId = GameCore::k_invalidEntityId;
+                result = a_commandContext.get_render_camera(renderCameraId);
+                if (result)
+                {
+                    m_wasRenderCamera = renderCameraId == m_objectId;
+                }
+                return result;
+            }
+            case ComponentKind::MeshFilter:
+                return a_commandContext.get_mesh_filter_component(
+                    m_objectId, m_meshFilterComponent);
+            case ComponentKind::StaticMeshRenderer:
+                return a_commandContext.get_static_mesh_renderer_component(
+                    m_objectId, m_staticMeshRendererComponent);
+            case ComponentKind::Transform:
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Warning,
+                    "TransformComponent is required and cannot be removed.");
+            default:
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Unknown component kind.");
+            }
+        }
+
+        Result restore_component(IGameCommandContext& a_commandContext)
+        {
+            switch (m_kind)
+            {
+            case ComponentKind::Camera:
+                return a_commandContext.set_camera_component(m_objectId, m_cameraComponent);
+            case ComponentKind::MeshFilter:
+                return a_commandContext.set_mesh_filter_component(
+                    m_objectId, m_meshFilterComponent);
+            case ComponentKind::StaticMeshRenderer:
+                return a_commandContext.set_static_mesh_renderer_component(
+                    m_objectId, m_staticMeshRendererComponent);
+            case ComponentKind::Transform:
+                return Result::fail(
+                    Code::InvalidState,
+                    Severity::Warning,
+                    "TransformComponent is required and cannot be restored.");
+            default:
+                return Result::fail(
+                    Code::InvalidArgument,
+                    Severity::Error,
+                    "Unknown component kind.");
+            }
+        }
+
+        ECS::CameraComponent m_cameraComponent{};
+        ECS::MeshFilterComponent m_meshFilterComponent{};
+        ECS::StaticMeshRendererComponent m_staticMeshRendererComponent{};
+        GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
+        ComponentKind m_kind = ComponentKind::Transform;
+        bool m_hasSnapshot = false;
+        bool m_wasRenderCamera = false;
     };
 
     class RenameObjectCommand final : public Core::CQRS::IUndoableCommand

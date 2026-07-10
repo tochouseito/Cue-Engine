@@ -22,6 +22,8 @@ namespace Cue
         Result destroy_object(GameCore::EntityId a_objectId) override;
         Result add_component(GameCore::EntityId a_objectId, ComponentKind a_kind) override;
         Result remove_component(GameCore::EntityId a_objectId, ComponentKind a_kind) override;
+        Result get_render_camera(GameCore::EntityId& a_outObjectId) override;
+        Result set_render_camera(GameCore::EntityId a_objectId) override;
         Result capture_object_snapshot(
             GameCore::EntityId a_objectId,
             GameCore::ObjectSnapshot& a_outSnapshot) override;

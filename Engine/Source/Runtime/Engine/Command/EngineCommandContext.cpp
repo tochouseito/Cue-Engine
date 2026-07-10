@@ -265,6 +265,17 @@ namespace Cue
         }
     }
 
+    Result EngineCommandContext::get_render_camera(GameCore::EntityId& a_outObjectId)
+    {
+        a_outObjectId = m_gameWorld.render_camera_entity();
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::set_render_camera(GameCore::EntityId a_objectId)
+    {
+        return m_gameWorld.set_render_camera(a_objectId);
+    }
+
     Result EngineCommandContext::capture_object_snapshot(
         GameCore::EntityId a_objectId,
         GameCore::ObjectSnapshot& a_outSnapshot)
