@@ -106,6 +106,8 @@ namespace Cue::Editor
         void draw_view_menu_items();
         void open_project_selector();
         void update_project_selector();
+        void save_current_scene();
+        void clear_selection() noexcept;
         void submit_empty_object_command();
         void show_and_focus_window(const char* a_windowName);
         bool prepare_window_focus(const char* a_windowName);

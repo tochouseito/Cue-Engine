@@ -289,6 +289,7 @@ namespace Cue
 
         // local Transform を変えた frame で描画入力も追従するよう WorldTransform を再解決する。
         m_gameWorld.sync_world_transforms();
+        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 
@@ -319,6 +320,7 @@ namespace Cue
         }
 
         *component = a_component;
+        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 
@@ -349,6 +351,7 @@ namespace Cue
         }
 
         *component = a_component;
+        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 
@@ -379,6 +382,7 @@ namespace Cue
         }
 
         *component = a_component;
+        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 } // namespace Cue

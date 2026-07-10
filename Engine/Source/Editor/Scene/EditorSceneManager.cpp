@@ -62,8 +62,37 @@ namespace Cue::Editor
         }
 
         m_currentScenePath = a_path;
+        m_sceneName = scene.name.empty() ? a_path.stem() : scene.name;
+        m_savedSceneRevision = m_world->scene_revision();
         m_hasScene = true;
-        m_isDirty = false;
+        return Result::ok();
+    }
+
+    Result EditorSceneManager::save_scene() noexcept
+    {
+        if (m_fileSystem == nullptr || m_world == nullptr || !m_hasScene || m_currentScenePath.is_empty())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Warning,
+                "EditorSceneManager does not have a scene to save.");
+        }
+
+        GameCore::SceneAsset scene{};
+        Result result = m_world->make_scene_asset(m_sceneName, scene);
+        if (!result)
+        {
+            return result;
+        }
+
+        const std::uint64_t sceneRevision = m_world->scene_revision();
+        result = GameCore::save_scene_asset(*m_fileSystem, m_currentScenePath, scene);
+        if (!result)
+        {
+            return result;
+        }
+
+        m_savedSceneRevision = sceneRevision;
         return Result::ok();
     }
 
@@ -75,7 +104,13 @@ namespace Cue::Editor
         }
 
         m_currentScenePath = {};
+        m_sceneName.clear();
+        m_savedSceneRevision = m_world != nullptr ? m_world->scene_revision() : 0;
         m_hasScene = false;
-        m_isDirty = false;
+    }
+
+    bool EditorSceneManager::is_dirty() const noexcept
+    {
+        return m_hasScene && m_world != nullptr && m_world->scene_revision() != m_savedSceneRevision;
     }
 } // namespace Cue::Editor

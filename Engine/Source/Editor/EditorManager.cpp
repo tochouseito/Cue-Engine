@@ -163,6 +163,12 @@ namespace Cue::Editor
 
     void EditorManager::draw_file_menu_items()
     {
+        const bool canSaveScene = m_sceneManager != nullptr && m_sceneManager->is_dirty();
+        if (ImGui::MenuItem("保存", nullptr, false, canSaveScene))
+        {
+            save_current_scene();
+        }
+
         if (ImGui::MenuItem("プロジェクト選択..."))
         {
             open_project_selector();
@@ -172,6 +178,12 @@ namespace Cue::Editor
         {
             ImGui::Separator();
             ImGui::TextDisabled("%s", m_project->name().c_str());
+        }
+
+        if (m_sceneManager != nullptr && m_sceneManager->has_scene())
+        {
+            const std::string sceneName = m_sceneManager->current_scene_path().filename();
+            ImGui::TextDisabled("%s%s", m_sceneManager->is_dirty() ? "* " : "", sceneName.c_str());
         }
     }
 
@@ -246,6 +258,10 @@ namespace Cue::Editor
             if (m_sceneManager != nullptr)
             {
                 const Result sceneResult = m_sceneManager->open_scene(m_project->startup_scene_path());
+
+                // Scene 読み込みは GameWorld を置き換えるため、以前の Entity / Scene 選択は無効になる。
+                clear_selection();
+
                 if (!sceneResult)
                 {
                     Core::IO::log(
@@ -263,6 +279,35 @@ namespace Cue::Editor
             "Failed to load project: %s",
             result.message.data());
         m_projectSelector->show_error(result.message);
+    }
+
+    void EditorManager::save_current_scene()
+    {
+        if (m_sceneManager == nullptr)
+        {
+            return;
+        }
+
+        const Result result = m_sceneManager->save_scene();
+        if (result)
+        {
+            return;
+        }
+
+        Core::IO::log(
+            Core::IO::LogSink::console | Core::IO::LogSink::file,
+            "Failed to save scene: %s",
+            result.message.data());
+        if (m_projectSelector != nullptr)
+        {
+            m_projectSelector->show_error(result.message);
+        }
+    }
+
+    void EditorManager::clear_selection() noexcept
+    {
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+        m_selectedSceneId = GameCore::k_invalidSceneId;
     }
 
     void EditorManager::submit_empty_object_command()

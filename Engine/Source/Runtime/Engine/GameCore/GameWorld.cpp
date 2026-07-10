@@ -31,7 +31,7 @@ namespace Cue::GameCore
     Result GameWorld::create_object(std::string_view a_name, std::string_view a_tag, GameObject& a_outObject)
     {
         a_outObject = {};
-        return capture_result(
+        const Result result = capture_result(
             [&]()
             {
                 const EntityId entity = create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
@@ -47,6 +47,11 @@ namespace Cue::GameCore
 
                 a_outObject = make_handle(entity);
             });
+        if (result)
+        {
+            record_scene_edit();
+        }
+        return result;
     }
 
     Result GameWorld::create_static_mesh_object(uint32_t a_meshId, uint32_t a_materialId, GameObject& a_outObject)
@@ -58,7 +63,7 @@ namespace Cue::GameCore
                                                 const Math::float3& a_position, GameObject& a_outObject)
     {
         a_outObject = {};
-        return capture_result(
+        const Result result = capture_result(
             [&]()
             {
                 const EntityId entity = create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
@@ -94,12 +99,17 @@ namespace Cue::GameCore
 
                 a_outObject = make_handle(entity);
             });
+        if (result)
+        {
+            record_scene_edit();
+        }
+        return result;
     }
 
     Result GameWorld::instantiate_object(const GameObjectProto& a_proto, GameObject& a_outObject)
     {
         a_outObject = {};
-        return capture_result(
+        const Result result = capture_result(
             [&]()
             {
                 const EntityId entity = create_entity_record(k_invalidSceneId, k_invalidLocalObjectId);
@@ -118,6 +128,11 @@ namespace Cue::GameCore
 
                 a_outObject = make_handle(entity);
             });
+        if (result)
+        {
+            record_scene_edit();
+        }
+        return result;
     }
 
     Result GameWorld::destroy_object(EntityId a_entityId) noexcept
@@ -133,6 +148,7 @@ namespace Cue::GameCore
         {
             record->isPendingDestroy = true;
             m_pendingDestroyedEntities.push_back(a_entityId);
+            record_scene_edit();
         }
 
         return Result::ok();
@@ -159,6 +175,7 @@ namespace Cue::GameCore
 
         m_pendingDestroyedEntities.clear();
         clear_render_camera();
+        record_scene_edit();
         return Result::ok();
     }
 
@@ -308,7 +325,132 @@ namespace Cue::GameCore
         }
 
         sync_world_transforms();
+        record_scene_edit();
         return Result::ok();
+    }
+
+    Result GameWorld::make_scene_asset(std::string_view a_name, SceneAsset& a_outScene) const
+    {
+        a_outScene = {};
+        return capture_result(
+            [&]()
+            {
+                SceneAsset scene{};
+                scene.name = a_name;
+                scene.objects.reserve(m_liveObjectCount);
+
+                std::vector<EntityId> entities{};
+                entities.reserve(m_liveObjectCount);
+                // Runtime EntityId は保存対象でないため、親子関係は Scene 内 local ID へ置き換える。
+                std::unordered_map<EntityId, LocalObjectId> localIds{};
+                localIds.reserve(m_liveObjectCount);
+
+                ECS::ECSManager& ecs = const_cast<ECS::ECSManager&>(m_ecsManager);
+                for (EntityId entity = 0; entity < static_cast<EntityId>(m_entityRecords.size()); ++entity)
+                {
+                    if (!contains_object(entity))
+                    {
+                        continue;
+                    }
+
+                    const BaseComponent* base = ecs.get_component<BaseComponent>(entity);
+                    if (base == nullptr)
+                    {
+                        throw std::runtime_error("GameWorld scene export requires BaseComponent.");
+                    }
+
+                    SceneObject object{};
+                    object.localId = static_cast<LocalObjectId>(entities.size() + 1u);
+                    if (object.localId == k_invalidLocalObjectId)
+                    {
+                        throw std::runtime_error("GameWorld scene export exhausted local object ids.");
+                    }
+
+                    object.name = base->name;
+                    object.tag = base->tag;
+                    object.isActive = base->isActiveSelf;
+                    object.isPersistent = base->isPersistent;
+
+                    const ECS::TransformComponent* transform =
+                        ecs.get_component<ECS::TransformComponent>(entity);
+                    if (transform != nullptr)
+                    {
+                        object.transform.position = transform->position;
+                        object.transform.rotation = transform->rotation;
+                        object.transform.scale = transform->scale;
+                        object.hasTransform = true;
+                    }
+
+                    const ECS::CameraComponent* camera = ecs.get_component<ECS::CameraComponent>(entity);
+                    if (camera != nullptr)
+                    {
+                        object.camera.fovY = camera->fovY;
+                        object.camera.aspectRatio = camera->aspectRatio;
+                        object.camera.nearZ = camera->nearZ;
+                        object.camera.farZ = camera->farZ;
+                        object.hasCamera = true;
+                    }
+
+                    const ECS::MeshFilterComponent* meshFilter =
+                        ecs.get_component<ECS::MeshFilterComponent>(entity);
+                    const ECS::StaticMeshRendererComponent* renderer =
+                        ecs.get_component<ECS::StaticMeshRendererComponent>(entity);
+                    if (meshFilter != nullptr || renderer != nullptr)
+                    {
+                        if (meshFilter != nullptr)
+                        {
+                            object.renderable.modelName = meshFilter->modelName;
+                            object.renderable.meshId = meshFilter->meshId;
+                        }
+                        if (renderer != nullptr)
+                        {
+                            object.renderable.materialId = renderer->materialId;
+                            object.renderable.propertyBlock = renderer->propertyBlock;
+                            object.renderable.renderQueue = renderer->renderQueue;
+                            object.renderable.shadowCasterMode = renderer->shadowCasterMode;
+                            object.renderable.visible = renderer->visible;
+                            object.renderable.castsShadow = renderer->castsShadow;
+                            object.renderable.receivesShadow = renderer->receivesShadow;
+                        }
+                        object.hasRenderable = true;
+                    }
+
+                    localIds.emplace(entity, object.localId);
+                    entities.push_back(entity);
+                    scene.objects.push_back(std::move(object));
+                }
+
+                for (size_t objectIndex = 0; objectIndex < entities.size(); ++objectIndex)
+                {
+                    const BaseComponent* base = ecs.get_component<BaseComponent>(entities[objectIndex]);
+                    if (base == nullptr || base->parent == k_invalidEntityId)
+                    {
+                        continue;
+                    }
+
+                    const auto parent = localIds.find(base->parent);
+                    if (parent != localIds.end())
+                    {
+                        scene.objects[objectIndex].parentLocalId = parent->second;
+                    }
+                }
+
+                a_outScene = std::move(scene);
+            });
+    }
+
+    std::uint64_t GameWorld::scene_revision() const noexcept
+    {
+        return m_sceneRevision;
+    }
+
+    void GameWorld::record_scene_edit() noexcept
+    {
+        ++m_sceneRevision;
+        if (m_sceneRevision == 0)
+        {
+            m_sceneRevision = 1;
+        }
     }
 
     Result GameWorld::object_count(size_t& a_outCount) const noexcept
@@ -356,6 +498,7 @@ namespace Cue::GameCore
         {
             remove_object_from_name_index(a_entityId, oldName);
             add_object_to_name_index(a_entityId, base->name);
+            record_scene_edit();
         }
 
         return Result::ok();
@@ -391,6 +534,7 @@ namespace Cue::GameCore
         {
             remove_object_from_tag_index(a_entityId, oldTag);
             add_object_to_tag_index(a_entityId, base->tag);
+            record_scene_edit();
         }
 
         return Result::ok();
@@ -419,7 +563,11 @@ namespace Cue::GameCore
             return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
         }
 
-        base->isActiveSelf = a_isActive;
+        if (base->isActiveSelf != a_isActive)
+        {
+            base->isActiveSelf = a_isActive;
+            record_scene_edit();
+        }
 
         m_ecsManager.set_entity_active(a_entityId, a_isActive);
         return Result::ok();
@@ -448,8 +596,12 @@ namespace Cue::GameCore
         }
 
         // Scene 所属を導入した時に永続 Object を Scene から切り離せるよう値を整える
-        base->isPersistent = a_isPersistent;
-        base->owningSceneId = a_isPersistent ? k_invalidSceneId : base->owningSceneId;
+        if (base->isPersistent != a_isPersistent)
+        {
+            base->isPersistent = a_isPersistent;
+            base->owningSceneId = a_isPersistent ? k_invalidSceneId : base->owningSceneId;
+            record_scene_edit();
+        }
         return Result::ok();
     }
 
@@ -525,6 +677,7 @@ namespace Cue::GameCore
         }
 
         sync_world_transforms();
+        record_scene_edit();
         return Result::ok();
     }
 
@@ -571,6 +724,7 @@ namespace Cue::GameCore
         }
 
         sync_world_transforms();
+        record_scene_edit();
         return Result::ok();
     }
 
@@ -708,7 +862,7 @@ namespace Cue::GameCore
             return Result::fail(Code::InvalidState, Severity::Warning, "GameWorld object is not alive.");
         }
 
-        return capture_result(
+        const Result result = capture_result(
             [&]()
             {
                 T* component = m_ecsManager.add_component<T>(a_entityId);
@@ -720,6 +874,11 @@ namespace Cue::GameCore
                 *component = T{std::forward<Args>(a_args)...};
                 a_outComponent = component;
             });
+        if (result)
+        {
+            record_scene_edit();
+        }
+        return result;
     }
 
     Result GameWorld::set_render_camera(EntityId a_entityId) noexcept
@@ -782,6 +941,7 @@ namespace Cue::GameCore
         else
         {
             m_ecsManager.remove_component<T>(a_entityId);
+            record_scene_edit();
             return Result::ok();
         }
     }
