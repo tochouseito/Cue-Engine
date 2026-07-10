@@ -44,6 +44,7 @@ namespace Cue::Editor
 {
     class DebugCamera;
     class DebugView;
+    class AssetBrowser;
     class EditorSceneManager;
     class GameView;
     class Hierarchy;
@@ -113,6 +114,7 @@ namespace Cue::Editor
         {
             none = 0,
             newScene,
+            openScene,
             openProject,
             exit,
         };
@@ -126,6 +128,8 @@ namespace Cue::Editor
         void update_project_selector();
         void draw_scene_transition_dialog();
         void request_scene_transition(SceneTransition a_transition, const Core::IO::Path& a_projectRoot = {});
+        void request_new_scene(const Core::IO::Path& a_directory);
+        void request_open_scene(const Core::IO::Path& a_path);
         void apply_scene_transition();
         void load_project(const Core::IO::Path& a_projectRoot);
         [[nodiscard]] Result save_current_scene(bool& a_outSaved);
@@ -145,6 +149,7 @@ namespace Cue::Editor
 
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
+        std::unique_ptr<AssetBrowser> m_assetBrowser = nullptr;
         std::unique_ptr<Hierarchy> m_hierarchy = nullptr;
         std::unique_ptr<Inspector> m_inspector = nullptr;
         std::unique_ptr<EditorProject> m_project = nullptr;
@@ -154,6 +159,9 @@ namespace Cue::Editor
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;
         Core::IO::Path m_pendingProjectRoot{};
+        Core::IO::Path m_pendingScenePath{};
+        Core::IO::Path m_pendingSceneDirectory{};
+        Core::IO::Path m_newSceneSaveDirectory{};
         std::string m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
         SceneTransition m_pendingSceneTransition = SceneTransition::none;
         bool m_shouldOpenSceneTransitionDialog = false;

@@ -9,6 +9,7 @@
 #include "Project/EditorProject.h"
 #include "Project/ProjectSelector.h"
 #include "Scene/EditorSceneManager.h"
+#include "Workspace/AssetBrowser.h"
 #include "Workspace/DebugView.h"
 #include "Workspace/GameView.h"
 #include "Workspace/Hierarchy.h"
@@ -46,6 +47,7 @@ namespace Cue::Editor
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend);
+        m_assetBrowser = std::make_unique<AssetBrowser>(*a_info.fileSystem);
         if (m_engine != nullptr)
         {
             m_hierarchy = std::make_unique<Hierarchy>(
@@ -68,6 +70,32 @@ namespace Cue::Editor
         draw_dockspace();
         update_project_selector();
         draw_scene_transition_dialog();
+        if (m_assetBrowser != nullptr)
+        {
+            if (m_project != nullptr)
+            {
+                m_assetBrowser->set_asset_root_path(m_project->asset_root_path());
+            }
+            if (m_sceneManager != nullptr)
+            {
+                m_assetBrowser->set_current_scene_path(m_sceneManager->current_scene_path());
+            }
+
+            prepare_window_focus("Asset Browser");
+            m_assetBrowser->update();
+
+            Core::IO::Path scenePath{};
+            if (m_assetBrowser->consume_open_scene_request(scenePath))
+            {
+                request_open_scene(scenePath);
+            }
+
+            Core::IO::Path sceneDirectory{};
+            if (m_assetBrowser->consume_new_scene_request(sceneDirectory))
+            {
+                request_new_scene(sceneDirectory);
+            }
+        }
         if (m_gameView != nullptr)
         {
             prepare_window_focus("GameView");
@@ -257,6 +285,10 @@ namespace Cue::Editor
         {
             show_and_focus_window("インスペクター");
         }
+        if (ImGui::MenuItem("Asset Browser"))
+        {
+            show_and_focus_window("Asset Browser");
+        }
     }
 
     void EditorManager::open_project_selector()
@@ -326,6 +358,8 @@ namespace Cue::Editor
         {
             m_pendingSceneTransition = SceneTransition::none;
             m_pendingProjectRoot = {};
+            m_pendingScenePath = {};
+            m_pendingSceneDirectory = {};
             ImGui::CloseCurrentPopup();
         }
 
@@ -353,13 +387,34 @@ namespace Cue::Editor
         apply_scene_transition();
     }
 
+    void EditorManager::request_new_scene(const Core::IO::Path& a_directory)
+    {
+        m_pendingSceneDirectory = a_directory;
+        request_scene_transition(SceneTransition::newScene);
+    }
+
+    void EditorManager::request_open_scene(const Core::IO::Path& a_path)
+    {
+        if (a_path.is_empty())
+        {
+            return;
+        }
+
+        m_pendingScenePath = a_path;
+        request_scene_transition(SceneTransition::openScene);
+    }
+
     void EditorManager::apply_scene_transition()
     {
         // 遷移処理が dialog 表示や Project 読み込みを再入させても同じ要求を二重実行しないよう、先に待機状態を消費する。
         const SceneTransition transition = m_pendingSceneTransition;
         const Core::IO::Path projectRoot = m_pendingProjectRoot;
+        const Core::IO::Path scenePath = m_pendingScenePath;
+        const Core::IO::Path sceneDirectory = m_pendingSceneDirectory;
         m_pendingSceneTransition = SceneTransition::none;
         m_pendingProjectRoot = {};
+        m_pendingScenePath = {};
+        m_pendingSceneDirectory = {};
 
         switch (transition)
         {
@@ -377,7 +432,23 @@ namespace Cue::Editor
                 return;
             }
 
+            m_newSceneSaveDirectory = sceneDirectory;
             clear_selection();
+            return;
+        }
+        case SceneTransition::openScene:
+        {
+            if (m_sceneManager == nullptr)
+            {
+                return;
+            }
+
+            const Result result = m_sceneManager->open_scene(scenePath);
+            clear_selection();
+            if (!result)
+            {
+                show_scene_error(result);
+            }
             return;
         }
         case SceneTransition::openProject:
@@ -408,6 +479,8 @@ namespace Cue::Editor
             show_scene_error(result);
             return;
         }
+
+        m_newSceneSaveDirectory = {};
 
         // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に Engine へ共有する
         if (m_engine != nullptr)
@@ -466,10 +539,15 @@ namespace Cue::Editor
                 "Editor scene save dialog is not initialized.");
         }
 
+        const bool hasSavePath = m_sceneManager->has_save_path();
         Core::IO::Path initialDirectory{};
-        if (m_sceneManager->has_save_path())
+        if (hasSavePath)
         {
             initialDirectory = m_sceneManager->current_scene_path().parent();
+        }
+        else if (!m_newSceneSaveDirectory.is_empty())
+        {
+            initialDirectory = m_newSceneSaveDirectory;
         }
         else if (m_project != nullptr)
         {
@@ -507,6 +585,16 @@ namespace Cue::Editor
             {
                 return result;
             }
+        }
+
+        if (!hasSavePath)
+        {
+            m_newSceneSaveDirectory = {};
+        }
+
+        if (m_assetBrowser != nullptr)
+        {
+            (void)m_assetBrowser->refresh();
         }
 
         a_outSaved = true;
