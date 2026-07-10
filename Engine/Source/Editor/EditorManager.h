@@ -11,6 +11,9 @@
 // === Base includes ===
 #include <CueResult.h>
 
+// === Editor includes ===
+#include "Workspace/AssetSelection.h"
+
 // === C++ includes ===
 #include <memory>
 #include <string>
@@ -54,18 +57,24 @@ namespace Cue::Editor
 
     struct EditorManagerSetupInfo final
     {
-        RHI::DX12::D3D12Backend* backend = nullptr; // Editor View が参照する描画 backend
-        Engine* engine = nullptr;                   // GameWorld など Editor が参照する Runtime
-        DebugCamera* debugCamera = nullptr;         // DebugView の入力で更新する Editor camera
-        PAL::IDialogService* dialogService = nullptr; // OS 標準 UI を呼び出す非所有サービス
-        Core::IO::IFileSystem* fileSystem = nullptr; // Project 設定を読み込む非所有 FileSystem
-        Core::CQRS::Bridge* gameCommandBridge = nullptr; // GameWorld 編集コマンドの送信先
+        RHI::DX12::D3D12Backend* backend =
+            nullptr;              // Editor View が参照する描画 backend
+        Engine* engine = nullptr; // GameWorld など Editor が参照する Runtime
+        DebugCamera* debugCamera =
+            nullptr; // DebugView の入力で更新する Editor camera
+        PAL::IDialogService* dialogService =
+            nullptr; // OS 標準 UI を呼び出す非所有サービス
+        Core::IO::IFileSystem* fileSystem =
+            nullptr; // Project 設定を読み込む非所有 FileSystem
+        Core::CQRS::Bridge* gameCommandBridge =
+            nullptr; // GameWorld 編集コマンドの送信先
     };
 
-    /// @brief CueEngine の EditorManager と同じく、Editor の共有状態と UI 更新順を集約する。
+    /// @brief CueEngine の EditorManager と同じく、Editor の共有状態と UI
+    /// 更新順を集約する。
     class EditorManager final
     {
-    public:
+      public:
         EditorManager();
         EditorManager(const EditorManager&) = delete;
         EditorManager& operator=(const EditorManager&) = delete;
@@ -109,7 +118,7 @@ namespace Cue::Editor
             m_selectedSceneId = a_sceneId;
         }
 
-    private:
+      private:
         enum class SceneTransition : uint8_t
         {
             none = 0,
@@ -127,9 +136,11 @@ namespace Cue::Editor
         void open_project_selector();
         void update_project_selector();
         void draw_scene_transition_dialog();
-        void request_scene_transition(SceneTransition a_transition, const Core::IO::Path& a_projectRoot = {});
+        void request_scene_transition(SceneTransition a_transition,
+                                      const Core::IO::Path& a_projectRoot = {});
         void request_new_scene(const Core::IO::Path& a_directory);
         void request_open_scene(const Core::IO::Path& a_path);
+        void select_asset(const AssetSelection& a_selection) noexcept;
         void apply_scene_transition();
         void load_project(const Core::IO::Path& a_projectRoot);
         [[nodiscard]] Result save_current_scene(bool& a_outSaved);
@@ -141,11 +152,15 @@ namespace Cue::Editor
         bool prepare_window_focus(const char* a_windowName);
         void focus_pending_window();
 
-        RHI::DX12::D3D12Backend* m_backend = nullptr; // View 生成時と SRV 解決に使う非所有 backend
-        Engine* m_engine = nullptr;                   // 今後 Hierarchy / Inspector が参照する非所有 Engine
-        DebugCamera* m_debugCamera = nullptr;         // Engine が参照している DebugCamera
-        PAL::IDialogService* m_dialogService = nullptr; // Scene 保存先を選択する非所有 DialogService
-        Core::CQRS::Bridge* m_gameCommandBridge = nullptr; // Editor から GameWorld を編集する command bridge
+        RHI::DX12::D3D12Backend* m_backend =
+            nullptr; // View 生成時と SRV 解決に使う非所有 backend
+        Engine* m_engine =
+            nullptr;                          // 今後 Hierarchy / Inspector が参照する非所有 Engine
+        DebugCamera* m_debugCamera = nullptr; // Engine が参照している DebugCamera
+        PAL::IDialogService* m_dialogService =
+            nullptr; // Scene 保存先を選択する非所有 DialogService
+        Core::CQRS::Bridge* m_gameCommandBridge =
+            nullptr; // Editor から GameWorld を編集する command bridge
 
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
@@ -158,11 +173,13 @@ namespace Cue::Editor
 
         GameCore::EntityId m_selectedEntityId = GameCore::k_invalidEntityId;
         GameCore::SceneId m_selectedSceneId = GameCore::k_invalidSceneId;
+        AssetSelection m_selectedAsset{};
         Core::IO::Path m_pendingProjectRoot{};
         Core::IO::Path m_pendingScenePath{};
         Core::IO::Path m_pendingSceneDirectory{};
         Core::IO::Path m_newSceneSaveDirectory{};
-        std::string m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
+        std::string
+            m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
         SceneTransition m_pendingSceneTransition = SceneTransition::none;
         bool m_shouldOpenSceneTransitionDialog = false;
         bool m_isExitRequested = false;

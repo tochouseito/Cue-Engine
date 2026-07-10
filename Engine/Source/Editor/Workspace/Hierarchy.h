@@ -7,6 +7,9 @@
 // === Runtime includes ===
 #include <GameCore/GameCoreTypes.h>
 
+// === Editor includes ===
+#include "AssetSelection.h"
+
 // === C++ includes ===
 #include <array>
 #include <cstddef>
@@ -29,16 +32,18 @@ namespace Cue::Editor
     /// @brief GameWorld を読み取り、選択可能な GameObject ツリーとして表示する
     class Hierarchy final
     {
-    public:
+      public:
         /// @brief Editor 共有状態を参照して Hierarchy View を構築する
         /// @param a_commandBridge GameWorld 編集コマンドの送信先
         /// @param a_gameWorld 表示対象の GameWorld
         /// @param a_selectedEntityId Editor 全体で共有する選択 Entity
         /// @param a_selectedSceneId Editor 全体で共有する選択 Scene
+        /// @param a_selectedAsset Entity 選択時に解除する Asset 選択
         Hierarchy(Core::CQRS::Bridge* a_commandBridge,
                   GameCore::GameWorld* a_gameWorld,
                   GameCore::EntityId* a_selectedEntityId,
-                  GameCore::SceneId* a_selectedSceneId) noexcept;
+                  GameCore::SceneId* a_selectedSceneId,
+                  AssetSelection* a_selectedAsset) noexcept;
         ~Hierarchy() = default;
 
         /// @brief 表示対象の GameWorld を差し替える
@@ -47,7 +52,7 @@ namespace Cue::Editor
         /// @brief Hierarchy window を描画する
         void update();
 
-    private:
+      private:
         /// @brief ImGui 描画用に GameObject の親子関係を平坦化した一時要素
         struct ObjectEntry final
         {
@@ -58,7 +63,8 @@ namespace Cue::Editor
             std::vector<size_t> children{};
         };
 
-        /// @brief ImGui payload はポインタ寿命を持たないため Entity と Scene だけを渡す
+        /// @brief ImGui payload はポインタ寿命を持たないため Entity と Scene
+        /// だけを渡す
         struct DragObjectPayload final
         {
             GameCore::EntityId entityId = GameCore::k_invalidEntityId;
@@ -102,12 +108,13 @@ namespace Cue::Editor
         void submit_delete_command(GameCore::EntityId a_entityId);
 
         /// @brief CQRS 経由で親子関係の変更を要求する
-        void submit_parent_command(GameCore::EntityId a_entityId, GameCore::EntityId a_parentId);
+        void submit_parent_command(GameCore::EntityId a_entityId,
+                                   GameCore::EntityId a_parentId);
 
         /// @brief drag and drop による循環参照を防ぐため祖先関係を確認する
-        [[nodiscard]] bool is_descendant_of(
-            GameCore::EntityId a_entityId,
-            GameCore::EntityId a_possibleAncestor) const noexcept;
+        [[nodiscard]] bool
+        is_descendant_of(GameCore::EntityId a_entityId,
+                         GameCore::EntityId a_possibleAncestor) const noexcept;
 
         /// @brief 選択状態が未接続の場合は invalid を返す
         [[nodiscard]] GameCore::EntityId selected_entity_id() const noexcept;
@@ -123,6 +130,7 @@ namespace Cue::Editor
         GameCore::GameWorld* m_gameWorld = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
         GameCore::SceneId* m_selectedSceneId = nullptr;
+        AssetSelection* m_selectedAsset = nullptr;
 
         std::vector<ObjectEntry> m_objects{};
         std::vector<size_t> m_roots{};

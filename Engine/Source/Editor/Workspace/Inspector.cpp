@@ -1,8 +1,8 @@
 #include "Inspector.h"
 
 // === Runtime includes ===
-#include <Command/Commands.h>
 #include <CQRS/CQRS.h>
+#include <Command/Commands.h>
 #include <DrawSystem/MeshPool.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
@@ -75,48 +75,54 @@ namespace
 
     void text_entity_id(const char* a_label, Cue::GameCore::EntityId a_entityId)
     {
-        const std::string text = a_entityId == Cue::GameCore::k_invalidEntityId
-            ? "invalid"
-            : std::to_string(static_cast<unsigned long long>(a_entityId));
+        const std::string text =
+            a_entityId == Cue::GameCore::k_invalidEntityId
+                ? "invalid"
+                : std::to_string(static_cast<unsigned long long>(a_entityId));
         ImGui::Text("%s: %s", a_label, text.c_str());
     }
 
     void text_scene_id(const char* a_label, Cue::GameCore::SceneId a_sceneId)
     {
-        const std::string text = a_sceneId == Cue::GameCore::k_invalidSceneId
-            ? "invalid"
-            : std::to_string(static_cast<unsigned long long>(a_sceneId));
+        const std::string text =
+            a_sceneId == Cue::GameCore::k_invalidSceneId
+                ? "invalid"
+                : std::to_string(static_cast<unsigned long long>(a_sceneId));
         ImGui::Text("%s: %s", a_label, text.c_str());
     }
 
     void text_float3(const char* a_label, const Cue::Math::float3& a_value)
     {
-        ImGui::Text("%s: %.3f, %.3f, %.3f",
-            a_label, a_value.x, a_value.y, a_value.z);
+        ImGui::Text("%s: %.3f, %.3f, %.3f", a_label, a_value.x, a_value.y, a_value.z);
     }
 
-    [[nodiscard]] Cue::Math::float3 radians_to_degrees(const Cue::Math::float3& a_radians) noexcept
+    [[nodiscard]] Cue::Math::float3
+    radians_to_degrees(const Cue::Math::float3& a_radians) noexcept
     {
         constexpr float radToDeg = 180.0f / std::numbers::pi_v<float>;
-        return Cue::Math::float3(a_radians.x * radToDeg, a_radians.y * radToDeg, a_radians.z * radToDeg);
+        return Cue::Math::float3(a_radians.x * radToDeg, a_radians.y * radToDeg,
+                                 a_radians.z * radToDeg);
     }
 
-    [[nodiscard]] Cue::Math::float3 degrees_to_radians(const Cue::Math::float3& a_degrees) noexcept
+    [[nodiscard]] Cue::Math::float3
+    degrees_to_radians(const Cue::Math::float3& a_degrees) noexcept
     {
         constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
-        return Cue::Math::float3(a_degrees.x * degToRad, a_degrees.y * degToRad, a_degrees.z * degToRad);
+        return Cue::Math::float3(a_degrees.x * degToRad, a_degrees.y * degToRad,
+                                 a_degrees.z * degToRad);
     }
 
-    [[nodiscard]] bool equivalent_rotation(
-        const Cue::Math::Quaternion& a_left,
-        const Cue::Math::Quaternion& a_right) noexcept
+    [[nodiscard]] bool
+    equivalent_rotation(const Cue::Math::Quaternion& a_left,
+                        const Cue::Math::Quaternion& a_right) noexcept
     {
         constexpr float epsilon = 0.0001f;
         const Cue::Math::Quaternion left = Cue::Math::Quaternion::normalize(a_left);
         const Cue::Math::Quaternion right = Cue::Math::Quaternion::normalize(a_right);
-        const Cue::Math::Quaternion negatedRight(-right.x, -right.y, -right.z, -right.w);
+        const Cue::Math::Quaternion negatedRight(-right.x, -right.y, -right.z,
+                                                 -right.w);
         return Cue::Math::Quaternion::equals_epsilon(left, right, epsilon) ||
-            Cue::Math::Quaternion::equals_epsilon(left, negatedRight, epsilon);
+               Cue::Math::Quaternion::equals_epsilon(left, negatedRight, epsilon);
     }
 
     [[nodiscard]] Cue::Math::float3 euler_degrees_from_quaternion(
@@ -128,32 +134,35 @@ namespace
     [[nodiscard]] Cue::Math::Quaternion quaternion_from_euler_degrees(
         const Cue::Math::float3& a_eulerDegrees) noexcept
     {
-        return Cue::Math::quaternion_from_euler_xyz(degrees_to_radians(a_eulerDegrees));
+        return Cue::Math::quaternion_from_euler_xyz(
+            degrees_to_radians(a_eulerDegrees));
     }
 
-    void text_euler_degrees(const char* a_label, const Cue::Math::Quaternion& a_value)
+    void text_euler_degrees(const char* a_label,
+                            const Cue::Math::Quaternion& a_value)
     {
         const Cue::Math::float3 euler = euler_degrees_from_quaternion(a_value);
         ImGui::Text("%s: %.3f, %.3f, %.3f deg", a_label, euler.x, euler.y, euler.z);
     }
 
     template <typename Component>
-    [[nodiscard]] bool object_has_component(Cue::GameCore::GameObject& a_object) noexcept
+    [[nodiscard]] bool
+    object_has_component(Cue::GameCore::GameObject& a_object) noexcept
     {
         bool hasComponent = false;
         return a_object.has_component<Component>(hasComponent) && hasComponent;
     }
-}
+} // namespace
 
 namespace Cue::Editor
 {
     Inspector::Inspector(Core::CQRS::Bridge* a_commandBridge,
                          GameCore::GameWorld* a_gameWorld,
                          DrawSystem::MeshPool* a_meshPool,
-                         GameCore::EntityId* a_selectedEntityId) noexcept
-        : m_gameWorld(a_gameWorld),
-          m_meshPool(a_meshPool),
-          m_selectedEntityId(a_selectedEntityId),
+                         GameCore::EntityId* a_selectedEntityId,
+                         AssetSelection* a_selectedAsset) noexcept
+        : m_gameWorld(a_gameWorld), m_meshPool(a_meshPool),
+          m_selectedEntityId(a_selectedEntityId), m_selectedAsset(a_selectedAsset),
           m_commandBridge(a_commandBridge)
     {
     }
@@ -172,6 +181,13 @@ namespace Cue::Editor
     {
         ImGui::Begin("インスペクター");
 
+        if (m_selectedAsset != nullptr && !m_selectedAsset->path.is_empty())
+        {
+            draw_asset_selection();
+            ImGui::End();
+            return;
+        }
+
         if (m_gameWorld == nullptr || m_selectedEntityId == nullptr)
         {
             ImGui::TextUnformatted("Inspector の依存が初期化されていません。");
@@ -181,7 +197,8 @@ namespace Cue::Editor
 
         if (*m_selectedEntityId == GameCore::k_invalidEntityId)
         {
-            ImGui::TextUnformatted("ヒエラルキーで GameObject を選択してください。");
+            ImGui::TextUnformatted(
+                "ヒエラルキーまたは Asset Browser で対象を選択してください。");
             ImGui::End();
             return;
         }
@@ -189,7 +206,8 @@ namespace Cue::Editor
         GameCore::GameObject object{};
         if (!find_selected_object(object))
         {
-            // Hierarchy 側の削除や Scene 切替後に残った選択は Editor 共有状態からも破棄する
+            // Hierarchy 側の削除や Scene 切替後に残った選択は Editor
+            // 共有状態からも破棄する
             *m_selectedEntityId = GameCore::k_invalidEntityId;
             ImGui::TextUnformatted("選択中の GameObject は存在しません。");
             ImGui::End();
@@ -221,34 +239,49 @@ namespace Cue::Editor
         ImGui::End();
     }
 
+    void Inspector::draw_asset_selection()
+    {
+        const AssetSelection& selectedAsset = *m_selectedAsset;
+        const std::string extension = selectedAsset.path.extension();
+
+        ImGui::Text("Name: %s", selectedAsset.path.filename().c_str());
+        ImGui::Text("Type: %s", asset_kind_name(selectedAsset.kind));
+        ImGui::Text("Extension: %s", extension.empty() ? "None" : extension.c_str());
+        ImGui::Text("Size: %llu bytes",
+                    static_cast<unsigned long long>(selectedAsset.sizeBytes));
+        ImGui::Separator();
+        ImGui::TextUnformatted("Path:");
+        ImGui::TextWrapped("%s", selectedAsset.path.utf8().c_str());
+    }
+
     bool Inspector::find_selected_object(GameCore::GameObject& a_outObject)
     {
         bool found = false;
         const GameCore::EntityId selectedEntityId = *m_selectedEntityId;
-        const Result result =
-            m_gameWorld->for_each_object(
-                [&a_outObject, &found, selectedEntityId](
-                    GameCore::EntityId a_entityId,
-                    GameCore::GameObject a_object)
+        const Result result = m_gameWorld->for_each_object(
+            [&a_outObject, &found, selectedEntityId](GameCore::EntityId a_entityId,
+                                                     GameCore::GameObject a_object) {
+                if (found || a_entityId != selectedEntityId)
                 {
-                    if (found || a_entityId != selectedEntityId)
-                    {
-                        return;
-                    }
+                    return;
+                }
 
-                    a_outObject = a_object;
-                    found = a_object.is_valid();
-                });
+                a_outObject = a_object;
+                found = a_object.is_valid();
+            });
 
         return result && found;
     }
 
     void Inspector::draw_add_component_menu(GameCore::GameObject& a_object)
     {
-        const bool hasTransform = object_has_component<ECS::TransformComponent>(a_object);
+        const bool hasTransform =
+            object_has_component<ECS::TransformComponent>(a_object);
         const bool hasCamera = object_has_component<ECS::CameraComponent>(a_object);
-        const bool hasMeshFilter = object_has_component<ECS::MeshFilterComponent>(a_object);
-        const bool hasStaticMeshRenderer = object_has_component<ECS::StaticMeshRendererComponent>(a_object);
+        const bool hasMeshFilter =
+            object_has_component<ECS::MeshFilterComponent>(a_object);
+        const bool hasStaticMeshRenderer =
+            object_has_component<ECS::StaticMeshRendererComponent>(a_object);
         const bool hasAddableComponent =
             !hasTransform || !hasCamera || !hasMeshFilter || !hasStaticMeshRenderer;
 
@@ -273,11 +306,13 @@ namespace Cue::Editor
             }
             if (!hasStaticMeshRenderer && ImGui::MenuItem("Static Mesh Renderer"))
             {
-                submit_add_component(a_object.entity_id(), ComponentKind::StaticMeshRenderer);
+                submit_add_component(a_object.entity_id(),
+                                     ComponentKind::StaticMeshRenderer);
             }
             if (!hasAddableComponent)
             {
-                ImGui::MenuItem("追加可能な Component はありません", nullptr, false, false);
+                ImGui::MenuItem("追加可能な Component はありません", nullptr, false,
+                                false);
             }
 
             ImGui::EndPopup();
@@ -316,28 +351,27 @@ namespace Cue::Editor
             ECS::TransformComponent edited = *transform;
             sync_rotation_cache(a_object.entity_id(), edited);
 
-            float position[3] = { edited.position.x, edited.position.y, edited.position.z };
+            float position[3] = {edited.position.x, edited.position.y,
+                                 edited.position.z};
             if (ImGui::DragFloat3("Position", position, 0.05f))
             {
                 edited.position = Math::float3(position[0], position[1], position[2]);
                 submit_transform_component(a_object.entity_id(), edited);
             }
 
-            float rotation[3] = {
-                m_rotationEulerDegrees.x,
-                m_rotationEulerDegrees.y,
-                m_rotationEulerDegrees.z
-            };
+            float rotation[3] = {m_rotationEulerDegrees.x, m_rotationEulerDegrees.y,
+                                 m_rotationEulerDegrees.z};
             if (ImGui::DragFloat3("Rotation", rotation, 0.1f, 0.0f, 0.0f, "%.3f deg"))
             {
-                m_rotationEulerDegrees = Math::float3(rotation[0], rotation[1], rotation[2]);
+                m_rotationEulerDegrees =
+                    Math::float3(rotation[0], rotation[1], rotation[2]);
                 edited.rotation = quaternion_from_euler_degrees(m_rotationEulerDegrees);
                 m_rotationSource = edited.rotation;
                 submit_transform_component(a_object.entity_id(), edited);
             }
             m_isRotationEditing = ImGui::IsItemActive();
 
-            float scale[3] = { edited.scale.x, edited.scale.y, edited.scale.z };
+            float scale[3] = {edited.scale.x, edited.scale.y, edited.scale.z};
             if (ImGui::DragFloat3("Scale", scale, 0.05f))
             {
                 edited.scale = Math::float3(scale[0], scale[1], scale[2]);
@@ -374,12 +408,14 @@ namespace Cue::Editor
         {
             ECS::CameraComponent edited = *camera;
 
-            if (ImGui::DragFloat("FovY", &edited.fovY, 0.1f, 1.0f, 179.0f, "%.3f deg"))
+            if (ImGui::DragFloat("FovY", &edited.fovY, 0.1f, 1.0f, 179.0f,
+                                 "%.3f deg"))
             {
                 edited.fovY = std::clamp(edited.fovY, 1.0f, 179.0f);
                 submit_camera_component(a_object.entity_id(), edited);
             }
-            if (ImGui::DragFloat("AspectRatio", &edited.aspectRatio, 0.01f, 0.0f, 8.0f))
+            if (ImGui::DragFloat("AspectRatio", &edited.aspectRatio, 0.01f, 0.0f,
+                                 8.0f))
             {
                 edited.aspectRatio = std::max(0.0f, edited.aspectRatio);
                 submit_camera_component(a_object.entity_id(), edited);
@@ -391,7 +427,8 @@ namespace Cue::Editor
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
                 submit_camera_component(a_object.entity_id(), edited);
             }
-            if (ImGui::DragFloat("FarZ", &edited.farZ, 0.1f, edited.nearZ + 0.001f, 100000.0f))
+            if (ImGui::DragFloat("FarZ", &edited.farZ, 0.1f, edited.nearZ + 0.001f,
+                                 100000.0f))
             {
                 // UI 入力の順序に依存せず CameraComponent 側の不変条件を保つ
                 edited.farZ = std::max(edited.nearZ + 0.001f, edited.farZ);
@@ -425,8 +462,9 @@ namespace Cue::Editor
                 return;
             }
 
-            std::string currentName =
-                meshFilter->meshId == ECS::k_invalidMeshId ? "None" : meshFilter->modelName;
+            std::string currentName = meshFilter->meshId == ECS::k_invalidMeshId
+                                          ? "None"
+                                          : meshFilter->modelName;
             for (const DrawSystem::MeshListItem& item : meshItems)
             {
                 if (item.meshId == meshFilter->meshId)
@@ -476,7 +514,8 @@ namespace Cue::Editor
         }
     }
 
-    void Inspector::draw_static_mesh_renderer_component(GameCore::GameObject& a_object)
+    void Inspector::draw_static_mesh_renderer_component(
+        GameCore::GameObject& a_object)
     {
         ECS::StaticMeshRendererComponent* renderer = nullptr;
         if (!a_object.get_component(renderer) || renderer == nullptr)
@@ -484,28 +523,33 @@ namespace Cue::Editor
             return;
         }
 
-        if (ImGui::CollapsingHeader("Static Mesh Renderer", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Static Mesh Renderer",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
         {
             ECS::StaticMeshRendererComponent edited = *renderer;
 
-            if (ImGui::InputScalar("MaterialId", ImGuiDataType_U32, &edited.materialId))
+            if (ImGui::InputScalar("MaterialId", ImGuiDataType_U32,
+                                   &edited.materialId))
             {
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
-            const char* renderQueueItems[] = { "Opaque", "Transparent", "Auto" };
+            const char* renderQueueItems[] = {"Opaque", "Transparent", "Auto"};
             int renderQueueIndex = render_queue_index(edited.renderQueue);
-            if (ImGui::Combo("RenderQueue", &renderQueueIndex, renderQueueItems, IM_ARRAYSIZE(renderQueueItems)))
+            if (ImGui::Combo("RenderQueue", &renderQueueIndex, renderQueueItems,
+                             IM_ARRAYSIZE(renderQueueItems)))
             {
                 edited.renderQueue = render_queue_from_index(renderQueueIndex);
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
-            const char* shadowCasterItems[] = { "Solid", "TwoSided" };
+            const char* shadowCasterItems[] = {"Solid", "TwoSided"};
             int shadowCasterIndex = shadow_caster_mode_index(edited.shadowCasterMode);
-            if (ImGui::Combo("ShadowCaster", &shadowCasterIndex, shadowCasterItems, IM_ARRAYSIZE(shadowCasterItems)))
+            if (ImGui::Combo("ShadowCaster", &shadowCasterIndex, shadowCasterItems,
+                             IM_ARRAYSIZE(shadowCasterItems)))
             {
-                edited.shadowCasterMode = shadow_caster_mode_from_index(shadowCasterIndex);
+                edited.shadowCasterMode =
+                    shadow_caster_mode_from_index(shadowCasterIndex);
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
@@ -522,20 +566,15 @@ namespace Cue::Editor
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
-            if (ImGui::InputScalar(
-                    "OverrideMask",
-                    ImGuiDataType_U32,
-                    &edited.propertyBlock.overrideMask))
+            if (ImGui::InputScalar("OverrideMask", ImGuiDataType_U32,
+                                   &edited.propertyBlock.overrideMask))
             {
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
             float color[4] = {
-                edited.propertyBlock.color.x,
-                edited.propertyBlock.color.y,
-                edited.propertyBlock.color.z,
-                edited.propertyBlock.color.w
-            };
+                edited.propertyBlock.color.x, edited.propertyBlock.color.y,
+                edited.propertyBlock.color.z, edited.propertyBlock.color.w};
             if (ImGui::ColorEdit4("Color", color))
             {
                 edited.propertyBlock.color =
@@ -543,14 +582,15 @@ namespace Cue::Editor
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
 
-            if (ImGui::DragFloat("Shininess", &edited.propertyBlock.shininess, 0.1f, 0.0f, 4096.0f))
+            if (ImGui::DragFloat("Shininess", &edited.propertyBlock.shininess, 0.1f,
+                                 0.0f, 4096.0f))
             {
-                edited.propertyBlock.shininess = std::max(0.0f, edited.propertyBlock.shininess);
+                edited.propertyBlock.shininess =
+                    std::max(0.0f, edited.propertyBlock.shininess);
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
-            if (ImGui::Checkbox(
-                    "UsesReflectionSkybox",
-                    &edited.propertyBlock.usesReflectionSkybox))
+            if (ImGui::Checkbox("UsesReflectionSkybox",
+                                &edited.propertyBlock.usesReflectionSkybox))
             {
                 submit_static_mesh_renderer_component(a_object.entity_id(), edited);
             }
@@ -576,7 +616,8 @@ namespace Cue::Editor
         GameCore::EntityId a_entityId,
         const ECS::TransformComponent& a_component) noexcept
     {
-        const Math::Quaternion rotation = Math::Quaternion::normalize(a_component.rotation);
+        const Math::Quaternion rotation =
+            Math::Quaternion::normalize(a_component.rotation);
         if (!m_hasRotationCache || m_rotationEntityId != a_entityId)
         {
             m_rotationEntityId = a_entityId;
@@ -600,22 +641,21 @@ namespace Cue::Editor
     }
 
     void Inspector::submit_transform_component(
-        GameCore::EntityId a_entityId,
-        const ECS::TransformComponent& a_component)
+        GameCore::EntityId a_entityId, const ECS::TransformComponent& a_component)
     {
         if (m_commandBridge == nullptr)
         {
             return;
         }
 
-        // Component 変更は GameWorld の整合更新を通すため直接書き換えず command 化する
+        // Component 変更は GameWorld の整合更新を通すため直接書き換えず command
+        // 化する
         (void)m_commandBridge->submit_command(
             make_set_transform_component_command(a_entityId, a_component));
     }
 
     void Inspector::submit_camera_component(
-        GameCore::EntityId a_entityId,
-        const ECS::CameraComponent& a_component)
+        GameCore::EntityId a_entityId, const ECS::CameraComponent& a_component)
     {
         if (m_commandBridge == nullptr)
         {
@@ -650,12 +690,14 @@ namespace Cue::Editor
             return;
         }
 
-        // RendererComponent は DrawSystem 抽出に関わるため CQRS 経由で変更順序を揃える
+        // RendererComponent は DrawSystem 抽出に関わるため CQRS
+        // 経由で変更順序を揃える
         (void)m_commandBridge->submit_command(
             make_set_static_mesh_renderer_component_command(a_entityId, a_component));
     }
 
-    void Inspector::submit_add_component(GameCore::EntityId a_entityId, ComponentKind a_kind)
+    void Inspector::submit_add_component(GameCore::EntityId a_entityId,
+                                         ComponentKind a_kind)
     {
         if (m_commandBridge == nullptr)
         {

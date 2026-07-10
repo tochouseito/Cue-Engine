@@ -16,8 +16,8 @@
 #include "Workspace/Inspector.h"
 
 // === Runtime includes ===
-#include <Command/Commands.h>
 #include <CQRS/CQRS.h>
+#include <Command/Commands.h>
 #include <Dialog/DialogService.h>
 #include <Engine.h>
 #include <IO/Path.h>
@@ -34,9 +34,12 @@ namespace Cue::Editor
     void EditorManager::initialize(const EditorManagerSetupInfo& a_info)
     {
         CUE_ASSERT_MSG(a_info.backend != nullptr, "EditorManager: backend is null");
-        CUE_ASSERT_MSG(a_info.debugCamera != nullptr, "EditorManager: debug camera is null");
-        CUE_ASSERT_MSG(a_info.dialogService != nullptr, "EditorManager: dialog service is null");
-        CUE_ASSERT_MSG(a_info.fileSystem != nullptr, "EditorManager: file system is null");
+        CUE_ASSERT_MSG(a_info.debugCamera != nullptr,
+                       "EditorManager: debug camera is null");
+        CUE_ASSERT_MSG(a_info.dialogService != nullptr,
+                       "EditorManager: dialog service is null");
+        CUE_ASSERT_MSG(a_info.fileSystem != nullptr,
+                       "EditorManager: file system is null");
 
         m_backend = a_info.backend;
         m_engine = a_info.engine;
@@ -47,21 +50,26 @@ namespace Cue::Editor
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
         m_gameView = std::make_unique<GameView>(m_backend);
         m_debugView = std::make_unique<DebugView>(m_backend);
-        m_assetBrowser = std::make_unique<AssetBrowser>(*a_info.fileSystem);
+        m_assetBrowser =
+            std::make_unique<AssetBrowser>(*a_info.fileSystem, &m_selectedAsset);
         if (m_engine != nullptr)
         {
             m_hierarchy = std::make_unique<Hierarchy>(
-                m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId, &m_selectedSceneId);
+                m_gameCommandBridge, &m_engine->game_world(), &m_selectedEntityId,
+                &m_selectedSceneId, &m_selectedAsset);
             m_inspector = std::make_unique<Inspector>(
-                m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(), &m_selectedEntityId);
+                m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(),
+                &m_selectedEntityId, &m_selectedAsset);
         }
 
         m_project = std::make_unique<EditorProject>(*a_info.fileSystem);
         if (m_engine != nullptr)
         {
-            m_sceneManager = std::make_unique<EditorSceneManager>(*a_info.fileSystem, m_engine->game_world());
+            m_sceneManager = std::make_unique<EditorSceneManager>(
+                *a_info.fileSystem, m_engine->game_world());
         }
-        m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService, *a_info.fileSystem);
+        m_projectSelector = std::make_unique<ProjectSelector>(*a_info.dialogService,
+                                                              *a_info.fileSystem);
         m_projectSelector->open_from_executable_directory();
     }
 
@@ -78,7 +86,8 @@ namespace Cue::Editor
             }
             if (m_sceneManager != nullptr)
             {
-                m_assetBrowser->set_current_scene_path(m_sceneManager->current_scene_path());
+                m_assetBrowser->set_current_scene_path(
+                    m_sceneManager->current_scene_path());
             }
 
             prepare_window_focus("Asset Browser");
@@ -94,6 +103,12 @@ namespace Cue::Editor
             if (m_assetBrowser->consume_new_scene_request(sceneDirectory))
             {
                 request_new_scene(sceneDirectory);
+            }
+
+            AssetSelection assetSelection{};
+            if (m_assetBrowser->consume_asset_selection(assetSelection))
+            {
+                select_asset(assetSelection);
             }
         }
         if (m_gameView != nullptr)
@@ -160,14 +175,10 @@ namespace Cue::Editor
         ImGui::SetNextWindowViewport(viewport->ID);
 
         const ImGuiWindowFlags windowFlags =
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoDocking |
-            ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_NoNavFocus |
-            ImGuiWindowFlags_MenuBar;
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_MenuBar;
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -177,7 +188,8 @@ namespace Cue::Editor
 
         draw_menu_bar();
 
-        // fullscreen host window ではなく、この DockSpace node を docking target にする
+        // fullscreen host window ではなく、この DockSpace node を docking target
+        // にする
         const ImGuiID dockspaceId = ImGui::GetID("EditorDockSpace");
         ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
@@ -212,13 +224,15 @@ namespace Cue::Editor
 
     void EditorManager::draw_file_menu_items()
     {
-        const bool canCreateScene = m_project != nullptr && !m_project->root_path().is_empty();
+        const bool canCreateScene =
+            m_project != nullptr && !m_project->root_path().is_empty();
         if (ImGui::MenuItem("新規 Scene", nullptr, false, canCreateScene))
         {
             request_scene_transition(SceneTransition::newScene);
         }
 
-        const bool canSaveScene = m_sceneManager != nullptr && m_sceneManager->is_dirty();
+        const bool canSaveScene =
+            m_sceneManager != nullptr && m_sceneManager->is_dirty();
         if (ImGui::MenuItem("保存", nullptr, false, canSaveScene))
         {
             bool isSaved = false;
@@ -229,7 +243,8 @@ namespace Cue::Editor
             }
         }
 
-        const bool canSaveSceneAs = m_sceneManager != nullptr && m_sceneManager->has_scene();
+        const bool canSaveSceneAs =
+            m_sceneManager != nullptr && m_sceneManager->has_scene();
         if (ImGui::MenuItem("名前を付けて保存...", nullptr, false, canSaveSceneAs))
         {
             bool isSaved = false;
@@ -254,8 +269,11 @@ namespace Cue::Editor
         if (m_sceneManager != nullptr && m_sceneManager->has_scene())
         {
             const std::string sceneName =
-                m_sceneManager->has_save_path() ? m_sceneManager->current_scene_path().filename() : m_sceneManager->scene_name();
-            ImGui::TextDisabled("%s%s", m_sceneManager->is_dirty() ? "* " : "", sceneName.c_str());
+                m_sceneManager->has_save_path()
+                    ? m_sceneManager->current_scene_path().filename()
+                    : m_sceneManager->scene_name();
+            ImGui::TextDisabled("%s%s", m_sceneManager->is_dirty() ? "* " : "",
+                                sceneName.c_str());
         }
     }
 
@@ -327,7 +345,8 @@ namespace Cue::Editor
             m_shouldOpenSceneTransitionDialog = false;
         }
 
-        if (!ImGui::BeginPopupModal("未保存の変更", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (!ImGui::BeginPopupModal("未保存の変更", nullptr,
+                                    ImGuiWindowFlags_AlwaysAutoResize))
         {
             return;
         }
@@ -367,8 +386,7 @@ namespace Cue::Editor
     }
 
     void EditorManager::request_scene_transition(
-        SceneTransition a_transition,
-        const Core::IO::Path& a_projectRoot)
+        SceneTransition a_transition, const Core::IO::Path& a_projectRoot)
     {
         if (a_transition == SceneTransition::none)
         {
@@ -379,7 +397,8 @@ namespace Cue::Editor
         m_pendingProjectRoot = a_projectRoot;
         if (m_sceneManager != nullptr && m_sceneManager->is_dirty())
         {
-            // Project 切替や終了で未保存 World を失わないよう、実行を確認ダイアログの応答まで保留する。
+            // Project 切替や終了で未保存 World
+            // を失わないよう、実行を確認ダイアログの応答まで保留する。
             m_shouldOpenSceneTransitionDialog = true;
             return;
         }
@@ -404,9 +423,19 @@ namespace Cue::Editor
         request_scene_transition(SceneTransition::openScene);
     }
 
+    void EditorManager::select_asset(const AssetSelection& a_selection) noexcept
+    {
+        m_selectedAsset = a_selection;
+
+        // Asset と GameObject の選択を排他的にし、Inspector の編集対象を混在させない
+        m_selectedEntityId = GameCore::k_invalidEntityId;
+        m_selectedSceneId = GameCore::k_invalidSceneId;
+    }
+
     void EditorManager::apply_scene_transition()
     {
-        // 遷移処理が dialog 表示や Project 読み込みを再入させても同じ要求を二重実行しないよう、先に待機状態を消費する。
+        // 遷移処理が dialog 表示や Project
+        // 読み込みを再入させても同じ要求を二重実行しないよう、先に待機状態を消費する。
         const SceneTransition transition = m_pendingSceneTransition;
         const Core::IO::Path projectRoot = m_pendingProjectRoot;
         const Core::IO::Path scenePath = m_pendingScenePath;
@@ -418,8 +447,7 @@ namespace Cue::Editor
 
         switch (transition)
         {
-        case SceneTransition::newScene:
-        {
+        case SceneTransition::newScene: {
             if (m_sceneManager == nullptr)
             {
                 return;
@@ -436,8 +464,7 @@ namespace Cue::Editor
             clear_selection();
             return;
         }
-        case SceneTransition::openScene:
-        {
+        case SceneTransition::openScene: {
             if (m_sceneManager == nullptr)
             {
                 return;
@@ -482,7 +509,8 @@ namespace Cue::Editor
 
         m_newSceneSaveDirectory = {};
 
-        // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に Engine へ共有する
+        // Asset 解決の基準は Runtime 側の処理でも使うため、Project 読み込み後に
+        // Engine へ共有する
         if (m_engine != nullptr)
         {
             m_engine->set_asset_root_path(m_project->asset_root_path());
@@ -493,9 +521,11 @@ namespace Cue::Editor
             return;
         }
 
-        const Result sceneResult = m_sceneManager->open_scene(m_project->startup_scene_path());
+        const Result sceneResult =
+            m_sceneManager->open_scene(m_project->startup_scene_path());
 
-        // Scene 読み込みは GameWorld を置き換えるため、以前の Entity / Scene 選択は無効になる。
+        // Scene 読み込みは GameWorld を置き換えるため、以前の Entity / Scene
+        // 選択は無効になる。
         clear_selection();
 
         if (!sceneResult)
@@ -509,10 +539,8 @@ namespace Cue::Editor
         a_outSaved = false;
         if (m_sceneManager == nullptr || !m_sceneManager->has_scene())
         {
-            return Result::fail(
-                Code::InvalidState,
-                Severity::Warning,
-                "Editor does not have a scene to save.");
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "Editor does not have a scene to save.");
         }
 
         if (!m_sceneManager->has_save_path())
@@ -531,12 +559,11 @@ namespace Cue::Editor
     Result EditorManager::save_scene_as(bool a_setsStartupScene, bool& a_outSaved)
     {
         a_outSaved = false;
-        if (m_sceneManager == nullptr || m_dialogService == nullptr || !m_sceneManager->has_scene())
+        if (m_sceneManager == nullptr || m_dialogService == nullptr ||
+            !m_sceneManager->has_scene())
         {
-            return Result::fail(
-                Code::InvalidState,
-                Severity::Warning,
-                "Editor scene save dialog is not initialized.");
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "Editor scene save dialog is not initialized.");
         }
 
         const bool hasSavePath = m_sceneManager->has_save_path();
@@ -554,7 +581,8 @@ namespace Cue::Editor
             initialDirectory = m_project->asset_root_path();
         }
 
-        const std::string defaultFileName = m_sceneManager->scene_name() + ".cuescene";
+        const std::string defaultFileName =
+            m_sceneManager->scene_name() + ".cuescene";
         PAL::SaveFileDialogDesc desc{};
         desc.title = "Scene を保存";
         desc.defaultFileName = defaultFileName.c_str();
@@ -565,7 +593,8 @@ namespace Cue::Editor
 
         Core::IO::Path selectedPath{};
         bool isSelected = false;
-        Result result = m_dialogService->save_file_dialog(desc, selectedPath, isSelected);
+        Result result =
+            m_dialogService->save_file_dialog(desc, selectedPath, isSelected);
         if (!result || !isSelected)
         {
             return result;
@@ -579,7 +608,8 @@ namespace Cue::Editor
 
         if (a_setsStartupScene && m_project != nullptr)
         {
-            // 新規 Scene の初回保存だけを次回起動対象にし、既存 Scene の Save As で Project 設定を意図せず変更しない。
+            // 新規 Scene の初回保存だけを次回起動対象にし、既存 Scene の Save As で
+            // Project 設定を意図せず変更しない。
             result = m_project->set_startup_scene_path(selectedPath);
             if (!result)
             {
@@ -603,10 +633,8 @@ namespace Cue::Editor
 
     void EditorManager::show_scene_error(const Result& a_result)
     {
-        Core::IO::log(
-            Core::IO::LogSink::console | Core::IO::LogSink::file,
-            "Editor scene operation failed: %s",
-            a_result.message.data());
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                      "Editor scene operation failed: %s", a_result.message.data());
         if (m_projectSelector != nullptr)
         {
             m_projectSelector->show_error(a_result.message);
@@ -617,6 +645,7 @@ namespace Cue::Editor
     {
         m_selectedEntityId = GameCore::k_invalidEntityId;
         m_selectedSceneId = GameCore::k_invalidSceneId;
+        m_selectedAsset = {};
     }
 
     void EditorManager::submit_empty_object_command()
@@ -626,8 +655,10 @@ namespace Cue::Editor
             return;
         }
 
-        // GameWorld の変更は Engine の command drain に集約し、描画更新と同じ frame 境界で反映する
-        (void)m_gameCommandBridge->submit_command(std::make_unique<CreateObjectCommand>("GameObject"));
+        // GameWorld の変更は Engine の command drain に集約し、描画更新と同じ frame
+        // 境界で反映する
+        (void)m_gameCommandBridge->submit_command(
+            std::make_unique<CreateObjectCommand>("GameObject"));
     }
 
     void EditorManager::show_and_focus_window(const char* a_windowName)
@@ -647,7 +678,8 @@ namespace Cue::Editor
             return false;
         }
 
-        // 対象 window の Begin 直前に指定すると、dock tab の選択切り替えにも反映されやすい。
+        // 対象 window の Begin 直前に指定すると、dock tab
+        // の選択切り替えにも反映されやすい。
         ImGui::SetNextWindowCollapsed(false);
         ImGui::SetNextWindowFocus();
         m_pendingFocusWindowName.clear();
@@ -661,7 +693,8 @@ namespace Cue::Editor
             return;
         }
 
-        // Window がこの frame で生成された後に focus することで、dock tab の奥に隠れた場合も前面へ出す。
+        // Window がこの frame で生成された後に focus することで、dock tab
+        // の奥に隠れた場合も前面へ出す。
         ImGui::SetWindowCollapsed(m_pendingFocusWindowName.c_str(), false);
         ImGui::SetWindowFocus(m_pendingFocusWindowName.c_str());
         m_pendingFocusWindowName.clear();

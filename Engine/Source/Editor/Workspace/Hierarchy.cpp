@@ -1,8 +1,8 @@
 #include "Hierarchy.h"
 
 // === Runtime includes ===
-#include <Command/Commands.h>
 #include <CQRS/CQRS.h>
+#include <Command/Commands.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
 #include <GameCore/GameWorld.h>
@@ -21,11 +21,11 @@ namespace Cue::Editor
     Hierarchy::Hierarchy(Core::CQRS::Bridge* a_commandBridge,
                          GameCore::GameWorld* a_gameWorld,
                          GameCore::EntityId* a_selectedEntityId,
-                         GameCore::SceneId* a_selectedSceneId) noexcept
-        : m_commandBridge(a_commandBridge),
-          m_gameWorld(a_gameWorld),
+                         GameCore::SceneId* a_selectedSceneId,
+                         AssetSelection* a_selectedAsset) noexcept
+        : m_commandBridge(a_commandBridge), m_gameWorld(a_gameWorld),
           m_selectedEntityId(a_selectedEntityId),
-          m_selectedSceneId(a_selectedSceneId)
+          m_selectedSceneId(a_selectedSceneId), m_selectedAsset(a_selectedAsset)
     {
     }
 
@@ -54,10 +54,9 @@ namespace Cue::Editor
 
         const bool worldSelected =
             selected_entity_id() == GameCore::k_invalidEntityId;
-        ImGuiTreeNodeFlags worldFlags =
-            ImGuiTreeNodeFlags_DefaultOpen |
-            ImGuiTreeNodeFlags_OpenOnArrow |
-            ImGuiTreeNodeFlags_SpanAvailWidth;
+        ImGuiTreeNodeFlags worldFlags = ImGuiTreeNodeFlags_DefaultOpen |
+                                        ImGuiTreeNodeFlags_OpenOnArrow |
+                                        ImGuiTreeNodeFlags_SpanAvailWidth;
         if (worldSelected)
         {
             worldFlags |= ImGuiTreeNodeFlags_Selected;
@@ -101,53 +100,50 @@ namespace Cue::Editor
             m_objectIndexById.reserve(objectCount);
         }
 
-        const Result enumerateResult =
-            m_gameWorld->for_each_object(
-                [this](GameCore::EntityId a_entityId,
-                       GameCore::GameObject a_object)
+        const Result enumerateResult = m_gameWorld->for_each_object(
+            [this](GameCore::EntityId a_entityId, GameCore::GameObject a_object) {
+                std::string objectName{};
+                Result nameResult = a_object.name(objectName);
+                if (!nameResult || objectName.empty())
                 {
-                    std::string objectName{};
-                    Result nameResult = a_object.name(objectName);
-                    if (!nameResult || objectName.empty())
-                    {
-                        objectName = "GameObject";
-                    }
+                    objectName = "GameObject";
+                }
 
-                    GameCore::BaseComponent* base = nullptr;
-                    GameCore::EntityId parent = GameCore::k_invalidEntityId;
-                    GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
-                    if (a_object.get_component(base) && base != nullptr)
+                GameCore::BaseComponent* base = nullptr;
+                GameCore::EntityId parent = GameCore::k_invalidEntityId;
+                GameCore::SceneId sceneId = GameCore::k_invalidSceneId;
+                if (a_object.get_component(base) && base != nullptr)
+                {
+                    // EditorPreview は検証用の一時 Object で、Scene
+                    // 階層の編集対象から外す
+                    if (base->tag == "EditorPreview")
                     {
-                        // EditorPreview は検証用の一時 Object で、Scene 階層の編集対象から外す
-                        if (base->tag == "EditorPreview")
-                        {
-                            return;
-                        }
-                        parent = base->parent;
-                        sceneId = base->owningSceneId;
+                        return;
                     }
+                    parent = base->parent;
+                    sceneId = base->owningSceneId;
+                }
 
-                    m_objects.push_back(
-                        {std::move(objectName), a_entityId, parent, sceneId, {}});
-                });
+                m_objects.push_back(
+                    {std::move(objectName), a_entityId, parent, sceneId, {}});
+            });
         if (!enumerateResult)
         {
             return false;
         }
 
         std::sort(m_objects.begin(), m_objects.end(),
-            [](const ObjectEntry& a_left, const ObjectEntry& a_right)
-            {
-                if (a_left.sceneId != a_right.sceneId)
-                {
-                    return a_left.sceneId < a_right.sceneId;
-                }
-                if (a_left.name == a_right.name)
-                {
-                    return a_left.entityId < a_right.entityId;
-                }
-                return a_left.name < a_right.name;
-            });
+                  [](const ObjectEntry& a_left, const ObjectEntry& a_right) {
+                      if (a_left.sceneId != a_right.sceneId)
+                      {
+                          return a_left.sceneId < a_right.sceneId;
+                      }
+                      if (a_left.name == a_right.name)
+                      {
+                          return a_left.entityId < a_right.entityId;
+                      }
+                      return a_left.name < a_right.name;
+                  });
 
         for (size_t objectIndex = 0; objectIndex < m_objects.size(); ++objectIndex)
         {
@@ -161,7 +157,8 @@ namespace Cue::Editor
             if (parentIt != m_objectIndexById.end() &&
                 m_objects[parentIt->second].sceneId == object.sceneId)
             {
-                // Scene をまたぐ親子関係は Scene serialize 時の所有境界を曖昧にするため root 扱いにする
+                // Scene をまたぐ親子関係は Scene serialize 時の所有境界を曖昧にするため
+                // root 扱いにする
                 m_objects[parentIt->second].children.push_back(objectIndex);
                 continue;
             }
@@ -180,24 +177,20 @@ namespace Cue::Editor
             return;
         }
 
-        const bool hasSelectedObject =
-            std::any_of(m_objects.begin(), m_objects.end(),
-                [this](const ObjectEntry& a_object)
-                {
-                    return a_object.entityId == selected_entity_id();
-                });
+        const bool hasSelectedObject = std::any_of(
+            m_objects.begin(), m_objects.end(), [this](const ObjectEntry& a_object) {
+                return a_object.entityId == selected_entity_id();
+            });
         if (!hasSelectedObject)
         {
             set_selected_entity_id(GameCore::k_invalidEntityId);
             set_selected_scene_id(GameCore::k_invalidSceneId);
         }
 
-        const bool hasRenamingObject =
-            std::any_of(m_objects.begin(), m_objects.end(),
-                [this](const ObjectEntry& a_object)
-                {
-                    return a_object.entityId == m_renamingEntityId;
-                });
+        const bool hasRenamingObject = std::any_of(
+            m_objects.begin(), m_objects.end(), [this](const ObjectEntry& a_object) {
+                return a_object.entityId == m_renamingEntityId;
+            });
         if (!hasRenamingObject)
         {
             cancel_rename();
@@ -222,8 +215,7 @@ namespace Cue::Editor
         }
 
         ImGuiTreeNodeFlags flags =
-            ImGuiTreeNodeFlags_OpenOnArrow |
-            ImGuiTreeNodeFlags_SpanAvailWidth;
+            ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
         if (object.children.empty())
         {
             flags |= ImGuiTreeNodeFlags_Leaf;
@@ -270,11 +262,8 @@ namespace Cue::Editor
         }
 
         const bool submitted = ImGui::InputText(
-            "##Rename",
-            m_renameBuffer.data(),
-            m_renameBuffer.size(),
-            ImGuiInputTextFlags_AutoSelectAll |
-            ImGuiInputTextFlags_EnterReturnsTrue);
+            "##Rename", m_renameBuffer.data(), m_renameBuffer.size(),
+            ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue);
         const bool deactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit();
         const bool deactivated = ImGui::IsItemDeactivated();
         const bool isActive = ImGui::IsItemActive();
@@ -307,9 +296,7 @@ namespace Cue::Editor
             {
                 const DragObjectPayload& dragPayload =
                     *static_cast<const DragObjectPayload*>(payload->Data);
-                submit_parent_command(
-                    dragPayload.entityId,
-                    GameCore::k_invalidEntityId);
+                submit_parent_command(dragPayload.entityId, GameCore::k_invalidEntityId);
             }
             ImGui::EndDragDropTarget();
         }
@@ -327,8 +314,8 @@ namespace Cue::Editor
             DragObjectPayload payload{};
             payload.entityId = a_object.entityId;
             payload.sceneId = a_object.sceneId;
-            ImGui::SetDragDropPayload(
-                k_objectDragPayloadType, &payload, sizeof(payload));
+            ImGui::SetDragDropPayload(k_objectDragPayloadType, &payload,
+                                      sizeof(payload));
             ImGui::TextUnformatted(a_object.name.c_str());
             ImGui::EndDragDropSource();
         }
@@ -353,7 +340,8 @@ namespace Cue::Editor
                     dragPayload.entityId != a_object.entityId &&
                     !is_descendant_of(a_object.entityId, dragPayload.entityId))
                 {
-                    // 親子付け替えは Scene 所有境界と木構造の非循環性を保てる場合だけ許可する
+                    // 親子付け替えは Scene
+                    // 所有境界と木構造の非循環性を保てる場合だけ許可する
                     submit_parent_command(dragPayload.entityId, a_object.entityId);
                 }
             }
@@ -418,10 +406,9 @@ namespace Cue::Editor
 
         std::string newName = m_renameBuffer.data();
         const auto objectIt = std::find_if(m_objects.begin(), m_objects.end(),
-            [a_entityId](const ObjectEntry& a_object)
-            {
-                return a_object.entityId == a_entityId;
-            });
+                                           [a_entityId](const ObjectEntry& a_object) {
+                                               return a_object.entityId == a_entityId;
+                                           });
 
         if (objectIt != m_objects.end() && objectIt->name != newName)
         {
@@ -452,9 +439,8 @@ namespace Cue::Editor
         }
     }
 
-    void Hierarchy::submit_parent_command(
-        GameCore::EntityId a_entityId,
-        GameCore::EntityId a_parentId)
+    void Hierarchy::submit_parent_command(GameCore::EntityId a_entityId,
+                                          GameCore::EntityId a_parentId)
     {
         if (m_commandBridge == nullptr)
         {
@@ -471,7 +457,8 @@ namespace Cue::Editor
     {
         GameCore::EntityId current = a_entityId;
         size_t visitedCount = 0;
-        while (current != GameCore::k_invalidEntityId && visitedCount <= m_objects.size())
+        while (current != GameCore::k_invalidEntityId &&
+               visitedCount <= m_objects.size())
         {
             if (current == a_possibleAncestor)
             {
@@ -493,9 +480,8 @@ namespace Cue::Editor
 
     GameCore::EntityId Hierarchy::selected_entity_id() const noexcept
     {
-        return m_selectedEntityId != nullptr
-            ? *m_selectedEntityId
-            : GameCore::k_invalidEntityId;
+        return m_selectedEntityId != nullptr ? *m_selectedEntityId
+                                             : GameCore::k_invalidEntityId;
     }
 
     void Hierarchy::set_selected_entity_id(GameCore::EntityId a_entityId) noexcept
@@ -503,6 +489,12 @@ namespace Cue::Editor
         if (m_selectedEntityId != nullptr)
         {
             *m_selectedEntityId = a_entityId;
+        }
+        if (m_selectedAsset != nullptr)
+        {
+            // Inspector の表示対象を一意にするため、GameObject 選択時は Asset
+            // 選択を破棄する
+            *m_selectedAsset = {};
         }
     }
 
