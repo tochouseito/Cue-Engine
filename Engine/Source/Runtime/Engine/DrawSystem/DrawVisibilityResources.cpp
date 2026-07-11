@@ -135,7 +135,8 @@ namespace Cue::DrawSystem
         RHI::BufferDesc commandDesc{};
         commandDesc.name = m_name + "StaticMeshIndirectCommandBuffer";
         commandDesc.type = RHI::BufferType::Structured;
-        commandDesc.defaultHeapCount = 0;
+        // CopyPass が upload heap の command を indirect draw 用 default heap へ転送するため、共有先を 1 枚確保する
+        commandDesc.defaultHeapCount = 1;
         commandDesc.uploadHeapCount = m_bufferCount;
         commandDesc.initialState = RHI::ResourceState::IndirectArgument;
         commandDesc.stride = sizeof(GpuData::IndirectCommand);
@@ -157,7 +158,8 @@ namespace Cue::DrawSystem
         RHI::BufferDesc commandCountDesc{};
         commandCountDesc.name = m_name + "StaticMeshIndirectCommandCountBuffer";
         commandCountDesc.type = RHI::BufferType::Raw;
-        commandCountDesc.defaultHeapCount = 0;
+        // ExecuteIndirect が読む count も upload heap 直読みを避け、CopyPass で確定した default heap を使う
+        commandCountDesc.defaultHeapCount = 1;
         commandCountDesc.uploadHeapCount = m_bufferCount;
         commandCountDesc.initialState = RHI::ResourceState::IndirectArgument;
         commandCountDesc.stride = sizeof(uint32_t);
@@ -179,7 +181,8 @@ namespace Cue::DrawSystem
         RHI::BufferDesc objectIndexDesc{};
         objectIndexDesc.name = m_name + "StaticMeshObjectIndexBuffer";
         objectIndexDesc.type = RHI::BufferType::Structured;
-        objectIndexDesc.defaultHeapCount = 0;
+        // vertex shader が参照する object index は View 固有の upload slot から default heap へ転送して使用する
+        objectIndexDesc.defaultHeapCount = 1;
         objectIndexDesc.uploadHeapCount = m_bufferCount;
         objectIndexDesc.initialState = RHI::ResourceState::ShaderResource;
         objectIndexDesc.stride = sizeof(uint32_t);

@@ -803,10 +803,8 @@ namespace Cue::RHI
                         return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
-                        return Result::fail(
-                            result.code,
-                            Severity::Error,
-                            "Failed to transition resource before frame graph pass execution.");
+                        // resource_barrier の詳細には handle 解決失敗など修正に必要な原因が含まれるため、そのまま返します
+                        return result;
                     }
                 }
                 if (passStats != nullptr)
@@ -890,10 +888,8 @@ namespace Cue::RHI
                         return_current_command_context();
                         return_all_command_contexts();
                         return_all_queue_contexts();
-                        return Result::fail(
-                            result.code,
-                            Severity::Error,
-                            "Failed to transition resource after frame graph pass execution.");
+                        // post barrier の失敗も resource 側の詳細を保持し、呼び出し元で対象を判断できるようにします
+                        return result;
                     }
                 }
                 if (passStats != nullptr)

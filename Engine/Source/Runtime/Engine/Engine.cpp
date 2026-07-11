@@ -362,7 +362,7 @@ std::function<void(uint64_t, uint32_t)> Engine::update()
         (void)a_frameNo;
 
         Result result = update_draw_scene(a_index);
-        CUE_ASSERT_FORMAT(success(result), "Failed to update draw scene: {}", result.message.data());
+        CUE_ASSERT_FORMAT(success(result), "Failed to update draw scene: %s", result.message.data());
     };
 }
 
@@ -374,13 +374,13 @@ std::function<void(uint64_t, uint32_t)> Engine::render()
         {
             // Main graph が失敗すると FinalColor が更新されず、Editor 側では空の View に見えるため失敗を伝播させます
             Result result = m_renderBackend->render(a_frameNo, a_index, *m_frameGraph);
-            CUE_ASSERT_FORMAT(success(result), "Failed to render main frame graph: {}", result.message.data());
+            CUE_ASSERT_FORMAT(success(result), "Failed to render main frame graph: %s", result.message.data());
         }
         if (m_renderBackend != nullptr && m_debugFrameGraph != nullptr)
         {
             // Debug graph は Main と別の command context を使うため、失敗しても Main の結果から原因を推測できません
             Result result = m_renderBackend->render(a_frameNo, a_index, *m_debugFrameGraph);
-            CUE_ASSERT_FORMAT(success(result), "Failed to render debug frame graph: {}", result.message.data());
+            CUE_ASSERT_FORMAT(success(result), "Failed to render debug frame graph: %s", result.message.data());
         }
     };
 }
@@ -393,7 +393,7 @@ std::function<void(uint64_t, uint32_t)> Engine::present()
         {
             // Present graph の失敗は ImGui が SRV を読む遷移失敗にもなるため、swap chain 更新失敗として隠しません
             Result result = m_renderBackend->present(a_frameNo, a_index, false, *m_presentFrameGraph);
-            CUE_ASSERT_FORMAT(success(result), "Failed to present frame graph: {}", result.message.data());
+            CUE_ASSERT_FORMAT(success(result), "Failed to present frame graph: %s", result.message.data());
         }
     };
 }
