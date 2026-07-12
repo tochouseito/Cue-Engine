@@ -1,15 +1,16 @@
-// StaticMesh indirect path の最小 forward shader。
-// MeshPool の position stream と CPU batching が作った object index list だけで描画する。
+// StaticMesh indirect forward shader with fixed directional lighting.
 
 struct VsInput
 {
     float4 position : POSITION;
+    float3 normal : NORMAL;
 };
 
 struct VsOutput
 {
     float4 position : SV_POSITION;
-    float3 color : COLOR0;
+    float3 baseColor : COLOR0;
+    float3 worldNormal : NORMAL0;
 };
 
 struct ObjectTransformGpu
@@ -43,11 +44,16 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
     VsOutput output;
     output.position = mul(viewPosition, g_projection);
-    output.color = saturate(abs(input.position.xyz) + float3(0.15f, 0.1f + colorPhase * 0.2f, 0.25f));
+    output.baseColor = saturate(abs(input.position.xyz) + float3(0.15f, 0.1f + colorPhase * 0.2f, 0.25f));
+    output.worldNormal = normalize(
+        mul((float3x3)g_transforms[objectIndex].normalMatrix, input.normal));
     return output;
 }
 
 float4 ps_main(VsOutput input) : SV_Target0
 {
-    return float4(input.color, 1.0f);
+    const float3 lightDirection = normalize(float3(-0.35f, 0.8f, -0.45f));
+    const float diffuse = saturate(dot(normalize(input.worldNormal), lightDirection));
+    const float lighting = 0.22f + diffuse * 0.78f;
+    return float4(input.baseColor * lighting, 1.0f);
 }

@@ -190,6 +190,8 @@ class Engine final
     // --- 全体共有リソース ---
     RHI::RenderTargetResources m_finalColorRenderTarget{};
     RHI::RenderTargetResources m_debugColorRenderTarget{};
+    RHI::DepthStencilResources m_finalDepthStencil{};
+    RHI::DepthStencilResources m_debugDepthStencil{};
 
     // --- DrawSystem ---
     enum class PlayState : uint8_t

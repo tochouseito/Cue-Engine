@@ -18,7 +18,8 @@ namespace Cue::DrawSystem
             a_meshPool,
             a_drawFrameState,
             "StaticMeshIndirect",
-            "FinalColor")
+            "FinalColor",
+            "FinalDepth")
     {
     }
 
@@ -29,7 +30,8 @@ namespace Cue::DrawSystem
         MeshPool& a_meshPool,
         DrawFrameState& a_drawFrameState,
         std::string a_passName,
-        std::string a_renderTargetName)
+        std::string a_renderTargetName,
+        std::string a_depthStencilName)
         : m_sceneResources(a_sceneResources)
         , m_viewResources(a_viewResources)
         , m_visibilityResources(a_visibilityResources)
@@ -38,6 +40,8 @@ namespace Cue::DrawSystem
         , m_passName(std::move(a_passName))
         , m_renderTargetName(std::move(a_renderTargetName))
         , m_renderTargetRtvName(m_renderTargetName + "RTV")
+        , m_depthStencilName(std::move(a_depthStencilName))
+        , m_depthStencilDsvName(m_depthStencilName + "DSV")
     {
     }
 
@@ -80,6 +84,24 @@ namespace Cue::DrawSystem
                 result.code,
                 Severity::Error,
                 "Failed to get color RTV view handle for static mesh indirect pass.");
+        }
+
+        result = a_builder.get_texture(m_depthStencilName, m_depthStencilHandle);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to get depth texture handle for static mesh indirect pass.");
+        }
+
+        result = a_builder.get_view(m_depthStencilDsvName, m_depthStencilDsvHandle);
+        if (!result)
+        {
+            return Result::fail(
+                result.code,
+                Severity::Error,
+                "Failed to get depth DSV view handle for static mesh indirect pass.");
         }
 
         result = m_meshPool.get_bindings(m_meshPoolBindings);
@@ -172,9 +194,20 @@ namespace Cue::DrawSystem
                 0,
                 0
             });
+        pipelineDesc.inputElements.push_back(
+            RHI::InputElementDesc
+            {
+                "NORMAL",
+                0,
+                RHI::InputElementFormat::R32G32B32_Float,
+                2,
+                0
+            });
         pipelineDesc.rasterizerState.cullMode = RHI::CullMode::None;
-        pipelineDesc.depthStencilState.depthEnable = false;
-        pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::Zero;
+        pipelineDesc.depthStencilState.depthEnable = true;
+        pipelineDesc.depthStencilState.depthWriteMask = RHI::DepthWriteMask::All;
+        pipelineDesc.depthStencilState.depthFunc = RHI::ComparisonFunc::LessEqual;
+        pipelineDesc.dsvFormat = RHI::ColorFormat::D24_UNorm_S8_UInt;
         pipelineDesc.blendMode = { RHI::BlendMode::None };
         pipelineDesc.rtvFormats = { RHI::ColorFormat::R8G8B8A8_UNORM };
         result = a_builder.create_graphics_pipeline(pipelineDesc, m_pipelineState);
@@ -196,6 +229,16 @@ namespace Cue::DrawSystem
             RHI::ResourceAccessType::Write,
             RHI::ResourceState::RenderTarget,
             RHI::ResourceState::RenderTarget);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = a_builder.use_texture(
+            m_depthStencilHandle,
+            RHI::ResourceAccessType::Write,
+            RHI::ResourceState::DepthWrite,
+            RHI::ResourceState::DepthWrite);
         if (!result)
         {
             return result;
@@ -299,7 +342,8 @@ namespace Cue::DrawSystem
         const DrawFrameData& frameData = m_drawFrameState.frame_state(a_context.frame_index());
         // ImGui が SRV として読む color target は無描画 frame でも alpha を含めて定義済みにする
         commandContext->clear_render_target(m_renderTargetRtvHandle, k_clearColor.data());
-        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, {});
+        commandContext->clear_depth_stencil(m_depthStencilDsvHandle, 1.0f, 0);
+        commandContext->set_render_targets(&m_renderTargetRtvHandle, 1, m_depthStencilDsvHandle);
         commandContext->set_viewport_scissor(a_context.width(), a_context.height());
         if (frameData.indirectCommandCount == 0)
         {

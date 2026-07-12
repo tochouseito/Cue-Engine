@@ -170,4 +170,104 @@ namespace Cue::RHI
 
         return Result::ok();
     }
+
+    Result create_depth_stencil_resources(
+        IRenderBackend& a_backend,
+        std::string_view a_name,
+        DepthStencilResources& a_outResources)
+    {
+        auto* textureManager = a_backend.get_texture_manager();
+        auto* viewManager = a_backend.get_view_manager();
+        if (textureManager == nullptr || viewManager == nullptr)
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get texture or view manager for depth stencil resources.");
+        }
+
+        if (a_outResources.depthHandle.valid() || a_outResources.depthDsvHandle.valid())
+        {
+            return Result::fail(
+                Code::InvalidState,
+                Severity::Error,
+                "Depth stencil resources must be empty before creation.");
+        }
+
+        std::string depthName(a_name);
+        TextureDesc depthDesc{};
+        depthDesc.name = depthName;
+        depthDesc.bufferCount = 1;
+        depthDesc.kind = TextureKind::DepthStencil;
+        depthDesc.width = a_backend.width();
+        depthDesc.height = a_backend.height();
+        depthDesc.format = ColorFormat::D24_UNorm_S8_UInt;
+        depthDesc.clearDepth = 1.0f;
+        depthDesc.clearStencil = 0;
+
+        Result result = textureManager->create_texture(depthDesc, a_outResources.depthHandle);
+        if (!result)
+        {
+            return result;
+        }
+
+        ViewDesc depthDsvDesc{};
+        depthDsvDesc.name = depthName + "DSV";
+        depthDsvDesc.type = ViewType::DepthStencil;
+        depthDsvDesc.bufferKind = BufferKind::Texture;
+        depthDsvDesc.textureHandle = a_outResources.depthHandle;
+        depthDsvDesc.colorFormat = depthDesc.format;
+        result = viewManager->create_view(depthDsvDesc, a_outResources.depthDsvHandle);
+        if (!result)
+        {
+            const Result rollbackResult = destroy_depth_stencil_resources(a_backend, a_outResources);
+            return rollbackResult ? result : rollbackResult;
+        }
+
+        return Result::ok();
+    }
+
+    Result destroy_depth_stencil_resources(
+        IRenderBackend& a_backend,
+        DepthStencilResources& a_resources)
+    {
+        auto* textureManager = a_backend.get_texture_manager();
+        auto* viewManager = a_backend.get_view_manager();
+
+        if (viewManager == nullptr && a_resources.depthDsvHandle.valid())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get view manager for depth stencil resource destruction.");
+        }
+        if (viewManager != nullptr && a_resources.depthDsvHandle.valid())
+        {
+            Result result = viewManager->destroy_view(a_resources.depthDsvHandle);
+            if (!result)
+            {
+                return result;
+            }
+            a_resources.depthDsvHandle = {};
+        }
+
+        if (textureManager == nullptr && a_resources.depthHandle.valid())
+        {
+            return Result::fail(
+                Code::NotFound,
+                Severity::Fatal,
+                "Failed to get texture manager for depth stencil resource destruction.");
+        }
+        if (textureManager != nullptr && a_resources.depthHandle.valid())
+        {
+            Result result = textureManager->destroy_texture(a_resources.depthHandle);
+            if (!result)
+            {
+                return result;
+            }
+            a_resources.depthHandle = {};
+        }
+
+        return Result::ok();
+    }
 }

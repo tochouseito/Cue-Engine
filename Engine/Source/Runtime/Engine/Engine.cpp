@@ -89,12 +89,24 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         return r;
     }
 
+    r = RHI::create_depth_stencil_resources(*m_renderBackend, "FinalDepth", m_finalDepthStencil);
+    if (!r)
+    {
+        return r;
+    }
+
     if (m_isDebugRenderingEnabled)
     {
         // DebugColor は Editor が SRV として読むため、DebugView を実際に描画する場合だけ作成する
         r = RHI::create_render_target_resources(*m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
                                                 m_debugColorRenderTarget,
                                                 Math::float4::from_rgba8(63, 63, 63, 255).data());
+        if (!r)
+        {
+            return r;
+        }
+
+        r = RHI::create_depth_stencil_resources(*m_renderBackend, "DebugDepth", m_debugDepthStencil);
         if (!r)
         {
             return r;
@@ -239,6 +251,18 @@ void Engine::shutdown()
         if (!destroyResult)
         {
             CUE_ASSERT_FORMAT(false, "Failed to destroy debug color render target: %s", destroyResult.message.data());
+        }
+
+        destroyResult = RHI::destroy_depth_stencil_resources(*m_renderBackend, m_finalDepthStencil);
+        if (!destroyResult)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to destroy final depth stencil: %s", destroyResult.message.data());
+        }
+
+        destroyResult = RHI::destroy_depth_stencil_resources(*m_renderBackend, m_debugDepthStencil);
+        if (!destroyResult)
+        {
+            CUE_ASSERT_FORMAT(false, "Failed to destroy debug depth stencil: %s", destroyResult.message.data());
         }
     }
 
@@ -477,7 +501,8 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
                 *m_meshPool,
                 m_drawFrameState,
                 "DebugStaticMeshIndirect",
-                "DebugColor"));
+                "DebugColor",
+                "DebugDepth"));
 
         result = m_debugFrameGraph->build();
         if (!result)
@@ -759,6 +784,16 @@ Result Engine::apply_pending_resize()
     {
         return result;
     }
+    result = RHI::destroy_depth_stencil_resources(*m_renderBackend, m_finalDepthStencil);
+    if (!result)
+    {
+        return result;
+    }
+    result = RHI::destroy_depth_stencil_resources(*m_renderBackend, m_debugDepthStencil);
+    if (!result)
+    {
+        return result;
+    }
 
     // バックエンドのリサイズ
     result = m_renderBackend->resize(request.width, request.height);
@@ -775,11 +810,21 @@ Result Engine::apply_pending_resize()
     {
         return result;
     }
+    result = RHI::create_depth_stencil_resources(*m_renderBackend, "FinalDepth", m_finalDepthStencil);
+    if (!result)
+    {
+        return result;
+    }
     if (m_isDebugRenderingEnabled)
     {
         result = RHI::create_render_target_resources(*m_renderBackend, "DebugColor", RHI::ColorFormat::R8G8B8A8_UNORM,
                                                     m_debugColorRenderTarget,
                                                     Math::float4::from_rgba8(63, 63, 63, 255).data());
+        if (!result)
+        {
+            return result;
+        }
+        result = RHI::create_depth_stencil_resources(*m_renderBackend, "DebugDepth", m_debugDepthStencil);
         if (!result)
         {
             return result;

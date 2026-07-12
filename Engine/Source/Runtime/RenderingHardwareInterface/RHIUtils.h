@@ -27,6 +27,12 @@ namespace Cue::RHI
         RHI::ViewHandle colorSrvHandle{};
     };
 
+    struct DepthStencilResources final
+    {
+        RHI::TextureHandle depthHandle{};
+        RHI::ViewHandle depthDsvHandle{};
+    };
+
     Result create_render_target_resources(
         IRenderBackend& a_backend,
         std::string_view a_name,
@@ -36,4 +42,11 @@ namespace Cue::RHI
     Result destroy_render_target_resources(
         IRenderBackend& a_backend,
         RenderTargetResources& a_resources);
+    Result create_depth_stencil_resources(
+        IRenderBackend& a_backend,
+        std::string_view a_name,
+        DepthStencilResources& a_outResources);
+    Result destroy_depth_stencil_resources(
+        IRenderBackend& a_backend,
+        DepthStencilResources& a_resources);
 }

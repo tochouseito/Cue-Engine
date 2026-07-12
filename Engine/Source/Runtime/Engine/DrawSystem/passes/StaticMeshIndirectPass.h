@@ -36,7 +36,8 @@ namespace Cue::DrawSystem
             MeshPool& a_meshPool,
             DrawFrameState& a_drawFrameState,
             std::string a_passName,
-            std::string a_renderTargetName);
+            std::string a_renderTargetName,
+            std::string a_depthStencilName);
         ~StaticMeshIndirectPass() override;
 
         StaticMeshIndirectPass(const StaticMeshIndirectPass&) = delete;
@@ -68,9 +69,13 @@ namespace Cue::DrawSystem
         std::string m_passName{}; // FrameGraph 上の pass 名
         std::string m_renderTargetName{}; // StaticMesh の描画先 texture 名
         std::string m_renderTargetRtvName{}; // StaticMesh の描画先 RTV 名
+        std::string m_depthStencilName{}; // StaticMesh の深度 texture 名
+        std::string m_depthStencilDsvName{}; // StaticMesh の深度 DSV 名
 
         RHI::TextureHandle m_renderTargetHandle{};   // StaticMesh の描画先 color texture
         RHI::ViewHandle m_renderTargetRtvHandle{};   // StaticMesh の描画先 RTV
+        RHI::TextureHandle m_depthStencilHandle{};   // StaticMesh の描画先 depth texture
+        RHI::ViewHandle m_depthStencilDsvHandle{};   // StaticMesh の描画先 DSV
         MeshPoolBindings m_meshPoolBindings{};       // MeshPool が保持する vertex/index buffer 群
         RHI::RootSignatureHandle m_rootSignature{};  // StaticMesh indirect 用 root signature
         RHI::ShaderBlobHandle m_vertexShader{};      // StaticMesh indirect vertex shader
