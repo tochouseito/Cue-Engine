@@ -31,6 +31,8 @@
 #include "DrawSystem/MeshPool.h"
 #include "DrawSystem/RenderCameraSelection.h"
 #include "GameCore/GameWorld.h"
+#include "Script/ScriptModule.h"
+#include "Script/ScriptRuntime.h"
 
 // === C++ includes ===
 #include <array>
@@ -129,6 +131,15 @@ class Engine final
         return m_assetRootPath;
     }
 
+    /// @brief Play Mode でロードする GameScript DLL を設定する。
+    void set_script_module_path(const Core::IO::Path& a_modulePath) noexcept;
+
+    /// @brief Play Mode でロードする GameScript DLL のパスを返す。
+    [[nodiscard]] const Core::IO::Path& script_module_path() const noexcept
+    {
+        return m_scriptModulePath;
+    }
+
     /// @brief GameCore camera の代わりに使う描画視点を設定する。
     void set_render_view_override(const DrawSystem::RenderView& a_renderView) noexcept;
 
@@ -212,7 +223,10 @@ class Engine final
     };
 
     GameCore::GameWorld m_gameWorld{};
-    GameCore::GameWorld m_runtimeGameWorld{};
+    GameCore::GameWorld m_runtimeGameWorld{}; // Play 中の変更を authoring World へ戻さない複製先
+    Script::ScriptModule m_scriptModule{};
+    // 逆順破棄で ScriptRuntime が ScriptModule より先に破棄され、DLL 解放後の handle 参照を防ぐ
+    Script::ScriptRuntime m_scriptRuntime{m_runtimeGameWorld};
     DrawSystem::RenderCameraSelection m_gameRenderCameraSelection{};
     DrawSystem::RenderCameraSelection m_runtimeRenderCameraSelection{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
@@ -233,6 +247,7 @@ class Engine final
     PlayRequest m_pendingPlayRequest = PlayRequest::none;
     bool m_isPlayStepRequested = false;
     Core::IO::Path m_assetRootPath{}; // Project 由来の Assets フォルダ
+    Core::IO::Path m_scriptModulePath{}; // Editor Play 時にロードする GameScript DLL
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;

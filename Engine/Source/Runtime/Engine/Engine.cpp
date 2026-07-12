@@ -233,6 +233,15 @@ void Engine::shutdown()
         m_frameController.reset();
     }
 
+    // Script object は DLL 側で所有されるため、DLL 解放より先に instance を破棄する
+    const Result scriptResetResult = m_scriptRuntime.reset();
+    if (!scriptResetResult)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to destroy script instances during shutdown: %s", scriptResetResult.message.data());
+    }
+    m_scriptRuntime.set_module(nullptr);
+    m_scriptModule.unload();
+
     if (m_renderBackend != nullptr)
     {
         Result waitResult = m_renderBackend->wait_for_idle();
@@ -274,6 +283,11 @@ void Engine::shutdown()
 void Engine::set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
 {
     m_assetRootPath = a_assetRootPath.normalize();
+}
+
+void Engine::set_script_module_path(const Core::IO::Path& a_modulePath) noexcept
+{
+    m_scriptModulePath = a_modulePath.normalize();
 }
 
 Result Engine::begin_frame()
@@ -651,6 +665,11 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     constexpr float k_fixedDeltaTime = 1.0f / 60.0f;
     if (m_playState == PlayState::playing || m_isPlayStepRequested)
     {
+        Result result = m_scriptRuntime.update(k_fixedDeltaTime);
+        if (!result)
+        {
+            return result;
+        }
         m_isPlayStepRequested = false;
     }
 
@@ -910,6 +929,35 @@ Result Engine::start_play()
         m_runtimeRenderCameraSelection.set_camera_entity(runtimeCameraEntity);
     }
 
+    // 前回 Play の instance を DLL 解放前に破棄し、runtime Scene 複製と Script 状態を切り離す
+    result = m_scriptRuntime.reset();
+    if (!result)
+    {
+        return result;
+    }
+    m_scriptRuntime.set_module(nullptr);
+    m_scriptModule.unload();
+    if (!m_scriptModulePath.is_empty())
+    {
+        result = m_scriptModule.load(m_scriptModulePath);
+        if (!result)
+        {
+            return result;
+        }
+        m_scriptRuntime.set_module(&m_scriptModule);
+    }
+
+    // DLL が読み込めた後だけ Runtime World の ScriptComponent を instance 化する
+    result = m_scriptRuntime.start();
+    if (!result)
+    {
+        // Play への遷移を中断する場合も、生成済み instance を DLL 解放前に回収する
+        (void)m_scriptRuntime.reset();
+        m_scriptRuntime.set_module(nullptr);
+        m_scriptModule.unload();
+        return result;
+    }
+
     m_playState = PlayState::playing;
     m_isPlayStepRequested = false;
     return Result::ok();
@@ -921,6 +969,14 @@ Result Engine::stop_play()
     m_playState = PlayState::editing;
     m_isPlayStepRequested = false;
     m_runtimeRenderCameraSelection.clear();
+    // runtime World を消す前に Script instance を破棄し、DLL 側の Entity 参照を残さない
+    Result result = m_scriptRuntime.reset();
+    if (!result)
+    {
+        return result;
+    }
+    m_scriptRuntime.set_module(nullptr);
+    m_scriptModule.unload();
     return m_runtimeGameWorld.clear();
 }
 
