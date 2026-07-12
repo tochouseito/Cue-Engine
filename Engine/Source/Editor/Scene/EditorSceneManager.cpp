@@ -4,6 +4,8 @@
 #include <GameCore/GameWorld.h>
 #include <GameCore/SceneAsset.h>
 #include <GameCore/SceneSerializer.h>
+#include <GameCore/SceneWorldMapper.h>
+#include <DrawSystem/RenderCameraSelection.h>
 #include <IO/IFileSystem.h>
 #include <CQRS/CQRS.h>
 
@@ -11,9 +13,11 @@ namespace Cue::Editor
 {
     EditorSceneManager::EditorSceneManager(Core::IO::IFileSystem& a_fileSystem,
                                            GameCore::GameWorld& a_world,
+                                           DrawSystem::RenderCameraSelection& a_cameraSelection,
                                            Core::CQRS::Bridge* a_commandBridge) noexcept
         : m_fileSystem(&a_fileSystem),
           m_world(&a_world),
+          m_cameraSelection(&a_cameraSelection),
           m_commandBridge(a_commandBridge)
     {
     }
@@ -61,7 +65,9 @@ namespace Cue::Editor
             return close_after_failure(result);
         }
 
-        result = m_world->load_scene(scene);
+        m_cameraSelection->clear();
+        GameCore::EntityId firstCameraEntity = GameCore::k_invalidEntityId;
+        result = GameCore::SceneWorldMapper::load_into(*m_world, scene, firstCameraEntity);
         if (!result)
         {
             return close_after_failure(result);
@@ -75,8 +81,10 @@ namespace Cue::Editor
             m_savedHistoryCursor = m_commandBridge->history_cursor();
         }
 
-        // 読み込み直後の World は保存済み状態として扱い、既存 Scene を開いただけで dirty 化しない。
-        m_savedSceneRevision = m_world->scene_revision();
+        if (firstCameraEntity != GameCore::k_invalidEntityId)
+        {
+            m_cameraSelection->set_camera_entity(firstCameraEntity);
+        }
         m_hasScene = true;
         m_isUntitledScene = false;
         return Result::ok();
@@ -110,6 +118,10 @@ namespace Cue::Editor
         {
             return result;
         }
+        if (m_cameraSelection != nullptr)
+        {
+            m_cameraSelection->clear();
+        }
 
         m_currentScenePath = {};
         m_sceneName = "Untitled";
@@ -118,12 +130,8 @@ namespace Cue::Editor
             m_commandBridge->reset_history();
             m_savedHistoryCursor = m_commandBridge->history_cursor();
         }
-        m_savedSceneRevision = m_world->scene_revision();
         m_hasScene = true;
         m_isUntitledScene = true;
-
-        // 保存先を持たない新規 Scene も未保存として扱い、保存操作へ導く。
-        m_world->record_scene_edit();
         return Result::ok();
     }
 
@@ -151,14 +159,12 @@ namespace Cue::Editor
         }
 
         GameCore::SceneAsset scene{};
-        Result result = m_world->make_scene_asset(a_name, scene);
+        Result result = GameCore::SceneWorldMapper::make_asset(*m_world, a_name, scene);
         if (!result)
         {
             return result;
         }
 
-        // 書き込み中に後続 command が反映された場合も dirty 状態を保てるよう、保存した snapshot の revision を記録する。
-        const std::uint64_t sceneRevision = m_world->scene_revision();
         result = GameCore::save_scene_asset(*m_fileSystem, a_path, scene);
         if (!result)
         {
@@ -167,7 +173,6 @@ namespace Cue::Editor
 
         m_currentScenePath = a_path;
         m_sceneName = a_name;
-        m_savedSceneRevision = sceneRevision;
         m_savedHistoryCursor =
             m_commandBridge != nullptr ? m_commandBridge->history_cursor() : 0;
         m_isUntitledScene = false;
@@ -184,6 +189,10 @@ namespace Cue::Editor
                 return result;
             }
         }
+        if (m_cameraSelection != nullptr)
+        {
+            m_cameraSelection->clear();
+        }
 
         m_currentScenePath = {};
         m_sceneName.clear();
@@ -192,7 +201,6 @@ namespace Cue::Editor
             m_commandBridge->reset_history();
             m_savedHistoryCursor = m_commandBridge->history_cursor();
         }
-        m_savedSceneRevision = m_world != nullptr ? m_world->scene_revision() : 0;
         m_hasScene = false;
         m_isUntitledScene = false;
         return Result::ok();
@@ -215,6 +223,6 @@ namespace Cue::Editor
             return m_commandBridge->history_cursor() != m_savedHistoryCursor;
         }
 
-        return m_world->scene_revision() != m_savedSceneRevision;
+        return false;
     }
 } // namespace Cue::Editor

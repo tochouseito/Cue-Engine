@@ -24,6 +24,11 @@ namespace Cue::GameCore
     class GameWorld;
 }
 
+namespace Cue::DrawSystem
+{
+    class RenderCameraSelection;
+}
+
 namespace Cue::Core::CQRS
 {
     class Bridge;
@@ -36,6 +41,7 @@ namespace Cue::Editor
     {
     public:
         EditorSceneManager(Core::IO::IFileSystem& a_fileSystem, GameCore::GameWorld& a_world,
+                           DrawSystem::RenderCameraSelection& a_cameraSelection,
                            Core::CQRS::Bridge* a_commandBridge) noexcept;
 
         /// @brief Scene file を読み込み、GameWorld の内容を置き換える
@@ -87,8 +93,8 @@ namespace Cue::Editor
         std::string m_sceneName{};
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Scene file を読み書きする非所有 FileSystem
         GameCore::GameWorld* m_world = nullptr;        // Scene を展開する非所有 GameWorld
+        DrawSystem::RenderCameraSelection* m_cameraSelection = nullptr; // 描画に使用する非所有 Camera 選択
         Core::CQRS::Bridge* m_commandBridge = nullptr; // Scene 編集履歴を保持する非所有 Bridge
-        std::uint64_t m_savedSceneRevision = 0;
         std::uint64_t m_savedHistoryCursor = 0;
         bool m_hasScene = false;
         bool m_isUntitledScene = false;

@@ -10,6 +10,8 @@
 #include "Command/EngineCommandContext.h"
 #include "Command/PlatformCommandContext.h"
 #include "DrawSystem/StaticMeshBatcher.h"
+#include "GameCore/SceneWorldMapper.h"
+#include "GameCore/TransformSystem.h"
 #include "DrawSystem/Systems/CameraSystem.h"
 #include "DrawSystem/Systems/RenderableObjectSystem.h"
 #include "GameCore/SceneAsset.h"
@@ -180,14 +182,15 @@ Result Engine::initialize(EngineSetupInfo& a_info)
         }
     }
 
-    r = initialize_render_extraction_pipeline(m_gameWorld, m_renderExtractionPipeline);
+    r = initialize_render_extraction_pipeline(
+        m_gameWorld, m_gameRenderCameraSelection, m_renderExtractionPipeline);
     if (!r)
     {
         return r;
     }
 
     r = initialize_render_extraction_pipeline(
-        m_runtimeGameWorld, m_runtimeRenderExtractionPipeline);
+        m_runtimeGameWorld, m_runtimeRenderCameraSelection, m_runtimeRenderExtractionPipeline);
     if (!r)
     {
         return r;
@@ -265,7 +268,7 @@ Result Engine::begin_frame()
     }
     if (m_gameCommandBridge)
     {
-        EngineCommandContext gameCommandContext(m_gameWorld);
+        EngineCommandContext gameCommandContext(m_gameWorld, m_gameRenderCameraSelection);
         Result result = m_gameCommandBridge->drain_commands(gameCommandContext);
         if (!result)
         {
@@ -516,6 +519,7 @@ Result Engine::create_frame_graphs(std::unique_ptr<RHI::FrameGraphPass> a_editor
 
 Result Engine::initialize_render_extraction_pipeline(
     GameCore::GameWorld& a_world,
+    const DrawSystem::RenderCameraSelection& a_cameraSelection,
     ECS::ECSManager::SystemPipeline& a_outPipeline)
 {
     ECS::ECSManager* ecs = nullptr;
@@ -531,7 +535,7 @@ Result Engine::initialize_render_extraction_pipeline(
 
     // GameWorld は描画層へ依存させず、Engine 側で World ごとの描画抽出順だけを定義する
     ECS::CameraSystem& cameraSystem =
-        ecs->add_system<ECS::CameraSystem>(a_world, m_drawFrameState, m_drawScenes);
+        ecs->add_system<ECS::CameraSystem>(a_world, a_cameraSelection, m_drawFrameState, m_drawScenes);
     ECS::RenderableObjectSystem& renderableSystem = ecs->add_system<ECS::RenderableObjectSystem>(m_drawScenes);
 
     a_outPipeline.clear();
@@ -578,13 +582,8 @@ Result Engine::initialize_default_camera()
     cameraComponent->nearZ = 0.1f;
     cameraComponent->farZ = 1000.0f;
 
-    result = m_gameWorld.set_render_camera(camera.entity_id());
-    if (!result)
-    {
-        return result;
-    }
-
-    m_gameWorld.sync_world_transforms();
+    m_gameRenderCameraSelection.set_camera_entity(camera.entity_id());
+    GameCore::TransformSystem::sync_world_transforms(m_gameWorld);
     return Result::ok();
 }
 
@@ -623,16 +622,15 @@ Result Engine::update_draw_scene(uint32_t a_bufferIndex)
     GameCore::GameWorld& activeWorld = active_game_world();
     ECS::ECSManager::SystemPipeline& activePipeline = active_render_extraction_pipeline();
 
-    // runtime World だけを進め、Editor World は Play 中も保存可能な authoring 状態のまま保つ
+    // runtime World の固定更新要求は GameScript System が消費する。Editor World は authoring 状態のまま保つ。
     constexpr float k_fixedDeltaTime = 1.0f / 60.0f;
     if (m_playState == PlayState::playing || m_isPlayStepRequested)
     {
-        activeWorld.animate_static_mesh_objects(k_fixedDeltaTime);
         m_isPlayStepRequested = false;
     }
 
     // 描画抽出は WorldTransform を参照するため、階層変換を先に確定する
-    activeWorld.sync_world_transforms();
+    GameCore::TransformSystem::sync_world_transforms(activeWorld);
 
     ECS::ECSManager* ecs = nullptr;
     Result result = activeWorld.ecs(ecs);
@@ -847,16 +845,24 @@ Result Engine::apply_pending_play_request()
 Result Engine::start_play()
 {
     GameCore::SceneAsset runtimeScene{};
-    Result result = m_gameWorld.make_scene_asset("Runtime", runtimeScene);
+    Result result = GameCore::SceneWorldMapper::make_asset(m_gameWorld, "Runtime", runtimeScene);
     if (!result)
     {
         return result;
     }
 
-    result = m_runtimeGameWorld.load_scene(runtimeScene);
+    m_runtimeRenderCameraSelection.clear();
+    GameCore::EntityId runtimeCameraEntity = GameCore::k_invalidEntityId;
+    result = GameCore::SceneWorldMapper::load_into(
+        m_runtimeGameWorld, runtimeScene, runtimeCameraEntity);
     if (!result)
     {
         return result;
+    }
+
+    if (runtimeCameraEntity != GameCore::k_invalidEntityId)
+    {
+        m_runtimeRenderCameraSelection.set_camera_entity(runtimeCameraEntity);
     }
 
     m_playState = PlayState::playing;
@@ -869,6 +875,7 @@ Result Engine::stop_play()
     // 描画側が runtime World を参照しない状態に戻してから、実行中の Entity を破棄する
     m_playState = PlayState::editing;
     m_isPlayStepRequested = false;
+    m_runtimeRenderCameraSelection.clear();
     return m_runtimeGameWorld.clear();
 }
 

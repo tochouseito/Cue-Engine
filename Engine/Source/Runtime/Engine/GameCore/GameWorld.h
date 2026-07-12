@@ -33,6 +33,9 @@
 namespace Cue::GameCore
 {
     struct SceneAsset;
+    class ObjectSnapshotService;
+    class SceneWorldMapper;
+    class TransformSystem;
 
     struct EntityRecord final
     {
@@ -66,15 +69,6 @@ namespace Cue::GameCore
         /// @brief 指定名、タグ、必須 Component を持つ GameObject を生成する
         [[nodiscard]] Result create_object(std::string_view a_name, std::string_view a_tag, GameObject& a_outObject);
 
-        /// @brief 既定名と既定位置で StaticMesh GameObject を生成する
-        [[nodiscard]] Result create_static_mesh_object(uint32_t a_meshId, uint32_t a_materialId,
-                                                       GameObject& a_outObject);
-
-        /// @brief 指定名と位置で StaticMesh GameObject を生成する
-        [[nodiscard]] Result create_static_mesh_object(std::string_view a_name, uint32_t a_meshId,
-                                                       uint32_t a_materialId, const Math::float3& a_position,
-                                                       GameObject& a_outObject);
-
         /// @brief GameObjectProto の component 群から GameObject を生成する
         [[nodiscard]] Result instantiate_object(const GameObjectProto& a_proto, GameObject& a_outObject);
 
@@ -87,30 +81,8 @@ namespace Cue::GameCore
         /// @brief GameWorld 内の全 GameObject を破棄する
         [[nodiscard]] Result clear() noexcept;
 
-        /// @brief SceneAsset の内容で GameWorld を置き換える
-        [[nodiscard]] Result load_scene(const SceneAsset& a_scene);
-
-        /// @brief 現在の GameWorld を SceneAsset へ変換する
-        [[nodiscard]] Result make_scene_asset(std::string_view a_name, SceneAsset& a_outScene) const;
-
-        /// @brief Scene 保存対象の編集 revision を取得する
-        [[nodiscard]] std::uint64_t scene_revision() const noexcept;
-
-        /// @brief Scene 保存対象の編集を記録する
-        void record_scene_edit() noexcept;
-
         /// @brief 現在生存している GameObject 数を取得する
         [[nodiscard]] Result object_count(size_t& a_outCount) const noexcept;
-
-        /// @brief 指定 GameObject の Undo 用 authoring 状態を取得する
-        [[nodiscard]] Result capture_object_snapshot(
-            EntityId a_entityId,
-            ObjectSnapshot& a_outSnapshot) const;
-
-        /// @brief 削除前の Entity ID を再利用して GameObject を復元する
-        [[nodiscard]] Result restore_object_snapshot(
-            const ObjectSnapshot& a_snapshot,
-            EntityId& a_outEntityId);
 
         /// @brief EntityId と世代番号が現在も有効かを返す
         [[nodiscard]] Result is_alive(EntityId a_entityId, Generation a_generation, bool& a_outIsAlive) const noexcept;
@@ -168,15 +140,6 @@ namespace Cue::GameCore
         template <typename T, typename... Args>
         [[nodiscard]] Result add_component(EntityId a_entityId, T*& a_outComponent, Args&&... a_args);
 
-        /// @brief この World の描画に使う Camera Entity を設定する
-        [[nodiscard]] Result set_render_camera(EntityId a_entityId) noexcept;
-
-        /// @brief この World の描画 Camera Entity を解除する
-        void clear_render_camera() noexcept;
-
-        /// @brief この World の描画 Camera Entity を取得する
-        [[nodiscard]] EntityId render_camera_entity() const noexcept;
-
         /// @brief Entity が Component を持つかを取得する
         template <typename T>
         [[nodiscard]] Result has_component(EntityId a_entityId, bool& a_outHasComponent) const noexcept;
@@ -184,13 +147,11 @@ namespace Cue::GameCore
         /// @brief Entity から Component を削除する
         template <typename T> [[nodiscard]] Result remove_component(EntityId a_entityId) noexcept;
 
-        /// @brief TransformComponent から WorldTransformComponent を同期する
-        void sync_world_transforms() noexcept;
-
-        /// @brief テスト用 StaticMesh object の Transform を回転させる
-        void animate_static_mesh_objects(float a_deltaTime);
-
     private:
+        friend class ObjectSnapshotService;
+        friend class SceneWorldMapper;
+        friend class TransformSystem;
+
         /// @brief 例外を Result に変換して処理を実行する
         [[nodiscard]] static Result capture_result(const std::function<void()>& a_func);
 
@@ -227,26 +188,8 @@ namespace Cue::GameCore
         [[nodiscard]] std::string make_unique_object_name(std::string_view a_requestedName,
                                                           EntityId a_ignoredEntityId = k_invalidEntityId) const;
 
-        /// @brief parent world と local transform から child world を合成する
-        [[nodiscard]] static ECS::WorldTransformComponent compose_world_transform(
-            const ECS::WorldTransformComponent& a_parent,
-            const ECS::TransformComponent& a_local) noexcept;
-
-        /// @brief parent world と child world から child local transform を復元する
-        [[nodiscard]] static ECS::TransformComponent make_local_transform(
-            const ECS::WorldTransformComponent& a_parent,
-            const ECS::WorldTransformComponent& a_world) noexcept;
-
-        /// @brief Entity の WorldTransform を親子階層込みで解決する
-        [[nodiscard]] bool resolve_world_transform(EntityId a_entityId,
-                                                   std::vector<uint8_t>& a_state,
-                                                   ECS::WorldTransformComponent& a_outWorld) noexcept;
-
         /// @brief a_entityId が a_possibleAncestor の子孫かを返す
         [[nodiscard]] bool is_descendant_of(EntityId a_entityId, EntityId a_possibleAncestor) const noexcept;
-
-        /// @brief 回転対象になる active static mesh entity を集める
-        [[nodiscard]] std::vector<EntityId> collect_active_static_mesh_entities() const;
 
         /// @brief tag index へ Entity を登録する
         void add_object_to_tag_index(EntityId a_entityId, const std::string& a_tag);
@@ -270,12 +213,8 @@ namespace Cue::GameCore
         std::vector<EntityRecord> m_entityRecords{};
         // 公開 API から要求された遅延削除キュー
         std::vector<EntityId> m_pendingDestroyedEntities{};
-        // この World の描画に使う Camera Entity
-        EntityId m_renderCameraEntity = k_invalidEntityId;
         // 読み込まれた Scene ごとに異なる SceneId を割り当てる
         SceneId m_nextSceneId = 1;
-        // Editor が保存済み状態と比較する Scene 編集 revision
-        std::uint64_t m_sceneRevision = 1;
         // 現在生存している Object 数
         size_t m_liveObjectCount = 0;
     };

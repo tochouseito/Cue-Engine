@@ -1,5 +1,9 @@
 #include "EngineCommandContext.h"
 
+// === Engine includes ===
+#include "GameCore/ObjectSnapshotService.h"
+#include "GameCore/TransformSystem.h"
+
 // === C++ includes ===
 #include <memory>
 
@@ -302,8 +306,11 @@ namespace Cue
             "Static mesh renderer component command has not been executed.");
     }
 
-    EngineCommandContext::EngineCommandContext(GameCore::GameWorld& a_gameWorld) noexcept
+    EngineCommandContext::EngineCommandContext(
+        GameCore::GameWorld& a_gameWorld,
+        DrawSystem::RenderCameraSelection& a_cameraSelection) noexcept
         : m_gameWorld(a_gameWorld)
+        , m_cameraSelection(a_cameraSelection)
     {
     }
 
@@ -319,7 +326,7 @@ namespace Cue
         }
 
         a_outObjectId = object.entity_id();
-        m_gameWorld.sync_world_transforms();
+        GameCore::TransformSystem::sync_world_transforms(m_gameWorld);
         return Result::ok();
     }
 
@@ -329,6 +336,10 @@ namespace Cue
         if (result)
         {
             m_gameWorld.execute_deferred_deletions();
+            if (m_cameraSelection.camera_entity() == a_objectId)
+            {
+                m_cameraSelection.clear();
+            }
         }
 
         return result;
@@ -346,7 +357,7 @@ namespace Cue
                 "TransformComponent already exists.");
             if (result)
             {
-                m_gameWorld.sync_world_transforms();
+                GameCore::TransformSystem::sync_world_transforms(m_gameWorld);
             }
             return result;
         case ComponentKind::Camera:
@@ -379,7 +390,14 @@ namespace Cue
                 Severity::Warning,
                 "TransformComponent is required and cannot be removed.");
         case ComponentKind::Camera:
-            return m_gameWorld.remove_component<ECS::CameraComponent>(a_objectId);
+        {
+            const Result result = m_gameWorld.remove_component<ECS::CameraComponent>(a_objectId);
+            if (result && m_cameraSelection.camera_entity() == a_objectId)
+            {
+                m_cameraSelection.clear();
+            }
+            return result;
+        }
         case ComponentKind::MeshFilter:
             return m_gameWorld.remove_component<ECS::MeshFilterComponent>(a_objectId);
         case ComponentKind::StaticMeshRenderer:
@@ -391,27 +409,48 @@ namespace Cue
 
     Result EngineCommandContext::get_render_camera(GameCore::EntityId& a_outObjectId)
     {
-        a_outObjectId = m_gameWorld.render_camera_entity();
+        a_outObjectId = m_cameraSelection.camera_entity();
         return Result::ok();
     }
 
     Result EngineCommandContext::set_render_camera(GameCore::EntityId a_objectId)
     {
-        return m_gameWorld.set_render_camera(a_objectId);
+        bool hasTransform = false;
+        Result result = m_gameWorld.has_component<ECS::TransformComponent>(a_objectId, hasTransform);
+        if (!result)
+        {
+            return result;
+        }
+        bool hasCamera = false;
+        result = m_gameWorld.has_component<ECS::CameraComponent>(a_objectId, hasCamera);
+        if (!result)
+        {
+            return result;
+        }
+        if (!hasTransform || !hasCamera)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "Render camera requires TransformComponent and CameraComponent.");
+        }
+
+        m_cameraSelection.set_camera_entity(a_objectId);
+        return Result::ok();
     }
 
     Result EngineCommandContext::capture_object_snapshot(
         GameCore::EntityId a_objectId,
         GameCore::ObjectSnapshot& a_outSnapshot)
     {
-        return m_gameWorld.capture_object_snapshot(a_objectId, a_outSnapshot);
+        return GameCore::ObjectSnapshotService::capture(
+            m_gameWorld, m_cameraSelection, a_objectId, a_outSnapshot);
     }
 
     Result EngineCommandContext::restore_object_snapshot(
         const GameCore::ObjectSnapshot& a_snapshot,
         GameCore::EntityId& a_outObjectId)
     {
-        return m_gameWorld.restore_object_snapshot(a_snapshot, a_outObjectId);
+        return GameCore::ObjectSnapshotService::restore(
+            m_gameWorld, m_cameraSelection, a_snapshot, a_outObjectId);
     }
 
     Result EngineCommandContext::get_object_name(GameCore::EntityId a_objectId, std::string& a_outName)
@@ -513,9 +552,7 @@ namespace Cue
         *component = a_component;
 
         // local Transform を変えた frame で描画入力も追従するよう WorldTransform を再解決する。
-        m_gameWorld.sync_world_transforms();
-        // Component への直接代入は GameWorld の構造変更 API を通らないため、保存対象の変更を明示する。
-        m_gameWorld.record_scene_edit();
+        GameCore::TransformSystem::sync_world_transforms(m_gameWorld);
         return Result::ok();
     }
 
@@ -546,8 +583,6 @@ namespace Cue
         }
 
         *component = a_component;
-        // Component への直接代入は GameWorld の構造変更 API を通らないため、保存対象の変更を明示する。
-        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 
@@ -578,8 +613,6 @@ namespace Cue
         }
 
         *component = a_component;
-        // Component への直接代入は GameWorld の構造変更 API を通らないため、保存対象の変更を明示する。
-        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 
@@ -610,8 +643,6 @@ namespace Cue
         }
 
         *component = a_component;
-        // Component への直接代入は GameWorld の構造変更 API を通らないため、保存対象の変更を明示する。
-        m_gameWorld.record_scene_edit();
         return Result::ok();
     }
 } // namespace Cue

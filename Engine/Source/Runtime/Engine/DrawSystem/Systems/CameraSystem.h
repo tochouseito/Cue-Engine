@@ -12,6 +12,7 @@
 
 // === Engine includes ===
 #include "DrawSystem/DrawFrameState.h"
+#include "DrawSystem/RenderCameraSelection.h"
 #include "DrawSystem/DrawScene.h"
 #include "GameCore/Components.h"
 #include "GameCore/GameWorld.h"
@@ -25,11 +26,13 @@ namespace Cue::ECS
     class CameraSystem final : public ECSManager::ISystem
     {
     public:
-        /// @brief GameWorld が保持する描画 Camera から DrawScene 用 camera を生成する。
+        /// @brief 選択済み Camera から DrawScene 用 camera を生成する。
         CameraSystem(GameCore::GameWorld& a_world,
+                     const DrawSystem::RenderCameraSelection& a_cameraSelection,
                      const DrawSystem::DrawFrameState& a_drawFrameState,
                      std::vector<DrawSystem::DrawScene>& a_drawScenes)
             : m_world(a_world)
+            , m_cameraSelection(a_cameraSelection)
             , m_drawFrameState(a_drawFrameState)
             , m_drawScenes(a_drawScenes)
         {
@@ -53,7 +56,7 @@ namespace Cue::ECS
                 return;
             }
 
-            const GameCore::EntityId cameraEntity = m_world.render_camera_entity();
+            const GameCore::EntityId cameraEntity = m_cameraSelection.camera_entity();
             if (cameraEntity == GameCore::k_invalidEntityId)
             {
                 return;
@@ -86,7 +89,7 @@ namespace Cue::ECS
             const float aspectRatio =
                 camera->aspectRatio > 0.0f ? camera->aspectRatio : renderAspectRatio;
 
-            // CameraSystem は GameWorld で選択済みの Camera だけを、同期済み WorldTransform から描画入力へ変換する。
+            // CameraSystem は描画側で選択済みの Camera だけを、同期済み WorldTransform から描画入力へ変換する。
             const Math::float4x4 worldMatrix = Math::make_affine_matrix(
                 transform->scale,
                 transform->rotation,
@@ -111,8 +114,9 @@ namespace Cue::ECS
         }
 
     private:
-        // 描画 Camera の選択は GameWorld が保持する。CameraSystem は走査しない。
+        // CameraSystem は選択状態を変更せず、指定された Camera だけを描画入力へ変換する。
         GameCore::GameWorld& m_world;
+        const DrawSystem::RenderCameraSelection& m_cameraSelection;
         // DrawFrameState は描画解像度の参照元。所有権は GameWorld / Engine 側に残す。
         const DrawSystem::DrawFrameState& m_drawFrameState;
         // CameraSystem は frame resource ごとの DrawScene へ選択済み camera item を積むだけ。

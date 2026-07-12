@@ -22,6 +22,7 @@ namespace Cue::GameCore
         ECS::CameraComponent camera{};
         ECS::MeshFilterComponent meshFilter{};
         ECS::StaticMeshRendererComponent staticMeshRenderer{};
+        ECS::ScriptComponent script{};
         EntityId entityId = k_invalidEntityId;
         EntityId parentId = k_invalidEntityId;
         SceneId owningSceneId = k_invalidSceneId;
@@ -33,5 +34,6 @@ namespace Cue::GameCore
         bool hasCamera = false;
         bool hasMeshFilter = false;
         bool hasStaticMeshRenderer = false;
+        bool hasScript = false;
     };
 } // namespace Cue::GameCore

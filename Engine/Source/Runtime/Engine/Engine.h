@@ -29,6 +29,7 @@
 #include "DrawSystem/DrawViewResources.h"
 #include "DrawSystem/DrawVisibilityResources.h"
 #include "DrawSystem/MeshPool.h"
+#include "DrawSystem/RenderCameraSelection.h"
 #include "GameCore/GameWorld.h"
 
 // === C++ includes ===
@@ -87,6 +88,12 @@ class Engine final
         return m_gameWorld;
     }
 
+    /// @brief Editor World の描画 Camera 選択を取得する。
+    DrawSystem::RenderCameraSelection& game_render_camera_selection() noexcept
+    {
+        return m_gameRenderCameraSelection;
+    }
+
     /// @brief Editor World を複製した runtime World の実行を開始する
     [[nodiscard]] Result request_start_play();
 
@@ -140,6 +147,7 @@ class Engine final
     /// @brief 指定 GameWorld 用の DrawSystem 抽出 pipeline を構築する
     Result initialize_render_extraction_pipeline(
         GameCore::GameWorld& a_world,
+        const DrawSystem::RenderCameraSelection& a_cameraSelection,
         ECS::ECSManager::SystemPipeline& a_outPipeline);
 
     /// @brief 初期描画に必要な Camera を GameWorld に追加する
@@ -203,6 +211,8 @@ class Engine final
 
     GameCore::GameWorld m_gameWorld{};
     GameCore::GameWorld m_runtimeGameWorld{};
+    DrawSystem::RenderCameraSelection m_gameRenderCameraSelection{};
+    DrawSystem::RenderCameraSelection m_runtimeRenderCameraSelection{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
     DrawSystem::DrawFrameState m_drawFrameState{};
     std::unique_ptr<DrawSystem::DrawSceneResources> m_drawSceneResources = nullptr;

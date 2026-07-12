@@ -6,6 +6,7 @@
 
 // === Engine include ===
 #include "Commands.h"
+#include "DrawSystem/RenderCameraSelection.h"
 #include <GameCore/GameWorld.h>
 
 // === C++ includes ===
@@ -16,7 +17,8 @@ namespace Cue
     class EngineCommandContext final : public IGameCommandContext
     {
     public:
-        explicit EngineCommandContext(GameCore::GameWorld& a_gameWorld) noexcept;
+        EngineCommandContext(GameCore::GameWorld& a_gameWorld,
+                             DrawSystem::RenderCameraSelection& a_cameraSelection) noexcept;
 
         Result create_object(std::string_view a_name, GameCore::EntityId& a_outObjectId) override;
         Result destroy_object(GameCore::EntityId a_objectId) override;
@@ -70,5 +72,6 @@ namespace Cue
 
     private:
         GameCore::GameWorld& m_gameWorld;
+        DrawSystem::RenderCameraSelection& m_cameraSelection;
     };
 }
