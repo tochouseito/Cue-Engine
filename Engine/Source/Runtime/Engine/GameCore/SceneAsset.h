@@ -55,11 +55,13 @@ namespace Cue::GameCore
         SceneTransform transform{};
         SceneCamera camera{};
         SceneRenderable renderable{};
+        ECS::ScriptComponent script{};
         bool isActive = true;
         bool isPersistent = false;
         bool hasTransform = false;
         bool hasCamera = false;
         bool hasRenderable = false;
+        bool hasScript = false;
     };
 
     struct SceneAsset final

@@ -208,6 +208,73 @@ namespace Cue::GameCore
             return renderable;
         }
 
+        [[nodiscard]] nlohmann::json make_script_field_json(const ECS::ScriptFieldValue& a_field)
+        {
+            nlohmann::json field{{"name", a_field.name}};
+            if (const int32_t* intValue = std::get_if<int32_t>(&a_field.value))
+            {
+                field["type"] = "Int";
+                field["value"] = *intValue;
+            }
+            else if (const bool* boolValue = std::get_if<bool>(&a_field.value))
+            {
+                field["type"] = "Bool";
+                field["value"] = *boolValue;
+            }
+            else
+            {
+                field["type"] = "Float";
+                field["value"] = std::get<float>(a_field.value);
+            }
+            return field;
+        }
+
+        [[nodiscard]] ECS::ScriptFieldValue read_script_field(const nlohmann::json& a_json)
+        {
+            ECS::ScriptFieldValue field{};
+            field.name = a_json.value("name", field.name);
+            const std::string type = a_json.value("type", std::string("Float"));
+            const nlohmann::json value = a_json.value("value", nlohmann::json{});
+            if (type == "Int")
+            {
+                field.value = value.is_number_integer() ? value.get<int32_t>() : 0;
+            }
+            else if (type == "Bool")
+            {
+                field.value = value.is_boolean() ? value.get<bool>() : false;
+            }
+            else
+            {
+                field.value = value.is_number() ? value.get<float>() : 0.0f;
+            }
+            return field;
+        }
+
+        [[nodiscard]] nlohmann::json make_script_json(const ECS::ScriptComponent& a_script)
+        {
+            nlohmann::json fields = nlohmann::json::array();
+            for (const ECS::ScriptFieldValue& field : a_script.serializedFieldValues)
+            {
+                fields.push_back(make_script_field_json(field));
+            }
+            return nlohmann::json{
+                {"className", a_script.className},
+                {"isEnabled", a_script.isEnabled},
+                {"fields", std::move(fields)}};
+        }
+
+        [[nodiscard]] ECS::ScriptComponent read_script(const nlohmann::json& a_json)
+        {
+            ECS::ScriptComponent script{};
+            script.className = a_json.value("className", script.className);
+            script.isEnabled = a_json.value("isEnabled", script.isEnabled);
+            for (const nlohmann::json& fieldJson : a_json.value("fields", nlohmann::json::array()))
+            {
+                script.serializedFieldValues.push_back(read_script_field(fieldJson));
+            }
+            return script;
+        }
+
         [[nodiscard]] nlohmann::json make_object_json(const SceneObject& a_object)
         {
             nlohmann::json components = nlohmann::json::object();
@@ -222,6 +289,10 @@ namespace Cue::GameCore
             if (a_object.hasRenderable)
             {
                 components["renderable"] = make_renderable_json(a_object.renderable);
+            }
+            if (a_object.hasScript)
+            {
+                components["script"] = make_script_json(a_object.script);
             }
 
             return nlohmann::json{
@@ -259,6 +330,11 @@ namespace Cue::GameCore
             {
                 object.renderable = read_renderable(components.at("renderable"));
                 object.hasRenderable = true;
+            }
+            if (components.contains("script"))
+            {
+                object.script = read_script(components.at("script"));
+                object.hasScript = true;
             }
             return object;
         }

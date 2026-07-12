@@ -286,6 +286,16 @@ namespace Cue::GameCore
                         renderer->receivesShadow = object.renderable.receivesShadow;
                     }
 
+                    if (object.hasScript)
+                    {
+                        ECS::ScriptComponent* script = m_ecsManager.add_component<ECS::ScriptComponent>(entity);
+                        if (script == nullptr)
+                        {
+                            throw std::runtime_error("Scene object script component could not be created.");
+                        }
+                        *script = object.script;
+                    }
+
                     if (object.localId != k_invalidLocalObjectId)
                     {
                         entityMap.emplace(object.localId, entity);
@@ -420,6 +430,13 @@ namespace Cue::GameCore
                             object.renderable.receivesShadow = renderer->receivesShadow;
                         }
                         object.hasRenderable = true;
+                    }
+
+                    const ECS::ScriptComponent* script = ecs.get_component<ECS::ScriptComponent>(entity);
+                    if (script != nullptr)
+                    {
+                        object.script = *script;
+                        object.hasScript = true;
                     }
 
                     localIds.emplace(entity, object.localId);
@@ -1637,6 +1654,7 @@ namespace Cue::GameCore
     template Result GameWorld::get_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&) noexcept;
     template Result GameWorld::get_component<ECS::StaticMeshRendererComponent>(
         EntityId, ECS::StaticMeshRendererComponent*&) noexcept;
+    template Result GameWorld::get_component<ECS::ScriptComponent>(EntityId, ECS::ScriptComponent*&) noexcept;
 
     template Result GameWorld::add_component<BaseComponent>(EntityId, BaseComponent*&);
     template Result GameWorld::add_component<ECS::RenderableInfoComponent>(EntityId, ECS::RenderableInfoComponent*&);
@@ -1646,6 +1664,7 @@ namespace Cue::GameCore
     template Result GameWorld::add_component<ECS::MeshFilterComponent>(EntityId, ECS::MeshFilterComponent*&);
     template Result GameWorld::add_component<ECS::StaticMeshRendererComponent>(EntityId,
                                                                                ECS::StaticMeshRendererComponent*&);
+    template Result GameWorld::add_component<ECS::ScriptComponent>(EntityId, ECS::ScriptComponent*&);
 
     template Result GameWorld::has_component<BaseComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::RenderableInfoComponent>(EntityId, bool&) const noexcept;
@@ -1654,6 +1673,7 @@ namespace Cue::GameCore
     template Result GameWorld::has_component<ECS::CameraComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::MeshFilterComponent>(EntityId, bool&) const noexcept;
     template Result GameWorld::has_component<ECS::StaticMeshRendererComponent>(EntityId, bool&) const noexcept;
+    template Result GameWorld::has_component<ECS::ScriptComponent>(EntityId, bool&) const noexcept;
 
     template Result GameWorld::remove_component<BaseComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::RenderableInfoComponent>(EntityId) noexcept;
@@ -1662,4 +1682,5 @@ namespace Cue::GameCore
     template Result GameWorld::remove_component<ECS::CameraComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::MeshFilterComponent>(EntityId) noexcept;
     template Result GameWorld::remove_component<ECS::StaticMeshRendererComponent>(EntityId) noexcept;
+    template Result GameWorld::remove_component<ECS::ScriptComponent>(EntityId) noexcept;
 } // namespace Cue::GameCore

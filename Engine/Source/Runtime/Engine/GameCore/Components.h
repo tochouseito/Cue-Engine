@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace Cue::GameCore
@@ -195,5 +196,22 @@ namespace Cue::ECS
         bool castsShadow = true;
         // shadow receiver として扱うか
         bool receivesShadow = true;
+    };
+
+    using scriptFieldData = std::variant<float, int32_t, bool>;
+
+    /// @brief Scene に保存する script field の値です
+    struct ScriptFieldValue final
+    {
+        std::string name{};
+        scriptFieldData value = 0.0f;
+    };
+
+    /// @brief Play Mode で生成する script instance の authoring 設定です
+    struct ScriptComponent final : public IComponentTag
+    {
+        std::string className{};
+        std::vector<ScriptFieldValue> serializedFieldValues{};
+        bool isEnabled = true;
     };
 } // namespace Cue::ECS
