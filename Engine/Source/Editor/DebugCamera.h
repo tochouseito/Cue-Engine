@@ -52,6 +52,9 @@ namespace Cue::Editor
         float m_moveSpeed = 5.0f;
         float m_fastMoveMultiplier = 4.0f;
         float m_rotateSpeed = 0.0035f;
+        float m_panSpeed = 0.01f;
+        float m_scrollSpeed = 1.0f;
         bool m_isControlling = false;
+        bool m_isPanning = false;
     };
 } // namespace Cue::Editor

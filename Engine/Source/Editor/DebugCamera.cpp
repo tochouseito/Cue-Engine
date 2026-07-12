@@ -27,6 +27,15 @@ namespace Cue::Editor
             m_isControlling = false;
         }
 
+        if (canStartControl && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+        {
+            m_isPanning = true;
+        }
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+        {
+            m_isPanning = false;
+        }
+
         if (m_isControlling)
         {
             // DebugCamera は Euler 角を保持せず、mouse delta から作った増分 Quaternion
@@ -72,6 +81,21 @@ namespace Cue::Editor
             {
                 m_position += Math::float3::normalize(movement) * speed;
             }
+        }
+
+        if (m_isPanning)
+        {
+            const Math::float3 right = rotate_vector(m_orientation, Math::float3::unit_x());
+            const Math::float3 up = rotate_vector(m_orientation, Math::float3::unit_y());
+            m_position -= right * (io.MouseDelta.x * m_panSpeed);
+            m_position += up * (io.MouseDelta.y * m_panSpeed);
+        }
+
+        if (a_viewport.isHovered && io.MouseWheel != 0.0f)
+        {
+            const float speed = m_scrollSpeed * (io.KeyShift ? m_fastMoveMultiplier : 1.0f);
+            const Math::float3 forward = rotate_vector(m_orientation, Math::float3::unit_z());
+            m_position += forward * (io.MouseWheel * speed);
         }
 
         rebuild_render_view(std::max(a_viewport.width, 1u), std::max(a_viewport.height, 1u));
