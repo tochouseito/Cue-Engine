@@ -43,6 +43,9 @@ namespace Cue::Script
         InternalError,
     };
 
+    /// @brief GameScript が所有する Script object を Engine が参照するための不透明な ID
+    using ScriptInstanceHandle = uint64_t;
+
     /// @brief Engine が Script instance の生成時に渡す識別情報
     struct ScriptInstanceCreateInfo final
     {
@@ -53,10 +56,8 @@ namespace Cue::Script
         ///
         /// 呼び出し中だけ有効な UTF-8 文字列として扱い、GameScript 側は保持禁止
         const char* className = nullptr;
-    };
 
-    /// @brief GameScript が所有する Script object を Engine が参照するための不透明な ID
-    using ScriptInstanceHandle = uint64_t;
+    };
 
     /// @brief DLL 自身が実装した ABI 世代を取得する entry point
     using ScriptGetAbiVersionFn = uint32_t(CUE_SCRIPT_CALL*)();
