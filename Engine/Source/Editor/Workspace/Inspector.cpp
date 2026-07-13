@@ -246,6 +246,7 @@ namespace Cue::Editor
         draw_camera_component(object);
         draw_mesh_filter_component(object);
         draw_static_mesh_renderer_component(object);
+        draw_script_component(object);
         draw_renderable_info_component(object);
 
         ImGui::End();
@@ -294,8 +295,9 @@ namespace Cue::Editor
             object_has_component<ECS::MeshFilterComponent>(a_object);
         const bool hasStaticMeshRenderer =
             object_has_component<ECS::StaticMeshRendererComponent>(a_object);
+        const bool hasScript = object_has_component<ECS::ScriptComponent>(a_object);
         const bool hasAddableComponent =
-            !hasTransform || !hasCamera || !hasMeshFilter || !hasStaticMeshRenderer;
+            !hasTransform || !hasCamera || !hasMeshFilter || !hasStaticMeshRenderer || !hasScript;
 
         if (ImGui::Button("Add Component"))
         {
@@ -320,6 +322,10 @@ namespace Cue::Editor
             {
                 submit_add_component(a_object.entity_id(),
                                      ComponentKind::StaticMeshRenderer);
+            }
+            if (!hasScript && ImGui::MenuItem("Script"))
+            {
+                submit_add_component(a_object.entity_id(), ComponentKind::Script);
             }
             if (!hasAddableComponent)
             {
@@ -699,6 +705,43 @@ namespace Cue::Editor
         }
     }
 
+    void Inspector::draw_script_component(GameCore::GameObject& a_object)
+    {
+        ECS::ScriptComponent* script = nullptr;
+        if (!a_object.get_component(script) || script == nullptr)
+        {
+            return;
+        }
+
+        const bool isOpen = ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen);
+        draw_remove_component_button(a_object.entity_id(), ComponentKind::Script, "Script");
+        if (!isOpen)
+        {
+            return;
+        }
+
+        if (m_scriptEntityId != a_object.entity_id())
+        {
+            m_scriptClassNameBuffer.fill('\0');
+            const size_t copyLength = std::min(
+                script->className.size(), m_scriptClassNameBuffer.size() - 1u);
+            std::memcpy(m_scriptClassNameBuffer.data(), script->className.data(), copyLength);
+            m_scriptEntityId = a_object.entity_id();
+        }
+
+        ECS::ScriptComponent edited = *script;
+        if (ImGui::InputText("ClassName", m_scriptClassNameBuffer.data(),
+                             m_scriptClassNameBuffer.size()))
+        {
+            edited.className = m_scriptClassNameBuffer.data();
+            submit_script_component(a_object.entity_id(), edited, current_history_transaction());
+        }
+        if (ImGui::Checkbox("Enabled", &edited.isEnabled))
+        {
+            submit_script_component(a_object.entity_id(), edited);
+        }
+    }
+
     void Inspector::draw_renderable_info_component(GameCore::GameObject& a_object)
     {
         ECS::RenderableInfoComponent* renderableInfo = nullptr;
@@ -799,6 +842,21 @@ namespace Cue::Editor
         // 経由で変更順序を揃える
         (void)m_commandBridge->submit_command(
             make_set_static_mesh_renderer_component_command(a_entityId, a_component),
+            a_historyTransactionId);
+    }
+
+    void Inspector::submit_script_component(
+        GameCore::EntityId a_entityId,
+        const ECS::ScriptComponent& a_component,
+        uint64_t a_historyTransactionId)
+    {
+        if (m_commandBridge == nullptr)
+        {
+            return;
+        }
+
+        (void)m_commandBridge->submit_command(
+            make_set_script_component_command(a_entityId, a_component),
             a_historyTransactionId);
     }
 

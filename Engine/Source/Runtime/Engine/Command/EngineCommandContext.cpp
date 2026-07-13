@@ -306,6 +306,18 @@ namespace Cue
             "Static mesh renderer component command has not been executed.");
     }
 
+    std::unique_ptr<Core::CQRS::ICommand> make_set_script_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::ScriptComponent& a_component)
+    {
+        return std::make_unique<SetComponentCommand<ECS::ScriptComponent>>(
+            a_objectId,
+            a_component,
+            &IGameCommandContext::get_script_component,
+            &IGameCommandContext::set_script_component,
+            "Script component command has not been executed.");
+    }
+
     EngineCommandContext::EngineCommandContext(
         GameCore::GameWorld& a_gameWorld,
         DrawSystem::RenderCameraSelection& a_cameraSelection) noexcept
@@ -375,6 +387,11 @@ namespace Cue
                 m_gameWorld,
                 a_objectId,
                 "StaticMeshRendererComponent already exists.");
+        case ComponentKind::Script:
+            return add_component_if_missing<ECS::ScriptComponent>(
+                m_gameWorld,
+                a_objectId,
+                "ScriptComponent already exists.");
         default:
             return Result::fail(Code::InvalidArgument, Severity::Error, "Unknown component kind.");
         }
@@ -402,6 +419,8 @@ namespace Cue
             return m_gameWorld.remove_component<ECS::MeshFilterComponent>(a_objectId);
         case ComponentKind::StaticMeshRenderer:
             return m_gameWorld.remove_component<ECS::StaticMeshRendererComponent>(a_objectId);
+        case ComponentKind::Script:
+            return m_gameWorld.remove_component<ECS::ScriptComponent>(a_objectId);
         default:
             return Result::fail(Code::InvalidArgument, Severity::Error, "Unknown component kind.");
         }
@@ -636,6 +655,36 @@ namespace Cue
         const ECS::StaticMeshRendererComponent& a_component)
     {
         ECS::StaticMeshRendererComponent* component = nullptr;
+        Result result = m_gameWorld.get_component(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        *component = a_component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::get_script_component(
+        GameCore::EntityId a_objectId,
+        ECS::ScriptComponent& a_outComponent)
+    {
+        ECS::ScriptComponent* component = nullptr;
+        Result result = m_gameWorld.get_component(a_objectId, component);
+        if (!result || component == nullptr)
+        {
+            return result;
+        }
+
+        a_outComponent = *component;
+        return Result::ok();
+    }
+
+    Result EngineCommandContext::set_script_component(
+        GameCore::EntityId a_objectId,
+        const ECS::ScriptComponent& a_component)
+    {
+        ECS::ScriptComponent* component = nullptr;
         Result result = m_gameWorld.get_component(a_objectId, component);
         if (!result || component == nullptr)
         {

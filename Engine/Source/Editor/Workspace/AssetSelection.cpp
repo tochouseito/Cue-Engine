@@ -35,6 +35,10 @@ namespace Cue::Editor
         {
             return AssetKind::material;
         }
+        if (extension == ".h" || extension == ".hpp" || extension == ".cpp")
+        {
+            return AssetKind::script;
+        }
 
         return AssetKind::unknown;
     }
@@ -51,6 +55,8 @@ namespace Cue::Editor
             return "Texture";
         case AssetKind::material:
             return "Material";
+        case AssetKind::script:
+            return "Script";
         case AssetKind::unknown:
         default:
             return "Unknown";

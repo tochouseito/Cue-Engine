@@ -30,6 +30,7 @@ namespace Cue
         Camera,
         MeshFilter,
         StaticMeshRenderer,
+        Script,
     };
 
     class IGameCommandContext : public virtual Core::CQRS::ICommandContext
@@ -110,6 +111,12 @@ namespace Cue
         virtual Result set_static_mesh_renderer_component(
             GameCore::EntityId a_objectId,
             const ECS::StaticMeshRendererComponent& a_component) = 0;
+        virtual Result get_script_component(
+            GameCore::EntityId a_objectId,
+            ECS::ScriptComponent& a_outComponent) = 0;
+        virtual Result set_script_component(
+            GameCore::EntityId a_objectId,
+            const ECS::ScriptComponent& a_component) = 0;
     };
 
     class CreateObjectCommand final : public Core::CQRS::IUndoableCommand
@@ -329,6 +336,8 @@ namespace Cue
             case ComponentKind::StaticMeshRenderer:
                 return a_commandContext.get_static_mesh_renderer_component(
                     m_objectId, m_staticMeshRendererComponent);
+            case ComponentKind::Script:
+                return a_commandContext.get_script_component(m_objectId, m_scriptComponent);
             case ComponentKind::Transform:
                 return Result::fail(
                     Code::InvalidState,
@@ -354,6 +363,8 @@ namespace Cue
             case ComponentKind::StaticMeshRenderer:
                 return a_commandContext.set_static_mesh_renderer_component(
                     m_objectId, m_staticMeshRendererComponent);
+            case ComponentKind::Script:
+                return a_commandContext.set_script_component(m_objectId, m_scriptComponent);
             case ComponentKind::Transform:
                 return Result::fail(
                     Code::InvalidState,
@@ -370,6 +381,7 @@ namespace Cue
         ECS::CameraComponent m_cameraComponent{};
         ECS::MeshFilterComponent m_meshFilterComponent{};
         ECS::StaticMeshRendererComponent m_staticMeshRendererComponent{};
+        ECS::ScriptComponent m_scriptComponent{};
         GameCore::EntityId m_objectId = GameCore::k_invalidEntityId;
         ComponentKind m_kind = ComponentKind::Transform;
         bool m_hasSnapshot = false;
@@ -626,4 +638,9 @@ namespace Cue
     [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_static_mesh_renderer_component_command(
         GameCore::EntityId a_objectId,
         const ECS::StaticMeshRendererComponent& a_component);
+
+    /// @brief Inspector で編集した Script 設定を undo 可能な GameWorld 更新として扱う
+    [[nodiscard]] std::unique_ptr<Core::CQRS::ICommand> make_set_script_component_command(
+        GameCore::EntityId a_objectId,
+        const ECS::ScriptComponent& a_component);
 }

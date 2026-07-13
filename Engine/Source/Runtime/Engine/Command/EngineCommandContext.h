@@ -69,6 +69,12 @@ namespace Cue
         Result set_static_mesh_renderer_component(
             GameCore::EntityId a_objectId,
             const ECS::StaticMeshRendererComponent& a_component) override;
+        Result get_script_component(
+            GameCore::EntityId a_objectId,
+            ECS::ScriptComponent& a_outComponent) override;
+        Result set_script_component(
+            GameCore::EntityId a_objectId,
+            const ECS::ScriptComponent& a_component) override;
 
     private:
         GameCore::GameWorld& m_gameWorld;

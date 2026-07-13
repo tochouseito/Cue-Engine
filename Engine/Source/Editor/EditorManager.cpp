@@ -20,13 +20,54 @@
 #include <Command/Commands.h>
 #include <Dialog/DialogService.h>
 #include <Engine.h>
+#include <IO/IFileSystem.h>
 #include <IO/Path.h>
 
 // === ImGui includes ===
 #include <imgui.h>
 
+// === C++ includes ===
+#include <cctype>
+#include <cstddef>
+#include <cstring>
+#include <string_view>
+#include <vector>
+
 namespace Cue::Editor
 {
+    namespace
+    {
+        [[nodiscard]] bool is_valid_script_name(const std::string_view a_name) noexcept
+        {
+            if (a_name.empty() || std::isdigit(static_cast<unsigned char>(a_name.front())) != 0)
+            {
+                return false;
+            }
+
+            for (const char character : a_name)
+            {
+                const unsigned char value = static_cast<unsigned char>(character);
+                if (std::isalnum(value) == 0 && character != '_')
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        [[nodiscard]] std::vector<std::byte> to_file_data(const std::string& a_text)
+        {
+            std::vector<std::byte> data(a_text.size());
+            if (!a_text.empty())
+            {
+                std::memcpy(data.data(), a_text.data(), a_text.size());
+            }
+
+            return data;
+        }
+    } // namespace
+
     EditorManager::EditorManager() = default;
 
     EditorManager::~EditorManager() = default;
@@ -46,6 +87,7 @@ namespace Cue::Editor
         m_debugCamera = a_info.debugCamera;
         m_dialogService = a_info.dialogService;
         m_gameCommandBridge = a_info.gameCommandBridge;
+        m_fileSystem = a_info.fileSystem;
 
         // CueEngine と同じく、EditorManager が Editor View の所有と更新順を集約する。
         m_gameView = std::make_unique<GameView>(m_backend);
@@ -79,6 +121,7 @@ namespace Cue::Editor
         draw_dockspace();
         update_project_selector();
         draw_scene_transition_dialog();
+        draw_create_script_popup();
         const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
         if (m_assetBrowser != nullptr)
         {
@@ -304,6 +347,72 @@ namespace Cue::Editor
         {
             submit_empty_object_command();
         }
+
+        const bool canCreateScript = canEditScene && m_project != nullptr &&
+                                     !m_project->asset_root_path().is_empty();
+        if (ImGui::MenuItem("スクリプト", nullptr, false, canCreateScript))
+        {
+            m_createScriptNameBuffer.fill('\0');
+            m_openCreateScriptPopup = true;
+        }
+    }
+
+    void EditorManager::draw_create_script_popup()
+    {
+        if (m_openCreateScriptPopup)
+        {
+            ImGui::OpenPopup("Create Script");
+            m_openCreateScriptPopup = false;
+            m_focusCreateScriptNameInput = true;
+        }
+
+        if (!ImGui::BeginPopupModal("Create Script", nullptr,
+                                    ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+
+        ImGui::TextUnformatted("Assets/Scripts/ に新しい Script を作成します。");
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Script 名");
+        if (m_focusCreateScriptNameInput)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_focusCreateScriptNameInput = false;
+        }
+
+        const bool submitted = ImGui::InputText(
+            "##CreateScriptName", m_createScriptNameBuffer.data(),
+            m_createScriptNameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("例: TestCube");
+
+        const auto createScript = [this]()
+        {
+            const std::string scriptName = m_createScriptNameBuffer.data();
+            const Result result = create_script_template(scriptName);
+            if (!result)
+            {
+                show_scene_error(result);
+                return;
+            }
+
+            m_createScriptNameBuffer.fill('\0');
+            ImGui::CloseCurrentPopup();
+        };
+
+        ImGui::Spacing();
+        if (submitted || ImGui::Button("作成"))
+        {
+            createScript();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_createScriptNameBuffer.fill('\0');
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
     }
 
     void EditorManager::draw_game_menu_items()
@@ -761,6 +870,95 @@ namespace Cue::Editor
         // 境界で反映する
         (void)m_gameCommandBridge->submit_command(
             std::make_unique<CreateObjectCommand>("GameObject"));
+    }
+
+    Result EditorManager::create_script_template(const std::string& a_scriptName)
+    {
+        if (m_fileSystem == nullptr || m_project == nullptr ||
+            m_project->asset_root_path().is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Editor project is not initialized.");
+        }
+        if (!is_valid_script_name(a_scriptName))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                                "Script name must start with a letter or _ and use only letters, digits, or _.");
+        }
+
+        const Core::IO::Path scriptDirectory = Core::IO::Path::join(
+            m_project->asset_root_path(), Core::IO::Path("Scripts"));
+        const Core::IO::Path headerPath = Core::IO::Path::join(
+            scriptDirectory, Core::IO::Path(a_scriptName + "Script.h"));
+        const Core::IO::Path sourcePath = Core::IO::Path::join(
+            scriptDirectory, Core::IO::Path(a_scriptName + "Script.cpp"));
+
+        bool exists = false;
+        Result result = m_fileSystem->exists(headerPath, &exists);
+        if (!result)
+        {
+            return result;
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "A script header with the same name already exists.");
+        }
+
+        result = m_fileSystem->exists(sourcePath, &exists);
+        if (!result)
+        {
+            return result;
+        }
+        if (exists)
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "A script source file with the same name already exists.");
+        }
+
+        const std::string className = a_scriptName + "Script";
+        const std::string headerText =
+            "#pragma once\n"
+            "\n"
+            "#include <Script/Marionnette.h>\n"
+            "\n"
+            "namespace GameScript\n"
+            "{\n"
+            "    class " + className + " final : public Cue::Script::MarionnetteComponent\n"
+            "    {\n"
+            "    public:\n"
+            "        void start() noexcept override;\n"
+            "        void update(float a_deltaTimeSeconds) noexcept override;\n"
+            "    };\n"
+            "} // namespace GameScript\n";
+        const std::string sourceText =
+            "#include \"" + className + ".h\"\n"
+            "\n"
+            "namespace GameScript\n"
+            "{\n"
+            "    void " + className + "::start() noexcept\n"
+            "    {\n"
+            "    }\n"
+            "\n"
+            "    void " + className + "::update(float a_deltaTimeSeconds) noexcept\n"
+            "    {\n"
+            "        (void)a_deltaTimeSeconds;\n"
+            "    }\n"
+            "} // namespace GameScript\n";
+
+        result = m_fileSystem->write_all(headerPath, to_file_data(headerText), true);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = m_fileSystem->write_all(sourcePath, to_file_data(sourceText), true);
+        if (!result)
+        {
+            return result;
+        }
+
+        return m_assetBrowser != nullptr ? m_assetBrowser->refresh() : Result::ok();
     }
 
     void EditorManager::process_edit_shortcuts()

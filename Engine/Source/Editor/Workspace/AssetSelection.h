@@ -20,6 +20,7 @@ namespace Cue::Editor
         model,
         texture,
         material,
+        script,
     };
 
     /// @brief Inspector 表示に必要な Asset の選択時点の情報

@@ -38,6 +38,7 @@ namespace Cue::ECS
 {
     struct CameraComponent;
     struct MeshFilterComponent;
+    struct ScriptComponent;
     struct StaticMeshRendererComponent;
     struct TransformComponent;
 } // namespace Cue::ECS
@@ -103,6 +104,9 @@ namespace Cue::Editor
         /// @brief material と描画制御値を編集し、描画抽出へ反映させる
         void draw_static_mesh_renderer_component(GameCore::GameObject& a_object);
 
+        /// @brief Script class と有効状態を編集し、Play 時の instance 同期対象を設定する
+        void draw_script_component(GameCore::GameObject& a_object);
+
         /// @brief GPU 描画用に割り当てられた ID を読み取り専用で表示する
         void draw_renderable_info_component(GameCore::GameObject& a_object);
 
@@ -129,6 +133,12 @@ namespace Cue::Editor
         void submit_static_mesh_renderer_component(
             GameCore::EntityId a_entityId,
             const ECS::StaticMeshRendererComponent& a_component,
+            uint64_t a_historyTransactionId = 0);
+
+        /// @brief ScriptComponent の変更を CQRS 経由で要求する
+        void submit_script_component(
+            GameCore::EntityId a_entityId,
+            const ECS::ScriptComponent& a_component,
             uint64_t a_historyTransactionId = 0);
 
         /// @brief 現在の ImGui 入力操作に対応する履歴統合用 ID を取得する
@@ -168,7 +178,9 @@ namespace Cue::Editor
         Math::Quaternion m_rotationSource = Math::Quaternion::identity();
         GameCore::EntityId m_rotationEntityId = GameCore::k_invalidEntityId;
         GameCore::EntityId m_baseEntityId = GameCore::k_invalidEntityId;
+        GameCore::EntityId m_scriptEntityId = GameCore::k_invalidEntityId;
         std::array<char, 256> m_nameBuffer{};
+        std::array<char, 256> m_scriptClassNameBuffer{};
         std::array<char, 256> m_tagBuffer{};
         uint64_t m_nextHistoryTransactionId = 1;
         uint64_t m_activeHistoryTransactionId = 0;

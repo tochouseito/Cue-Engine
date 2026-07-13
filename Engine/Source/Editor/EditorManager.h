@@ -15,6 +15,7 @@
 #include "Workspace/AssetSelection.h"
 
 // === C++ includes ===
+#include <array>
 #include <memory>
 #include <string>
 
@@ -135,6 +136,7 @@ namespace Cue::Editor
         void draw_add_menu_items();
         void draw_game_menu_items();
         void draw_view_menu_items();
+        void draw_create_script_popup();
         void process_edit_shortcuts();
         void open_project_selector();
         void update_project_selector();
@@ -151,6 +153,7 @@ namespace Cue::Editor
         void show_scene_error(const Result& a_result);
         void clear_selection() noexcept;
         void submit_empty_object_command();
+        [[nodiscard]] Result create_script_template(const std::string& a_scriptName);
         void request_undo();
         void request_redo();
         void show_and_focus_window(const char* a_windowName);
@@ -166,6 +169,7 @@ namespace Cue::Editor
             nullptr; // Scene 保存先を選択する非所有 DialogService
         Core::CQRS::Bridge* m_gameCommandBridge =
             nullptr; // Editor から GameWorld を編集する command bridge
+        Core::IO::IFileSystem* m_fileSystem = nullptr; // Script Asset を作成する非所有 FileSystem
 
         std::unique_ptr<GameView> m_gameView = nullptr;
         std::unique_ptr<DebugView> m_debugView = nullptr;
@@ -183,10 +187,13 @@ namespace Cue::Editor
         Core::IO::Path m_pendingScenePath{};
         Core::IO::Path m_pendingSceneDirectory{};
         Core::IO::Path m_newSceneSaveDirectory{};
+        std::array<char, 128> m_createScriptNameBuffer{};
         std::string
             m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
         SceneTransition m_pendingSceneTransition = SceneTransition::none;
         bool m_shouldOpenSceneTransitionDialog = false;
+        bool m_openCreateScriptPopup = false;
+        bool m_focusCreateScriptNameInput = false;
         bool m_isExitRequested = false;
     };
 } // namespace Cue::Editor

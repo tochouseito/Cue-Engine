@@ -187,6 +187,7 @@ namespace Cue::GameCore
     template Result GameObject::get_component<ECS::MeshFilterComponent>(ECS::MeshFilterComponent*&) noexcept;
     template Result GameObject::get_component<ECS::StaticMeshRendererComponent>(
         ECS::StaticMeshRendererComponent*&) noexcept;
+    template Result GameObject::get_component<ECS::ScriptComponent>(ECS::ScriptComponent*&) noexcept;
 
     template Result GameObject::add_component<BaseComponent>(BaseComponent*&);
     template Result GameObject::add_component<ECS::RenderableInfoComponent>(ECS::RenderableInfoComponent*&);
@@ -203,6 +204,7 @@ namespace Cue::GameCore
     template Result GameObject::has_component<ECS::CameraComponent>(bool&) const noexcept;
     template Result GameObject::has_component<ECS::MeshFilterComponent>(bool&) const noexcept;
     template Result GameObject::has_component<ECS::StaticMeshRendererComponent>(bool&) const noexcept;
+    template Result GameObject::has_component<ECS::ScriptComponent>(bool&) const noexcept;
 
     template Result GameObject::remove_component<BaseComponent>() noexcept;
     template Result GameObject::remove_component<ECS::RenderableInfoComponent>() noexcept;
