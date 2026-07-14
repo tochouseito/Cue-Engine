@@ -6,6 +6,7 @@
 #include "ScriptModule.h"
 
 // === C++ includes ===
+#include <cmath>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -15,6 +16,12 @@ namespace Cue::Script
     ScriptRuntime::ScriptRuntime(GameCore::GameWorld& a_world) noexcept
         : m_world(a_world)
     {
+        // DLL callback は Runtime ごとに異なる World を参照するため、global state を介さず userData に自身を保持する
+        m_scriptEngineApi.structSize = sizeof(Core::Native::ScriptEngineApi);
+        m_scriptEngineApi.userData = this;
+        m_scriptEngineApi.isEntityValid = &ScriptRuntime::script_is_entity_valid;
+        m_scriptEngineApi.getTransformQuaternion = &ScriptRuntime::script_get_transform_quaternion;
+        m_scriptEngineApi.setTransformQuaternion = &ScriptRuntime::script_set_transform_quaternion;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -88,6 +95,11 @@ namespace Cue::Script
         }
 
         return Result::ok();
+    }
+
+    const Core::Native::ScriptEngineApi& ScriptRuntime::script_engine_api() const noexcept
+    {
+        return m_scriptEngineApi;
     }
 
     Result ScriptRuntime::sync_instances() noexcept
@@ -357,6 +369,166 @@ namespace Cue::Script
 
         marionnette->second->unbind();
         m_marionnettes.erase(marionnette);
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_is_entity_valid(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        uint8_t* a_outIsValid) noexcept
+    {
+        if (a_userData == nullptr || a_outIsValid == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        bool isAlive = false;
+        const Result result = runtime->m_world.is_alive(
+            a_entity.entityId, a_entity.generation, isAlive);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        *a_outIsValid = isAlive ? 1u : 0u;
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_get_transform_quaternion(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        Core::Native::ScriptTransformQuaternion* a_outTransform) noexcept
+    {
+        if (a_userData == nullptr || a_outTransform == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = runtime->get_transform_component(a_entity, transform);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        a_outTransform->positionX = transform->position.x;
+        a_outTransform->positionY = transform->position.y;
+        a_outTransform->positionZ = transform->position.z;
+        a_outTransform->rotation.x = transform->rotation.x;
+        a_outTransform->rotation.y = transform->rotation.y;
+        a_outTransform->rotation.z = transform->rotation.z;
+        a_outTransform->rotation.w = transform->rotation.w;
+        a_outTransform->scaleX = transform->scale.x;
+        a_outTransform->scaleY = transform->scale.y;
+        a_outTransform->scaleZ = transform->scale.z;
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_set_transform_quaternion(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        const Core::Native::ScriptTransformQuaternion* a_transform) noexcept
+    {
+        if (a_userData == nullptr || a_transform == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        const float values[] = {
+            a_transform->positionX,
+            a_transform->positionY,
+            a_transform->positionZ,
+            a_transform->rotation.x,
+            a_transform->rotation.y,
+            a_transform->rotation.z,
+            a_transform->rotation.w,
+            a_transform->scaleX,
+            a_transform->scaleY,
+            a_transform->scaleZ};
+        for (const float value : values)
+        {
+            if (!std::isfinite(value))
+            {
+                return Core::Native::ScriptAbiResult::InvalidArgument;
+            }
+        }
+
+        Math::Quaternion rotation(
+            a_transform->rotation.x,
+            a_transform->rotation.y,
+            a_transform->rotation.z,
+            a_transform->rotation.w);
+        const float rotationLength = rotation.norm();
+        if (!std::isfinite(rotationLength) || rotationLength <= 0.0f)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+        rotation.normalize();
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = runtime->get_transform_component(a_entity, transform);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        // WorldTransform は frame 内の Transform 同期で再計算するため、Script は local 値だけを更新する
+        transform->position = Math::float3(
+            a_transform->positionX, a_transform->positionY, a_transform->positionZ);
+        transform->rotation = rotation;
+        transform->scale = Math::float3(
+            a_transform->scaleX, a_transform->scaleY, a_transform->scaleZ);
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::to_script_abi_result(
+        const Result& a_result) noexcept
+    {
+        switch (a_result.code)
+        {
+        case Code::OK:
+            return Core::Native::ScriptAbiResult::Ok;
+        case Code::InvalidArgument:
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        case Code::NotFound:
+            return Core::Native::ScriptAbiResult::NotFound;
+        case Code::InvalidState:
+            return Core::Native::ScriptAbiResult::InvalidState;
+        default:
+            return Core::Native::ScriptAbiResult::InternalError;
+        }
+    }
+
+    Result ScriptRuntime::get_transform_component(
+        Core::Native::ScriptEntityHandle a_entity,
+        ECS::TransformComponent*& a_outTransform) noexcept
+    {
+        bool isAlive = false;
+        Result result = m_world.is_alive(a_entity.entityId, a_entity.generation, isAlive);
+        if (!result)
+        {
+            return result;
+        }
+        if (!isAlive)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                                "Script entity is no longer alive.");
+        }
+
+        result = m_world.get_component<ECS::TransformComponent>(a_entity.entityId, a_outTransform);
+        if (!result)
+        {
+            return result;
+        }
+        if (a_outTransform == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Warning,
+                                "Script entity has no TransformComponent.");
+        }
+
+        return Result::ok();
     }
 
 } // namespace Cue::Script

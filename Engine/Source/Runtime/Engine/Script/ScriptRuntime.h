@@ -7,6 +7,9 @@
 // === Base includes ===
 #include <CueResult.h>
 
+// === Core includes ===
+#include <Native/ScriptAbi.h>
+
 // === Engine includes ===
 #include "GameCore/GameCoreTypes.h"
 #include "Marionnette.h"
@@ -58,6 +61,11 @@ namespace Cue::Script
         /// DLL unload より前に完了させ、DLL が所有する object を解放できる状態を維持
         [[nodiscard]] Result reset() noexcept;
 
+        /// @brief GameScript DLL が Runtime World を操作するための ABI を返す
+        ///
+        /// API は Runtime World だけを参照し、authoring World を DLL から変更させない
+        [[nodiscard]] const Core::Native::ScriptEngineApi& script_engine_api() const noexcept;
+
     private:
         struct Binding final
         {
@@ -90,10 +98,30 @@ namespace Cue::Script
         void unbind_marionnette_component(GameCore::EntityId a_entityId) noexcept;
         void unbind_marionnette(GameCore::EntityId a_entityId) noexcept;
 
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_is_entity_valid(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            uint8_t* a_outIsValid) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_get_transform_quaternion(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            Core::Native::ScriptTransformQuaternion* a_outTransform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_set_transform_quaternion(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            const Core::Native::ScriptTransformQuaternion* a_transform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult to_script_abi_result(
+            const Result& a_result) noexcept;
+
+        [[nodiscard]] Result get_transform_component(
+            Core::Native::ScriptEntityHandle a_entity,
+            ECS::TransformComponent*& a_outTransform) noexcept;
+
         GameCore::GameWorld& m_world; // Play 中だけ使用する Runtime World への非所有参照
         std::unordered_map<GameCore::EntityId, Binding> m_bindings{}; // Runtime Entity ごとの DLL instance
         std::unordered_map<GameCore::EntityId, std::unique_ptr<Marionnette>> m_marionnettes{}; // Entity ごとの Script 側 owner
         std::unordered_map<GameCore::EntityId, std::unique_ptr<MarionnetteComponent>> m_marionnetteComponents{}; // owner に付随する lifecycle state
+        Core::Native::ScriptEngineApi m_scriptEngineApi{}; // GameScript DLL へ Runtime World 操作だけを公開する callback table
         const ScriptModule* m_module = nullptr; // bindings の全 instance より長く生存する非所有 module
     };
 } // namespace Cue::Script
