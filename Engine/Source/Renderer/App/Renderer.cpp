@@ -11,6 +11,9 @@
 // === WinPlatform includes ===
 #include <win_platform.h>
 
+// === Windows includes ===
+#include <Xinput.h>
+
 // === D3D12Backend includes ===
 #include <D3D12Backend.h>
 
@@ -106,6 +109,63 @@ namespace
         return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
     }
 
+    [[nodiscard]] float normalize_gamepad_axis(SHORT value, SHORT deadZone) noexcept
+    {
+        if (value > deadZone)
+        {
+            return static_cast<float>(value - deadZone) /
+                static_cast<float>(32767 - deadZone);
+        }
+
+        if (value < -deadZone)
+        {
+            return static_cast<float>(value + deadZone) /
+                static_cast<float>(32768 - deadZone);
+        }
+
+        return 0.0f;
+    }
+
+    [[nodiscard]] float normalize_gamepad_trigger(BYTE value) noexcept
+    {
+        if (value <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+        {
+            return 0.0f;
+        }
+
+        return static_cast<float>(value - XINPUT_GAMEPAD_TRIGGER_THRESHOLD) /
+            static_cast<float>(255 - XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    }
+
+    void apply_gamepad_input(Renderer::DebugCamera::Input& input) noexcept
+    {
+        XINPUT_STATE state{};
+        for (DWORD userIndex = 0; userIndex < XUSER_MAX_COUNT; ++userIndex)
+        {
+            if (::XInputGetState(userIndex, &state) != ERROR_SUCCESS)
+            {
+                continue;
+            }
+
+            const XINPUT_GAMEPAD& gamepad = state.Gamepad;
+            const float leftX = normalize_gamepad_axis(
+                gamepad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+            const float leftY = normalize_gamepad_axis(
+                gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+            input.gamepadMoveX = leftX;
+            input.gamepadMoveY = leftY;
+            input.gamepadMoveVertical = normalize_gamepad_trigger(gamepad.bRightTrigger) -
+                normalize_gamepad_trigger(gamepad.bLeftTrigger);
+            input.fast = input.fast ||
+                (gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
+            input.gamepadLookX = normalize_gamepad_axis(
+                gamepad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+            input.gamepadLookY = normalize_gamepad_axis(
+                gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+            return;
+        }
+    }
+
     [[nodiscard]] Renderer::DebugCamera::Input
     make_debug_camera_input(HWND windowHandle, float deltaSeconds) noexcept
     {
@@ -125,6 +185,8 @@ namespace
         input.moveDown = is_key_down(VK_CONTROL);
         input.fast = is_key_down(VK_SHIFT);
         input.lookActive = is_key_down(VK_RBUTTON);
+
+        apply_gamepad_input(input);
 
         static bool hadPreviousMousePosition = false;
         static POINT previousMousePosition{};

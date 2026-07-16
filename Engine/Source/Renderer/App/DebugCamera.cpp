@@ -56,10 +56,13 @@ namespace Cue::Renderer
         {
             m_yaw += input.mouseDeltaX * m_mouseSensitivity;
             m_pitch -= input.mouseDeltaY * m_mouseSensitivity;
-            constexpr float k_pitchLimit =
-                89.0f * DebugCameraConstants::k_pi / 180.0f;
-            m_pitch = std::clamp(m_pitch, -k_pitchLimit, k_pitchLimit);
         }
+
+        m_yaw += input.gamepadLookX * m_gamepadLookSensitivity * input.deltaSeconds;
+        m_pitch -= input.gamepadLookY * m_gamepadLookSensitivity * input.deltaSeconds;
+        constexpr float k_pitchLimit =
+            89.0f * DebugCameraConstants::k_pi / 180.0f;
+        m_pitch = std::clamp(m_pitch, -k_pitchLimit, k_pitchLimit);
 
         Math::float3 move = Math::float3::zero();
         const Math::float3 f = forward();
@@ -88,10 +91,16 @@ namespace Cue::Renderer
         {
             move -= Math::float3::unit_y();
         }
+        move += f * input.gamepadMoveY;
+        move += r * input.gamepadMoveX;
+        move += Math::float3::unit_y() * input.gamepadMoveVertical;
 
         if (!move.is_zero())
         {
-            move.normalize();
+            if (move.length() > 1.0f)
+            {
+                move.normalize();
+            }
             const float speed = input.fast ? m_fastMoveSpeed : m_moveSpeed;
             m_position += move * (speed * input.deltaSeconds);
         }

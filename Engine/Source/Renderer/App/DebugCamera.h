@@ -32,6 +32,11 @@ namespace Cue::Renderer
             bool lookActive = false;
             float mouseDeltaX = 0.0f;
             float mouseDeltaY = 0.0f;
+            float gamepadMoveX = 0.0f;
+            float gamepadMoveY = 0.0f;
+            float gamepadMoveVertical = 0.0f;
+            float gamepadLookX = 0.0f;
+            float gamepadLookY = 0.0f;
             float deltaSeconds = 0.0f;
         };
 
@@ -56,5 +61,6 @@ namespace Cue::Renderer
         float m_moveSpeed = 1.5f;
         float m_fastMoveSpeed = 5.0f;
         float m_mouseSensitivity = 0.0025f;
+        float m_gamepadLookSensitivity = 2.5f;
     };
 }

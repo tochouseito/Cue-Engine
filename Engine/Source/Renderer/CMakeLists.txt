@@ -25,6 +25,7 @@ target_link_libraries(Renderer PRIVATE
    win_platform
    d3d12_backend
    Engine
+   Xinput
 )
 
 target_link_libraries(Renderer PRIVATE
