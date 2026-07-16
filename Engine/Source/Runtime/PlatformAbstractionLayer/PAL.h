@@ -40,21 +40,21 @@ namespace Cue::PAL
     public:
         virtual ~IPlatform() = default;
 
-        /// @brief プラットフォーム実装を初期化します。
-        /// @param a_info 初期化設定です。
+        /// @brief プラットフォーム実装を初期化
+        /// @param a_info 初期化設定
         virtual Result initialize(const PlatformSetupInfo& a_info) = 0;
-        /// @brief 実行開始処理を行います。
+        /// @brief 実行状態へ遷移
         virtual Result start() = 0;
-        /// @brief 終了処理を行います。
+        /// @brief プラットフォーム実装を終了
         virtual Result shutdown() = 0;
-        /// @brief フレーム開始処理を行います。
+        /// @brief プラットフォームの frame scope を開始
         virtual Result begin_frame() = 0;
-        /// @brief フレーム終了処理を行います。
+        /// @brief プラットフォームの frame scope を終了
         virtual Result end_frame() = 0;
-        /// @brief プラットフォームメッセージを 1 件取得します。
+        /// @brief プラットフォームメッセージを 1 件取得
         virtual PlatformMessage poll_message() = 0;
     public:
-        // --- 取得 ---
+        // --- 実行時サービス ---
         virtual Core::Threading::IThreadFactory& thread_factory() = 0;
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
@@ -62,7 +62,7 @@ namespace Cue::PAL
         virtual Result get_process_memory_usage(ProcessMemoryUsage& a_out) noexcept = 0;
         virtual Result get_system_memory_usage(SystemMemoryUsage& a_out) noexcept = 0;
 
-        // --- コマンドブリッジをセット ---
+        // プラットフォームコマンドはヘッドレステストで不要なため任意接続にする
         void set_command_bridge(Core::CQRS::Bridge* a_bridge) noexcept
         {
             m_commandBridge = a_bridge;

@@ -140,10 +140,8 @@ namespace Cue::RHI::DX12
             break;
         }
 
-        // レジストリに登録する
         ViewHandle handle = m_viewRegistry.create(record);
 
-        // 名前マップに登録する
         if (!desc.name.empty())
         {
             m_nameToHandlesMap[Core::fnv1a64(desc.name)] = handle;
@@ -154,9 +152,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12ViewManager::destroy_view(ViewHandle handle)
     {
-        // ViewHandle の破棄は descriptor table の返却だけを行う。
-        // 元の buffer/texture resource の lifetime は各 manager が持つ。
-        // ハンドルの有効性を検査する
+        // ViewHandle は descriptor table だけを所有し、buffer/texture の寿命は各 manager に残す
         if (!handle.valid())
         {
             return Result::fail(
@@ -177,7 +173,6 @@ namespace Cue::RHI::DX12
         free_table_ids(m_descriptorAllocator, record->defaultTableIds);
         free_table_ids(m_descriptorAllocator, record->uploadTableIds);
 
-        // 名前マップから削除する
         for (auto it = m_nameToHandlesMap.begin(); it != m_nameToHandlesMap.end(); ++it)
         {
             if (it->second == handle)
@@ -187,7 +182,6 @@ namespace Cue::RHI::DX12
             }
         }
 
-        // レジストリから削除する
         if (!m_viewRegistry.destroy(handle))
         {
             return Result::fail(
@@ -200,7 +194,6 @@ namespace Cue::RHI::DX12
     }
     bool DX12ViewManager::try_get_record(ViewHandle handle, DX12ViewRecord** outRecord)
     {
-        // ハンドルの解決とレコードの取得
         *outRecord = nullptr;
         *outRecord = m_viewRegistry.ref_get(handle);
         return *outRecord != nullptr;

@@ -1,13 +1,13 @@
-// Optimized clustered point-light assignment。
-// BuildClusterGrid の cluster AABB と PreparePointLights の view-space lights を使い、
-// cluster ごとの light list を compact buffer に作る。
+// Optimized clustered point-light assignment.
+// Uses cluster AABBs from BuildClusterGrid and view-space lights from
+// PreparePointLights to build per-cluster light lists in a compact buffer.
 
 #define GROUP_SIZE 128
 #define MAX_LIGHTS_PER_CLUSTER 128
 
-// ViewPointLightBuffer に事前変換済みの point light。
-// cluster assignment では view-space AABB と比較するため、ここでは
-// world-space の light ではなく view-space の位置と半径だけを使う。
+// Point light converted ahead of time into ViewPointLightBuffer.
+// Cluster assignment compares against view-space AABBs, so only view-space
+// position and radius are needed here.
 struct ViewPointLight
 {
     float4 positionRadius;
@@ -26,20 +26,20 @@ struct Cluster
 
 struct ClusterLightRange
 {
-    // ClusterLightIndexBuffer 内の light list 開始位置。
-    // 同じ light list を持つ cluster は同じ offset/count を共有できる。
+    // Start offset of the light list inside ClusterLightIndexBuffer.
+    // Clusters with identical light lists can share the same offset/count.
     uint offset;
     uint count;
 
-    // list 共有判定用の fingerprint。実用上 hash だけでは危険なので、
-    // count/first/last light id も併用して候補を絞る。
+    // Fingerprint for list-sharing candidates.
+    // Hash alone is not enough in practice, so count/first/last light id narrow the match.
     uint hash;
     uint overflow;
 };
 
-// 1 thread が 1 cluster を担当し、workgroup 全体で light を shared memory に
-// batch 読み込みする。global memory から同じ light を cluster 数ぶん読む
-// naive 実装を避けるための scratch 領域。
+// One thread handles one cluster, while the workgroup batch-loads lights into
+// shared memory. This scratch space avoids rereading the same light from global
+// memory once per cluster.
 groupshared ViewPointLight s_lights[GROUP_SIZE];
 groupshared uint s_hashes[GROUP_SIZE];
 groupshared uint s_starts[GROUP_SIZE];
@@ -56,8 +56,8 @@ RWStructuredBuffer<uint> g_clusterLightIndices : register(u1);
 RWByteAddressBuffer g_clusterLightItemCounter : register(u2);
 RWByteAddressBuffer g_clusterLightStats : register(u3);
 
-// ClusterLightingStatsGpu の uint offset。ImGui で「cluster assignment が
-// どれだけ compact できているか」を見るため、GPU 側で直接集計する。
+// Uint offsets into ClusterLightingStatsGpu.
+// GPU-side aggregation exposes how compact the cluster assignment is in ImGui.
 static const uint k_statClusterCount = 0u;
 static const uint k_statActiveClusterCount = 4u;
 static const uint k_statPointLightCount = 8u;
@@ -111,14 +111,14 @@ uint hash_next(uint hash, uint value)
 void CSMain(uint3 groupId : SV_GroupID,
             uint3 groupThreadId : SV_GroupThreadID)
 {
-    // この pass は「cluster ごとに、その cluster に影響する point light の
-    // index list を作る」処理。forward PS はこの list だけを見て light 評価する。
+    // Each cluster builds an index list of point lights that affect it.
+    // The forward PS evaluates only this list.
     const uint localId = groupThreadId.x;
     const uint clusterIndex = groupId.x * GROUP_SIZE + localId;
 
-    // private array にこの cluster の light list を一時構築する。
-    // 後段で同じ list を持つ cluster を探し、代表 cluster だけが
-    // ClusterLightIndexBuffer に書くことで buffer 使用量を抑える。
+    // Build this cluster's light list in private storage.
+    // Later, clusters with identical lists share one representative write to
+    // ClusterLightIndexBuffer to reduce buffer usage.
     uint localLightIds[MAX_LIGHTS_PER_CLUSTER];
     uint localLightCount = 0u;
     uint overflow = 0u;
@@ -141,15 +141,15 @@ void CSMain(uint3 groupId : SV_GroupID,
     for (uint batchStart = 0u; batchStart < g_pointLightCount;
          batchStart += GROUP_SIZE)
     {
-        // workgroup 内の 128 thread で 128 lights を shared memory へ読む。
-        // 各 cluster thread は shared memory 上の light を使って交差判定する。
+        // The 128 threads in the workgroup load 128 lights into shared memory.
+        // Each cluster thread intersects against the shared-memory lights.
         const uint lightIndex = batchStart + localId;
         if (lightIndex < g_pointLightCount)
         {
             s_lights[localId] = g_viewPointLights[lightIndex];
         }
 
-        // 全 thread が s_lights を読み始める前に、batch load 完了を保証する。
+        // Ensure the batch load completes before any thread reads s_lights.
         GroupMemoryBarrierWithGroupSync();
 
         const uint batchCount = min(GROUP_SIZE, g_pointLightCount - batchStart);
@@ -159,8 +159,8 @@ void CSMain(uint3 groupId : SV_GroupID,
             {
                 const ViewPointLight light = s_lights[i];
 
-                // light sphere と cluster AABB の交差判定。
-                // 交差した light だけを pixel shader の評価対象にする。
+                // Intersect the light sphere with the cluster AABB.
+                // Only intersecting lights are evaluated by the pixel shader.
                 if (sphere_intersects_aabb(light.positionRadius.xyz,
                                            light.positionRadius.w,
                                            cluster.minPoint.xyz,
@@ -180,25 +180,24 @@ void CSMain(uint3 groupId : SV_GroupID,
                     }
                     else
                     {
-                        // cluster に入る light が上限を超えた。
-                        // 描画は切り詰めて継続し、stats で検出できるようにする。
+                        // The cluster exceeded its light limit.
+                        // Rendering continues with a clipped list, and stats expose the overflow.
                         overflow = 1u;
                     }
                 }
             }
         }
 
-        // 次 batch の s_lights 書き込みが、まだ読み終えていない thread と
-        // 競合しないように同期する。
+        // Synchronize so the next batch write to s_lights cannot race with readers.
         GroupMemoryBarrierWithGroupSync();
     }
 
-    // count も hash に混ぜる。空 list と特定の light 並びが偶然同じ hash
-    // になるリスクを少し下げるため。
+    // Fold count into the hash to reduce accidental matches between empty lists
+    // and specific light sequences.
     hash = hash_next(hash, localLightCount);
 
-    // 他 thread が同じ light list を持つか調べられるよう、fingerprint を
-    // shared memory に公開する。private array 自体は他 thread から読めない。
+    // Publish the fingerprint in shared memory so other threads can find matching lists.
+    // The private light list itself is not readable by other threads.
     s_hashes[localId] = hash;
     s_starts[localId] = 0u;
     s_counts[localId] = localLightCount;
@@ -210,7 +209,7 @@ void CSMain(uint3 groupId : SV_GroupID,
 
     if (groupId.x == 0u && localId == 0u)
     {
-        // point light 数は pass 全体で共通なので 1 thread だけが書く。
+        // Point light count is pass-wide, so only one thread writes it.
         g_clusterLightStats.Store(k_statPointLightCount, g_pointLightCount);
     }
 
@@ -228,8 +227,8 @@ void CSMain(uint3 groupId : SV_GroupID,
             g_clusterLightStats.InterlockedAdd(k_statEmptyClusterCount, 1u);
         }
         uint previousMax = 0u;
-        // 最も light が詰まった cluster を記録する。cluster grid の粗さや
-        // maxLightsPerCluster の妥当性を判断するための値。
+        // Record the most populated cluster to judge cluster-grid granularity
+        // and maxLightsPerCluster.
         g_clusterLightStats.InterlockedMax(k_statMaxLightsInCluster,
                                            localLightCount,
                                            previousMax);
@@ -251,8 +250,8 @@ void CSMain(uint3 groupId : SV_GroupID,
                 s_firstLightIds[i] == firstLightId &&
                 s_lastLightIds[i] == lastLightId)
             {
-                // 同じ fingerprint の最初の cluster を代表にする。
-                // この thread は代表が書いた offset/count を再利用する。
+                // The first cluster with the same fingerprint becomes the representative.
+                // This thread reuses the representative offset/count.
                 firstLocalId = i;
                 break;
             }
@@ -270,8 +269,8 @@ void CSMain(uint3 groupId : SV_GroupID,
     {
         uint start = 0u;
 
-        // 代表 cluster だけが compact index buffer に list を append する。
-        // 非代表 cluster はこの書き込みを省略し、後で同じ start/count を参照する。
+        // Only representative clusters append their list to the compact index buffer.
+        // Non-representatives skip the write and reuse the same start/count.
         g_clusterLightItemCounter.InterlockedAdd(0u, localLightCount, start);
 
         if (start + localLightCount <= g_maxClusterLightItems)
@@ -286,8 +285,8 @@ void CSMain(uint3 groupId : SV_GroupID,
         }
         else
         {
-            // compact buffer 自体が満杯になった。範囲外参照を防ぐため
-            // 空 list として保存し、stats で容量不足を見える化する。
+            // The compact buffer is full.
+            // Store an empty list to avoid out-of-range reads and expose capacity pressure in stats.
             s_starts[localId] = 0u;
             s_counts[localId] = 0u;
             s_overflows[localId] = 1u;
@@ -301,7 +300,7 @@ void CSMain(uint3 groupId : SV_GroupID,
     }
     else if (validCluster)
     {
-        // 代表 cluster ではないので light list 書き込みを再利用できた。
+        // Non-representative clusters reuse an existing light-list write.
         g_clusterLightStats.InterlockedAdd(k_statReusedListCount, 1u);
     }
 
@@ -309,8 +308,8 @@ void CSMain(uint3 groupId : SV_GroupID,
 
     if (validCluster)
     {
-        // Forward pass が参照する cluster -> light list の対応表。
-        // offset/count は compact buffer 内の範囲、hash/overflow は debug 用。
+        // Mapping from cluster to the light list read by the forward pass.
+        // offset/count identify the compact-buffer range; hash/overflow are debug data.
         ClusterLightRange range;
         range.offset = s_starts[firstLocalId];
         range.count = s_counts[firstLocalId];

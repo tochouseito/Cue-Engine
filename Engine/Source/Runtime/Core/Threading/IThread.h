@@ -41,10 +41,8 @@ namespace Cue::Core::Threading
     public:
         IThread() noexcept = default;
         virtual ~IThread() = default;
-        // コピー禁止
         IThread(const IThread&) = delete;
         IThread& operator=(const IThread&) = delete;
-        // ムーブは実装側で定義しても良いが、ここでは禁止しておく
         IThread(IThread&&) = delete;
         IThread& operator=(IThread&&) = delete;
 

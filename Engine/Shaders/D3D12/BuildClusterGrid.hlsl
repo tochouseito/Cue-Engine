@@ -1,11 +1,11 @@
-// Clustered forward lighting 用の view-space cluster grid を構築する pass。
-// 画面を固定 X/Y grid と logarithmic depth slice に分割し、各 cluster の
-// AABB を ClusterLightCulling に渡す。
+// Builds the view-space cluster grid for clustered forward lighting.
+// The screen is split into a fixed X/Y grid and logarithmic depth slices, then
+// each cluster AABB is passed to ClusterLightCulling.
 
 struct Cluster
 {
-    // 1 cluster の view-space bounds。
-    // ClusterLightCulling はこの AABB と light sphere を交差判定する。
+    // View-space bounds for one cluster.
+    // ClusterLightCulling intersects this AABB with light spheres.
     float4 minPoint;
     float4 maxPoint;
 };
@@ -59,8 +59,8 @@ void projection_near_far(out float nearZ, out float farZ)
 
 float3 screen_to_view(float2 screenPosition, float viewZ)
 {
-    // screen pixel 座標と view-space z から view-space の点へ戻す。
-    // frustum slice の 8 corner を作るために使う。
+    // Reconstruct a view-space point from screen pixel coordinates and view-space z.
+    // This is used to build the eight corners of a frustum slice.
     const float2 scale = projection_scale();
     const float2 screenSize =
         max(float2(g_screenWidth, g_screenHeight), float2(1.0f, 1.0f));
@@ -74,8 +74,8 @@ float3 screen_to_view(float2 screenPosition, float viewZ)
 
 float slice_to_view_z(uint sliceIndex, float nearZ, float farZ)
 {
-    // depth slice は logarithmic。近距離の cluster 密度を上げ、
-    // 遠距離で過剰に細かくならないようにする。
+    // Depth slices are logarithmic to give near space more cluster density
+    // without over-subdividing distant space.
     const float safeNearZ = max(nearZ, 0.0001f);
     const float safeFarZ = max(farZ, safeNearZ + 0.0001f);
     const float t =
@@ -102,8 +102,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     const float z0 = slice_to_view_z(sliceZ, nearZ, farZ);
     const float z1 = slice_to_view_z(sliceZ + 1u, nearZ, farZ);
 
-    // 固定 cluster count 方式なので、画面サイズを 16x9 などの
-    // cluster grid に割り当てて screen-space tile 範囲を作る。
+    // The fixed cluster-count layout maps the current screen size to a grid
+    // such as 16x9 and derives each screen-space tile range.
     const float2 minScreen =
         float2((float)g_screenWidth * (float)tileX /
                    max((float)g_clusterCountX, 1.0f),
@@ -127,8 +127,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         screen_to_view(float2(maxScreen.x, maxScreen.y), z1),
     };
 
-    // screen tile と depth slice から得た frustum の 8 点を包む AABB を作る。
-    // sphere/AABB の交差判定に落とすことで LightCulling を単純にする。
+    // Build an AABB around the eight frustum points from the screen tile and depth slice.
+    // Reducing the test to sphere/AABB intersection keeps light culling simple.
     float3 minPoint = corners[0];
     float3 maxPoint = corners[0];
     [unroll]

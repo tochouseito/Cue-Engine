@@ -70,7 +70,6 @@ namespace Cue::PAL::Win
                 "Output parameter must not be null.");
         }
 
-        // 取得
         if (::GetFileAttributesExW(a_path.c_str(), GetFileExInfoStandard, a_outData) == FALSE)
         {
             return Result::fail(
@@ -213,15 +212,14 @@ namespace Cue::PAL::Win
         }
         *a_outExists = false; // デフォルトは存在しないとする
         
-        // 変換
         std::wstring wpath;
         Result r = path_to_native_w(a_path, &wpath);
         if (!r)
         {
-            return r; // 変換に失敗したらエラーを返す
+            return r;
         }
 
-        // ファイル属性を取得て存在を確認する
+        // Win32 では file attributes の取得が最も軽い存在確認になる
         const DWORD attrs = ::GetFileAttributesW(wpath.c_str());
         if (attrs == INVALID_FILE_ATTRIBUTES)
         {
@@ -366,7 +364,6 @@ namespace Cue::PAL::Win
             }
             cur.append(seg.data(), seg.size());
 
-            // 作成
             r = create_dir_if_needed(cur);
             if (!r)
             {

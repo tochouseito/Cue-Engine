@@ -75,7 +75,7 @@ namespace Cue::PAL::Win
             return m_hwnd;
         }
 
-        /// @brief コマンドブリッジをセット
+        /// @brief ウィンドウ入力を流すコマンドブリッジ
         /// @param a_bridge コマンドブリッジ
         void set_command_bridge(Core::CQRS::Bridge* a_bridge) noexcept
         {

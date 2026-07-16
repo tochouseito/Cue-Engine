@@ -1,6 +1,6 @@
-// 初期検証用の単純 forward shader。
-// GPU-driven static mesh path 以前の mesh 表示確認に使う最小描画で、
-// position から疑似色を作るだけで material/light は扱わない。
+// Minimal forward shader for early rendering validation.
+// This path verifies mesh visibility before the GPU-driven static mesh path and
+// derives a pseudo color from position without material or lighting inputs.
 
 struct VsInput
 {

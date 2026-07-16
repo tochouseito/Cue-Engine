@@ -1,6 +1,6 @@
-// Clustered lighting の前処理。
-// PointLightBuffer の world-space light を view-space へ一度だけ変換し、
-// ClusterLightCulling が cluster 数ぶん matrix multiply しないようにする。
+// Prepares point lights for clustered lighting.
+// World-space lights are transformed to view-space once so ClusterLightCulling
+// does not multiply each light for every cluster.
 
 struct LightFrame
 {
@@ -48,15 +48,15 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint lightIndex = dispatchThreadId.x;
 
-    // Dispatch は 64 thread 単位に丸められるため、capacity 外の余り
-    // thread は必ずここで止める。これを省くと UAV 範囲外書き込みになる。
+    // Dispatch is rounded to 64-thread groups, so threads outside capacity must
+    // stop here to avoid UAV out-of-range writes.
     if (lightIndex >= g_maxPointLightCount)
     {
         return;
     }
 
-    // ClusterLightCulling は capacity 分を読むため、未使用 slot には
-    // どの cluster とも交差しない light を入れておく。
+    // ClusterLightCulling reads the full capacity. Unused slots contain a light
+    // that cannot intersect any cluster.
     if (lightIndex >= g_lightFrame.pointLightCount)
     {
         ViewPointLight emptyLight;
@@ -72,8 +72,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     const PointLight light = g_pointLights[lightIndex];
 
-    // world-space light を一度だけ view-space へ変換する。
-    // これにより clusterCount * lightCount 回の matrix multiply を避ける。
+    // Convert each world-space light to view-space once to avoid
+    // clusterCount * lightCount matrix multiplications.
     const float3 viewPosition =
         mul(float4(light.positionRange.xyz, 1.0f), g_viewMatrix).xyz;
 

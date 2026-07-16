@@ -746,8 +746,7 @@ namespace Cue::RHI
                 }
 
                 const Clock::time_point preBarrierStartTime = Clock::now();
-                // パスが要求した state へ遷移してから execute() に渡す。
-                // ここでは before state を追跡せず、RHI 側の barrier 実装に委ねている。
+                // FrameGraph は要求 state だけを宣言し、遷移前 state は RHI 側の resource が保持する
                 for (const ResourceAccess& access :
                     compiledPass.buildInfo.resourceAccesses)
                 {
@@ -784,8 +783,7 @@ namespace Cue::RHI
                 FrameGraphContext context{ FrameGraphContextDesc{
                     m_desc.width, m_desc.height, frameIndex, commandContext.get(), passStats} };
                 const Clock::time_point passExecuteStartTime = Clock::now();
-                // GPU 時間は timestamp 対応かつ完了待ちを行う場合だけ取得できる。
-                // 完了待ちしないフレームでは、ここで読み戻しても値が確定しない。
+                // GPU timestamp は queue 完了待ち後だけ確定値として読み戻せる
                 const bool supportsTimestamps =
                     isProfilingEnabled &&
                     m_desc.waitForCompletion &&

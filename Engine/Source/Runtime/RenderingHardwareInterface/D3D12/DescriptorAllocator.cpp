@@ -174,13 +174,13 @@ namespace Cue::RHI::DX12
     }
     D3D12_GPU_DESCRIPTOR_HANDLE DescriptorAllocator::get_gpu_handle(TableID a_id)
     {
-        // - 無効 ID をそのまま GPU へ流すとクラッシュ検知が遅れるため、ここで止め
+        // 無効な table ID は GPU descriptor のアドレス計算へ進めない
         if (!a_id.valid())
         {
             return D3D12_GPU_DESCRIPTOR_HANDLE_NULL;
         }
 
-        // - CPU/GPU で同じスロット計算式を使うため、ここでテーブル情報へ正規化し
+        // CPU/GPU handle は同じ table slot 計算式を共有する
         Table& t = get_table(a_id.kind);
 
         D3D12_GPU_DESCRIPTOR_HANDLE handle{};
@@ -328,7 +328,7 @@ namespace Cue::RHI::DX12
     }
     Result DescriptorAllocator::create_descriptor_heap(HeapType a_heapType, uint32_t a_size, bool a_shaderVisible)
     {
-        // - 抽象 enum をここで D3D12 型へ落とし込むと、呼び出し側を API 非依存に保て
+        // API 固有の heap 変換は allocator 境界の内側に閉じ込める
         D3D12_DESCRIPTOR_HEAP_TYPE d3dHeapType = to_d3d12_heap_type(a_heapType);
         D3D12_DESCRIPTOR_HEAP_DESC desc{};
 
@@ -373,7 +373,7 @@ namespace Cue::RHI::DX12
     {
         // Shader visible heap は CBV/SRV/UAV のみを GPU から直接参照する。
         // CPU 専用 heap に作った descriptor を対応する GPU heap slot へコピーする。
-        // - 無効 ID を早期に捨てて、ヒープ外アクセスの原因をここで止め
+        // 無効 ID は heap 外を指す前にここで捨てる
         if (!a_id.valid())
         {
             return;

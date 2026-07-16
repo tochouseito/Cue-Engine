@@ -847,7 +847,7 @@ namespace Cue::Renderer
         std::vector<uint32_t> sourceMeshOccluderMeshIndices(
             scene->mNumMeshes, Core::Native::k_invalidModelMaterialIndex);
 
-        // メッシュ解析
+        // Assimp の右手系入力を Engine の左手系メッシュデータへ正規化する
         for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
         {
             Core::Native::MeshData meshData;
@@ -857,19 +857,15 @@ namespace Cue::Renderer
                 continue;
             }
             meshData.name = make_mesh_name(*mesh, modelName, meshIndex);
-            // 頂点数とインデックス数を取得
-            uint32_t vertexCount = mesh->mNumVertices; // 頂点数
+            uint32_t vertexCount = mesh->mNumVertices;
             uint32_t indexCount =
-                mesh->mNumFaces * 3; // インデックス数(三角形化されているので3倍)
-            // メモリ確保
+                mesh->mNumFaces * 3;
             meshData.positions.resize(vertexCount);
             meshData.uvs.resize(vertexCount);
             meshData.normals.resize(vertexCount);
             meshData.indices.resize(indexCount);
-            // 頂点情報のコピー
             if (!mesh->HasNormals())
             {
-                // 法線がないメッシュは非対応
                 return Result::fail(Code::Unsupported, Severity::Error,
                                     "Mesh has no normals. This is not supported.");
             }
@@ -880,8 +876,8 @@ namespace Cue::Renderer
                 Math::float3& dstNormal = meshData.normals[vi];
                 const aiVector3D& p = mesh->mVertices[vi];
                 const aiVector3D& n = mesh->mNormals[vi];
-                dstPos = { -p.x, p.y, p.z, 1.0f }; // X軸反転
-                dstNormal = { -n.x, n.y, n.z };    // X軸反転
+                dstPos = { -p.x, p.y, p.z, 1.0f };
+                dstNormal = { -n.x, n.y, n.z };
                 if (mesh->HasTextureCoords(0))
                 {
                     const aiVector3D& t = mesh->mTextureCoords[0][vi];
@@ -889,15 +885,13 @@ namespace Cue::Renderer
                 }
                 else
                 {
-                    dstUV = { 0.0f, 0.0f }; // UV座標がない場合はダミー
+                    dstUV = { 0.0f, 0.0f };
                 }
             }
-            // インデックス情報のコピー
             uint32_t idx = 0;
             for (uint32_t fi = 0; fi < mesh->mNumFaces; ++fi)
             {
                 const aiFace& face = mesh->mFaces[fi];
-                // aiProcess_Triangulate を使っているので常に face.mNumIndices == 3
                 for (uint32_t e = 0; e < 3; ++e)
                 {
                     if (face.mIndices[e] >= vertexCount)
@@ -909,7 +903,6 @@ namespace Cue::Renderer
                     meshData.indices[idx++] = face.mIndices[e];
                 }
             }
-            // チェック
             if (idx != indexCount)
             {
                 return Result::fail(
@@ -1011,33 +1004,6 @@ namespace Cue::Renderer
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
                                 "Model importer did not generate any renderable mesh.");
-        }
-
-        /*std::unordered_map<std::string, uint32_t> jointIndices{};
-        const bool hasBones = scene_has_bones(*scene);
-        if (scene->mRootNode != nullptr &&
-            (hasBones || scene_has_animations(*scene)))
-        {
-            collect_skeleton_nodes(
-                *scene->mRootNode,
-                Core::Native::k_invalidJointIndex,
-                outModelData,
-                jointIndices);
-            if (hasBones)
-            {
-                collect_bones(*scene, outModelData, jointIndices);
-            }
-            import_animations(*scene, jointIndices, outModelData);
-        }*/
-
-        if (scene->mRootNode != nullptr)
-        {
-            /*append_render_parts_from_node(
-                *scene,
-                *scene->mRootNode,
-                Math::float4x4::identity(),
-                jointIndices,
-                outModelData);*/
         }
 
         if (outModelData.renderParts.empty())

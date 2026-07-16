@@ -22,27 +22,27 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief Windows 向けプラットフォーム実装です。
+    /// @brief Windows 向けプラットフォーム実装
     class WinPlatform final : public IPlatform
     {
     public:
         WinPlatform();
         ~WinPlatform() override;
 
-        /// @brief プラットフォーム実装を初期化します。
+        /// @brief プラットフォーム実装を初期化
         Result initialize(const PlatformSetupInfo& a_info) override;
-        /// @brief ウィンドウ表示を開始します。
+        /// @brief ウィンドウ表示を開始
         Result start() override;
-        /// @brief 終了処理を行います。
+        /// @brief Windows プラットフォームを終了
         Result shutdown() override;
-        /// @brief フレーム開始処理を行います。
+        /// @brief Windows の frame scope を開始
         Result begin_frame() override;
-        /// @brief フレーム終了処理を行います。
+        /// @brief Windows の frame scope を終了
         Result end_frame() override;
-        /// @brief Windows メッセージを 1 件取得します。
+        /// @brief Windows メッセージを 1 件取得
         PlatformMessage poll_message() override;
     public:
-        // --- 取得 --- 
+        // --- 実行時サービス ---
         Core::Threading::IThreadFactory& thread_factory() override
         {
             return *m_threadFactory.get();

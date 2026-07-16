@@ -622,16 +622,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     const uint32_t maxPointLightCount = 5000;
     const bool enableDirectionalLight = false;
 
-    // 処理結果
     Result r = Result::ok();
 
-    // プラットフォーム実装を初期化
     std::unique_ptr<PAL::Win::WinPlatform> platform =
         std::make_unique<PAL::Win::WinPlatform>();
     std::unique_ptr<Core::CQRS::Bridge> commandBridge =
         std::make_unique<Core::CQRS::Bridge>();
-    platform->set_command_bridge(
-        commandBridge.get()); // コマンドブリッジをプラットフォームにセット
+    platform->set_command_bridge(commandBridge.get());
     PAL::PlatformSetupInfo setupInfo{};
     setupInfo.width = width;
     setupInfo.height = height;
@@ -639,7 +636,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     setupInfo.title = title;
     r = platform->initialize(setupInfo);
 
-    // 失敗したらエラーを表示して終了
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize platform: %s",
@@ -649,14 +645,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
-    // Logger にプラットフォームのファイルシステムをセット
+    // Renderer 起動直後の失敗も同じログ出力先へ集約する
     Core::IO::set_log_file(platform->file_system(),
                            Core::IO::Path("logs/renderer.log"), true);
 
-    // PerformanceCounter を初期化
     Core::PerformanceCounter profiler(platform->clock());
 
-    // ウィンドウ表示を開始
     r = platform->start();
     if (!r)
     {
@@ -666,7 +660,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
-    // レンダーバックエンドを初期化
     std::unique_ptr<RHI::DX12::D3D12Backend> renderBackend =
         std::make_unique<RHI::DX12::D3D12Backend>();
     RHI::RenderBackendSetupInfo renderBackendSetupInfo{};
@@ -679,11 +672,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     renderBackendSetupInfo.width = width;
     renderBackendSetupInfo.height = height;
     renderBackendSetupInfo.bufferCount = bufferCount;
-    renderBackend->set_win_platform(
-        platform.get()); // Windows プラットフォームをバックエンドにセット
+    renderBackend->set_win_platform(platform.get());
     r = renderBackend->initialize(renderBackendSetupInfo);
 
-    // 失敗したらエラーを表示して終了
     if (!r)
     {
         CUE_ASSERT_FORMAT(false, "Failed to initialize render backend: %s",
@@ -693,7 +684,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return -1;
     }
 
-    // Engine を初期化
     std::unique_ptr<Engine> engine = std::make_unique<Engine>();
     std::unique_ptr<RHI::FrameGraphPass> imguiOverlayPass =
         std::make_unique<ImGuiOverlayPass>(platform->get_window_handle(),
@@ -706,16 +696,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     return outResult != 0; });
 
     EngineSetupInfo engineSetupInfo{};
-    engineSetupInfo.maxFps = maxFps; // 最大フレームレートを Engine にセット
+    engineSetupInfo.maxFps = maxFps;
     engineSetupInfo.maxPointLightCount = maxPointLightCount;
     engineSetupInfo.enableDirectionalLight = enableDirectionalLight;
     engineSetupInfo.rendererPass = std::move(imguiOverlayPass);
-    engineSetupInfo.platform =
-        platform.get(); // プラットフォームを Engine にセット
-    engineSetupInfo.platformCommandBridge =
-        commandBridge.get(); // コマンドブリッジを Engine にセット
-    engineSetupInfo.renderBackend =
-        renderBackend.get(); // レンダーバックエンドを Engine にセット
+    engineSetupInfo.platform = platform.get();
+    engineSetupInfo.platformCommandBridge = commandBridge.get();
+    engineSetupInfo.renderBackend = renderBackend.get();
     r = engine->initialize(engineSetupInfo);
     if (!r)
     {
@@ -865,17 +852,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             0.0f, 0.1f);
         previousInputTime = currentInputTime;
 
-        // プラットフォームメッセージを処理
         PAL::PlatformMessage message = platform->poll_message();
         if (message == PAL::PlatformMessage::Quit)
         {
             isRunning = false;
         }
 
-        // フレーム開始
         r = platform->begin_frame();
 
-        // 失敗したらエラーを表示して終了
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to begin frame: %s", r.message.data());
@@ -884,7 +868,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         r = engine->begin_frame();
 
-        // 失敗したらエラーを表示して終了
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to begin engine frame: %s",
@@ -903,10 +886,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
-        // --- ここで Engine 側の更新と描画処理を呼び出す ---
+        // DebugCamera の最新行列をアップロードしてからフレーム処理を進める
         r = engine->tick();
 
-        // 失敗したらエラーを表示して終了
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to tick engine: %s", r.message.data());
@@ -920,17 +902,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}",
             // frameCounter.fps());
         }
-        /*profiler.begin("Test", "Update");
-        profiler.end("Test", "Update");
-        if (const auto snapshot = profiler.get_snapshot("Test", "Update"))
-        {
-            Core::IO::log(Core::IO::LogSink::console, "Update Time : {:.2f} ms",
-        snapshot->timer.elapsed_seconds() * 1000.0);
-        }*/
-
         r = engine->end_frame();
 
-        // 失敗したらエラーを表示して終了
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s",
@@ -938,10 +911,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
-        // フレーム終了
         r = platform->end_frame();
 
-        // 失敗したらエラーを表示して終了
         if (!r)
         {
             CUE_ASSERT_FORMAT(false, "Failed to end frame: %s", r.message.data());
@@ -953,7 +924,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                   "Renderer shutdown");
     Core::IO::clear_log_file();
 
-    // 終了処理
     engine->shutdown();
     engine.reset();
     renderBackend->shutdown();

@@ -80,14 +80,12 @@ Result Engine::initialize(EngineSetupInfo &a_info)
 {
     Result r = Result::ok();
 
-    // 引数の検査
     if (a_info.platformCommandBridge == nullptr)
     {
         return Result::fail(Code::InvalidArgument, Severity::Error,
                             "Platform command bridge must not be null.");
     }
 
-    // 依存オブジェクトの保存
     m_platformCommandBridge = a_info.platformCommandBridge;
     m_platform = a_info.platform;
     m_renderBackend = a_info.renderBackend;
@@ -108,7 +106,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
         frameState.objectCount = 0;
     }
 
-    // フレームコントローラーの生成
+    // Backpressure は GPU 作業の積み過ぎを避け、デモの計測値を安定させる
     FrameControllerDesc desc(m_bufferCount);
     desc.mode = ControllerMode::Backpressure;
     desc.maxFps = a_info.maxFps;
@@ -118,7 +116,6 @@ Result Engine::initialize(EngineSetupInfo &a_info)
 
       });
 
-    // 共有リソースの作成
     constexpr float k_finalColorClearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     r = RHI::create_render_target_resources(
         *m_renderBackend, "FinalColor", RHI::ColorFormat::R8G8B8A8_UNORM,
@@ -151,7 +148,6 @@ Result Engine::initialize(EngineSetupInfo &a_info)
             "Failed to get command or queue pool from backend.");
     }
 
-    // MeshPool の生成
     DrawSystem::MeshPoolDesc meshPoolDesc{};
     meshPoolDesc.maxVertexCount = 8u * 1024u * 1024u;
     meshPoolDesc.maxIndexCount = 16u * 1024u * 1024u;
@@ -254,7 +250,7 @@ Result Engine::initialize(EngineSetupInfo &a_info)
         return r;
     }
 
-    // FrameGraph の生成
+    // RHI リソースとパス依存は初期化時に固定し、フレーム中は実行だけに集中させる
     r = create_frame_graphs(std::move(a_info.rendererPass));
     if (!r)
     {
@@ -266,7 +262,6 @@ Result Engine::initialize(EngineSetupInfo &a_info)
 
 void Engine::shutdown()
 {
-    // フレームコントローラーの終了
     if (m_frameController != nullptr)
     {
         m_frameController->synchronize();
@@ -290,9 +285,7 @@ void Engine::shutdown()
 
 Result Engine::begin_frame()
 {
-    // フレーム開始処理
-
-    // platform 由来の要求はフレーム先頭で回収し、OS 依存入力をここで閉じ込める
+    // プラットフォーム由来の要求はフレーム先頭で回収し、OS 依存入力を Engine 内へ持ち込まない
     if (m_platformCommandBridge)
     {
         PlatformCommandContext platformCommandContext(m_platformRuntimeState);
@@ -309,7 +302,6 @@ Result Engine::begin_frame()
 
 Result Engine::end_frame()
 {
-    // フレーム終了処理
     return Result::ok();
 }
 

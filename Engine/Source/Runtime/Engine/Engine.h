@@ -42,13 +42,13 @@ namespace Cue
 {
 struct EngineSetupInfo final
 {
-    PAL::IPlatform *platform = nullptr; // プラットフォームインターフェース
-    RHI::IRenderBackend *renderBackend = nullptr; // レンダーバックエンド
+    PAL::IPlatform *platform = nullptr;
+    RHI::IRenderBackend *renderBackend = nullptr;
     Core::CQRS::Bridge *platformCommandBridge =
-        nullptr; // プラットフォームからコマンドを受け取るためのブリッジ
-    uint32_t maxFps = 60;             // 最大フレームレート
-    uint32_t maxPointLightCount = 64; // ポイントライトの最大数
-    bool enableDirectionalLight = true; // DirectionalLight を有効化するか
+        nullptr;
+    uint32_t maxFps = 60;
+    uint32_t maxPointLightCount = 64;
+    bool enableDirectionalLight = true;
     std::unique_ptr<RHI::FrameGraphPass> rendererPass{};
 };
 
@@ -86,10 +86,8 @@ class Engine final
 {
   public:
     Engine() = default;
-    // コピー禁止
     Engine(const Engine &) = delete;
     Engine &operator=(const Engine &) = delete;
-    // ムーブ禁止
     Engine(Engine &&) = delete;
     Engine &operator=(Engine &&) = delete;
     ~Engine() = default;
@@ -137,7 +135,6 @@ class Engine final
         DrawSystem::RenderDebugViewMode mode) noexcept;
     void set_directional_light_enabled(bool enabled) noexcept;
 
-    //
     FrameController &frame_controller() noexcept
     {
         return *m_frameController;
@@ -149,8 +146,8 @@ class Engine final
     {
         return [this](uint64_t frameNo, uint32_t updateIndex)
         {
-            frameNo;
-            updateIndex; // 未使用パラメーターの警告回避
+            static_cast<void>(frameNo);
+            static_cast<void>(updateIndex);
         };
     }
     /// @brief 描画

@@ -12,22 +12,6 @@
 #include <cstdint>
 #include <source_location>
 
-/*
-%d → int
-
-%u → unsigned int
-
-%f → float / double
-
-%c → 1文字
-
-%s → 文字列（C文字列）
-
-%x → 16進数
-
-%p → ポインタ
-*/
-
 namespace Cue
 {
     /// @brief アサート失敗時に記録するコンテキスト
@@ -40,7 +24,7 @@ namespace Cue
         uint_least32_t line = 0;     // 行番号
     };
 
-    /// @brief アサート失敗コンテキストを構築します
+    /// @brief アサート失敗コンテキストを構築
     /// @param a_expression 失敗した式文字列
     /// @param a_message 追加メッセージ
     /// @param a_location 呼び出し位置
@@ -50,7 +34,6 @@ namespace Cue
         const char* a_message = "",
         const std::source_location& a_location = std::source_location::current()) noexcept
     {
-        // 1) null を空文字へ正規化
         if (a_expression == nullptr)
         {
             a_expression = "";
@@ -61,7 +44,6 @@ namespace Cue
             a_message = "";
         }
 
-        // 2) 失敗情報を組み立てる
         return AssertContext{
             a_expression,
             a_message,
@@ -75,7 +57,7 @@ namespace Cue
     /// @param a_context 失敗コンテキスト
     [[noreturn]] void assert_fail([[maybe_unused]] const AssertContext& a_context) noexcept;
 
-    /// @brief 整形メッセージ付きでアサート失敗処理を行います
+    /// @brief 整形メッセージ付きでアサート失敗処理を実行
     /// @param a_expression 失敗した式文字列
     /// @param a_location 呼び出し位置
     /// @param a_format 整形文字列

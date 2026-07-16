@@ -43,8 +43,8 @@ namespace Cue::RHI::DX12
         ComPtr<IDxcBlob> shaderBlob; // シェーダーブロブの実体
     };
 
-    /// @brief D3D12 の root signature、shader blob、PSO を handle 化して管理する。
-    /// @details RHI の PipelineManager API から D3D12 固有の生成手順を隠し、名前検索と世代付き handle 解決を提供する。
+    /// @brief D3D12 の root signature、shader blob、PSO を handle 化して管理する
+    /// @details RHI の PipelineManager API から D3D12 固有の実装詳細を隠し、名前検索と世代付き handle 解決を提供する
     class DX12PipelineManager final : public IPipelineManager
     {
     public:

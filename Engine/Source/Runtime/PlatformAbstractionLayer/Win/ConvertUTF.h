@@ -16,13 +16,12 @@
 
 namespace Cue::PAL::Win
 {
-    /// @brief UTF-8 文字列をワイド文字列へ変換します
-    /// @param a_text 
-    /// @param a_outText 
-    /// @return Cue::Result
+    /// @brief UTF-8 文字列をワイド文字列へ変換
+    /// @param a_text 変換元 UTF-8 文字列
+    /// @param a_outText 変換結果
+    /// @return 変換結果
     static Result utf8_to_wide(std::string_view a_text, std::wstring* a_outText) noexcept
     {
-        // 引数チェック
         if (a_outText == nullptr)
         {
             return Result::fail(
@@ -30,14 +29,12 @@ namespace Cue::PAL::Win
                 "Output pointer must not be null.");
         }
 
-        // 空文字
         if (a_text.empty())
         {
             a_outText->clear();
             return Result::ok();
         }
 
-        // 必要サイズ
         const int needed = ::MultiByteToWideChar(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), nullptr, 0);
         if (needed <= 0)
         {
@@ -46,7 +43,6 @@ namespace Cue::PAL::Win
                 "Failed to calculate needed buffer size for UTF-8 to wide char conversion.");
         }
 
-        // 変換
         a_outText->assign(static_cast<size_t>(needed), L'\0');
         const int written = ::MultiByteToWideChar(CP_UTF8, 0, a_text.data(), static_cast<int>(a_text.size()), a_outText->data(), needed);
         if (written != needed)
@@ -59,13 +55,12 @@ namespace Cue::PAL::Win
         return Result::ok();
     }
 
-    /// @brief ワイド文字列を UTF-8 文字列へ変換します
-    /// @param a_text 
-    /// @param a_outText 
-    /// @return Cue::Result
+    /// @brief ワイド文字列を UTF-8 文字列へ変換
+    /// @param a_text 変換元ワイド文字列
+    /// @param a_outText 変換結果
+    /// @return 変換結果
     static Result wide_to_utf8(std::wstring_view a_text, std::string* a_outText) noexcept
     {
-        // 引数チェック
         if (a_outText == nullptr)
         {
             return Result::fail(

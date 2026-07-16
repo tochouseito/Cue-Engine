@@ -1,6 +1,6 @@
-// Main static mesh forward pass。
-// GPU culling/batching が作った indirect command と instance list を読み、
-// material、directional light、clustered point light を評価して最終色を書く。
+// Main static mesh forward pass.
+// Reads indirect commands and instance lists produced by GPU culling/batching,
+// then evaluates material, directional light, and clustered point lights.
 
 struct RenderObject
 {
@@ -57,8 +57,8 @@ struct PointLight
 
 struct ClusterLightRange
 {
-    // ClusterLightCulling が作った compact light list への参照。
-    // pixel shader は自分の cluster の offset/count だけをたどる。
+    // Reference into the compact light list produced by ClusterLightCulling.
+    // The pixel shader follows only the offset/count for its own cluster.
     uint offset;
     uint count;
     uint hash;
@@ -77,8 +77,8 @@ struct VsOutput
     float4 position : SV_POSITION;
     float3 worldPosition : POSITION0;
 
-    // pixel shader で cluster の depth slice を求めるための view-space 位置。
-    // PS で worldPosition に view matrix を掛け直すより安い。
+    // View-space position used by the pixel shader to compute the cluster depth slice.
+    // Passing it from VS avoids another worldPosition * view matrix multiply in PS.
     float3 viewPosition : POSITION1;
     float3 worldNormal : NORMAL0;
     float2 texcoord : TEXCOORD0;
@@ -168,7 +168,6 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
     const uint renderObjectIndex =
         g_renderObjectIndices[g_drawObjectIndex.drawObjectIndex + instanceId];
 
-    // 描画対象情報を取得する
     const RenderObject renderObject = g_renderObjects[renderObjectIndex];
     const Transform transform = g_transforms[renderObject.transformId];
 
@@ -181,8 +180,8 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
-        // LOD4 impostor は mesh 頂点ではなく camera-facing billboard として描く。
-        // view-space 上で quad を広げることで、常に camera に正対させる。
+        // LOD4 impostors render as camera-facing billboards instead of mesh vertices.
+        // Expanding the quad in view-space keeps it facing the camera.
         const float4 worldCenter =
             float4(renderObject.boundsCenterRadius.xyz, 1.0f);
         const float objectScale = length(transform.worldMatrix[0].xyz);
@@ -196,8 +195,8 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
         return output;
     }
 
-    // 通常 mesh の頂点変換。viewPosition もここで作り、PS の per-pixel
-    // matrix multiply を避ける。
+    // The mesh path also emits viewPosition so the pixel shader avoids a per-pixel
+    // matrix multiply.
     const float4 worldPosition = mul(input.position, transform.worldMatrix);
     const float4 viewPosition = mul(worldPosition, g_viewMatrix);
     const float3 worldNormal =
@@ -212,8 +211,9 @@ VsOutput vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
 uint compute_depth_slice(float viewZ)
 {
-    // Cluster grid の Z slice は logarithmic。near/far と逆数 log は
-    // root constants で渡し、PS で projection matrix から復元しない。
+    // Cluster Z slices are logarithmic.
+    // near/far and inverse log values are root constants instead of being rebuilt
+    // from the projection matrix in PS.
     const uint depthSliceCount = max(g_clusterDepthSliceCount, 1u);
     const float safeNearZ = max(g_clusterNearZ, 0.0001f);
     const float safeFarZ = max(g_clusterFarZ, safeNearZ + 0.0001f);
@@ -227,8 +227,8 @@ uint compute_depth_slice(float viewZ)
 
 uint compute_cluster_index(float4 screenPosition, float viewZ)
 {
-    // screen x/y と view-space z から cluster id を求める。
-    // ここで得た id が ClusterLightRangeBuffer の index になる。
+    // Cluster id comes from screen x/y and view-space z.
+    // The id indexes ClusterLightRangeBuffer.
     const uint tileCountX = max(g_clusterCountX, 1u);
     const uint tileCountY = max(g_clusterCountY, 1u);
     const float2 screenSize =
@@ -338,8 +338,8 @@ float3 evaluate_lighting(float4 screenPosition, float3 worldPosition,
         compute_cluster_index(screenPosition, viewPosition.z);
     const ClusterLightRange range = g_clusterLightRanges[clusterIndex];
 
-    // cluster に割り当てられた point light だけを評価する。
-    // 全 light 走査を避けるのが Clustered Forward の主目的。
+    // Evaluate only point lights assigned to this cluster.
+    // Avoiding a full light scan is the main purpose of clustered forward shading.
     for (uint rangeIndex = 0; rangeIndex < range.count; ++rangeIndex)
     {
         const uint lightIndex =

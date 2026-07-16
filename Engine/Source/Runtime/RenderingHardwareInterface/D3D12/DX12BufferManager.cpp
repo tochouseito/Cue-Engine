@@ -215,7 +215,7 @@ namespace Cue::RHI::DX12
             static_cast<uint64_t>(record->desc.alignment));
         const uint64_t requiredBytes = alignedStride * static_cast<uint64_t>(record->desc.elementCount);
 
-        // - 各 upload heap の map 済み CPU ポインタを集め、範囲不足をここで弾く
+        // Upload heap view は map 済み領域に収まる範囲だけを公開する
         outView.alignment = record->desc.alignment;
         outView.stride = record->desc.stride;
         outView.elementCount = record->desc.elementCount;

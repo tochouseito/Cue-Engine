@@ -122,7 +122,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::setup(uint32_t frameIndex, uint32_t bufferCount)
     {
-        // copy command list は descriptor heap を扱えないため、setup は no-op で返す
+        // Copy 用 command list は descriptor heap を扱えないため setup は何もしない
         if (type() == CommandListType::Copy)
         {
             m_frameIndex = frameIndex;
@@ -148,7 +148,6 @@ namespace Cue::RHI::DX12
                 "CommandAllocator or CommandList is not initialized.");
         }
 
-        // コマンドアロケータのリセット
         HRESULT hr = m_commandAllocator->Reset();
         if (FAILED(hr))
         {
@@ -158,7 +157,6 @@ namespace Cue::RHI::DX12
                 "Failed to reset CommandAllocator.");
         }
 
-        // コマンドリストのリセット
         hr = m_commandList->Reset(
             m_commandAllocator.Get(),
             nullptr);
@@ -365,7 +363,6 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::resource_barrier(BufferHandle handle, const ResourceBarrierDesc desc)
     {
-        // ハンドルからリソースを取得する
         DX12BufferRecord* record = nullptr;
         if (!m_bufferManager.try_get_record(handle, &record))
         {
@@ -414,7 +411,6 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::resource_barrier(TextureHandle handle, const ResourceBarrierDesc desc)
     {
-        // ハンドルからリソースを取得する
         DX12TextureRecord* record = nullptr;
         if (!m_textureManager.try_get_record(handle, &record))
         {
@@ -694,7 +690,6 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandContext::clear_render_target(ViewHandle handle, const float clearColor[4])
     {
-        // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
         if (!m_viewManager.try_get_record(handle, &record))
         {
@@ -704,7 +699,6 @@ namespace Cue::RHI::DX12
                 "View record was not found for the given handle.");
         }
 
-        // 正しいビュータイプか確認する
         if (record->desc.type != ViewType::RenderTarget)
         {
             return Result::fail(
@@ -723,14 +717,12 @@ namespace Cue::RHI::DX12
         }
         auto cpuHandle = m_descriptorAllocator.get_cpu_handle(record->defaultTableIds[descriptorIndex]);
 
-        // RenderTarget のクリア
         m_commandList->ClearRenderTargetView(cpuHandle, clearColor, 0, nullptr);
 
         return Result::ok();
     }
     Result DX12GpuCommandContext::clear_depth_stencil(ViewHandle handle, float depth, uint8_t stencil)
     {
-        // ハンドルからビューを取得する
         DX12ViewRecord* record = nullptr;
         if (!m_viewManager.try_get_record(handle, &record))
         {
@@ -1430,7 +1422,6 @@ namespace Cue::RHI::DX12
             dsvHandle = m_descriptorAllocator.get_cpu_handle(dsvRecord->defaultTableIds[descriptorIndex]);
         }
 
-        // レンダーターゲットとデプスステンシルをセットする
         m_commandList->OMSetRenderTargets(
             renderTargetCount,
             rtvHandles.data(),
@@ -1878,7 +1869,7 @@ namespace Cue::RHI::DX12
     }
     Result DX12GpuCommandQueue::signal(uint64_t* outFenceValue)
     {
-        // submit 済み作業の完了点を外へ渡せるよう、フェンス値を進めて返す
+        // Fence 値は submit 済み queue 作業の完了点として外へ渡す
         if (!m_commandQueue || !m_fence)
         {
             return Result::fail(
@@ -2085,8 +2076,8 @@ namespace Cue::RHI::DX12
     }
     Result DX12CommandPool::return_command_context(commandContextLease& context)
     {
-        // fence 未完了の context は pending 配列へ退避し、完了済みなら即 pool に戻す。
-        // lease はここで空にして、呼び出し側の二重返却を防ぐ。
+        // GPU 完了前の context は fence を保持したまま pending に退避する
+        // lease はここで空にして呼び出し側の二重返却を防ぐ
         if (!context)
         {
             return Result::ok();

@@ -21,7 +21,7 @@ namespace Cue::RHI
     template<typename T>
     class SlotUploader
     {
-        // Tがトリビアルコピーであることを静的アサート
+        // SlotUploader は map 済みメモリへ直接バイトコピーするため T を trivially copyable に限定する
         static_assert(std::is_trivially_copyable_v<T>, "SlotUploadBuffer requires trivial types");
         [[nodiscard]] static constexpr size_t round_up_to_multiple(size_t value, size_t alignment) noexcept
         {
@@ -33,20 +33,17 @@ namespace Cue::RHI
 
         void initialize(size_t capacity, size_t alignment, std::byte* mappedData) noexcept
         {
-            // チェック
             if (capacity == 0 || alignment == 0 || !mappedData)
             {
-                return; // 無効なパラメータ
+                return;
             }
 
-            // 設定保持
             m_capacity = capacity;
             m_alignment = alignment;
             m_stride = sizeof(T);
             m_alignedStride = round_up_to_multiple(m_stride, m_alignment);
             m_mappedData = mappedData;
 
-            // キュー準備
             m_uploadQueue.clear();
             m_uploadQueue.reserve(capacity);
             m_staging.clear();
@@ -59,31 +56,27 @@ namespace Cue::RHI
 
         bool push(uint32_t slotIdx, const T& value) noexcept
         {
-            // 範囲チェック
             if (slotIdx >= m_capacity)
             {
-                return false; // スロットインデックスが容量を超えている
+                return false;
             }
 
-            // キューに追加
             m_uploadQueue.push_back({ value, slotIdx });
             return true;
         }
 
         bool commit() noexcept
         {
-            // チェック
             if (!m_mappedData)
             {
-                return false; // Mapされたデータがない
+                return false;
             }
             if (m_uploadQueue.empty())
             {
-                return true; // コミットするデータがない
+                return true;
             }
 
-            // 重複削除
-            // - slotIdx -> unique内の位置 を覚えて、後から来た値で上書き
+            // 同じ slot への複数書き込みは、フレーム内の最新 component 更新を優先する
             std::vector<UploadData> unique;
             unique.reserve(m_uploadQueue.size());
 

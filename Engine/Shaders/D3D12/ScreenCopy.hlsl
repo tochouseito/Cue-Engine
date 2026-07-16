@@ -1,6 +1,6 @@
 // Full-screen copy pass。
-// offscreen render target を swapchain/backbuffer へコピーするための
-// 最小 shader。full-screen triangle なので vertex buffer は不要。
+// Minimal shader for copying an offscreen render target to the swapchain back buffer.
+// The full-screen triangle path avoids a vertex buffer.
 
 static const uint kNumVertex = 3;
 static const float4 kPositions[kNumVertex] =

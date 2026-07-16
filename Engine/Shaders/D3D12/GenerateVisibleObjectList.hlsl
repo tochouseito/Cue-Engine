@@ -1,6 +1,6 @@
-// 単体 object culling / LOD selection pass。
-// CellCulling を使わない経路向けに、全 renderable を frustum/Hi-Z で判定して
-// 描画用 RenderObject list へ compact する。
+// Object culling and LOD selection pass for the non-cell-culling path.
+// Every renderable is tested against the frustum and Hi-Z depth, then compacted
+// into the RenderObject list used by drawing passes.
 
 struct RenderableInfo
 {
@@ -208,8 +208,9 @@ uint select_view_center_lod_bias(float4 viewCenter, float projectedRadius)
 
 uint select_lod(RenderableInfo renderableInfo)
 {
-    // object の projected radius を基準に LOD を選ぶ。
-    // 視野端では LOD を少し下げるが、LOD4/impostor へ直接飛ばないよう LOD2 までに制限する。
+    // LOD is based on projected object radius.
+    // Edge-of-view bias lowers detail slightly but clamps at LOD2 to avoid
+    // jumping directly to LOD4/impostors.
     const uint lodCount = max(renderableInfo.lodCount, 1u);
     if (lodCount <= 1u)
     {
@@ -332,8 +333,8 @@ bool project_bounds_to_hiz_tiles(
 
 bool is_occluded_by_hiz(float4 boundsCenterRadius)
 {
-    // Object bounds の screen-space tile 範囲を使った conservative occlusion test。
-    // 1 tile でも手前が空いていれば visible とみなす。
+    // Conservative occlusion test over the screen-space tile range of object bounds.
+    // The object remains visible if any covered tile has open depth in front.
     uint2 minTile;
     uint2 maxTile;
     uint nearDepth;
@@ -379,7 +380,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                 !is_occluded_by_hiz(renderableInfo.boundsCenterRadius));
     }
 
-    // wave 単位で compact append し、visible object count の atomic 回数を減らす。
+    // Wave-level compact append reduces atomics on the visible object counter.
     const uint waveVisibleCount = WaveActiveCountBits(visible);
     if (waveVisibleCount == 0u)
     {

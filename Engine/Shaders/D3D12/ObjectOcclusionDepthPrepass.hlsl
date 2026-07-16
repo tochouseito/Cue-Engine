@@ -1,6 +1,6 @@
-// 旧式の object bounds depth prepass。
-// 各 object の bounds を tile に投影して近い depth を書き、Hi-Z 風の
-// coarse occlusion depth を作るための compute path。
+// Legacy object-bounds depth prepass.
+// Each object bounds is projected into tiles and writes nearest depth, producing
+// coarse occlusion depth similar to Hi-Z.
 
 struct RenderableInfo
 {
@@ -153,8 +153,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // bounds が覆う tile へ最も近い depth を atomic min で書く。
-    // raster depth ではなく bounds depth なので保守的な occlusion 用。
+    // Atomic min writes the nearest bounds depth into covered tiles.
+    // Bounds depth is conservative compared with raster depth.
     for (uint tileY = minTile.y; tileY <= maxTile.y; ++tileY)
     {
         for (uint tileX = minTile.x; tileX <= maxTile.x; ++tileX)

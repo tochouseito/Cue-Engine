@@ -1,6 +1,6 @@
-// Static mesh batching の最終段。
-// BatchCount/PrefixSum/BatchFill が作った batch ごとの instance 範囲を、
-// ExecuteIndirect が読める DrawIndexedInstanced コマンド列へ変換する。
+// Final stage of static mesh batching.
+// Per-batch instance ranges from BatchCount/PrefixSum/BatchFill are converted
+// into DrawIndexedInstanced commands for ExecuteIndirect.
 
 struct MeshRange
 {
@@ -62,8 +62,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                     return;
                 }
 
-                // batch が空なら command を作らない。ここで draw count を
-                // compact するため、CPU 側は最大 batch 数を指定するだけでよい。
+                // Empty batches do not emit commands.
+                // Compacting draw count here lets the CPU submit only the max batch count.
                 const uint instanceCount =
                     g_batchObjectCounts.Load(batchId * 4u);
                 if (instanceCount == 0u)
@@ -71,8 +71,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                     continue;
                 }
 
-                // batch key の meshId に対応する LOD mesh range を使い、
-                // 同じ mesh/material/depthBin の object を 1 draw にまとめる。
+                // Use the LOD mesh range from the batch key meshId and merge objects with
+                // matching mesh/material/depthBin into one draw.
                 const MeshRange meshRange = g_meshRanges[meshId];
                 if (meshRange.indexCount == 0u)
                 {

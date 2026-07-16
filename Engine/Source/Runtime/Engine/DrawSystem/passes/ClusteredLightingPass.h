@@ -1,7 +1,7 @@
 #pragma once
 
 /// ****************************************************************************
-/// Clustered forward light assignment
+/// Clustered forward のライト割り当て
 /// ****************************************************************************
 
 // === RHI includes ===
@@ -376,8 +376,7 @@ namespace Cue::DrawSystem
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            // fixed grid count 方式。記事の 16x8x24 に近い粒度で、
-            // ここでは 16x9x24 を固定 cluster grid として使う。
+            // 16x9x24 の固定グリッドで、参照実装の 16x8x24 に近い粒度を保つ
             m_screenWidth = builder.width();
             m_screenHeight = builder.height();
             m_tileCountX = ClusteredLighting::k_clusterCountX;

@@ -29,7 +29,7 @@ namespace Cue
         UnknownError,       // 不明なエラー
     };
 
-    /// @brief 結果コードを文字列へ変換します
+    /// @brief 結果コードを文字列へ変換
     /// @param a_code 変換対象の結果コード
     /// @return 結果コード名
     [[nodiscard]] inline const char* to_string(Code a_code) noexcept
@@ -52,7 +52,7 @@ namespace Cue
         }
     }
 
-    /// @brief 結果コードが成功かを返します
+    /// @brief 結果コードが成功かを判定
     /// @param a_code 判定対象の結果コード
     /// @return 成功なら true
     inline bool success(const Code& a_code) noexcept
@@ -69,7 +69,7 @@ namespace Cue
         Fatal,      // 致命的エラー
     };
 
-    /// @brief 重大度を文字列へ変換します
+    /// @brief 重大度を文字列へ変換
     /// @param a_severity 変換対象の重大度
     /// @return 重大度名
     [[nodiscard]] inline const char* to_string(Severity a_severity) noexcept
@@ -87,38 +87,33 @@ namespace Cue
     /// @brief 処理結果構造体
     struct Result final
     {
-        // 暗黙変換禁止
         explicit Result() = default;
 
-        // メンバ変数
-        Code code{ Code::OK };                 // 結果コード
-        Severity severity{ Severity::Info };   // 結果の重大度
+        Code code{ Code::OK };
+        Severity severity{ Severity::Info };
 
-        // メッセージ
-        // -- 静的文字列前提
-        // -- string_view で非所有
+        // message は非所有なので、呼び出し側で文字列の寿命を保証する
         std::string_view message{};
 
-        // ソース位置
         const char* file = "";
         const char* function = "";
         uint32_t line = 0;
 
-        /// @brief 成功結果を返します
+        /// @brief 成功結果を構築
         /// @return 既定の成功結果
         static Result ok() noexcept
         {
             return Result{};
         }
 
-        /// @brief 成否を bool として返します
+        /// @brief Code::OK だけを成功として bool 化
         /// @return Code::OK の場合のみ true
         explicit operator bool() const noexcept
         {
             return code == Code::OK;
         }
 
-        /// @brief 失敗結果を構築します
+        /// @brief 失敗結果を構築
         /// @param a_code 結果コード
         /// @param a_severity 重大度
         /// @param a_message メッセージ
@@ -131,7 +126,6 @@ namespace Cue
             const std::source_location& a_location = std::source_location::current()
         ) noexcept
         {
-            // 結果を組み立てる
             Result result{};
             result.code = a_code;
             result.severity = a_severity;

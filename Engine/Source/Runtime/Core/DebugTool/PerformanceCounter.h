@@ -54,10 +54,9 @@ namespace Cue::Core
 
             std::lock_guard lock(m_mutex);
 
-            // スナップショットの開始時間を取得
             Snapshot snapshot(m_clock);
             snapshot.name = a_snapshotName;
-            snapshot.frameIndex = 0; // フレームインデックスの取得方法は未実装
+            snapshot.frameIndex = 0;
             snapshot.threadId = static_cast<uint64_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
             snapshot.timer.reset();
             snapshot.timer.start();

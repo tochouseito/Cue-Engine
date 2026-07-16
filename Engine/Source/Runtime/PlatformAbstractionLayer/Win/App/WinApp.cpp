@@ -213,9 +213,8 @@ namespace Cue::PAL::Win
             return 0;
         }
 
-        case WM_CLOSE: // 閉じる要求
-            // 破棄は engine 終了手順へ移譲
-            // メインループ終了フラグ設定
+        case WM_CLOSE:
+            // Window 破棄は Engine の shutdown 手順と所有権を揃える
             m_shouldClose = true;
             return 0;
 

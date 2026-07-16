@@ -1,0 +1,30 @@
+{
+  "workspaceRoot": "C:/Users/sinse/source/repos/CueEngineDevRef",
+  "captureDirectory": "captures/pix",
+  "pixToolPath": "C:/Program Files/Microsoft PIX/2602.25/pixtool.exe",
+  "captureArgsTemplate": [
+    "launch",
+    "{exe}",
+    "--working-directory={workingDir}",
+    "take-capture",
+    "save-capture",
+    "{capturePath}"
+  ],
+  "exportEventsArgsTemplate": [
+    "open-capture",
+    "{capturePath}",
+    "save-event-list",
+    "{outputCsv}",
+    "--counters=*"
+  ],
+  "targets": {
+    "Renderer": {
+      "exePath": "generated/outputs/Renderer/Debug/Renderer.exe",
+      "extraArgs": []
+    }
+  },
+  "scenes": [
+    "GpuDrivenDemo"
+  ],
+  "timeoutSec": 300
+}
