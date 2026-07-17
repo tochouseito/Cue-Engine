@@ -8,6 +8,7 @@
 #include <FrameGraph.h>
 
 // === C++ includes ===
+#include <atomic>
 #include <string>
 #include <utility>
 
@@ -19,10 +20,12 @@ namespace Cue::LightingSystem
         LightBufferCopyPass(
             std::string name,
             RHI::BufferHandle bufferHandle,
-            uint64_t copyByteSize)
+            uint64_t copyByteSize,
+            const std::atomic<uint64_t>& uploadRevision)
             : m_name(std::move(name))
             , m_bufferHandle(bufferHandle)
             , m_copyByteSize(copyByteSize)
+            , m_uploadRevision(uploadRevision)
         {}
 
         const char* name() const noexcept override
@@ -33,6 +36,13 @@ namespace Cue::LightingSystem
         RHI::CommandListType type() const noexcept override
         {
             return RHI::CommandListType::Copy;
+        }
+
+        bool is_enabled(uint32_t frameIndex) const noexcept override
+        {
+            static_cast<void>(frameIndex);
+            return m_uploadRevision.load(std::memory_order_acquire) !=
+                   m_lastCopiedRevision;
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -51,8 +61,15 @@ namespace Cue::LightingSystem
 
         void execute(RHI::FrameGraphContext& context) override
         {
-            if (!m_bufferHandle.valid() || m_copyByteSize == 0)
+            const uint64_t revision =
+                m_uploadRevision.load(std::memory_order_acquire);
+            if (!m_bufferHandle.valid())
             {
+                return;
+            }
+            if (m_copyByteSize == 0)
+            {
+                m_lastCopiedRevision = revision;
                 return;
             }
 
@@ -71,12 +88,18 @@ namespace Cue::LightingSystem
             region.dstByteOffset = 0;
             region.byteSize = m_copyByteSize;
 
-            (void)commandContext->copy_buffer_region(region);
+            const Result copyResult = commandContext->copy_buffer_region(region);
+            if (copyResult)
+            {
+                m_lastCopiedRevision = revision;
+            }
         }
 
     private:
         std::string m_name{};
         RHI::BufferHandle m_bufferHandle{};
         uint64_t m_copyByteSize = 0;
+        const std::atomic<uint64_t>& m_uploadRevision;
+        uint64_t m_lastCopiedRevision = 0;
     };
 }

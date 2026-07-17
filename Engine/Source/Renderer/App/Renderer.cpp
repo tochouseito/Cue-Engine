@@ -4,9 +4,7 @@
 
 // === Core includes ===
 #include <CQRS/CQRS.h>
-#include <DebugTool/PerformanceCounter.h>
 #include <IO/Logger.h>
-#include <Time/FrameCounter.h>
 
 // === WinPlatform includes ===
 #include <win_platform.h>
@@ -227,45 +225,6 @@ namespace
         return input;
     }
 
-    [[nodiscard]] double
-    pass_gpu_ms(const RHI::FrameGraphExecutionStats& stats,
-                std::initializer_list<std::string_view> passNames) noexcept
-    {
-        double total = 0.0;
-        for (const RHI::FrameGraphExecutionStats::PassExecutionStats& pass :
-             stats.passStats)
-        {
-            if (!pass.hasGpuExecuteMs)
-            {
-                continue;
-            }
-            for (std::string_view passName : passNames)
-            {
-                if (pass.name == passName)
-                {
-                    total += pass.gpuExecuteMs;
-                    break;
-                }
-            }
-        }
-        return total;
-    }
-
-    [[nodiscard]] double
-    total_gpu_ms(const RHI::FrameGraphExecutionStats& stats) noexcept
-    {
-        double total = 0.0;
-        for (const RHI::FrameGraphExecutionStats::PassExecutionStats& pass :
-             stats.passStats)
-        {
-            if (pass.hasGpuExecuteMs)
-            {
-                total += pass.gpuExecuteMs;
-            }
-        }
-        return total;
-    }
-
     class ImGuiOverlayPass final : public RHI::FrameGraphPass
     {
       public:
@@ -408,130 +367,57 @@ namespace
             backend->free_imgui_srv_descriptor(cpuHandle, gpuHandle);
         }
 
+        static void draw_fps_window()
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+            const float fps = io.Framerate;
+            const float frameTimeMs = fps > 0.0f ? 1000.0f / fps : 0.0f;
+
+            constexpr float k_windowMargin = 16.0f;
+            ImGui::SetNextWindowPos(
+                ImVec2(io.DisplaySize.x - k_windowMargin, k_windowMargin),
+                ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+            ImGui::SetNextWindowBgAlpha(0.88f);
+
+            constexpr ImGuiWindowFlags k_windowFlags =
+                ImGuiWindowFlags_AlwaysAutoResize |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoFocusOnAppearing |
+                ImGuiWindowFlags_NoNav;
+
+            if (ImGui::Begin("Frame Rate", nullptr, k_windowFlags))
+            {
+                ImGui::SetWindowFontScale(2.4f);
+                ImGui::Text("%.1f FPS", fps);
+                ImGui::SetWindowFontScale(1.35f);
+                ImGui::Text("%.3f ms", frameTimeMs);
+
+                ImGui::Separator();
+                ImGui::SetWindowFontScale(1.55f);
+                ImGui::TextUnformatted("CONTROLLER");
+                ImGui::SetWindowFontScale(1.4f);
+                ImGui::TextUnformatted("Left Stick  : Move");
+                ImGui::TextUnformatted("Right Stick : Look");
+                ImGui::TextUnformatted("RT / LT     : Up / Down");
+                ImGui::TextUnformatted("LB          : Fast Move");
+                ImGui::SetWindowFontScale(1.0f);
+            }
+            ImGui::End();
+        }
+
         void draw_overlay()
         {
-            const EngineDebugStats debugStats = m_engine.debug_stats();
-            const RHI::FrameGraphExecutionStats frameStats =
-                m_engine.render_execution_stats();
+            draw_fps_window();
 
-            bool directionalLightEnabled = debugStats.directionalLightEnabled;
+            bool directionalLightEnabled =
+                m_engine.directional_light_enabled();
 
             ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(520.0f, 760.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(520.0f, 520.0f), ImGuiCond_FirstUseEver);
             ImGui::Begin("CueEngineRef GPU Driven Demo");
-
-            ImGui::Text("Frame");
-            const float fps = ImGui::GetIO().Framerate;
-            ImGui::Text("FPS / Frame Time: %.1f / %.3f ms", fps,
-                        fps > 0.0f ? 1000.0f / fps : 0.0f);
-            ImGui::Text("GPU Time: %.3f ms", total_gpu_ms(frameStats));
-            ImGui::Text("Draw Commands: %u", debugStats.indirectDrawCount);
-            ImGui::Text("Visible Objects: %u", debugStats.visibleObjects);
-            ImGui::Text("Culled Objects: %u", debugStats.savedObjectEstimate);
-
-            if (ImGui::CollapsingHeader("Pass GPU Time",
-                                        ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("BuildClusterGrid: %.3f ms",
-                            pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
-                ImGui::Text("PreparePointLights: %.3f ms",
-                            pass_gpu_ms(frameStats, { "PreparePointLights" }));
-                ImGui::Text("ClusterLightCulling: %.3f ms",
-                            pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
-                ImGui::Text("ObjectCullAndLod: %.3f ms",
-                            pass_gpu_ms(frameStats, { "ObjectCullAndLod" }));
-                ImGui::Text("OccluderDepthOnlyIndirect: %.3f ms",
-                            pass_gpu_ms(frameStats, { "OccluderDepthOnlyIndirect" }));
-                ImGui::Text("BuildHiZ: %.3f ms",
-                            pass_gpu_ms(frameStats, { "BuildHiZDepth" }));
-                ImGui::Text("CellCulling: %.3f ms",
-                            pass_gpu_ms(frameStats, { "CellCulling" }));
-                ImGui::Text("ObjectCulling: %.3f ms",
-                            pass_gpu_ms(frameStats, { "ObjectCulling" }));
-                ImGui::Text(
-                    "Batching: %.3f ms",
-                    pass_gpu_ms(frameStats, { "BatchCount", "PrefixSum", "BatchFill",
-                                              "IndirectCommandEmit",
-                                              "DirectCommandEmit" }));
-                ImGui::Text("StaticMeshForward: %.3f ms",
-                            pass_gpu_ms(frameStats, { "StaticMeshForward" }));
-            }
-
-            if (ImGui::CollapsingHeader("Clustered Lighting",
-                                        ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                // ClusterLightCulling が GPU 上で集計した値。
-                // pass time と並べて見ることで、cluster grid や compact list の
-                // チューニングが効いているか判断する。
-                const GpuData::ClusterLightingStatsGpu& clusterStats =
-                    debugStats.clusterLightingStats;
-                const float avgLightsPerCluster =
-                    clusterStats.clusterCount > 0u
-                        ? static_cast<float>(clusterStats.totalClusterItems) /
-                              static_cast<float>(clusterStats.clusterCount)
-                        : 0.0f;
-
-                ImGui::Text("BuildClusterGrid: %.3f ms",
-                            pass_gpu_ms(frameStats, { "BuildClusterGrid" }));
-                ImGui::Text("PreparePointLights: %.3f ms",
-                            pass_gpu_ms(frameStats, { "PreparePointLights" }));
-                ImGui::Text("ClusterLightCulling: %.3f ms",
-                            pass_gpu_ms(frameStats, { "ClusterLightCulling" }));
-                ImGui::Text("StaticMeshForward: %.3f ms",
-                            pass_gpu_ms(frameStats, { "StaticMeshForward" }));
-                ImGui::Separator();
-                ImGui::Text("clusterCount: %u", clusterStats.clusterCount);
-                ImGui::Text("activeClusterCount: %u", clusterStats.activeClusterCount);
-                ImGui::Text("pointLightCount: %u", clusterStats.pointLightCount);
-                ImGui::Text("totalClusterItems: %u", clusterStats.totalClusterItems);
-                ImGui::Text("avg lights / cluster: %.2f", avgLightsPerCluster);
-                ImGui::Text("max lights / cluster: %u", clusterStats.maxLightsInCluster);
-                ImGui::Text("overflow clusters: %u", clusterStats.overflowClusterCount);
-                ImGui::Text("empty clusters: %u", clusterStats.emptyClusterCount);
-                ImGui::Text("reused light lists: %u", clusterStats.reusedListCount);
-                ImGui::TextDisabled(
-                    "Cluster stats are GPU readback values with a small frame delay.");
-            }
-
-            if (ImGui::CollapsingHeader("Objects", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("total objects: %u", debugStats.totalObjects);
-                ImGui::Text("visible objects: %u", debugStats.visibleObjects);
-                ImGui::Text("culled objects: %u", debugStats.savedObjectEstimate);
-                ImGui::Text("occluded objects: %u", debugStats.occludedObjects);
-                ImGui::Text("culled by frustum: %u", debugStats.frustumCulledObjects);
-            }
-
-            if (ImGui::CollapsingHeader("Draw", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("draw commands: %u", debugStats.indirectDrawCount);
-                ImGui::Text("instance count: %u", debugStats.instanceCount);
-                ImGui::Text("triangle estimate: %llu",
-                            static_cast<unsigned long long>(
-                                debugStats.submittedTriangleEstimate));
-            }
-
-            if (ImGui::CollapsingHeader("LOD Distribution",
-                                        ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("LOD0: %u", debugStats.lodObjectCounts[0]);
-                ImGui::Text("LOD1: %u", debugStats.lodObjectCounts[1]);
-                ImGui::Text("LOD2: %u", debugStats.lodObjectCounts[2]);
-                ImGui::Text("LOD3: %u", debugStats.lodObjectCounts[3]);
-                ImGui::Text("LOD4: %u", debugStats.lodObjectCounts[4]);
-                ImGui::Text("impostor: %u", debugStats.impostorCount);
-            }
-
-            if (ImGui::CollapsingHeader("Occluder", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("occluder object count: %u", debugStats.occluderObjectCount);
-                ImGui::Text(
-                    "occluder triangle count: %llu",
-                    static_cast<unsigned long long>(debugStats.occluderTriangleEstimate));
-                ImGui::Text("occluder proxy: %s",
-                            debugStats.occluderProxyEnabled ? "ON" : "OFF");
-                ImGui::Text("Hi-Z: %s", debugStats.hiZEnabled ? "ON" : "OFF");
-            }
 
             if (ImGui::CollapsingHeader("Toggles", ImGuiTreeNodeFlags_DefaultOpen))
             {
@@ -622,29 +508,6 @@ namespace
                     "Lighting, scene, material, resolution, and camera stay shared.");
             }
 
-            if (ImGui::CollapsingHeader("Camera / Debug",
-                                        ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("camera position: %.2f, %.2f, %.2f",
-                            debugStats.cameraPosition.x, debugStats.cameraPosition.y,
-                            debugStats.cameraPosition.z);
-                ImGui::Text("visible cells / total cells: %u / %u",
-                            debugStats.visibleCells, debugStats.totalCells);
-                ImGui::Text("selected depth bin: %u", debugStats.selectedDepthBin);
-            }
-
-            if (ImGui::CollapsingHeader("Render Cost",
-                                        ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::Text("submitted triangles: %llu",
-                            static_cast<unsigned long long>(
-                                debugStats.submittedTriangleEstimate));
-                ImGui::Text(
-                    "saved triangles estimate: %llu",
-                    static_cast<unsigned long long>(debugStats.savedTriangleEstimate));
-                ImGui::Text("saved objects estimate: %u", debugStats.savedObjectEstimate);
-            }
-
             if (ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 ImGui::BulletText("W/A/S/D: move camera");
@@ -710,8 +573,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // Renderer 起動直後の失敗も同じログ出力先へ集約する
     Core::IO::set_log_file(platform->file_system(),
                            Core::IO::Path("logs/renderer.log"), true);
-
-    Core::PerformanceCounter profiler(platform->clock());
 
     r = platform->start();
     if (!r)
@@ -957,13 +818,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return -1;
         }
 
-        const Core::Time::FrameCounter& frameCounter =
-            engine->frame_controller().frame_counter();
-        if (frameCounter.total_frames() > 0)
-        {
-            // Core::IO::log(Core::IO::LogSink::console, "FPS : {:.2f}",
-            // frameCounter.fps());
-        }
         r = engine->end_frame();
 
         if (!r)

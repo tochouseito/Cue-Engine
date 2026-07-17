@@ -13,17 +13,27 @@
 #include "GpuData/Transform.h"
 #include "GpuData/ViewProjection.h"
 
+// === C++ includes ===
+#include <atomic>
+
 namespace Cue::DrawSystem {
 class RenderableInfoCopyPass final : public RHI::FrameGraphPass {
 public:
   RenderableInfoCopyPass(const DrawFrameState &drawFrameState,
-                         RHI::BufferHandle renderableInfoBuffer)
+                         RHI::BufferHandle renderableInfoBuffer,
+                         const std::atomic<uint64_t> &uploadRevision)
       : m_drawFrameState(drawFrameState),
-        m_renderableInfoBuffer(renderableInfoBuffer) {}
+        m_renderableInfoBuffer(renderableInfoBuffer),
+        m_uploadRevision(uploadRevision) {}
 
   const char *name() const noexcept override { return "RenderableInfoCopy"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
+  }
+  bool is_enabled(uint32_t frameIndex) const noexcept override {
+    static_cast<void>(frameIndex);
+    return m_uploadRevision.load(std::memory_order_acquire) !=
+           m_lastCopiedRevision;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -37,9 +47,15 @@ public:
   }
 
   void execute(RHI::FrameGraphContext &context) override {
+    const uint64_t revision =
+        m_uploadRevision.load(std::memory_order_acquire);
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
-    if (!m_renderableInfoBuffer.valid() || frameState.objectCount == 0) {
+    if (!m_renderableInfoBuffer.valid()) {
+      return;
+    }
+    if (frameState.objectCount == 0) {
+      m_lastCopiedRevision = revision;
       return;
     }
 
@@ -49,23 +65,36 @@ public:
     region.dstBufferHandle = m_renderableInfoBuffer;
     region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
                       sizeof(GpuData::RenderableInfo);
-    (void)context.commandContext()->copy_buffer_region(region);
+    const Result copyResult =
+        context.commandContext()->copy_buffer_region(region);
+    if (copyResult) {
+      m_lastCopiedRevision = revision;
+    }
   }
 
 private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderableInfoBuffer{};
+  const std::atomic<uint64_t> &m_uploadRevision;
+  uint64_t m_lastCopiedRevision = 0;
 };
 
 class TransformBufferCopyPass final : public RHI::FrameGraphPass {
 public:
   TransformBufferCopyPass(const DrawFrameState &drawFrameState,
-                          RHI::BufferHandle transformBuffer)
-      : m_drawFrameState(drawFrameState), m_transformBuffer(transformBuffer) {}
+                           RHI::BufferHandle transformBuffer,
+                           const std::atomic<uint64_t> &uploadRevision)
+      : m_drawFrameState(drawFrameState), m_transformBuffer(transformBuffer),
+        m_uploadRevision(uploadRevision) {}
 
   const char *name() const noexcept override { return "TransformBufferCopy"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
+  }
+  bool is_enabled(uint32_t frameIndex) const noexcept override {
+    static_cast<void>(frameIndex);
+    return m_uploadRevision.load(std::memory_order_acquire) !=
+           m_lastCopiedRevision;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -79,9 +108,15 @@ public:
   }
 
   void execute(RHI::FrameGraphContext &context) override {
+    const uint64_t revision =
+        m_uploadRevision.load(std::memory_order_acquire);
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
-    if (!m_transformBuffer.valid() || frameState.objectCount == 0) {
+    if (!m_transformBuffer.valid()) {
+      return;
+    }
+    if (frameState.objectCount == 0) {
+      m_lastCopiedRevision = revision;
       return;
     }
 
@@ -91,12 +126,18 @@ public:
     region.dstBufferHandle = m_transformBuffer;
     region.byteSize = static_cast<uint64_t>(frameState.objectCount) *
                       sizeof(GpuData::ObjectTransformGpu);
-    (void)context.commandContext()->copy_buffer_region(region);
+    const Result copyResult =
+        context.commandContext()->copy_buffer_region(region);
+    if (copyResult) {
+      m_lastCopiedRevision = revision;
+    }
   }
 
 private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_transformBuffer{};
+  const std::atomic<uint64_t> &m_uploadRevision;
+  uint64_t m_lastCopiedRevision = 0;
 };
 
 class ViewProjectionCopyPass final : public RHI::FrameGraphPass {
@@ -138,12 +179,18 @@ private:
 
 class MaterialBufferCopyPass final : public RHI::FrameGraphPass {
 public:
-  explicit MaterialBufferCopyPass(RHI::BufferHandle materialBuffer)
-      : m_materialBuffer(materialBuffer) {}
+  MaterialBufferCopyPass(RHI::BufferHandle materialBuffer,
+                         const std::atomic<uint64_t> &uploadRevision)
+      : m_materialBuffer(materialBuffer), m_uploadRevision(uploadRevision) {}
 
   const char *name() const noexcept override { return "MaterialBufferCopy"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
+  }
+  bool is_enabled(uint32_t frameIndex) const noexcept override {
+    static_cast<void>(frameIndex);
+    return m_uploadRevision.load(std::memory_order_acquire) !=
+           m_lastCopiedRevision;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -157,6 +204,8 @@ public:
   }
 
   void execute(RHI::FrameGraphContext &context) override {
+    const uint64_t revision =
+        m_uploadRevision.load(std::memory_order_acquire);
     if (!m_materialBuffer.valid()) {
       return;
     }
@@ -166,23 +215,36 @@ public:
     region.srcUploadResourceIndex = context.frame_index();
     region.dstBufferHandle = m_materialBuffer;
     region.byteSize = sizeof(GpuData::MaterialGpu);
-    (void)context.commandContext()->copy_buffer_region(region);
+    const Result copyResult =
+        context.commandContext()->copy_buffer_region(region);
+    if (copyResult) {
+      m_lastCopiedRevision = revision;
+    }
   }
 
 private:
   RHI::BufferHandle m_materialBuffer{};
+  const std::atomic<uint64_t> &m_uploadRevision;
+  uint64_t m_lastCopiedRevision = 0;
 };
 
 class RenderCellCopyPass final : public RHI::FrameGraphPass {
 public:
   RenderCellCopyPass(const DrawFrameState &drawFrameState,
-                     RHI::BufferHandle renderCellBuffer)
-      : m_drawFrameState(drawFrameState), m_renderCellBuffer(renderCellBuffer) {
+                      RHI::BufferHandle renderCellBuffer,
+                      const std::atomic<uint64_t> &uploadRevision)
+      : m_drawFrameState(drawFrameState), m_renderCellBuffer(renderCellBuffer),
+        m_uploadRevision(uploadRevision) {
   }
 
   const char *name() const noexcept override { return "RenderCellCopy"; }
   RHI::CommandListType type() const noexcept override {
     return RHI::CommandListType::Copy;
+  }
+  bool is_enabled(uint32_t frameIndex) const noexcept override {
+    static_cast<void>(frameIndex);
+    return m_uploadRevision.load(std::memory_order_acquire) !=
+           m_lastCopiedRevision;
   }
 
   Result setup(RHI::FrameGraphBuilder &builder) override {
@@ -196,9 +258,15 @@ public:
   }
 
   void execute(RHI::FrameGraphContext &context) override {
+    const uint64_t revision =
+        m_uploadRevision.load(std::memory_order_acquire);
     const DrawFrameData &frameState =
         m_drawFrameState.frame_state(context.frame_index());
-    if (!m_renderCellBuffer.valid() || frameState.cellCount == 0) {
+    if (!m_renderCellBuffer.valid()) {
+      return;
+    }
+    if (frameState.cellCount == 0) {
+      m_lastCopiedRevision = revision;
       return;
     }
 
@@ -208,11 +276,17 @@ public:
     region.dstBufferHandle = m_renderCellBuffer;
     region.byteSize = static_cast<uint64_t>(frameState.cellCount) *
                       sizeof(GpuData::RenderCellGpu);
-    (void)context.commandContext()->copy_buffer_region(region);
+    const Result copyResult =
+        context.commandContext()->copy_buffer_region(region);
+    if (copyResult) {
+      m_lastCopiedRevision = revision;
+    }
   }
 
 private:
   const DrawFrameState &m_drawFrameState;
   RHI::BufferHandle m_renderCellBuffer{};
+  const std::atomic<uint64_t> &m_uploadRevision;
+  uint64_t m_lastCopiedRevision = 0;
 };
 } // namespace Cue::DrawSystem

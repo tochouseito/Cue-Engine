@@ -14,7 +14,6 @@
 // === C++ includes ===
 #include <algorithm>
 #include <cstdint>
-#include <cstring>
 
 namespace Cue::DrawSystem
 {
@@ -24,7 +23,6 @@ namespace Cue::DrawSystem
         static constexpr uint32_t k_clusterCountY = 9u;
         static constexpr uint32_t k_depthSliceCount = 24u;
         static constexpr uint32_t k_maxLightsPerCluster = 128u;
-        static constexpr uint32_t k_maxClusterLightItemsPerCluster = 64u;
     } // namespace ClusteredLighting
 
     class BuildClusterGridPass final : public RHI::FrameGraphPass
@@ -355,12 +353,8 @@ namespace Cue::DrawSystem
     class ClusterLightCullingPass final : public RHI::FrameGraphPass
     {
       public:
-        ClusterLightCullingPass(RHI::IBufferManager* bufferManager,
-                                uint32_t maxPointLightCount,
-                                GpuData::ClusterLightingStatsGpu* statsOutput)
-            : m_bufferManager(bufferManager),
-              m_statsOutput(statsOutput),
-              m_maxPointLightCount(maxPointLightCount)
+        explicit ClusterLightCullingPass(uint32_t maxPointLightCount)
+            : m_maxPointLightCount(maxPointLightCount)
         {
         }
 
@@ -376,30 +370,26 @@ namespace Cue::DrawSystem
 
         Result setup(RHI::FrameGraphBuilder& builder) override
         {
-            // 16x9x24 の固定グリッドで、参照実装の 16x8x24 に近い粒度を保つ
-            m_screenWidth = builder.width();
-            m_screenHeight = builder.height();
             m_tileCountX = ClusteredLighting::k_clusterCountX;
             m_tileCountY = ClusteredLighting::k_clusterCountY;
             m_depthSliceCount = ClusteredLighting::k_depthSliceCount;
             m_clusterCount = m_tileCountX * m_tileCountY * m_depthSliceCount;
-            m_pointLightCount = m_maxPointLightCount;
+            m_pointLightCount = (std::max)(m_maxPointLightCount, 1u);
             m_maxLightsPerCluster =
-                (std::min)(m_maxPointLightCount,
+                (std::min)(m_pointLightCount,
                            ClusteredLighting::k_maxLightsPerCluster);
             m_maxLightsPerCluster = (std::max)(m_maxLightsPerCluster, 1u);
             m_maxClusterLightItems =
-                m_clusterCount *
-                ClusteredLighting::k_maxClusterLightItemsPerCluster;
+                m_clusterCount * m_maxLightsPerCluster;
             if (m_clusterCount == 0u)
             {
-                return Result::fail(Code::InvalidArgument, Severity::Error,
-                                    "Cluster light culling cluster count must not be zero.");
+                return Result::fail(
+                    Code::InvalidArgument, Severity::Error,
+                    "Cluster light culling cluster count must not be zero.");
             }
 
-            Result result = Result::ok();
-            result = builder.get_buffer("ViewPointLightBuffer",
-                                        m_viewPointLightBuffer);
+            Result result = builder.get_buffer("ViewPointLightBuffer",
+                                               m_viewPointLightBuffer);
             if (!result)
             {
                 return result;
@@ -412,8 +402,6 @@ namespace Cue::DrawSystem
 
             RHI::BufferDesc rangeBufferDesc{};
             rangeBufferDesc.name = "ClusterLightRangeBuffer";
-            // cluster -> compact light list の参照表。
-            // Forward shader は pixel の cluster id からここを引き、offset/count を得る。
             rangeBufferDesc.type = RHI::BufferType::UnorderedAccess;
             rangeBufferDesc.defaultHeapCount = 1;
             rangeBufferDesc.uploadHeapCount = 0;
@@ -432,10 +420,11 @@ namespace Cue::DrawSystem
                 return result;
             }
 
+            // Each cluster owns a fixed range. This removes the private
+            // 128-entry list and list-sharing synchronization from each
+            // cluster thread while preserving the forward range/index ABI.
             RHI::BufferDesc indexBufferDesc{};
             indexBufferDesc.name = "ClusterLightIndexBuffer";
-            // 全 cluster 固定領域ではなく、代表 cluster が append した light id
-            // だけを詰める compact buffer。
             indexBufferDesc.type = RHI::BufferType::UnorderedAccess;
             indexBufferDesc.defaultHeapCount = 1;
             indexBufferDesc.uploadHeapCount = 0;
@@ -453,148 +442,52 @@ namespace Cue::DrawSystem
                 return result;
             }
 
-            RHI::BufferDesc itemCounterBufferDesc{};
-            itemCounterBufferDesc.name = "ClusterLightItemCounterBuffer";
-            // compact buffer の append offset。代表 cluster が InterlockedAdd で
-            // list の書き込み開始位置を確保する。
-            itemCounterBufferDesc.type = RHI::BufferType::Raw;
-            itemCounterBufferDesc.defaultHeapCount = 1;
-            itemCounterBufferDesc.uploadHeapCount = 0;
-            itemCounterBufferDesc.initialState =
+            RHI::BufferDesc candidateCountDesc{};
+            candidateCountDesc.name = "ClusterLightCandidateCountBuffer";
+            candidateCountDesc.type = RHI::BufferType::Raw;
+            candidateCountDesc.defaultHeapCount = 1;
+            candidateCountDesc.uploadHeapCount = 0;
+            candidateCountDesc.initialState =
                 RHI::ResourceState::UnorderedAccess;
-            itemCounterBufferDesc.stride = sizeof(uint32_t);
-            itemCounterBufferDesc.elementCount = 1u;
-            itemCounterBufferDesc.size =
-                itemCounterBufferDesc.stride *
-                itemCounterBufferDesc.elementCount;
-            itemCounterBufferDesc.alignment = alignof(uint32_t);
-            result = builder.create_buffer(itemCounterBufferDesc,
-                                           m_clusterLightItemCounterBuffer);
+            candidateCountDesc.stride = sizeof(uint32_t);
+            candidateCountDesc.elementCount = m_clusterCount;
+            candidateCountDesc.size =
+                candidateCountDesc.stride * candidateCountDesc.elementCount;
+            candidateCountDesc.alignment = alignof(uint32_t);
+            result = builder.create_buffer(candidateCountDesc,
+                                           m_candidateCountBuffer);
             if (!result)
             {
                 return result;
             }
 
-            RHI::ViewDesc itemCounterUavDesc{};
-            itemCounterUavDesc.name = "ClusterLightItemCounterBufferUAV";
-            itemCounterUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-            itemCounterUavDesc.bufferKind = RHI::BufferKind::Buffer;
-            itemCounterUavDesc.bufferHandle = m_clusterLightItemCounterBuffer;
-            itemCounterUavDesc.numElements =
-                itemCounterBufferDesc.size / sizeof(uint32_t);
-            result = builder.create_view(itemCounterUavDesc,
-                                         m_clusterLightItemCounterUav);
+            RHI::ViewDesc candidateCountUavDesc{};
+            candidateCountUavDesc.name =
+                "ClusterLightCandidateCountBufferUAV";
+            candidateCountUavDesc.type =
+                RHI::ViewType::UnorderedAccessRawBuffer;
+            candidateCountUavDesc.bufferKind = RHI::BufferKind::Buffer;
+            candidateCountUavDesc.bufferHandle = m_candidateCountBuffer;
+            candidateCountUavDesc.numElements =
+                candidateCountDesc.size / sizeof(uint32_t);
+            result = builder.create_view(candidateCountUavDesc,
+                                         m_candidateCountUav);
             if (!result)
             {
                 return result;
             }
 
-            RHI::BufferDesc statsBufferDesc{};
-            statsBufferDesc.name = "ClusterLightStatsBuffer";
-            // GPU 上で assignment 結果を集計し、readback heap 経由で ImGui に出す。
-            // stats なしでは hash sharing / compaction の効果を判断できない。
-            statsBufferDesc.type = RHI::BufferType::Raw;
-            statsBufferDesc.defaultHeapCount = 1;
-            statsBufferDesc.uploadHeapCount = 0;
-            statsBufferDesc.readbackHeapCount = builder.buffer_count();
-            statsBufferDesc.initialState = RHI::ResourceState::UnorderedAccess;
-            statsBufferDesc.stride = sizeof(GpuData::ClusterLightingStatsGpu);
-            statsBufferDesc.elementCount = 1u;
-            statsBufferDesc.size =
-                statsBufferDesc.stride * statsBufferDesc.elementCount;
-            statsBufferDesc.alignment =
-                alignof(GpuData::ClusterLightingStatsGpu);
-            result = builder.create_buffer(statsBufferDesc,
-                                           m_clusterLightStatsBuffer);
+            result = create_candidate_pipeline(builder);
             if (!result)
             {
                 return result;
             }
-
-            RHI::ViewDesc statsUavDesc{};
-            statsUavDesc.name = "ClusterLightStatsBufferUAV";
-            statsUavDesc.type = RHI::ViewType::UnorderedAccessRawBuffer;
-            statsUavDesc.bufferKind = RHI::BufferKind::Buffer;
-            statsUavDesc.bufferHandle = m_clusterLightStatsBuffer;
-            statsUavDesc.numElements =
-                statsBufferDesc.size / sizeof(uint32_t);
-            result = builder.create_view(statsUavDesc,
-                                         m_clusterLightStatsUav);
-            if (!result)
-            {
-                return result;
-            }
-            if (m_bufferManager == nullptr)
-            {
-                return Result::fail(
-                    Code::InvalidState,
-                    Severity::Error,
-                    "ClusterLightCullingPass requires a buffer manager.");
-            }
-            result = m_bufferManager->get_readback_buffer_view(
-                m_clusterLightStatsBuffer,
-                m_clusterLightStatsReadbackView);
-            if (!result)
-            {
-                return result;
-            }
-
-            RHI::RootSignatureDesc rootSignatureDesc{};
-            rootSignatureDesc.name = "ClusterLightCullingRootSignature";
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::_32BitConstants,
-                 RHI::ShaderVisibility::All, 0});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::_32BitConstants,
-                 RHI::ShaderVisibility::All, 1});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::_32BitConstants,
-                 RHI::ShaderVisibility::All, 2});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::_32BitConstants,
-                 RHI::ShaderVisibility::All, 3});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 0});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::SRV, RHI::ShaderVisibility::All, 1});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 0});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 1});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 2});
-            rootSignatureDesc.parameters.push_back(
-                {RHI::RootParameterType::UAV, RHI::ShaderVisibility::All, 3});
-            result =
-                builder.create_root_signature(rootSignatureDesc,
-                                              m_rootSignature);
-            if (!result)
-            {
-                return result;
-            }
-
-            RHI::ShaderCompileDesc shaderDesc{};
-            shaderDesc.name = "ClusterLightCullingCS";
-            shaderDesc.filePath = "Shaders/D3D12/ClusterLightCulling.hlsl";
-            shaderDesc.entryPoint = "CSMain";
-            shaderDesc.targetProfile = "cs_6_0";
-            result = builder.create_shader_blob(shaderDesc, m_computeShader);
-            if (!result)
-            {
-                return result;
-            }
-
-            RHI::ComputePipelineStateDesc pipelineDesc{};
-            pipelineDesc.name = "ClusterLightCullingPipeline";
-            pipelineDesc.rootSignatureHandle = m_rootSignature;
-            pipelineDesc.csHandle = m_computeShader;
-            return builder.create_compute_pipeline(pipelineDesc, m_pipeline);
+            return create_finalize_pipeline(builder);
         }
 
         Result describe_resources(RHI::FrameGraphBuilder& builder) override
         {
-            Result result = Result::ok();
-            result = builder.use_buffer(
+            Result result = builder.use_buffer(
                 m_viewPointLightBuffer, RHI::ResourceAccessType::Read,
                 RHI::ResourceState::ShaderResource,
                 RHI::ResourceState::ShaderResource);
@@ -626,20 +519,10 @@ namespace Cue::DrawSystem
             {
                 return result;
             }
-            result = builder.use_buffer(
-                m_clusterLightItemCounterBuffer,
-                RHI::ResourceAccessType::Write,
-                RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::UnorderedAccess);
-            if (!result)
-            {
-                return result;
-            }
             return builder.use_buffer(
-                m_clusterLightStatsBuffer,
-                RHI::ResourceAccessType::Write,
+                m_candidateCountBuffer, RHI::ResourceAccessType::Write,
                 RHI::ResourceState::UnorderedAccess,
-                RHI::ResourceState::UnorderedAccess);
+                RHI::ResourceState::ShaderResource);
         }
 
         void execute(RHI::FrameGraphContext& context) override
@@ -650,102 +533,178 @@ namespace Cue::DrawSystem
                 return;
             }
 
-            // 前回この frame slot にコピーされた GPU stats を CPU 側へ反映する。
-            // render graph は waitForCompletion なので、この readback は安定している。
-            update_stats_from_readback(context.frame_index());
-
             const uint32_t clearValues[4] = {0u, 0u, 0u, 0u};
-
-            // counter/stats は frame ごとに再構築する。残値があると avg/max や
-            // compact buffer offset が破綻する。
             commandContext->clear_unordered_access_uint(
-                m_clusterLightItemCounterUav, clearValues);
-            commandContext->clear_unordered_access_uint(
-                m_clusterLightStatsUav, clearValues);
+                m_candidateCountUav, clearValues);
 
-            commandContext->set_compute_pipeline(m_pipeline);
+            // ClearUnorderedAccessView and the following dispatch both access
+            // this buffer as UAV. This RHI has no UAV-barrier primitive, so
+            // use real transitions to make the clear visible before atomics.
+            synchronize_uav(commandContext, m_candidateCountBuffer);
+
+            // Phase 1: one thread per light visits only the cluster-axis ranges
+            // overlapped by that light and appends directly to fixed ranges.
+            commandContext->set_compute_pipeline(m_candidatePipeline);
             commandContext->set_32bit_constant(0, m_clusterCount);
             commandContext->set_32bit_constant(1, m_pointLightCount);
-            commandContext->set_32bit_constant(2, m_maxClusterLightItems);
-            commandContext->set_32bit_constant(3, m_maxLightsPerCluster);
-            commandContext->set_srv(4, m_clusterBuffer);
-            commandContext->set_srv(5, m_viewPointLightBuffer);
-            commandContext->set_uav(6, m_clusterLightRangeBuffer);
-            commandContext->set_uav(7, m_clusterLightIndexBuffer);
-            commandContext->set_uav(8, m_clusterLightItemCounterBuffer);
-            commandContext->set_uav(9, m_clusterLightStatsBuffer);
-            commandContext->dispatch((m_clusterCount + 127u) / 128u, 1u, 1u);
+            commandContext->set_32bit_constant(2, m_tileCountX);
+            commandContext->set_32bit_constant(3, m_tileCountY);
+            commandContext->set_32bit_constant(4, m_depthSliceCount);
+            commandContext->set_32bit_constant(5, m_maxLightsPerCluster);
+            commandContext->set_srv(6, m_clusterBuffer);
+            commandContext->set_srv(7, m_viewPointLightBuffer);
+            commandContext->set_uav(8, m_candidateCountBuffer);
+            commandContext->set_uav(9, m_clusterLightIndexBuffer);
+            commandContext->dispatch((m_pointLightCount + 63u) / 64u,
+                                     1u, 1u);
 
-            // stats buffer は ImGui 表示用に CPU readback する。
-            // UAV 書き込み後なので CopySource へ遷移してから readback heap へコピーする。
+            // The finalize phase consumes the counters as SRV. A real state
+            // transition provides the required UAV write/read ordering because
+            // this RHI does not expose a separate UAV barrier command.
             commandContext->resource_barrier(
-                m_clusterLightStatsBuffer,
+                m_candidateCountBuffer,
                 RHI::ResourceBarrierDesc{
                     RHI::ResourceState::UnorderedAccess,
-                    RHI::ResourceState::CopySource});
+                    RHI::ResourceState::ShaderResource});
 
-            RHI::BufferToReadbackCopyRegion statsCopyRegion{};
-            statsCopyRegion.srcBufferHandle = m_clusterLightStatsBuffer;
-            statsCopyRegion.srcDefaultResourceIndex = 0u;
-            statsCopyRegion.srcByteOffset = 0u;
-            statsCopyRegion.dstBufferHandle = m_clusterLightStatsBuffer;
-            statsCopyRegion.dstReadbackResourceIndex = context.frame_index();
-            statsCopyRegion.dstByteOffset = 0u;
-            statsCopyRegion.byteSize =
-                sizeof(GpuData::ClusterLightingStatsGpu);
-            commandContext->copy_buffer_region_to_readback(statsCopyRegion);
-
-            // 後続 frame でも UAV として使うため、FrameGraph の final state と
-            // 実 resource state を揃えておく。
-            commandContext->resource_barrier(
-                m_clusterLightStatsBuffer,
-                RHI::ResourceBarrierDesc{
-                    RHI::ResourceState::CopySource,
-                    RHI::ResourceState::UnorderedAccess});
+            // Phase 2: publish the fixed range/count records consumed by the
+            // forward pixel shader.
+            commandContext->set_compute_pipeline(m_finalizePipeline);
+            commandContext->set_32bit_constant(0, m_clusterCount);
+            commandContext->set_32bit_constant(1, m_maxLightsPerCluster);
+            commandContext->set_srv(2, m_candidateCountBuffer);
+            commandContext->set_uav(3, m_clusterLightRangeBuffer);
+            commandContext->dispatch((m_clusterCount + 127u) / 128u,
+                                     1u, 1u);
         }
 
       private:
-        void update_stats_from_readback(uint32_t frameIndex) noexcept
+        static void synchronize_uav(RHI::ICommandContext* commandContext,
+                                    RHI::BufferHandle buffer)
         {
-            // GPU stats は 1 buffer に default/readback heap を併設している。
-            // frame index に対応する readback slot から構造体として読む。
-            if (m_statsOutput == nullptr ||
-                frameIndex >=
-                    m_clusterLightStatsReadbackView.mappedDatas.size())
-            {
-                return;
-            }
-
-            const std::byte* mappedData =
-                m_clusterLightStatsReadbackView.mappedDatas[frameIndex];
-            if (mappedData == nullptr)
-            {
-                return;
-            }
-
-            GpuData::ClusterLightingStatsGpu stats{};
-            std::memcpy(&stats, mappedData, sizeof(stats));
-            *m_statsOutput = stats;
+            commandContext->resource_barrier(
+                buffer,
+                RHI::ResourceBarrierDesc{
+                    RHI::ResourceState::UnorderedAccess,
+                    RHI::ResourceState::Common});
+            commandContext->resource_barrier(
+                buffer,
+                RHI::ResourceBarrierDesc{
+                    RHI::ResourceState::Common,
+                    RHI::ResourceState::UnorderedAccess});
         }
 
-        RHI::IBufferManager* m_bufferManager = nullptr;
-        GpuData::ClusterLightingStatsGpu* m_statsOutput = nullptr;
+        Result create_candidate_pipeline(RHI::FrameGraphBuilder& builder)
+        {
+            RHI::RootSignatureDesc rootSignatureDesc{};
+            rootSignatureDesc.name =
+                "ClusterLightCandidateRootSignature";
+            for (uint32_t shaderRegister = 0u; shaderRegister < 6u;
+                 ++shaderRegister)
+            {
+                rootSignatureDesc.parameters.push_back(
+                    {RHI::RootParameterType::_32BitConstants,
+                     RHI::ShaderVisibility::All, shaderRegister});
+            }
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::SRV,
+                 RHI::ShaderVisibility::All, 0});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::SRV,
+                 RHI::ShaderVisibility::All, 1});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::UAV,
+                 RHI::ShaderVisibility::All, 0});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::UAV,
+                 RHI::ShaderVisibility::All, 1});
+            Result result = builder.create_root_signature(
+                rootSignatureDesc, m_candidateRootSignature);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ShaderCompileDesc shaderDesc{};
+            shaderDesc.name = "ClusterLightBuildCandidatesCS";
+            shaderDesc.filePath =
+                "Shaders/D3D12/ClusterLightCulling.hlsl";
+            shaderDesc.entryPoint = "BuildCandidatesCS";
+            shaderDesc.targetProfile = "cs_6_0";
+            result = builder.create_shader_blob(
+                shaderDesc, m_candidateComputeShader);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ComputePipelineStateDesc pipelineDesc{};
+            pipelineDesc.name = "ClusterLightCandidatePipeline";
+            pipelineDesc.rootSignatureHandle = m_candidateRootSignature;
+            pipelineDesc.csHandle = m_candidateComputeShader;
+            return builder.create_compute_pipeline(
+                pipelineDesc, m_candidatePipeline);
+        }
+
+        Result create_finalize_pipeline(RHI::FrameGraphBuilder& builder)
+        {
+            RHI::RootSignatureDesc rootSignatureDesc{};
+            rootSignatureDesc.name =
+                "ClusterLightFinalizeRootSignature";
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::_32BitConstants,
+                 RHI::ShaderVisibility::All, 0});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::_32BitConstants,
+                 RHI::ShaderVisibility::All, 5});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::SRV,
+                 RHI::ShaderVisibility::All, 2});
+            rootSignatureDesc.parameters.push_back(
+                {RHI::RootParameterType::UAV,
+                 RHI::ShaderVisibility::All, 2});
+            Result result = builder.create_root_signature(
+                rootSignatureDesc, m_finalizeRootSignature);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ShaderCompileDesc shaderDesc{};
+            shaderDesc.name = "ClusterLightFinalizeClustersCS";
+            shaderDesc.filePath =
+                "Shaders/D3D12/ClusterLightCulling.hlsl";
+            shaderDesc.entryPoint = "FinalizeClustersCS";
+            shaderDesc.targetProfile = "cs_6_0";
+            result = builder.create_shader_blob(
+                shaderDesc, m_finalizeComputeShader);
+            if (!result)
+            {
+                return result;
+            }
+
+            RHI::ComputePipelineStateDesc pipelineDesc{};
+            pipelineDesc.name = "ClusterLightFinalizePipeline";
+            pipelineDesc.rootSignatureHandle = m_finalizeRootSignature;
+            pipelineDesc.csHandle = m_finalizeComputeShader;
+            return builder.create_compute_pipeline(
+                pipelineDesc, m_finalizePipeline);
+        }
+
         RHI::BufferHandle m_viewPointLightBuffer{};
         RHI::BufferHandle m_clusterBuffer{};
         RHI::BufferHandle m_clusterLightRangeBuffer{};
         RHI::BufferHandle m_clusterLightIndexBuffer{};
-        RHI::BufferHandle m_clusterLightItemCounterBuffer{};
-        RHI::BufferHandle m_clusterLightStatsBuffer{};
-        RHI::ViewHandle m_clusterLightItemCounterUav{};
-        RHI::ViewHandle m_clusterLightStatsUav{};
-        RHI::ReadbackBufferView m_clusterLightStatsReadbackView{};
-        RHI::RootSignatureHandle m_rootSignature{};
-        RHI::ShaderBlobHandle m_computeShader{};
-        RHI::PipelineStateHandle m_pipeline{};
+        RHI::BufferHandle m_candidateCountBuffer{};
+        RHI::ViewHandle m_candidateCountUav{};
+        RHI::RootSignatureHandle m_candidateRootSignature{};
+        RHI::RootSignatureHandle m_finalizeRootSignature{};
+        RHI::ShaderBlobHandle m_candidateComputeShader{};
+        RHI::ShaderBlobHandle m_finalizeComputeShader{};
+        RHI::PipelineStateHandle m_candidatePipeline{};
+        RHI::PipelineStateHandle m_finalizePipeline{};
         uint32_t m_maxPointLightCount = 0;
         uint32_t m_pointLightCount = 0;
-        uint32_t m_screenWidth = 0;
-        uint32_t m_screenHeight = 0;
         uint32_t m_tileCountX = 0;
         uint32_t m_tileCountY = 0;
         uint32_t m_depthSliceCount = 0;

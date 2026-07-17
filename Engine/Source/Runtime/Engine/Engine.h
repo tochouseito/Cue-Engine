@@ -26,7 +26,6 @@
 #include "DrawSystem/RenderFeatureSettings.h"
 #include "FrameController.h"
 #include "GpuData/Batching.h"
-#include "GpuData/ClusteredLighting.h"
 #include "GpuData/Transform.h"
 #include "GpuData/ViewProjection.h"
 #include "LightingSystem/GpuData/LightData.h"
@@ -34,6 +33,7 @@
 
 // === C++ includes ===
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -50,36 +50,6 @@ struct EngineSetupInfo final
     uint32_t maxPointLightCount = 64;
     bool enableDirectionalLight = true;
     std::unique_ptr<RHI::FrameGraphPass> rendererPass{};
-};
-
-struct EngineDebugStats final
-{
-    uint32_t totalObjects = 0;
-    uint32_t totalCells = 0;
-    uint32_t visibleCells = 0;
-    uint32_t visibleObjects = 0;
-    uint32_t occludedObjects = 0;
-    uint32_t frustumCulledObjects = 0;
-    uint32_t indirectDrawCount = 0;
-    uint32_t instanceCount = 0;
-    uint64_t submittedTriangleEstimate = 0;
-    uint64_t savedTriangleEstimate = 0;
-    uint32_t savedObjectEstimate = 0;
-    std::array<uint32_t, 5> lodObjectCounts{0, 0, 0, 0, 0};
-    uint32_t impostorCount = 0;
-    uint32_t occluderObjectCount = 0;
-    uint64_t occluderTriangleEstimate = 0;
-    bool occluderProxyEnabled = true;
-    bool hiZEnabled = true;
-    bool frustumCullingEnabled = true;
-    bool lodEnabled = true;
-    bool impostorEnabled = true;
-    bool directionalLightEnabled = true;
-    bool pointLightsEnabled = true;
-    uint32_t pointLightCount = 0;
-    GpuData::ClusterLightingStatsGpu clusterLightingStats{};
-    Math::float3 cameraPosition = Math::float3::zero();
-    uint32_t selectedDepthBin = 0;
 };
 
 class Engine final
@@ -120,9 +90,10 @@ class Engine final
     /// @brief DebugCamera など外部で作った ViewProjection を描画へ渡す
     Result set_view_projection(
         const GpuData::ViewProjectionGpu &a_viewProjection);
-    [[nodiscard]] EngineDebugStats debug_stats() const noexcept;
-    [[nodiscard]] RHI::FrameGraphExecutionStats render_execution_stats()
-        const noexcept;
+    [[nodiscard]] bool directional_light_enabled() const noexcept
+    {
+        return m_enableDirectionalLight;
+    }
     [[nodiscard]] DrawSystem::RenderComparisonMode render_comparison_mode()
         const noexcept;
     [[nodiscard]] const DrawSystem::RenderFeatureSettings&
@@ -175,6 +146,12 @@ class Engine final
     RHI::IRenderBackend *m_renderBackend =
         nullptr; // レンダーバックエンドの非所有ポインタ
 
+    // Upload heap への commit 完了を FrameGraph の static copy pass へ通知する。
+    // revision は全 slice の書き込み後に進めるため、copy pass は現在の slice から
+    // single default heap へ一度だけ転送すればよい。
+    std::atomic<uint64_t> m_staticDrawUploadRevision{0};
+    std::atomic<uint64_t> m_lightUploadRevision{0};
+
     std::unique_ptr<RHI::FrameGraph> m_frameGraph = nullptr;
     std::unique_ptr<RHI::FrameGraph> m_presentFrameGraph = nullptr;
 
@@ -211,6 +188,5 @@ class Engine final
     std::vector<GpuData::RenderCellGpu> m_renderCells{};
     std::vector<GpuData::ObjectTransformGpu> m_objectTransforms{};
     std::vector<GpuData::PointLightGpu> m_pointLights{};
-    EngineDebugStats m_debugStats{};
 };
 } // namespace Cue

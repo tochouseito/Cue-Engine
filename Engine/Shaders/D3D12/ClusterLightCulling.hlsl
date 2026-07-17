@@ -1,13 +1,13 @@
-// Optimized clustered point-light assignment.
-// Uses cluster AABBs from BuildClusterGrid and view-space lights from
-// PreparePointLights to build per-cluster light lists in a compact buffer.
+// Light-centric clustered point-light assignment.
+//
+// BuildCandidatesCS walks the small fixed cluster axes for each light, then
+// appends the light only to clusters whose AABB intersects the light sphere.
+// FinalizeClustersCS publishes the fixed per-cluster ranges consumed by the
+// forward pixel shader.
 
-#define GROUP_SIZE 128
-#define MAX_LIGHTS_PER_CLUSTER 128
+#define CANDIDATE_GROUP_SIZE 64
+#define FINALIZE_GROUP_SIZE 128
 
-// Point light converted ahead of time into ViewPointLightBuffer.
-// Cluster assignment compares against view-space AABBs, so only view-space
-// position and radius are needed here.
 struct ViewPointLight
 {
     float4 positionRadius;
@@ -26,46 +26,19 @@ struct Cluster
 
 struct ClusterLightRange
 {
-    // Start offset of the light list inside ClusterLightIndexBuffer.
-    // Clusters with identical light lists can share the same offset/count.
     uint offset;
     uint count;
-
-    // Fingerprint for list-sharing candidates.
-    // Hash alone is not enough in practice, so count/first/last light id narrow the match.
     uint hash;
     uint overflow;
 };
 
-// One thread handles one cluster, while the workgroup batch-loads lights into
-// shared memory. This scratch space avoids rereading the same light from global
-// memory once per cluster.
-groupshared ViewPointLight s_lights[GROUP_SIZE];
-groupshared uint s_hashes[GROUP_SIZE];
-groupshared uint s_starts[GROUP_SIZE];
-groupshared uint s_counts[GROUP_SIZE];
-groupshared uint s_overflows[GROUP_SIZE];
-groupshared uint s_firstLightIds[GROUP_SIZE];
-groupshared uint s_lastLightIds[GROUP_SIZE];
-
 StructuredBuffer<Cluster> g_clusters : register(t0);
 StructuredBuffer<ViewPointLight> g_viewPointLights : register(t1);
+ByteAddressBuffer g_candidateCountsRead : register(t2);
 
-RWStructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(u0);
+RWByteAddressBuffer g_candidateCounts : register(u0);
 RWStructuredBuffer<uint> g_clusterLightIndices : register(u1);
-RWByteAddressBuffer g_clusterLightItemCounter : register(u2);
-RWByteAddressBuffer g_clusterLightStats : register(u3);
-
-// Uint offsets into ClusterLightingStatsGpu.
-// GPU-side aggregation exposes how compact the cluster assignment is in ImGui.
-static const uint k_statClusterCount = 0u;
-static const uint k_statActiveClusterCount = 4u;
-static const uint k_statPointLightCount = 8u;
-static const uint k_statTotalClusterItems = 12u;
-static const uint k_statMaxLightsInCluster = 16u;
-static const uint k_statOverflowClusterCount = 20u;
-static const uint k_statEmptyClusterCount = 24u;
-static const uint k_statReusedListCount = 28u;
+RWStructuredBuffer<ClusterLightRange> g_clusterLightRanges : register(u2);
 
 cbuffer ClusterCountParam : register(b0)
 {
@@ -77,15 +50,30 @@ cbuffer PointLightCountParam : register(b1)
     uint g_pointLightCount;
 };
 
-cbuffer MaxClusterLightItemsParam : register(b2)
+cbuffer TileCountXParam : register(b2)
 {
-    uint g_maxClusterLightItems;
+    uint g_tileCountX;
 };
 
-cbuffer MaxLightsPerClusterParam : register(b3)
+cbuffer TileCountYParam : register(b3)
+{
+    uint g_tileCountY;
+};
+
+cbuffer DepthSliceCountParam : register(b4)
+{
+    uint g_depthSliceCount;
+};
+
+cbuffer MaxLightsPerClusterParam : register(b5)
 {
     uint g_maxLightsPerCluster;
 };
+
+uint cluster_index(uint tileX, uint tileY, uint sliceZ)
+{
+    return (sliceZ * g_tileCountY + tileY) * g_tileCountX + tileX;
+}
 
 bool sphere_intersects_aabb(float3 center, float radius, float3 minPoint,
                             float3 maxPoint)
@@ -95,227 +83,140 @@ bool sphere_intersects_aabb(float3 center, float radius, float3 minPoint,
     return dot(delta, delta) <= radius * radius;
 }
 
-uint hash_init()
+bool interval_intersects(float center, float radius, float minimum,
+                         float maximum)
 {
-    return 2166136261u;
+    return center + radius >= minimum && center - radius <= maximum;
 }
 
-uint hash_next(uint hash, uint value)
+[numthreads(CANDIDATE_GROUP_SIZE, 1, 1)]
+void BuildCandidatesCS(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    hash ^= value;
-    hash *= 16777619u;
-    return hash;
-}
-
-[numthreads(GROUP_SIZE, 1, 1)]
-void CSMain(uint3 groupId : SV_GroupID,
-            uint3 groupThreadId : SV_GroupThreadID)
-{
-    // Each cluster builds an index list of point lights that affect it.
-    // The forward PS evaluates only this list.
-    const uint localId = groupThreadId.x;
-    const uint clusterIndex = groupId.x * GROUP_SIZE + localId;
-
-    // Build this cluster's light list in private storage.
-    // Later, clusters with identical lists share one representative write to
-    // ClusterLightIndexBuffer to reduce buffer usage.
-    uint localLightIds[MAX_LIGHTS_PER_CLUSTER];
-    uint localLightCount = 0u;
-    uint overflow = 0u;
-    uint hash = hash_init();
-    uint firstLightId = 0xffffffffu;
-    uint lastLightId = 0xffffffffu;
-
-    Cluster cluster;
-    bool validCluster = clusterIndex < g_clusterCount;
-    if (validCluster)
+    const uint lightIndex = dispatchThreadId.x;
+    if (lightIndex >= g_pointLightCount || g_clusterCount == 0u ||
+        g_tileCountX == 0u || g_tileCountY == 0u ||
+        g_depthSliceCount == 0u || g_maxLightsPerCluster == 0u)
     {
-        cluster = g_clusters[clusterIndex];
-    }
-    else
-    {
-        cluster.minPoint = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        cluster.maxPoint = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        return;
     }
 
-    for (uint batchStart = 0u; batchStart < g_pointLightCount;
-         batchStart += GROUP_SIZE)
+    const ViewPointLight light = g_viewPointLights[lightIndex];
+    const float3 center = light.positionRadius.xyz;
+    const float radius = light.positionRadius.w;
+
+    // PreparePointLights writes radius zero for unused capacity slots.
+    if (radius <= 0.0f)
     {
-        // The 128 threads in the workgroup load 128 lights into shared memory.
-        // Each cluster thread intersects against the shared-memory lights.
-        const uint lightIndex = batchStart + localId;
-        if (lightIndex < g_pointLightCount)
+        return;
+    }
+
+    // Cluster AABB x bounds depend only on tileX/sliceZ and y bounds depend
+    // only on tileY/sliceZ. Scan those two short axes first, then run the same
+    // precise sphere/AABB test as the old cluster-centric implementation only
+    // for the resulting rectangle.
+    for (uint sliceZ = 0u; sliceZ < g_depthSliceCount; ++sliceZ)
+    {
+        const Cluster sliceCluster =
+            g_clusters[cluster_index(0u, 0u, sliceZ)];
+        if (!interval_intersects(center.z, radius,
+                                 sliceCluster.minPoint.z,
+                                 sliceCluster.maxPoint.z))
         {
-            s_lights[localId] = g_viewPointLights[lightIndex];
+            continue;
         }
 
-        // Ensure the batch load completes before any thread reads s_lights.
-        GroupMemoryBarrierWithGroupSync();
-
-        const uint batchCount = min(GROUP_SIZE, g_pointLightCount - batchStart);
-        if (validCluster)
+        uint minTileX = g_tileCountX;
+        uint maxTileX = 0u;
+        for (uint tileX = 0u; tileX < g_tileCountX; ++tileX)
         {
-            for (uint i = 0u; i < batchCount; ++i)
+            const Cluster axisCluster =
+                g_clusters[cluster_index(tileX, 0u, sliceZ)];
+            if (interval_intersects(center.x, radius,
+                                    axisCluster.minPoint.x,
+                                    axisCluster.maxPoint.x))
             {
-                const ViewPointLight light = s_lights[i];
+                minTileX = min(minTileX, tileX);
+                maxTileX = max(maxTileX, tileX);
+            }
+        }
+        if (minTileX == g_tileCountX)
+        {
+            continue;
+        }
 
-                // Intersect the light sphere with the cluster AABB.
-                // Only intersecting lights are evaluated by the pixel shader.
-                if (sphere_intersects_aabb(light.positionRadius.xyz,
-                                           light.positionRadius.w,
-                                           cluster.minPoint.xyz,
-                                           cluster.maxPoint.xyz))
+        uint minTileY = g_tileCountY;
+        uint maxTileY = 0u;
+        for (uint tileY = 0u; tileY < g_tileCountY; ++tileY)
+        {
+            const Cluster axisCluster =
+                g_clusters[cluster_index(0u, tileY, sliceZ)];
+            if (interval_intersects(center.y, radius,
+                                    axisCluster.minPoint.y,
+                                    axisCluster.maxPoint.y))
+            {
+                minTileY = min(minTileY, tileY);
+                maxTileY = max(maxTileY, tileY);
+            }
+        }
+        if (minTileY == g_tileCountY)
+        {
+            continue;
+        }
+
+        for (uint tileY = minTileY; tileY <= maxTileY; ++tileY)
+        {
+            for (uint tileX = minTileX; tileX <= maxTileX; ++tileX)
+            {
+                const uint clusterIndex =
+                    cluster_index(tileX, tileY, sliceZ);
+                if (clusterIndex >= g_clusterCount)
                 {
-                    if (localLightCount < MAX_LIGHTS_PER_CLUSTER &&
-                        localLightCount < g_maxLightsPerCluster)
-                    {
-                        localLightIds[localLightCount] = light.sourceIndex;
-                        if (localLightCount == 0u)
-                        {
-                            firstLightId = light.sourceIndex;
-                        }
-                        lastLightId = light.sourceIndex;
-                        ++localLightCount;
-                        hash = hash_next(hash, light.sourceIndex);
-                    }
-                    else
-                    {
-                        // The cluster exceeded its light limit.
-                        // Rendering continues with a clipped list, and stats expose the overflow.
-                        overflow = 1u;
-                    }
+                    continue;
+                }
+
+                const Cluster cluster = g_clusters[clusterIndex];
+                if (!sphere_intersects_aabb(center, radius,
+                                            cluster.minPoint.xyz,
+                                            cluster.maxPoint.xyz))
+                {
+                    continue;
+                }
+
+                uint candidateOffset = 0u;
+                g_candidateCounts.InterlockedAdd(
+                    clusterIndex * 4u, 1u, candidateOffset);
+                if (candidateOffset < g_maxLightsPerCluster)
+                {
+                    const uint outputIndex =
+                        clusterIndex * g_maxLightsPerCluster +
+                        candidateOffset;
+                    g_clusterLightIndices[outputIndex] = light.sourceIndex;
                 }
             }
         }
-
-        // Synchronize so the next batch write to s_lights cannot race with readers.
-        GroupMemoryBarrierWithGroupSync();
     }
+}
 
-    // Fold count into the hash to reduce accidental matches between empty lists
-    // and specific light sequences.
-    hash = hash_next(hash, localLightCount);
-
-    // Publish the fingerprint in shared memory so other threads can find matching lists.
-    // The private light list itself is not readable by other threads.
-    s_hashes[localId] = hash;
-    s_starts[localId] = 0u;
-    s_counts[localId] = localLightCount;
-    s_overflows[localId] = overflow;
-    s_firstLightIds[localId] = firstLightId;
-    s_lastLightIds[localId] = lastLightId;
-
-    GroupMemoryBarrierWithGroupSync();
-
-    if (groupId.x == 0u && localId == 0u)
+[numthreads(FINALIZE_GROUP_SIZE, 1, 1)]
+void FinalizeClustersCS(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint clusterIndex = dispatchThreadId.x;
+    if (clusterIndex >= g_clusterCount)
     {
-        // Point light count is pass-wide, so only one thread writes it.
-        g_clusterLightStats.Store(k_statPointLightCount, g_pointLightCount);
+        return;
     }
 
-    if (validCluster)
-    {
-        g_clusterLightStats.InterlockedAdd(k_statClusterCount, 1u);
-        g_clusterLightStats.InterlockedAdd(k_statTotalClusterItems,
-                                           localLightCount);
-        if (localLightCount > 0u)
-        {
-            g_clusterLightStats.InterlockedAdd(k_statActiveClusterCount, 1u);
-        }
-        else
-        {
-            g_clusterLightStats.InterlockedAdd(k_statEmptyClusterCount, 1u);
-        }
-        uint previousMax = 0u;
-        // Record the most populated cluster to judge cluster-grid granularity
-        // and maxLightsPerCluster.
-        g_clusterLightStats.InterlockedMax(k_statMaxLightsInCluster,
-                                           localLightCount,
-                                           previousMax);
-    }
+    const uint candidateCount =
+        g_candidateCountsRead.Load(clusterIndex * 4u);
+    const uint lightCount = min(candidateCount, g_maxLightsPerCluster);
 
-    uint firstLocalId = localId;
-    if (validCluster)
-    {
-        [loop]
-        for (uint i = 0u; i < GROUP_SIZE; ++i)
-        {
-            if (i > localId)
-            {
-                break;
-            }
+    ClusterLightRange range;
+    range.offset = clusterIndex * g_maxLightsPerCluster;
+    range.count = lightCount;
+    // Fixed ranges no longer need list-sharing fingerprints. Keeping a stable
+    // cluster-derived value preserves the existing debug-view color variation.
+    range.hash = clusterIndex * 16777619u;
+    range.overflow = candidateCount > g_maxLightsPerCluster ? 1u : 0u;
+    g_clusterLightRanges[clusterIndex] = range;
 
-            if (s_hashes[i] == hash &&
-                s_counts[i] == localLightCount &&
-                s_firstLightIds[i] == firstLightId &&
-                s_lastLightIds[i] == lastLightId)
-            {
-                // The first cluster with the same fingerprint becomes the representative.
-                // This thread reuses the representative offset/count.
-                firstLocalId = i;
-                break;
-            }
-            else if (s_hashes[i] == hash)
-            {
-                // Hash matched but count/first/last did not. Kept for GPU
-                // debugging by folding it into overflowClusterCount.
-                g_clusterLightStats.InterlockedAdd(
-                    k_statOverflowClusterCount, 1u);
-            }
-        }
-    }
-
-    if (validCluster && firstLocalId == localId)
-    {
-        uint start = 0u;
-
-        // Only representative clusters append their list to the compact index buffer.
-        // Non-representatives skip the write and reuse the same start/count.
-        g_clusterLightItemCounter.InterlockedAdd(0u, localLightCount, start);
-
-        if (start + localLightCount <= g_maxClusterLightItems)
-        {
-            for (uint i = 0u; i < localLightCount; ++i)
-            {
-                g_clusterLightIndices[start + i] = localLightIds[i];
-            }
-
-            s_starts[localId] = start;
-            s_counts[localId] = localLightCount;
-        }
-        else
-        {
-            // The compact buffer is full.
-            // Store an empty list to avoid out-of-range reads and expose capacity pressure in stats.
-            s_starts[localId] = 0u;
-            s_counts[localId] = 0u;
-            s_overflows[localId] = 1u;
-            g_clusterLightStats.InterlockedAdd(k_statOverflowClusterCount, 1u);
-        }
-
-        if (overflow != 0u)
-        {
-            g_clusterLightStats.InterlockedAdd(k_statOverflowClusterCount, 1u);
-        }
-    }
-    else if (validCluster)
-    {
-        // Non-representative clusters reuse an existing light-list write.
-        g_clusterLightStats.InterlockedAdd(k_statReusedListCount, 1u);
-    }
-
-    GroupMemoryBarrierWithGroupSync();
-
-    if (validCluster)
-    {
-        // Mapping from cluster to the light list read by the forward pass.
-        // offset/count identify the compact-buffer range; hash/overflow are debug data.
-        ClusterLightRange range;
-        range.offset = s_starts[firstLocalId];
-        range.count = s_counts[firstLocalId];
-        range.hash = hash;
-        range.overflow = s_overflows[firstLocalId];
-
-        g_clusterLightRanges[clusterIndex] = range;
-    }
 }

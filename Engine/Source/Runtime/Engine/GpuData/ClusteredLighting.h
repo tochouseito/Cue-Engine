@@ -22,8 +22,8 @@ namespace Cue::GpuData
 
     struct ClusterLightRangeGpu final
     {
-        // ClusterLightIndexBuffer 内の compact light list 参照。
-        // hash/overflow は list sharing と debug 表示のために保持する。
+        // ClusterLightIndexBuffer 内の固定 light list 参照。
+        // hash/overflow は clustered-lighting debug view が使用する。
         uint32_t offset = 0;
         uint32_t count = 0;
         uint32_t hash = 0;
@@ -42,18 +42,4 @@ namespace Cue::GpuData
         uint32_t padding2 = 0;
     };
 
-    struct ClusterLightingStatsGpu final
-    {
-        // ClusterLightCulling が GPU 上で集計し、readback して ImGui に表示する値。
-        // clustered lighting の grid 粒度、list compaction、overflow を評価する。
-        uint32_t clusterCount = 0;
-        uint32_t activeClusterCount = 0;
-        uint32_t pointLightCount = 0;
-        uint32_t totalClusterItems = 0;
-
-        uint32_t maxLightsInCluster = 0;
-        uint32_t overflowClusterCount = 0;
-        uint32_t emptyClusterCount = 0;
-        uint32_t reusedListCount = 0;
-    };
 } // namespace Cue::GpuData

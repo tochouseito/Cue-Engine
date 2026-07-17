@@ -59,7 +59,7 @@ namespace Cue::Renderer
         }
 
         m_yaw += input.gamepadLookX * m_gamepadLookSensitivity * input.deltaSeconds;
-        m_pitch -= input.gamepadLookY * m_gamepadLookSensitivity * input.deltaSeconds;
+        m_pitch += input.gamepadLookY * m_gamepadLookSensitivity * input.deltaSeconds;
         constexpr float k_pitchLimit =
             89.0f * DebugCameraConstants::k_pi / 180.0f;
         m_pitch = std::clamp(m_pitch, -k_pitchLimit, k_pitchLimit);
