@@ -36,6 +36,8 @@ ByteAddressBuffer g_renderObjectCount : register(t1);
 StructuredBuffer<uint> g_objectDrawModes : register(t2);
 StructuredBuffer<MeshRange> g_meshRanges : register(t3);
 RWByteAddressBuffer g_batchObjectCounts : register(u0);
+RWStructuredBuffer<uint> g_activeBatchIds : register(u1);
+RWByteAddressBuffer g_activeBatchCount : register(u2);
 
 cbuffer BatchParam : register(b0)
 {
@@ -97,9 +99,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (active)
     {
         const RenderObject renderObject = g_renderObjects[objectIndex];
+        const bool isVisibilityBatch =
+            g_batchFilterMode == kBatchFilterVisibility;
         active =
             renderObject.meshId < g_maxMeshCount &&
-            renderObject.materialId < g_maxMaterialCount &&
+            (isVisibilityBatch ||
+             renderObject.materialId < g_maxMaterialCount) &&
             renderObject.depthBin < g_depthBinCount;
         if (active && g_batchFilterMode == kBatchFilterVisibility)
         {
@@ -114,7 +119,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             batchId =
                 (renderObject.meshId * g_maxMaterialCount +
-                    renderObject.materialId) *
+                    (g_batchFilterMode == kBatchFilterVisibility
+                         ? 0u
+                         : renderObject.materialId)) *
                     g_depthBinCount +
                 renderObject.depthBin;
         }
@@ -142,6 +149,18 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             uint previousCount = 0u;
             g_batchObjectCounts.InterlockedAdd(
                 leaderBatchId * 4u, matchingCount, previousCount);
+            if (previousCount == 0u)
+            {
+                uint activeBatchIndex = 0u;
+                g_activeBatchCount.InterlockedAdd(
+                    0u, 1u, activeBatchIndex);
+                const uint maxBatchCount =
+                    g_maxMeshCount * g_maxMaterialCount * g_depthBinCount;
+                if (activeBatchIndex < maxBatchCount)
+                {
+                    g_activeBatchIds[activeBatchIndex] = leaderBatchId;
+                }
+            }
         }
 
         remaining = remaining && !matching;

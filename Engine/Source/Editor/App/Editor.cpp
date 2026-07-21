@@ -46,7 +46,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd,
 
 namespace {
 bool g_observerViewEnabled = false;
-bool g_controlObserverCamera = false;
 static constexpr uint64_t kPassTimingWarmupSamples = 120;
 
 [[nodiscard]] bool is_key_down(int virtualKey) noexcept {
@@ -969,7 +968,7 @@ private:
                   debugStats.cameraPosition.z);
       ImGui::Text("observer view: %s", g_observerViewEnabled ? "ON" : "OFF");
       ImGui::Text("camera control: %s",
-                  g_controlObserverCamera ? "observer" : "main/culling");
+                  g_observerViewEnabled ? "observer" : "main/culling");
       ImGui::Text("visible cells / total cells: %u / %u",
                   debugStats.visibleCells, debugStats.totalCells);
       ImGui::Text("selected depth bin: %u", debugStats.selectedDepthBin);
@@ -991,8 +990,7 @@ private:
       ImGui::BulletText("Space / Ctrl: move up / down");
       ImGui::BulletText("Shift: fast movement");
       ImGui::BulletText("Right mouse drag: look around");
-      ImGui::BulletText("C: toggle observer view");
-      ImGui::BulletText("Tab: switch main / observer camera");
+      ImGui::BulletText("C / Tab: switch main / observer camera");
       ImGui::BulletText("P: toggle render path");
       ImGui::BulletText("V: cycle render debug view");
       ImGui::BulletText("Mouse over this window: operate ImGui");
@@ -1295,20 +1293,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
 
     segmentBegin = TimingClock::now();
-    if (was_key_pressed('C')) {
+    const HWND editorWindowHandle = platform->get_window_handle();
+    const bool editorWindowFocused =
+        editorWindowHandle != nullptr &&
+        ::GetForegroundWindow() == editorWindowHandle;
+    if (editorWindowFocused &&
+        (was_key_pressed('C') || was_key_pressed(VK_TAB))) {
       g_observerViewEnabled = !g_observerViewEnabled;
     }
-    if (was_key_pressed(VK_TAB)) {
-      g_controlObserverCamera = !g_controlObserverCamera;
-      g_observerViewEnabled = g_controlObserverCamera;
-    }
-    if (was_key_pressed('V')) {
+    if (editorWindowFocused && was_key_pressed('V')) {
       engine->set_render_debug_view(
           next_render_debug_view(engine->render_debug_view()));
       Core::IO::log(Core::IO::LogSink::console, "Render debug view: {}",
                     render_debug_view_name(engine->render_debug_view()));
     }
-    if (was_key_pressed('P')) {
+    if (editorWindowFocused && was_key_pressed('P')) {
       const DrawSystem::RenderPath nextPath =
           engine->render_path() == DrawSystem::RenderPath::Forward
               ? DrawSystem::RenderPath::VisibilityBuffer
@@ -1319,8 +1318,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
 
     Editor::DebugCamera::Input cameraInput =
-        make_debug_camera_input(platform->get_window_handle(), deltaSeconds);
-    if (g_controlObserverCamera) {
+        make_debug_camera_input(editorWindowHandle, deltaSeconds);
+    if (g_observerViewEnabled) {
       observerCamera.update(cameraInput);
     } else {
       debugCamera.update(cameraInput);

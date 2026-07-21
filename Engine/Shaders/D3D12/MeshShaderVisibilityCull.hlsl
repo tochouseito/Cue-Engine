@@ -324,29 +324,6 @@ bool is_meshlet_occluded_by_hiz(float3 viewCenter, float radius)
     return true;
 }
 
-bool is_meshlet_visible(MeshletBounds bounds,
-                        Transform transform,
-                        float radiusScale)
-{
-    const float4 worldCenter =
-        mul(float4(bounds.center, 1.0f), transform.worldMatrix);
-    const float3 viewCenter = mul(worldCenter, g_viewMatrix).xyz;
-    if (!is_view_sphere_inside_frustum(viewCenter,
-                                       bounds.radius * radiusScale * 1.05f))
-    {
-        return false;
-    }
-    if (is_meshlet_backfacing(bounds, transform, radiusScale))
-    {
-        return false;
-    }
-    if (is_meshlet_occluded_by_hiz(viewCenter, bounds.radius * radiusScale))
-    {
-        return false;
-    }
-    return true;
-}
-
 bool is_meshlet_visible_with_stats(MeshletBounds bounds,
                                    Transform transform,
                                    float radiusScale)
@@ -401,6 +378,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         min(candidate.meshletCountAndSegmentCount & 0xffffu,
             kMaxMeshletsPerChunk);
     uint visibleSegmentCount = 0u;
+    uint visibleMeshletMask = 0u;
     [unroll]
     for (uint meshletOffset = 0u; meshletOffset < kMaxMeshletsPerChunk;
          ++meshletOffset)
@@ -419,6 +397,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             {
                 continue;
             }
+            visibleMeshletMask |= 1u << meshletOffset;
             visibleSegmentCount +=
                 (bounds.indexCount + kMaxOutputIndicesPerSegment - 1u) /
                 kMaxOutputIndicesPerSegment;
@@ -458,11 +437,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             continue;
         }
 
-        const MeshletBounds bounds = g_meshletBounds[meshletIndex];
-        if (!is_meshlet_visible(bounds, transform, radiusScale))
+        if ((visibleMeshletMask & (1u << meshletOffset)) == 0u)
         {
             continue;
         }
+        const MeshletBounds bounds = g_meshletBounds[meshletIndex];
         for (uint segmentStartIndex = 0u; segmentStartIndex < bounds.indexCount;
              segmentStartIndex += kMaxOutputIndicesPerSegment)
         {

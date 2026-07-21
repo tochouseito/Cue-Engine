@@ -133,6 +133,16 @@ cbuffer OcclusionParam : register(b12)
     uint g_occlusionEnabled;
 };
 
+cbuffer HybridMinMeshletParam : register(b13)
+{
+    uint g_hybridMinMeshletCount;
+};
+
+cbuffer HybridMinScreenRadiusParam : register(b14)
+{
+    float g_hybridMinScreenRadiusPx;
+};
+
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 ByteAddressBuffer g_visibleObjectCount : register(t2);
@@ -162,6 +172,15 @@ bool is_sphere_inside_plane(float4 plane, float3 center, float radius)
     const float signedDistance =
         (dot(plane.xyz, center) + plane.w) * invPlaneLength;
     return signedDistance >= -radius;
+}
+
+bool is_sphere_fully_inside_plane(float4 plane, float3 center, float radius)
+{
+    const float invPlaneLength =
+        rsqrt(max(dot(plane.xyz, plane.xyz), 0.000000000001f));
+    const float signedDistance =
+        (dot(plane.xyz, center) + plane.w) * invPlaneLength;
+    return signedDistance >= radius;
 }
 
 bool is_view_sphere_inside_frustum(float3 viewCenter, float radius)
@@ -210,6 +229,36 @@ bool is_view_sphere_inside_frustum(float3 viewCenter, float radius)
         return false;
     }
     return true;
+}
+
+bool is_view_sphere_fully_inside_frustum(float3 viewCenter, float radius)
+{
+    const float4 projectionColumn0 =
+        float4(g_projectionMatrix[0][0], g_projectionMatrix[1][0],
+               g_projectionMatrix[2][0], g_projectionMatrix[3][0]);
+    const float4 projectionColumn1 =
+        float4(g_projectionMatrix[0][1], g_projectionMatrix[1][1],
+               g_projectionMatrix[2][1], g_projectionMatrix[3][1]);
+    const float4 projectionColumn2 =
+        float4(g_projectionMatrix[0][2], g_projectionMatrix[1][2],
+               g_projectionMatrix[2][2], g_projectionMatrix[3][2]);
+    const float4 projectionColumn3 =
+        float4(g_projectionMatrix[0][3], g_projectionMatrix[1][3],
+               g_projectionMatrix[2][3], g_projectionMatrix[3][3]);
+
+    return
+        is_sphere_fully_inside_plane(
+            projectionColumn3 + projectionColumn0, viewCenter, radius) &&
+        is_sphere_fully_inside_plane(
+            projectionColumn3 - projectionColumn0, viewCenter, radius) &&
+        is_sphere_fully_inside_plane(
+            projectionColumn3 + projectionColumn1, viewCenter, radius) &&
+        is_sphere_fully_inside_plane(
+            projectionColumn3 - projectionColumn1, viewCenter, radius) &&
+        is_sphere_fully_inside_plane(
+            projectionColumn3 + projectionColumn2, viewCenter, radius) &&
+        is_sphere_fully_inside_plane(
+            projectionColumn3 - projectionColumn2, viewCenter, radius);
 }
 
 float transform_radius_scale(float4x4 worldMatrix)
@@ -383,6 +432,19 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         (renderObject.drawFlags & kDrawFlagImpostor) != 0u ||
         meshRange.indexCount == 0u ||
         meshRange.indexCount > kMaxPackedVisibilityIndexCount)
+    {
+        return;
+    }
+
+    const float4 objectViewCenter = mul(
+        float4(renderObject.boundsCenterRadius.xyz, 1.0f), g_viewMatrix);
+    const float objectRadius = renderObject.boundsCenterRadius.w;
+    const float objectScreenRadiusPx =
+        projected_screen_radius_px(objectRadius, objectViewCenter.z);
+    if (meshRange.meshletCount < g_hybridMinMeshletCount ||
+        objectScreenRadiusPx < g_hybridMinScreenRadiusPx ||
+        is_view_sphere_fully_inside_frustum(
+            objectViewCenter.xyz, objectRadius * 1.05f))
     {
         return;
     }

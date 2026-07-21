@@ -152,6 +152,8 @@ Result DX12GpuCommandContext::reset() {
                         "Failed to reset CommandList.");
   }
 
+  m_usesComputeRootBindings = false;
+
   return Result::ok();
 }
 Result DX12GpuCommandContext::close() {
@@ -934,6 +936,7 @@ DX12GpuCommandContext::set_graphics_pipeline(PipelineStateHandle handle) {
   m_commandList->SetGraphicsRootSignature(
       rootSignatureRecord->rootSignature.Get());
   m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
+  m_usesComputeRootBindings = false;
   return Result::ok();
 }
 Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle) {
@@ -961,6 +964,7 @@ Result DX12GpuCommandContext::set_compute_pipeline(PipelineStateHandle handle) {
   m_commandList->SetComputeRootSignature(
       rootSignatureRecord->rootSignature.Get());
   m_commandList->SetPipelineState(pipelineRecord->pipelineState.Get());
+  m_usesComputeRootBindings = true;
   return Result::ok();
 }
 Result DX12GpuCommandContext::set_32bit_constant(uint32_t rootParameterIndex,
@@ -972,7 +976,7 @@ Result DX12GpuCommandContext::set_32bit_constant(uint32_t rootParameterIndex,
     return result;
   }
 
-  if (type() == CommandListType::Graphics) {
+  if (type() == CommandListType::Graphics && !m_usesComputeRootBindings) {
     m_commandList->SetGraphicsRoot32BitConstant(rootParameterIndex, value, 0);
   } else {
     m_commandList->SetComputeRoot32BitConstant(rootParameterIndex, value, 0);
@@ -1001,7 +1005,7 @@ Result DX12GpuCommandContext::set_cbv(uint32_t rootParameterIndex,
                         "GPU virtual address for CBV buffer was not found.");
   }
 
-  if (type() == CommandListType::Graphics) {
+  if (type() == CommandListType::Graphics && !m_usesComputeRootBindings) {
     m_commandList->SetGraphicsRootConstantBufferView(rootParameterIndex,
                                                      gpuAddress);
   } else {
@@ -1032,7 +1036,7 @@ Result DX12GpuCommandContext::set_srv(uint32_t rootParameterIndex,
                         "GPU virtual address for SRV buffer was not found.");
   }
 
-  if (type() == CommandListType::Graphics) {
+  if (type() == CommandListType::Graphics && !m_usesComputeRootBindings) {
     m_commandList->SetGraphicsRootShaderResourceView(rootParameterIndex,
                                                      gpuAddress);
   } else {
@@ -1063,7 +1067,7 @@ Result DX12GpuCommandContext::set_uav(uint32_t rootParameterIndex,
                         "GPU virtual address for UAV buffer was not found.");
   }
 
-  if (type() == CommandListType::Graphics) {
+  if (type() == CommandListType::Graphics && !m_usesComputeRootBindings) {
     m_commandList->SetGraphicsRootUnorderedAccessView(rootParameterIndex,
                                                       gpuAddress);
   } else {
@@ -1155,7 +1159,7 @@ Result DX12GpuCommandContext::dispatch(uint32_t groupCountX,
   return Result::ok();
 }
 Result DX12GpuCommandContext::execute_dispatch_indirect(
-    BufferHandle commandBufferHandle) {
+    BufferHandle commandBufferHandle, uint64_t argumentBufferOffset) {
   Result typeResult = validate_root_binding_command_type(
       type(), "Dispatch indirect can only be issued on graphics or compute "
               "command contexts.");
@@ -1176,14 +1180,20 @@ Result DX12GpuCommandContext::execute_dispatch_indirect(
 
   DX12GpuResource *commandResource = nullptr;
   Result result =
-      resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+      resolve_frame_default_buffer(commandBufferHandle, &commandResource);
   if (!result) {
     return result;
   }
+  if (argumentBufferOffset + sizeof(IndirectDispatchCommand) >
+      commandResource->get_buffer_size()) {
+    return Result::fail(Code::InvalidArgument, Severity::Error,
+                        "Indirect dispatch argument range exceeds the command "
+                        "buffer size.");
+  }
 
   m_commandList->ExecuteIndirect(m_dispatchCommandSignature.Get(), 1,
-                                 commandResource->get_resource(), 0, nullptr,
-                                 0);
+                                 commandResource->get_resource(),
+                                 argumentBufferOffset, nullptr, 0);
   return Result::ok();
 }
 Result DX12GpuCommandContext::dispatch_mesh(uint32_t groupCountX,
@@ -1224,7 +1234,7 @@ Result DX12GpuCommandContext::execute_dispatch_mesh_indirect(
 
   DX12GpuResource *commandResource = nullptr;
   Result result =
-      resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+      resolve_frame_default_buffer(commandBufferHandle, &commandResource);
   if (!result) {
     return result;
   }
@@ -1364,7 +1374,7 @@ Result DX12GpuCommandContext::execute_instanced_indirect(
 
   DX12GpuResource *commandResource = nullptr;
   Result result =
-      resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+      resolve_frame_default_buffer(commandBufferHandle, &commandResource);
   if (!result) {
     return result;
   }
@@ -1389,14 +1399,14 @@ Result DX12GpuCommandContext::execute_indexed_indirect(
 
   DX12GpuResource *commandResource = nullptr;
   Result result =
-      resolve_default_buffer(commandBufferHandle, 0, &commandResource);
+      resolve_frame_default_buffer(commandBufferHandle, &commandResource);
   if (!result) {
     return result;
   }
 
   DX12GpuResource *commandCountResource = nullptr;
-  result = resolve_default_buffer(commandCountBufferHandle, 0,
-                                  &commandCountResource);
+  result = resolve_frame_default_buffer(commandCountBufferHandle,
+                                        &commandCountResource);
   if (!result) {
     return result;
   }
@@ -1677,6 +1687,25 @@ Result DX12GpuCommandContext::resolve_default_buffer(
   *outResource =
       const_cast<DX12GpuResource *>(&record->defaultResources[resourceIndex]);
   return Result::ok();
+}
+Result DX12GpuCommandContext::resolve_frame_default_buffer(
+    BufferHandle handle, DX12GpuResource **outResource) const {
+  *outResource = nullptr;
+
+  DX12BufferRecord *record = nullptr;
+  if (!m_bufferManager.try_get_record(handle, &record) || record == nullptr) {
+    return Result::fail(Code::NotFound, Severity::Error,
+                        "Default buffer record was not found.");
+  }
+
+  uint32_t resourceIndex = 0u;
+  Result result =
+      resolve_slice_index(record->defaultResources.size(), resourceIndex);
+  if (!result) {
+    return Result::fail(result.code, Severity::Error,
+                        "Failed to resolve the current default buffer slice.");
+  }
+  return resolve_default_buffer(handle, resourceIndex, outResource);
 }
 Result DX12GpuCommandContext::resolve_readback_buffer(
     BufferHandle handle, uint32_t resourceIndex,

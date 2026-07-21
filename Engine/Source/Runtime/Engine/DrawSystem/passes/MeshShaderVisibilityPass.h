@@ -29,6 +29,8 @@ static constexpr uint32_t k_maxMeshletVertexIndexCount =
     k_maxRangeIndexCount + k_maxMeshletCount * 2u;
 static constexpr uint32_t k_maxPositionCount = 8u * 1024u * 1024u;
 static constexpr uint32_t k_meshletsPerAmplificationGroup = 64u;
+static constexpr uint32_t k_hybridMinMeshletCount = 128u;
+static constexpr float k_hybridMinScreenRadiusPx = 64.0f;
 
 struct VisibleMeshlet final {
     uint32_t objectIndex = 0;
@@ -486,6 +488,12 @@ public:
     rootSignatureDesc.parameters.push_back(
         {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
          12});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         13});
+    rootSignatureDesc.parameters.push_back(
+        {RHI::RootParameterType::_32BitConstants, RHI::ShaderVisibility::All,
+         14});
     result = builder.create_root_signature(rootSignatureDesc, m_rootSignature);
     if (!result) {
       return result;
@@ -614,6 +622,10 @@ public:
     commandContext->set_32bit_constant(20, m_hizHeight);
     commandContext->set_32bit_constant(
         21, m_enableChunkHiZOcclusion && m_hasPreviousHiZ ? 1u : 0u);
+    commandContext->set_32bit_constant(
+        22, MeshShaderVisibility::k_hybridMinMeshletCount);
+    commandContext->set_32bit_constant(
+        23, float_to_uint32(MeshShaderVisibility::k_hybridMinScreenRadiusPx));
     commandContext->execute_dispatch_indirect(m_cullDispatchArgsBuffer);
     m_hasPreviousHiZ = true;
   }

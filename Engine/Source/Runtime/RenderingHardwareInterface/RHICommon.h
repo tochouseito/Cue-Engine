@@ -245,7 +245,8 @@ public:
   virtual Result dispatch(uint32_t groupCountX, uint32_t groupCountY,
                           uint32_t groupCountZ) = 0;
   virtual Result
-  execute_dispatch_indirect(BufferHandle commandBufferHandle) = 0;
+  execute_dispatch_indirect(BufferHandle commandBufferHandle,
+                            uint64_t argumentBufferOffset = 0u) = 0;
   virtual Result dispatch_mesh(uint32_t groupCountX, uint32_t groupCountY,
                                uint32_t groupCountZ) = 0;
   virtual Result

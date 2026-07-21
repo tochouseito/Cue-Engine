@@ -103,9 +103,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (active)
     {
         const RenderObject renderObject = g_renderObjects[objectIndex];
+        const bool isVisibilityBatch =
+            g_batchFilterMode == kBatchFilterVisibility;
         active =
             renderObject.meshId < g_maxMeshCount &&
-            renderObject.materialId < g_maxMaterialCount &&
+            (isVisibilityBatch ||
+             renderObject.materialId < g_maxMaterialCount) &&
             renderObject.depthBin < g_depthBinCount;
         if (active && g_batchFilterMode == kBatchFilterVisibility)
         {
@@ -120,7 +123,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             batchId =
                 (renderObject.meshId * g_maxMaterialCount +
-                    renderObject.materialId) *
+                    (g_batchFilterMode == kBatchFilterVisibility
+                         ? 0u
+                         : renderObject.materialId)) *
                     g_depthBinCount +
                 renderObject.depthBin;
         }

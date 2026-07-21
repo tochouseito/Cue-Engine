@@ -1,6 +1,8 @@
 // Visibility buffer pass.
 // Writes the visible render object index and mesh-local primitive id only.
 
+#include "GeneratedMeshletIndexCommon.hlsli"
+
 struct RenderObject
 {
     uint objectId;
@@ -146,8 +148,10 @@ VsOutput range_vs_main(VsInput input, uint instanceId : SV_InstanceID)
 
 VsOutput generated_vs_main(uint virtualVertexId : SV_VertexID)
 {
-    const uint visibleIndex = virtualVertexId / 64u;
-    const uint localVertexIndex = virtualVertexId % 64u;
+    const uint visibleIndex =
+        virtualVertexId / kGeneratedMaxVerticesPerMeshlet;
+    const uint localVertexIndex =
+        virtualVertexId % kGeneratedMaxVerticesPerMeshlet;
     const VisibleMeshlet visible = g_visibleMeshlets[visibleIndex];
     const MeshletBounds bounds = g_meshletBounds[visible.meshletIndex];
     const MeshRange meshRange = g_meshRanges[visible.meshId];

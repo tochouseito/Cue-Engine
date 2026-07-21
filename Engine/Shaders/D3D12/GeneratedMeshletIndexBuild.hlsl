@@ -1,3 +1,5 @@
+#include "GeneratedMeshletIndexCommon.hlsli"
+
 struct VisibleMeshlet
 {
     uint objectIndex;
@@ -20,14 +22,24 @@ struct MeshletBounds
     uint padding1;
 };
 
-cbuffer GeneratedMeshletIndexBuildConstants : register(b0)
+cbuffer GeneratedIndexCapacityParam : register(b0)
 {
     uint g_maxGeneratedIndexCount;
 };
 
-cbuffer GeneratedMeshletVisibleBuildConstants : register(b1)
+cbuffer VisibleMeshletCapacityParam : register(b1)
 {
     uint g_maxVisibleMeshletCount;
+};
+
+cbuffer PageStartParam : register(b2)
+{
+    uint g_pageStart;
+};
+
+cbuffer PageSegmentCapacityParam : register(b3)
+{
+    uint g_pageSegmentCapacity;
 };
 
 StructuredBuffer<VisibleMeshlet> g_visibleMeshlets : register(t0);
@@ -38,11 +50,13 @@ ByteAddressBuffer g_meshletLocalIndices : register(t3);
 RWByteAddressBuffer g_generatedIndices : register(u0);
 RWStructuredBuffer<uint> g_outputIndexOffsets : register(u1);
 RWByteAddressBuffer g_generatedCounters : register(u2);
+RWByteAddressBuffer g_state : register(u3);
 
 static const uint kVisibleMeshletCounterOffset = 0u;
 static const uint kGeneratedIndexCounterOffset = 0u;
 static const uint kGeneratedOverflowOffset = 4u;
-static const uint kMaxOutputIndicesPerSegment = 384u;
+groupshared uint g_groupOutputIndexOffset;
+groupshared uint g_groupSegmentIndexCount;
 
 uint load_local_index(uint byteOffset)
 {
@@ -52,27 +66,17 @@ uint load_local_index(uint byteOffset)
 }
 
 [numthreads(64, 1, 1)]
-void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
+void CSMain(uint3 groupId : SV_GroupID,
+            uint3 groupThreadId : SV_GroupThreadID)
 {
     const uint visibleCount =
         min(g_meshletCounters.Load(kVisibleMeshletCounterOffset),
             g_maxVisibleMeshletCount);
-    const uint visibleIndex = dispatchThreadId.x;
-    if (visibleIndex >= visibleCount)
+    const uint visibleIndex = g_pageStart + groupId.x;
+    if (g_state.Load(kGeneratedStateValidOffset) == 0u ||
+        groupId.x >= g_pageSegmentCapacity ||
+        visibleIndex >= visibleCount)
     {
-        return;
-    }
-
-    // Avoid partially filling the index buffer when the conservative upper
-    // bound cannot fit. Finalize observes the overflow flag and keeps the
-    // affected objects on the classic visibility path.
-    if (visibleCount >
-        g_maxGeneratedIndexCount / kMaxOutputIndicesPerSegment)
-    {
-        if (visibleIndex == 0u)
-        {
-            g_generatedCounters.InterlockedOr(kGeneratedOverflowOffset, 1u);
-        }
         return;
     }
 
@@ -83,28 +87,40 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             ? bounds.indexCount - visible.segmentStartIndex
             : 0u;
     const uint segmentIndexCount =
-        min(remainingIndexCount, kMaxOutputIndicesPerSegment) / 3u * 3u;
+        min(remainingIndexCount, kGeneratedMaxIndicesPerSegment) / 3u * 3u;
 
-    uint outputIndexOffset = 0u;
-    g_generatedCounters.InterlockedAdd(kGeneratedIndexCounterOffset,
-                                       segmentIndexCount, outputIndexOffset);
-    g_outputIndexOffsets[visibleIndex] = outputIndexOffset;
-
-    if (segmentIndexCount == 0u ||
-        outputIndexOffset > g_maxGeneratedIndexCount - segmentIndexCount)
+    if (groupThreadId.x == 0u)
     {
-        g_generatedCounters.InterlockedOr(kGeneratedOverflowOffset, 1u);
-        return;
+        uint outputIndexOffset = 0u;
+        g_generatedCounters.InterlockedAdd(kGeneratedIndexCounterOffset,
+                                           segmentIndexCount,
+                                           outputIndexOffset);
+        g_groupOutputIndexOffset = outputIndexOffset;
+        g_groupSegmentIndexCount = segmentIndexCount;
+        g_outputIndexOffsets[visibleIndex] = outputIndexOffset;
+
+        if (segmentIndexCount == 0u ||
+            outputIndexOffset >
+                g_maxGeneratedIndexCount - segmentIndexCount)
+        {
+            g_groupSegmentIndexCount = 0u;
+            g_generatedCounters.InterlockedOr(kGeneratedOverflowOffset, 1u);
+            g_state.InterlockedOr(kGeneratedStateOverflowOffset, 1u);
+        }
     }
+    GroupMemoryBarrierWithGroupSync();
 
     const uint localIndexByteOffset =
         bounds.padding0 + visible.segmentStartIndex;
-    const uint virtualVertexBase = visibleIndex * 64u;
-    for (uint indexOffset = 0u; indexOffset < segmentIndexCount; ++indexOffset)
+    const uint virtualVertexBase =
+        visibleIndex * kGeneratedMaxVerticesPerMeshlet;
+    for (uint indexOffset = groupThreadId.x;
+         indexOffset < g_groupSegmentIndexCount; indexOffset += 64u)
     {
         const uint localIndex =
             load_local_index(localIndexByteOffset + indexOffset);
-        g_generatedIndices.Store((outputIndexOffset + indexOffset) * 4u,
-                                 virtualVertexBase + localIndex);
+        g_generatedIndices.Store(
+            (g_groupOutputIndexOffset + indexOffset) * 4u,
+            virtualVertexBase + localIndex);
     }
 }

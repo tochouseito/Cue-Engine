@@ -108,7 +108,8 @@ public:
   Result set_graphics_texture_table(uint32_t rootParameterIndex) override;
   Result dispatch(uint32_t groupCountX, uint32_t groupCountY,
                   uint32_t groupCountZ) override;
-  Result execute_dispatch_indirect(BufferHandle commandBufferHandle) override;
+  Result execute_dispatch_indirect(BufferHandle commandBufferHandle,
+                                   uint64_t argumentBufferOffset = 0u) override;
   Result dispatch_mesh(uint32_t groupCountX, uint32_t groupCountY,
                        uint32_t groupCountZ) override;
   Result execute_dispatch_mesh_indirect(BufferHandle commandBufferHandle) override;
@@ -149,6 +150,8 @@ private:
                                DX12GpuResource **outResource) const;
   Result resolve_default_buffer(BufferHandle handle, uint32_t resourceIndex,
                                 DX12GpuResource **outResource) const;
+  Result resolve_frame_default_buffer(BufferHandle handle,
+                                      DX12GpuResource **outResource) const;
   Result resolve_readback_buffer(BufferHandle handle, uint32_t resourceIndex,
                                  DX12GpuResource **outResource) const;
 
@@ -170,6 +173,7 @@ private:
   ComPtr<ID3D12Resource> m_timestampReadbackBuffer = nullptr;
   std::byte *m_timestampReadbackMappedData = nullptr;
   CommandListType m_type = CommandListType::Graphics;
+  bool m_usesComputeRootBindings = false;
   uint32_t m_frameIndex =
       0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
   uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数

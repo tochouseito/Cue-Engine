@@ -25,6 +25,8 @@ struct IndirectCommand
 
 ByteAddressBuffer g_batchObjectCounts : register(t0);
 StructuredBuffer<MeshRange> g_meshRanges : register(t1);
+StructuredBuffer<uint> g_activeBatchIds : register(t2);
+ByteAddressBuffer g_activeBatchCount : register(t3);
 
 RWByteAddressBuffer g_batchObjectStarts : register(u0);
 RWByteAddressBuffer g_batchWriteOffsets : register(u1);
@@ -118,55 +120,43 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     g_batchStats.Store(kStatsOverflowCount, 0u);
 
     uint runningOffset = 0u;
-    for (uint batchId = 0u; batchId < g_maxBatchCount; ++batchId)
+    const uint activeBatchCount =
+        min(g_activeBatchCount.Load(0u), g_maxBatchCount);
+    for (uint activeBatchIndex = 0u;
+         activeBatchIndex < activeBatchCount;
+         ++activeBatchIndex)
     {
+        const uint batchId = g_activeBatchIds[activeBatchIndex];
+        if (batchId >= g_maxBatchCount)
+        {
+            continue;
+        }
         const uint instanceCount = g_batchObjectCounts.Load(batchId * 4u);
         g_batchObjectStarts.Store(batchId * 4u, runningOffset);
         g_batchWriteOffsets.Store(batchId * 4u, runningOffset);
         runningOffset += instanceCount;
-    }
-
-    const uint meshCount =
-        g_maxBatchCount / max(1u, g_maxMaterialCount * g_depthBinCount);
-    for (uint depthBin = 0u; depthBin < g_depthBinCount; ++depthBin)
-    {
-        for (uint meshId = 0u; meshId < meshCount; ++meshId)
+        if (instanceCount == 0u)
         {
-            for (uint materialId = 0u; materialId < g_maxMaterialCount;
-                 ++materialId)
-            {
-                const uint batchId =
-                    (meshId * g_maxMaterialCount + materialId) *
-                        g_depthBinCount +
-                    depthBin;
-                if (batchId >= g_maxBatchCount)
-                {
-                    return;
-                }
-
-                const uint instanceCount =
-                    g_batchObjectCounts.Load(batchId * 4u);
-                if (instanceCount == 0u)
-                {
-                    continue;
-                }
-
-                const MeshRange meshRange = g_meshRanges[meshId];
-                const uint indexCount = g_useRangeIndexStream != 0u
-                    ? meshRange.rangeIndexCount
-                    : meshRange.indexCount;
-                const uint startIndex = g_useRangeIndexStream != 0u
-                    ? meshRange.rangeStartIndex
-                    : meshRange.startIndex;
-                if (indexCount == 0u)
-                {
-                    continue;
-                }
-
-                const uint batchStart = g_batchObjectStarts.Load(batchId * 4u);
-                emit_command(batchStart, instanceCount, indexCount, startIndex,
-                             meshRange.baseVertex);
-            }
+            continue;
         }
+
+        const uint batchStride =
+            max(1u, g_maxMaterialCount * g_depthBinCount);
+        const uint meshId = batchId / batchStride;
+        const MeshRange meshRange = g_meshRanges[meshId];
+        const uint indexCount = g_useRangeIndexStream != 0u
+            ? meshRange.rangeIndexCount
+            : meshRange.indexCount;
+        const uint startIndex = g_useRangeIndexStream != 0u
+            ? meshRange.rangeStartIndex
+            : meshRange.startIndex;
+        if (indexCount == 0u)
+        {
+            continue;
+        }
+
+        const uint batchStart = g_batchObjectStarts.Load(batchId * 4u);
+        emit_command(batchStart, instanceCount, indexCount, startIndex,
+                     meshRange.baseVertex);
     }
 }
