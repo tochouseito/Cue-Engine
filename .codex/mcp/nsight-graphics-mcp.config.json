@@ -1,0 +1,51 @@
+{
+  "workspaceRoot": "C:/Users/sinse/source/repos/CueEngineDevRef",
+  "captureDirectory": "captures/nsight",
+  "captureToolPath": "C:/Program Files/NVIDIA Corporation/Nsight Graphics 2026.2.0/host/windows-desktop-nomad-x64/ngfx-capture.exe",
+  "replayToolPath": "C:/Program Files/NVIDIA Corporation/Nsight Graphics 2026.2.0/host/windows-desktop-nomad-x64/ngfx-replay.exe",
+  "captureArgsTemplate": [
+    "--exe",
+    "{exe}",
+    "--working-dir",
+    "{workingDir}",
+    "--args",
+    "{args}",
+    "--output-file",
+    "{capturePath}",
+    "--capture-frame",
+    "{frame}",
+    "--frame-count",
+    "1",
+    "--no-block-on-interfering-application",
+    "--terminate-after-capture"
+  ],
+  "replayArgsTemplate": [
+    "--loop-count",
+    "{loopCount}",
+    "{capturePath}"
+  ],
+  "exportReportArgsTemplate": [
+    "--perf-report-dir",
+    "{outputDir}",
+    "{capturePath}"
+  ],
+  "targets": {
+    "Editor": {
+      "exePath": "generated/outputs/Editor/Debug/Editor.exe",
+      "extraArgs": []
+    },
+    "EditorRelease": {
+      "exePath": "generated/outputs/Editor/Release/Editor.exe",
+      "extraArgs": []
+    },
+    "RendererRelease": {
+      "exePath": "generated/outputs/Renderer/Release/Renderer.exe",
+      "extraArgs": []
+    }
+  },
+  "scenes": [
+    "GpuDrivenDemo"
+  ],
+  "timeoutSec": 300,
+  "maxFrame": 600
+}

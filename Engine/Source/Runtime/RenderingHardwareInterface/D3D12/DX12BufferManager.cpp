@@ -7,6 +7,11 @@ namespace Cue::RHI::DX12
         [[nodiscard]] D3D12_RESOURCE_FLAGS get_default_buffer_resource_flags(const BufferDesc& desc) noexcept
         {
             // UAV と raw buffer は resource 作成時点で unordered access 許可が必要になる。
+            if (desc.allowsUnorderedAccess)
+            {
+                return D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            }
+
             switch (desc.type)
             {
             case BufferType::UnorderedAccess:

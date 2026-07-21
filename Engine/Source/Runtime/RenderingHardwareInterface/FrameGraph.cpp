@@ -497,22 +497,30 @@ Result FrameGraph::rebuild(uint32_t a_width, uint32_t a_height) {
 
 Result FrameGraph::execute(uint32_t frameIndex) {
   using Clock = std::chrono::steady_clock;
-  // 実行統計は execute()
-  // 中に逐次更新されるため、コピー取得と競合しないようにする。
-  std::lock_guard statsLock(m_executionStatsMutex);
   const bool isProfilingEnabled = m_desc.enableProfiling;
+  // profiling 時は passStats へのポインタを execute() 中に保持するため、
+  // stats コピーと競合しないように実行中だけロックする。
+  std::unique_lock statsLock(m_executionStatsMutex, std::defer_lock);
+  if (isProfilingEnabled) {
+    statsLock.lock();
+  }
   auto ms_since = [](const Clock::time_point &a_start,
                      const Clock::time_point &a_end) {
     return std::chrono::duration<double, std::milli>(a_end - a_start).count();
   };
 
-  const Clock::time_point executeStartTime = Clock::now();
+  Clock::time_point executeStartTime{};
+  if (isProfilingEnabled) {
+    executeStartTime = Clock::now();
+  }
   const uint64_t executeCount = ++m_executeCount;
-  const uint32_t passTimingLogInterval =
-      (std::max)(m_desc.passTimingLogInterval, 1u);
-  const bool shouldLogPassTiming =
-      m_desc.enablePassTimingLog &&
-      ((executeCount % static_cast<uint64_t>(passTimingLogInterval)) == 0u);
+  bool shouldLogPassTiming = false;
+  if (m_desc.enablePassTimingLog) {
+    const uint32_t passTimingLogInterval =
+        (std::max)(m_desc.passTimingLogInterval, 1u);
+    shouldLogPassTiming =
+        (executeCount % static_cast<uint64_t>(passTimingLogInterval)) == 0u;
+  }
   double queueWaitMs = 0.0;
   double interQueueWaitMs = 0.0;
   double finalQueueWaitMs = 0.0;
@@ -520,20 +528,29 @@ Result FrameGraph::execute(uint32_t frameIndex) {
   double finalGraphicsWaitMs = 0.0;
   double finalComputeWaitMs = 0.0;
   double finalCopyWaitMs = 0.0;
-  m_executionStats.passStats.clear();
+  uint64_t graphicsFenceValue = 0;
+  uint64_t computeFenceValue = 0;
+  uint64_t copyFenceValue = 0;
   if (isProfilingEnabled) {
+    m_executionStats.passStats.clear();
     m_executionStats.passStats.reserve(m_passes.size());
+    m_executionStats.graphicsFenceValue = 0;
+    m_executionStats.computeFenceValue = 0;
+    m_executionStats.copyFenceValue = 0;
   }
-  m_executionStats.graphicsFenceValue = 0;
-  m_executionStats.computeFenceValue = 0;
-  m_executionStats.copyFenceValue = 0;
   std::vector<PendingGpuTiming> pendingGpuTimings{};
   if (isProfilingEnabled) {
     pendingGpuTimings.reserve(m_passes.size());
   }
   std::unordered_map<QueueKey, QueueExecutionState, QueueKeyHasher> queues{};
   std::vector<commandContextLease> stagedCommandContexts{};
-  stagedCommandContexts.reserve(m_passes.size());
+  stagedCommandContexts.reserve(m_executionPlan.size());
+  std::vector<uint32_t> activePassIndices{};
+  activePassIndices.reserve(m_passes.size());
+  std::vector<ICommandContext *> commandContextPointers{};
+  commandContextPointers.reserve(1);
+  std::vector<FrameGraphExecutionStats::PassExecutionStats *> batchPassStats{};
+  batchPassStats.reserve(m_passes.size());
   std::unordered_map<QueueKey, SubmittedQueueFence, QueueKeyHasher>
       currentExecuteFences{};
 
@@ -544,7 +561,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
         continue;
       }
 
-      const Clock::time_point waitStartTime = Clock::now();
+      Clock::time_point waitStartTime{};
+      if (isProfilingEnabled) {
+        waitStartTime = Clock::now();
+      }
       Result waitResult =
           submittedFence.queue->wait_for_fence(submittedFence.fenceValue);
       if (!waitResult) {
@@ -586,7 +606,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
         continue;
       }
 
-      const Clock::time_point waitStartTime = Clock::now();
+      Clock::time_point waitStartTime{};
+      if (isProfilingEnabled) {
+        waitStartTime = Clock::now();
+      }
       Result waitResult =
           submittedFence.queue->wait_for_fence(submittedFence.fenceValue);
       if (!waitResult) {
@@ -654,7 +677,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
   auto return_all_command_contexts = [&]() {
     for (commandContextLease &commandContext : stagedCommandContexts) {
       if (commandContext) {
-        const Clock::time_point recycleStartTime = Clock::now();
+        Clock::time_point recycleStartTime{};
+        if (isProfilingEnabled) {
+          recycleStartTime = Clock::now();
+        }
         m_desc.commandPool->return_command_context(commandContext);
         if (isProfilingEnabled) {
           contextRecycleWaitMs += ms_since(recycleStartTime, Clock::now());
@@ -676,21 +702,9 @@ Result FrameGraph::execute(uint32_t frameIndex) {
 
   for (const QueueBatchInfo &batch : m_executionPlan) {
     // batch は同じ queue に投げられるパスのまとまり。
-    // batch 内の各パスは個別の command context に記録し、最後にまとめて submit
-    // する。
-    const QueueKey batchQueueKey = queue_key(batch);
-    Result queueResult = ensure_queue(batchQueueKey);
-    if (!queueResult) {
-      return_all_command_contexts();
-      return_all_queue_contexts();
-      return queueResult;
-    }
-
-    std::vector<ICommandContext *> commandContextPointers{};
-    commandContextPointers.reserve(batch.passIndices.size());
-    std::vector<FrameGraphExecutionStats::PassExecutionStats *>
-        batchPassStats{};
-    batchPassStats.reserve(batch.passIndices.size());
+    // batch 内の有効なパスは 1 つの command context に順番に記録する。
+    // パス境界は event marker と timestamp query で維持する。
+    activePassIndices.clear();
     for (uint32_t passIndex : batch.passIndices) {
       if (passIndex >= m_passes.size()) {
         return_all_command_contexts();
@@ -700,10 +714,96 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       }
 
       CompiledPass &compiledPass = m_passes[passIndex];
-      if (!compiledPass.pass->is_enabled(frameIndex)) {
-        continue;
+      if (compiledPass.pass->is_enabled(frameIndex)) {
+        activePassIndices.push_back(passIndex);
       }
-      const Clock::time_point passWallStartTime = Clock::now();
+    }
+    if (activePassIndices.empty()) {
+      continue;
+    }
+
+    const QueueKey batchQueueKey = queue_key(batch);
+    Result queueResult = ensure_queue(batchQueueKey);
+    if (!queueResult) {
+      return_all_command_contexts();
+      return_all_queue_contexts();
+      return queueResult;
+    }
+
+    commandContextPointers.clear();
+    batchPassStats.clear();
+    if (isProfilingEnabled) {
+      for (uint32_t passIndex : activePassIndices) {
+        CompiledPass &compiledPass = m_passes[passIndex];
+        m_executionStats.passStats.push_back(
+            FrameGraphExecutionStats::PassExecutionStats{
+                compiledPass.pass->name(), compiledPass.pass->type(),
+                compiledPass.pass->queue_lane()});
+        batchPassStats.push_back(&m_executionStats.passStats.back());
+      }
+    }
+
+    commandContextLease commandContext{};
+    Clock::time_point acquireStartTime{};
+    if (isProfilingEnabled) {
+      acquireStartTime = Clock::now();
+    }
+    Result result =
+        m_desc.commandPool->get_command_context(batch.queueType, commandContext);
+    if (!result) {
+      return_all_command_contexts();
+      return_all_queue_contexts();
+      return Result::fail(
+          result.code, Severity::Error,
+          "Failed to get command context for frame graph batch.");
+    }
+
+    result = commandContext->reset();
+    if (!result) {
+      m_desc.commandPool->return_command_context(commandContext);
+      return_all_command_contexts();
+      return_all_queue_contexts();
+      return Result::fail(
+          result.code, Severity::Error,
+          "Failed to reset command context for frame graph batch.");
+    }
+
+    result = commandContext->setup(frameIndex, m_bufferCount);
+    if (!result) {
+      m_desc.commandPool->return_command_context(commandContext);
+      return_all_command_contexts();
+      return_all_queue_contexts();
+      return Result::fail(
+          result.code, Severity::Error,
+          "Failed to setup command context for frame graph batch.");
+    }
+    if (!batchPassStats.empty()) {
+      const double acquireResetSetupMs =
+          ms_since(acquireStartTime, Clock::now()) /
+          static_cast<double>(batchPassStats.size());
+      for (FrameGraphExecutionStats::PassExecutionStats *passStats :
+           batchPassStats) {
+        if (passStats != nullptr) {
+          passStats->acquireResetSetupMs = acquireResetSetupMs;
+        }
+      }
+    }
+
+    constexpr uint32_t kTimestampQueriesPerPass = 2u;
+    const uint32_t requiredTimestampQueryCount =
+        static_cast<uint32_t>(activePassIndices.size()) *
+        kTimestampQueriesPerPass;
+    const bool supportsTimestamps =
+        isProfilingEnabled && m_desc.waitForCompletion &&
+        commandContext->supports_timestamps() &&
+        requiredTimestampQueryCount <=
+            commandContext->max_timestamp_query_count();
+    uint32_t nextTimestampQueryIndex = 0;
+
+    for (size_t activeIndex = 0; activeIndex < activePassIndices.size();
+         ++activeIndex) {
+      const uint32_t passIndex = activePassIndices[activeIndex];
+      CompiledPass &compiledPass = m_passes[passIndex];
       if (shouldLogPassTiming) {
         Core::IO::log(Core::IO::LogSink::file,
                       "[PassTimingBegin] execute={} frameIndex={} passIndex={} "
@@ -712,51 +812,14 @@ Result FrameGraph::execute(uint32_t frameIndex) {
                       compiledPass.pass->name(),
                       command_queue_name(compiledPass.pass->type()));
       }
-      FrameGraphExecutionStats::PassExecutionStats *passStats = nullptr;
+      FrameGraphExecutionStats::PassExecutionStats *passStats =
+          activeIndex < batchPassStats.size() ? batchPassStats[activeIndex]
+                                              : nullptr;
+
+      Clock::time_point preBarrierStartTime{};
       if (isProfilingEnabled) {
-        m_executionStats.passStats.push_back(
-            FrameGraphExecutionStats::PassExecutionStats{
-                compiledPass.pass->name(), compiledPass.pass->type(),
-                compiledPass.pass->queue_lane()});
-        passStats = &m_executionStats.passStats.back();
+        preBarrierStartTime = Clock::now();
       }
-      commandContextLease commandContext{};
-      const Clock::time_point acquireStartTime = Clock::now();
-      Result result = m_desc.commandPool->get_command_context(
-          compiledPass.pass->type(), commandContext);
-      if (!result) {
-        return_all_command_contexts();
-        return_all_queue_contexts();
-        return Result::fail(
-            result.code, Severity::Error,
-            "Failed to get command context for frame graph batch.");
-      }
-
-      result = commandContext->reset();
-      if (!result) {
-        m_desc.commandPool->return_command_context(commandContext);
-        return_all_command_contexts();
-        return_all_queue_contexts();
-        return Result::fail(
-            result.code, Severity::Error,
-            "Failed to reset command context for frame graph batch.");
-      }
-
-      result = commandContext->setup(frameIndex, m_bufferCount);
-      if (!result) {
-        m_desc.commandPool->return_command_context(commandContext);
-        return_all_command_contexts();
-        return_all_queue_contexts();
-        return Result::fail(
-            result.code, Severity::Error,
-            "Failed to setup command context for frame graph batch.");
-      }
-      if (passStats != nullptr) {
-        passStats->acquireResetSetupMs =
-            ms_since(acquireStartTime, Clock::now());
-      }
-
-      const Clock::time_point preBarrierStartTime = Clock::now();
       // パスが要求した state へ遷移してから execute() に渡す。
       // ここでは before state を追跡せず、RHI 側の barrier 実装に委ねている。
       for (const ResourceAccess &access :
@@ -787,14 +850,14 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       FrameGraphContext context{
           FrameGraphContextDesc{m_desc.width, m_desc.height, frameIndex,
                                 commandContext.get(), passStats}};
-      const Clock::time_point passExecuteStartTime = Clock::now();
-      // GPU 時間は timestamp 対応かつ完了待ちを行う場合だけ取得できる。
-      // 完了待ちしないフレームでは、ここで読み戻しても値が確定しない。
-      const bool supportsTimestamps = isProfilingEnabled &&
-                                      m_desc.waitForCompletion &&
-                                      commandContext->supports_timestamps();
+      Clock::time_point passExecuteStartTime{};
+      if (isProfilingEnabled) {
+        passExecuteStartTime = Clock::now();
+      }
+      const uint32_t startTimestampQueryIndex = nextTimestampQueryIndex;
+      const uint32_t endTimestampQueryIndex = startTimestampQueryIndex + 1u;
       if (supportsTimestamps) {
-        result = commandContext->write_timestamp(0);
+        result = commandContext->write_timestamp(startTimestampQueryIndex);
         if (!result) {
           m_desc.commandPool->return_command_context(commandContext);
           return_all_command_contexts();
@@ -808,7 +871,7 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       compiledPass.pass->execute(context);
       commandContext->end_event();
       if (supportsTimestamps) {
-        result = commandContext->write_timestamp(1);
+        result = commandContext->write_timestamp(endTimestampQueryIndex);
         if (!result) {
           m_desc.commandPool->return_command_context(commandContext);
           return_all_command_contexts();
@@ -817,12 +880,20 @@ Result FrameGraph::execute(uint32_t frameIndex) {
               result.code, Severity::Error,
               "Failed to write end timestamp for frame graph pass.");
         }
+        pendingGpuTimings.push_back(
+            PendingGpuTiming{commandContext.get(), batchQueueKey, passStats,
+                             startTimestampQueryIndex,
+                             endTimestampQueryIndex});
+        nextTimestampQueryIndex += kTimestampQueriesPerPass;
       }
       if (passStats != nullptr) {
         passStats->cpuExecuteMs = ms_since(passExecuteStartTime, Clock::now());
       }
 
-      const Clock::time_point postBarrierStartTime = Clock::now();
+      Clock::time_point postBarrierStartTime{};
+      if (isProfilingEnabled) {
+        postBarrierStartTime = Clock::now();
+      }
       // パス後に公開したい state が requiredState と違う場合だけ戻す。
       // 後続パスの requiredState は、そのパス直前の barrier で改めて満たす。
       for (const ResourceAccess &access :
@@ -853,33 +924,58 @@ Result FrameGraph::execute(uint32_t frameIndex) {
       if (passStats != nullptr) {
         passStats->postBarrierMs = ms_since(postBarrierStartTime, Clock::now());
       }
+    }
 
-      if (supportsTimestamps) {
-        result = commandContext->resolve_timestamps(0, 2);
-        if (!result) {
-          m_desc.commandPool->return_command_context(commandContext);
-          return_all_command_contexts();
-          return_all_queue_contexts();
-          return Result::fail(
-              result.code, Severity::Error,
-              "Failed to resolve timestamps for frame graph pass.");
-        }
-      }
-
-      const Clock::time_point closeStartTime = Clock::now();
-      result = commandContext->close();
+    if (supportsTimestamps && nextTimestampQueryIndex > 0) {
+      result = commandContext->resolve_timestamps(0, nextTimestampQueryIndex);
       if (!result) {
         m_desc.commandPool->return_command_context(commandContext);
         return_all_command_contexts();
         return_all_queue_contexts();
         return Result::fail(
             result.code, Severity::Error,
-            "Failed to close command context for frame graph batch.");
+            "Failed to resolve timestamps for frame graph batch.");
       }
-      if (passStats != nullptr) {
-        passStats->closeMs = ms_since(closeStartTime, Clock::now());
+    }
+
+    Clock::time_point closeStartTime{};
+    if (isProfilingEnabled) {
+      closeStartTime = Clock::now();
+    }
+    result = commandContext->close();
+    if (!result) {
+      m_desc.commandPool->return_command_context(commandContext);
+      return_all_command_contexts();
+      return_all_queue_contexts();
+      return Result::fail(
+          result.code, Severity::Error,
+          "Failed to close command context for frame graph batch.");
+    }
+    if (!batchPassStats.empty()) {
+      const double closeMs = ms_since(closeStartTime, Clock::now()) /
+                             static_cast<double>(batchPassStats.size());
+      for (FrameGraphExecutionStats::PassExecutionStats *passStats :
+           batchPassStats) {
+        if (passStats != nullptr) {
+          passStats->closeMs = closeMs;
+        }
       }
-      if (shouldLogPassTiming) {
+    }
+
+    if (shouldLogPassTiming) {
+      for (size_t activeIndex = 0; activeIndex < activePassIndices.size();
+           ++activeIndex) {
+        const uint32_t passIndex = activePassIndices[activeIndex];
+        CompiledPass &compiledPass = m_passes[passIndex];
+        FrameGraphExecutionStats::PassExecutionStats *passStats =
+            activeIndex < batchPassStats.size() ? batchPassStats[activeIndex]
+                                                : nullptr;
+        const double totalCpuMs =
+            passStats != nullptr
+                ? passStats->acquireResetSetupMs + passStats->preBarrierMs +
+                      passStats->cpuExecuteMs + passStats->postBarrierMs +
+                      passStats->closeMs
+                : 0.0;
         Core::IO::log(
             Core::IO::LogSink::file,
             "[PassTimingEnd] execute={} frameIndex={} passIndex={} "
@@ -887,25 +983,17 @@ Result FrameGraph::execute(uint32_t frameIndex) {
             "acquireResetSetupMs={:.3f} preBarrierMs={:.3f} "
             "executeCpuMs={:.3f} postBarrierMs={:.3f} closeMs={:.3f}",
             executeCount, frameIndex, passIndex, compiledPass.pass->name(),
-            command_queue_name(compiledPass.pass->type()),
-            ms_since(passWallStartTime, Clock::now()),
+            command_queue_name(compiledPass.pass->type()), totalCpuMs,
             passStats != nullptr ? passStats->acquireResetSetupMs : 0.0,
             passStats != nullptr ? passStats->preBarrierMs : 0.0,
             passStats != nullptr ? passStats->cpuExecuteMs : 0.0,
             passStats != nullptr ? passStats->postBarrierMs : 0.0,
             passStats != nullptr ? passStats->closeMs : 0.0);
       }
-
-      commandContextPointers.push_back(commandContext.get());
-      if (supportsTimestamps) {
-        pendingGpuTimings.push_back(PendingGpuTiming{
-            commandContext.get(), batchQueueKey, passStats, 0, 1});
-      }
-      stagedCommandContexts.push_back(std::move(commandContext));
-      if (passStats != nullptr) {
-        batchPassStats.push_back(passStats);
-      }
     }
+
+    commandContextPointers.push_back(commandContext.get());
+    stagedCommandContexts.push_back(std::move(commandContext));
 
     QueueExecutionState &queueState = queues.at(batchQueueKey);
     // 別 queue の producer batch がある場合は、submit 前に queue 間 wait
@@ -921,8 +1009,13 @@ Result FrameGraph::execute(uint32_t frameIndex) {
 
       const QueueBatchInfo &producerBatch = m_executionPlan[waitBatchIndex];
       const QueueKey producerQueueKey = queue_key(producerBatch);
-      QueueExecutionState &producerQueueState =
-          queues.at(producerQueueKey);
+      auto producerQueueIt = queues.find(producerQueueKey);
+      if (producerQueueIt == queues.end() ||
+          !producerQueueIt->second.submitted) {
+        continue;
+      }
+
+      QueueExecutionState &producerQueueState = producerQueueIt->second;
       if (producerQueueState.queue == nullptr || queueState.queue == nullptr) {
         return_all_command_contexts();
         return_all_queue_contexts();
@@ -930,7 +1023,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
                             "FrameGraph queue state is not initialized.");
       }
 
-      const Clock::time_point waitStartTime = Clock::now();
+      Clock::time_point waitStartTime{};
+      if (isProfilingEnabled) {
+        waitStartTime = Clock::now();
+      }
       Result waitResult =
           queueState.queue->wait_for_queue(*producerQueueState.queue);
       if (!waitResult) {
@@ -950,7 +1046,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
 
     // batch 内で有効だったパスの command list を同じ queue へまとめて submit
     // する。
-    const Clock::time_point submitStartTime = Clock::now();
+    Clock::time_point submitStartTime{};
+    if (isProfilingEnabled) {
+      submitStartTime = Clock::now();
+    }
     Result submitResult = queueState.queue->submit(commandContextPointers);
     if (!submitResult) {
       return_all_command_contexts();
@@ -962,7 +1061,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
     const double submitExecuteListsMs =
         isProfilingEnabled ? ms_since(submitStartTime, Clock::now()) : 0.0;
 
-    const Clock::time_point signalStartTime = Clock::now();
+    Clock::time_point signalStartTime{};
+    if (isProfilingEnabled) {
+      signalStartTime = Clock::now();
+    }
     uint64_t signaledFenceValue = 0;
     // submit 後に queue を signal し、command context
     // がいつ再利用可能かを記録する。
@@ -991,13 +1093,13 @@ Result FrameGraph::execute(uint32_t frameIndex) {
 
     switch (batch.queueType) {
     case CommandListType::Graphics:
-      m_executionStats.graphicsFenceValue = signaledFenceValue;
+      graphicsFenceValue = signaledFenceValue;
       break;
     case CommandListType::Compute:
-      m_executionStats.computeFenceValue = signaledFenceValue;
+      computeFenceValue = signaledFenceValue;
       break;
     case CommandListType::Copy:
-      m_executionStats.copyFenceValue = signaledFenceValue;
+      copyFenceValue = signaledFenceValue;
       break;
     default:
       break;
@@ -1039,7 +1141,10 @@ Result FrameGraph::execute(uint32_t frameIndex) {
         continue;
       }
 
-      const Clock::time_point waitStartTime = Clock::now();
+      Clock::time_point waitStartTime{};
+      if (isProfilingEnabled) {
+        waitStartTime = Clock::now();
+      }
       const uint64_t fenceValue = queueState.fenceValue;
 
       Result waitResult = queueState.queue->wait_for_fence(fenceValue);
@@ -1140,12 +1245,17 @@ Result FrameGraph::execute(uint32_t frameIndex) {
     m_executionStats.finalGraphicsWaitMs = finalGraphicsWaitMs;
     m_executionStats.finalComputeWaitMs = finalComputeWaitMs;
     m_executionStats.finalCopyWaitMs = finalCopyWaitMs;
+    m_executionStats.graphicsFenceValue = graphicsFenceValue;
+    m_executionStats.computeFenceValue = computeFenceValue;
+    m_executionStats.copyFenceValue = copyFenceValue;
     m_executionStats.submitMs =
         m_executionStats.totalExecuteMs - m_executionStats.queueWaitMs;
     if (m_executionStats.submitMs < 0.0) {
       m_executionStats.submitMs = 0.0;
     }
   } else {
+    std::lock_guard lock(m_executionStatsMutex);
+    m_executionStats.passStats.clear();
     m_executionStats.totalExecuteMs = 0.0;
     m_executionStats.submitMs = 0.0;
     m_executionStats.queueWaitMs = 0.0;
@@ -1155,9 +1265,16 @@ Result FrameGraph::execute(uint32_t frameIndex) {
     m_executionStats.finalGraphicsWaitMs = 0.0;
     m_executionStats.finalComputeWaitMs = 0.0;
     m_executionStats.finalCopyWaitMs = 0.0;
+    m_executionStats.graphicsFenceValue = graphicsFenceValue;
+    m_executionStats.computeFenceValue = computeFenceValue;
+    m_executionStats.copyFenceValue = copyFenceValue;
+    m_executionStats.hasGpuFrameMs = false;
+    m_executionStats.gpuFrameMs = 0.0;
   }
-  m_executionStats.hasGpuFrameMs = false;
-  m_executionStats.gpuFrameMs = 0.0;
+  if (isProfilingEnabled) {
+    m_executionStats.hasGpuFrameMs = false;
+    m_executionStats.gpuFrameMs = 0.0;
+  }
   return Result::ok();
 }
 

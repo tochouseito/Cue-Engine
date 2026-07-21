@@ -192,6 +192,7 @@ public:
   virtual CommandListType type() const = 0;
   virtual void *native_command_list() const = 0;
   virtual bool supports_timestamps() const = 0;
+  virtual uint32_t max_timestamp_query_count() const = 0;
   virtual Result write_timestamp(uint32_t queryIndex) = 0;
   virtual Result resolve_timestamps(uint32_t firstQueryIndex,
                                     uint32_t queryCount) = 0;

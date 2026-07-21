@@ -47,6 +47,9 @@ public:
   CommandListType type() const override;
   void *native_command_list() const override { return m_commandList.Get(); }
   bool supports_timestamps() const override;
+  uint32_t max_timestamp_query_count() const override {
+    return k_maxTimestampQueryCount;
+  }
   Result write_timestamp(uint32_t queryIndex) override;
   Result resolve_timestamps(uint32_t firstQueryIndex,
                             uint32_t queryCount) override;
@@ -170,7 +173,7 @@ private:
   uint32_t m_frameIndex =
       0; // コマンドコンテキストが属するフレームのインデックス（リングバッファ管理用）
   uint32_t m_bufferCount = 1; // フレームリング全体のバッファ数
-  static constexpr uint32_t k_maxTimestampQueryCount = 64;
+  static constexpr uint32_t k_maxTimestampQueryCount = 256;
   ComPtr<ID3D12Fence> m_pendingFence = nullptr;
   uint64_t m_pendingFenceValue = 0;
 };

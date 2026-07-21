@@ -34,6 +34,7 @@ namespace Cue::RHI
         uint32_t uploadHeapCount = 0; // アップロードヒープの数（アップロードが必要な場合は1以上）
         uint32_t readbackHeapCount = 0; // GPU から CPU へ読み戻すヒープ数
         ResourceState initialState = ResourceState::Common;
+        bool allowsUnorderedAccess = false; // Index buffer などを UAV 兼用する場合に指定する
         uint32_t stride = 0; // StructuredBufferの要素サイズなど、リソースのインスタンスごとのサイズ
         uint32_t elementCount = 0; // StructuredBufferの要素数など、リソースのインスタンスごとの要素数
         uint32_t size = 0; // バッファ全体のサイズ（stride * インスタンス数など）

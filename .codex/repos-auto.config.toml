@@ -1,0 +1,327 @@
+# ~/.codex/config.toml
+#
+# CueEngine 開発向けの推奨 Codex 設定。
+# 方針:
+# - profile は使わず、常用設定を1つにまとめる。
+# - 自作 MCP は常時 enabled にする。
+# - MCP tool approval はすべて approve にする。
+# - これにより MCP tool 実行時の確認を出さない。
+# - GitHub MCP は read-only で起動する。
+
+# 使用するメインモデル。
+# CueEngine のような C++ / DirectX12 / 設計判断が多い作業では高性能モデルを使う。
+model = "gpt-5.5"
+
+# /review やレビュー系タスクで使うモデル。
+# 実装モデルと揃えて、設計/実装/レビューの判断品質を落とさない。
+review_model = "gpt-5.5"
+
+# 推論の深さ。
+# high は普段の実装・設計レビュー・DirectX12調査向け。
+# 軽い命名変更だけなら medium でもよいが、profileなし運用なので high に固定。
+model_reasoning_effort = "high"
+
+# 推論要約の表示方針。
+# auto は Codex 側が必要に応じて要約を出す。
+model_reasoning_summary = "auto"
+
+# ファイル操作のサンドボックス。
+# workspace-write は workspace 内を書き込み可能にし、それ以外を制限する。
+sandbox_mode = "workspace-write"
+
+# 承認ポリシー。
+# on-request は必要な外部実行や権限操作を明示的に確認しやすい。
+approval_policy = "on-request"
+
+# AGENTS.md などのプロジェクト指示ファイルの最大読み込み量。
+# デフォルト32KiBでは、CueEngineの設計ルールが増えると不足しやすい。
+project_doc_max_bytes = 65536
+
+# AGENTS.md 以外に、指示ファイルとして扱う候補。
+# 深い docs 配下のルールは AGENTS.md から明示的に読ませる方が確実。
+project_doc_fallback_filenames = ["AGENTS.md", "CODEX.md"]
+
+[history]
+# 会話履歴を保存する。
+# 別セッションでの再開、過去作業の参照に使う。
+persistence = "save-all"
+
+[features]
+# ローカル画像を確認するための view_image tool を有効化する。
+# PIX / Nsight / Editor screenshot の確認に使える。
+view_image_tool = true
+
+# Web検索要求。
+# 通常は Context7 / GitHub MCP / 公式URL確認で十分なので false。
+# ただし、Codex/OpenAIや最新仕様の確認では、明示的にWeb確認が必要になる場合がある。
+# 現在はデフォルトでON
+
+# Codex memories を有効化する。
+# 安定した好み、技術スタック、既知の落とし穴の補助記憶として使う。
+# 必ず守るルールは memories ではなく AGENTS.md / docs に置く。
+memories = true
+
+[sandbox_workspace_write]
+# MCPを常時ONにするため network_access は true。
+# Context7 / GitHub MCP / Serena bootstrap がネットワークを必要とする可能性がある。
+# ただし、ネットワークが不要な運用に切り替えるなら false の方が安全。
+network_access = true
+
+# Codex が書き込み可能な追加ルート。
+# repos-auto では C:\Users\sinse\source\repos 配下を信頼済みとして扱う。
+writable_roots = [
+  "C:\\Users\\sinse\\source\\repos",
+  "C:\\Users\\sinse\\AppData\\Local\\Temp",
+]
+
+# --- Existing / general MCP --------------------------------------------------
+
+[mcp_servers.serena]
+# Serena はコードベース検索・参照用。
+# 普段のコード調査では最優先で使う。
+enabled = true
+
+# uvx 経由で Serena MCP server を起動する。
+command = "uvx"
+
+# Serena の起動引数。
+# --context codex は Codex向けの文脈で起動する指定。
+args = [
+  "--from", "git+https://github.com/oraios/serena",
+  "serena", "start-mcp-server", "--context", "codex"
+]
+
+# MCP起動の待ち時間。
+# 初回や依存取得時に遅くなるため 60 秒にする。
+startup_timeout_sec = 60
+
+# Serena tool の最大実行時間。
+# 大規模コードベース検索で時間がかかるため 180 秒。
+tool_timeout_sec = 180
+
+# Serena の全 tool を確認なしで許可する。
+# rename_symbol / replace_in_files / safe_delete_symbol などの編集系も含む。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.serena.tools.initial_instructions]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.get_current_config]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.activate_project]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.find_symbol]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.find_declaration]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.find_implementations]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.find_referencing_symbols]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.get_symbols_overview]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.search_for_pattern]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.get_diagnostics_for_file]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.list_memories]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.read_memory]
+approval_mode = "approve"
+
+[mcp_servers.context7]
+# Context7 は外部ライブラリ/APIの最新ドキュメント取得用。
+# CMake、ImGui、meshoptimizer などの確認に使う。
+enabled = true
+
+# Context7 のリモート MCP endpoint。
+url = "https://mcp.context7.com/mcp"
+
+# Context7 API key を環境変数からHTTPヘッダーへ渡す。
+# CONTEXT7_API_KEY は config.toml に直書きしない。
+env_http_headers = { "CONTEXT7_API_KEY" = "CONTEXT7_API_KEY" }
+
+# リモートMCPなので起動待ちは短め。
+startup_timeout_sec = 20
+
+# ドキュメント検索は長時間化しにくいので 60 秒。
+tool_timeout_sec = 60
+
+# Context7 は基本的に読み取り系なので approve。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.github]
+# GitHub MCP は GitHub Issue / PR / remote repository 状態確認用。
+# ローカル git 操作の代替ではない。
+enabled = false
+
+# GitHub公式 MCP server のローカル実行ファイル。
+# 実際の配置場所に合わせて変更する。
+command = "C:\\Tools\\github-mcp-server\\github-mcp-server.exe"
+
+# stdio transport で起動し、read-only mode にする。
+# read-only により Issue/PR/Repo 変更系 tool を抑制する。
+args = ["stdio", "--read-only"]
+
+# GitHub Personal Access Token は環境変数から読む。
+# config.toml に token を直書きしない。
+env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+
+# 有効化するGitHub toolsetを絞る。
+# all は絶対に使わない。
+env = { GITHUB_TOOLSETS = "context,repos,issues,pull_requests" }
+
+# ローカル実行なので起動待ちは 20 秒。
+startup_timeout_sec = 20
+
+# PR/Issue読み取りは少し時間がかかる可能性があるので 120 秒。
+tool_timeout_sec = 120
+
+# GitHub MCP の全 tool を確認なしで許可する。
+# 現在 enabled = false なので、有効化する場合は実行ファイルとtool表示を先に確認する。
+default_tools_approval_mode = "approve"
+
+# --- Cue custom MCP ----------------------------------------------------------
+
+[mcp_servers.cue_memory]
+# CueMemory MCP は複数PC・別セッションで共有したい文脈を扱う。
+# ルールの保証ではなく、補助記憶として使う。
+enabled = true
+
+# Node.js でビルド済みMCPを起動する。
+command = "node"
+
+# cue-memory-mcp の固定エントリポイント。
+args = ["C:/Users/sinse/source/repos/cue-memory-mcp/dist/index.js"]
+
+# CueEngineDevRef project profile を含む memory root を明示する。
+env = { CUE_MEMORY_MCP_CONFIG = "C:/Users/sinse/source/repos/CueEngineDevRef/.codex/mcp/cue-memory-mcp.config.json" }
+
+# 起動待ち。
+startup_timeout_sec = 20
+
+# 記憶検索・取得は軽い想定なので 60 秒。
+tool_timeout_sec = 60
+
+# CueMemory MCP の全 tool を確認なしで許可する。
+# memory_upsert も確認なしになる。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.cue_engine]
+# CueEngine MCP は CueEngine のビルド、実行、ログ収集、シーン一覧などを扱う。
+enabled = true
+
+# Node.js でビルド済みMCPを起動する。
+command = "node"
+
+# cue-engine-mcp の固定エントリポイント。
+args = ["C:/Users/sinse/source/repos/cue-engine-mcp/dist/index.js"]
+
+# CueEngineDevRef の preset / target / log directory allowlist を明示する。
+env = { CUE_ENGINE_MCP_CONFIG = "C:/Users/sinse/source/repos/CueEngineDevRef/.codex/mcp/cue-engine-mcp.config.json" }
+
+# 起動待ち。
+startup_timeout_sec = 20
+
+# ビルドやデモ起動は時間がかかるため 180 秒。
+tool_timeout_sec = 180
+
+# CueEngine MCP の全 tool を確認なしで許可する。
+# build_cue_engine / run_demo も確認なしになる。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.pix]
+# PIX MCP は PIX capture / event export / render target extraction 用。
+# GPU調査が明示されたときだけ使う。
+enabled = true
+
+# Node.js でビルド済みMCPを起動する。
+command = "node"
+
+# pix-mcp の固定エントリポイント。
+args = ["C:/Users/sinse/source/repos/pix-mcp/dist/index.js"]
+
+# Installed PIX 2603.25 の pixtool.exe と CueEngineDevRef target を明示する。
+env = { PIX_MCP_CONFIG = "C:/Users/sinse/source/repos/CueEngineDevRef/.codex/mcp/pix-mcp.config.json" }
+
+# 起動待ち。
+startup_timeout_sec = 20
+
+# capture/export は長くなるため 300 秒。
+tool_timeout_sec = 300
+
+# PIX MCP の全 tool を確認なしで許可する。
+# pix_capture も確認なしになる。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.nsight_graphics]
+# Nsight Graphics MCP は NVIDIA Nsight Graphics capture / replay / report 用。
+# NVIDIA GPU側の解析が明示されたときだけ使う。
+enabled = true
+
+# Node.js でビルド済みMCPを起動する。
+command = "node"
+
+# nsight-graphics-mcp の固定エントリポイント。
+args = ["C:/Users/sinse/source/repos/nsight-graphics-mcp/dist/index.js"]
+
+# Installed Nsight Graphics 2026.2.0 の capture/replay CLI と CueEngineDevRef target を明示する。
+env = { NSIGHT_GRAPHICS_MCP_CONFIG = "C:/Users/sinse/source/repos/CueEngineDevRef/.codex/mcp/nsight-graphics-mcp.config.json" }
+
+# 起動待ち。
+startup_timeout_sec = 20
+
+# capture/replay/report は長くなるため 300 秒。
+tool_timeout_sec = 300
+
+# Nsight Graphics MCP の全 tool を確認なしで許可する。
+# nsight_capture / nsight_replay も確認なしになる。
+default_tools_approval_mode = "approve"
+
+[mcp_servers.cue_editor]
+# CueEditor MCP は起動中CueEditorの状態確認・限定操作用。
+# Scene mutation や保存を安易に許さない。
+enabled = true
+
+# Node.js でビルド済みMCPを起動する。
+command = "node"
+
+# cue-editor-mcp の固定エントリポイント。
+args = ["C:/Users/sinse/source/repos/cue-editor-mcp/dist/index.js"]
+
+# 起動待ち。
+startup_timeout_sec = 20
+
+# Editor状態取得やスクショは中程度なので 60 秒。
+tool_timeout_sec = 60
+
+# CueEditor MCP の全 tool を確認なしで許可する。
+# select_entity / set_debug_view / set_playback_state も確認なしになる。
+default_tools_approval_mode = "approve"
+
+# サブエージェント全体の実行上限。
+# ここでは「使える数・深さ・実行時間」だけを決める。
+# どのエージェントをいつ呼ぶかは AGENTS.md とユーザー指示で制御する。
+
+[agents]
+# 同時に走らせるサブエージェント数。
+# CueEngineでは explorer / reviewer / bug / oss を並列に使う可能性があるため 4。
+max_threads = 4
+
+# サブエージェントがさらにサブエージェントを呼ぶ深さ。
+# まずは暴走防止のため 1 推奨。
+max_depth = 1
+
+# 1ジョブあたりの最大実行時間。
+# 大規模調査やOSS解析を考えて20分。
+job_max_runtime_seconds = 1200

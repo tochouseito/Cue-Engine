@@ -34,6 +34,41 @@ struct VsOutput
     float4 position : SV_POSITION;
     nointerpolation uint renderObjectIndex : TEXCOORD0;
     nointerpolation uint primitiveBase : TEXCOORD1;
+    nointerpolation uint outputPrimitiveBase : TEXCOORD2;
+};
+
+struct MeshRange
+{
+    uint indexCount;
+    uint startIndex;
+    int baseVertex;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint rangeStartIndex;
+    uint rangeIndexCount;
+    uint visibilityTriangleStart;
+};
+
+struct MeshletBounds
+{
+    float3 center;
+    float radius;
+    float3 coneApex;
+    float coneCutoff;
+    float3 coneAxis;
+    uint flags;
+    uint firstIndex;
+    uint indexCount;
+    uint padding0;
+    uint padding1;
+};
+
+struct VisibleMeshlet
+{
+    uint objectIndex;
+    uint meshId;
+    uint meshletIndex;
+    uint segmentStartIndex;
 };
 
 cbuffer ViewProjection : register(b0)
@@ -53,6 +88,12 @@ ConstantBuffer<DrawObjectIndexConstants> g_drawObjectIndex : register(b1);
 StructuredBuffer<RenderObject> g_renderObjects : register(t0);
 StructuredBuffer<Transform> g_transforms : register(t1);
 StructuredBuffer<uint> g_renderObjectIndices : register(t6);
+StructuredBuffer<VisibleMeshlet> g_visibleMeshlets : register(t10);
+StructuredBuffer<MeshletBounds> g_meshletBounds : register(t11);
+StructuredBuffer<uint> g_meshletVertexIndices : register(t12);
+StructuredBuffer<uint> g_generatedIndexOffsets : register(t13);
+StructuredBuffer<MeshRange> g_meshRanges : register(t14);
+StructuredBuffer<float4> g_positions : register(t15);
 
 static const uint kVisibilityPrimitiveBits = 19u;
 static const uint kVisibilityPrimitiveMask = (1u << kVisibilityPrimitiveBits) - 1u;
@@ -67,6 +108,7 @@ VsOutput build_vs_output(VsInput input, uint renderObjectIndex, uint primitiveBa
     VsOutput output;
     output.renderObjectIndex = renderObjectIndex;
     output.primitiveBase = primitiveBase;
+    output.outputPrimitiveBase = 0u;
 
     if ((renderObject.drawFlags & 1u) != 0u)
     {
@@ -102,10 +144,43 @@ VsOutput range_vs_main(VsInput input, uint instanceId : SV_InstanceID)
                            g_drawObjectIndex.primitiveBase);
 }
 
+VsOutput generated_vs_main(uint virtualVertexId : SV_VertexID)
+{
+    const uint visibleIndex = virtualVertexId / 64u;
+    const uint localVertexIndex = virtualVertexId % 64u;
+    const VisibleMeshlet visible = g_visibleMeshlets[visibleIndex];
+    const MeshletBounds bounds = g_meshletBounds[visible.meshletIndex];
+    const MeshRange meshRange = g_meshRanges[visible.meshId];
+    const uint segmentIndex = visible.segmentStartIndex / 384u;
+    const uint packedVertexRange =
+        g_meshletVertexIndices[bounds.padding1 + segmentIndex];
+    const uint sourceVertexStart = packedVertexRange & ((1u << 26u) - 1u);
+    const uint sourceVertexIndex =
+        (uint)(meshRange.baseVertex +
+               (int)g_meshletVertexIndices[sourceVertexStart +
+                                            localVertexIndex]);
+
+    VsInput input;
+    input.position = g_positions[sourceVertexIndex];
+    const uint sourcePrimitiveBase =
+        (bounds.firstIndex - meshRange.rangeStartIndex +
+         visible.segmentStartIndex) /
+        3u;
+    VsOutput output =
+        build_vs_output(input, visible.objectIndex, sourcePrimitiveBase);
+    output.outputPrimitiveBase = g_generatedIndexOffsets[visibleIndex] / 3u;
+    return output;
+}
+
 uint ps_main(VsOutput input, uint primitiveId : SV_PrimitiveID) : SV_Target0
 {
     const uint objectId = input.renderObjectIndex + 1u;
-    const uint meshPrimitiveId = input.primitiveBase + primitiveId;
+    if (primitiveId < input.outputPrimitiveBase)
+    {
+        return 0u;
+    }
+    const uint meshPrimitiveId =
+        input.primitiveBase + primitiveId - input.outputPrimitiveBase;
     if (objectId == 0u || objectId > kVisibilityMaxObjectId ||
         meshPrimitiveId > kVisibilityPrimitiveMask)
     {

@@ -8,21 +8,47 @@
 #include <FrameGraph.h>
 
 // === C++ includes ===
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 
 namespace Cue::LightingSystem
 {
+    class LightUploadCopyVersion final
+    {
+    public:
+        explicit LightUploadCopyVersion(const uint64_t& a_version) noexcept
+            : m_version(a_version)
+        {}
+
+        [[nodiscard]] bool should_copy() const noexcept
+        {
+            return m_copiedVersion != m_version;
+        }
+
+        void mark_copied() noexcept
+        {
+            m_copiedVersion = m_version;
+        }
+
+    private:
+        const uint64_t& m_version;
+        uint64_t m_copiedVersion = (std::numeric_limits<uint64_t>::max)();
+    };
+
     class LightBufferCopyPass final : public RHI::FrameGraphPass
     {
     public:
         LightBufferCopyPass(
             std::string name,
             RHI::BufferHandle bufferHandle,
-            uint64_t copyByteSize)
+            uint64_t copyByteSize,
+            const uint64_t& a_uploadVersion)
             : m_name(std::move(name))
             , m_bufferHandle(bufferHandle)
             , m_copyByteSize(copyByteSize)
+            , m_copyVersion(a_uploadVersion)
         {}
 
         const char* name() const noexcept override
@@ -38,6 +64,11 @@ namespace Cue::LightingSystem
         uint32_t queue_lane() const noexcept override
         {
             return 1u;
+        }
+
+        bool is_enabled(uint32_t) const noexcept override
+        {
+            return m_bufferHandle.valid() && m_copyByteSize != 0 && m_copyVersion.should_copy();
         }
 
         Result setup(RHI::FrameGraphBuilder& builder) override
@@ -76,12 +107,17 @@ namespace Cue::LightingSystem
             region.dstByteOffset = 0;
             region.byteSize = m_copyByteSize;
 
-            (void)commandContext->copy_buffer_region(region);
+            Result result = commandContext->copy_buffer_region(region);
+            if (result)
+            {
+                m_copyVersion.mark_copied();
+            }
         }
 
     private:
         std::string m_name{};
         RHI::BufferHandle m_bufferHandle{};
         uint64_t m_copyByteSize = 0;
+        mutable LightUploadCopyVersion m_copyVersion;
     };
 }

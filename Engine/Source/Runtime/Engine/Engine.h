@@ -211,6 +211,10 @@ private:
   uint32_t m_drawLodCount = 0;
   uint32_t m_drawObjectCount = 0;
   uint32_t m_drawCellCount = 0;
+  uint64_t m_staticDrawUploadVersion = 0;
+  uint64_t m_viewProjectionUploadVersion = 0;
+  uint64_t m_renderViewProjectionUploadVersion = 0;
+  uint64_t m_lightUploadVersion = 0;
   bool m_hasDrawableObject = false;
   std::vector<RHI::MeshHandle> m_meshHandles{};
   std::vector<GpuData::RenderableInfo> m_renderableInfos{};

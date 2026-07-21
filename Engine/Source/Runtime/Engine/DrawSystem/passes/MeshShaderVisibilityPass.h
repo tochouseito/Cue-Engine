@@ -17,8 +17,8 @@
 namespace Cue::DrawSystem {
 
 namespace MeshShaderVisibility {
-static constexpr uint32_t k_maxVisibleMeshletCount = 16u * 1024u * 1024u;
-static constexpr uint32_t k_maxCandidateChunkCount = 16u * 1024u * 1024u;
+static constexpr uint32_t k_maxVisibleMeshletCount = 1024u * 1024u;
+static constexpr uint32_t k_maxCandidateChunkCount = 256u * 1024u;
 static constexpr uint32_t k_maxMeshCount = 4u * 1024u;
 static constexpr uint32_t k_maxMeshletCount = 1024u * 1024u;
 static constexpr uint32_t k_maxRangeIndexCount = 16u * 1024u * 1024u;
@@ -68,7 +68,7 @@ public:
     RHI::BufferDesc visibleDesc{};
     visibleDesc.name = "MeshShaderVisibility.VisibleMeshlets";
     visibleDesc.type = RHI::BufferType::UnorderedAccess;
-    visibleDesc.defaultHeapCount = 1;
+    visibleDesc.defaultHeapCount = builder.buffer_count();
     visibleDesc.uploadHeapCount = 0;
     visibleDesc.initialState = RHI::ResourceState::UnorderedAccess;
     visibleDesc.stride = sizeof(MeshShaderVisibility::VisibleMeshlet);
@@ -114,7 +114,7 @@ public:
     RHI::BufferDesc candidateDesc{};
     candidateDesc.name = "MeshShaderVisibility.CandidateChunks";
     candidateDesc.type = RHI::BufferType::UnorderedAccess;
-    candidateDesc.defaultHeapCount = 1;
+    candidateDesc.defaultHeapCount = builder.buffer_count();
     candidateDesc.uploadHeapCount = 0;
     candidateDesc.initialState = RHI::ResourceState::UnorderedAccess;
     candidateDesc.stride = sizeof(MeshShaderVisibility::CandidateChunk);
@@ -131,7 +131,7 @@ public:
     RHI::BufferDesc counterDesc{};
     counterDesc.name = "MeshShaderVisibility.Counters";
     counterDesc.type = RHI::BufferType::Raw;
-    counterDesc.defaultHeapCount = 1;
+    counterDesc.defaultHeapCount = builder.buffer_count();
     counterDesc.uploadHeapCount = 0;
     counterDesc.readbackHeapCount = m_bufferCount;
     counterDesc.initialState = RHI::ResourceState::UnorderedAccess;
@@ -169,7 +169,7 @@ public:
     RHI::BufferDesc cullArgsDesc{};
     cullArgsDesc.name = "MeshShaderVisibility.CullDispatchArgs";
     cullArgsDesc.type = RHI::BufferType::UnorderedAccess;
-    cullArgsDesc.defaultHeapCount = 1;
+    cullArgsDesc.defaultHeapCount = builder.buffer_count();
     cullArgsDesc.uploadHeapCount = 0;
     cullArgsDesc.initialState = RHI::ResourceState::UnorderedAccess;
     cullArgsDesc.stride = sizeof(MeshShaderVisibility::DispatchArgs);
@@ -184,7 +184,7 @@ public:
     RHI::BufferDesc meshletCullArgsDesc{};
     meshletCullArgsDesc.name = "MeshShaderVisibility.MeshletCullDispatchArgs";
     meshletCullArgsDesc.type = RHI::BufferType::UnorderedAccess;
-    meshletCullArgsDesc.defaultHeapCount = 1;
+    meshletCullArgsDesc.defaultHeapCount = builder.buffer_count();
     meshletCullArgsDesc.uploadHeapCount = 0;
     meshletCullArgsDesc.initialState = RHI::ResourceState::UnorderedAccess;
     meshletCullArgsDesc.stride = sizeof(MeshShaderVisibility::DispatchArgs);
@@ -200,7 +200,7 @@ public:
     RHI::BufferDesc dispatchArgsDesc{};
     dispatchArgsDesc.name = "MeshShaderVisibility.DispatchArgs";
     dispatchArgsDesc.type = RHI::BufferType::UnorderedAccess;
-    dispatchArgsDesc.defaultHeapCount = 1;
+    dispatchArgsDesc.defaultHeapCount = builder.buffer_count();
     dispatchArgsDesc.uploadHeapCount = 0;
     dispatchArgsDesc.initialState = RHI::ResourceState::UnorderedAccess;
     dispatchArgsDesc.stride = sizeof(MeshShaderVisibility::DispatchArgs);
@@ -224,6 +224,7 @@ public:
 
     const uint32_t clearValues[4] = {0, 0, 0, 0};
     commandContext->clear_unordered_access_uint(m_counterUav, clearValues);
+    commandContext->uav_barrier(m_counterBuffer);
   }
 
 private:
@@ -951,7 +952,7 @@ public:
 
     commandContext->set_compute_pipeline(m_pipeline);
     commandContext->set_32bit_constant(
-        0, MeshShaderVisibility::k_maxCandidateChunkCount);
+        0, MeshShaderVisibility::k_maxVisibleMeshletCount);
     commandContext->set_srv(1, m_candidateChunkBuffer);
     commandContext->set_srv(2, m_meshRangeBuffer);
     commandContext->set_srv(3, m_meshletBoundsBuffer);
@@ -1072,7 +1073,7 @@ public:
 
     commandContext->set_compute_pipeline(m_pipeline);
     commandContext->set_32bit_constant(
-        0, MeshShaderVisibility::k_maxCandidateChunkCount);
+        0, MeshShaderVisibility::k_maxVisibleMeshletCount);
     commandContext->set_32bit_constant(1, m_meshletsPerGroup);
     commandContext->set_srv(2, m_counterBuffer);
     commandContext->set_uav(3, m_dispatchArgsBuffer);
@@ -1148,7 +1149,7 @@ public:
 
     RHI::BufferToReadbackCopyRegion copyRegion{};
     copyRegion.srcBufferHandle = m_counterBuffer;
-    copyRegion.srcDefaultResourceIndex = 0u;
+    copyRegion.srcDefaultResourceIndex = context.frame_index();
     copyRegion.srcByteOffset = 0u;
     copyRegion.dstBufferHandle = m_counterBuffer;
     copyRegion.dstReadbackResourceIndex = context.frame_index();
