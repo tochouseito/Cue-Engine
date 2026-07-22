@@ -20,6 +20,7 @@ namespace Cue::Core::Native
         ScriptStringView className{};
         ScriptCreateStateFn createState = nullptr;
         ScriptDestroyStateFn destroyState = nullptr;
+        ScriptStartStateFn startState = nullptr;
         ScriptUpdateStateFn updateState = nullptr;
     };
 
@@ -30,7 +31,7 @@ namespace Cue::Core::Native
     {
       public:
         ScriptModuleRuntime() = default;
-        ~ScriptModuleRuntime() = default;
+        ~ScriptModuleRuntime();
 
         ScriptModuleRuntime(const ScriptModuleRuntime&) = delete;
         ScriptModuleRuntime& operator=(const ScriptModuleRuntime&) = delete;
@@ -52,6 +53,10 @@ namespace Cue::Core::Native
         [[nodiscard]] ScriptAbiResult
         destroy_instance(ScriptInstanceHandle a_instanceHandle) noexcept;
 
+        /// @brief 指定 instance の初期化を DLL 側へ委譲する
+        [[nodiscard]] ScriptAbiResult
+        start_instance(ScriptInstanceHandle a_instanceHandle) noexcept;
+
         /// @brief 指定 instance の更新を DLL 側へ委譲する
         [[nodiscard]] ScriptAbiResult
         update_instance(ScriptInstanceHandle a_instanceHandle,
@@ -70,6 +75,7 @@ namespace Cue::Core::Native
         is_valid_engine_api(const ScriptEngineApi* a_engineApi) noexcept;
         [[nodiscard]] static bool
         is_valid_class_definition(const ScriptClassDefinition& a_definition) noexcept;
+        void destroy_all_instances() noexcept;
 
         const ScriptEngineApi* m_engineApi =
             nullptr; // DLL が利用中だけ有効な Engine 側の非所有 API

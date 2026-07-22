@@ -119,6 +119,9 @@ namespace Cue::Core::Native
     /// @brief Script instance の破棄 callback
     using ScriptDestroyStateFn = void(CUE_SCRIPT_CALL*)(void* a_state);
 
+    /// @brief Script instance の初期化 callback
+    using ScriptStartStateFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(void* a_state);
+
     /// @brief Script instance の更新 callback
     using ScriptUpdateStateFn =
         ScriptAbiResult(CUE_SCRIPT_CALL*)(void* a_state, float a_deltaTimeSeconds);

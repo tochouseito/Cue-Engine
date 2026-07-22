@@ -5,6 +5,12 @@
 
 namespace Cue::Core::Native
 {
+    ScriptModuleRuntime::~ScriptModuleRuntime()
+    {
+        // Engine からの明示破棄に失敗しても、DLL unload 時に Script object の破棄を残さない
+        destroy_all_instances();
+    }
+
     ScriptAbiResult ScriptModuleRuntime::register_scripts(
         const ScriptEngineApi* a_engineApi,
         const ScriptClassDefinition* a_classDefinitions,
@@ -122,6 +128,23 @@ namespace Cue::Core::Native
         return ScriptAbiResult::Ok;
     }
 
+    ScriptAbiResult ScriptModuleRuntime::start_instance(
+        ScriptInstanceHandle a_instanceHandle) noexcept
+    {
+        if (a_instanceHandle.value == k_invalidScriptInstanceHandle.value)
+        {
+            return ScriptAbiResult::InvalidArgument;
+        }
+
+        const auto instance = m_instances.find(a_instanceHandle.value);
+        if (instance == m_instances.end())
+        {
+            return ScriptAbiResult::NotFound;
+        }
+
+        return instance->second.definition->startState(instance->second.state);
+    }
+
     ScriptAbiResult
     ScriptModuleRuntime::update_instance(ScriptInstanceHandle a_instanceHandle,
                                          float a_deltaTimeSeconds) noexcept
@@ -165,6 +188,21 @@ namespace Cue::Core::Native
         return is_valid_string_view(a_definition.className) &&
                a_definition.createState != nullptr &&
                a_definition.destroyState != nullptr &&
+               a_definition.startState != nullptr &&
                a_definition.updateState != nullptr;
+    }
+
+    void ScriptModuleRuntime::destroy_all_instances() noexcept
+    {
+        for (const auto& [instanceHandle, instance] : m_instances)
+        {
+            (void)instanceHandle;
+            if (instance.definition != nullptr && instance.definition->destroyState != nullptr &&
+                instance.state != nullptr)
+            {
+                instance.definition->destroyState(instance.state);
+            }
+        }
+        m_instances.clear();
     }
 } // namespace Cue::Core::Native

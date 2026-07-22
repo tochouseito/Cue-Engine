@@ -92,6 +92,10 @@ namespace Cue::Editor
             ProjectSettings settings{};
             settings.name = rootJson.value("name", projectRoot.filename());
             settings.startupScene = rootJson.value("startupScene", std::string{});
+            // 古い Project は Script 設定を持たないため、CMake を使う既定値で後方互換を保つ。
+            settings.scriptRoot = rootJson.value("scriptRoot", std::string{"."});
+            settings.scriptBuildConfiguration = rootJson.value("scriptBuildConfiguration", std::string{"Debug"});
+            settings.scriptLoadConfiguration = rootJson.value("scriptLoadConfiguration", std::string{"Debug"});
             settings.engineVersion = rootJson.value("engineVersion", 1u);
             settings.root = projectRoot;
 
@@ -161,6 +165,10 @@ namespace Cue::Editor
                 {"assetRoot", make_project_relative_path(projectRoot, assetRoot)},
                 {"engineVersion", a_settings.engineVersion},
                 {"name", a_settings.name.empty() ? projectRoot.filename() : a_settings.name},
+                // Startup Scene の変更時も Script build 設定を同じ project file に残す。
+                {"scriptBuildConfiguration", a_settings.scriptBuildConfiguration},
+                {"scriptLoadConfiguration", a_settings.scriptLoadConfiguration},
+                {"scriptRoot", a_settings.scriptRoot},
                 {"startupScene", a_settings.startupScene}};
             const std::string text = rootJson.dump(4);
 

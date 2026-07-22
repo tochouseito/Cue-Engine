@@ -1,8 +1,13 @@
 #include "Inspector.h"
 
+// === Editor includes ===
+#include "Project/EditorProject.h"
+#include "Project/VisualStudioLauncher.h"
+
 // === Runtime includes ===
 #include <CQRS/CQRS.h>
 #include <Command/Commands.h>
+#include <Engine.h>
 #include <DrawSystem/MeshPool.h>
 #include <GameCore/Components.h>
 #include <GameCore/GameObject.h>
@@ -171,10 +176,13 @@ namespace Cue::Editor
     Inspector::Inspector(Core::CQRS::Bridge* a_commandBridge,
                          GameCore::GameWorld* a_gameWorld,
                          DrawSystem::MeshPool* a_meshPool,
+                         Engine* a_engine,
                          GameCore::EntityId* a_selectedEntityId,
-                         AssetSelection* a_selectedAsset) noexcept
+                         AssetSelection* a_selectedAsset,
+                         EditorProject* a_project) noexcept
         : m_gameWorld(a_gameWorld), m_meshPool(a_meshPool),
-          m_selectedEntityId(a_selectedEntityId), m_selectedAsset(a_selectedAsset),
+          m_engine(a_engine), m_selectedEntityId(a_selectedEntityId), m_selectedAsset(a_selectedAsset),
+          m_project(a_project),
           m_commandBridge(a_commandBridge)
     {
     }
@@ -265,6 +273,34 @@ namespace Cue::Editor
         ImGui::Separator();
         ImGui::TextUnformatted("Path:");
         ImGui::TextWrapped("%s", selectedAsset.path.utf8().c_str());
+
+        if (selectedAsset.kind != AssetKind::script)
+        {
+            return;
+        }
+
+        if (m_scriptAssetErrorPath.utf8() != selectedAsset.path.utf8())
+        {
+            m_scriptAssetOpenError.clear();
+        }
+
+        if (ImGui::Button("Visual Studio で開く"))
+        {
+            const Result result =
+                m_project == nullptr
+                    ? Result::fail(Code::InvalidState, Severity::Warning,
+                                   "GameScript project is not initialized.")
+                    : open_script_asset_in_visual_studio(
+                        selectedAsset.path, m_project->script_root_path());
+            m_scriptAssetOpenError = result ? std::string{} : result.message;
+            m_scriptAssetErrorPath = selectedAsset.path;
+        }
+
+        if (!m_scriptAssetOpenError.empty())
+        {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.376f, 0.376f, 1.0f), "%s", m_scriptAssetOpenError.c_str());
+        }
     }
 
     bool Inspector::find_selected_object(GameCore::GameObject& a_outObject)
@@ -720,26 +756,63 @@ namespace Cue::Editor
             return;
         }
 
-        if (m_scriptEntityId != a_object.entity_id())
+        if (ImGui::Button("Script class を更新"))
         {
-            m_scriptClassNameBuffer.fill('\0');
-            const size_t copyLength = std::min(
-                script->className.size(), m_scriptClassNameBuffer.size() - 1u);
-            std::memcpy(m_scriptClassNameBuffer.data(), script->className.data(), copyLength);
-            m_scriptEntityId = a_object.entity_id();
+            const Result result = m_engine != nullptr
+                                      ? m_engine->refresh_script_classes()
+                                      : Result::fail(
+                                            Code::InvalidState, Severity::Warning,
+                                            "Engine is not initialized.");
+            m_scriptClassLoadError = result ? std::string{} : result.message;
         }
 
         ECS::ScriptComponent edited = *script;
-        if (ImGui::InputText("ClassName", m_scriptClassNameBuffer.data(),
-                             m_scriptClassNameBuffer.size()))
+        const std::vector<std::string>* registeredClasses =
+            m_engine != nullptr ? &m_engine->registered_script_classes() : nullptr;
+        const char* previewValue = script->className.empty()
+                                       ? "<未選択>"
+                                       : script->className.c_str();
+        ImGui::BeginDisabled(registeredClasses == nullptr);
+        if (ImGui::BeginCombo("ClassName", previewValue))
         {
-            edited.className = m_scriptClassNameBuffer.data();
-            submit_script_component(a_object.entity_id(), edited, current_history_transaction());
+            if (ImGui::Selectable("<未選択>", script->className.empty()))
+            {
+                edited.className.clear();
+                submit_script_component(a_object.entity_id(), edited);
+            }
+
+            if (registeredClasses != nullptr)
+            {
+                for (const std::string& className : *registeredClasses)
+                {
+                    const bool isSelected = script->className == className;
+                    if (ImGui::Selectable(className.c_str(), isSelected))
+                    {
+                        edited.className = className;
+                        submit_script_component(a_object.entity_id(), edited);
+                    }
+                }
+            }
+
+            ImGui::EndCombo();
         }
+        ImGui::EndDisabled();
+
+        if (registeredClasses != nullptr && registeredClasses->empty())
+        {
+            ImGui::TextUnformatted("登録済み Script class はありません");
+        }
+        if (!m_scriptClassLoadError.empty())
+        {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.376f, 0.376f, 1.0f), "%s", m_scriptClassLoadError.c_str());
+        }
+
         if (ImGui::Checkbox("Enabled", &edited.isEnabled))
         {
             submit_script_component(a_object.entity_id(), edited);
         }
+
     }
 
     void Inspector::draw_renderable_info_component(GameCore::GameObject& a_object)

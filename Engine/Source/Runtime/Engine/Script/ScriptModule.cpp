@@ -6,8 +6,11 @@
 #endif
 
 // === C++ includes ===
+#include <algorithm>
 #include <cstddef>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Cue::Script
 {
@@ -45,6 +48,8 @@ namespace Cue::Script
         }
 
         // ScriptRuntime が呼び出す全関数を先に確認し、部分的な exports を実行中に露出させない
+        constexpr uint32_t k_maxScriptClassCount = 4096u;
+
         [[nodiscard]] bool has_required_exports(const ScriptModuleExports& a_exports) noexcept
         {
             return a_exports.structSize >= sizeof(ScriptModuleExports) &&
@@ -53,7 +58,46 @@ namespace Cue::Script
                    a_exports.createInstance != nullptr &&
                    a_exports.destroyInstance != nullptr &&
                    a_exports.onCreate != nullptr &&
-                   a_exports.onUpdate != nullptr;
+                   a_exports.onUpdate != nullptr &&
+                   a_exports.getClassCount != nullptr &&
+                   a_exports.getClassName != nullptr &&
+                   a_exports.registerEngineApi != nullptr;
+        }
+
+        [[nodiscard]] Result collect_class_names(
+            const ScriptModuleExports& a_exports,
+            std::vector<std::string>& a_outClassNames)
+        {
+            const uint32_t classCount = a_exports.getClassCount();
+            if (classCount > k_maxScriptClassCount)
+            {
+                return Result::fail(Code::InvalidState, Severity::Error,
+                                    "Script module registered too many classes.");
+            }
+
+            a_outClassNames.clear();
+            a_outClassNames.reserve(classCount);
+            for (uint32_t index = 0u; index < classCount; ++index)
+            {
+                const char* className = a_exports.getClassName(index);
+                if (className == nullptr || className[0] == '\0' ||
+                    a_exports.hasClass(className) == 0u)
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                                        "Script module class registration is invalid.");
+                }
+
+                const auto existing = std::find(a_outClassNames.begin(), a_outClassNames.end(), className);
+                if (existing != a_outClassNames.end())
+                {
+                    return Result::fail(Code::InvalidState, Severity::Error,
+                                        "Script module registered a duplicate class.");
+                }
+
+                a_outClassNames.emplace_back(className);
+            }
+
+            return Result::ok();
         }
     } // namespace
 
@@ -116,10 +160,19 @@ namespace Cue::Script
                           : result;
         }
 
+        std::vector<std::string> classNames{};
+        result = collect_class_names(exports, classNames);
+        if (!result)
+        {
+            ::FreeLibrary(moduleHandle);
+            return result;
+        }
+
         // 全ての契約を確認してから公開状態へ遷移し、失敗した DLL の関数を呼べないようにする
         m_nativeHandle = moduleHandle;
         m_modulePath = a_modulePath.normalize();
         m_exports = exports;
+        m_classNames = std::move(classNames);
         return Result::ok();
 #else
         std::wstring unusedPath{};
@@ -139,6 +192,7 @@ namespace Cue::Script
         m_nativeHandle = nullptr;
         m_modulePath = {};
         m_exports = {};
+        m_classNames.clear();
     }
 
     bool ScriptModule::is_loaded() const noexcept
@@ -150,6 +204,23 @@ namespace Cue::Script
     {
         return is_loaded() && a_className != nullptr && a_className[0] != '\0' &&
                m_exports.hasClass(a_className) != 0u;
+    }
+
+    const std::vector<std::string>& ScriptModule::class_names() const noexcept
+    {
+        return m_classNames;
+    }
+
+    Result ScriptModule::register_engine_api(
+        const Core::Native::ScriptEngineApi& a_engineApi) const noexcept
+    {
+        if (!is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+
+        return convert_result(m_exports.registerEngineApi(&a_engineApi));
     }
 
     Result ScriptModule::create_instance(

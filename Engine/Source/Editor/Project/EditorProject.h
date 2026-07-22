@@ -60,6 +60,18 @@ namespace Cue::Editor
             return m_startupScenePath;
         }
 
+        /// @brief Editor が class 一覧と Play 用に使う GameScript DLL の出力先を返す
+        [[nodiscard]] Core::IO::Path script_module_path() const noexcept;
+
+        /// @brief CMake configure と GameScript build を実行する Project root を返す
+        [[nodiscard]] Core::IO::Path script_root_path() const noexcept;
+
+        /// @brief GameScript をビルドする CMake configuration 名を返す
+        [[nodiscard]] const std::string& script_build_configuration() const noexcept
+        {
+            return m_scriptBuildConfiguration;
+        }
+
         /// @brief 指定 Scene を次回起動時の Startup Scene に設定する
         [[nodiscard]] Result set_startup_scene_path(const Core::IO::Path& a_path) noexcept;
 
@@ -69,6 +81,10 @@ namespace Cue::Editor
         Core::IO::Path m_startupScenePath{};
         std::string m_name{};
         std::string m_startupScene{};
+        // EditorProject は設定保存の source になるため、未表示の Script build 設定も読み込み値を保持する。
+        std::string m_scriptRoot{"."};
+        std::string m_scriptBuildConfiguration{"Debug"};
+        std::string m_scriptLoadConfiguration{"Debug"};
         std::uint32_t m_engineVersion = 1;
         Core::IO::IFileSystem* m_fileSystem = nullptr; // Project 設定を読み込む非所有 FileSystem
     };

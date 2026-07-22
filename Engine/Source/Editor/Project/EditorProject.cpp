@@ -105,6 +105,10 @@ namespace Cue::Editor
         m_assetRootPath = settings.assetRoot;
         m_name = settings.name;
         m_startupScene = settings.startupScene;
+        // Startup Scene だけを更新しても GameProject の CMake 設定を既定値で上書きしない。
+        m_scriptRoot = settings.scriptRoot;
+        m_scriptBuildConfiguration = settings.scriptBuildConfiguration;
+        m_scriptLoadConfiguration = settings.scriptLoadConfiguration;
         m_startupScenePath = startupScenePath;
         m_engineVersion = settings.engineVersion;
         return Result::ok();
@@ -124,6 +128,10 @@ namespace Cue::Editor
         ProjectSettings settings{};
         settings.name = m_name;
         settings.startupScene = make_startup_scene_path(m_rootPath, startupScenePath);
+        // load 時の値を再利用し、Project Settings UI が未実装でも build 構成を保持する。
+        settings.scriptRoot = m_scriptRoot;
+        settings.scriptBuildConfiguration = m_scriptBuildConfiguration;
+        settings.scriptLoadConfiguration = m_scriptLoadConfiguration;
         settings.root = m_rootPath;
         settings.assetRoot = m_assetRootPath;
         settings.engineVersion = m_engineVersion;
@@ -137,5 +145,38 @@ namespace Cue::Editor
         m_startupScene = std::move(settings.startupScene);
         m_startupScenePath = startupScenePath;
         return Result::ok();
+    }
+
+    Core::IO::Path EditorProject::script_module_path() const noexcept
+    {
+        const Core::IO::Path scriptRoot = script_root_path();
+        if (scriptRoot.is_empty())
+        {
+            return {};
+        }
+
+        const std::string configuration =
+            m_scriptLoadConfiguration.empty() ? "Debug" : m_scriptLoadConfiguration;
+        return Core::IO::Path::join(
+            scriptRoot,
+            Core::IO::Path("Binaries/" + configuration + "/GameScript.dll")).normalize();
+    }
+
+    Core::IO::Path EditorProject::script_root_path() const noexcept
+    {
+        if (m_rootPath.is_empty())
+        {
+            return {};
+        }
+
+        Core::IO::Path scriptRoot(m_scriptRoot);
+        if (scriptRoot.is_empty())
+        {
+            return m_rootPath;
+        }
+
+        return scriptRoot.is_absolute()
+                   ? scriptRoot.normalize()
+                   : Core::IO::Path::join(m_rootPath, scriptRoot).normalize();
     }
 } // namespace Cue::Editor

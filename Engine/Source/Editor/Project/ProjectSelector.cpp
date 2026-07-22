@@ -1,6 +1,7 @@
 #include "ProjectSelector.h"
 
 // === Editor includes ===
+#include "GameProjectGenerator.h"
 #include "ProjectSettings.h"
 
 // === Engine includes ===
@@ -310,6 +311,14 @@ namespace Cue::Editor
         const Core::IO::Path scenePath = Core::IO::Path::join(projectRoot, Core::IO::Path(k_defaultScenePath));
         // cueproject.json の startupScene が作成直後から解決できるよう、設定より先に空 Scene を配置する。
         result = GameCore::save_scene_asset(*m_fileSystem, scenePath, scene);
+        if (!result)
+        {
+            return result;
+        }
+
+        // Project 作成直後から外部 IDE で Script DLL を編集・ビルドできるよう、asset と同じ root に CMake 構成を置く。
+        const GameProjectGenerator gameProjectGenerator(*m_fileSystem);
+        result = gameProjectGenerator.generate(projectRoot);
         if (!result)
         {
             return result;

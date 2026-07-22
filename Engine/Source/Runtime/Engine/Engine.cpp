@@ -287,7 +287,38 @@ void Engine::set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
 
 void Engine::set_script_module_path(const Core::IO::Path& a_modulePath) noexcept
 {
-    m_scriptModulePath = a_modulePath.normalize();
+    const Core::IO::Path normalizedPath = a_modulePath.normalize();
+    if (m_scriptModulePath.utf8() != normalizedPath.utf8())
+    {
+        m_registeredScriptClasses.clear();
+    }
+    m_scriptModulePath = normalizedPath;
+}
+
+Result Engine::refresh_script_classes()
+{
+    if (is_playing())
+    {
+        return Result::fail(Code::InvalidState, Severity::Warning,
+                            "Script classes cannot be reloaded while playing.");
+    }
+    if (m_scriptModulePath.is_empty())
+    {
+        m_registeredScriptClasses.clear();
+        return Result::fail(Code::InvalidState, Severity::Warning,
+                            "Script module path is empty.");
+    }
+
+    Script::ScriptModule module{};
+    Result result = module.load(m_scriptModulePath);
+    if (!result)
+    {
+        m_registeredScriptClasses.clear();
+        return result;
+    }
+
+    m_registeredScriptClasses = module.class_names();
+    return Result::ok();
 }
 
 Result Engine::begin_frame()

@@ -21,6 +21,10 @@ namespace Cue::Editor
     {
         std::string name{};
         std::string startupScene{};
+        // Scene 保存だけを行っても Script build 設定を失わないよう、cueproject.json の値を Editor 側でも保持する。
+        std::string scriptRoot{"."};
+        std::string scriptBuildConfiguration{"Debug"};
+        std::string scriptLoadConfiguration{"Debug"};
         Core::IO::Path root{};
         Core::IO::Path assetRoot{};
         std::uint32_t engineVersion = 1;

@@ -38,6 +38,15 @@ namespace Cue::Script
 
     Result ScriptRuntime::start() noexcept
     {
+        if (m_module != nullptr && m_module->is_loaded())
+        {
+            const Result result = m_module->register_engine_api(m_scriptEngineApi);
+            if (!result)
+            {
+                return result;
+            }
+        }
+
         return sync_instances();
     }
 
@@ -49,22 +58,9 @@ namespace Cue::Script
             return result;
         }
 
-        for (auto& [entityId, binding] : m_bindings)
+        for (auto& [unusedEntityId, binding] : m_bindings)
         {
-            const auto component = m_marionnetteComponents.find(entityId);
-            if (component == m_marionnetteComponents.end())
-            {
-                return Result::fail(Code::InvalidState, Severity::Error,
-                                    "Script instance has no Marionnette component.");
-            }
-
-            if (!binding.hasStarted)
-            {
-                component->second->start();
-                binding.hasStarted = true;
-            }
-
-            component->second->update(a_deltaTimeSeconds);
+            (void)unusedEntityId;
             result = m_module->on_update(binding.instanceHandle, a_deltaTimeSeconds);
             if (!result)
             {
@@ -228,6 +224,7 @@ namespace Cue::Script
 
         ScriptInstanceCreateInfo createInfo{};
         createInfo.entityId = a_entityId;
+        createInfo.generation = a_generation;
         createInfo.className = a_className.c_str();
 
         ScriptInstanceHandle instanceHandle = k_invalidScriptInstanceHandle;
@@ -242,44 +239,15 @@ namespace Cue::Script
                                 "Script module created an invalid script instance handle.");
         }
 
-        result = bind_marionnette(a_entityId, a_generation);
-        if (!result)
-        {
-            (void)m_module->destroy_instance(instanceHandle);
-            return result;
-        }
-
-        result = bind_marionnette_component(a_entityId, a_generation);
-        if (!result)
-        {
-            unbind_marionnette(a_entityId);
-            (void)m_module->destroy_instance(instanceHandle);
-            return result;
-        }
-
-        const auto component = m_marionnetteComponents.find(a_entityId);
-        if (component == m_marionnetteComponents.end())
-        {
-            unbind_marionnette(a_entityId);
-            (void)m_module->destroy_instance(instanceHandle);
-            return Result::fail(Code::InvalidState, Severity::Error,
-                                "Script Marionnette component was not bound.");
-        }
-
-        component->second->awake();
-
-        // OnCreate 失敗時に handle と runtime 側の owner を残さず、同じ失敗経路で回収する
+        // OnCreate 失敗時に handle を残さず、DLL 側の on_destroy も同じ破棄経路で実行する
         result = m_module->on_create(instanceHandle);
         if (!result)
         {
-            component->second->on_destroy();
-            unbind_marionnette_component(a_entityId);
-            unbind_marionnette(a_entityId);
             (void)m_module->destroy_instance(instanceHandle);
             return result;
         }
 
-        m_bindings.emplace(a_entityId, Binding{a_className, instanceHandle, a_generation, false});
+        m_bindings.emplace(a_entityId, Binding{a_className, instanceHandle, a_generation});
         return Result::ok();
     }
 
@@ -296,12 +264,6 @@ namespace Cue::Script
                                 "Script module is not loaded.");
         }
 
-        const auto component = m_marionnetteComponents.find(a_entityId);
-        if (component != m_marionnetteComponents.end())
-        {
-            component->second->on_destroy();
-        }
-
         const Result result = m_module->destroy_instance(binding->second.instanceHandle);
         if (!result)
         {
@@ -309,66 +271,7 @@ namespace Cue::Script
         }
 
         m_bindings.erase(binding);
-        unbind_marionnette_component(a_entityId);
-        unbind_marionnette(a_entityId);
         return Result::ok();
-    }
-
-    Result ScriptRuntime::bind_marionnette(
-        GameCore::EntityId a_entityId,
-        GameCore::Generation a_generation) noexcept
-    {
-        auto marionnette = std::make_unique<Marionnette>();
-        marionnette->bind(this, &m_world, a_entityId, a_generation);
-        if (!marionnette->is_valid())
-        {
-            return Result::fail(Code::NotFound, Severity::Warning,
-                                "Script Marionnette target was not found.");
-        }
-
-        m_marionnettes.emplace(a_entityId, std::move(marionnette));
-        return Result::ok();
-    }
-
-    Result ScriptRuntime::bind_marionnette_component(
-        GameCore::EntityId a_entityId,
-        GameCore::Generation a_generation) noexcept
-    {
-        const auto owner = m_marionnettes.find(a_entityId);
-        if (owner == m_marionnettes.end())
-        {
-            return Result::fail(Code::InvalidState, Severity::Error,
-                                "Script Marionnette owner is not bound.");
-        }
-
-        auto component = std::make_unique<MarionnetteComponent>();
-        component->bind(this, &m_world, a_entityId, a_generation, owner->second.get());
-        m_marionnetteComponents.emplace(a_entityId, std::move(component));
-        return Result::ok();
-    }
-
-    void ScriptRuntime::unbind_marionnette_component(GameCore::EntityId a_entityId) noexcept
-    {
-        const auto component = m_marionnetteComponents.find(a_entityId);
-        if (component == m_marionnetteComponents.end())
-        {
-            return;
-        }
-
-        component->second->unbind();
-        m_marionnetteComponents.erase(component);
-    }
-
-    void ScriptRuntime::unbind_marionnette(GameCore::EntityId a_entityId) noexcept
-    {
-        const auto marionnette = m_marionnettes.find(a_entityId);
-        if (marionnette == m_marionnettes.end())
-        {
-            return;
-        }
-
-        marionnette->second->unbind();
-        m_marionnettes.erase(marionnette);
     }
 
     Core::Native::ScriptAbiResult ScriptRuntime::script_is_entity_valid(

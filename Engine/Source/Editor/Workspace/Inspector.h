@@ -20,6 +20,7 @@
 
 namespace Cue
 {
+    class Engine;
     enum class ComponentKind : uint8_t;
 }
 
@@ -50,6 +51,8 @@ namespace Cue::DrawSystem
 
 namespace Cue::Editor
 {
+    class EditorProject;
+
     /// @brief EditorManager の選択状態を参照して GameObject の Component
     /// 情報を表示、編集する
     class Inspector final
@@ -59,12 +62,14 @@ namespace Cue::Editor
         /// @param a_commandBridge Component 編集コマンドの送信先
         /// @param a_gameWorld 表示対象の GameWorld
         /// @param a_meshPool MeshFilter に割り当てる mesh の一覧取得元
+        /// @param a_engine GameScript の class 一覧を取得する Engine
         /// @param a_selectedEntityId Editor 全体で共有する選択 Entity
         /// @param a_selectedAsset Entity 選択と分離された Asset 選択
+        /// @param a_project Script の solution を解決する開いている GameProject
         Inspector(Core::CQRS::Bridge* a_commandBridge,
                   GameCore::GameWorld* a_gameWorld, DrawSystem::MeshPool* a_meshPool,
-                  GameCore::EntityId* a_selectedEntityId,
-                  AssetSelection* a_selectedAsset) noexcept;
+                  Engine* a_engine, GameCore::EntityId* a_selectedEntityId,
+                  AssetSelection* a_selectedAsset, EditorProject* a_project) noexcept;
         ~Inspector() = default;
 
         /// @brief 表示対象の GameWorld を差し替える
@@ -171,17 +176,20 @@ namespace Cue::Editor
 
         GameCore::GameWorld* m_gameWorld = nullptr;
         DrawSystem::MeshPool* m_meshPool = nullptr;
+        Engine* m_engine = nullptr;
         GameCore::EntityId* m_selectedEntityId = nullptr;
         AssetSelection* m_selectedAsset = nullptr;
+        EditorProject* m_project = nullptr; // Script を GameProject の solution と対応付ける非所有状態
         Core::CQRS::Bridge* m_commandBridge = nullptr;
         Math::float3 m_rotationEulerDegrees = Math::float3::zero();
         Math::Quaternion m_rotationSource = Math::Quaternion::identity();
         GameCore::EntityId m_rotationEntityId = GameCore::k_invalidEntityId;
         GameCore::EntityId m_baseEntityId = GameCore::k_invalidEntityId;
-        GameCore::EntityId m_scriptEntityId = GameCore::k_invalidEntityId;
         std::array<char, 256> m_nameBuffer{};
-        std::array<char, 256> m_scriptClassNameBuffer{};
         std::array<char, 256> m_tagBuffer{};
+        std::string m_scriptClassLoadError{};
+        std::string m_scriptAssetOpenError{};
+        Core::IO::Path m_scriptAssetErrorPath{};
         uint64_t m_nextHistoryTransactionId = 1;
         uint64_t m_activeHistoryTransactionId = 0;
         uint32_t m_activeHistoryItemId = 0;

@@ -2,5 +2,8 @@
     "assetRoot": "Assets",
     "engineVersion": 1,
     "name": "SampleProject",
+    "scriptBuildConfiguration": "Debug",
+    "scriptLoadConfiguration": "Debug",
+    "scriptRoot": ".",
     "startupScene": "Assets/Scenes/Main.cuescene"
 }

@@ -11,12 +11,11 @@
 #include <Native/ScriptAbi.h>
 
 // === Engine includes ===
+#include "GameCore/Components.h"
 #include "GameCore/GameCoreTypes.h"
-#include "Marionnette.h"
 #include "ScriptModuleApi.h"
 
 // === C++ includes ===
-#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -78,8 +77,6 @@ namespace Cue::Script
             // Entity ID 再利用時に旧世代の Script instance を残さないため、bind 時点の世代を保持する
             GameCore::Generation generation = 0u;
 
-            // start は awake 後かつ最初の update 直前に一度だけ呼び出す
-            bool hasStarted = false;
         };
 
         [[nodiscard]] Result sync_instances() noexcept;
@@ -88,15 +85,6 @@ namespace Cue::Script
             GameCore::Generation a_generation,
             const std::string& a_className) noexcept;
         [[nodiscard]] Result destroy_instance(GameCore::EntityId a_entityId) noexcept;
-
-        [[nodiscard]] Result bind_marionnette(
-            GameCore::EntityId a_entityId,
-            GameCore::Generation a_generation) noexcept;
-        [[nodiscard]] Result bind_marionnette_component(
-            GameCore::EntityId a_entityId,
-            GameCore::Generation a_generation) noexcept;
-        void unbind_marionnette_component(GameCore::EntityId a_entityId) noexcept;
-        void unbind_marionnette(GameCore::EntityId a_entityId) noexcept;
 
         [[nodiscard]] static Core::Native::ScriptAbiResult script_is_entity_valid(
             void* a_userData,
@@ -119,8 +107,6 @@ namespace Cue::Script
 
         GameCore::GameWorld& m_world; // Play 中だけ使用する Runtime World への非所有参照
         std::unordered_map<GameCore::EntityId, Binding> m_bindings{}; // Runtime Entity ごとの DLL instance
-        std::unordered_map<GameCore::EntityId, std::unique_ptr<Marionnette>> m_marionnettes{}; // Entity ごとの Script 側 owner
-        std::unordered_map<GameCore::EntityId, std::unique_ptr<MarionnetteComponent>> m_marionnetteComponents{}; // owner に付随する lifecycle state
         Core::Native::ScriptEngineApi m_scriptEngineApi{}; // GameScript DLL へ Runtime World 操作だけを公開する callback table
         const ScriptModule* m_module = nullptr; // bindings の全 instance より長く生存する非所有 module
     };

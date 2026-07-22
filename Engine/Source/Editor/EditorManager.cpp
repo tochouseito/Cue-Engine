@@ -7,7 +7,9 @@
 // === Editor includes ===
 #include "DebugCamera.h"
 #include "Project/EditorProject.h"
+#include "Project/GameScriptBuildRunner.h"
 #include "Project/ProjectSelector.h"
+#include "Project/VisualStudioLauncher.h"
 #include "Scene/EditorSceneManager.h"
 #include "Workspace/AssetBrowser.h"
 #include "Workspace/DebugView.h"
@@ -66,6 +68,17 @@ namespace Cue::Editor
 
             return data;
         }
+
+        [[nodiscard]] bool is_path_within_root(
+            const Core::IO::Path& a_path,
+            const Core::IO::Path& a_root) noexcept
+        {
+            const std::string pathText = a_path.normalize().utf8();
+            const std::string rootText = a_root.normalize().utf8();
+            return pathText.size() > rootText.size() &&
+                   pathText.starts_with(rootText) &&
+                   pathText[rootText.size()] == '/';
+        }
     } // namespace
 
     EditorManager::EditorManager() = default;
@@ -94,6 +107,7 @@ namespace Cue::Editor
         m_debugView = std::make_unique<DebugView>(m_backend);
         m_assetBrowser =
             std::make_unique<AssetBrowser>(*a_info.fileSystem, &m_selectedAsset);
+        m_project = std::make_unique<EditorProject>(*a_info.fileSystem);
         if (m_engine != nullptr)
         {
             m_hierarchy = std::make_unique<Hierarchy>(
@@ -101,10 +115,9 @@ namespace Cue::Editor
                 &m_selectedSceneId, &m_selectedAsset);
             m_inspector = std::make_unique<Inspector>(
                 m_gameCommandBridge, &m_engine->game_world(), m_engine->mesh_pool(),
-                &m_selectedEntityId, &m_selectedAsset);
+                m_engine, &m_selectedEntityId, &m_selectedAsset, m_project.get());
         }
 
-        m_project = std::make_unique<EditorProject>(*a_info.fileSystem);
         if (m_engine != nullptr)
         {
             m_sceneManager = std::make_unique<EditorSceneManager>(
@@ -116,12 +129,35 @@ namespace Cue::Editor
         m_projectSelector->open_from_executable_directory();
     }
 
+    Result EditorManager::open_script_asset_in_visual_studio(
+        const Core::IO::Path& a_assetRelativePath) const
+    {
+        if (m_project == nullptr || a_assetRelativePath.is_empty() ||
+            a_assetRelativePath.is_absolute())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                                "Script asset path is invalid.");
+        }
+
+        const Core::IO::Path sourcePath = Core::IO::Path::join(
+            m_project->root_path(), a_assetRelativePath).normalize();
+        if (!is_path_within_root(sourcePath, m_project->asset_root_path()))
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Warning,
+                                "Script asset path must stay under the project asset root.");
+        }
+
+        return Editor::open_script_asset_in_visual_studio(
+            sourcePath, m_project->script_root_path());
+    }
+
     void EditorManager::update()
     {
         draw_dockspace();
         update_project_selector();
         draw_scene_transition_dialog();
         draw_create_script_popup();
+        draw_script_build_output();
         const bool isPlaying = m_engine != nullptr && m_engine->is_playing();
         if (m_assetBrowser != nullptr)
         {
@@ -216,6 +252,11 @@ namespace Cue::Editor
         const bool isRequested = m_isExitRequested;
         m_isExitRequested = false;
         return isRequested;
+    }
+
+    void EditorManager::request_open_project(const Core::IO::Path& a_projectRoot)
+    {
+        request_scene_transition(SceneTransition::openProject, a_projectRoot);
     }
 
     void EditorManager::draw_dockspace()
@@ -463,6 +504,39 @@ namespace Cue::Editor
                 show_scene_error(result);
             }
         }
+
+        ImGui::Separator();
+        const bool canBuildScript = m_fileSystem != nullptr && m_project != nullptr &&
+                                    !m_project->script_root_path().is_empty() && !isPlaying;
+        if (ImGui::BeginMenu("GameScript", canBuildScript))
+        {
+            if (ImGui::MenuItem("CMake を構成"))
+            {
+                const Result result = configure_game_script();
+                if (!result)
+                {
+                    show_scene_error(result);
+                }
+            }
+            if (ImGui::MenuItem("ビルド"))
+            {
+                const Result result = build_game_script();
+                if (!result)
+                {
+                    show_scene_error(result);
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Visual Studio で開く"))
+            {
+                const Result result = open_game_script_project();
+                if (!result)
+                {
+                    show_scene_error(result);
+                }
+            }
+            ImGui::EndMenu();
+        }
     }
 
     void EditorManager::draw_edit_menu_items()
@@ -506,6 +580,7 @@ namespace Cue::Editor
         {
             show_and_focus_window("Asset Browser");
         }
+        ImGui::MenuItem("Script Build Output", nullptr, &m_showScriptBuildOutput);
     }
 
     void EditorManager::open_project_selector()
@@ -720,6 +795,15 @@ namespace Cue::Editor
         if (m_engine != nullptr)
         {
             m_engine->set_asset_root_path(m_project->asset_root_path());
+            m_engine->set_script_module_path(m_project->script_module_path());
+            const Result scriptClassResult = m_engine->refresh_script_classes();
+            if (!scriptClassResult)
+            {
+                Core::IO::log(
+                    Core::IO::LogSink::console,
+                    "GameScript class list could not be loaded: %s",
+                    scriptClassResult.message.data());
+            }
         }
 
         if (m_sceneManager == nullptr)
@@ -920,19 +1004,25 @@ namespace Cue::Editor
         const std::string headerText =
             "#pragma once\n"
             "\n"
-            "#include <Script/Marionnette.h>\n"
+            "#include <Script/MarionnetteBehaviour.h>\n"
             "\n"
             "namespace GameScript\n"
             "{\n"
-            "    class " + className + " final : public Cue::Script::MarionnetteComponent\n"
+            "    class " + className + " final : public Cue::Script::MarionnetteBehaviour\n"
             "    {\n"
             "    public:\n"
+            "        using MarionnetteBehaviour::MarionnetteBehaviour;\n"
+            "\n"
             "        void start() noexcept override;\n"
             "        void update(float a_deltaTimeSeconds) noexcept override;\n"
+            "        void on_destroy() noexcept override;\n"
             "    };\n"
             "} // namespace GameScript\n";
         const std::string sourceText =
             "#include \"" + className + ".h\"\n"
+            "\n"
+            "// === Engine includes ===\n"
+            "#include <Script/ScriptClassRegistry.h>\n"
             "\n"
             "namespace GameScript\n"
             "{\n"
@@ -944,7 +1034,14 @@ namespace Cue::Editor
             "    {\n"
             "        (void)a_deltaTimeSeconds;\n"
             "    }\n"
-            "} // namespace GameScript\n";
+            "\n"
+            "    void " + className + "::on_destroy() noexcept\n"
+            "    {\n"
+            "    }\n"
+            "} // namespace GameScript\n"
+            "\n"
+            "// GameScriptModule が class 名を列挙し、Editor の ScriptComponent 選択肢に反映する\n"
+            "CUE_REGISTER_SCRIPT_CLASS(\"" + className + "\", GameScript::" + className + ")\n";
 
         result = m_fileSystem->write_all(headerPath, to_file_data(headerText), true);
         if (!result)
@@ -958,7 +1055,100 @@ namespace Cue::Editor
             return result;
         }
 
-        return m_assetBrowser != nullptr ? m_assetBrowser->refresh() : Result::ok();
+        result = m_assetBrowser != nullptr ? m_assetBrowser->refresh() : Result::ok();
+        if (!result)
+        {
+            return result;
+        }
+
+        return configure_game_script();
+    }
+
+    Result EditorManager::configure_game_script()
+    {
+        if (m_fileSystem == nullptr || m_project == nullptr ||
+            (m_engine != nullptr && m_engine->is_playing()))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "GameScript cannot be configured while playing or without a project.");
+        }
+
+        GameScriptBuildRunner buildRunner(*m_fileSystem);
+        const Result result = buildRunner.configure(
+            m_project->script_root_path(), m_scriptBuildReport);
+        m_showScriptBuildOutput = true;
+        return result;
+    }
+
+    Result EditorManager::build_game_script()
+    {
+        if (m_fileSystem == nullptr || m_project == nullptr ||
+            (m_engine != nullptr && m_engine->is_playing()))
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "GameScript cannot be built while playing or without a project.");
+        }
+
+        GameScriptBuildRunner buildRunner(*m_fileSystem);
+        Result result = buildRunner.build(
+            m_project->script_root_path(), m_project->script_build_configuration(),
+            m_scriptBuildReport);
+        m_showScriptBuildOutput = true;
+        if (!result || m_engine == nullptr)
+        {
+            return result;
+        }
+
+        result = m_engine->refresh_script_classes();
+        if (!result)
+        {
+            m_scriptBuildReport.succeeded = false;
+            m_scriptBuildReport.summary = "GameScript was built, but its class list could not be loaded.";
+        }
+        return result;
+    }
+
+    Result EditorManager::open_game_script_project()
+    {
+        if (m_project == nullptr || m_project->script_root_path().is_empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Warning,
+                                "GameScript project is not initialized.");
+        }
+
+        return open_script_project_in_visual_studio(m_project->script_root_path());
+    }
+
+    void EditorManager::draw_script_build_output()
+    {
+        if (!m_showScriptBuildOutput)
+        {
+            return;
+        }
+        if (!ImGui::Begin("Script Build Output", &m_showScriptBuildOutput))
+        {
+            ImGui::End();
+            return;
+        }
+
+        if (m_scriptBuildReport.summary.empty())
+        {
+            ImGui::TextUnformatted("GameScript build はまだ実行されていません");
+            ImGui::End();
+            return;
+        }
+
+        const ImVec4 resultColor = m_scriptBuildReport.succeeded
+                                       ? ImVec4(0.35f, 0.85f, 0.45f, 1.0f)
+                                       : ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+        ImGui::TextColored(resultColor, "%s", m_scriptBuildReport.summary.c_str());
+        ImGui::Text("Exit Code: %u", m_scriptBuildReport.exitCode);
+        ImGui::TextWrapped("Log: %s", m_scriptBuildReport.logPath.utf8().c_str());
+        ImGui::Separator();
+        ImGui::BeginChild("ScriptBuildLog", ImVec2(0.0f, 0.0f), true);
+        ImGui::TextUnformatted(m_scriptBuildReport.output.c_str());
+        ImGui::EndChild();
+        ImGui::End();
     }
 
     void EditorManager::process_edit_shortcuts()

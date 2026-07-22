@@ -4,7 +4,7 @@
 
 namespace GameScript
 {
-    class testcubeScript final : public Cue::Script::MarionnetteBehaviour
+    class testScriptScript final : public Cue::Script::MarionnetteBehaviour
     {
     public:
         using MarionnetteBehaviour::MarionnetteBehaviour;

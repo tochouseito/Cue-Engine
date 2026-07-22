@@ -4,6 +4,9 @@
 /// GameScript module と Engine 間の最小 ABI を定義する
 /// **********************************************************************
 
+// === Native includes ===
+#include <Native/ScriptAbi.h>
+
 // === C++ includes ===
 #include <cstdint>
 
@@ -17,7 +20,7 @@
 namespace Cue::Script
 {
     /// @brief Engine と GameScript が互換であることを確認する ABI 世代
-    inline constexpr uint32_t k_scriptModuleAbiVersion = 1u;
+    inline constexpr uint32_t k_scriptModuleAbiVersion = 3u;
 
     /// @brief Script DLL が未生成または破棄済みであることを表す instance handle
     inline constexpr uint64_t k_invalidScriptInstanceHandle = 0u;
@@ -52,6 +55,9 @@ namespace Cue::Script
         /// @brief instance を対応付ける runtime World 上の Entity ID
         uint32_t entityId = 0u;
 
+        /// @brief Entity ID の再利用を検出する runtime World 上の世代番号
+        uint32_t generation = 0u;
+
         /// @brief GameScript が生成する登録済み Script class 名
         ///
         /// 呼び出し中だけ有効な UTF-8 文字列として扱い、GameScript 側は保持禁止
@@ -69,6 +75,18 @@ namespace Cue::Script
     ///
     /// bool の ABI 差異を避けるため、真偽値は uint8_t で返却
     using ScriptHasClassFn = uint8_t(CUE_SCRIPT_CALL*)(const char* a_className);
+
+    /// @brief DLL に登録された Script class 数を取得
+    using ScriptGetClassCountFn = uint32_t(CUE_SCRIPT_CALL*)();
+
+    /// @brief 指定位置の登録済み Script class 名を取得
+    ///
+    /// 返却文字列は DLL がロードされている間だけ有効であり、Engine は受け取り時に複製する
+    using ScriptGetClassNameFn = const char*(CUE_SCRIPT_CALL*)(uint32_t a_index);
+
+    /// @brief DLL 内の Script instance が Engine API を参照できるよう接続する
+    using ScriptRegisterEngineApiFn = ScriptResult(CUE_SCRIPT_CALL*)(
+        const Core::Native::ScriptEngineApi* a_engineApi);
 
     /// @brief Entity に対応する Script instance の生成を DLL 側へ要求
     using ScriptCreateInstanceFn = ScriptResult(CUE_SCRIPT_CALL*)(
@@ -111,5 +129,14 @@ namespace Cue::Script
 
         /// @brief instance を更新する関数
         ScriptOnUpdateFn onUpdate = nullptr;
+
+        /// @brief DLL が公開する Script class 数を返す関数
+        ScriptGetClassCountFn getClassCount = nullptr;
+
+        /// @brief DLL が公開する Script class 名を位置指定で返す関数
+        ScriptGetClassNameFn getClassName = nullptr;
+
+        /// @brief DLL が Script instance 用の Engine API を受け取る関数
+        ScriptRegisterEngineApiFn registerEngineApi = nullptr;
     };
 } // namespace Cue::Script

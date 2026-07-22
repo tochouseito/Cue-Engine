@@ -11,7 +11,12 @@ find_package(winpixevent CONFIG REQUIRED)
 # ターゲットソースの追加
 add_executable(Editor WIN32
     "App/Editor.cpp"
-    "App/EditorResources.rc" "DebugCamera.h" "DebugCamera.cpp" "EditorManager.h" "EditorManager.cpp" "Scene/EditorSceneManager.h" "Scene/EditorSceneManager.cpp" "Workspace/AssetBrowser.h" "Workspace/AssetBrowser.cpp" "Workspace/AssetSelection.h" "Workspace/AssetSelection.cpp" "Workspace/Hierarchy.h" "Workspace/Hierarchy.cpp" "Workspace/Inspector.h" "Workspace/Inspector.cpp" "Project/EditorProject.h" "Project/EditorProject.cpp" "Project/ProjectSelector.h" "Project/ProjectSelector.cpp" "Project/ProjectSettings.h" "Project/ProjectSettings.cpp" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp" "Workspace/DebugView.h"  "Workspace/DebugView.cpp" "Workspace/GameView.h" "Workspace/GameView.cpp")
+    "App/EditorResources.rc" "DebugCamera.h" "DebugCamera.cpp" "EditorManager.h" "EditorManager.cpp" "Scene/EditorSceneManager.h" "Scene/EditorSceneManager.cpp" "Workspace/AssetBrowser.h" "Workspace/AssetBrowser.cpp" "Workspace/AssetSelection.h" "Workspace/AssetSelection.cpp" "Workspace/Hierarchy.h" "Workspace/Hierarchy.cpp" "Workspace/Inspector.h" "Workspace/Inspector.cpp" "Project/EditorProject.h" "Project/EditorProject.cpp" "Project/GameProjectGenerator.h" "Project/GameProjectGenerator.cpp" "Project/GameScriptBuildRunner.h" "Project/GameScriptBuildRunner.cpp" "Project/ProjectSelector.h" "Project/ProjectSelector.cpp" "Project/ProjectSettings.h" "Project/ProjectSettings.cpp" "Project/VisualStudioLauncher.h" "Project/VisualStudioLauncher.cpp" "ImGuiManager/ImGuiManager.h" "ImGuiManager/ImGuiManager.cpp" "Workspace/DebugView.h"  "Workspace/DebugView.cpp" "Workspace/GameView.h" "Workspace/GameView.cpp")
+
+target_sources(Editor PRIVATE
+    "App/EditorMcpBridge.h"
+    "App/EditorMcpBridge.cpp"
+)
 
 # リンクするライブラリの指定
 target_link_libraries(Editor PRIVATE
@@ -31,6 +36,8 @@ target_link_libraries(Editor PRIVATE
     meshoptimizer::meshoptimizer
     nlohmann_json::nlohmann_json
     msacm32
+    advapi32
+    ws2_32
 )
 
 # インクルードディレクトリの指定
@@ -41,6 +48,7 @@ target_include_directories(Editor PRIVATE
 
 # 定数定義
 target_compile_definitions(Editor PRIVATE
+    CUE_EDITOR_ROOT_PATH=L"${CMAKE_SOURCE_DIR}"
     $<$<CONFIG:Debug>:CUE_EDITOR_DEBUG_LAYOUT_MIRROR_PATH="${CMAKE_SOURCE_DIR}/config/editor/imgui.ini">
 )
 

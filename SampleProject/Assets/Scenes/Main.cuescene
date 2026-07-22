@@ -24,6 +24,11 @@
                     "shadowCasterMode": "Solid",
                     "visible": true
                 },
+                "script": {
+                    "className": "testcubeScript",
+                    "fields": [],
+                    "isEnabled": true
+                },
                 "transform": {
                     "position": [
                         0.0,

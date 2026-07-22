@@ -12,6 +12,7 @@
 #include <CueResult.h>
 
 // === Editor includes ===
+#include "Project/GameScriptBuildRunner.h"
 #include "Workspace/AssetSelection.h"
 
 // === C++ includes ===
@@ -95,6 +96,15 @@ namespace Cue::Editor
         /// @brief 保存確認から確定した終了要求を取り出す
         [[nodiscard]] bool consume_exit_request() noexcept;
 
+        /// @brief 起動引数や MCP から指定された Project を開く
+        ///
+        /// Scene 遷移と同じ frame 境界で読み込み、UI 操作と競合しないようにする
+        void request_open_project(const Core::IO::Path& a_projectRoot);
+
+        /// @brief GameProject 内の Script asset を対応する CMake Project とともに開く
+        [[nodiscard]] Result open_script_asset_in_visual_studio(
+            const Core::IO::Path& a_assetRelativePath) const;
+
         /// @brief Hierarchy / Inspector が共有する選択中 Entity を返す。
         [[nodiscard]] GameCore::EntityId selected_entity_id() const noexcept
         {
@@ -137,6 +147,7 @@ namespace Cue::Editor
         void draw_game_menu_items();
         void draw_view_menu_items();
         void draw_create_script_popup();
+        void draw_script_build_output();
         void process_edit_shortcuts();
         void open_project_selector();
         void update_project_selector();
@@ -154,6 +165,9 @@ namespace Cue::Editor
         void clear_selection() noexcept;
         void submit_empty_object_command();
         [[nodiscard]] Result create_script_template(const std::string& a_scriptName);
+        [[nodiscard]] Result configure_game_script();
+        [[nodiscard]] Result build_game_script();
+        [[nodiscard]] Result open_game_script_project();
         void request_undo();
         void request_redo();
         void show_and_focus_window(const char* a_windowName);
@@ -188,12 +202,14 @@ namespace Cue::Editor
         Core::IO::Path m_pendingSceneDirectory{};
         Core::IO::Path m_newSceneSaveDirectory{};
         std::array<char, 128> m_createScriptNameBuffer{};
+        ScriptBuildReport m_scriptBuildReport{};
         std::string
             m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
         SceneTransition m_pendingSceneTransition = SceneTransition::none;
         bool m_shouldOpenSceneTransitionDialog = false;
         bool m_openCreateScriptPopup = false;
         bool m_focusCreateScriptNameInput = false;
+        bool m_showScriptBuildOutput = false;
         bool m_isExitRequested = false;
     };
 } // namespace Cue::Editor

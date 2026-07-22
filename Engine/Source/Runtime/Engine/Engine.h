@@ -38,6 +38,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace Cue
@@ -138,6 +139,17 @@ class Engine final
     [[nodiscard]] const Core::IO::Path& script_module_path() const noexcept
     {
         return m_scriptModulePath;
+    }
+
+    /// @brief GameScript DLL から Editor 用の登録済み class 一覧を再取得する
+    ///
+    /// DLL を常駐ロードすると外部 CMake build が成果物を更新できないため、一覧を複製後に直ちに解放する
+    [[nodiscard]] Result refresh_script_classes();
+
+    /// @brief 最後に取得した GameScript の class 名一覧を返す
+    [[nodiscard]] const std::vector<std::string>& registered_script_classes() const noexcept
+    {
+        return m_registeredScriptClasses;
     }
 
     /// @brief GameCore camera の代わりに使う描画視点を設定する。
@@ -248,6 +260,7 @@ class Engine final
     bool m_isPlayStepRequested = false;
     Core::IO::Path m_assetRootPath{}; // Project 由来の Assets フォルダ
     Core::IO::Path m_scriptModulePath{}; // Editor Play 時にロードする GameScript DLL
+    std::vector<std::string> m_registeredScriptClasses{}; // DLL を常駐させず Editor の class 選択に使う複製済み一覧
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;

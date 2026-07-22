@@ -18,6 +18,7 @@
 // === Editor includes ===
 #include "DebugCamera.h"
 #include "EditorManager.h"
+#include "EditorMcpBridge.h"
 #include "ImGuiManager/ImGuiManager.h"
 
 // === Engine includes ===
@@ -35,12 +36,102 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Cue;
 
+namespace
+{
+    [[nodiscard]] std::string get_project_path_argument(const char* a_commandLine)
+    {
+        if (a_commandLine == nullptr)
+        {
+            return {};
+        }
+
+        constexpr std::string_view prefix = "--project=";
+        const std::string commandLine(a_commandLine);
+        const size_t argumentStart = commandLine.find(prefix);
+        if (argumentStart == std::string::npos)
+        {
+            return {};
+        }
+
+        const size_t valueStart = argumentStart + prefix.size();
+        const size_t valueEnd = commandLine.find_first_of(" \t", valueStart);
+        return commandLine.substr(valueStart, valueEnd - valueStart);
+    }
+
+    void apply_mcp_playback_request(
+        Cue::Engine& a_engine,
+        Cue::Editor::EditorMcpPlaybackRequest a_request) noexcept
+    {
+        Cue::Result result = Cue::Result::ok();
+        switch (a_request)
+        {
+        case Cue::Editor::EditorMcpPlaybackRequest::play:
+            result = a_engine.is_play_paused()
+                         ? a_engine.request_resume_play()
+                         : a_engine.request_start_play();
+            break;
+        case Cue::Editor::EditorMcpPlaybackRequest::pause:
+            result = a_engine.request_pause_play();
+            break;
+        case Cue::Editor::EditorMcpPlaybackRequest::step:
+            result = a_engine.request_step_play();
+            break;
+        case Cue::Editor::EditorMcpPlaybackRequest::none:
+        default:
+            return;
+        }
+
+        if (!result)
+        {
+            Cue::Core::IO::log(
+                Cue::Core::IO::LogSink::console | Cue::Core::IO::LogSink::file,
+                "CueEditor MCP playback request failed: {}", result.message);
+        }
+    }
+
+    [[nodiscard]] Cue::Editor::EditorMcpPlaybackState get_mcp_playback_state(
+        const Cue::Engine& a_engine) noexcept
+    {
+        if (a_engine.is_play_paused())
+        {
+            return Cue::Editor::EditorMcpPlaybackState::paused;
+        }
+        return a_engine.is_playing()
+                   ? Cue::Editor::EditorMcpPlaybackState::playing
+                   : Cue::Editor::EditorMcpPlaybackState::editing;
+    }
+
+    void apply_mcp_script_open_request(
+        Cue::Editor::EditorManager& a_editorManager,
+        Cue::Editor::EditorMcpBridge& a_bridge) noexcept
+    {
+        std::string assetPath{};
+        if (!a_bridge.consume_script_open_request(assetPath))
+        {
+            return;
+        }
+
+        const Cue::Result result =
+            a_editorManager.open_script_asset_in_visual_studio(Cue::Core::IO::Path(assetPath));
+        a_bridge.set_script_open_state(
+            result ? Cue::Editor::EditorMcpScriptOpenState::succeeded
+                   : Cue::Editor::EditorMcpScriptOpenState::failed);
+        if (!result)
+        {
+            Cue::Core::IO::log(
+                Cue::Core::IO::LogSink::console | Cue::Core::IO::LogSink::file,
+                "CueEditor MCP script open request failed: {}", result.message);
+        }
+    }
+} // namespace
+
 // windows アプリのエントリーポイント
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR a_commandLine, int)
 {
     // パラメーター
     uint32_t width = 1280;
@@ -156,6 +247,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     editorManagerSetupInfo.gameCommandBridge = gameBridge.get();
     editorManager->initialize(editorManagerSetupInfo);
 
+    const std::string projectPath = get_project_path_argument(a_commandLine);
+    if (!projectPath.empty())
+    {
+        editorManager->request_open_project(Core::IO::Path(projectPath));
+    }
+
+    std::unique_ptr<Editor::EditorMcpBridge> mcpBridge =
+        std::make_unique<Editor::EditorMcpBridge>();
+    r = mcpBridge->start({});
+    if (!r)
+    {
+        Core::IO::log(Core::IO::LogSink::console | Core::IO::LogSink::file,
+                      "CueEditor MCP bridge startup failed: %s", r.message.data());
+    }
+
     // WM_CLOSE は Platform の終了確定前に Editor へ渡し、未保存 Scene の確認を完了させる。
     platform->set_message_handler(
         [&editorManager](HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT& outResult) -> bool
@@ -177,6 +283,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     bool isRunning = true;
     while (isRunning)
     {
+        apply_mcp_playback_request(*engine, mcpBridge->consume_playback_request());
+        apply_mcp_script_open_request(*editorManager, *mcpBridge);
+        mcpBridge->set_playback_state(get_mcp_playback_state(*engine));
+
         // プラットフォームメッセージを処理
         PAL::PlatformMessage message = platform->poll_message();
         if (message == PAL::PlatformMessage::Quit)
@@ -262,6 +372,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             CUE_ASSERT_FORMAT(false, "Failed to end engine frame: %s", r.message.data());
             break;
         }
+        mcpBridge->set_playback_state(get_mcp_playback_state(*engine));
 
         // フレーム終了
         r = platform->end_frame();
@@ -277,6 +388,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
 
     // クリーン
+    mcpBridge->shutdown();
+    mcpBridge.reset();
     imGuiManager->shutdown();
     imGuiManager.reset();
     engine->shutdown();

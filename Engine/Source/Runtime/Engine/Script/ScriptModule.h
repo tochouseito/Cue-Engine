@@ -13,6 +13,10 @@
 // === Engine includes ===
 #include "ScriptModuleApi.h"
 
+// === C++ includes ===
+#include <string>
+#include <vector>
+
 namespace Cue::Script
 {
     /// @brief GameScript DLL の所有と ABI 呼び出しを管理
@@ -46,6 +50,13 @@ namespace Cue::Script
         /// @brief Scene に記録された className が module 内で解決できるかを返却
         [[nodiscard]] bool has_class(const char* a_className) const noexcept;
 
+        /// @brief DLL から検証済みで取得した Script class 名一覧を返す
+        [[nodiscard]] const std::vector<std::string>& class_names() const noexcept;
+
+        /// @brief GameScript DLL へ Runtime World 操作用の ABI を接続する
+        [[nodiscard]] Result register_engine_api(
+            const Core::Native::ScriptEngineApi& a_engineApi) const noexcept;
+
         /// @brief DLL 側に Script instance の生成を要求
         ///
         /// instance の実体を Engine 側へ公開せず、DLL をまたぐ C++ 所有権を発生させません
@@ -70,5 +81,6 @@ namespace Cue::Script
         void* m_nativeHandle = nullptr; // DLL を解放するまで exports の呼び出し先を有効に保つ所有 handle
         Core::IO::Path m_modulePath{};  // エラー調査時にロード元を特定できるよう正規化して保持する
         ScriptModuleExports m_exports{}; // ABI 検証済みの関数だけを runtime に公開する
+        std::vector<std::string> m_classNames{}; // DLL 解放後の文字列ポインタを Editor が参照しないよう Engine 側に複製する
     };
 } // namespace Cue::Script
