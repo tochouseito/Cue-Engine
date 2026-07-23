@@ -179,7 +179,10 @@ namespace Cue::Core::Native
                a_engineApi->userData != nullptr &&
                a_engineApi->isEntityValid != nullptr &&
                a_engineApi->getTransformQuaternion != nullptr &&
-               a_engineApi->setTransformQuaternion != nullptr;
+               a_engineApi->setTransformQuaternion != nullptr &&
+               a_engineApi->getTransformEuler != nullptr &&
+               a_engineApi->setTransformEuler != nullptr &&
+               a_engineApi->rotateTransformEuler != nullptr;
     }
 
     bool ScriptModuleRuntime::is_valid_class_definition(

@@ -241,6 +241,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR a_commandLine, int)
     Editor::EditorManagerSetupInfo editorManagerSetupInfo{};
     editorManagerSetupInfo.backend = renderBackend.get();
     editorManagerSetupInfo.engine = engine.get();
+    editorManagerSetupInfo.platform = platform.get();
     editorManagerSetupInfo.debugCamera = debugCamera.get();
     editorManagerSetupInfo.dialogService = dialogService.get();
     editorManagerSetupInfo.fileSystem = &platform->file_system();

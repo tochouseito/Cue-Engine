@@ -187,7 +187,6 @@ namespace Cue::Editor
         GameCore::EntityId m_baseEntityId = GameCore::k_invalidEntityId;
         std::array<char, 256> m_nameBuffer{};
         std::array<char, 256> m_tagBuffer{};
-        std::string m_scriptClassLoadError{};
         std::string m_scriptAssetOpenError{};
         Core::IO::Path m_scriptAssetErrorPath{};
         uint64_t m_nextHistoryTransactionId = 1;

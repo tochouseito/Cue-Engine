@@ -3,9 +3,6 @@
 // === Engine includes ===
 #include <Script/ScriptClassRegistry.h>
 
-// === C++ includes ===
-#include <cmath>
-
 namespace GameScript
 {
     void testcubeScript::start() noexcept
@@ -14,23 +11,10 @@ namespace GameScript
 
     void testcubeScript::update(float a_deltaTimeSeconds) noexcept
     {
-        Cue::Core::Native::ScriptTransformQuaternion transform{};
-        if (get_transform(transform) != Cue::Core::Native::ScriptAbiResult::Ok)
-        {
-            return;
-        }
-
         constexpr float k_rotationRadiansPerSecond = 1.0f;
-        const float halfAngle = 0.5f * k_rotationRadiansPerSecond * a_deltaTimeSeconds;
-        const float sine = std::sin(halfAngle);
-        const float cosine = std::cos(halfAngle);
-        const Cue::Core::Native::ScriptQuaternion rotation = transform.rotation;
-        transform.rotation = {
-            cosine * rotation.x + sine * rotation.z,
-            cosine * rotation.y + sine * rotation.w,
-            cosine * rotation.z - sine * rotation.x,
-            cosine * rotation.w - sine * rotation.y};
-        (void)set_transform(transform);
+        const Cue::Core::Native::ScriptVector3 rotation{
+            0.0f, k_rotationRadiansPerSecond * a_deltaTimeSeconds, 0.0f};
+        (void)rotate(rotation);
     }
 } // namespace GameScript
 

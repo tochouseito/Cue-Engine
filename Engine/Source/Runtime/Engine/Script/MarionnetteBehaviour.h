@@ -73,6 +73,48 @@ namespace Cue::Script
                 m_engineApi->userData, m_entity, &a_transform);
         }
 
+        /// @brief アタッチ先 Entity のローカル Transform を XYZ 順の Euler 回転で取得する
+        /// @param a_outTransform 回転をラジアンで受け取る Transform
+        [[nodiscard]] Core::Native::ScriptAbiResult get_transform(
+            Core::Native::ScriptTransformEuler& a_outTransform) const noexcept
+        {
+            if (m_engineApi == nullptr || m_engineApi->getTransformEuler == nullptr)
+            {
+                return Core::Native::ScriptAbiResult::InvalidState;
+            }
+
+            return m_engineApi->getTransformEuler(
+                m_engineApi->userData, m_entity, &a_outTransform);
+        }
+
+        /// @brief アタッチ先 Entity のローカル Transform を XYZ 順の Euler 回転で更新する
+        /// @param a_transform 回転をラジアンで指定する Transform
+        [[nodiscard]] Core::Native::ScriptAbiResult set_transform(
+            const Core::Native::ScriptTransformEuler& a_transform) const noexcept
+        {
+            if (m_engineApi == nullptr || m_engineApi->setTransformEuler == nullptr)
+            {
+                return Core::Native::ScriptAbiResult::InvalidState;
+            }
+
+            return m_engineApi->setTransformEuler(
+                m_engineApi->userData, m_entity, &a_transform);
+        }
+
+        /// @brief XYZ 順の Euler 差分回転を現在のローカル回転へ合成する
+        /// @param a_rotationRadians 各軸へ加えるラジアン回転
+        [[nodiscard]] Core::Native::ScriptAbiResult rotate(
+            const Core::Native::ScriptVector3& a_rotationRadians) const noexcept
+        {
+            if (m_engineApi == nullptr || m_engineApi->rotateTransformEuler == nullptr)
+            {
+                return Core::Native::ScriptAbiResult::InvalidState;
+            }
+
+            return m_engineApi->rotateTransformEuler(
+                m_engineApi->userData, m_entity, &a_rotationRadians);
+        }
+
     private:
         const Core::Native::ScriptEngineApi* m_engineApi = nullptr;
         Core::Native::ScriptEntityHandle m_entity{};

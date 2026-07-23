@@ -17,6 +17,7 @@
 
 // === C++ includes ===
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -38,6 +39,7 @@ namespace Cue::Core::IO
 namespace Cue::PAL
 {
     class IDialogService;
+    class IPlatform;
 }
 
 namespace Cue::RHI::DX12
@@ -62,6 +64,8 @@ namespace Cue::Editor
         RHI::DX12::D3D12Backend* backend =
             nullptr;              // Editor View が参照する描画 backend
         Engine* engine = nullptr; // GameWorld など Editor が参照する Runtime
+        PAL::IPlatform* platform =
+            nullptr; // Script 自動ビルドを Editor のフォーカス復帰まで保留する
         DebugCamera* debugCamera =
             nullptr; // DebugView の入力で更新する Editor camera
         PAL::IDialogService* dialogService =
@@ -168,6 +172,10 @@ namespace Cue::Editor
         [[nodiscard]] Result configure_game_script();
         [[nodiscard]] Result build_game_script();
         [[nodiscard]] Result open_game_script_project();
+        void queue_script_build() noexcept;
+        void process_script_build();
+        void update_auto_script_build();
+        [[nodiscard]] bool get_script_source_version(uint64_t& a_outVersion) const;
         void request_undo();
         void request_redo();
         void show_and_focus_window(const char* a_windowName);
@@ -178,6 +186,8 @@ namespace Cue::Editor
             nullptr; // View 生成時と SRV 解決に使う非所有 backend
         Engine* m_engine =
             nullptr;                          // 今後 Hierarchy / Inspector が参照する非所有 Engine
+        PAL::IPlatform* m_platform =
+            nullptr; // Editor ウィンドウのフォーカス状態を取得する非所有 Platform
         DebugCamera* m_debugCamera = nullptr; // Engine が参照している DebugCamera
         PAL::IDialogService* m_dialogService =
             nullptr; // Scene 保存先を選択する非所有 DialogService
@@ -203,6 +213,10 @@ namespace Cue::Editor
         Core::IO::Path m_newSceneSaveDirectory{};
         std::array<char, 128> m_createScriptNameBuffer{};
         ScriptBuildReport m_scriptBuildReport{};
+        uint64_t m_scriptSourceVersion = 0u;
+        uint32_t m_scriptScanDelay = 0u;
+        uint32_t m_scriptBuildDebounce = 0u;
+        uint32_t m_pendingScriptBuildDelay = 0u;
         std::string
             m_pendingFocusWindowName{}; // View メニューから要求された focus 先 window
         SceneTransition m_pendingSceneTransition = SceneTransition::none;
@@ -210,6 +224,9 @@ namespace Cue::Editor
         bool m_openCreateScriptPopup = false;
         bool m_focusCreateScriptNameInput = false;
         bool m_showScriptBuildOutput = false;
+        bool m_hasScriptSnapshot = false;
+        bool m_hasPendingScriptBuild = false;
+        bool m_isScriptActionActive = false;
         bool m_isExitRequested = false;
     };
 } // namespace Cue::Editor

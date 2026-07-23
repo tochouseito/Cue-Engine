@@ -59,6 +59,8 @@ namespace Cue::PAL
         virtual Core::Time::IClock& clock() = 0;
         virtual Core::Time::IWaiter& waiter() = 0;
         virtual Core::IO::IFileSystem& file_system() = 0;
+        /// @brief アプリケーションのメインウィンドウが入力フォーカスを持つかを返す
+        [[nodiscard]] virtual bool is_window_focused() const noexcept = 0;
         virtual Result get_process_memory_usage(ProcessMemoryUsage& a_out) noexcept = 0;
         virtual Result get_system_memory_usage(SystemMemoryUsage& a_out) noexcept = 0;
 

@@ -39,6 +39,11 @@ namespace Cue::Script
         /// 読み込みに失敗した DLL の関数ポインタを runtime が参照しないよう、成功時だけ利用可能状態へ遷移
         [[nodiscard]] Result load(const Core::IO::Path& a_modulePath) noexcept;
 
+        /// @brief 元の DLL を識別情報として保持し、shadow copy を実際のロード元にする
+        [[nodiscard]] Result load_shadow_copy(
+            const Core::IO::Path& a_modulePath,
+            const Core::IO::Path& a_shadowPath) noexcept;
+
         /// @brief ロード済み DLL と exports を無効化
         ///
         /// Script instance の破棄後にだけ呼び出し、DLL 内の object を解放できない状態を防止
@@ -76,10 +81,14 @@ namespace Cue::Script
             float a_deltaTimeSeconds) const noexcept;
 
     private:
+        [[nodiscard]] Result load_internal(
+            const Core::IO::Path& a_modulePath,
+            const Core::IO::Path& a_loadPath) noexcept;
         [[nodiscard]] static Result convert_result(ScriptResult a_result) noexcept;
 
         void* m_nativeHandle = nullptr; // DLL を解放するまで exports の呼び出し先を有効に保つ所有 handle
         Core::IO::Path m_modulePath{};  // エラー調査時にロード元を特定できるよう正規化して保持する
+        Core::IO::Path m_loadedPath{};  // shadow copy の寿命を DLL handle と一致させる
         ScriptModuleExports m_exports{}; // ABI 検証済みの関数だけを runtime に公開する
         std::vector<std::string> m_classNames{}; // DLL 解放後の文字列ポインタを Editor が参照しないよう Engine 側に複製する
     };

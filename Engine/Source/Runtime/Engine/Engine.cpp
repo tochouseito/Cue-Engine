@@ -53,6 +53,8 @@ Result Engine::initialize(EngineSetupInfo& a_info)
     m_gameCommandBridge = a_info.gameCommandBridge;
     m_platform = a_info.platform;
     m_renderBackend = a_info.renderBackend;
+    m_scriptShadowCopy = std::make_unique<Script::ScriptShadowCopyService>(
+        m_platform->file_system());
     m_bufferCount = a_info.renderBackend->buffer_count();
     m_debugRenderView = a_info.debugRenderView;
     // Editor pass と DebugCamera が揃う場合だけ Debug 用 GPU resource を確保し、Runtime の常駐メモリを増やさない
@@ -233,14 +235,8 @@ void Engine::shutdown()
         m_frameController.reset();
     }
 
-    // Script object は DLL 側で所有されるため、DLL 解放より先に instance を破棄する
-    const Result scriptResetResult = m_scriptRuntime.reset();
-    if (!scriptResetResult)
-    {
-        CUE_ASSERT_FORMAT(false, "Failed to destroy script instances during shutdown: %s", scriptResetResult.message.data());
-    }
-    m_scriptRuntime.set_module(nullptr);
-    m_scriptModule.unload();
+    unload_script_module();
+    m_scriptShadowCopy.reset();
 
     if (m_renderBackend != nullptr)
     {
@@ -285,40 +281,108 @@ void Engine::set_asset_root_path(const Core::IO::Path& a_assetRootPath) noexcept
     m_assetRootPath = a_assetRootPath.normalize();
 }
 
-void Engine::set_script_module_path(const Core::IO::Path& a_modulePath) noexcept
+Result Engine::load_script_module(
+    const Core::IO::Path& a_scriptRoot,
+    const Core::IO::Path& a_modulePath)
 {
+    const Core::IO::Path normalizedRoot = a_scriptRoot.normalize();
     const Core::IO::Path normalizedPath = a_modulePath.normalize();
-    if (m_scriptModulePath.utf8() != normalizedPath.utf8())
+    if (normalizedRoot.is_empty() || normalizedPath.is_empty())
     {
-        m_registeredScriptClasses.clear();
+        return Result::fail(Code::InvalidArgument, Severity::Error,
+                            "Script module paths are empty.");
     }
+
+    if (m_scriptRootPath.utf8() != normalizedRoot.utf8() ||
+        m_scriptModulePath.utf8() != normalizedPath.utf8())
+    {
+        unload_script_module();
+    }
+
+    m_scriptRootPath = normalizedRoot;
     m_scriptModulePath = normalizedPath;
+    return reload_script_module();
 }
 
-Result Engine::refresh_script_classes()
+Result Engine::reload_script_module()
 {
-    if (is_playing())
+    if (m_scriptShadowCopy == nullptr)
     {
-        return Result::fail(Code::InvalidState, Severity::Warning,
-                            "Script classes cannot be reloaded while playing.");
+        return Result::fail(Code::InvalidState, Severity::Error,
+                            "Script shadow copy service is not initialized.");
     }
-    if (m_scriptModulePath.is_empty())
+    if (m_scriptRootPath.is_empty() || m_scriptModulePath.is_empty())
     {
-        m_registeredScriptClasses.clear();
         return Result::fail(Code::InvalidState, Severity::Warning,
-                            "Script module path is empty.");
+                            "Script module paths are empty.");
     }
 
-    Script::ScriptModule module{};
-    Result result = module.load(m_scriptModulePath);
+    Core::IO::Path shadowPath{};
+    Result result = m_scriptShadowCopy->create_shadow_copy(
+        m_scriptRootPath, m_scriptModulePath, ++m_scriptCopyId, shadowPath);
     if (!result)
     {
-        m_registeredScriptClasses.clear();
         return result;
     }
 
-    m_registeredScriptClasses = module.class_names();
-    return Result::ok();
+    std::unique_ptr<Script::ScriptModule> nextModule =
+        std::make_unique<Script::ScriptModule>();
+    result = nextModule->load_shadow_copy(m_scriptModulePath, shadowPath);
+    if (!result)
+    {
+        return result;
+    }
+
+    // 新しい DLL の ABI 接続を先に検証し、失敗時は実行中の module を維持する
+    result = nextModule->register_engine_api(m_scriptRuntime.script_engine_api());
+    if (!result)
+    {
+        return result;
+    }
+
+    const bool restartsRuntime = is_playing();
+    result = m_scriptRuntime.reset();
+    if (!result)
+    {
+        return result;
+    }
+
+    std::unique_ptr<Script::ScriptModule> previousModule = std::move(m_scriptModule);
+    m_scriptModule = std::move(nextModule);
+    m_scriptRuntime.set_module(m_scriptModule.get());
+
+    if (!restartsRuntime)
+    {
+        return Result::ok();
+    }
+
+    result = m_scriptRuntime.start();
+    if (result)
+    {
+        return result;
+    }
+
+    // 新しい class の instance 化に失敗した場合は、旧 DLL を再接続して Play を継続する
+    const Result resetResult = m_scriptRuntime.reset();
+    m_scriptRuntime.set_module(nullptr);
+    m_scriptModule.reset();
+    m_scriptModule = std::move(previousModule);
+    m_scriptRuntime.set_module(m_scriptModule.get());
+    if (!resetResult)
+    {
+        return resetResult;
+    }
+    if (m_scriptModule != nullptr)
+    {
+        const Result restoreResult = m_scriptRuntime.start();
+        if (!restoreResult)
+        {
+            unload_script_module();
+            return restoreResult;
+        }
+    }
+
+    return result;
 }
 
 Result Engine::begin_frame()
@@ -960,32 +1024,20 @@ Result Engine::start_play()
         m_runtimeRenderCameraSelection.set_camera_entity(runtimeCameraEntity);
     }
 
-    // 前回 Play の instance を DLL 解放前に破棄し、runtime Scene 複製と Script 状態を切り離す
+    // 前回 Play の instance を破棄し、runtime Scene 複製と Script 状態を切り離す
     result = m_scriptRuntime.reset();
     if (!result)
     {
         return result;
     }
-    m_scriptRuntime.set_module(nullptr);
-    m_scriptModule.unload();
-    if (!m_scriptModulePath.is_empty())
-    {
-        result = m_scriptModule.load(m_scriptModulePath);
-        if (!result)
-        {
-            return result;
-        }
-        m_scriptRuntime.set_module(&m_scriptModule);
-    }
+    m_scriptRuntime.set_module(m_scriptModule.get());
 
-    // DLL が読み込めた後だけ Runtime World の ScriptComponent を instance 化する
+    // Project 読み込み時から保持している DLL で Runtime World の instance を生成する
     result = m_scriptRuntime.start();
     if (!result)
     {
-        // Play への遷移を中断する場合も、生成済み instance を DLL 解放前に回収する
+        // Play への遷移を中断する場合も、生成済み instance を回収する
         (void)m_scriptRuntime.reset();
-        m_scriptRuntime.set_module(nullptr);
-        m_scriptModule.unload();
         return result;
     }
 
@@ -1006,9 +1058,21 @@ Result Engine::stop_play()
     {
         return result;
     }
-    m_scriptRuntime.set_module(nullptr);
-    m_scriptModule.unload();
     return m_runtimeGameWorld.clear();
+}
+
+void Engine::unload_script_module() noexcept
+{
+    const Result result = m_scriptRuntime.reset();
+    if (!result)
+    {
+        CUE_ASSERT_FORMAT(false, "Failed to destroy script instances during unload: %s", result.message.data());
+    }
+
+    m_scriptRuntime.set_module(nullptr);
+    m_scriptModule.reset();
+    m_scriptRootPath = {};
+    m_scriptModulePath = {};
 }
 
 GameCore::GameWorld& Engine::active_game_world() noexcept

@@ -22,6 +22,9 @@ namespace Cue::Script
         m_scriptEngineApi.isEntityValid = &ScriptRuntime::script_is_entity_valid;
         m_scriptEngineApi.getTransformQuaternion = &ScriptRuntime::script_get_transform_quaternion;
         m_scriptEngineApi.setTransformQuaternion = &ScriptRuntime::script_set_transform_quaternion;
+        m_scriptEngineApi.getTransformEuler = &ScriptRuntime::script_get_transform_euler;
+        m_scriptEngineApi.setTransformEuler = &ScriptRuntime::script_set_transform_euler;
+        m_scriptEngineApi.rotateTransformEuler = &ScriptRuntime::script_rotate_transform_euler;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -383,6 +386,106 @@ namespace Cue::Script
         transform->rotation = rotation;
         transform->scale = Math::float3(
             a_transform->scaleX, a_transform->scaleY, a_transform->scaleZ);
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_get_transform_euler(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        Core::Native::ScriptTransformEuler* a_outTransform) noexcept
+    {
+        if (a_userData == nullptr || a_outTransform == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = runtime->get_transform_component(a_entity, transform);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        const Math::float3 rotation = Math::quaternion_to_euler_xyz(transform->rotation);
+        a_outTransform->position = {
+            transform->position.x, transform->position.y, transform->position.z};
+        a_outTransform->rotation = {rotation.x, rotation.y, rotation.z};
+        a_outTransform->scale = {
+            transform->scale.x, transform->scale.y, transform->scale.z};
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_set_transform_euler(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        const Core::Native::ScriptTransformEuler* a_transform) noexcept
+    {
+        if (a_userData == nullptr || a_transform == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        const float values[] = {
+            a_transform->position.x,
+            a_transform->position.y,
+            a_transform->position.z,
+            a_transform->rotation.x,
+            a_transform->rotation.y,
+            a_transform->rotation.z,
+            a_transform->scale.x,
+            a_transform->scale.y,
+            a_transform->scale.z};
+        for (const float value : values)
+        {
+            if (!std::isfinite(value))
+            {
+                return Core::Native::ScriptAbiResult::InvalidArgument;
+            }
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = runtime->get_transform_component(a_entity, transform);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        // Script の Euler 表現は ABI 境界だけで使い、Runtime World では Quaternion を正規形とする
+        transform->position = Math::float3(
+            a_transform->position.x, a_transform->position.y, a_transform->position.z);
+        transform->rotation = Math::quaternion_from_euler_xyz(Math::float3(
+            a_transform->rotation.x, a_transform->rotation.y, a_transform->rotation.z));
+        transform->scale = Math::float3(
+            a_transform->scale.x, a_transform->scale.y, a_transform->scale.z);
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_rotate_transform_euler(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        const Core::Native::ScriptVector3* a_rotationRadians) noexcept
+    {
+        if (a_userData == nullptr || a_rotationRadians == nullptr ||
+            !std::isfinite(a_rotationRadians->x) ||
+            !std::isfinite(a_rotationRadians->y) ||
+            !std::isfinite(a_rotationRadians->z))
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        ECS::TransformComponent* transform = nullptr;
+        const Result result = runtime->get_transform_component(a_entity, transform);
+        if (!result)
+        {
+            return to_script_abi_result(result);
+        }
+
+        const Math::Quaternion delta = Math::quaternion_from_euler_xyz(Math::float3(
+            a_rotationRadians->x, a_rotationRadians->y, a_rotationRadians->z));
+        transform->rotation = (delta * transform->rotation).normalize();
         return Core::Native::ScriptAbiResult::Ok;
     }
 

@@ -756,16 +756,6 @@ namespace Cue::Editor
             return;
         }
 
-        if (ImGui::Button("Script class を更新"))
-        {
-            const Result result = m_engine != nullptr
-                                      ? m_engine->refresh_script_classes()
-                                      : Result::fail(
-                                            Code::InvalidState, Severity::Warning,
-                                            "Engine is not initialized.");
-            m_scriptClassLoadError = result ? std::string{} : result.message;
-        }
-
         ECS::ScriptComponent edited = *script;
         const std::vector<std::string>* registeredClasses =
             m_engine != nullptr ? &m_engine->registered_script_classes() : nullptr;
@@ -802,12 +792,6 @@ namespace Cue::Editor
         {
             ImGui::TextUnformatted("登録済み Script class はありません");
         }
-        if (!m_scriptClassLoadError.empty())
-        {
-            ImGui::TextColored(
-                ImVec4(1.0f, 0.376f, 0.376f, 1.0f), "%s", m_scriptClassLoadError.c_str());
-        }
-
         if (ImGui::Checkbox("Enabled", &edited.isEnabled))
         {
             submit_script_component(a_object.entity_id(), edited);

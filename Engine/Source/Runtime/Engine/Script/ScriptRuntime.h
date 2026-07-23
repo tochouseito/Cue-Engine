@@ -98,6 +98,18 @@ namespace Cue::Script
             void* a_userData,
             Core::Native::ScriptEntityHandle a_entity,
             const Core::Native::ScriptTransformQuaternion* a_transform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_get_transform_euler(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            Core::Native::ScriptTransformEuler* a_outTransform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_set_transform_euler(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            const Core::Native::ScriptTransformEuler* a_transform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_rotate_transform_euler(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            const Core::Native::ScriptVector3* a_rotationRadians) noexcept;
         [[nodiscard]] static Core::Native::ScriptAbiResult to_script_abi_result(
             const Result& a_result) noexcept;
 

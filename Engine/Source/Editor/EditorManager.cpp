@@ -23,22 +23,79 @@
 #include <Dialog/DialogService.h>
 #include <Engine.h>
 #include <IO/IFileSystem.h>
+#include <IO/Logger.h>
 #include <IO/Path.h>
+#include <PAL.h>
 
 // === ImGui includes ===
 #include <imgui.h>
 
 // === C++ includes ===
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Cue::Editor
 {
     namespace
     {
+        constexpr uint32_t k_scriptScanInterval = 30u;
+        constexpr uint32_t k_scriptBuildDebounce = 45u;
+
+        [[nodiscard]] std::string to_lower_ascii(std::string a_text)
+        {
+            std::transform(
+                a_text.begin(), a_text.end(), a_text.begin(),
+                [](const unsigned char a_character)
+                {
+                    return static_cast<char>(std::tolower(a_character));
+                });
+            return a_text;
+        }
+
+        [[nodiscard]] bool is_ignored_script_directory(const std::filesystem::path& a_path)
+        {
+            const std::string name = to_lower_ascii(a_path.filename().string());
+            return name == ".git" || name == ".vs" || name == ".vscode" ||
+                   name == "binaries" || name == "build" || name == "builds" ||
+                   name == "cmakefiles" || name == "generated" ||
+                   name == "intermediate" || name == "out" || name == "bin" ||
+                   name == "obj" || name == "x64";
+        }
+
+        [[nodiscard]] bool is_watched_script_file(const std::filesystem::path& a_path)
+        {
+            const std::string filename = a_path.filename().string();
+            if (filename == "CMakeLists.txt" || filename == "CMakePresets.json")
+            {
+                return true;
+            }
+
+            const std::string extension = to_lower_ascii(a_path.extension().string());
+            return extension == ".c" || extension == ".cc" || extension == ".cpp" ||
+                   extension == ".cxx" || extension == ".h" || extension == ".hh" ||
+                   extension == ".hpp" || extension == ".hxx" ||
+                   extension == ".inl" || extension == ".ixx" ||
+                   extension == ".cmake";
+        }
+
+        void hash_bytes(uint64_t& a_inOutHash, const void* a_data, size_t a_size) noexcept
+        {
+            constexpr uint64_t k_fnvPrime = 1099511628211ull;
+            const auto* bytes = static_cast<const unsigned char*>(a_data);
+            for (size_t byteIndex = 0u; byteIndex < a_size; ++byteIndex)
+            {
+                a_inOutHash ^= static_cast<uint64_t>(bytes[byteIndex]);
+                a_inOutHash *= k_fnvPrime;
+            }
+        }
+
         [[nodiscard]] bool is_valid_script_name(const std::string_view a_name) noexcept
         {
             if (a_name.empty() || std::isdigit(static_cast<unsigned char>(a_name.front())) != 0)
@@ -88,6 +145,8 @@ namespace Cue::Editor
     void EditorManager::initialize(const EditorManagerSetupInfo& a_info)
     {
         CUE_ASSERT_MSG(a_info.backend != nullptr, "EditorManager: backend is null");
+        CUE_ASSERT_MSG(a_info.platform != nullptr,
+                       "EditorManager: platform is null");
         CUE_ASSERT_MSG(a_info.debugCamera != nullptr,
                        "EditorManager: debug camera is null");
         CUE_ASSERT_MSG(a_info.dialogService != nullptr,
@@ -97,6 +156,7 @@ namespace Cue::Editor
 
         m_backend = a_info.backend;
         m_engine = a_info.engine;
+        m_platform = a_info.platform;
         m_debugCamera = a_info.debugCamera;
         m_dialogService = a_info.dialogService;
         m_gameCommandBridge = a_info.gameCommandBridge;
@@ -153,6 +213,8 @@ namespace Cue::Editor
 
     void EditorManager::update()
     {
+        process_script_build();
+        update_auto_script_build();
         draw_dockspace();
         update_project_selector();
         draw_scene_transition_dialog();
@@ -463,7 +525,7 @@ namespace Cue::Editor
         const bool isPaused = hasEngine && m_engine->is_play_paused();
 
         if (ImGui::MenuItem("Play", nullptr, isPlaying && !isPaused,
-                            hasEngine && !isPlaying))
+                            hasEngine && !isPlaying && !m_isScriptActionActive))
         {
             const Result result = m_engine->request_start_play();
             if (!result)
@@ -472,7 +534,8 @@ namespace Cue::Editor
             }
         }
         if (ImGui::MenuItem("Pause", nullptr, isPaused,
-                            hasEngine && isPlaying && !isPaused))
+                            hasEngine && isPlaying && !isPaused &&
+                                !m_isScriptActionActive))
         {
             const Result result = m_engine->request_pause_play();
             if (!result)
@@ -480,7 +543,8 @@ namespace Cue::Editor
                 show_scene_error(result);
             }
         }
-        if (ImGui::MenuItem("Resume", nullptr, false, hasEngine && isPaused))
+        if (ImGui::MenuItem("Resume", nullptr, false,
+                            hasEngine && isPaused && !m_isScriptActionActive))
         {
             const Result result = m_engine->request_resume_play();
             if (!result)
@@ -488,7 +552,8 @@ namespace Cue::Editor
                 show_scene_error(result);
             }
         }
-        if (ImGui::MenuItem("Step", nullptr, false, hasEngine && isPaused))
+        if (ImGui::MenuItem("Step", nullptr, false,
+                            hasEngine && isPaused && !m_isScriptActionActive))
         {
             const Result result = m_engine->request_step_play();
             if (!result)
@@ -496,7 +561,8 @@ namespace Cue::Editor
                 show_scene_error(result);
             }
         }
-        if (ImGui::MenuItem("Stop", nullptr, false, hasEngine && isPlaying))
+        if (ImGui::MenuItem("Stop", nullptr, false,
+                            hasEngine && isPlaying && !m_isScriptActionActive))
         {
             const Result result = m_engine->request_stop_play();
             if (!result)
@@ -506,36 +572,16 @@ namespace Cue::Editor
         }
 
         ImGui::Separator();
-        const bool canBuildScript = m_fileSystem != nullptr && m_project != nullptr &&
-                                    !m_project->script_root_path().is_empty() && !isPlaying;
-        if (ImGui::BeginMenu("GameScript", canBuildScript))
+        const bool canOpenScript =
+            m_project != nullptr && !m_project->script_root_path().is_empty();
+        if (ImGui::MenuItem("GameScript solution を開く", nullptr, false,
+                            canOpenScript))
         {
-            if (ImGui::MenuItem("CMake を構成"))
+            const Result result = open_game_script_project();
+            if (!result)
             {
-                const Result result = configure_game_script();
-                if (!result)
-                {
-                    show_scene_error(result);
-                }
+                show_scene_error(result);
             }
-            if (ImGui::MenuItem("ビルド"))
-            {
-                const Result result = build_game_script();
-                if (!result)
-                {
-                    show_scene_error(result);
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Visual Studio で開く"))
-            {
-                const Result result = open_game_script_project();
-                if (!result)
-                {
-                    show_scene_error(result);
-                }
-            }
-            ImGui::EndMenu();
         }
     }
 
@@ -795,16 +841,25 @@ namespace Cue::Editor
         if (m_engine != nullptr)
         {
             m_engine->set_asset_root_path(m_project->asset_root_path());
-            m_engine->set_script_module_path(m_project->script_module_path());
-            const Result scriptClassResult = m_engine->refresh_script_classes();
-            if (!scriptClassResult)
+            const Result scriptLoadResult = m_engine->load_script_module(
+                m_project->script_root_path(), m_project->script_module_path());
+            if (!scriptLoadResult)
             {
                 Core::IO::log(
                     Core::IO::LogSink::console,
-                    "GameScript class list could not be loaded: %s",
-                    scriptClassResult.message.data());
+                    "GameScript module could not be loaded: %s",
+                    scriptLoadResult.message.data());
             }
         }
+
+        // Project 読み込み時点を基準にし、既存ソースを変更として誤検出しない
+        m_hasScriptSnapshot = false;
+        m_hasPendingScriptBuild = false;
+        m_isScriptActionActive = false;
+        m_scriptScanDelay = 0u;
+        m_scriptBuildDebounce = 0u;
+        m_pendingScriptBuildDelay = 0u;
+        m_scriptSourceVersion = 0u;
 
         if (m_sceneManager == nullptr)
         {
@@ -1066,46 +1121,48 @@ namespace Cue::Editor
 
     Result EditorManager::configure_game_script()
     {
-        if (m_fileSystem == nullptr || m_project == nullptr ||
-            (m_engine != nullptr && m_engine->is_playing()))
+        if (m_fileSystem == nullptr || m_project == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Warning,
-                                "GameScript cannot be configured while playing or without a project.");
+                                "GameScript cannot be configured without a project.");
         }
 
         GameScriptBuildRunner buildRunner(*m_fileSystem);
         const Result result = buildRunner.configure(
             m_project->script_root_path(), m_scriptBuildReport);
-        m_showScriptBuildOutput = true;
         return result;
     }
 
     Result EditorManager::build_game_script()
     {
-        if (m_fileSystem == nullptr || m_project == nullptr ||
-            (m_engine != nullptr && m_engine->is_playing()))
+        if (m_fileSystem == nullptr || m_project == nullptr)
         {
             return Result::fail(Code::InvalidState, Severity::Warning,
-                                "GameScript cannot be built while playing or without a project.");
+                                "GameScript cannot be built without a project.");
         }
 
         GameScriptBuildRunner buildRunner(*m_fileSystem);
         Result result = buildRunner.build(
             m_project->script_root_path(), m_project->script_build_configuration(),
             m_scriptBuildReport);
-        m_showScriptBuildOutput = true;
         if (!result || m_engine == nullptr)
         {
             return result;
         }
 
-        result = m_engine->refresh_script_classes();
+        result = m_engine->reload_script_module();
         if (!result)
         {
             m_scriptBuildReport.succeeded = false;
-            m_scriptBuildReport.summary = "GameScript was built, but its class list could not be loaded.";
+            m_scriptBuildReport.summary =
+                "GameScript was built, but the module could not be reloaded.";
+            m_scriptBuildReport.output +=
+                "\n\nReload failed: " + std::string(result.message);
+            return result;
         }
-        return result;
+
+        m_scriptBuildReport.summary = "GameScript build and reload succeeded.";
+        return Result::ok();
     }
 
     Result EditorManager::open_game_script_project()
@@ -1117,6 +1174,194 @@ namespace Cue::Editor
         }
 
         return open_script_project_in_visual_studio(m_project->script_root_path());
+    }
+
+    void EditorManager::queue_script_build() noexcept
+    {
+        m_pendingScriptBuildDelay = 1u;
+        m_isScriptActionActive = true;
+    }
+
+    void EditorManager::process_script_build()
+    {
+        if (!m_isScriptActionActive)
+        {
+            return;
+        }
+        if (m_pendingScriptBuildDelay > 0u)
+        {
+            --m_pendingScriptBuildDelay;
+            return;
+        }
+
+        const Result result = build_game_script();
+        if (!result)
+        {
+            Core::IO::log(
+                Core::IO::LogSink::console,
+                "GameScript automatic build failed: %s",
+                result.message.data());
+            m_showScriptBuildOutput = true;
+        }
+        m_isScriptActionActive = false;
+    }
+
+    void EditorManager::update_auto_script_build()
+    {
+        if (m_project == nullptr || m_engine == nullptr ||
+            m_fileSystem == nullptr || m_project->script_root_path().is_empty())
+        {
+            m_hasScriptSnapshot = false;
+            m_hasPendingScriptBuild = false;
+            return;
+        }
+
+        if (m_scriptScanDelay > 0u)
+        {
+            --m_scriptScanDelay;
+        }
+        else if (!m_isScriptActionActive)
+        {
+            m_scriptScanDelay = k_scriptScanInterval;
+            uint64_t sourceVersion = 0u;
+            if (get_script_source_version(sourceVersion))
+            {
+                if (!m_hasScriptSnapshot)
+                {
+                    m_scriptSourceVersion = sourceVersion;
+                    m_hasScriptSnapshot = true;
+                }
+                else if (sourceVersion != m_scriptSourceVersion)
+                {
+                    m_scriptSourceVersion = sourceVersion;
+                    m_hasPendingScriptBuild = true;
+                    m_scriptBuildDebounce = k_scriptBuildDebounce;
+                }
+            }
+        }
+
+        if (!m_hasPendingScriptBuild)
+        {
+            return;
+        }
+        if (m_scriptBuildDebounce > 0u)
+        {
+            --m_scriptBuildDebounce;
+            return;
+        }
+        if (m_isScriptActionActive || m_platform == nullptr ||
+            !m_platform->is_window_focused())
+        {
+            return;
+        }
+
+        m_hasPendingScriptBuild = false;
+        queue_script_build();
+    }
+
+    bool EditorManager::get_script_source_version(uint64_t& a_outVersion) const
+    {
+        a_outVersion = 0u;
+        if (m_project == nullptr)
+        {
+            return false;
+        }
+
+        const Core::IO::Path scriptRoot = m_project->script_root_path();
+        if (scriptRoot.is_empty())
+        {
+            return false;
+        }
+
+        const std::filesystem::path rootPath(scriptRoot.utf8());
+        std::error_code error{};
+        if (!std::filesystem::exists(rootPath, error) || error)
+        {
+            return false;
+        }
+
+        std::vector<std::pair<std::string, uint64_t>> sourceFiles{};
+        constexpr auto options =
+            std::filesystem::directory_options::skip_permission_denied;
+        std::filesystem::recursive_directory_iterator iterator(
+            rootPath, options, error);
+        if (error)
+        {
+            return false;
+        }
+
+        const std::filesystem::recursive_directory_iterator end{};
+        for (; iterator != end; iterator.increment(error))
+        {
+            if (error)
+            {
+                error.clear();
+                continue;
+            }
+
+            const std::filesystem::directory_entry& entry = *iterator;
+            if (entry.is_directory(error))
+            {
+                if (!error && is_ignored_script_directory(entry.path()))
+                {
+                    iterator.disable_recursion_pending();
+                }
+                error.clear();
+                continue;
+            }
+            error.clear();
+
+            if (!entry.is_regular_file(error))
+            {
+                error.clear();
+                continue;
+            }
+            error.clear();
+
+            if (!is_watched_script_file(entry.path()))
+            {
+                continue;
+            }
+
+            const std::filesystem::file_time_type writeTime =
+                entry.last_write_time(error);
+            if (error)
+            {
+                error.clear();
+                continue;
+            }
+
+            std::filesystem::path relativePath =
+                std::filesystem::relative(entry.path(), rootPath, error);
+            if (error)
+            {
+                error.clear();
+                relativePath = entry.path().filename();
+            }
+
+            sourceFiles.emplace_back(
+                relativePath.generic_string(),
+                static_cast<uint64_t>(writeTime.time_since_epoch().count()));
+        }
+
+        std::sort(
+            sourceFiles.begin(), sourceFiles.end(),
+            [](const auto& a_left, const auto& a_right)
+            {
+                return a_left.first < a_right.first;
+            });
+
+        uint64_t hash = 1469598103934665603ull;
+        for (const auto& [relativePath, writeTime] : sourceFiles)
+        {
+            hash_bytes(hash, relativePath.data(), relativePath.size());
+            hash_bytes(hash, &writeTime, sizeof(writeTime));
+        }
+
+        const uint64_t fileCount = static_cast<uint64_t>(sourceFiles.size());
+        hash_bytes(hash, &fileCount, sizeof(fileCount));
+        a_outVersion = hash;
+        return true;
     }
 
     void EditorManager::draw_script_build_output()

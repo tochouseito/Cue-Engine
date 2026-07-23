@@ -47,6 +47,25 @@ namespace Cue::Script
 #endif
         }
 
+        void delete_file_if_exists(const Core::IO::Path& a_path) noexcept
+        {
+#if defined(_WIN32)
+            if (a_path.is_empty())
+            {
+                return;
+            }
+
+            std::wstring path{};
+            const Result result = utf8_to_wide(a_path.utf8(), path);
+            if (result)
+            {
+                (void)::DeleteFileW(path.c_str());
+            }
+#else
+            (void)a_path;
+#endif
+        }
+
         // ScriptRuntime が呼び出す全関数を先に確認し、部分的な exports を実行中に露出させない
         constexpr uint32_t k_maxScriptClassCount = 4096u;
 
@@ -108,17 +127,34 @@ namespace Cue::Script
 
     Result ScriptModule::load(const Core::IO::Path& a_modulePath) noexcept
     {
+        return load_internal(a_modulePath, a_modulePath);
+    }
+
+    Result ScriptModule::load_shadow_copy(
+        const Core::IO::Path& a_modulePath,
+        const Core::IO::Path& a_shadowPath) noexcept
+    {
+        return load_internal(a_modulePath, a_shadowPath);
+    }
+
+    Result ScriptModule::load_internal(
+        const Core::IO::Path& a_modulePath,
+        const Core::IO::Path& a_loadPath) noexcept
+    {
         // 同時に複数の GameScript DLL を保持せず、runtime が参照する exports の出所を一つに保つ
         unload();
-        if (a_modulePath.is_empty())
+        if (a_modulePath.is_empty() || a_loadPath.is_empty())
         {
             return Result::fail(Code::InvalidArgument, Severity::Error,
                                 "Script module path is empty.");
         }
 
+        m_modulePath = a_modulePath.normalize();
+        m_loadedPath = a_loadPath.normalize();
+
 #if defined(_WIN32)
         std::wstring modulePath{};
-        Result result = utf8_to_wide(a_modulePath.utf8(), modulePath);
+        Result result = utf8_to_wide(a_loadPath.utf8(), modulePath);
         if (!result)
         {
             return result;
@@ -170,7 +206,6 @@ namespace Cue::Script
 
         // 全ての契約を確認してから公開状態へ遷移し、失敗した DLL の関数を呼べないようにする
         m_nativeHandle = moduleHandle;
-        m_modulePath = a_modulePath.normalize();
         m_exports = exports;
         m_classNames = std::move(classNames);
         return Result::ok();
@@ -188,9 +223,17 @@ namespace Cue::Script
             ::FreeLibrary(static_cast<HMODULE>(m_nativeHandle));
         }
 #endif
+        if (!m_loadedPath.is_empty() && m_loadedPath.utf8() != m_modulePath.utf8())
+        {
+            delete_file_if_exists(m_loadedPath);
+            delete_file_if_exists(Core::IO::Path::join(
+                m_loadedPath.parent(),
+                Core::IO::Path(m_loadedPath.stem() + ".pdb")));
+        }
         // DLL 解放後の関数ポインタを誤用しないよう、関連状態を同じ箇所で初期化する
         m_nativeHandle = nullptr;
         m_modulePath = {};
+        m_loadedPath = {};
         m_exports = {};
         m_classNames.clear();
     }

@@ -59,6 +59,11 @@ namespace Cue::PAL::Win
         {
             return *m_fileSystem.get();
         }
+        [[nodiscard]] bool is_window_focused() const noexcept override
+        {
+            const HWND windowHandle = get_window_handle();
+            return windowHandle != nullptr && ::GetForegroundWindow() == windowHandle;
+        }
         /// @brief 作成済みウィンドウハンドルを返す
         HWND get_window_handle() const noexcept
         {

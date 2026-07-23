@@ -33,6 +33,7 @@
 #include "GameCore/GameWorld.h"
 #include "Script/ScriptModule.h"
 #include "Script/ScriptRuntime.h"
+#include "Script/ScriptShadowCopyService.h"
 
 // === C++ includes ===
 #include <array>
@@ -132,24 +133,25 @@ class Engine final
         return m_assetRootPath;
     }
 
-    /// @brief Play Mode でロードする GameScript DLL を設定する。
-    void set_script_module_path(const Core::IO::Path& a_modulePath) noexcept;
+    /// @brief GameScript DLL を shadow copy からロードし、Editor と Play で共有する
+    [[nodiscard]] Result load_script_module(
+        const Core::IO::Path& a_scriptRoot,
+        const Core::IO::Path& a_modulePath);
 
-    /// @brief Play Mode でロードする GameScript DLL のパスを返す。
+    /// @brief 現在の GameScript DLL を再ロードして class 一覧を更新する
+    [[nodiscard]] Result reload_script_module();
+
+    /// @brief ロード対象の GameScript DLL のパスを返す
     [[nodiscard]] const Core::IO::Path& script_module_path() const noexcept
     {
         return m_scriptModulePath;
     }
 
-    /// @brief GameScript DLL から Editor 用の登録済み class 一覧を再取得する
-    ///
-    /// DLL を常駐ロードすると外部 CMake build が成果物を更新できないため、一覧を複製後に直ちに解放する
-    [[nodiscard]] Result refresh_script_classes();
-
-    /// @brief 最後に取得した GameScript の class 名一覧を返す
+    /// @brief 現在ロード済みの GameScript class 名一覧を返す
     [[nodiscard]] const std::vector<std::string>& registered_script_classes() const noexcept
     {
-        return m_registeredScriptClasses;
+        static const std::vector<std::string> k_emptyClasses{};
+        return m_scriptModule != nullptr ? m_scriptModule->class_names() : k_emptyClasses;
     }
 
     /// @brief GameCore camera の代わりに使う描画視点を設定する。
@@ -187,6 +189,9 @@ class Engine final
 
     /// @brief runtime World の実行状態を破棄する
     Result stop_play();
+
+    /// @brief Script instance を破棄してロード済み DLL を解放する
+    void unload_script_module() noexcept;
 
     /// @brief 現在描画する World を返す
     [[nodiscard]] GameCore::GameWorld& active_game_world() noexcept;
@@ -236,9 +241,10 @@ class Engine final
 
     GameCore::GameWorld m_gameWorld{};
     GameCore::GameWorld m_runtimeGameWorld{}; // Play 中の変更を authoring World へ戻さない複製先
-    Script::ScriptModule m_scriptModule{};
+    std::unique_ptr<Script::ScriptModule> m_scriptModule = nullptr;
     // 逆順破棄で ScriptRuntime が ScriptModule より先に破棄され、DLL 解放後の handle 参照を防ぐ
     Script::ScriptRuntime m_scriptRuntime{m_runtimeGameWorld};
+    std::unique_ptr<Script::ScriptShadowCopyService> m_scriptShadowCopy = nullptr;
     DrawSystem::RenderCameraSelection m_gameRenderCameraSelection{};
     DrawSystem::RenderCameraSelection m_runtimeRenderCameraSelection{};
     std::vector<DrawSystem::DrawScene> m_drawScenes{};
@@ -258,9 +264,10 @@ class Engine final
     PlayState m_playState = PlayState::editing;
     PlayRequest m_pendingPlayRequest = PlayRequest::none;
     bool m_isPlayStepRequested = false;
-    Core::IO::Path m_assetRootPath{}; // Project 由来の Assets フォルダ
-    Core::IO::Path m_scriptModulePath{}; // Editor Play 時にロードする GameScript DLL
-    std::vector<std::string> m_registeredScriptClasses{}; // DLL を常駐させず Editor の class 選択に使う複製済み一覧
+    Core::IO::Path m_assetRootPath{};    // Project 由来の Assets フォルダ
+    Core::IO::Path m_scriptRootPath{};   // shadow copy の配置基準になる GameScript root
+    Core::IO::Path m_scriptModulePath{}; // 自動ビルド後に再ロードする GameScript DLL
+    uint64_t m_scriptCopyId = 0u;
 
     // --- サブシステム ---
     uint32_t m_bufferCount = 1;
