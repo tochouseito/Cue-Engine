@@ -23,6 +23,7 @@
 
 // === Engine includes ===
 #include <Engine.h>
+#include <GameCore/Components.h>
 
 // === ImGui includes ===
 #include <imgui.h>
@@ -127,6 +128,56 @@ namespace
                 Cue::Core::IO::LogSink::console | Cue::Core::IO::LogSink::file,
                 "CueEditor MCP script open request failed: {}", result.message);
         }
+    }
+
+    void update_mcp_entity_snapshot(
+        Cue::Engine& a_engine,
+        Cue::Editor::EditorMcpBridge& a_bridge)
+    {
+        std::vector<Cue::Editor::EditorMcpEntitySnapshot> entities{};
+        Cue::GameCore::GameWorld& world = a_engine.active_game_world();
+        size_t objectCount = 0u;
+        if (world.object_count(objectCount))
+        {
+            entities.reserve(objectCount);
+        }
+
+        const Cue::Result result = world.for_each_object(
+            [&entities](Cue::GameCore::EntityId a_entityId, Cue::GameCore::GameObject a_object)
+            {
+                Cue::Editor::EditorMcpEntitySnapshot entity{};
+                entity.entityId = a_entityId;
+                if (!a_object.name(entity.name) || entity.name.empty())
+                {
+                    entity.name = "GameObject";
+                }
+
+                Cue::ECS::TransformComponent* transform = nullptr;
+                if (a_object.get_component(transform) && transform != nullptr)
+                {
+                    entity.hasTransform = true;
+                    entity.transform.positionX = transform->position.x;
+                    entity.transform.positionY = transform->position.y;
+                    entity.transform.positionZ = transform->position.z;
+                    entity.transform.rotationX = transform->rotation.x;
+                    entity.transform.rotationY = transform->rotation.y;
+                    entity.transform.rotationZ = transform->rotation.z;
+                    entity.transform.rotationW = transform->rotation.w;
+                    entity.transform.scaleX = transform->scale.x;
+                    entity.transform.scaleY = transform->scale.y;
+                    entity.transform.scaleZ = transform->scale.z;
+                }
+                entities.push_back(std::move(entity));
+            });
+        if (!result)
+        {
+            Cue::Core::IO::log(
+                Cue::Core::IO::LogSink::console | Cue::Core::IO::LogSink::file,
+                "CueEditor MCP entity snapshot failed: {}", result.message);
+            return;
+        }
+
+        a_bridge.set_entity_snapshot(std::move(entities));
     }
 } // namespace
 
@@ -374,6 +425,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR a_commandLine, int)
             break;
         }
         mcpBridge->set_playback_state(get_mcp_playback_state(*engine));
+        update_mcp_entity_snapshot(*engine, *mcpBridge);
 
         // フレーム終了
         r = platform->end_frame();

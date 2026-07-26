@@ -14,6 +14,9 @@
 
 namespace Cue::Script
 {
+    /// @brief GameScript が値として操作するローカル Transform
+    using Transform = Core::Native::ScriptTransform;
+
     /// @brief GameScript がアタッチ先 Entity を操作する lifecycle 基底
     class MarionnetteBehaviour
     {
@@ -47,77 +50,79 @@ namespace Cue::Script
         }
 
     protected:
-        /// @brief アタッチ先 Entity のローカル Transform を取得する
-        [[nodiscard]] Core::Native::ScriptAbiResult get_transform(
-            Core::Native::ScriptTransformQuaternion& a_outTransform) const noexcept
+        /// @brief アタッチ先 Entity のローカル Transform
+        ///
+        /// lifecycle の前後で自動同期し、Script から明示的な取得・反映を不要にする
+        Transform transform{};
+
+        /// @brief 現在の Script 更新に渡された経過秒数
+        [[nodiscard]] float delta_time() const noexcept
         {
-            if (m_engineApi == nullptr || m_engineApi->getTransformQuaternion == nullptr)
-            {
-                return Core::Native::ScriptAbiResult::InvalidState;
-            }
-
-            return m_engineApi->getTransformQuaternion(
-                m_engineApi->userData, m_entity, &a_outTransform);
-        }
-
-        /// @brief アタッチ先 Entity のローカル Transform を更新する
-        [[nodiscard]] Core::Native::ScriptAbiResult set_transform(
-            const Core::Native::ScriptTransformQuaternion& a_transform) const noexcept
-        {
-            if (m_engineApi == nullptr || m_engineApi->setTransformQuaternion == nullptr)
-            {
-                return Core::Native::ScriptAbiResult::InvalidState;
-            }
-
-            return m_engineApi->setTransformQuaternion(
-                m_engineApi->userData, m_entity, &a_transform);
-        }
-
-        /// @brief アタッチ先 Entity のローカル Transform を XYZ 順の Euler 回転で取得する
-        /// @param a_outTransform 回転をラジアンで受け取る Transform
-        [[nodiscard]] Core::Native::ScriptAbiResult get_transform(
-            Core::Native::ScriptTransformEuler& a_outTransform) const noexcept
-        {
-            if (m_engineApi == nullptr || m_engineApi->getTransformEuler == nullptr)
-            {
-                return Core::Native::ScriptAbiResult::InvalidState;
-            }
-
-            return m_engineApi->getTransformEuler(
-                m_engineApi->userData, m_entity, &a_outTransform);
-        }
-
-        /// @brief アタッチ先 Entity のローカル Transform を XYZ 順の Euler 回転で更新する
-        /// @param a_transform 回転をラジアンで指定する Transform
-        [[nodiscard]] Core::Native::ScriptAbiResult set_transform(
-            const Core::Native::ScriptTransformEuler& a_transform) const noexcept
-        {
-            if (m_engineApi == nullptr || m_engineApi->setTransformEuler == nullptr)
-            {
-                return Core::Native::ScriptAbiResult::InvalidState;
-            }
-
-            return m_engineApi->setTransformEuler(
-                m_engineApi->userData, m_entity, &a_transform);
-        }
-
-        /// @brief XYZ 順の Euler 差分回転を現在のローカル回転へ合成する
-        /// @param a_rotationRadians 各軸へ加えるラジアン回転
-        [[nodiscard]] Core::Native::ScriptAbiResult rotate(
-            const Core::Native::ScriptVector3& a_rotationRadians) const noexcept
-        {
-            if (m_engineApi == nullptr || m_engineApi->rotateTransformEuler == nullptr)
-            {
-                return Core::Native::ScriptAbiResult::InvalidState;
-            }
-
-            return m_engineApi->rotateTransformEuler(
-                m_engineApi->userData, m_entity, &a_rotationRadians);
+            return m_deltaTimeSeconds;
         }
 
     private:
+        template <typename T>
+        friend Core::Native::ScriptClassDefinition
+        make_marionnette_script_class_definition(std::string_view a_className) noexcept;
+
+        [[nodiscard]] Core::Native::ScriptAbiResult begin_lifecycle(
+            float a_deltaTimeSeconds) noexcept
+        {
+            if (m_engineApi == nullptr || m_engineApi->readTransform == nullptr)
+            {
+                return Core::Native::ScriptAbiResult::InvalidState;
+            }
+
+            m_deltaTimeSeconds = a_deltaTimeSeconds;
+            const Core::Native::ScriptAbiResult result = m_engineApi->readTransform(
+                m_engineApi->userData, m_entity, &transform);
+            if (result == Core::Native::ScriptAbiResult::Ok)
+            {
+                m_transformSnapshot = transform;
+            }
+            return result;
+        }
+
+        [[nodiscard]] Core::Native::ScriptAbiResult end_lifecycle() noexcept
+        {
+            if (transforms_equal(transform, m_transformSnapshot))
+            {
+                return Core::Native::ScriptAbiResult::Ok;
+            }
+            if (m_engineApi == nullptr || m_engineApi->writeTransform == nullptr)
+            {
+                return Core::Native::ScriptAbiResult::InvalidState;
+            }
+
+            const Core::Native::ScriptAbiResult result = m_engineApi->writeTransform(
+                m_engineApi->userData, m_entity, &transform);
+            if (result == Core::Native::ScriptAbiResult::Ok)
+            {
+                m_transformSnapshot = transform;
+            }
+            return result;
+        }
+
+        [[nodiscard]] static bool transforms_equal(
+            const Core::Native::ScriptTransform& a_left,
+            const Core::Native::ScriptTransform& a_right) noexcept
+        {
+            return a_left.position.x == a_right.position.x &&
+                   a_left.position.y == a_right.position.y &&
+                   a_left.position.z == a_right.position.z &&
+                   a_left.rotation.x == a_right.rotation.x &&
+                   a_left.rotation.y == a_right.rotation.y &&
+                   a_left.rotation.z == a_right.rotation.z &&
+                   a_left.scale.x == a_right.scale.x &&
+                   a_left.scale.y == a_right.scale.y &&
+                   a_left.scale.z == a_right.scale.z;
+        }
+
+        Core::Native::ScriptTransform m_transformSnapshot{};
         const Core::Native::ScriptEngineApi* m_engineApi = nullptr;
         Core::Native::ScriptEntityHandle m_entity{};
+        float m_deltaTimeSeconds = 0.0f;
     };
 
     template <typename T>
@@ -163,8 +168,15 @@ namespace Cue::Script
                     return Core::Native::ScriptAbiResult::InvalidArgument;
                 }
 
-                static_cast<T*>(a_state)->start();
-                return Core::Native::ScriptAbiResult::Ok;
+                auto* state = static_cast<T*>(a_state);
+                Core::Native::ScriptAbiResult result = state->begin_lifecycle(0.0f);
+                if (result != Core::Native::ScriptAbiResult::Ok)
+                {
+                    return result;
+                }
+
+                state->start();
+                return state->end_lifecycle();
             },
             [](void* a_state, float a_deltaTimeSeconds) noexcept -> Core::Native::ScriptAbiResult
             {
@@ -173,8 +185,16 @@ namespace Cue::Script
                     return Core::Native::ScriptAbiResult::InvalidArgument;
                 }
 
-                static_cast<T*>(a_state)->update(a_deltaTimeSeconds);
-                return Core::Native::ScriptAbiResult::Ok;
+                auto* state = static_cast<T*>(a_state);
+                Core::Native::ScriptAbiResult result =
+                    state->begin_lifecycle(a_deltaTimeSeconds);
+                if (result != Core::Native::ScriptAbiResult::Ok)
+                {
+                    return result;
+                }
+
+                state->update(a_deltaTimeSeconds);
+                return state->end_lifecycle();
             }};
     }
 } // namespace Cue::Script

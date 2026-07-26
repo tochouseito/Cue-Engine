@@ -9,12 +9,12 @@ namespace GameScript
     {
     }
 
-    void testcubeScript::update(float a_deltaTimeSeconds) noexcept
+    void testcubeScript::update(float) noexcept
     {
-        constexpr float k_rotationRadiansPerSecond = 1.0f;
-        const Cue::Core::Native::ScriptVector3 rotation{
-            0.0f, k_rotationRadiansPerSecond * a_deltaTimeSeconds, 0.0f};
-        (void)rotate(rotation);
+        constexpr float k_rotationSpeed = 1.0f;
+        constexpr float k_rotationDirection = 1.0f;
+        transform.rotation.y +=
+            delta_time() * k_rotationSpeed * k_rotationDirection;
     }
 } // namespace GameScript
 

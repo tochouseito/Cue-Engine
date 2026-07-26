@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace Cue::Editor
 {
@@ -42,6 +43,28 @@ namespace Cue::Editor
     struct EditorMcpBridgeSetupInfo final
     {
         uint16_t port = 18766u;
+    };
+
+    struct EditorMcpTransformSnapshot final
+    {
+        float positionX = 0.0f;
+        float positionY = 0.0f;
+        float positionZ = 0.0f;
+        float rotationX = 0.0f;
+        float rotationY = 0.0f;
+        float rotationZ = 0.0f;
+        float rotationW = 1.0f;
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        float scaleZ = 1.0f;
+    };
+
+    struct EditorMcpEntitySnapshot final
+    {
+        uint64_t entityId = 0u;
+        std::string name{};
+        bool hasTransform = false;
+        EditorMcpTransformSnapshot transform{};
     };
 
     /// @brief loopback HTTP 要求を main thread の安全な Play 要求へ変換する
@@ -74,6 +97,9 @@ namespace Cue::Editor
         /// @brief `/health` が返す Script 起動処理の結果を更新する
         void set_script_open_state(EditorMcpScriptOpenState a_state) noexcept;
 
+        /// @brief main thread で取得した Entity 情報を読み取り専用 API へ公開する
+        void set_entity_snapshot(std::vector<EditorMcpEntitySnapshot> a_entities);
+
     private:
         void run() noexcept;
         void handle_connection(uintptr_t a_socket) noexcept;
@@ -85,6 +111,9 @@ namespace Cue::Editor
         // HTTP thread と main thread の間で Project 相対 path を一度だけ受け渡す。
         std::mutex m_scriptOpenRequestMutex{};
         std::string m_scriptOpenRequestPath{};
+        // ECS は main thread 専有のため、HTTP thread は複製済みの値だけを参照する。
+        std::mutex m_entitySnapshotMutex{};
+        std::vector<EditorMcpEntitySnapshot> m_entitySnapshots{};
         uintptr_t m_listenSocket = ~uintptr_t{0u};
         std::thread m_thread{};
         bool m_isWinSockInitialized = false;

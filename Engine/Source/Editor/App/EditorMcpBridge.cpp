@@ -5,11 +5,15 @@
 #include <ws2tcpip.h>
 
 // === C++ includes ===
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 namespace Cue::Editor
 {
@@ -67,6 +71,189 @@ namespace Cue::Editor
 
             a_outPath.assign(a_request.substr(valueStart, valueEnd - valueStart));
             return true;
+        }
+
+        [[nodiscard]] char to_ascii_lower(char a_character) noexcept
+        {
+            return a_character >= 'A' && a_character <= 'Z'
+                       ? static_cast<char>(a_character - 'A' + 'a')
+                       : a_character;
+        }
+
+        [[nodiscard]] bool contains_ascii_case_insensitive(
+            std::string_view a_text,
+            std::string_view a_filter) noexcept
+        {
+            if (a_filter.empty())
+            {
+                return true;
+            }
+            if (a_filter.size() > a_text.size())
+            {
+                return false;
+            }
+
+            for (size_t start = 0u; start <= a_text.size() - a_filter.size(); ++start)
+            {
+                bool matches = true;
+                for (size_t index = 0u; index < a_filter.size(); ++index)
+                {
+                    if (to_ascii_lower(a_text[start + index]) !=
+                        to_ascii_lower(a_filter[index]))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] uint8_t hex_value(char a_character) noexcept
+        {
+            if (a_character >= '0' && a_character <= '9')
+            {
+                return static_cast<uint8_t>(a_character - '0');
+            }
+            const char lower = to_ascii_lower(a_character);
+            return lower >= 'a' && lower <= 'f'
+                       ? static_cast<uint8_t>(lower - 'a' + 10)
+                       : (std::numeric_limits<uint8_t>::max)();
+        }
+
+        [[nodiscard]] std::string decode_url_component(std::string_view a_value)
+        {
+            std::string decoded{};
+            decoded.reserve(a_value.size());
+            for (size_t index = 0u; index < a_value.size(); ++index)
+            {
+                if (a_value[index] == '%' && index + 2u < a_value.size())
+                {
+                    const uint8_t high = hex_value(a_value[index + 1u]);
+                    const uint8_t low = hex_value(a_value[index + 2u]);
+                    if (high != (std::numeric_limits<uint8_t>::max)() &&
+                        low != (std::numeric_limits<uint8_t>::max)())
+                    {
+                        decoded.push_back(static_cast<char>((high << 4u) | low));
+                        index += 2u;
+                        continue;
+                    }
+                }
+                decoded.push_back(a_value[index] == '+' ? ' ' : a_value[index]);
+            }
+            return decoded;
+        }
+
+        [[nodiscard]] std::string query_value(
+            std::string_view a_requestTarget,
+            std::string_view a_name)
+        {
+            const size_t queryStart = a_requestTarget.find('?');
+            if (queryStart == std::string_view::npos)
+            {
+                return {};
+            }
+
+            const std::string key = std::string(a_name) + "=";
+            size_t valueStart = queryStart + 1u;
+            while (valueStart < a_requestTarget.size())
+            {
+                const size_t valueEnd = a_requestTarget.find('&', valueStart);
+                const std::string_view parameter = a_requestTarget.substr(
+                    valueStart, valueEnd - valueStart);
+                if (parameter.starts_with(key))
+                {
+                    return decode_url_component(parameter.substr(key.size()));
+                }
+                if (valueEnd == std::string_view::npos)
+                {
+                    break;
+                }
+                valueStart = valueEnd + 1u;
+            }
+            return {};
+        }
+
+        [[nodiscard]] size_t entity_limit(std::string_view a_requestTarget)
+        {
+            constexpr size_t k_defaultLimit = 100u;
+            constexpr size_t k_maxLimit = 500u;
+            const std::string limitText = query_value(a_requestTarget, "limit");
+            if (limitText.empty())
+            {
+                return k_defaultLimit;
+            }
+
+            size_t limit = 0u;
+            const auto [end, error] = std::from_chars(
+                limitText.data(), limitText.data() + limitText.size(), limit);
+            if (error != std::errc{} || end != limitText.data() + limitText.size() ||
+                limit == 0u)
+            {
+                return k_defaultLimit;
+            }
+            return (std::min)(limit, k_maxLimit);
+        }
+
+        void append_json_string(std::string& a_json, std::string_view a_value)
+        {
+            a_json.push_back('"');
+            for (const char character : a_value)
+            {
+                switch (character)
+                {
+                case '"':
+                    a_json += "\\\"";
+                    break;
+                case '\\':
+                    a_json += "\\\\";
+                    break;
+                case '\n':
+                    a_json += "\\n";
+                    break;
+                case '\r':
+                    a_json += "\\r";
+                    break;
+                case '\t':
+                    a_json += "\\t";
+                    break;
+                default:
+                    a_json.push_back(character);
+                    break;
+                }
+            }
+            a_json.push_back('"');
+        }
+
+        void append_entity_json(
+            std::string& a_json,
+            const EditorMcpEntitySnapshot& a_entity)
+        {
+            a_json += "{\"entityId\":" + std::to_string(a_entity.entityId) + ",\"name\":";
+            append_json_string(a_json, a_entity.name);
+            a_json += ",\"transform\":";
+            if (!a_entity.hasTransform)
+            {
+                a_json += "null}";
+                return;
+            }
+
+            const EditorMcpTransformSnapshot& transform = a_entity.transform;
+            a_json +=
+                "{\"position\":{\"x\":" + std::to_string(transform.positionX) +
+                ",\"y\":" + std::to_string(transform.positionY) +
+                ",\"z\":" + std::to_string(transform.positionZ) +
+                "},\"rotation\":{\"x\":" + std::to_string(transform.rotationX) +
+                ",\"y\":" + std::to_string(transform.rotationY) +
+                ",\"z\":" + std::to_string(transform.rotationZ) +
+                ",\"w\":" + std::to_string(transform.rotationW) +
+                "},\"scale\":{\"x\":" + std::to_string(transform.scaleX) +
+                ",\"y\":" + std::to_string(transform.scaleY) +
+                ",\"z\":" + std::to_string(transform.scaleZ) + "}}}";
         }
 
         void send_response(SOCKET a_socket, int a_statusCode, std::string_view a_body) noexcept
@@ -315,6 +502,13 @@ namespace Cue::Editor
         m_scriptOpenState.store(a_state);
     }
 
+    void EditorMcpBridge::set_entity_snapshot(
+        std::vector<EditorMcpEntitySnapshot> a_entities)
+    {
+        std::scoped_lock lock(m_entitySnapshotMutex);
+        m_entitySnapshots = std::move(a_entities);
+    }
+
     void EditorMcpBridge::run() noexcept
     {
         const SOCKET listenSocket = static_cast<SOCKET>(m_listenSocket);
@@ -349,6 +543,82 @@ namespace Cue::Editor
                 "\",\"scriptOpen\":\"" +
                 std::string(script_open_state_name(m_scriptOpenState.load())) + "\"}";
             send_response(connection, 200, body);
+            return;
+        }
+        if (request.starts_with("GET /entities?") ||
+            request.starts_with("GET /entities "))
+        {
+            const size_t targetStart = sizeof("GET ") - 1u;
+            const size_t targetEnd = request.find(' ', targetStart);
+            if (targetEnd == std::string::npos)
+            {
+                send_response(connection, 404, "{\"error\":\"Request target is invalid.\"}");
+                return;
+            }
+            const std::string_view requestTarget(
+                request.data() + targetStart, targetEnd - targetStart);
+            const std::string filter = query_value(requestTarget, "filter");
+            const size_t limit = entity_limit(requestTarget);
+            std::vector<EditorMcpEntitySnapshot> entities{};
+            {
+                std::scoped_lock lock(m_entitySnapshotMutex);
+                entities = m_entitySnapshots;
+            }
+
+            std::string body{"{\"entities\":["};
+            size_t appendedCount = 0u;
+            for (const EditorMcpEntitySnapshot& entity : entities)
+            {
+                if (appendedCount >= limit ||
+                    !contains_ascii_case_insensitive(entity.name, filter))
+                {
+                    continue;
+                }
+                if (appendedCount > 0u)
+                {
+                    body.push_back(',');
+                }
+                append_entity_json(body, entity);
+                ++appendedCount;
+            }
+            body += "],\"count\":" + std::to_string(appendedCount) + "}";
+            send_response(connection, 200, body);
+            return;
+        }
+        if (request.starts_with("GET /entities/"))
+        {
+            constexpr size_t k_entityIdStart = sizeof("GET /entities/") - 1u;
+            const size_t entityIdEnd = request.find(' ', k_entityIdStart);
+            if (entityIdEnd == std::string::npos)
+            {
+                send_response(connection, 404, "{\"error\":\"Entity id is invalid.\"}");
+                return;
+            }
+            uint64_t entityId = 0u;
+            const auto [end, error] = std::from_chars(
+                request.data() + k_entityIdStart,
+                request.data() + entityIdEnd,
+                entityId);
+            if (error != std::errc{} || end != request.data() + entityIdEnd)
+            {
+                send_response(connection, 404, "{\"error\":\"Entity id is invalid.\"}");
+                return;
+            }
+
+            std::scoped_lock lock(m_entitySnapshotMutex);
+            for (const EditorMcpEntitySnapshot& entity : m_entitySnapshots)
+            {
+                if (entity.entityId != entityId)
+                {
+                    continue;
+                }
+
+                std::string body{};
+                append_entity_json(body, entity);
+                send_response(connection, 200, body);
+                return;
+            }
+            send_response(connection, 404, "{\"error\":\"Entity was not found.\"}");
             return;
         }
         if (request.starts_with("POST /playback "))

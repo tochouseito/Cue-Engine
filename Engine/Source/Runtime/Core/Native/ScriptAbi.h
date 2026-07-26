@@ -21,7 +21,7 @@
 namespace Cue::Core::Native
 {
     /// @brief Engine と GameScript が共有する最小 ABI 世代
-    inline constexpr uint32_t k_scriptAbiVersion = 2u;
+    inline constexpr uint32_t k_scriptAbiVersion = 3u;
 
     /// @brief DLL 境界で Engine 操作の結果を伝える値
     enum class ScriptAbiResult : uint32_t
@@ -55,29 +55,8 @@ namespace Cue::Core::Native
         float z = 0.0f;
     };
 
-    /// @brief Script DLL と Engine で同じ配置を保つ quaternion
-    struct ScriptQuaternion final
-    {
-        float x = 0.0f;
-        float y = 0.0f;
-        float z = 0.0f;
-        float w = 1.0f;
-    };
-
-    /// @brief Script から読み書きするローカル Transform
-    struct ScriptTransformQuaternion final
-    {
-        float positionX = 0.0f;
-        float positionY = 0.0f;
-        float positionZ = 0.0f;
-        ScriptQuaternion rotation{};
-        float scaleX = 1.0f;
-        float scaleY = 1.0f;
-        float scaleZ = 1.0f;
-    };
-
-    /// @brief XYZ 順の Euler 回転をラジアンで読み書きするローカル Transform
-    struct ScriptTransformEuler final
+    /// @brief Script instance が値として保持するローカル Transform
+    struct ScriptTransform final
     {
         ScriptVector3 position{};
         ScriptVector3 rotation{};
@@ -99,30 +78,15 @@ namespace Cue::Core::Native
     using ScriptIsEntityValidFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
         void* a_userData, ScriptEntityHandle a_entity, uint8_t* a_outIsValid);
 
-    /// @brief Entity のローカル Transform を quaternion 回転で取得する callback
-    using ScriptGetTransformQuaternionFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
+    /// @brief lifecycle 前に Runtime World の Transform を値型 cache へ同期する callback
+    using ScriptReadTransformFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
         void* a_userData, ScriptEntityHandle a_entity,
-        ScriptTransformQuaternion* a_outTransform);
+        ScriptTransform* a_outTransform);
 
-    /// @brief Entity のローカル Transform を quaternion 回転で更新する callback
-    using ScriptSetTransformQuaternionFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
+    /// @brief lifecycle 後に変更済みの値型 cache を Runtime World へ同期する callback
+    using ScriptWriteTransformFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
         void* a_userData, ScriptEntityHandle a_entity,
-        const ScriptTransformQuaternion* a_transform);
-
-    /// @brief Entity のローカル Transform を XYZ 順の Euler 回転で取得する callback
-    using ScriptGetTransformEulerFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
-        void* a_userData, ScriptEntityHandle a_entity,
-        ScriptTransformEuler* a_outTransform);
-
-    /// @brief Entity のローカル Transform を XYZ 順の Euler 回転で更新する callback
-    using ScriptSetTransformEulerFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
-        void* a_userData, ScriptEntityHandle a_entity,
-        const ScriptTransformEuler* a_transform);
-
-    /// @brief XYZ 順の Euler 差分回転を現在のローカル回転へ合成する callback
-    using ScriptRotateTransformEulerFn = ScriptAbiResult(CUE_SCRIPT_CALL*)(
-        void* a_userData, ScriptEntityHandle a_entity,
-        const ScriptVector3* a_rotationRadians);
+        const ScriptTransform* a_transform);
 
     /// @brief Engine が GameScript DLL へ公開する最小操作一覧
     struct ScriptEngineApi final
@@ -131,11 +95,8 @@ namespace Cue::Core::Native
         uint32_t abiVersion = k_scriptAbiVersion;
         void* userData = nullptr;
         ScriptIsEntityValidFn isEntityValid = nullptr;
-        ScriptGetTransformQuaternionFn getTransformQuaternion = nullptr;
-        ScriptSetTransformQuaternionFn setTransformQuaternion = nullptr;
-        ScriptGetTransformEulerFn getTransformEuler = nullptr;
-        ScriptSetTransformEulerFn setTransformEuler = nullptr;
-        ScriptRotateTransformEulerFn rotateTransformEuler = nullptr;
+        ScriptReadTransformFn readTransform = nullptr;
+        ScriptWriteTransformFn writeTransform = nullptr;
     };
 
     /// @brief Script instance の生成時に DLL へ渡す識別情報

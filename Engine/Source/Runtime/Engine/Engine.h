@@ -92,6 +92,9 @@ class Engine final
         return m_gameWorld;
     }
 
+    /// @brief Editor 中は authoring World、Play 中は runtime World を返す
+    [[nodiscard]] GameCore::GameWorld& active_game_world() noexcept;
+
     /// @brief Editor World の描画 Camera 選択を取得する。
     DrawSystem::RenderCameraSelection& game_render_camera_selection() noexcept
     {
@@ -192,9 +195,6 @@ class Engine final
 
     /// @brief Script instance を破棄してロード済み DLL を解放する
     void unload_script_module() noexcept;
-
-    /// @brief 現在描画する World を返す
-    [[nodiscard]] GameCore::GameWorld& active_game_world() noexcept;
 
     /// @brief 現在描画する World に対応する抽出 pipeline を返す
     [[nodiscard]] ECS::ECSManager::SystemPipeline& active_render_extraction_pipeline() noexcept;
