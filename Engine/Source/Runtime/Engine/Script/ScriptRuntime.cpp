@@ -148,6 +148,12 @@ namespace Cue::Script
 
                 if (isActive && script->isEnabled && !script->className.empty())
                 {
+                    // Scene の参照名は復元用に残し、DLL に未登録の間だけ Runtime binding から除外する
+                    if (!m_module->has_class(script->className.c_str()))
+                    {
+                        return;
+                    }
+
                     desiredInstances.emplace(
                         a_entityId,
                         DesiredInstance{script->className, a_object.generation()});

@@ -1236,6 +1236,19 @@ namespace Cue::Editor
                     m_scriptSourceVersion = sourceVersion;
                     m_hasPendingScriptBuild = true;
                     m_scriptBuildDebounce = k_scriptBuildDebounce;
+
+                    // Visual Studio など外部ツールからの追加・削除を Editor の Asset tree に反映する
+                    if (m_assetBrowser != nullptr)
+                    {
+                        const Result refreshResult = m_assetBrowser->refresh();
+                        if (!refreshResult)
+                        {
+                            Core::IO::log(
+                                Core::IO::LogSink::console | Core::IO::LogSink::file,
+                                "Asset Browser refresh after script change failed: %s",
+                                refreshResult.message.data());
+                        }
+                    }
                 }
             }
         }

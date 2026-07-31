@@ -62,8 +62,27 @@ namespace Cue::Editor
         {
             m_entries.clear();
             m_errorMessage = result.message;
+            return result;
         }
-        return result;
+
+        if (m_selectedAsset != nullptr && !m_selectedAsset->path.is_empty())
+        {
+            bool hasSelectedAsset = false;
+            const Result selectionResult =
+                m_fileSystem->exists(m_selectedAsset->path, &hasSelectedAsset);
+            if (!selectionResult)
+            {
+                m_entries.clear();
+                m_errorMessage = selectionResult.message;
+                return selectionResult;
+            }
+            if (!hasSelectedAsset)
+            {
+                // 外部ツールで削除された Asset を Inspector が参照し続けないよう選択を解除する
+                *m_selectedAsset = {};
+            }
+        }
+        return Result::ok();
     }
 
     void AssetBrowser::update()

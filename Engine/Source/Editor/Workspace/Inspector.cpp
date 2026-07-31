@@ -759,11 +759,18 @@ namespace Cue::Editor
         ECS::ScriptComponent edited = *script;
         const std::vector<std::string>* registeredClasses =
             m_engine != nullptr ? &m_engine->registered_script_classes() : nullptr;
-        const char* previewValue = script->className.empty()
-                                       ? "<未選択>"
-                                       : script->className.c_str();
+        const bool hasClassSelection = !script->className.empty();
+        const bool isClassRegistered =
+            registeredClasses != nullptr &&
+            std::find(registeredClasses->begin(), registeredClasses->end(),
+                      script->className) != registeredClasses->end();
+        const bool isClassMissing =
+            registeredClasses != nullptr && hasClassSelection && !isClassRegistered;
+        const std::string previewValue =
+            isClassMissing ? "<Missing: " + script->className + ">"
+                           : (hasClassSelection ? script->className : "<未選択>");
         ImGui::BeginDisabled(registeredClasses == nullptr);
-        if (ImGui::BeginCombo("ClassName", previewValue))
+        if (ImGui::BeginCombo("ClassName", previewValue.c_str()))
         {
             if (ImGui::Selectable("<未選択>", script->className.empty()))
             {
@@ -788,6 +795,12 @@ namespace Cue::Editor
         }
         ImGui::EndDisabled();
 
+        if (isClassMissing)
+        {
+            // Scene の参照を維持したまま、現在の DLL では生成できない状態を明示する
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.25f, 1.0f),
+                               "Missing Script: %s", script->className.c_str());
+        }
         if (registeredClasses != nullptr && registeredClasses->empty())
         {
             ImGui::TextUnformatted("登録済み Script class はありません");
