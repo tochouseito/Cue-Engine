@@ -80,7 +80,16 @@ namespace Cue::Script
                    a_exports.onUpdate != nullptr &&
                    a_exports.getClassCount != nullptr &&
                    a_exports.getClassName != nullptr &&
-                   a_exports.registerEngineApi != nullptr;
+                   a_exports.registerEngineApi != nullptr &&
+                   a_exports.getClassFieldCount != nullptr &&
+                   a_exports.getClassField != nullptr &&
+                   a_exports.getClassFunctionCount != nullptr &&
+                   a_exports.getClassFunctionName != nullptr &&
+                   a_exports.invokeInstance != nullptr &&
+                   a_exports.getStateDescriptor != nullptr &&
+                   a_exports.getInstanceStateSize != nullptr &&
+                   a_exports.serializeInstance != nullptr &&
+                   a_exports.restoreInstance != nullptr;
         }
 
         [[nodiscard]] Result collect_class_names(
@@ -114,6 +123,117 @@ namespace Cue::Script
                 }
 
                 a_outClassNames.emplace_back(className);
+            }
+
+            return Result::ok();
+        }
+
+        [[nodiscard]] Result collect_class_infos(
+            const ScriptModuleExports& a_exports,
+            const std::vector<std::string>& a_classNames,
+            std::vector<ScriptClassInfo>& a_outClassInfos)
+        {
+            constexpr uint32_t k_maxFieldsPerClass = 4096u;
+            constexpr uint32_t k_maxFunctionsPerClass = 4096u;
+
+            a_outClassInfos.clear();
+            a_outClassInfos.reserve(a_classNames.size());
+            for (const std::string& className : a_classNames)
+            {
+                ScriptClassInfo classInfo{};
+                classInfo.name = className;
+
+                const uint32_t fieldCount =
+                    a_exports.getClassFieldCount(className.c_str());
+                const uint32_t functionCount =
+                    a_exports.getClassFunctionCount(className.c_str());
+                if (fieldCount > k_maxFieldsPerClass ||
+                    functionCount > k_maxFunctionsPerClass)
+                {
+                    return Result::fail(
+                        Code::InvalidState, Severity::Error,
+                        "Script class registered too many fields or functions.");
+                }
+
+                classInfo.fields.reserve(fieldCount);
+                for (uint32_t index = 0u; index < fieldCount; ++index)
+                {
+                    Core::Native::ScriptFieldValue field{};
+                    const ScriptResult fieldResult =
+                        a_exports.getClassField(
+                            className.c_str(), index, &field);
+                    if (fieldResult != ScriptResult::Ok ||
+                        field.name.data == nullptr ||
+                        field.name.size == 0u)
+                    {
+                        return Result::fail(
+                            Code::InvalidState, Severity::Error,
+                            "Script field metadata is invalid.");
+                    }
+
+                    ScriptFieldInfo fieldInfo{};
+                    fieldInfo.name.assign(field.name.data, field.name.size);
+                    fieldInfo.type = field.type;
+                    fieldInfo.flags = field.flags;
+                    fieldInfo.floatValue = field.floatValue;
+                    fieldInfo.int32Value = field.int32Value;
+                    fieldInfo.boolValue = field.boolValue != 0u;
+                    fieldInfo.entityValue = field.entityValue;
+                    if (field.classValue.data != nullptr &&
+                        field.classValue.size > 0u)
+                    {
+                        fieldInfo.classValue.assign(
+                            field.classValue.data, field.classValue.size);
+                    }
+                    const auto duplicate = std::find_if(
+                        classInfo.fields.begin(), classInfo.fields.end(),
+                        [&fieldInfo](const ScriptFieldInfo& a_value)
+                        {
+                            return a_value.name == fieldInfo.name;
+                        });
+                    if (duplicate != classInfo.fields.end())
+                    {
+                        return Result::fail(
+                            Code::InvalidState, Severity::Error,
+                            "Script class registered a duplicate field.");
+                    }
+                    classInfo.fields.push_back(std::move(fieldInfo));
+                }
+
+                classInfo.functions.reserve(functionCount);
+                for (uint32_t index = 0u; index < functionCount; ++index)
+                {
+                    const char* functionName =
+                        a_exports.getClassFunctionName(
+                            className.c_str(), index);
+                    if (functionName == nullptr || functionName[0] == '\0')
+                    {
+                        return Result::fail(
+                            Code::InvalidState, Severity::Error,
+                            "Script function metadata is invalid.");
+                    }
+                    if (std::find(
+                            classInfo.functions.begin(),
+                            classInfo.functions.end(),
+                            functionName) != classInfo.functions.end())
+                    {
+                        return Result::fail(
+                            Code::InvalidState, Severity::Error,
+                            "Script class registered a duplicate function.");
+                    }
+                    classInfo.functions.emplace_back(functionName);
+                }
+
+                if (a_exports.getStateDescriptor(
+                        className.c_str(), &classInfo.stateDescriptor) !=
+                    ScriptResult::Ok)
+                {
+                    return Result::fail(
+                        Code::InvalidState, Severity::Error,
+                        "Script state descriptor is invalid.");
+                }
+
+                a_outClassInfos.push_back(std::move(classInfo));
             }
 
             return Result::ok();
@@ -204,10 +324,19 @@ namespace Cue::Script
             return result;
         }
 
+        std::vector<ScriptClassInfo> classInfos{};
+        result = collect_class_infos(exports, classNames, classInfos);
+        if (!result)
+        {
+            ::FreeLibrary(moduleHandle);
+            return result;
+        }
+
         // 全ての契約を確認してから公開状態へ遷移し、失敗した DLL の関数を呼べないようにする
         m_nativeHandle = moduleHandle;
         m_exports = exports;
         m_classNames = std::move(classNames);
+        m_classInfos = std::move(classInfos);
         return Result::ok();
 #else
         std::wstring unusedPath{};
@@ -236,6 +365,7 @@ namespace Cue::Script
         m_loadedPath = {};
         m_exports = {};
         m_classNames.clear();
+        m_classInfos.clear();
     }
 
     bool ScriptModule::is_loaded() const noexcept
@@ -252,6 +382,23 @@ namespace Cue::Script
     const std::vector<std::string>& ScriptModule::class_names() const noexcept
     {
         return m_classNames;
+    }
+
+    const std::vector<ScriptClassInfo>& ScriptModule::class_infos() const noexcept
+    {
+        return m_classInfos;
+    }
+
+    const ScriptClassInfo* ScriptModule::find_class_info(
+        std::string_view a_className) const noexcept
+    {
+        const auto classInfo = std::find_if(
+            m_classInfos.begin(), m_classInfos.end(),
+            [a_className](const ScriptClassInfo& a_value)
+            {
+                return a_value.name == a_className;
+            });
+        return classInfo != m_classInfos.end() ? &*classInfo : nullptr;
     }
 
     Result ScriptModule::register_engine_api(
@@ -322,6 +469,88 @@ namespace Cue::Script
         }
 
         return convert_result(m_exports.onUpdate(a_handle, a_deltaTimeSeconds));
+    }
+
+    Result ScriptModule::invoke(
+        ScriptInstanceHandle a_handle,
+        std::string_view a_functionName) const noexcept
+    {
+        if (!is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+        if (a_handle == k_invalidScriptInstanceHandle ||
+            a_functionName.empty())
+        {
+            return Result::fail(Code::InvalidArgument, Severity::Error,
+                                "Script function invocation is invalid.");
+        }
+
+        const std::string functionName(a_functionName);
+        return convert_result(
+            m_exports.invokeInstance(a_handle, functionName.c_str()));
+    }
+
+    Result ScriptModule::get_state_descriptor(
+        std::string_view a_className,
+        Core::Native::ScriptStateDescriptor& a_outDescriptor) const noexcept
+    {
+        if (!is_loaded() || a_className.empty())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module or class name is invalid.");
+        }
+
+        const std::string className(a_className);
+        return convert_result(
+            m_exports.getStateDescriptor(
+                className.c_str(), &a_outDescriptor));
+    }
+
+    Result ScriptModule::get_instance_state_size(
+        ScriptInstanceHandle a_handle,
+        uint32_t& a_outStateSize) const noexcept
+    {
+        a_outStateSize = 0u;
+        if (!is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+
+        return convert_result(
+            m_exports.getInstanceStateSize(a_handle, &a_outStateSize));
+    }
+
+    Result ScriptModule::serialize_instance(
+        ScriptInstanceHandle a_handle,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize) const noexcept
+    {
+        if (!is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+
+        return convert_result(m_exports.serializeInstance(
+            a_handle, a_outStateBuffer, a_stateBufferSize));
+    }
+
+    Result ScriptModule::restore_instance(
+        ScriptInstanceHandle a_handle,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize) const noexcept
+    {
+        if (!is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+
+        return convert_result(m_exports.restoreInstance(
+            a_handle, a_stateBuffer, a_stateBufferSize));
     }
 
     Result ScriptModule::convert_result(ScriptResult a_result) noexcept

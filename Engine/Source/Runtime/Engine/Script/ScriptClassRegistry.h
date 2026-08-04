@@ -35,6 +35,10 @@ namespace Cue::Script
         /// @brief 指定 class が登録済みかを返す
         [[nodiscard]] bool has_class(std::string_view a_className) const noexcept;
 
+        /// @brief 指定 class の field/function/state 定義を返す
+        [[nodiscard]] const Core::Native::ScriptClassDefinition*
+        find_class_definition(std::string_view a_className) const noexcept;
+
         /// @brief Engine へ公開する Script class 数を返す
         [[nodiscard]] uint32_t class_count() const noexcept;
 

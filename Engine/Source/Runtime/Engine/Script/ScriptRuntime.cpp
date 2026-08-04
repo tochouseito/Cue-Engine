@@ -6,13 +6,112 @@
 #include "ScriptModule.h"
 
 // === C++ includes ===
+#include <algorithm>
 #include <cmath>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace Cue::Script
 {
+    namespace
+    {
+        [[nodiscard]] const ECS::ScriptFieldValue* find_field_value(
+            const ECS::ScriptComponent& a_component,
+            std::string_view a_name) noexcept
+        {
+            const auto findIn = [a_name](
+                                    const std::vector<ECS::ScriptFieldValue>& a_values)
+                -> const ECS::ScriptFieldValue*
+            {
+                const auto value = std::find_if(
+                    a_values.begin(), a_values.end(),
+                    [a_name](const ECS::ScriptFieldValue& a_field)
+                    {
+                        return a_field.name == a_name;
+                    });
+                return value != a_values.end() ? &*value : nullptr;
+            };
+
+            const ECS::ScriptFieldValue* value =
+                findIn(a_component.serializedFieldValues);
+            return value != nullptr ? value
+                                    : findIn(a_component.transientFieldValues);
+        }
+
+        [[nodiscard]] Core::Native::ScriptFieldValue make_abi_field_value(
+            const ScriptFieldInfo& a_fieldInfo,
+            const ECS::ScriptFieldValue* a_componentValue) noexcept
+        {
+            Core::Native::ScriptFieldValue value{};
+            value.name = {
+                a_fieldInfo.name.data(),
+                static_cast<uint32_t>(a_fieldInfo.name.size())};
+            value.type = a_fieldInfo.type;
+            value.flags = a_fieldInfo.flags;
+            value.floatValue = a_fieldInfo.floatValue;
+            value.int32Value = a_fieldInfo.int32Value;
+            value.boolValue = a_fieldInfo.boolValue ? 1u : 0u;
+            value.entityValue = a_fieldInfo.entityValue;
+            value.classValue = {
+                a_fieldInfo.classValue.data(),
+                static_cast<uint32_t>(a_fieldInfo.classValue.size())};
+            if (a_componentValue == nullptr)
+            {
+                return value;
+            }
+
+            if (const float* floatValue =
+                    std::get_if<float>(&a_componentValue->value);
+                floatValue != nullptr &&
+                a_fieldInfo.type == Core::Native::ScriptFieldType::Float)
+            {
+                value.floatValue = *floatValue;
+            }
+            else if (const int32_t* int32Value =
+                         std::get_if<int32_t>(&a_componentValue->value);
+                     int32Value != nullptr &&
+                     a_fieldInfo.type ==
+                         Core::Native::ScriptFieldType::Int32)
+            {
+                value.int32Value = *int32Value;
+            }
+            else if (const bool* boolValue =
+                         std::get_if<bool>(&a_componentValue->value);
+                     boolValue != nullptr &&
+                     a_fieldInfo.type == Core::Native::ScriptFieldType::Bool)
+            {
+                value.boolValue = *boolValue ? 1u : 0u;
+            }
+            else if (const ECS::ScriptEntityReference* entityValue =
+                         std::get_if<ECS::ScriptEntityReference>(
+                             &a_componentValue->value);
+                     entityValue != nullptr &&
+                     a_fieldInfo.type ==
+                         Core::Native::ScriptFieldType::Entity)
+            {
+                value.entityValue = {
+                    entityValue->entityId, entityValue->generation};
+            }
+            else if (const ECS::ScriptReference* scriptValue =
+                         std::get_if<ECS::ScriptReference>(
+                             &a_componentValue->value);
+                     scriptValue != nullptr &&
+                     a_fieldInfo.type ==
+                         Core::Native::ScriptFieldType::Script)
+            {
+                value.entityValue = {
+                    scriptValue->entity.entityId,
+                    scriptValue->entity.generation};
+                value.classValue = {
+                    scriptValue->className.data(),
+                    static_cast<uint32_t>(scriptValue->className.size())};
+            }
+            return value;
+        }
+    } // namespace
+
     ScriptRuntime::ScriptRuntime(GameCore::GameWorld& a_world) noexcept
         : m_world(a_world)
     {
@@ -22,6 +121,11 @@ namespace Cue::Script
         m_scriptEngineApi.isEntityValid = &ScriptRuntime::script_is_entity_valid;
         m_scriptEngineApi.readTransform = &ScriptRuntime::script_read_transform;
         m_scriptEngineApi.writeTransform = &ScriptRuntime::script_write_transform;
+        m_scriptEngineApi.findInstance = &ScriptRuntime::script_find_instance;
+        m_scriptEngineApi.isInstanceValid =
+            &ScriptRuntime::script_is_instance_valid;
+        m_scriptEngineApi.invokeFunction =
+            &ScriptRuntime::script_invoke_function;
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -47,12 +151,12 @@ namespace Cue::Script
             }
         }
 
-        return sync_instances();
+        return sync_instances(true);
     }
 
     Result ScriptRuntime::update(float a_deltaTimeSeconds) noexcept
     {
-        Result result = sync_instances();
+        Result result = sync_instances(true);
         if (!result)
         {
             return result;
@@ -61,6 +165,15 @@ namespace Cue::Script
         for (auto& [unusedEntityId, binding] : m_bindings)
         {
             (void)unusedEntityId;
+            if (!binding.isStarted)
+            {
+                result = m_module->on_create(binding.instanceHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                binding.isStarted = true;
+            }
             result = m_module->on_update(binding.instanceHandle, a_deltaTimeSeconds);
             if (!result)
             {
@@ -93,12 +206,142 @@ namespace Cue::Script
         return Result::ok();
     }
 
+    Result ScriptRuntime::capture_instance_states(
+        std::vector<StateSnapshot>& a_outSnapshots) const noexcept
+    {
+        a_outSnapshots.clear();
+        if (m_module == nullptr || !m_module->is_loaded())
+        {
+            return m_bindings.empty()
+                       ? Result::ok()
+                       : Result::fail(
+                             Code::InvalidState, Severity::Error,
+                             "Script module was unloaded before state capture.");
+        }
+
+        a_outSnapshots.reserve(m_bindings.size());
+        for (const auto& [entityId, binding] : m_bindings)
+        {
+            StateSnapshot snapshot{};
+            snapshot.entityId = entityId;
+            snapshot.generation = binding.generation;
+            snapshot.className = binding.className;
+
+            Result result = m_module->get_state_descriptor(
+                binding.className, snapshot.descriptor);
+            if (!result)
+            {
+                return result;
+            }
+
+            uint32_t stateSize = 0u;
+            result = m_module->get_instance_state_size(
+                binding.instanceHandle, stateSize);
+            if (!result)
+            {
+                return result;
+            }
+            if (stateSize != snapshot.descriptor.size)
+            {
+                return Result::fail(
+                    Code::InvalidState, Severity::Error,
+                    "Script state size does not match its descriptor.");
+            }
+
+            snapshot.bytes.resize(stateSize);
+            result = m_module->serialize_instance(
+                binding.instanceHandle, snapshot.bytes.data(), stateSize);
+            if (!result)
+            {
+                return result;
+            }
+            a_outSnapshots.push_back(std::move(snapshot));
+        }
+
+        return Result::ok();
+    }
+
+    Result ScriptRuntime::restore_instance_states(
+        std::span<const StateSnapshot> a_snapshots) noexcept
+    {
+        if (m_module == nullptr || !m_module->is_loaded())
+        {
+            return Result::fail(Code::InvalidState, Severity::Error,
+                                "Script module is not loaded.");
+        }
+
+        Result result = m_module->register_engine_api(m_scriptEngineApi);
+        if (!result)
+        {
+            return result;
+        }
+
+        result = sync_instances(false);
+        if (!result)
+        {
+            return result;
+        }
+
+        for (auto& [entityId, binding] : m_bindings)
+        {
+            const auto snapshot = std::find_if(
+                a_snapshots.begin(), a_snapshots.end(),
+                [entityId, &binding](const StateSnapshot& a_value)
+                {
+                    return a_value.entityId == entityId &&
+                           a_value.generation == binding.generation &&
+                           a_value.className == binding.className;
+                });
+
+            bool restoresState = false;
+            if (snapshot != a_snapshots.end())
+            {
+                Core::Native::ScriptStateDescriptor descriptor{};
+                result = m_module->get_state_descriptor(
+                    binding.className, descriptor);
+                if (!result)
+                {
+                    return result;
+                }
+
+                restoresState =
+                    descriptor.version == snapshot->descriptor.version &&
+                    descriptor.size == snapshot->descriptor.size &&
+                    descriptor.schemaHash == snapshot->descriptor.schemaHash &&
+                    snapshot->bytes.size() == descriptor.size;
+                if (restoresState)
+                {
+                    result = m_module->restore_instance(
+                        binding.instanceHandle, snapshot->bytes.data(),
+                        static_cast<uint32_t>(snapshot->bytes.size()));
+                    if (!result)
+                    {
+                        return result;
+                    }
+                    binding.isStarted = true;
+                }
+            }
+
+            if (!restoresState)
+            {
+                result = m_module->on_create(binding.instanceHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                binding.isStarted = true;
+            }
+        }
+
+        return Result::ok();
+    }
+
     const Core::Native::ScriptEngineApi& ScriptRuntime::script_engine_api() const noexcept
     {
         return m_scriptEngineApi;
     }
 
-    Result ScriptRuntime::sync_instances() noexcept
+    Result ScriptRuntime::sync_instances(bool a_startNewInstances) noexcept
     {
         // DLL の exports が未確定な間は class 解決や instance 操作を行わず、空の登録表への binding を防ぐ
         if (m_module == nullptr || !m_module->is_loaded())
@@ -201,10 +444,31 @@ namespace Cue::Script
                 continue;
             }
 
-            const Result result = create_instance(entityId, desired.generation, desired.className);
+            const Result result = create_instance(
+                entityId, desired.generation, desired.className);
             if (!result)
             {
                 return result;
+            }
+        }
+
+        if (a_startNewInstances)
+        {
+            for (auto& [unusedEntityId, binding] : m_bindings)
+            {
+                (void)unusedEntityId;
+                if (binding.isStarted)
+                {
+                    continue;
+                }
+
+                const Result result =
+                    m_module->on_create(binding.instanceHandle);
+                if (!result)
+                {
+                    return result;
+                }
+                binding.isStarted = true;
             }
         }
 
@@ -228,13 +492,42 @@ namespace Cue::Script
                                 "Script class was not registered by the module.");
         }
 
+        const ScriptClassInfo* classInfo =
+            m_module->find_class_info(a_className);
+        if (classInfo == nullptr)
+        {
+            return Result::fail(Code::NotFound, Severity::Error,
+                                "Script class metadata was not found.");
+        }
+
+        ECS::ScriptComponent* script = nullptr;
+        Result result =
+            m_world.get_component<ECS::ScriptComponent>(a_entityId, script);
+        if (!result || script == nullptr)
+        {
+            return result
+                       ? Result::fail(Code::NotFound, Severity::Error,
+                                      "ScriptComponent was not found.")
+                       : result;
+        }
+
+        std::vector<Core::Native::ScriptFieldValue> fieldValues{};
+        fieldValues.reserve(classInfo->fields.size());
+        for (const ScriptFieldInfo& fieldInfo : classInfo->fields)
+        {
+            fieldValues.push_back(make_abi_field_value(
+                fieldInfo, find_field_value(*script, fieldInfo.name)));
+        }
+
         ScriptInstanceCreateInfo createInfo{};
         createInfo.entityId = a_entityId;
         createInfo.generation = a_generation;
         createInfo.className = a_className.c_str();
+        createInfo.fieldValues = fieldValues.data();
+        createInfo.fieldCount = static_cast<uint32_t>(fieldValues.size());
 
         ScriptInstanceHandle instanceHandle = k_invalidScriptInstanceHandle;
-        Result result = m_module->create_instance(createInfo, instanceHandle);
+        result = m_module->create_instance(createInfo, instanceHandle);
         if (!result)
         {
             return result;
@@ -245,15 +538,10 @@ namespace Cue::Script
                                 "Script module created an invalid script instance handle.");
         }
 
-        // OnCreate 失敗時に handle を残さず、DLL 側の on_destroy も同じ破棄経路で実行する
-        result = m_module->on_create(instanceHandle);
-        if (!result)
-        {
-            (void)m_module->destroy_instance(instanceHandle);
-            return result;
-        }
-
-        m_bindings.emplace(a_entityId, Binding{a_className, instanceHandle, a_generation});
+        m_bindings.emplace(
+            a_entityId,
+            Binding{
+                a_className, instanceHandle, a_generation, false});
         return Result::ok();
     }
 
@@ -374,6 +662,77 @@ namespace Cue::Script
         transform->scale = Math::float3(
             a_transform->scale.x, a_transform->scale.y, a_transform->scale.z);
         return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_find_instance(
+        void* a_userData,
+        Core::Native::ScriptEntityHandle a_entity,
+        Core::Native::ScriptStringView a_className,
+        Core::Native::ScriptInstanceHandle* a_outHandle) noexcept
+    {
+        if (a_userData == nullptr || a_outHandle == nullptr ||
+            a_className.data == nullptr || a_className.size == 0u)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        *a_outHandle = Core::Native::k_invalidScriptInstanceHandle;
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        const auto binding = runtime->m_bindings.find(a_entity.entityId);
+        if (binding == runtime->m_bindings.end() ||
+            binding->second.generation != a_entity.generation ||
+            binding->second.className !=
+                std::string_view(a_className.data, a_className.size))
+        {
+            return Core::Native::ScriptAbiResult::NotFound;
+        }
+
+        a_outHandle->value = binding->second.instanceHandle;
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_is_instance_valid(
+        void* a_userData,
+        Core::Native::ScriptInstanceHandle a_handle,
+        uint8_t* a_outIsValid) noexcept
+    {
+        if (a_userData == nullptr || a_outIsValid == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        const auto binding = std::find_if(
+            runtime->m_bindings.begin(), runtime->m_bindings.end(),
+            [a_handle](const auto& a_value)
+            {
+                return a_value.second.instanceHandle == a_handle.value;
+            });
+        *a_outIsValid = binding != runtime->m_bindings.end() ? 1u : 0u;
+        return Core::Native::ScriptAbiResult::Ok;
+    }
+
+    Core::Native::ScriptAbiResult ScriptRuntime::script_invoke_function(
+        void* a_userData,
+        Core::Native::ScriptInstanceHandle a_handle,
+        Core::Native::ScriptStringView a_functionName) noexcept
+    {
+        if (a_userData == nullptr || a_functionName.data == nullptr ||
+            a_functionName.size == 0u)
+        {
+            return Core::Native::ScriptAbiResult::InvalidArgument;
+        }
+
+        auto* runtime = static_cast<ScriptRuntime*>(a_userData);
+        if (runtime->m_module == nullptr)
+        {
+            return Core::Native::ScriptAbiResult::InvalidState;
+        }
+
+        const Result result = runtime->m_module->invoke(
+            a_handle.value,
+            std::string_view(a_functionName.data, a_functionName.size));
+        return to_script_abi_result(result);
     }
 
     Core::Native::ScriptAbiResult ScriptRuntime::to_script_abi_result(

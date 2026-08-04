@@ -40,6 +40,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Cue
@@ -155,6 +156,25 @@ class Engine final
     {
         static const std::vector<std::string> k_emptyClasses{};
         return m_scriptModule != nullptr ? m_scriptModule->class_names() : k_emptyClasses;
+    }
+
+    /// @brief 現在ロード済みの Script class metadata 一覧を返す
+    [[nodiscard]] const std::vector<Script::ScriptClassInfo>&
+    registered_script_class_infos() const noexcept
+    {
+        static const std::vector<Script::ScriptClassInfo> k_emptyClassInfos{};
+        return m_scriptModule != nullptr
+                   ? m_scriptModule->class_infos()
+                   : k_emptyClassInfos;
+    }
+
+    /// @brief 指定 Script class の public field/function metadata を返す
+    [[nodiscard]] const Script::ScriptClassInfo*
+    find_script_class_info(std::string_view a_className) const noexcept
+    {
+        return m_scriptModule != nullptr
+                   ? m_scriptModule->find_class_info(a_className)
+                   : nullptr;
     }
 
     /// @brief GameCore camera の代わりに使う描画視点を設定する。

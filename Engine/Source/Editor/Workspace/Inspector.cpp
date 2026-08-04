@@ -169,6 +169,120 @@ namespace
             std::memcpy(a_buffer.data(), a_text.data(), copyLength);
         }
     }
+
+    [[nodiscard]] Cue::ECS::ScriptFieldValue make_default_script_field(
+        const Cue::Script::ScriptFieldInfo& a_fieldInfo)
+    {
+        Cue::ECS::ScriptFieldValue field{};
+        field.name = a_fieldInfo.name;
+        switch (a_fieldInfo.type)
+        {
+        case Cue::Core::Native::ScriptFieldType::Int32:
+            field.value = a_fieldInfo.int32Value;
+            break;
+        case Cue::Core::Native::ScriptFieldType::Bool:
+            field.value = a_fieldInfo.boolValue;
+            break;
+        case Cue::Core::Native::ScriptFieldType::Entity:
+            field.value = Cue::ECS::ScriptEntityReference{
+                a_fieldInfo.entityValue.entityId,
+                a_fieldInfo.entityValue.generation};
+            break;
+        case Cue::Core::Native::ScriptFieldType::Script:
+            field.value = Cue::ECS::ScriptReference{
+                a_fieldInfo.classValue,
+                Cue::ECS::ScriptEntityReference{
+                    a_fieldInfo.entityValue.entityId,
+                    a_fieldInfo.entityValue.generation}};
+            break;
+        case Cue::Core::Native::ScriptFieldType::Float:
+        default:
+            field.value = a_fieldInfo.floatValue;
+            break;
+        }
+        return field;
+    }
+
+    [[nodiscard]] bool script_field_type_matches(
+        const Cue::ECS::ScriptFieldValue& a_field,
+        Cue::Core::Native::ScriptFieldType a_type) noexcept
+    {
+        switch (a_type)
+        {
+        case Cue::Core::Native::ScriptFieldType::Float:
+            return std::holds_alternative<float>(a_field.value);
+        case Cue::Core::Native::ScriptFieldType::Int32:
+            return std::holds_alternative<int32_t>(a_field.value);
+        case Cue::Core::Native::ScriptFieldType::Bool:
+            return std::holds_alternative<bool>(a_field.value);
+        case Cue::Core::Native::ScriptFieldType::Entity:
+            return std::holds_alternative<Cue::ECS::ScriptEntityReference>(
+                a_field.value);
+        case Cue::Core::Native::ScriptFieldType::Script:
+            return std::holds_alternative<Cue::ECS::ScriptReference>(
+                a_field.value);
+        }
+        return false;
+    }
+
+    [[nodiscard]] const Cue::ECS::ScriptFieldValue* find_script_field(
+        const Cue::ECS::ScriptComponent& a_component,
+        std::string_view a_name) noexcept
+    {
+        const auto findIn = [a_name](
+                                const std::vector<Cue::ECS::ScriptFieldValue>& a_values)
+            -> const Cue::ECS::ScriptFieldValue*
+        {
+            const auto value = std::find_if(
+                a_values.begin(), a_values.end(),
+                [a_name](const Cue::ECS::ScriptFieldValue& a_field)
+                {
+                    return a_field.name == a_name;
+                });
+            return value != a_values.end() ? &*value : nullptr;
+        };
+
+        const Cue::ECS::ScriptFieldValue* value =
+            findIn(a_component.serializedFieldValues);
+        return value != nullptr ? value : findIn(a_component.transientFieldValues);
+    }
+
+    [[nodiscard]] bool reconcile_script_fields(
+        Cue::ECS::ScriptComponent& a_component,
+        const Cue::Script::ScriptClassInfo& a_classInfo,
+        bool a_resetsValues)
+    {
+        std::vector<Cue::ECS::ScriptFieldValue> serializedFields{};
+        std::vector<Cue::ECS::ScriptFieldValue> transientFields{};
+        for (const Cue::Script::ScriptFieldInfo& fieldInfo : a_classInfo.fields)
+        {
+            Cue::ECS::ScriptFieldValue field =
+                make_default_script_field(fieldInfo);
+            if (!a_resetsValues)
+            {
+                const Cue::ECS::ScriptFieldValue* existing =
+                    find_script_field(a_component, fieldInfo.name);
+                if (existing != nullptr &&
+                    script_field_type_matches(*existing, fieldInfo.type))
+                {
+                    field = *existing;
+                }
+            }
+
+            const bool isSerialized =
+                (fieldInfo.flags &
+                 Cue::Core::Native::ScriptFieldFlagSerialize) != 0u;
+            (isSerialized ? serializedFields : transientFields)
+                .push_back(std::move(field));
+        }
+
+        const bool wasChanged =
+            serializedFields != a_component.serializedFieldValues ||
+            transientFields != a_component.transientFieldValues;
+        a_component.serializedFieldValues = std::move(serializedFields);
+        a_component.transientFieldValues = std::move(transientFields);
+        return wasChanged;
+    }
 } // namespace
 
 namespace Cue::Editor
@@ -775,6 +889,8 @@ namespace Cue::Editor
             if (ImGui::Selectable("<未選択>", script->className.empty()))
             {
                 edited.className.clear();
+                edited.serializedFieldValues.clear();
+                edited.transientFieldValues.clear();
                 submit_script_component(a_object.entity_id(), edited);
             }
 
@@ -786,6 +902,13 @@ namespace Cue::Editor
                     if (ImGui::Selectable(className.c_str(), isSelected))
                     {
                         edited.className = className;
+                        const Script::ScriptClassInfo* classInfo =
+                            m_engine->find_script_class_info(className);
+                        if (classInfo != nullptr)
+                        {
+                            (void)reconcile_script_fields(
+                                edited, *classInfo, true);
+                        }
                         submit_script_component(a_object.entity_id(), edited);
                     }
                 }
@@ -805,6 +928,135 @@ namespace Cue::Editor
         {
             ImGui::TextUnformatted("登録済み Script class はありません");
         }
+
+        const Script::ScriptClassInfo* classInfo =
+            m_engine != nullptr
+                ? m_engine->find_script_class_info(script->className)
+                : nullptr;
+        if (classInfo != nullptr)
+        {
+            ECS::ScriptComponent reconciled = edited;
+            const bool requiresReconcile =
+                reconcile_script_fields(reconciled, *classInfo, false);
+            if (requiresReconcile &&
+                ImGui::Button("定義に合わせる##ScriptFields"))
+            {
+                submit_script_component(a_object.entity_id(), reconciled);
+            }
+
+            if (ImGui::Button("Reset Fields##ScriptFields"))
+            {
+                (void)reconcile_script_fields(edited, *classInfo, true);
+                submit_script_component(a_object.entity_id(), edited);
+            }
+
+            const auto findMutableField =
+                [&edited](std::string_view a_name)
+                    -> ECS::ScriptFieldValue*
+            {
+                const auto findIn =
+                    [a_name](
+                        std::vector<ECS::ScriptFieldValue>& a_values)
+                        -> ECS::ScriptFieldValue*
+                {
+                    const auto value = std::find_if(
+                        a_values.begin(), a_values.end(),
+                        [a_name](const ECS::ScriptFieldValue& a_field)
+                        {
+                            return a_field.name == a_name;
+                        });
+                    return value != a_values.end() ? &*value : nullptr;
+                };
+
+                ECS::ScriptFieldValue* field =
+                    findIn(edited.serializedFieldValues);
+                return field != nullptr
+                           ? field
+                           : findIn(edited.transientFieldValues);
+            };
+
+            for (const Script::ScriptFieldInfo& fieldInfo :
+                 classInfo->fields)
+            {
+                if ((fieldInfo.flags &
+                     Core::Native::ScriptFieldFlagEditAnywhere) == 0u)
+                {
+                    continue;
+                }
+
+                ECS::ScriptFieldValue* field =
+                    findMutableField(fieldInfo.name);
+                if (field == nullptr ||
+                    !script_field_type_matches(*field, fieldInfo.type))
+                {
+                    continue;
+                }
+
+                const bool isReadOnly =
+                    (fieldInfo.flags &
+                     Core::Native::ScriptFieldFlagReadOnly) != 0u;
+                ImGui::BeginDisabled(isReadOnly);
+                bool wasEdited = false;
+                switch (fieldInfo.type)
+                {
+                case Core::Native::ScriptFieldType::Float:
+                    wasEdited = ImGui::InputFloat(
+                        fieldInfo.name.c_str(),
+                        &std::get<float>(field->value));
+                    break;
+                case Core::Native::ScriptFieldType::Int32:
+                    wasEdited = ImGui::InputInt(
+                        fieldInfo.name.c_str(),
+                        &std::get<int32_t>(field->value));
+                    break;
+                case Core::Native::ScriptFieldType::Bool:
+                    wasEdited = ImGui::Checkbox(
+                        fieldInfo.name.c_str(),
+                        &std::get<bool>(field->value));
+                    break;
+                case Core::Native::ScriptFieldType::Entity:
+                {
+                    ECS::ScriptEntityReference& reference =
+                        std::get<ECS::ScriptEntityReference>(field->value);
+                    wasEdited = ImGui::InputScalar(
+                        fieldInfo.name.c_str(), ImGuiDataType_U32,
+                        &reference.entityId);
+                    const std::string generationLabel =
+                        "Generation##" + fieldInfo.name;
+                    wasEdited =
+                        ImGui::InputScalar(
+                            generationLabel.c_str(), ImGuiDataType_U32,
+                            &reference.generation) ||
+                        wasEdited;
+                    break;
+                }
+                case Core::Native::ScriptFieldType::Script:
+                {
+                    ECS::ScriptReference& reference =
+                        std::get<ECS::ScriptReference>(field->value);
+                    wasEdited = ImGui::InputScalar(
+                        fieldInfo.name.c_str(), ImGuiDataType_U32,
+                        &reference.entity.entityId);
+                    const std::string generationLabel =
+                        "Generation##" + fieldInfo.name;
+                    wasEdited =
+                        ImGui::InputScalar(
+                            generationLabel.c_str(), ImGuiDataType_U32,
+                            &reference.entity.generation) ||
+                        wasEdited;
+                    ImGui::Text("Class: %s", reference.className.c_str());
+                    break;
+                }
+                }
+                ImGui::EndDisabled();
+
+                if (wasEdited && !isReadOnly)
+                {
+                    submit_script_component(a_object.entity_id(), edited);
+                }
+            }
+        }
+
         if (ImGui::Checkbox("Enabled", &edited.isEnabled))
         {
             submit_script_component(a_object.entity_id(), edited);

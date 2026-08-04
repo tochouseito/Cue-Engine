@@ -37,7 +37,14 @@ namespace Cue::Script
 
     bool ScriptClassRegistry::has_class(std::string_view a_className) const noexcept
     {
-        return std::any_of(
+        return find_class_definition(a_className) != nullptr;
+    }
+
+    const Core::Native::ScriptClassDefinition*
+    ScriptClassRegistry::find_class_definition(
+        std::string_view a_className) const noexcept
+    {
+        const auto definition = std::find_if(
             m_classDefinitions.begin(),
             m_classDefinitions.end(),
             [a_className](const Core::Native::ScriptClassDefinition& a_definition)
@@ -51,6 +58,7 @@ namespace Cue::Script
                            a_definition.className.data,
                            a_definition.className.size) == a_className;
             });
+        return definition != m_classDefinitions.end() ? &*definition : nullptr;
     }
 
     uint32_t ScriptClassRegistry::class_count() const noexcept

@@ -48,6 +48,73 @@ namespace
         return Cue::Script::ScriptClassRegistry::instance().class_name(a_index);
     }
 
+    [[nodiscard]] uint32_t CUE_SCRIPT_CALL get_script_class_field_count(
+        const char* a_className)
+    {
+        if (a_className == nullptr)
+        {
+            return 0u;
+        }
+
+        const Cue::Core::Native::ScriptClassDefinition* definition =
+            Cue::Script::ScriptClassRegistry::instance().find_class_definition(
+                a_className);
+        return definition != nullptr ? definition->fieldCount : 0u;
+    }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL get_script_class_field(
+        const char* a_className,
+        uint32_t a_index,
+        Cue::Core::Native::ScriptFieldValue* a_outField)
+    {
+        if (a_className == nullptr || a_outField == nullptr)
+        {
+            return Cue::Script::ScriptResult::InvalidArgument;
+        }
+
+        const Cue::Core::Native::ScriptClassDefinition* definition =
+            Cue::Script::ScriptClassRegistry::instance().find_class_definition(
+                a_className);
+        if (definition == nullptr || a_index >= definition->fieldCount)
+        {
+            return Cue::Script::ScriptResult::NotFound;
+        }
+
+        *a_outField = definition->fields[a_index].defaultValue;
+        return Cue::Script::ScriptResult::Ok;
+    }
+
+    [[nodiscard]] uint32_t CUE_SCRIPT_CALL get_script_class_function_count(
+        const char* a_className)
+    {
+        if (a_className == nullptr)
+        {
+            return 0u;
+        }
+
+        const Cue::Core::Native::ScriptClassDefinition* definition =
+            Cue::Script::ScriptClassRegistry::instance().find_class_definition(
+                a_className);
+        return definition != nullptr ? definition->functionCount : 0u;
+    }
+
+    [[nodiscard]] const char* CUE_SCRIPT_CALL get_script_class_function_name(
+        const char* a_className,
+        uint32_t a_index)
+    {
+        if (a_className == nullptr)
+        {
+            return nullptr;
+        }
+
+        const Cue::Core::Native::ScriptClassDefinition* definition =
+            Cue::Script::ScriptClassRegistry::instance().find_class_definition(
+                a_className);
+        return definition != nullptr && a_index < definition->functionCount
+                   ? definition->functions[a_index].name.data
+                   : nullptr;
+    }
+
     [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL register_engine_api(
         const Cue::Core::Native::ScriptEngineApi* a_engineApi)
     {
@@ -77,6 +144,8 @@ namespace
         Cue::Core::Native::ScriptCreateInfo createInfo{};
         createInfo.entity = {a_createInfo->entityId, a_createInfo->generation};
         createInfo.className = {className.data(), static_cast<uint32_t>(className.size())};
+        createInfo.fieldValues = a_createInfo->fieldValues;
+        createInfo.fieldCount = a_createInfo->fieldCount;
 
         Cue::Core::Native::ScriptInstanceHandle instanceHandle{};
         const Cue::Script::ScriptResult result = convert_result(
@@ -106,6 +175,72 @@ namespace
     {
         return convert_result(g_runtime.update_instance({a_handle}, a_deltaTimeSeconds));
     }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL invoke_script_instance(
+        Cue::Script::ScriptInstanceHandle a_handle,
+        const char* a_functionName)
+    {
+        if (a_functionName == nullptr)
+        {
+            return Cue::Script::ScriptResult::InvalidArgument;
+        }
+
+        const std::string_view functionName(a_functionName);
+        return convert_result(g_runtime.invoke_instance(
+            {a_handle},
+            {functionName.data(), static_cast<uint32_t>(functionName.size())}));
+    }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL
+    get_script_state_descriptor(
+        const char* a_className,
+        Cue::Core::Native::ScriptStateDescriptor* a_outDescriptor)
+    {
+        if (a_className == nullptr || a_outDescriptor == nullptr)
+        {
+            return Cue::Script::ScriptResult::InvalidArgument;
+        }
+
+        const Cue::Core::Native::ScriptClassDefinition* definition =
+            Cue::Script::ScriptClassRegistry::instance().find_class_definition(
+                a_className);
+        if (definition == nullptr)
+        {
+            return Cue::Script::ScriptResult::NotFound;
+        }
+
+        *a_outDescriptor = definition->stateDescriptor;
+        return Cue::Script::ScriptResult::Ok;
+    }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL
+    get_script_instance_state_size(
+        Cue::Script::ScriptInstanceHandle a_handle,
+        uint32_t* a_outStateSize)
+    {
+        return convert_result(
+            g_runtime.get_instance_state_size({a_handle}, a_outStateSize));
+    }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL
+    serialize_script_instance(
+        Cue::Script::ScriptInstanceHandle a_handle,
+        void* a_outStateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        return convert_result(g_runtime.serialize_instance(
+            {a_handle}, a_outStateBuffer, a_stateBufferSize));
+    }
+
+    [[nodiscard]] Cue::Script::ScriptResult CUE_SCRIPT_CALL
+    restore_script_instance(
+        Cue::Script::ScriptInstanceHandle a_handle,
+        const void* a_stateBuffer,
+        uint32_t a_stateBufferSize)
+    {
+        return convert_result(g_runtime.restore_instance(
+            {a_handle}, a_stateBuffer, a_stateBufferSize));
+    }
 } // namespace
 
 extern "C"
@@ -134,11 +269,20 @@ extern "C"
         a_outExports->hasClass = &has_script_class;
         a_outExports->getClassCount = &get_script_class_count;
         a_outExports->getClassName = &get_script_class_name;
+        a_outExports->getClassFieldCount = &get_script_class_field_count;
+        a_outExports->getClassField = &get_script_class_field;
+        a_outExports->getClassFunctionCount = &get_script_class_function_count;
+        a_outExports->getClassFunctionName = &get_script_class_function_name;
         a_outExports->registerEngineApi = &register_engine_api;
         a_outExports->createInstance = &create_script_instance;
         a_outExports->destroyInstance = &destroy_script_instance;
         a_outExports->onCreate = &start_script_instance;
         a_outExports->onUpdate = &update_script_instance;
+        a_outExports->invokeInstance = &invoke_script_instance;
+        a_outExports->getStateDescriptor = &get_script_state_descriptor;
+        a_outExports->getInstanceStateSize = &get_script_instance_state_size;
+        a_outExports->serializeInstance = &serialize_script_instance;
+        a_outExports->restoreInstance = &restore_script_instance;
         return Cue::Script::ScriptResult::Ok;
     }
 }

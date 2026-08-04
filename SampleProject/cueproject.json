@@ -5,5 +5,5 @@
     "scriptBuildConfiguration": "Debug",
     "scriptLoadConfiguration": "Debug",
     "scriptRoot": ".",
-    "startupScene": "Assets/Scenes/Main.cuescene"
+    "startupScene": "Assets/Scenes/ScriptCallTest.cuescene"
 }

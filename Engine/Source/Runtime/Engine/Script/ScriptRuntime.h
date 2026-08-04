@@ -16,8 +16,10 @@
 #include "ScriptModuleApi.h"
 
 // === C++ includes ===
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Cue::GameCore
 {
@@ -34,6 +36,16 @@ namespace Cue::Script
     class ScriptRuntime final
     {
     public:
+        /// @brief DLL reload 前に Engine 側へ退避する Script instance state
+        struct StateSnapshot final
+        {
+            std::string className{};
+            std::vector<uint8_t> bytes{};
+            Core::Native::ScriptStateDescriptor descriptor{};
+            GameCore::EntityId entityId = 0u;
+            GameCore::Generation generation = 0u;
+        };
+
         explicit ScriptRuntime(GameCore::GameWorld& a_world) noexcept;
         ~ScriptRuntime();
 
@@ -60,6 +72,14 @@ namespace Cue::Script
         /// DLL unload より前に完了させ、DLL が所有する object を解放できる状態を維持
         [[nodiscard]] Result reset() noexcept;
 
+        /// @brief 現在の全 instance state を DLL unload 前に退避する
+        [[nodiscard]] Result capture_instance_states(
+            std::vector<StateSnapshot>& a_outSnapshots) const noexcept;
+
+        /// @brief 新DLLのinstanceを生成し、互換なstateを復元して未復元分だけOnCreateを呼ぶ
+        [[nodiscard]] Result restore_instance_states(
+            std::span<const StateSnapshot> a_snapshots) noexcept;
+
         /// @brief GameScript DLL が Runtime World を操作するための ABI を返す
         ///
         /// API は Runtime World だけを参照し、authoring World を DLL から変更させない
@@ -77,9 +97,11 @@ namespace Cue::Script
             // Entity ID 再利用時に旧世代の Script instance を残さないため、bind 時点の世代を保持する
             GameCore::Generation generation = 0u;
 
+            // reload 復元前の instance に OnUpdate を流さないため、lifecycle 開始状態を保持する
+            bool isStarted = false;
         };
 
-        [[nodiscard]] Result sync_instances() noexcept;
+        [[nodiscard]] Result sync_instances(bool a_startNewInstances = true) noexcept;
         [[nodiscard]] Result create_instance(
             GameCore::EntityId a_entityId,
             GameCore::Generation a_generation,
@@ -98,6 +120,19 @@ namespace Cue::Script
             void* a_userData,
             Core::Native::ScriptEntityHandle a_entity,
             const Core::Native::ScriptTransform* a_transform) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_find_instance(
+            void* a_userData,
+            Core::Native::ScriptEntityHandle a_entity,
+            Core::Native::ScriptStringView a_className,
+            Core::Native::ScriptInstanceHandle* a_outHandle) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_is_instance_valid(
+            void* a_userData,
+            Core::Native::ScriptInstanceHandle a_handle,
+            uint8_t* a_outIsValid) noexcept;
+        [[nodiscard]] static Core::Native::ScriptAbiResult script_invoke_function(
+            void* a_userData,
+            Core::Native::ScriptInstanceHandle a_handle,
+            Core::Native::ScriptStringView a_functionName) noexcept;
         [[nodiscard]] static Core::Native::ScriptAbiResult to_script_abi_result(
             const Result& a_result) noexcept;
 

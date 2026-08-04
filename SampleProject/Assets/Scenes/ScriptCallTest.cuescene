@@ -1,0 +1,109 @@
+{
+    "name": "ScriptCallTest",
+    "objects": [
+        {
+            "components": {
+                "renderable": {
+                    "castsShadow": true,
+                    "material": {
+                        "color": [
+                            0.2,
+                            0.75,
+                            1.0,
+                            1.0
+                        ],
+                        "overrideMask": 1,
+                        "shininess": 32.0,
+                        "usesReflectionSkybox": false
+                    },
+                    "materialId": 4294967295,
+                    "meshId": 0,
+                    "modelName": "Primitive.Cube",
+                    "receivesShadow": true,
+                    "renderQueue": "Auto",
+                    "shadowCasterMode": "Solid",
+                    "visible": true
+                },
+                "script": {
+                    "className": "testcubeScript",
+                    "fields": [
+                        {
+                            "name": "rotationSpeed",
+                            "type": "Float",
+                            "value": 1.5
+                        }
+                    ],
+                    "isEnabled": true
+                },
+                "transform": {
+                    "position": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rotation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ]
+                }
+            },
+            "id": 1,
+            "isActive": true,
+            "isPersistent": false,
+            "name": "RotatingTarget",
+            "parent": 0,
+            "tag": "ScriptCallTarget"
+        },
+        {
+            "components": {
+                "script": {
+                    "className": "testScriptScript",
+                    "fields": [
+                        {
+                            "name": "targetScript",
+                            "type": "Script",
+                            "value": {
+                                "className": "testcubeScript",
+                                "entityId": 1,
+                                "generation": 0
+                            }
+                        }
+                    ],
+                    "isEnabled": true
+                },
+                "transform": {
+                    "position": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rotation": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ]
+                }
+            },
+            "id": 2,
+            "isActive": true,
+            "isPersistent": false,
+            "name": "ScriptCallController",
+            "parent": 0,
+            "tag": "ScriptCallController"
+        }
+    ],
+    "version": 1
+}

@@ -9,12 +9,32 @@ namespace GameScript
     {
     }
 
-    void testcubeScript::update(float) noexcept
+    void testcubeScript::update(float a_deltaTimeSeconds) noexcept
     {
-        constexpr float k_rotationSpeed = 1.0f;
         constexpr float k_rotationDirection = 1.0f;
         transform.rotation.y +=
-            delta_time() * k_rotationSpeed * k_rotationDirection;
+            a_deltaTimeSeconds * rotationSpeed * k_rotationDirection;
+        m_elapsedSeconds += a_deltaTimeSeconds;
+    }
+
+    void testcubeScript::reset_rotation() noexcept
+    {
+        transform.rotation = {};
+    }
+
+    void testcubeScript::toggle_height() noexcept
+    {
+        transform.position.y = transform.position.y < 0.5f ? 1.5f : 0.0f;
+    }
+
+    void testcubeScript::save_state(SavedState& a_outState) const noexcept
+    {
+        a_outState.elapsedSeconds = m_elapsedSeconds;
+    }
+
+    void testcubeScript::restore_state(const SavedState& a_state) noexcept
+    {
+        m_elapsedSeconds = a_state.elapsedSeconds;
     }
 } // namespace GameScript
 

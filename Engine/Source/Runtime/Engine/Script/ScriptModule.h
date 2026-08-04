@@ -15,10 +15,34 @@
 
 // === C++ includes ===
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Cue::Script
 {
+    /// @brief DLL の pointer lifetime から切り離して Engine が所有する公開 field metadata
+    struct ScriptFieldInfo final
+    {
+        std::string name{};
+        std::string classValue{};
+        Core::Native::ScriptFieldType type =
+            Core::Native::ScriptFieldType::Float;
+        uint32_t flags = Core::Native::ScriptFieldFlagNone;
+        float floatValue = 0.0f;
+        int32_t int32Value = 0;
+        bool boolValue = false;
+        Core::Native::ScriptEntityHandle entityValue{};
+    };
+
+    /// @brief Editor と Runtime が共有する Script class metadata
+    struct ScriptClassInfo final
+    {
+        std::string name{};
+        std::vector<ScriptFieldInfo> fields{};
+        std::vector<std::string> functions{};
+        Core::Native::ScriptStateDescriptor stateDescriptor{};
+    };
+
     /// @brief GameScript DLL の所有と ABI 呼び出しを管理
     ///
     /// DLL 解放時に exports 内の関数ポインタも無効になるため、instance を保持する
@@ -58,6 +82,13 @@ namespace Cue::Script
         /// @brief DLL から検証済みで取得した Script class 名一覧を返す
         [[nodiscard]] const std::vector<std::string>& class_names() const noexcept;
 
+        /// @brief DLL から複製した公開 field/function metadata を返す
+        [[nodiscard]] const std::vector<ScriptClassInfo>& class_infos() const noexcept;
+
+        /// @brief class 名に対応する metadata を返す
+        [[nodiscard]] const ScriptClassInfo*
+        find_class_info(std::string_view a_className) const noexcept;
+
         /// @brief GameScript DLL へ Runtime World 操作用の ABI を接続する
         [[nodiscard]] Result register_engine_api(
             const Core::Native::ScriptEngineApi& a_engineApi) const noexcept;
@@ -80,6 +111,33 @@ namespace Cue::Script
             ScriptInstanceHandle a_handle,
             float a_deltaTimeSeconds) const noexcept;
 
+        /// @brief 生成済み instance の公開関数を名前で呼び出す
+        [[nodiscard]] Result invoke(
+            ScriptInstanceHandle a_handle,
+            std::string_view a_functionName) const noexcept;
+
+        /// @brief class の reload state 互換情報を取得する
+        [[nodiscard]] Result get_state_descriptor(
+            std::string_view a_className,
+            Core::Native::ScriptStateDescriptor& a_outDescriptor) const noexcept;
+
+        /// @brief instance の reload state 保存領域サイズを取得する
+        [[nodiscard]] Result get_instance_state_size(
+            ScriptInstanceHandle a_handle,
+            uint32_t& a_outStateSize) const noexcept;
+
+        /// @brief instance の reload state を保存する
+        [[nodiscard]] Result serialize_instance(
+            ScriptInstanceHandle a_handle,
+            void* a_outStateBuffer,
+            uint32_t a_stateBufferSize) const noexcept;
+
+        /// @brief instance の reload state を復元する
+        [[nodiscard]] Result restore_instance(
+            ScriptInstanceHandle a_handle,
+            const void* a_stateBuffer,
+            uint32_t a_stateBufferSize) const noexcept;
+
     private:
         [[nodiscard]] Result load_internal(
             const Core::IO::Path& a_modulePath,
@@ -91,5 +149,6 @@ namespace Cue::Script
         Core::IO::Path m_loadedPath{};  // shadow copy の寿命を DLL handle と一致させる
         ScriptModuleExports m_exports{}; // ABI 検証済みの関数だけを runtime に公開する
         std::vector<std::string> m_classNames{}; // DLL 解放後の文字列ポインタを Editor が参照しないよう Engine 側に複製する
+        std::vector<ScriptClassInfo> m_classInfos{}; // public field/function metadata を Engine 所有へ複製する
     };
 } // namespace Cue::Script

@@ -198,13 +198,34 @@ namespace Cue::ECS
         bool receivesShadow = true;
     };
 
-    using scriptFieldData = std::variant<float, int32_t, bool>;
+    /// @brief Scene 内の Entity を世代付きで参照する Script field 値
+    struct ScriptEntityReference final
+    {
+        GameCore::EntityId entityId = 0u;
+        GameCore::Generation generation = 0u;
+
+        bool operator==(const ScriptEntityReference&) const = default;
+    };
+
+    /// @brief Entity と Script class を組にして遅延解決する Script field 値
+    struct ScriptReference final
+    {
+        std::string className{};
+        ScriptEntityReference entity{};
+
+        bool operator==(const ScriptReference&) const = default;
+    };
+
+    using scriptFieldData = std::variant<
+        float, int32_t, bool, ScriptEntityReference, ScriptReference>;
 
     /// @brief Scene に保存する script field の値です
     struct ScriptFieldValue final
     {
         std::string name{};
         scriptFieldData value = 0.0f;
+
+        bool operator==(const ScriptFieldValue&) const = default;
     };
 
     /// @brief Play Mode で生成する script instance の authoring 設定です
@@ -212,6 +233,7 @@ namespace Cue::ECS
     {
         std::string className{};
         std::vector<ScriptFieldValue> serializedFieldValues{};
+        std::vector<ScriptFieldValue> transientFieldValues{};
         bool isEnabled = true;
     };
 } // namespace Cue::ECS

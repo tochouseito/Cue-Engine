@@ -341,6 +341,16 @@ Result Engine::reload_script_module()
     }
 
     const bool restartsRuntime = is_playing();
+    std::vector<Script::ScriptRuntime::StateSnapshot> preservedStates{};
+    if (restartsRuntime)
+    {
+        result = m_scriptRuntime.capture_instance_states(preservedStates);
+        if (!result)
+        {
+            return result;
+        }
+    }
+
     result = m_scriptRuntime.reset();
     if (!result)
     {
@@ -356,7 +366,7 @@ Result Engine::reload_script_module()
         return Result::ok();
     }
 
-    result = m_scriptRuntime.start();
+    result = m_scriptRuntime.restore_instance_states(preservedStates);
     if (result)
     {
         return result;
@@ -374,7 +384,8 @@ Result Engine::reload_script_module()
     }
     if (m_scriptModule != nullptr)
     {
-        const Result restoreResult = m_scriptRuntime.start();
+        const Result restoreResult =
+            m_scriptRuntime.restore_instance_states(preservedStates);
         if (!restoreResult)
         {
             unload_script_module();

@@ -11,7 +11,22 @@ namespace GameScript
 
     void testScriptScript::update(float a_deltaTimeSeconds) noexcept
     {
-        (void)a_deltaTimeSeconds;
+        m_resetTimer -= a_deltaTimeSeconds;
+        if (m_resetTimer <= 0.0f)
+        {
+            invoke_target();
+            m_resetTimer = 2.0f;
+        }
+    }
+
+    void testScriptScript::invoke_target() noexcept
+    {
+        const Cue::Script::ScriptRef<testcubeScript> target =
+            targetScript.script_ref();
+        if (target)
+        {
+            (void)target.invoke("toggle_height");
+        }
     }
 } // namespace GameScript
 

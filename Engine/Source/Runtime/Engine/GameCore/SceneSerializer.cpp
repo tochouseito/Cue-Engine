@@ -221,6 +221,23 @@ namespace Cue::GameCore
                 field["type"] = "Bool";
                 field["value"] = *boolValue;
             }
+            else if (const ECS::ScriptEntityReference* entityValue =
+                         std::get_if<ECS::ScriptEntityReference>(&a_field.value))
+            {
+                field["type"] = "Entity";
+                field["value"] = nlohmann::json{
+                    {"entityId", entityValue->entityId},
+                    {"generation", entityValue->generation}};
+            }
+            else if (const ECS::ScriptReference* scriptValue =
+                         std::get_if<ECS::ScriptReference>(&a_field.value))
+            {
+                field["type"] = "Script";
+                field["value"] = nlohmann::json{
+                    {"entityId", scriptValue->entity.entityId},
+                    {"generation", scriptValue->entity.generation},
+                    {"className", scriptValue->className}};
+            }
             else
             {
                 field["type"] = "Float";
@@ -242,6 +259,32 @@ namespace Cue::GameCore
             else if (type == "Bool")
             {
                 field.value = value.is_boolean() ? value.get<bool>() : false;
+            }
+            else if (type == "Entity")
+            {
+                ECS::ScriptEntityReference reference{};
+                if (value.is_object())
+                {
+                    reference.entityId =
+                        value.value("entityId", reference.entityId);
+                    reference.generation =
+                        value.value("generation", reference.generation);
+                }
+                field.value = reference;
+            }
+            else if (type == "Script")
+            {
+                ECS::ScriptReference reference{};
+                if (value.is_object())
+                {
+                    reference.entity.entityId =
+                        value.value("entityId", reference.entity.entityId);
+                    reference.entity.generation =
+                        value.value("generation", reference.entity.generation);
+                    reference.className =
+                        value.value("className", reference.className);
+                }
+                field.value = std::move(reference);
             }
             else
             {

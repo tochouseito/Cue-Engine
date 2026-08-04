@@ -14,6 +14,20 @@
 
 namespace Cue::Core::Native
 {
+    /// @brief 公開 field の metadata と Script object への反映処理
+    struct ScriptFieldDefinition final
+    {
+        ScriptFieldValue defaultValue{};
+        ScriptApplyFieldFn applyValue = nullptr;
+    };
+
+    /// @brief 別 Script から名前で呼び出せる引数なし関数
+    struct ScriptFunctionDefinition final
+    {
+        ScriptStringView name{};
+        ScriptInvokeStateFn invokeState = nullptr;
+    };
+
     /// @brief DLL が提供する Script class の生成規則
     struct ScriptClassDefinition final
     {
@@ -22,6 +36,14 @@ namespace Cue::Core::Native
         ScriptDestroyStateFn destroyState = nullptr;
         ScriptStartStateFn startState = nullptr;
         ScriptUpdateStateFn updateState = nullptr;
+        const ScriptFieldDefinition* fields = nullptr;
+        uint32_t fieldCount = 0u;
+        const ScriptFunctionDefinition* functions = nullptr;
+        uint32_t functionCount = 0u;
+        ScriptStateDescriptor stateDescriptor{};
+        ScriptGetStateSizeFn getStateSize = nullptr;
+        ScriptSerializeStateFn serializeState = nullptr;
+        ScriptRestoreStateFn restoreState = nullptr;
     };
 
     /// @brief GameScript DLL が所有する Script instance の管理器
@@ -62,6 +84,33 @@ namespace Cue::Core::Native
         update_instance(ScriptInstanceHandle a_instanceHandle,
                         float a_deltaTimeSeconds) noexcept;
 
+        /// @brief instance の登録済み引数なし関数を名前で呼び出す
+        [[nodiscard]] ScriptAbiResult
+        invoke_instance(ScriptInstanceHandle a_instanceHandle,
+                        ScriptStringView a_functionName) noexcept;
+
+        /// @brief class の reload state 互換情報を返す
+        [[nodiscard]] ScriptAbiResult
+        get_state_descriptor(ScriptStringView a_className,
+                             ScriptStateDescriptor* a_outDescriptor) const noexcept;
+
+        /// @brief instance の reload state 保存領域サイズを返す
+        [[nodiscard]] ScriptAbiResult
+        get_instance_state_size(ScriptInstanceHandle a_instanceHandle,
+                                uint32_t* a_outStateSize) const noexcept;
+
+        /// @brief instance の reload state を byte 列へ保存する
+        [[nodiscard]] ScriptAbiResult
+        serialize_instance(ScriptInstanceHandle a_instanceHandle,
+                           void* a_outStateBuffer,
+                           uint32_t a_stateBufferSize) const noexcept;
+
+        /// @brief byte 列から instance の reload state を復元する
+        [[nodiscard]] ScriptAbiResult
+        restore_instance(ScriptInstanceHandle a_instanceHandle,
+                         const void* a_stateBuffer,
+                         uint32_t a_stateBufferSize) noexcept;
+
       private:
         struct Instance final
         {
@@ -75,6 +124,8 @@ namespace Cue::Core::Native
         is_valid_engine_api(const ScriptEngineApi* a_engineApi) noexcept;
         [[nodiscard]] static bool
         is_valid_class_definition(const ScriptClassDefinition& a_definition) noexcept;
+        [[nodiscard]] const ScriptClassDefinition*
+        find_class_definition(ScriptStringView a_className) const noexcept;
         void destroy_all_instances() noexcept;
 
         const ScriptEngineApi* m_engineApi =

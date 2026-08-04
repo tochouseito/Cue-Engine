@@ -1071,8 +1071,14 @@ namespace Cue::Editor
             "        void start() noexcept override;\n"
             "        void update(float a_deltaTimeSeconds) noexcept override;\n"
             "        void on_destroy() noexcept override;\n"
+            "\n"
+            "        MARIONETTE_NO_FIELDS()\n"
+            "        MARIONETTE_NO_FUNCTIONS()\n"
             "    };\n"
-            "} // namespace GameScript\n";
+            "} // namespace GameScript\n"
+            "\n"
+            "MARIONETTE_DECLARE_SCRIPT_TYPE(\n"
+            "    GameScript::" + className + ", \"" + className + "\");\n";
         const std::string sourceText =
             "#include \"" + className + ".h\"\n"
             "\n"
