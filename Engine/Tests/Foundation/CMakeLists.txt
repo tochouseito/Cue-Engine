@@ -168,6 +168,28 @@ elseif(NOT "${cueFoundationVisualStudioProjectImport}" STREQUAL "")
     )
 endif()
 
+foreach(
+    cueFoundationUnityBuildCodeProperty
+    IN ITEMS
+        UNITY_BUILD_CODE_BEFORE_INCLUDE
+        UNITY_BUILD_CODE_AFTER_INCLUDE
+)
+    get_target_property(
+        cueFoundationUnityBuildCode
+        Cue.Foundation
+        ${cueFoundationUnityBuildCodeProperty}
+    )
+
+    if(cueFoundationUnityBuildCode MATCHES "-NOTFOUND$")
+        set(cueFoundationUnityBuildCode "")
+    elseif(NOT "${cueFoundationUnityBuildCode}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation must not inject Unity Build code through ${cueFoundationUnityBuildCodeProperty}: ${cueFoundationUnityBuildCode}"
+        )
+    endif()
+endforeach()
+
 get_target_property(cueFoundationCompileOptions Cue.Foundation COMPILE_OPTIONS)
 
 if(cueFoundationCompileOptions MATCHES "-NOTFOUND$")
@@ -557,6 +579,7 @@ set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
 set(cueFoundationVisualStudioUserPropsDisplay "<none>")
 set(cueFoundationVisualStudioProjectImportDisplay "<none>")
+set(cueFoundationUnityBuildInjectedCodeDisplay "<none>")
 set(cueFoundationForcedIncludeOptionsDisplay "<none>; private options restricted by allowlist")
 set(cueFoundationGlobalCompileFlagsDisplay "approved allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")

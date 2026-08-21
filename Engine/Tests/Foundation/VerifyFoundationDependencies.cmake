@@ -109,6 +109,7 @@ foreach(
         "INTERFACE_COMPILE_OPTIONS: <none>"
         "VS_USER_PROPS: <none>"
         "VS_PROJECT_IMPORT: <none>"
+        "UNITY_BUILD_INJECTED_CODE: <none>"
         "FORCED_INCLUDE_OPTIONS: <none>; private options restricted by allowlist"
         "GLOBAL_CXX_FLAGS: approved allowlist"
         "COMPILE_FLAGS: <none>"

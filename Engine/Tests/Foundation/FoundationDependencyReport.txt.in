@@ -10,6 +10,7 @@ INTERFACE_PRECOMPILE_HEADERS: @cueFoundationInterfacePrecompileHeadersDisplay@
 INTERFACE_COMPILE_OPTIONS: @cueFoundationInterfaceCompileOptionsDisplay@
 VS_USER_PROPS: @cueFoundationVisualStudioUserPropsDisplay@
 VS_PROJECT_IMPORT: @cueFoundationVisualStudioProjectImportDisplay@
+UNITY_BUILD_INJECTED_CODE: @cueFoundationUnityBuildInjectedCodeDisplay@
 FORCED_INCLUDE_OPTIONS: @cueFoundationForcedIncludeOptionsDisplay@
 GLOBAL_CXX_FLAGS: @cueFoundationGlobalCompileFlagsDisplay@
 COMPILE_FLAGS: @cueFoundationCompileFlagsDisplay@
