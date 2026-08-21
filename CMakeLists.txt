@@ -18,6 +18,10 @@ endif()
 add_subdirectory(Engine/Source/Foundation)
 add_subdirectory(Engine/Source/Platform)
 
+if(WIN32)
+    add_subdirectory(Engine/Source/RuntimeHost)
+endif()
+
 add_executable(CueBuildProbe)
 
 target_sources(
@@ -58,6 +62,10 @@ endif()
 if(BUILD_TESTING)
     add_subdirectory(Engine/Tests/Foundation)
     add_subdirectory(Engine/Tests/Platform)
+
+    if(WIN32)
+        add_subdirectory(Engine/Tests/RuntimeHost)
+    endif()
 
     add_test(NAME CueBuildProbe.Smoke COMMAND CueBuildProbe)
 
