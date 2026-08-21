@@ -15,6 +15,8 @@ if(CMAKE_CONFIGURATION_TYPES)
     )
 endif()
 
+add_subdirectory(Engine/Source/Foundation)
+
 add_executable(CueBuildProbe)
 
 target_sources(
@@ -53,6 +55,8 @@ if(MSVC)
 endif()
 
 if(BUILD_TESTING)
+    add_subdirectory(Engine/Tests/Foundation)
+
     add_test(NAME CueBuildProbe.Smoke COMMAND CueBuildProbe)
 
     set_tests_properties(
