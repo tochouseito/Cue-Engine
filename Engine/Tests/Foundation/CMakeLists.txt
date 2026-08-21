@@ -179,6 +179,8 @@ foreach(cueFoundationCompileOption IN LISTS cueFoundationCompileOptions)
     endif()
 endforeach()
 
+get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
+
 set(
     cueFoundationAllowedGlobalCompileFlags
     /DWIN32
@@ -190,13 +192,23 @@ set(
     /Ob2
     /DNDEBUG
 )
-set(cueFoundationGlobalCompileFlags "${CMAKE_CXX_FLAGS}")
+get_directory_property(
+    cueFoundationRootGlobalCompileFlags
+    DIRECTORY "${cueFoundationSourceDirectory}"
+    DEFINITION CMAKE_CXX_FLAGS
+)
+set(cueFoundationGlobalCompileFlags "${cueFoundationRootGlobalCompileFlags}")
 
 foreach(cueFoundationConfiguration IN ITEMS DEBUG DEVELOPMENT RELEASE)
+    get_directory_property(
+        cueFoundationConfigurationGlobalCompileFlags
+        DIRECTORY "${cueFoundationSourceDirectory}"
+        DEFINITION "CMAKE_CXX_FLAGS_${cueFoundationConfiguration}"
+    )
     string(
         APPEND
         cueFoundationGlobalCompileFlags
-        " ${CMAKE_CXX_FLAGS_${cueFoundationConfiguration}}"
+        " ${cueFoundationConfigurationGlobalCompileFlags}"
     )
 endforeach()
 
@@ -249,8 +261,6 @@ if(cueFoundationSources MATCHES "\\$<")
         "Cue.Foundation must not use generator expressions in SOURCES: ${cueFoundationSources}"
     )
 endif()
-
-get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
 
 get_target_property(cueFoundationHeaderSets Cue.Foundation HEADER_SETS)
 get_target_property(cueFoundationInterfaceHeaderSets Cue.Foundation INTERFACE_HEADER_SETS)
