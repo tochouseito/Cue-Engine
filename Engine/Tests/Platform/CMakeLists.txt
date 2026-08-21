@@ -635,6 +635,10 @@ add_test(
     COMMAND CuePlatformWindowsLifecycleTests Lifecycle
 )
 add_test(
+    NAME Cue.Platform.Windows.Events
+    COMMAND CuePlatformWindowsLifecycleTests Events
+)
+add_test(
     NAME Cue.Platform.Windows.InvalidShow
     COMMAND
         ${CMAKE_COMMAND}
@@ -678,6 +682,7 @@ set_tests_properties(
     Cue.Platform.PublicHeaders
     Cue.Platform.Windows.PublicHeaders
     Cue.Platform.Windows.Lifecycle
+    Cue.Platform.Windows.Events
     Cue.Platform.Windows.InvalidShow
     Cue.Platform.Windows.InvalidNativeView
     Cue.Platform.Windows.ThreadViolation

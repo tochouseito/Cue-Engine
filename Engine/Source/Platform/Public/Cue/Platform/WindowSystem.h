@@ -48,7 +48,11 @@ class WindowSystem
     [[nodiscard]] virtual Result<std::unique_ptr<Window>> create_window(
         const WindowDescriptor &a_descriptor) noexcept = 0;
 
-    /** @brief 現在の Thread Queue を Non-blocking で処理する */
+    /**
+     * @brief 現在の Thread Queue が空になるまで Non-blocking で処理する
+     * @return WM_QUIT を含めて Queue
+     * を Drain した場合は QuitRequested、それ以外は Running
+     */
     [[nodiscard]] virtual Result<PumpStatus> pump_events() noexcept = 0;
 };
 } // namespace cue
