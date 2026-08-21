@@ -240,6 +240,7 @@ function(cue_verify_platform_forced_include_options targetName)
         IN ITEMS
             COMPILE_OPTIONS
             INTERFACE_COMPILE_OPTIONS
+            COMPILE_FLAGS
     )
         get_target_property(compileOptions ${targetName} ${compileOptionProperty})
 
