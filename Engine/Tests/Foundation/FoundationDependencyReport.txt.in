@@ -7,5 +7,6 @@ INTERFACE_LINK_LIBRARIES_DIRECT: @cueFoundationInterfaceDirectLinksDisplay@
 INTERFACE_SOURCES: @cueFoundationInterfaceSourcesDisplay@
 TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
 LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
+TARGET_GRAPH_OUTGOING_EDGES: <none>
 Forbidden platform link inputs: Windows SDK, DXGI, D3D12
-Cycle review: no outgoing link, interface source, target object, or manual dependency edge; Cue.Foundation cannot participate in a target dependency cycle
+Cycle review: generated CMake target graph has no outgoing Cue.Foundation edge; Cue.Foundation cannot participate in a target dependency cycle

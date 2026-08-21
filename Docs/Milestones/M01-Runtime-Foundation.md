@@ -58,11 +58,14 @@ INTERFACE_LINK_LIBRARIES_DIRECT: <none>
 INTERFACE_SOURCES: <none>
 TARGET_OBJECT_SOURCES: <none>
 LINK_OPTIONS: $<$<CONFIG:Development>:/DEBUG>
+TARGET_GRAPH_OUTGOING_EDGES: <none>
 Forbidden platform link inputs: Windows SDK, DXGI, D3D12
-Cycle review: no outgoing link, interface source, target object, or manual dependency edge
+Cycle review: generated CMake target graph has no outgoing Cue.Foundation edge
 ```
 
-`Cue.Foundation.Dependencies`は、上記Reportに空の依存入力が記録されていることに加え、Foundation配下のC++ SourceとHeaderの直接Includeを選択中Windows SDKの`um`、`shared`、`winrt`、`cppwinrt`で解決し、Platform Headerに一致しないことを検査します。限定したHeader名の列挙ではなく、Windows SDKの実Include Directoryを基準にします。Foundationから出るTarget依存Edgeを許可しないため、Foundationを含むTarget依存循環も成立しません。
+`Cue.Foundation.Dependencies`は、CMakeが生成したTarget Graphを検査し、`Cue.Foundation`から出るEdgeがないことを確認します。これにより、Link、Object Source、`add_dependencies`に加え、Target Generator Expressionを使うCustom Command由来のEdgeも検出します。Foundationから出るTarget Edgeを許可しないため、Foundationを含むTarget依存循環も成立しません。
+
+Foundation配下のC++ SourceとHeaderの直接Includeは、選択中Windows SDKの`um`、`shared`、`winrt`、`cppwinrt`、`ucrt`で解決します。前4 DirectoryのHeaderと、UCRT内のISO C標準Header以外を拒否するため、限定したPlatform Header名の列挙には依存しません。
 
 ## Local Validation
 
@@ -89,8 +92,8 @@ git diff --check
 - Foundation Labelは`15/15`成功
 - Debug、Development、ReleaseのBuild成功
 - 全3構成のCTestは、それぞれ`16/16`成功
-- Dependency Testは、Link／Interface／Target Object／手動Target依存が空であることと、Windows SDK Platform Header解決検査の成功を出力
-- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、`processthreadsapi.h`の直接IncludeがそれぞれGateを失敗させることを確認
+- Dependency Testは、生成Target GraphのOutgoing Edgeがないことと、Windows SDK／UCRT Platform Header解決検査の成功を出力
+- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、Custom Commandの`$<TARGET_FILE:...>`、`processthreadsapi.h`と`io.h`の直接IncludeがそれぞれGateを失敗させることを確認
 - `git diff --check`成功
 
 ## Clean Checkout Validation

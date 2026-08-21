@@ -231,6 +231,8 @@ add_test(
         -DREPORT_FILE=${cueFoundationDependencyReport}
         -DFOUNDATION_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Foundation
         -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DTARGET_GRAPH_FILE=${CMAKE_BINARY_DIR}/CueEngine.TargetGraph.dot
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake
 )
