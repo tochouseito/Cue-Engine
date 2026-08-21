@@ -111,14 +111,43 @@ if(NOT "${cuePlatformInterfaceLinks}" STREQUAL "Cue.Foundation")
     )
 endif()
 
-if(NOT "${cuePlatformWindowsInterfaceLinks}" STREQUAL "Cue.Platform")
+set(cuePlatformWindowsAllowedLinks Cue.Platform User32)
+set(cuePlatformWindowsAllowedLinkOnlyLibraries User32)
+
+foreach(cuePlatformWindowsInterfaceLink IN LISTS cuePlatformWindowsInterfaceLinks)
+    if(cuePlatformWindowsInterfaceLink STREQUAL "Cue.Platform")
+        continue()
+    endif()
+
+    if(cuePlatformWindowsInterfaceLink MATCHES "^\\$<LINK_ONLY:([^>]+)>$")
+        list(
+            FIND
+            cuePlatformWindowsAllowedLinkOnlyLibraries
+            "${CMAKE_MATCH_1}"
+            cuePlatformWindowsLinkOnlyIndex
+        )
+
+        if(NOT cuePlatformWindowsLinkOnlyIndex EQUAL -1)
+            continue()
+        endif()
+    endif()
+
     message(
         FATAL_ERROR
-        "Cue.Platform.Windows must expose only Cue.Platform: ${cuePlatformWindowsInterfaceLinks}"
+        "Cue.Platform.Windows contains an unapproved interface dependency: ${cuePlatformWindowsInterfaceLink}"
     )
-endif()
+endforeach()
 
-set(cuePlatformWindowsAllowedLinks Cue.Platform User32)
+list(
+    FIND
+    cuePlatformWindowsInterfaceLinks
+    Cue.Platform
+    cuePlatformWindowsPlatformInterfaceLinkIndex
+)
+
+if(cuePlatformWindowsPlatformInterfaceLinkIndex EQUAL -1)
+    message(FATAL_ERROR "Cue.Platform.Windows must expose Cue.Platform")
+endif()
 
 foreach(cuePlatformWindowsLink IN LISTS cuePlatformWindowsLinks)
     list(

@@ -9,7 +9,6 @@ foreach(
     IN ITEMS
         "Cue.Platform LINK_LIBRARIES: Cue.Foundation"
         "Cue.Platform INTERFACE_LINK_LIBRARIES: Cue.Foundation"
-        "Cue.Platform.Windows INTERFACE_LINK_LIBRARIES: Cue.Platform"
         "Cue.Platform MANUALLY_ADDED_DEPENDENCIES: <none>"
         "Cue.Platform INTERFACE_SOURCES: <none>"
         "Cue.Platform INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
@@ -18,8 +17,10 @@ foreach(
         "Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
         "Generated and target object sources: <none>"
         "Allowed Windows PRIVATE links: User32"
+        "Required Windows PUBLIC link: Cue.Platform"
+        "Allowed Windows LINK_ONLY links: User32"
         "Forbidden dependencies: Cue.RHI;D3D12;Editor"
-        "Windows SDK include boundary: Windows/Private"
+        "Windows SDK and non-standard UCRT include boundary: Windows/Private"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -66,12 +67,50 @@ set(
     "${windowsSdkIncludeRoot}/winrt"
     "${windowsSdkIncludeRoot}/cppwinrt"
 )
+set(windowsUcrtIncludeRoot "${windowsSdkIncludeRoot}/ucrt")
 
 foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
     if(NOT IS_DIRECTORY "${includeRoot}")
         message(FATAL_ERROR "Windows SDK include directory does not exist: ${includeRoot}")
     endif()
 endforeach()
+
+if(NOT IS_DIRECTORY "${windowsUcrtIncludeRoot}")
+    message(FATAL_ERROR "Windows UCRT include directory does not exist: ${windowsUcrtIncludeRoot}")
+endif()
+
+set(
+    standardCHeaders
+    assert.h
+    complex.h
+    ctype.h
+    errno.h
+    fenv.h
+    float.h
+    inttypes.h
+    iso646.h
+    limits.h
+    locale.h
+    math.h
+    setjmp.h
+    signal.h
+    stdalign.h
+    stdarg.h
+    stdatomic.h
+    stdbool.h
+    stddef.h
+    stdint.h
+    stdio.h
+    stdlib.h
+    stdnoreturn.h
+    string.h
+    tgmath.h
+    threads.h
+    time.h
+    uchar.h
+    wchar.h
+    wctype.h
+)
 
 foreach(platformSource IN LISTS platformSources)
     file(READ "${platformSource}" sourceContents)
@@ -99,6 +138,15 @@ foreach(platformSource IN LISTS platformSources)
                 break()
             endif()
         endforeach()
+
+        if(NOT isWindowsSdkInclude AND EXISTS "${windowsUcrtIncludeRoot}/${includedHeader}")
+            string(TOLOWER "${includedHeader}" includedHeaderLower)
+            list(FIND standardCHeaders "${includedHeaderLower}" standardHeaderIndex)
+
+            if(standardHeaderIndex EQUAL -1)
+                set(isWindowsSdkInclude TRUE)
+            endif()
+        endif()
 
         if(isWindowsSdkInclude)
             if(NOT relativeSource MATCHES "^Windows/Private/")
@@ -131,4 +179,4 @@ if(NOT hasWindowsSdkInclude)
 endif()
 
 message(STATUS "Cue.Platform dependency direction: passed")
-message(STATUS "Cue.Platform Windows SDK private boundary: passed")
+message(STATUS "Cue.Platform Windows SDK and UCRT private boundary: passed")
