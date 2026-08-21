@@ -15,6 +15,7 @@ SOURCE_GENERATOR_EXPRESSIONS: @cueFoundationSourceGeneratorExpressionsDisplay@
 HEADER_SET_GENERATOR_EXPRESSIONS: @cueFoundationHeaderSetGeneratorExpressionsDisplay@
 EXTERNAL_HEADER_SET_FILES: @cueFoundationExternalHeaderSetFilesDisplay@
 HEADER_SET_CONTENT_SCAN: @cueFoundationHeaderSetContentScanDisplay@
+TARGET_SOURCE_CONTENT_SCAN: @cueFoundationTargetSourceContentScanDisplay@
 TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
 LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
 TARGET_GRAPH_OUTGOING_EDGES: <none>

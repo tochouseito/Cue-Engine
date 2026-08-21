@@ -35,6 +35,13 @@ if(
     message(FATAL_ERROR "Cue.Foundation Header Set file list is not available")
 endif()
 
+if(
+    NOT DEFINED FOUNDATION_TARGET_SOURCE_FILE_LIST
+    OR NOT EXISTS "${FOUNDATION_TARGET_SOURCE_FILE_LIST}"
+)
+    message(FATAL_ERROR "Cue.Foundation Target Source file list is not available")
+endif()
+
 execute_process(
     COMMAND
         "${CMAKE_COMMAND}"
@@ -100,6 +107,7 @@ foreach(
         "HEADER_SET_GENERATOR_EXPRESSIONS: <none>"
         "EXTERNAL_HEADER_SET_FILES: <none>"
         "HEADER_SET_CONTENT_SCAN: all files"
+        "TARGET_SOURCE_CONTENT_SCAN: all files"
         "TARGET_OBJECT_SOURCES: <none>"
         "TARGET_GRAPH_OUTGOING_EDGES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
@@ -124,7 +132,9 @@ file(
     "${FOUNDATION_SOURCE_DIR}/*.inl"
 )
 file(STRINGS "${FOUNDATION_HEADER_SET_FILE_LIST}" foundationHeaderSetFiles)
+file(STRINGS "${FOUNDATION_TARGET_SOURCE_FILE_LIST}" foundationTargetSourceFiles)
 list(APPEND foundationSources ${foundationHeaderSetFiles})
+list(APPEND foundationSources ${foundationTargetSourceFiles})
 list(REMOVE_DUPLICATES foundationSources)
 
 if(NOT WIN32)

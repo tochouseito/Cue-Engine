@@ -265,6 +265,8 @@ file(
     CONTENT "${cueFoundationHeaderSetFileListContent}\n"
 )
 
+set(cueFoundationTargetSourceFilesToScan "")
+
 foreach(cueFoundationSource IN LISTS cueFoundationSources)
     if(cueFoundationSource MATCHES "^\\$<")
         continue()
@@ -276,6 +278,7 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         ABSOLUTE
         BASE_DIR "${cueFoundationSourceDirectory}"
     )
+    list(APPEND cueFoundationTargetSourceFilesToScan "${cueFoundationSourcePath}")
     get_source_file_property(
         cueFoundationSourceCompileFlags
         "${cueFoundationSourcePath}"
@@ -305,6 +308,22 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         )
     endif()
 endforeach()
+
+list(REMOVE_DUPLICATES cueFoundationTargetSourceFilesToScan)
+string(
+    REPLACE ";" "\n"
+    cueFoundationTargetSourceFileListContent
+    "${cueFoundationTargetSourceFilesToScan}"
+)
+set(
+    cueFoundationTargetSourceFileList
+    "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.TargetSourceFiles.txt"
+)
+file(
+    GENERATE
+    OUTPUT "${cueFoundationTargetSourceFileList}"
+    CONTENT "${cueFoundationTargetSourceFileListContent}\n"
+)
 
 get_target_property(cueFoundationLinkOptions Cue.Foundation LINK_OPTIONS)
 
@@ -337,6 +356,7 @@ set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
 set(cueFoundationHeaderSetGeneratorExpressionsDisplay "<none>")
 set(cueFoundationExternalHeaderSetFilesDisplay "<none>")
 set(cueFoundationHeaderSetContentScanDisplay "all files")
+set(cueFoundationTargetSourceContentScanDisplay "all files")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")
@@ -451,6 +471,7 @@ add_test(
         -DTARGET_GRAPH_FILE=${CMAKE_BINARY_DIR}/CueEngine.TargetGraph.dot
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -DFOUNDATION_HEADER_SET_FILE_LIST=${cueFoundationHeaderSetFileList}
+        -DFOUNDATION_TARGET_SOURCE_FILE_LIST=${cueFoundationTargetSourceFileList}
         "-DDUMPBIN_EXECUTABLE=${cueFoundationDumpbin}"
         "-DFOUNDATION_LIBRARY=$<TARGET_FILE:Cue.Foundation>"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake
