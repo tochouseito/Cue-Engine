@@ -123,7 +123,7 @@ Engine/Source/Platform/
 - `AssertContext`、その`Logger`、`FatalHandler`は`WindowSystem`と、そこから生成したすべての`Window`より長く生存する
 - `Window`の破棄完了後に`WindowSystem`を破棄し、最後のWindow破棄後にWindow Classを解除する
 - Window、Event、Native Viewは共有所有しない
-- Destructionは例外を送出しない。明示的な`destroy()`で失敗を返せる操作を完了し、Destructorは正しいThread上で残存ResourceをBest-effort Cleanupする
+- Destructionは例外を送出しない。明示的な`destroy()`で失敗を返せる操作を完了し、`Window`と`WindowSystem`のDestructorはWindow Thread上でのみ実行して残存ResourceをBest-effort Cleanupする
 - RuntimeHostは通常経路と初期化途中の失敗経路の両方で、Window、WindowSystem、AssertContext、Logger、FatalHandlerの順に破棄する
 
 ### Lifecycle State
@@ -154,9 +154,10 @@ Created --show()--> Visible
 ### Thread Affinity
 
 - `WindowSystem`の作成ThreadをWindow Threadとする
-- Window生成、表示、破棄、Message Pump、`try_pop_event()`、`state()`、`client_size()`、Native View取得はWindow Thread限定とする
+- Window生成、表示、明示的なNative Window破棄、`Window`／`WindowSystem`のC++ Owner破棄、Message Pump、`try_pop_event()`、`state()`、`client_size()`、Native View取得はWindow Thread限定とする
 - M02ではWindow状態とClient SizeのCross-thread参照を許可せず、同期Primitiveを公開契約へ追加しない
 - Windows実装は作成時のThread IDを保持し、Thread違反をProgrammer ErrorとしてAssertで検出する
+- `Window`または`WindowSystem`の所有権を別Threadへ移して解放することもThread違反とし、Debug／Developmentでは残存Native ResourceのCleanup前にAssertして終了する。ReleaseではこのOwner破棄自体を契約外とする
 - Thread違反を`Result`のRecoverable Errorへ変換しない。ADR-0005に従い、Debug／DevelopmentではAssert後に終了し、ReleaseではThread前提違反の呼出自体を契約外とする
 - Window ProcedureはWindow Thread上で同期実行され、Event Queueへ値を追加する
 - M02では他ThreadからWindow ThreadへCommandを投稿するAPIを追加しない
