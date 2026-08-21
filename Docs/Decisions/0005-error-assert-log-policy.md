@@ -118,7 +118,7 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 - 文書化された回復可能な外部例外はErrorへ変換し、それ以外の予期しない例外は同じModule内でFatalへ変換する
 - 各最終ExecutableのComposition Rootは、Module境界の契約違反やEntry Point自身の例外に備えた最後のFallbackとして捕捉できる。捕捉後に通常実行へ復帰せずFatal終了する
 - Allocation失敗からのRecovery方針はM01では決定しない。`std::bad_alloc`をRecoverable Errorとして暗黙変換しない
-- `std::bad_alloc`を捕捉した経路は、所有文字列、`Error`、`LogRecord`、Sink出力を新規生成せず、事前構築されたFatal HandlerのEmergency Entry Pointを直接呼ぶ
+- Foundationの診断Entry Pointが`std::bad_alloc`を捕捉した場合は、通常Log、Fatal、Assertの区別なく、所有文字列、`Error`、`LogRecord`、残りのSink出力を新規生成せず、事前構築されたFatal HandlerのEmergency Entry Pointを直接呼ぶ
 - Emergency Entry Pointは静的文字列Viewだけを受け取り、追加Allocationを行わず、`noexcept`かつ呼び出し側へ戻らない。既定Handlerは`std::abort`を使用する
 
 Compilerの例外機能を無効化するかは、外部Libraryと標準Libraryの要件を調査する別Decisionとします。このADRは言語機能が有効でもEngine API契約に使用しないことを定めます。
@@ -259,9 +259,11 @@ Log Levelは次の6種類です。
 LoggerとSinkの規則:
 
 - Loggerは通常のObjectとしてComposition Rootまたは上位Ownerが一意所有する
+- LoggerはEmergency Entry Pointを持つFatal Handlerへの非所有参照を受け取る。Fatal HandlerのOwnerはLoggerより長く生存し、Composition RootはLoggerを先に破棄する
 - Loggerは0個以上の`std::unique_ptr<LogSink>`を受け取り、Sinkを一意所有する
 - Global Logger、Global Sink Registry、Service Locatorを導入しない
-- `Logger::log`と`Logger::flush`は同期APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する
+- `Logger::log`と`Logger::flush`は同期かつ非例外APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する。通常Log Recordの構築もLogger Entry Pointの例外境界内で行う
+- 通常APIのMutex待機取得が例外を投げた場合、Loggerは内部で捕捉してAllocation不要な`LockFailure`を返し、例外をModule境界へ出さない
 - Fatal経路は`Logger::log_and_flush`を使用し、Mutexを`try_lock`で一度だけ取得する。取得成功時は同じLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了し、他ThreadのRecordを割り込ませない
 - Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
@@ -269,9 +271,9 @@ LoggerとSinkの規則:
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
 - Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
-- Loggerは一つのSinkが失敗しても残りのSinkを処理し、全Sinkの結果を集約した成功可否を返す。Sink失敗を同じLoggerへ再Logしない
+- Loggerは一つのSinkが失敗しても残りのSinkを処理し、`Success`、`SinkFailure`、`LockFailure`、`Contended`のAllocation不要な結果を返す。Sink失敗を同じLoggerへ再Logしない
 - Loggerは契約違反のSink例外も各呼び出し単位で捕捉し、`std::bad_alloc`以外では残りのSinkを処理する
-- Sinkが`std::bad_alloc`を投げた場合、Loggerは残りのSink処理と結果集約を中止し、Allocation不要な`OutOfMemory`結果を直ちにFatal Dispatcherへ返す。通常Logでは同じ結果を呼び出し側へ返し、追加診断を生成しない
+- 通常Log Record構築、Mutex取得、Sinkの`write`／`flush`のいずれかで`std::bad_alloc`を捕捉した場合、Loggerは残りの処理と結果集約を中止し、保持するFatal HandlerのEmergency Entry Pointを直接呼ぶ。通常実行へは戻らない
 - Fatal Dispatcherは`log_and_flush`の失敗結果または例外にかかわらずFatal Handlerを呼び、診断I/O失敗を理由に安全でない実行へ復帰しない
 - Console Sinkは出力またはFlush失敗を`false`で報告してRecordを破棄する。再帰Logや追加Allocationを伴うFallbackは行わない
 
@@ -319,8 +321,9 @@ ConsoleとDebugger Outputの選択規則:
 - Flushが全Sinkへ伝播することを検証する
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 - Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
+- 通常LoggerのMutex取得例外が内部で捕捉され、`LockFailure`となることを検証する
 - `write`または`flush`が失敗を返すSinkと例外を投げる契約違反Sinkがあっても、残りのSinkが処理されることを検証する
-- Sinkが`std::bad_alloc`を投げると残りのSinkが呼ばれず`OutOfMemory`を返すことを検証する
+- Sinkが`std::bad_alloc`を投げると残りのSinkが呼ばれず、通常LogでもEmergency Entry Pointから規定終了することをProcess Testで検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
 
 ### Assert and Fatal
