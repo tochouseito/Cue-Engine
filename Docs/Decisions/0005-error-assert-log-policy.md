@@ -270,7 +270,9 @@ LoggerとSinkの規則:
 - Fatal経路は`Logger::log_and_flush`を使用し、Mutexを`try_lock`で一度だけ取得する。取得成功時は同じLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了し、他ThreadのRecordを割り込ませない
 - Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
-- SinkはLoggerのLock保持中に呼ばれ、直接・間接を問わずいずれのLoggerへも再入してはならない
+- SinkはLoggerのLock保持中に呼ばれ、同じThreadからは直接・間接を問わずいずれのLoggerへも再入してはならない
+- SinkがWorker Threadへ処理を委譲して完了を待つ場合、そのWorkerとWorkerから同期的に呼ぶ処理は、同一・別Instanceを問わずLoggerを呼んではならない。Loggerを呼び得る作業の完了待ち、Join、Callback待ちは禁止する
+- Sinkが待機しない作業をWorkerへ委譲する場合、`LogRecord`の参照や内部PointerをWorkerへ渡さず、必要なDataをSink自身の責任でCopyした後にSink呼び出しを終了する。Worker側のLogは元SinkがReturnしてLogger Mutexが解放された後にだけ行う
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
 - Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
@@ -325,6 +327,7 @@ ConsoleとDebugger Outputの選択規則:
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 - Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
 - Sinkから同一または別Loggerへ再入するとMutex取得前に検出され、Emergency Entry Pointから規定終了することをProcess Testで検証する
+- Sinkが完了を待つWorkerからLoggerを呼ばないことを実装Reviewで確認し、First-party Sinkにはその構造を導入しない
 - 通常LoggerのMutex取得例外が内部で捕捉され、Emergency Entry Pointから規定終了することをProcess Testで検証する
 - Sinkが非例外で失敗を返す場合は残りのSinkが処理され、Sinkが例外を投げる場合は残りのSinkが呼ばれずEmergency Entry Pointから規定終了することを検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
