@@ -9,6 +9,8 @@ PRECOMPILE_HEADERS: @cueFoundationPrecompileHeadersDisplay@
 INTERFACE_PRECOMPILE_HEADERS: @cueFoundationInterfacePrecompileHeadersDisplay@
 INTERFACE_COMPILE_OPTIONS: @cueFoundationInterfaceCompileOptionsDisplay@
 FORCED_INCLUDE_OPTIONS: @cueFoundationForcedIncludeOptionsDisplay@
+COMPILE_FLAGS: @cueFoundationCompileFlagsDisplay@
+SOURCE_COMPILE_PROPERTIES: @cueFoundationSourceCompilePropertiesDisplay@
 TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
 LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
 TARGET_GRAPH_OUTGOING_EDGES: <none>

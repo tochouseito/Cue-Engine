@@ -161,6 +161,17 @@ if(cueFoundationCompileOptionsLower MATCHES "(^|[;>:, \t])/fi|(^|[;>:, \t])-incl
     )
 endif()
 
+get_target_property(cueFoundationCompileFlags Cue.Foundation COMPILE_FLAGS)
+
+if(cueFoundationCompileFlags MATCHES "-NOTFOUND$")
+    set(cueFoundationCompileFlags "")
+elseif(NOT "${cueFoundationCompileFlags}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not use COMPILE_FLAGS: ${cueFoundationCompileFlags}"
+    )
+endif()
+
 get_target_property(cueFoundationSources Cue.Foundation SOURCES)
 string(TOLOWER "${cueFoundationSources}" cueFoundationSourcesLower)
 
@@ -170,6 +181,49 @@ if(cueFoundationSourcesLower MATCHES "\\$<target_objects:")
         "Cue.Foundation must not consume target object sources: ${cueFoundationSources}"
     )
 endif()
+
+get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
+
+foreach(cueFoundationSource IN LISTS cueFoundationSources)
+    if(cueFoundationSource MATCHES "^\\$<")
+        continue()
+    endif()
+
+    get_filename_component(
+        cueFoundationSourcePath
+        "${cueFoundationSource}"
+        ABSOLUTE
+        BASE_DIR "${cueFoundationSourceDirectory}"
+    )
+    get_source_file_property(
+        cueFoundationSourceCompileFlags
+        "${cueFoundationSourcePath}"
+        TARGET_DIRECTORY Cue.Foundation
+        COMPILE_FLAGS
+    )
+    get_source_file_property(
+        cueFoundationSourceCompileOptions
+        "${cueFoundationSourcePath}"
+        TARGET_DIRECTORY Cue.Foundation
+        COMPILE_OPTIONS
+    )
+
+    if(NOT "${cueFoundationSourceCompileFlags}" STREQUAL "NOTFOUND"
+       AND NOT "${cueFoundationSourceCompileFlags}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Foundation sources must not use COMPILE_FLAGS: ${cueFoundationSourcePath}: ${cueFoundationSourceCompileFlags}"
+        )
+    endif()
+
+    if(NOT "${cueFoundationSourceCompileOptions}" STREQUAL "NOTFOUND"
+       AND NOT "${cueFoundationSourceCompileOptions}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Foundation sources must not use COMPILE_OPTIONS: ${cueFoundationSourcePath}: ${cueFoundationSourceCompileOptions}"
+        )
+    endif()
+endforeach()
 
 get_target_property(cueFoundationLinkOptions Cue.Foundation LINK_OPTIONS)
 
@@ -196,6 +250,8 @@ set(cueFoundationPrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
 set(cueFoundationForcedIncludeOptionsDisplay "<none>")
+set(cueFoundationCompileFlagsDisplay "<none>")
+set(cueFoundationSourceCompilePropertiesDisplay "<none>")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")
