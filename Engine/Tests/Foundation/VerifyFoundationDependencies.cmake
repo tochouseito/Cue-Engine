@@ -28,6 +28,13 @@ if(NOT DEFINED FOUNDATION_LIBRARY OR NOT EXISTS "${FOUNDATION_LIBRARY}")
     message(FATAL_ERROR "Cue.Foundation library is not available")
 endif()
 
+if(
+    NOT DEFINED FOUNDATION_HEADER_SET_FILE_LIST
+    OR NOT EXISTS "${FOUNDATION_HEADER_SET_FILE_LIST}"
+)
+    message(FATAL_ERROR "Cue.Foundation Header Set file list is not available")
+endif()
+
 execute_process(
     COMMAND
         "${CMAKE_COMMAND}"
@@ -92,6 +99,7 @@ foreach(
         "SOURCE_GENERATOR_EXPRESSIONS: <none>"
         "HEADER_SET_GENERATOR_EXPRESSIONS: <none>"
         "EXTERNAL_HEADER_SET_FILES: <none>"
+        "HEADER_SET_CONTENT_SCAN: all files"
         "TARGET_OBJECT_SOURCES: <none>"
         "TARGET_GRAPH_OUTGOING_EDGES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
@@ -115,6 +123,9 @@ file(
     "${FOUNDATION_SOURCE_DIR}/*.hpp"
     "${FOUNDATION_SOURCE_DIR}/*.inl"
 )
+file(STRINGS "${FOUNDATION_HEADER_SET_FILE_LIST}" foundationHeaderSetFiles)
+list(APPEND foundationSources ${foundationHeaderSetFiles})
+list(REMOVE_DUPLICATES foundationSources)
 
 if(NOT WIN32)
     message(FATAL_ERROR "Windows SDK dependency verification requires a Windows host")
