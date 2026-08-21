@@ -88,7 +88,9 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 - Public APIは例外を投げる契約を持たず、Recoverable Errorを`Result`で返す
 - Module境界、DLL境界、Plugin境界をC++例外が越えることを禁止する
 - Engine Codeは通常経路で`throw`を使用しない
-- 標準Libraryまたは外部Libraryから予期しない例外が到達し得る場合、各最終ExecutableのComposition Rootだけが最後の診断目的で捕捉できる。捕捉後に通常実行へ復帰せずFatal終了する
+- 標準Libraryまたは外部Libraryが例外を投げ得る呼び出しは、AdapterまたはModuleのPublic Entry Pointより内側で捕捉し、例外をModule境界へ出さない
+- 文書化された回復可能な外部例外はErrorへ変換し、それ以外の予期しない例外は同じModule内でFatalへ変換する
+- 各最終ExecutableのComposition Rootは、Module境界の契約違反やEntry Point自身の例外に備えた最後のFallbackとして捕捉できる。捕捉後に通常実行へ復帰せずFatal終了する
 - Allocation失敗からのRecovery方針はM01では決定しない。`std::bad_alloc`をRecoverable Errorとして暗黙変換しない
 
 Compilerの例外機能を無効化するかは、外部Libraryと標準Libraryの要件を調査する別Decisionとします。このADRは言語機能が有効でもEngine API契約に使用しないことを定めます。
@@ -125,6 +127,8 @@ Native Error情報はNative Headerへ依存しない次のValueで保持しま�
 - `Result<void>`は成功状態またはErrorの一方だけを保持する
 - `has_value()`と明示的`operator bool`で状態を確認できる
 - `try_value()`と`try_error()`は非所有Pointerを返し、状態が一致しない場合は`nullptr`を返す
+- 返却PointerはResultが同じ状態で生存している間だけ有効とする
+- Probe APIは`&`と`const &`修飾だけを提供し、`&&`と`const &&`からの呼び出しを削除して一時ResultからのPointer取得を禁止する
 - 状態を前提とするAccess APIを追加する場合、誤用はProgrammer ErrorとしてAssertする
 - ErrorへContextを追加する操作はError所有権を維持し、元のError CodeとNative Errorを失わない
 - Errorを含むResultから成功値をDefault生成しない
@@ -155,7 +159,7 @@ CueRuntimeHost
 HRESULTとWin32 Errorの変換関数はWindowsまたはD3D12実装TargetのPrivateへ置きます。
 
 - Win32境界は`GetLastError`値を直ちに取得し、Domain `Win32`と整数値をErrorへ保持する
-- D3D12／DXGI境界はHRESULTのbit patternを損失なく64-bit値へ変換し、Domain `HRESULT`を保持する
+- D3D12／DXGI境界はHRESULTを符号付き32-bit値として解釈し、符号拡張して符号付き64-bit値へ変換する。例えば`0x80004005`は`-2147467259`として保持する
 - Public Header、Result、Errorは`HRESULT`、`DWORD`、`HANDLE`、COM型を使用しない
 - Native Messageの文字列化は診断強化であり、変換失敗時もNative Domainと値を失わない
 - Platform／Backend固有Error CodeからFoundationの汎用Codeへ無理に集約しない。Domain付きCodeで衝突を避ける
@@ -188,8 +192,8 @@ CUE_ASSERT(assertContext, condition, "message");
 Fatal経路は次の順序で実行します。
 
 1. Fatal Log RecordへLevel、Message、Source Location、利用可能なErrorを格納する
-2. Loggerが全Sinkへ同期出力する
-3. Loggerが全SinkをFlushする
+2. Loggerが同一Mutexを保持したまま全Sinkへ同期出力する
+3. Loggerが同じCritical Section内で全SinkをFlushする
 4. 注入されたFatal Handlerを呼び出す
 5. Fatal HandlerはProcessを終了し、呼び出し側へ戻らない
 
@@ -215,7 +219,8 @@ LoggerとSinkの規則:
 - Loggerは通常のObjectとしてComposition Rootまたは上位Ownerが一意所有する
 - Loggerは0個以上の`std::unique_ptr<LogSink>`を受け取り、Sinkを一意所有する
 - Global Logger、Global Sink Registry、Service Locatorを導入しない
-- `Logger::log`は同期APIとし、Logger内部Mutexで同一Loggerへの呼び出しを直列化する
+- `Logger::log`と`Logger::flush`は同期APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する
+- Fatal経路は`Logger::log_and_flush`を使用し、一度のLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了する。他ThreadのRecordはこの区間へ割り込まない
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
 - SinkはLoggerのLock保持中に呼ばれ、同じLoggerへ再入してはならない
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
@@ -251,6 +256,7 @@ ConsoleとDebugger Outputの選択規則:
 - SuccessがValueだけを保持する
 - FailureがErrorだけを保持する
 - `try_value()`と`try_error()`が状態に応じてPointerまたは`nullptr`を返す
+- Probe APIが右辺値Resultから呼び出せないことをCompile-time Testで検証する
 - `Result<void>`の成功と失敗を検証する
 - Context追加後もError Code、Native Error、既存Contextが保持される
 - Copy／Move後も状態と値が保持される
@@ -261,6 +267,7 @@ ConsoleとDebugger Outputの選択規則:
 - 複数ThreadからLogし、Record欠落とData Raceがないことを検証する
 - 複数Sinkへ一度ずつ登録順に出力されることを検証する
 - Flushが全Sinkへ伝播することを検証する
+- Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 
 ### Assert and Fatal
 
@@ -274,6 +281,7 @@ ConsoleとDebugger Outputの選択規則:
 
 - Window生成失敗はNative Error付きResultとしてRuntimeHostへ到達する
 - Device生成失敗はHRESULT付きResultとしてAdapter選択または起動終了へ到達する
+- HRESULT `0x80004005`が符号拡張され、`-2147467259`として保持される
 - GPU Device RemovedはBackendからResultで返り、Recovery未実装のRuntimeHostがErrorを一度LogしてFatal終了を選択する
 
 ## Consequences
