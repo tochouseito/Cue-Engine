@@ -1,0 +1,5 @@
+Target: Cue.Foundation
+LINK_LIBRARIES: @cueFoundationLinkLibrariesDisplay@
+INTERFACE_LINK_LIBRARIES: @cueFoundationInterfaceLinkLibrariesDisplay@
+Forbidden platform link inputs: Windows SDK, DXGI, D3D12
+Cycle review: no outgoing target link edge; Cue.Foundation cannot participate in a target link cycle

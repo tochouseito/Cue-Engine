@@ -23,6 +23,45 @@ add_executable(CueFoundationAssertTests AssertBehaviorTests.cpp)
 target_link_libraries(CueFoundationAssertTests PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationAssertTests PRIVATE cxx_std_20)
 
+get_target_property(cueFoundationLinkLibraries Cue.Foundation LINK_LIBRARIES)
+
+if(cueFoundationLinkLibraries MATCHES "-NOTFOUND$")
+    set(cueFoundationLinkLibraries "")
+elseif(NOT "${cueFoundationLinkLibraries}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not have direct link dependencies: ${cueFoundationLinkLibraries}"
+    )
+endif()
+
+get_target_property(
+    cueFoundationInterfaceLinkLibraries
+    Cue.Foundation
+    INTERFACE_LINK_LIBRARIES
+)
+
+if(cueFoundationInterfaceLinkLibraries MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfaceLinkLibraries "")
+elseif(NOT "${cueFoundationInterfaceLinkLibraries}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not expose link dependencies: ${cueFoundationInterfaceLinkLibraries}"
+    )
+endif()
+
+set(cueFoundationLinkLibrariesDisplay "<none>")
+set(cueFoundationInterfaceLinkLibrariesDisplay "<none>")
+set(
+    cueFoundationDependencyReport
+    "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.Dependencies.txt"
+)
+
+configure_file(
+    FoundationDependencyReport.txt.in
+    "${cueFoundationDependencyReport}"
+    @ONLY
+)
+
 add_executable(
     CueFoundationPublicHeaderTest
     AssertHeaderCompile.cpp
@@ -77,10 +116,31 @@ foreach(
     endif()
 endforeach()
 
+add_custom_target(
+    Cue.Foundation.Tests
+    DEPENDS
+        CueFoundationEmergencyTests
+        CueFoundationLoggerTests
+        CueFoundationDiagnosticsProcessTests
+        CueFoundationAssertTests
+        CueFoundationResultTests
+        CueFoundationPublicHeaderTest
+)
+
 add_test(NAME Cue.Foundation.Result COMMAND CueFoundationResultTests)
 add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest)
 add_test(NAME Cue.Foundation.Logger COMMAND CueFoundationLoggerTests)
 add_test(NAME Cue.Foundation.Assert.Success COMMAND CueFoundationAssertTests Success)
+
+add_test(
+    NAME Cue.Foundation.Dependencies
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DREPORT_FILE=${cueFoundationDependencyReport}
+        -DFOUNDATION_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Foundation
+        -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake
+)
 
 add_test(
     NAME Cue.Foundation.Assert.Failure
@@ -142,6 +202,7 @@ set_tests_properties(
     Cue.Foundation.PublicHeaders
     Cue.Foundation.Logger
     Cue.Foundation.Assert.Success
+    Cue.Foundation.Dependencies
     PROPERTIES
         LABELS Foundation
         TIMEOUT 10
