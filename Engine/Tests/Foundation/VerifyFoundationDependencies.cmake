@@ -1,5 +1,131 @@
 cmake_minimum_required(VERSION 4.2.0)
 
+function(cueStripCppComments inputContents outputVariable)
+    set(strippedContents "")
+    set(lexicalState Normal)
+    set(characterIndex 0)
+    string(LENGTH "${inputContents}" inputLength)
+
+    while(characterIndex LESS inputLength)
+        string(SUBSTRING "${inputContents}" ${characterIndex} 1 character)
+        math(EXPR nextCharacterIndex "${characterIndex} + 1")
+
+        if(nextCharacterIndex LESS inputLength)
+            string(SUBSTRING "${inputContents}" ${nextCharacterIndex} 1 nextCharacter)
+        else()
+            set(nextCharacter "")
+        endif()
+
+        if(lexicalState STREQUAL Normal)
+            if(character STREQUAL "/" AND nextCharacter STREQUAL "/")
+                string(APPEND strippedContents "  ")
+                set(lexicalState LineComment)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "/" AND nextCharacter STREQUAL "*")
+                string(APPEND strippedContents "  ")
+                set(lexicalState BlockComment)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "R" AND nextCharacter STREQUAL "\"")
+                math(EXPR rawDelimiterStart "${characterIndex} + 2")
+                math(EXPR rawRemainderLength "${inputLength} - ${rawDelimiterStart}")
+                string(
+                    SUBSTRING
+                    "${inputContents}"
+                    ${rawDelimiterStart}
+                    ${rawRemainderLength}
+                    rawRemainder
+                )
+                string(FIND "${rawRemainder}" "(" rawOpenOffset)
+
+                if(NOT rawOpenOffset EQUAL -1 AND rawOpenOffset LESS_EQUAL 16)
+                    string(SUBSTRING "${rawRemainder}" 0 ${rawOpenOffset} rawDelimiter)
+                    set(rawClosingSequence ")${rawDelimiter}\"")
+                    math(EXPR rawBodyOffset "${rawOpenOffset} + 1")
+                    math(EXPR rawBodyLength "${rawRemainderLength} - ${rawBodyOffset}")
+                    string(
+                        SUBSTRING
+                        "${rawRemainder}"
+                        ${rawBodyOffset}
+                        ${rawBodyLength}
+                        rawBody
+                    )
+                    string(FIND "${rawBody}" "${rawClosingSequence}" rawCloseOffset)
+
+                    if(NOT rawCloseOffset EQUAL -1)
+                        string(LENGTH "${rawClosingSequence}" rawClosingLength)
+                        math(
+                            EXPR
+                            rawLiteralLength
+                            "2 + ${rawBodyOffset} + ${rawCloseOffset} + ${rawClosingLength}"
+                        )
+                        string(
+                            SUBSTRING
+                            "${inputContents}"
+                            ${characterIndex}
+                            ${rawLiteralLength}
+                            rawLiteral
+                        )
+                        string(REGEX REPLACE "[^\r\n]" " " rawLiteral "${rawLiteral}")
+                        string(APPEND strippedContents "${rawLiteral}")
+                        math(EXPR characterIndex "${characterIndex} + ${rawLiteralLength}")
+                        continue()
+                    endif()
+                endif()
+            elseif(character STREQUAL "\"")
+                string(APPEND strippedContents "${character}")
+                set(lexicalState StringLiteral)
+                math(EXPR characterIndex "${characterIndex} + 1")
+                continue()
+            elseif(character STREQUAL "'")
+                string(APPEND strippedContents "${character}")
+                set(lexicalState CharacterLiteral)
+                math(EXPR characterIndex "${characterIndex} + 1")
+                continue()
+            endif()
+
+            string(APPEND strippedContents "${character}")
+        elseif(lexicalState STREQUAL StringLiteral OR lexicalState STREQUAL CharacterLiteral)
+            string(APPEND strippedContents "${character}")
+
+            if(character STREQUAL "\\" AND nextCharacterIndex LESS inputLength)
+                string(APPEND strippedContents "${nextCharacter}")
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(lexicalState STREQUAL StringLiteral AND character STREQUAL "\"")
+                set(lexicalState Normal)
+            elseif(lexicalState STREQUAL CharacterLiteral AND character STREQUAL "'")
+                set(lexicalState Normal)
+            endif()
+        elseif(lexicalState STREQUAL LineComment)
+            if(character STREQUAL "\n")
+                string(APPEND strippedContents "\n")
+                set(lexicalState Normal)
+            elseif(character STREQUAL "\r")
+                string(APPEND strippedContents "\r")
+            else()
+                string(APPEND strippedContents " ")
+            endif()
+        elseif(lexicalState STREQUAL BlockComment)
+            if(character STREQUAL "*" AND nextCharacter STREQUAL "/")
+                string(APPEND strippedContents "  ")
+                set(lexicalState Normal)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "\n" OR character STREQUAL "\r")
+                string(APPEND strippedContents "${character}")
+            else()
+                string(APPEND strippedContents " ")
+            endif()
+        endif()
+
+        math(EXPR characterIndex "${characterIndex} + 1")
+    endwhile()
+
+    set(${outputVariable} "${strippedContents}" PARENT_SCOPE)
+endfunction()
+
 if(NOT DEFINED REPORT_FILE OR NOT EXISTS "${REPORT_FILE}")
     message(FATAL_ERROR "Foundation dependency report was not generated")
 endif()
@@ -244,6 +370,7 @@ while(foundationSourceQueue)
     file(READ "${sourceFile}" sourceContents)
     string(REPLACE "\\\r\n" "" sourceContents "${sourceContents}")
     string(REPLACE "\\\n" "" sourceContents "${sourceContents}")
+    cueStripCppComments("${sourceContents}" sourceContents)
     string(TOLOWER "${sourceContents}" sourceContentsLower)
     string(
         REGEX MATCH
