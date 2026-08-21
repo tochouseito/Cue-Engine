@@ -111,6 +111,7 @@ foreach(
         "GLOBAL_CXX_FLAGS: approved allowlist"
         "COMPILE_FLAGS: <none>"
         "SOURCE_COMPILE_PROPERTIES: <none>"
+        "SOURCE_INCLUDE_DIRECTORIES: <none>"
         "SOURCE_GENERATOR_EXPRESSIONS: <none>"
         "HEADER_SET_GENERATOR_EXPRESSIONS: <none>"
         "EXTERNAL_HEADER_SET_FILES: <none>"

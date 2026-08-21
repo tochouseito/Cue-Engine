@@ -447,6 +447,12 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         TARGET_DIRECTORY Cue.Foundation
         COMPILE_OPTIONS
     )
+    get_source_file_property(
+        cueFoundationSourceIncludeDirectories
+        "${cueFoundationSourcePath}"
+        TARGET_DIRECTORY Cue.Foundation
+        INCLUDE_DIRECTORIES
+    )
 
     if(NOT "${cueFoundationSourceCompileFlags}" STREQUAL "NOTFOUND"
        AND NOT "${cueFoundationSourceCompileFlags}" STREQUAL "")
@@ -461,6 +467,14 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         message(
             FATAL_ERROR
             "Foundation sources must not use COMPILE_OPTIONS: ${cueFoundationSourcePath}: ${cueFoundationSourceCompileOptions}"
+        )
+    endif()
+
+    if(NOT "${cueFoundationSourceIncludeDirectories}" STREQUAL "NOTFOUND"
+       AND NOT "${cueFoundationSourceIncludeDirectories}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Foundation sources must not use INCLUDE_DIRECTORIES: ${cueFoundationSourcePath}: ${cueFoundationSourceIncludeDirectories}"
         )
     endif()
 endforeach()
@@ -509,6 +523,7 @@ set(cueFoundationForcedIncludeOptionsDisplay "<none>; private options restricted
 set(cueFoundationGlobalCompileFlagsDisplay "approved allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
+set(cueFoundationSourceIncludeDirectoriesDisplay "<none>")
 set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
 set(cueFoundationHeaderSetGeneratorExpressionsDisplay "<none>")
 set(cueFoundationExternalHeaderSetFilesDisplay "<none>")
