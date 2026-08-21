@@ -49,8 +49,24 @@ elseif(NOT "${cueFoundationInterfaceLinkLibraries}" STREQUAL "")
     )
 endif()
 
+get_target_property(
+    cueFoundationManualDependencies
+    Cue.Foundation
+    MANUALLY_ADDED_DEPENDENCIES
+)
+
+if(cueFoundationManualDependencies MATCHES "-NOTFOUND$")
+    set(cueFoundationManualDependencies "")
+elseif(NOT "${cueFoundationManualDependencies}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not have manual target dependencies: ${cueFoundationManualDependencies}"
+    )
+endif()
+
 set(cueFoundationLinkLibrariesDisplay "<none>")
 set(cueFoundationInterfaceLinkLibrariesDisplay "<none>")
+set(cueFoundationManualDependenciesDisplay "<none>")
 set(
     cueFoundationDependencyReport
     "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.Dependencies.txt"

@@ -19,8 +19,9 @@ foreach(
     IN ITEMS
         "LINK_LIBRARIES: <none>"
         "INTERFACE_LINK_LIBRARIES: <none>"
+        "MANUALLY_ADDED_DEPENDENCIES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
-        "Cycle review: no outgoing target link edge"
+        "Cycle review: no outgoing target link or manual dependency edge"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -61,5 +62,5 @@ foreach(sourceFile IN LISTS foundationSources)
 endforeach()
 
 message(STATUS "Foundation dependency report: ${REPORT_FILE}")
-message(STATUS "Cue.Foundation direct and interface link inputs: <none>")
+message(STATUS "Cue.Foundation target dependency inputs: <none>")
 message(STATUS "Foundation platform header scan: passed")

@@ -8,7 +8,7 @@ CueEngineは、C++を中心に一から再設計・再実装するモジュー�
 
 `M00 Repository Foundation`では、再現可能なConfigure、Build、Test、CI、開発手順の基盤を整備しました。
 M00の完了証跡は[Repository Foundation completion evidence](Docs/Milestones/M00-Repository-Foundation.md)に集約しています。
-Runtime、Renderer、Editorなどの機能実装はM01以降で扱い、現時点ではまだ実装していません。
+`M01 Runtime Foundation`では、PlatformとRenderingから独立したFoundation、Result、Assert、Log、Fatalと、その依存方向・公開Header・エラー経路を検証するTestを整備しました。
 
 ## Repository Layout
 
@@ -21,10 +21,15 @@ Engine/
     Source/
         CueBuildProbe/
             Main.cpp
+        Foundation/
+            Private/
+            Public/Cue/Foundation/
+    Tests/
+        Foundation/
 ```
 
 Repository Root は CMake の Build 入口、License、Repository 設定などに使用します。
-将来の Module 構成は個別の Research Issue と ADR で決定します。
+確定したModule境界と診断方針は、Project Policyに記載したADRを正本とします。
 
 ## Requirements
 
@@ -61,6 +66,12 @@ cmake --build --preset windows-vs2026-development
 cmake --build --preset windows-vs2026-release
 ```
 
+Foundation専用Test TargetだけをBuildする場合は、次のようにTargetを指定します。
+
+```powershell
+cmake --build out/build/windows-vs2026 --config Debug --target Cue.Foundation.Tests
+```
+
 各構成の最小 C++ Target は次のコマンドで実行できます。
 
 ```powershell
@@ -82,7 +93,12 @@ ctest --preset windows-vs2026-development
 ctest --preset windows-vs2026-release
 ```
 
-現在は `CueBuildProbe.Smoke` が最小 Target の起動と正常終了を検証します。
+`CueBuildProbe.Smoke`に加えて、FoundationのResult、Assert、Log、Fatal、緊急終了、公開Header単体Compile、Module依存方向を検証します。
+Foundation Testだけを実行する場合は、CTest Labelを指定します。
+
+```powershell
+ctest --preset windows-vs2026-debug -L Foundation
+```
 
 ## Project Policy
 
@@ -92,3 +108,4 @@ ctest --preset windows-vs2026-release
 - [Runtime Foundation module boundaries](Docs/Decisions/0004-runtime-foundation-module-boundaries.md)
 - [Error, assert, and log policy](Docs/Decisions/0005-error-assert-log-policy.md)
 - [M00 Repository Foundation completion evidence](Docs/Milestones/M00-Repository-Foundation.md)
+- [M01 Runtime Foundation completion evidence](Docs/Milestones/M01-Runtime-Foundation.md)
