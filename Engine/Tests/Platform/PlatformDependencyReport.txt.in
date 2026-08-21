@@ -10,9 +10,12 @@ Cue.Platform.Windows INTERFACE_SOURCES: <none>
 Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>
 Generated and target object sources: <none>
 Target Source and Header File Set scan: enabled
+Named Header File Sets: scanned
 Allowed Windows PRIVATE links: User32
 Required Windows PUBLIC link: Cue.Platform
 Allowed Windows LINK_ONLY links: User32
 Forbidden dependencies: Cue.RHI;D3D12;Editor
 Windows SDK and non-standard UCRT include boundary: Windows/Private
 Compiler pragma link injection: forbidden
+Non-literal include directives: forbidden
+Preprocessor line continuations: normalized

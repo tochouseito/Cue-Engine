@@ -52,6 +52,40 @@ foreach(
     endif()
 endforeach()
 
+function(cue_collect_platform_header_files targetName outputVariable)
+    get_target_property(targetHeaderSets ${targetName} HEADER_SETS)
+    get_target_property(targetInterfaceHeaderSets ${targetName} INTERFACE_HEADER_SETS)
+
+    foreach(headerSetProperty IN ITEMS targetHeaderSets targetInterfaceHeaderSets)
+        if(${headerSetProperty} MATCHES "-NOTFOUND$")
+            set(${headerSetProperty} "")
+        endif()
+    endforeach()
+
+    set(allHeaderSets ${targetHeaderSets} ${targetInterfaceHeaderSets})
+    list(REMOVE_DUPLICATES allHeaderSets)
+    set(headerFiles "")
+
+    foreach(headerSet IN LISTS allHeaderSets)
+        if(headerSet STREQUAL "HEADERS")
+            set(headerSetProperty HEADER_SET)
+        else()
+            set(headerSetProperty "HEADER_SET_${headerSet}")
+        endif()
+
+        get_target_property(targetHeaderFiles ${targetName} "${headerSetProperty}")
+
+        if(targetHeaderFiles MATCHES "-NOTFOUND$")
+            set(targetHeaderFiles "")
+        endif()
+
+        list(APPEND headerFiles ${targetHeaderFiles})
+    endforeach()
+
+    list(REMOVE_DUPLICATES headerFiles)
+    set(${outputVariable} "${headerFiles}" PARENT_SCOPE)
+endfunction()
+
 get_target_property(cuePlatformLinks Cue.Platform LINK_LIBRARIES)
 get_target_property(cuePlatformInterfaceLinks Cue.Platform INTERFACE_LINK_LIBRARIES)
 get_target_property(cuePlatformManualDependencies Cue.Platform MANUALLY_ADDED_DEPENDENCIES)
@@ -62,7 +96,7 @@ get_target_property(
     INTERFACE_LINK_LIBRARIES_DIRECT
 )
 get_target_property(cuePlatformSources Cue.Platform SOURCES)
-get_target_property(cuePlatformHeaders Cue.Platform HEADER_SET)
+cue_collect_platform_header_files(Cue.Platform cuePlatformHeaders)
 get_target_property(cuePlatformSourceDirectory Cue.Platform SOURCE_DIR)
 get_target_property(cuePlatformWindowsLinks Cue.Platform.Windows LINK_LIBRARIES)
 get_target_property(
@@ -86,18 +120,12 @@ get_target_property(
     INTERFACE_LINK_LIBRARIES_DIRECT
 )
 get_target_property(cuePlatformWindowsSources Cue.Platform.Windows SOURCES)
-get_target_property(cuePlatformWindowsHeaders Cue.Platform.Windows HEADER_SET)
+cue_collect_platform_header_files(Cue.Platform.Windows cuePlatformWindowsHeaders)
 get_target_property(
     cuePlatformWindowsSourceDirectory
     Cue.Platform.Windows
     SOURCE_DIR
 )
-
-foreach(targetProperty IN ITEMS cuePlatformHeaders cuePlatformWindowsHeaders)
-    if(${targetProperty} MATCHES "-NOTFOUND$")
-        set(${targetProperty} "")
-    endif()
-endforeach()
 
 foreach(
     targetProperty

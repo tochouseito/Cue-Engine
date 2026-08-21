@@ -1,3 +1,163 @@
+cmake_minimum_required(VERSION 4.2.0)
+
+function(cue_strip_cpp_comments inputContents outputVariable codeOutputVariable)
+    set(strippedContents "")
+    set(codeContents "")
+    set(lexicalState Normal)
+    set(characterIndex 0)
+    string(LENGTH "${inputContents}" inputLength)
+
+    while(characterIndex LESS inputLength)
+        string(SUBSTRING "${inputContents}" ${characterIndex} 1 character)
+        math(EXPR nextCharacterIndex "${characterIndex} + 1")
+
+        if(nextCharacterIndex LESS inputLength)
+            string(SUBSTRING "${inputContents}" ${nextCharacterIndex} 1 nextCharacter)
+        else()
+            set(nextCharacter "")
+        endif()
+
+        if(lexicalState STREQUAL Normal)
+            if(character STREQUAL "/" AND nextCharacter STREQUAL "/")
+                string(APPEND strippedContents "  ")
+                string(APPEND codeContents "  ")
+                set(lexicalState LineComment)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "/" AND nextCharacter STREQUAL "*")
+                string(APPEND strippedContents "  ")
+                string(APPEND codeContents "  ")
+                set(lexicalState BlockComment)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "R" AND nextCharacter STREQUAL "\"")
+                math(EXPR rawDelimiterStart "${characterIndex} + 2")
+                math(EXPR rawRemainderLength "${inputLength} - ${rawDelimiterStart}")
+                string(
+                    SUBSTRING
+                    "${inputContents}"
+                    ${rawDelimiterStart}
+                    ${rawRemainderLength}
+                    rawRemainder
+                )
+                string(FIND "${rawRemainder}" "(" rawOpenOffset)
+
+                if(NOT rawOpenOffset EQUAL -1 AND rawOpenOffset LESS_EQUAL 16)
+                    string(SUBSTRING "${rawRemainder}" 0 ${rawOpenOffset} rawDelimiter)
+                    set(rawClosingSequence ")${rawDelimiter}\"")
+                    math(EXPR rawBodyOffset "${rawOpenOffset} + 1")
+                    math(EXPR rawBodyLength "${rawRemainderLength} - ${rawBodyOffset}")
+                    string(
+                        SUBSTRING
+                        "${rawRemainder}"
+                        ${rawBodyOffset}
+                        ${rawBodyLength}
+                        rawBody
+                    )
+                    string(FIND "${rawBody}" "${rawClosingSequence}" rawCloseOffset)
+
+                    if(NOT rawCloseOffset EQUAL -1)
+                        string(LENGTH "${rawClosingSequence}" rawClosingLength)
+                        math(
+                            EXPR
+                            rawLiteralLength
+                            "2 + ${rawBodyOffset} + ${rawCloseOffset} + ${rawClosingLength}"
+                        )
+                        string(
+                            SUBSTRING
+                            "${inputContents}"
+                            ${characterIndex}
+                            ${rawLiteralLength}
+                            rawLiteral
+                        )
+                        string(REGEX REPLACE "[^\r\n]" " " rawLiteral "${rawLiteral}")
+                        string(APPEND strippedContents "${rawLiteral}")
+                        string(APPEND codeContents "${rawLiteral}")
+                        math(EXPR characterIndex "${characterIndex} + ${rawLiteralLength}")
+                        continue()
+                    endif()
+                endif()
+            elseif(character STREQUAL "%" AND nextCharacter STREQUAL ":")
+                string(APPEND strippedContents "#")
+                string(APPEND codeContents "#")
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "\"")
+                string(APPEND strippedContents "${character}")
+                string(APPEND codeContents " ")
+                set(lexicalState StringLiteral)
+                math(EXPR characterIndex "${characterIndex} + 1")
+                continue()
+            elseif(character STREQUAL "'")
+                string(APPEND strippedContents "${character}")
+                string(APPEND codeContents " ")
+                set(lexicalState CharacterLiteral)
+                math(EXPR characterIndex "${characterIndex} + 1")
+                continue()
+            endif()
+
+            string(APPEND strippedContents "${character}")
+            string(APPEND codeContents "${character}")
+        elseif(lexicalState STREQUAL StringLiteral OR lexicalState STREQUAL CharacterLiteral)
+            string(APPEND strippedContents "${character}")
+
+            if(character STREQUAL "\n" OR character STREQUAL "\r")
+                string(APPEND codeContents "${character}")
+            else()
+                string(APPEND codeContents " ")
+            endif()
+
+            if(character STREQUAL "\\" AND nextCharacterIndex LESS inputLength)
+                string(APPEND strippedContents "${nextCharacter}")
+
+                if(nextCharacter STREQUAL "\n" OR nextCharacter STREQUAL "\r")
+                    string(APPEND codeContents "${nextCharacter}")
+                else()
+                    string(APPEND codeContents " ")
+                endif()
+
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(lexicalState STREQUAL StringLiteral AND character STREQUAL "\"")
+                set(lexicalState Normal)
+            elseif(lexicalState STREQUAL CharacterLiteral AND character STREQUAL "'")
+                set(lexicalState Normal)
+            endif()
+        elseif(lexicalState STREQUAL LineComment)
+            if(character STREQUAL "\n")
+                string(APPEND strippedContents "\n")
+                string(APPEND codeContents "\n")
+                set(lexicalState Normal)
+            elseif(character STREQUAL "\r")
+                string(APPEND strippedContents "\r")
+                string(APPEND codeContents "\r")
+            else()
+                string(APPEND strippedContents " ")
+                string(APPEND codeContents " ")
+            endif()
+        elseif(lexicalState STREQUAL BlockComment)
+            if(character STREQUAL "*" AND nextCharacter STREQUAL "/")
+                string(APPEND strippedContents "  ")
+                string(APPEND codeContents "  ")
+                set(lexicalState Normal)
+                math(EXPR characterIndex "${characterIndex} + 2")
+                continue()
+            elseif(character STREQUAL "\n" OR character STREQUAL "\r")
+                string(APPEND strippedContents "${character}")
+                string(APPEND codeContents "${character}")
+            else()
+                string(APPEND strippedContents " ")
+                string(APPEND codeContents " ")
+            endif()
+        endif()
+
+        math(EXPR characterIndex "${characterIndex} + 1")
+    endwhile()
+
+    set(${outputVariable} "${strippedContents}" PARENT_SCOPE)
+    set(${codeOutputVariable} "${codeContents}" PARENT_SCOPE)
+endfunction()
+
 if(NOT EXISTS "${REPORT_FILE}")
     message(FATAL_ERROR "Platform dependency report does not exist: ${REPORT_FILE}")
 endif()
@@ -17,12 +177,15 @@ foreach(
         "Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
         "Generated and target object sources: <none>"
         "Target Source and Header File Set scan: enabled"
+        "Named Header File Sets: scanned"
         "Allowed Windows PRIVATE links: User32"
         "Required Windows PUBLIC link: Cue.Platform"
         "Allowed Windows LINK_ONLY links: User32"
         "Forbidden dependencies: Cue.RHI;D3D12;Editor"
         "Windows SDK and non-standard UCRT include boundary: Windows/Private"
         "Compiler pragma link injection: forbidden"
+        "Non-literal include directives: forbidden"
+        "Preprocessor line continuations: normalized"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -137,18 +300,21 @@ foreach(platformSource IN LISTS platformSources)
 
     file(READ "${platformSource}" sourceContents)
     file(RELATIVE_PATH relativeSource "${PLATFORM_SOURCE_DIR}" "${platformSource}")
-    string(TOLOWER "${sourceContents}" sourceContentsLower)
+    string(REPLACE "\\\r\n" "" sourceContents "${sourceContents}")
+    string(REPLACE "\\\n" "" sourceContents "${sourceContents}")
+    cue_strip_cpp_comments("${sourceContents}" sourceContents sourceCodeContents)
+    string(TOLOWER "${sourceCodeContents}" sourceCodeContentsLower)
     string(
         REGEX MATCH
         "(^|\n)[ \t]*#[ \t]*pragma[ \t]+comment[ \t]*\\("
         preprocessorCommentDirective
-        "${sourceContentsLower}"
+        "${sourceCodeContentsLower}"
     )
     string(
         REGEX MATCH
         "(__pragma|_pragma)[ \t\r\n]*\\("
         compilerPragmaDirective
-        "${sourceContentsLower}"
+        "${sourceCodeContentsLower}"
     )
 
     if(preprocessorCommentDirective OR compilerPragmaDirective)
@@ -157,6 +323,24 @@ foreach(platformSource IN LISTS platformSources)
             "Platform source contains a compiler pragma that can inject link dependencies: ${relativeSource}"
         )
     endif()
+
+    string(
+        REGEX MATCHALL
+        "(^|\n)[ \t]*#[ \t]*include[^\r\n]*"
+        allIncludeDirectives
+        "${sourceContents}"
+    )
+
+    foreach(includeDirective IN LISTS allIncludeDirectives)
+        string(STRIP "${includeDirective}" includeDirective)
+
+        if(NOT includeDirective MATCHES "^#[ \t]*include[ \t]*[<\"][^>\"]+[>\"]")
+            message(
+                FATAL_ERROR
+                "Platform source contains a non-literal include directive: ${relativeSource}: ${includeDirective}"
+            )
+        endif()
+    endforeach()
 
     string(
         REGEX MATCHALL
