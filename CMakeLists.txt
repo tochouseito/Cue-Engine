@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 4.2.0)
 
 project(CueEngine LANGUAGES CXX)
 
+include(CTest)
+
 if(CMAKE_CONFIGURATION_TYPES)
     set(
         CMAKE_CONFIGURATION_TYPES
@@ -38,6 +40,7 @@ if(MSVC)
             /WX
             /permissive-
             /Zc:__cplusplus
+            /utf-8
             $<$<CONFIG:Development>:/O2>
             $<$<CONFIG:Development>:/Zi>
     )
@@ -46,5 +49,16 @@ if(MSVC)
         CueBuildProbe
         PRIVATE
             $<$<CONFIG:Development>:/DEBUG>
+    )
+endif()
+
+if(BUILD_TESTING)
+    add_test(NAME CueBuildProbe.Smoke COMMAND CueBuildProbe)
+
+    set_tests_properties(
+        CueBuildProbe.Smoke
+        PROPERTIES
+            LABELS Smoke
+            TIMEOUT 10
     )
 endif()

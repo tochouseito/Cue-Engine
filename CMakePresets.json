@@ -34,5 +34,34 @@
             "configurePreset": "windows-vs2026",
             "configuration": "Release"
         }
+    ],
+    "testPresets": [
+        {
+            "name": "windows-vs2026-debug",
+            "displayName": "Windows x64 Debug Tests",
+            "configurePreset": "windows-vs2026",
+            "configuration": "Debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-vs2026-development",
+            "displayName": "Windows x64 Development Tests",
+            "configurePreset": "windows-vs2026",
+            "configuration": "Development",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-vs2026-release",
+            "displayName": "Windows x64 Release Tests",
+            "configurePreset": "windows-vs2026",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
     ]
 }

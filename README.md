@@ -41,7 +41,19 @@ out/build/windows-vs2026/bin/Release/CueBuildProbe.exe
 ```
 
 `Development` は最適化とデバッグ情報を有効にし、`NDEBUG` を定義しません。
-CTest は後続の M00 Issue で追加します。
+First-party MSVC Target は `/utf-8` を使用し、Source と Execution Character Set を UTF-8 に固定します。
+
+## Test
+
+各構成を Build した後、対応する CTest Preset を実行します。
+
+```powershell
+ctest --preset windows-vs2026-debug
+ctest --preset windows-vs2026-development
+ctest --preset windows-vs2026-release
+```
+
+現在は `CueBuildProbe.Smoke` が最小 Target の起動と正常終了を検証します。
 
 ## Project Policy
 
