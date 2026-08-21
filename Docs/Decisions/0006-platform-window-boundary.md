@@ -154,7 +154,8 @@ Created --show()--> Visible
 ### Thread Affinity
 
 - `WindowSystem`の作成ThreadをWindow Threadとする
-- Window生成、表示、破棄、Message Pump、Event取得、Native View取得はWindow Thread限定とする
+- Window生成、表示、破棄、Message Pump、`try_pop_event()`、`state()`、`client_size()`、Native View取得はWindow Thread限定とする
+- M02ではWindow状態とClient SizeのCross-thread参照を許可せず、同期Primitiveを公開契約へ追加しない
 - Windows実装は作成時のThread IDを保持し、Thread違反をProgrammer ErrorとしてAssertで検出する
 - Thread違反を`Result`のRecoverable Errorへ変換しない。ADR-0005に従い、Debug／DevelopmentではAssert後に終了し、ReleaseではThread前提違反の呼出自体を契約外とする
 - Window ProcedureはWindow Thread上で同期実行され、Event Queueへ値を追加する
@@ -383,10 +384,11 @@ RuntimeHost        WindowSystem          WindowsWindow          Win32
 生成失敗:
 
 ```text
-Validate -> Convert -> Register Class -> CreateWindowExW fails
-                                      -> release class reference
-                                      -> unregister if last reference
-                                      -> Result Error with NativeError
+Validate -> Convert -> Calculate Window Rectangle -> Register Class
+                                                    -> CreateWindowExW fails
+                                                    -> release class reference
+                                                    -> unregister if last reference
+                                                    -> Result Error with NativeError
 
 CreateWindowExW succeeds -> later setup fails -> keep rollback state
                                              -> DestroyWindow / WM_DESTROY
