@@ -252,7 +252,7 @@ function(cue_verify_platform_forced_include_options targetName)
             string(TOLOWER "${compileOption}" compileOptionLower)
 
             if(
-                compileOptionLower MATCHES "(^|[:>; \\t])/(fi)"
+                compileOptionLower MATCHES "(^|[:>; \\t])[-/]fi"
                 OR compileOptionLower MATCHES "(^|[:>; \\t])-(include|imacros)($|[=,;:<> \\t])"
             )
                 message(
@@ -290,7 +290,7 @@ function(cue_verify_platform_forced_include_options targetName)
                 string(TOLOWER "${sourceOption}" sourceOptionLower)
 
                 if(
-                    sourceOptionLower MATCHES "(^|[:>; \\t])/(fi)"
+                    sourceOptionLower MATCHES "(^|[:>; \\t])[-/]fi"
                     OR sourceOptionLower MATCHES "(^|[:>; \\t])-(include|imacros)($|[=,;:<> \\t])"
                 )
                     message(
