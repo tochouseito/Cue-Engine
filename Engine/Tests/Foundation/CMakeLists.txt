@@ -181,6 +181,91 @@ endforeach()
 
 get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
 
+get_target_property(cueFoundationIncludeDirectories Cue.Foundation INCLUDE_DIRECTORIES)
+get_target_property(
+    cueFoundationInterfaceIncludeDirectories
+    Cue.Foundation
+    INTERFACE_INCLUDE_DIRECTORIES
+)
+set(
+    cueFoundationAllIncludeDirectories
+    ${cueFoundationIncludeDirectories}
+    ${cueFoundationInterfaceIncludeDirectories}
+)
+set(cueFoundationResolvedIncludeDirectories "")
+
+foreach(cueFoundationIncludeDirectory IN LISTS cueFoundationAllIncludeDirectories)
+    string(
+        REGEX REPLACE
+        "^\\$<BUILD_INTERFACE:([^>]+)>$"
+        "\\1"
+        cueFoundationResolvedIncludeDirectory
+        "${cueFoundationIncludeDirectory}"
+    )
+
+    if(cueFoundationResolvedIncludeDirectory MATCHES "\\$<")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation include directories must not use unsupported generator expressions: ${cueFoundationIncludeDirectory}"
+        )
+    endif()
+
+    get_filename_component(
+        cueFoundationResolvedIncludeDirectory
+        "${cueFoundationResolvedIncludeDirectory}"
+        ABSOLUTE
+        BASE_DIR "${cueFoundationSourceDirectory}"
+    )
+
+    if(NOT IS_DIRECTORY "${cueFoundationResolvedIncludeDirectory}")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation include directory does not exist: ${cueFoundationResolvedIncludeDirectory}"
+        )
+    endif()
+
+    file(
+        REAL_PATH
+        "${cueFoundationResolvedIncludeDirectory}"
+        cueFoundationResolvedIncludeDirectory
+    )
+    file(
+        RELATIVE_PATH
+        cueFoundationRelativeIncludeDirectory
+        "${cueFoundationSourceDirectory}"
+        "${cueFoundationResolvedIncludeDirectory}"
+    )
+
+    if(cueFoundationRelativeIncludeDirectory MATCHES "^\\.\\.(/|$)")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation include directory escapes its module boundary: ${cueFoundationIncludeDirectory}"
+        )
+    endif()
+
+    list(
+        APPEND
+        cueFoundationResolvedIncludeDirectories
+        "${cueFoundationResolvedIncludeDirectory}"
+    )
+endforeach()
+
+list(REMOVE_DUPLICATES cueFoundationResolvedIncludeDirectories)
+string(
+    REPLACE ";" "\n"
+    cueFoundationIncludeDirectoryListContent
+    "${cueFoundationResolvedIncludeDirectories}"
+)
+set(
+    cueFoundationIncludeDirectoryList
+    "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.IncludeDirectories.txt"
+)
+file(
+    GENERATE
+    OUTPUT "${cueFoundationIncludeDirectoryList}"
+    CONTENT "${cueFoundationIncludeDirectoryListContent}\n"
+)
+
 set(
     cueFoundationAllowedGlobalCompileFlags
     /DWIN32
@@ -429,6 +514,8 @@ set(cueFoundationHeaderSetGeneratorExpressionsDisplay "<none>")
 set(cueFoundationExternalHeaderSetFilesDisplay "<none>")
 set(cueFoundationHeaderSetContentScanDisplay "all files")
 set(cueFoundationTargetSourceContentScanDisplay "all files")
+set(cueFoundationProjectIncludeDirectoriesDisplay "Foundation only")
+set(cueFoundationProjectHeaderTraversalDisplay "recursive; Foundation only")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")
@@ -544,6 +631,7 @@ add_test(
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -DFOUNDATION_HEADER_SET_FILE_LIST=${cueFoundationHeaderSetFileList}
         -DFOUNDATION_TARGET_SOURCE_FILE_LIST=${cueFoundationTargetSourceFileList}
+        -DFOUNDATION_INCLUDE_DIRECTORY_LIST=${cueFoundationIncludeDirectoryList}
         "-DDUMPBIN_EXECUTABLE=${cueFoundationDumpbin}"
         "-DFOUNDATION_LIBRARY=$<TARGET_FILE:Cue.Foundation>"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake

@@ -42,6 +42,13 @@ if(
     message(FATAL_ERROR "Cue.Foundation Target Source file list is not available")
 endif()
 
+if(
+    NOT DEFINED FOUNDATION_INCLUDE_DIRECTORY_LIST
+    OR NOT EXISTS "${FOUNDATION_INCLUDE_DIRECTORY_LIST}"
+)
+    message(FATAL_ERROR "Cue.Foundation include directory list is not available")
+endif()
+
 execute_process(
     COMMAND
         "${CMAKE_COMMAND}"
@@ -109,6 +116,8 @@ foreach(
         "EXTERNAL_HEADER_SET_FILES: <none>"
         "HEADER_SET_CONTENT_SCAN: all files"
         "TARGET_SOURCE_CONTENT_SCAN: all files"
+        "PROJECT_INCLUDE_DIRECTORIES: Foundation only"
+        "PROJECT_HEADER_TRAVERSAL: recursive; Foundation only"
         "TARGET_OBJECT_SOURCES: <none>"
         "TARGET_GRAPH_OUTGOING_EDGES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
@@ -134,6 +143,7 @@ file(
 )
 file(STRINGS "${FOUNDATION_HEADER_SET_FILE_LIST}" foundationHeaderSetFiles)
 file(STRINGS "${FOUNDATION_TARGET_SOURCE_FILE_LIST}" foundationTargetSourceFiles)
+file(STRINGS "${FOUNDATION_INCLUDE_DIRECTORY_LIST}" foundationIncludeDirectories)
 list(APPEND foundationSources ${foundationHeaderSetFiles})
 list(APPEND foundationSources ${foundationTargetSourceFiles})
 list(REMOVE_DUPLICATES foundationSources)
@@ -211,7 +221,21 @@ set(
     wctype.h
 )
 
-foreach(sourceFile IN LISTS foundationSources)
+set(foundationSourceQueue ${foundationSources})
+set(foundationScannedSources "")
+
+while(foundationSourceQueue)
+    list(POP_FRONT foundationSourceQueue sourceFile)
+
+    if(sourceFile IN_LIST foundationScannedSources)
+        continue()
+    endif()
+
+    if(NOT EXISTS "${sourceFile}" OR IS_DIRECTORY "${sourceFile}")
+        message(FATAL_ERROR "Foundation source file does not exist: ${sourceFile}")
+    endif()
+
+    list(APPEND foundationScannedSources "${sourceFile}")
     file(READ "${sourceFile}" sourceContents)
     string(TOLOWER "${sourceContents}" sourceContentsLower)
     string(
@@ -272,6 +296,55 @@ foreach(sourceFile IN LISTS foundationSources)
             )
         endif()
 
+        get_filename_component(sourceDirectory "${sourceFile}" DIRECTORY)
+        set(
+            projectHeaderSearchRoots
+            "${sourceDirectory}"
+            ${foundationIncludeDirectories}
+        )
+        set(resolvedProjectHeaders "")
+
+        foreach(projectHeaderSearchRoot IN LISTS projectHeaderSearchRoots)
+            set(
+                projectHeaderCandidate
+                "${projectHeaderSearchRoot}/${includedHeader}"
+            )
+
+            if(EXISTS "${projectHeaderCandidate}" AND NOT IS_DIRECTORY "${projectHeaderCandidate}")
+                file(REAL_PATH "${projectHeaderCandidate}" resolvedProjectHeader)
+                list(APPEND resolvedProjectHeaders "${resolvedProjectHeader}")
+            endif()
+        endforeach()
+
+        list(REMOVE_DUPLICATES resolvedProjectHeaders)
+
+        foreach(resolvedProjectHeader IN LISTS resolvedProjectHeaders)
+            file(
+                RELATIVE_PATH
+                relativeFoundationHeader
+                "${FOUNDATION_SOURCE_DIR}"
+                "${resolvedProjectHeader}"
+            )
+
+            if(relativeFoundationHeader MATCHES "^\\.\\.(/|$)")
+                file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
+                file(
+                    RELATIVE_PATH
+                    relativeProjectHeader
+                    "${REPOSITORY_ROOT}"
+                    "${resolvedProjectHeader}"
+                )
+                message(
+                    FATAL_ERROR
+                    "Foundation source includes a project header outside its module boundary: ${relativeSource}: ${includedHeader} -> ${relativeProjectHeader}"
+                )
+            endif()
+
+            if(NOT resolvedProjectHeader IN_LIST foundationScannedSources)
+                list(APPEND foundationSourceQueue "${resolvedProjectHeader}")
+            endif()
+        endforeach()
+
         foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
             if(EXISTS "${includeRoot}/${includedHeader}")
                 file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
@@ -295,7 +368,7 @@ foreach(sourceFile IN LISTS foundationSources)
             endif()
         endif()
     endforeach()
-endforeach()
+endwhile()
 
 execute_process(
     COMMAND "${DUMPBIN_EXECUTABLE}" /nologo /directives "${FOUNDATION_LIBRARY}"
