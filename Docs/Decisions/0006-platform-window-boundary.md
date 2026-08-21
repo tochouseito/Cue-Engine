@@ -48,13 +48,13 @@ M02では、Renderingより先にRuntimeHostから利用できる最小Window Li
 
 `Cue.Platform`はPlatform非依存のWindow契約とEvent値を所有し、`Cue.Platform.Windows`はその契約を実装する。RuntimeHostはWindow SystemとWindowを一意所有し、作成Thread上でMessage PumpとLifecycle操作を実行する。
 
-Native Handleは通常のWindow操作APIから分離した`NativeWindowView`として取得する。Viewは非所有で、取得直後のInterop呼出中だけ有効とし、保存を禁止する。
+Native Handleは通常のWindow操作APIから分離した`NativeWindowView`として取得する。Viewは非所有で、取得直後のWindows固有操作中だけ有効とし、保存を禁止する。RHI連携へこの型を転用することは禁止し、PlatformとRHIの双方が依存できるInterop境界は後続RHI Research Issueで決定する。
 
 ### Validation
 
 - Create、Show、Resize、Minimize、Restore、Close、DestroyのSequenceをReviewする
 - RuntimeHostがWin32型をIncludeせずLifecycleを完結できることをAPI Sketchで確認する
-- 将来のRHI BackendがWindow Ownerにならず、借用Viewだけを受け取れることを確認する
+- 将来のRHI BackendがWindow Ownerにならず、`Cue.Platform.Windows`の型も直接受け取らないことを確認する
 - 後続Issue #37から#40の配置、依存、Test境界をこのADRから判断できることを確認する
 
 ## Reference Engine Comparison
@@ -114,14 +114,17 @@ Engine/Source/Platform/
 ### Ownership and Lifetime
 
 - RuntimeHostは`WindowSystem`を`std::unique_ptr`で一意所有する
+- RuntimeHostは`EmergencyHandler`を所有し、非所有参照をWindows実装Factoryへ注入する
 - `WindowSystem`はWin32 Window Class登録とWindow実装の生成を管理する
+- `WindowSystem`は注入された`EmergencyHandler`の非所有参照を保持し、Error生成とAllocation失敗のEmergency経路に使用する
 - RuntimeHostは`Window`を`std::unique_ptr`で一意所有する
 - `Window`はNative Window Handle、Window状態、Event Queueを所有する
 - `WindowSystem`は自身から生成したすべての`Window`より長く生存する
+- `EmergencyHandler`は`WindowSystem`と、そこから生成したすべての`Window`より長く生存する
 - `Window`の破棄完了後に`WindowSystem`を破棄し、最後のWindow破棄後にWindow Classを解除する
 - Window、Event、Native Viewは共有所有しない
 - Destructionは例外を送出しない。明示的な`destroy()`で失敗を返せる操作を完了し、Destructorは正しいThread上で残存ResourceをBest-effort Cleanupする
-- RuntimeHostは通常経路と初期化途中の失敗経路の両方で、Window、WindowSystemの逆順に破棄する
+- RuntimeHostは通常経路と初期化途中の失敗経路の両方で、Window、WindowSystem、EmergencyHandlerの順に破棄する
 
 ### Lifecycle State
 
@@ -152,7 +155,7 @@ Created --show()--> Visible
 - `WindowSystem`の作成ThreadをWindow Threadとする
 - Window生成、表示、破棄、Message Pump、Event取得、Native View取得はWindow Thread限定とする
 - Windows実装は作成時のThread IDを保持し、Thread違反をProgrammer ErrorとしてAssertで検出する
-- ReleaseでAssertが無効でも、`Result`を返す操作はNative Resourceを誤ったThreadから操作せずErrorを返す。状態参照とEvent取得はNative APIへ触れず、安全な既定値または`false`を返す
+- Thread違反を`Result`のRecoverable Errorへ変換しない。ADR-0005に従い、Debug／DevelopmentではAssert後に終了し、ReleaseではThread前提違反の呼出自体を契約外とする
 - Window ProcedureはWindow Thread上で同期実行され、Event Queueへ値を追加する
 - M02では他ThreadからWindow ThreadへCommandを投稿するAPIを追加しない
 - Callbackを公開せずOwner-local Event Queueを採用するため、Callback Lifetimeと再入規則はM02の公開契約へ持ち込まない
@@ -249,11 +252,14 @@ public:
 - Viewは取得直後のInterop呼出中だけ有効で、保存、破棄、Close、Subclass化に使用しない
 - Viewの有効期間は元Windowの`destroy()`開始までとする
 - Viewを取得できるのはWindow Thread上の`Created`、`Visible`、`CloseRequested`状態だけとする
-- RuntimeHostは将来のRHI Composition時にViewを取得してBackend Factoryへ直ちに渡す
+- `NativeWindowView`はWindows固有の診断、Test、Platform Adapterに限定し、`Cue.RHI`または`Cue.RHI.D3D12`へ渡さない
+- RuntimeHostもViewまたは`value()`をRHI Backend Factoryへ転送しない
+- `Cue.RHI`と`Cue.RHI.D3D12`は`WindowsWindowInterop.h`をIncludeせず、`Cue.Platform.Windows`へLinkしない
+- PlatformとRHIの双方に依存できるAdapter TargetまたはPlatform非依存Surface契約は、M03以降のRHI Research Issueで決定する。Accepted ADRができるまでD3D12 Swap Chain連携を実装しない
 - RHIとD3D12 BackendはWindow Ownerにならず、Native Handleを永続的なWindow同一性として扱わない
 - `HWND`、`HINSTANCE`、`LRESULT`はPlatform非依存Header、RuntimeHost、RHI公開Headerへ出さない
 
-このInterop形状はM02でWindows Testが実WindowへResize／Minimize／Restore操作を行うためにも使用できるが、Test専用APIではない。D3D12 Swap Chainとの最終契約はM03以降のRHI Research Issueで再確認する。
+このInterop形状はM02でWindows Testが実WindowへResize／Minimize／Restore操作を行うためにも使用できるが、Test専用APIではない。Windows固有Toolや診断Adapterも同じ短命Viewを利用できる。D3D12 Swap Chainとの契約には使用せず、最終Interop境界をM03以降のRHI Research Issueで新規に決定する。
 
 ### Failure and Cleanup
 
@@ -270,6 +276,7 @@ Validate Descriptor
 ```
 
 - Descriptor検証またはUTF変換失敗ではNative状態を変更しない
+- Windows実装Factory、`WindowSystem`、`Window`は注入された`EmergencyHandler`へ到達できる非所有参照を保持し、`noexcept`境界内のAllocation失敗では追加Allocationなしに`terminate()`を呼ぶ
 - Window Class登録失敗ではNative Error付きResultを返す
 - Window Size計算またはWindow生成失敗では、今回取得したWindow Class参照を解放する
 - `CreateWindowExW`中にWindow ProcedureへOwnerを関連付け、失敗時にDangling Pointerを残さない
@@ -344,9 +351,11 @@ Windows実装Factoryは`Cue/Platform/Windows/WindowsPlatform.h`へ置く。
 namespace cue
 {
 [[nodiscard]] Result<std::unique_ptr<WindowSystem>>
-create_windows_window_system() noexcept;
+create_windows_window_system(EmergencyHandler& a_emergencyHandler) noexcept;
 }
 ```
+
+`a_emergencyHandler`のOwnerは、返された`WindowSystem`とそこから生成した全Windowより長く生存させる。
 
 ### Lifecycle Sequences
 
@@ -392,7 +401,7 @@ WM_SIZE(restored) -> GetClientRect -> Restored(nonzero latest client size)
 - Close RequestとResource破棄を分離し、上位層が終了判断できる
 - Window、Window Class、Native Handleの所有権と破棄順序をTestできる
 - Event QueueによりCallback再入とCross-thread LifetimeをM02から排除できる
-- 将来のRHI連携は明示的で短命なInterop Viewへ限定できる
+- Windows固有Interopを短命なViewへ限定し、RHI連携の未決定境界を誤って固定しない
 
 ### Negative
 
@@ -426,3 +435,4 @@ WM_SIZE(restored) -> GetClientRect -> Restored(nonzero latest client size)
 - Issue #38でWin32 Windowの生成、表示、破棄を実装する
 - Issue #39でMessage PumpとWindow Event変換を実装する
 - Issue #40でRuntimeHost LifecycleとM02 Completion Gateを追加する
+- M03以降のRHI Research IssueでPlatformとRHIの双方が利用できるSwap Chain Interop境界を決定する
