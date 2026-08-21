@@ -230,6 +230,15 @@ add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest
 add_test(NAME Cue.Foundation.Logger COMMAND CueFoundationLoggerTests)
 add_test(NAME Cue.Foundation.Assert.Success COMMAND CueFoundationAssertTests Success)
 
+get_filename_component(cueFoundationToolDirectory "${CMAKE_LINKER}" DIRECTORY)
+find_program(
+    cueFoundationDumpbin
+    NAMES dumpbin.exe
+    HINTS "${cueFoundationToolDirectory}"
+    NO_DEFAULT_PATH
+    REQUIRED
+)
+
 add_test(
     NAME Cue.Foundation.Dependencies
     COMMAND
@@ -240,6 +249,8 @@ add_test(
         -DBUILD_DIR=${CMAKE_BINARY_DIR}
         -DTARGET_GRAPH_FILE=${CMAKE_BINARY_DIR}/CueEngine.TargetGraph.dot
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
+        "-DDUMPBIN_EXECUTABLE=${cueFoundationDumpbin}"
+        "-DFOUNDATION_LIBRARY=$<TARGET_FILE:Cue.Foundation>"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake
 )
 

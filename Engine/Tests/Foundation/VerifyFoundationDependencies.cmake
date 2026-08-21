@@ -20,6 +20,14 @@ if(NOT DEFINED TARGET_GRAPH_FILE OR "${TARGET_GRAPH_FILE}" STREQUAL "")
     message(FATAL_ERROR "Target graph output path is not available")
 endif()
 
+if(NOT DEFINED DUMPBIN_EXECUTABLE OR NOT EXISTS "${DUMPBIN_EXECUTABLE}")
+    message(FATAL_ERROR "dumpbin executable is not available")
+endif()
+
+if(NOT DEFINED FOUNDATION_LIBRARY OR NOT EXISTS "${FOUNDATION_LIBRARY}")
+    message(FATAL_ERROR "Cue.Foundation library is not available")
+endif()
+
 execute_process(
     COMMAND
         "${CMAKE_COMMAND}"
@@ -231,7 +239,69 @@ foreach(sourceFile IN LISTS foundationSources)
     endforeach()
 endforeach()
 
+execute_process(
+    COMMAND "${DUMPBIN_EXECUTABLE}" /nologo /directives "${FOUNDATION_LIBRARY}"
+    RESULT_VARIABLE dumpbinResult
+    OUTPUT_VARIABLE dumpbinOutput
+    ERROR_VARIABLE dumpbinError
+)
+
+if(NOT dumpbinResult EQUAL 0)
+    message(FATAL_ERROR "Cue.Foundation directive inspection failed: ${dumpbinError}")
+endif()
+
+set(
+    allowedDefaultLibraries
+    libcmt
+    libcmtd
+    libcpmt
+    libcpmtd
+    msvcrt
+    msvcrtd
+    msvcprt
+    msvcprtd
+    oldnames
+    ucrt
+    ucrtd
+    vcruntime
+    vcruntimed
+    legacy_stdio_definitions
+    legacy_stdio_wide_specifiers
+)
+
+string(REPLACE "\r\n" "\n" dumpbinOutput "${dumpbinOutput}")
+string(REPLACE "\r" "\n" dumpbinOutput "${dumpbinOutput}")
+string(REPLACE "\n" ";" dumpbinLines "${dumpbinOutput}")
+
+foreach(dumpbinLine IN LISTS dumpbinLines)
+    string(STRIP "${dumpbinLine}" linkerDirective)
+    string(TOLOWER "${linkerDirective}" linkerDirectiveLower)
+
+    if(linkerDirectiveLower MATCHES "^/defaultlib:")
+        string(REGEX REPLACE "^/defaultlib:[\"]?" "" defaultLibrary "${linkerDirectiveLower}")
+        string(REGEX REPLACE "[\"]?$" "" defaultLibrary "${defaultLibrary}")
+        string(REGEX REPLACE "\\.lib$" "" defaultLibrary "${defaultLibrary}")
+        list(FIND allowedDefaultLibraries "${defaultLibrary}" allowedLibraryIndex)
+
+        if(allowedLibraryIndex EQUAL -1)
+            message(
+                FATAL_ERROR
+                "Cue.Foundation object contains a non-runtime default library directive: ${linkerDirective}"
+            )
+        endif()
+    elseif(
+        linkerDirectiveLower MATCHES "^/"
+        AND NOT linkerDirectiveLower MATCHES "^/failifmismatch:|^/alternatename:"
+    )
+        message(
+            FATAL_ERROR
+            "Cue.Foundation object contains an unapproved linker directive: ${linkerDirective}"
+        )
+    endif()
+endforeach()
+
 message(STATUS "Foundation dependency report: ${REPORT_FILE}")
 message(STATUS "Cue.Foundation generated target graph outgoing edges: <none>")
 message(STATUS "Foundation Windows SDK and UCRT platform header resolution: passed")
 message(STATUS "Foundation implicit MSVC linker directive scan: passed")
+message(STATUS "Cue.Foundation object linker directive inspection: passed")
