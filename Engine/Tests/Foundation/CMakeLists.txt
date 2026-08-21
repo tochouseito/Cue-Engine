@@ -105,6 +105,62 @@ elseif(NOT "${cueFoundationInterfaceSources}" STREQUAL "")
     )
 endif()
 
+get_target_property(cueFoundationPrecompileHeaders Cue.Foundation PRECOMPILE_HEADERS)
+
+if(cueFoundationPrecompileHeaders MATCHES "-NOTFOUND$")
+    set(cueFoundationPrecompileHeaders "")
+elseif(NOT "${cueFoundationPrecompileHeaders}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not use precompiled headers: ${cueFoundationPrecompileHeaders}"
+    )
+endif()
+
+get_target_property(
+    cueFoundationInterfacePrecompileHeaders
+    Cue.Foundation
+    INTERFACE_PRECOMPILE_HEADERS
+)
+
+if(cueFoundationInterfacePrecompileHeaders MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfacePrecompileHeaders "")
+elseif(NOT "${cueFoundationInterfacePrecompileHeaders}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not expose precompiled headers: ${cueFoundationInterfacePrecompileHeaders}"
+    )
+endif()
+
+get_target_property(
+    cueFoundationInterfaceCompileOptions
+    Cue.Foundation
+    INTERFACE_COMPILE_OPTIONS
+)
+
+if(cueFoundationInterfaceCompileOptions MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfaceCompileOptions "")
+elseif(NOT "${cueFoundationInterfaceCompileOptions}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not expose compile options: ${cueFoundationInterfaceCompileOptions}"
+    )
+endif()
+
+get_target_property(cueFoundationCompileOptions Cue.Foundation COMPILE_OPTIONS)
+
+if(cueFoundationCompileOptions MATCHES "-NOTFOUND$")
+    set(cueFoundationCompileOptions "")
+endif()
+
+string(TOLOWER "${cueFoundationCompileOptions}" cueFoundationCompileOptionsLower)
+
+if(cueFoundationCompileOptionsLower MATCHES "(^|[;>:])/fi|(^|[;>:])-include")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not force-include headers through compile options: ${cueFoundationCompileOptions}"
+    )
+endif()
+
 get_target_property(cueFoundationSources Cue.Foundation SOURCES)
 string(TOLOWER "${cueFoundationSources}" cueFoundationSourcesLower)
 
@@ -136,6 +192,10 @@ set(cueFoundationManualDependenciesDisplay "<none>")
 set(cueFoundationInterfaceLinkOptionsDisplay "<none>")
 set(cueFoundationInterfaceDirectLinksDisplay "<none>")
 set(cueFoundationInterfaceSourcesDisplay "<none>")
+set(cueFoundationPrecompileHeadersDisplay "<none>")
+set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
+set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
+set(cueFoundationForcedIncludeOptionsDisplay "<none>")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")

@@ -5,6 +5,10 @@ MANUALLY_ADDED_DEPENDENCIES: @cueFoundationManualDependenciesDisplay@
 INTERFACE_LINK_OPTIONS: @cueFoundationInterfaceLinkOptionsDisplay@
 INTERFACE_LINK_LIBRARIES_DIRECT: @cueFoundationInterfaceDirectLinksDisplay@
 INTERFACE_SOURCES: @cueFoundationInterfaceSourcesDisplay@
+PRECOMPILE_HEADERS: @cueFoundationPrecompileHeadersDisplay@
+INTERFACE_PRECOMPILE_HEADERS: @cueFoundationInterfacePrecompileHeadersDisplay@
+INTERFACE_COMPILE_OPTIONS: @cueFoundationInterfaceCompileOptionsDisplay@
+FORCED_INCLUDE_OPTIONS: @cueFoundationForcedIncludeOptionsDisplay@
 TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
 LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
 TARGET_GRAPH_OUTGOING_EDGES: <none>
