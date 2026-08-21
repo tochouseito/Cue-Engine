@@ -16,13 +16,17 @@
 | [#57 Engine Source配置](https://github.com/tochouseito/CueEngine/issues/57) | [#58](https://github.com/tochouseito/CueEngine/pull/58) | Engine所有Sourceを`Engine/Source`へ集約 |
 | [#28 Windows CI](https://github.com/tochouseito/CueEngine/issues/28) | [#59](https://github.com/tochouseito/CueEngine/pull/59) | Debug、Development、ReleaseのWindows CIを整備 |
 | [#29 GitHub Template](https://github.com/tochouseito/CueEngine/issues/29) | [#60](https://github.com/tochouseito/CueEngine/pull/60) | IssueとPull RequestのTemplateを整備 |
-| [#30 M00完了Gate](https://github.com/tochouseito/CueEngine/issues/30) | Completion Pull Request | Clean Checkout再現性と完了Gateを検証 |
+| [#30 M00完了Gate](https://github.com/tochouseito/CueEngine/issues/30) | [#61](https://github.com/tochouseito/CueEngine/pull/61) | Clean Checkout再現性と完了Gateを検証 |
 
 GitHubの既定Branchは`Rebuild`です。Issue Templateとして`Bug Report`、`Implementation`、`Research`、Pull Request Templateとして`.github/pull_request_template.md`がGitHubに認識されていることを確認しました。
 
 ## Clean Checkout Validation
 
-GitHubから既定Branchを新規Cloneし、Repository外の隔離DirectoryでREADMEの手順を実行しました。検証開始時のCommitは`196363de3a788976daf6bfe400cbfe4741090195`です。
+GitHubからRepository外の隔離Directoryへ新規Cloneし、READMEのConfigure、Build、Test手順を実行しました。
+
+- 既定BranchのCloneでは、`Rebuild`がCheckoutされることをCommit `196363de3a788976daf6bfe400cbfe4741090195`で確認しました。
+- 追加後のREADMEを含むPull Request Commit `e66d7c2eb7db8cb03682921cab206f07946d2db1`は、`feature/Engine/M00/30-foundation-completion-gate`を新規Cloneして同じ手順を再検証しました。
+- 再検証後の追補はこの証跡文書だけを変更し、README、CMake、Build、Test設定は変更していません。
 
 ### Environment
 
@@ -59,7 +63,8 @@ git diff --check
 
 ### Results
 
-- Clone直後のBranchは`Rebuild`でした。
+- 既定BranchをCloneしたときのBranchは`Rebuild`でした。
+- 追加後のREADMEを含むPull Request Commitを新規Cloneして再検証しました。
 - CMake Configureは成功しました。
 - Debug、Development、ReleaseのBuildはすべて成功しました。
 - 各構成のCTestは`1/1`成功しました。
@@ -70,7 +75,7 @@ git diff --check
 
 ## GitHub Actions Evidence
 
-`Rebuild`へのPushで実行された[Windows Build and Test run 32475812037](https://github.com/tochouseito/CueEngine/actions/runs/32475812037)で、Debug、Development、Releaseの全Jobが成功しました。
+Pull Request #61で実行された[Windows Build and Test run 32477101743](https://github.com/tochouseito/CueEngine/actions/runs/32477101743)で、Debug、Development、Releaseの全Jobが成功しました。`Rebuild`への直近Pushでも[run 32475812037](https://github.com/tochouseito/CueEngine/actions/runs/32475812037)が成功しています。
 
 GitHub Actions環境の記録は次のとおりです。
 
