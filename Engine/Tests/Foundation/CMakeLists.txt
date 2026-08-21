@@ -154,7 +154,7 @@ endif()
 
 string(TOLOWER "${cueFoundationCompileOptions}" cueFoundationCompileOptionsLower)
 
-if(cueFoundationCompileOptionsLower MATCHES "(^|[;>:,])/fi|(^|[;>:,])-include")
+if(cueFoundationCompileOptionsLower MATCHES "(^|[;>:, \t])/fi|(^|[;>:, \t])-include")
     message(
         FATAL_ERROR
         "Cue.Foundation must not force-include headers through compile options: ${cueFoundationCompileOptions}"
