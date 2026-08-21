@@ -154,6 +154,12 @@ configure_file(
     @ONLY
 )
 
+configure_file(
+    CMakeGraphVizOptions.cmake
+    "${CMAKE_BINARY_DIR}/CMakeGraphVizOptions.cmake"
+    COPYONLY
+)
+
 add_executable(
     CueFoundationPublicHeaderTest
     AssertHeaderCompile.cpp
