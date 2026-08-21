@@ -242,6 +242,8 @@ while(foundationSourceQueue)
 
     list(APPEND foundationScannedSources "${sourceFile}")
     file(READ "${sourceFile}" sourceContents)
+    string(REPLACE "\\\r\n" "" sourceContents "${sourceContents}")
+    string(REPLACE "\\\n" "" sourceContents "${sourceContents}")
     string(TOLOWER "${sourceContents}" sourceContentsLower)
     string(
         REGEX MATCH
