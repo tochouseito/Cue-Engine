@@ -179,6 +179,49 @@ foreach(cueFoundationCompileOption IN LISTS cueFoundationCompileOptions)
     endif()
 endforeach()
 
+set(
+    cueFoundationAllowedGlobalCompileFlags
+    /DWIN32
+    /D_WINDOWS
+    /EHsc
+    /Ob0
+    /Od
+    /O2
+    /Ob2
+    /DNDEBUG
+)
+set(cueFoundationGlobalCompileFlags "${CMAKE_CXX_FLAGS}")
+
+foreach(cueFoundationConfiguration IN ITEMS DEBUG DEVELOPMENT RELEASE)
+    string(
+        APPEND
+        cueFoundationGlobalCompileFlags
+        " ${CMAKE_CXX_FLAGS_${cueFoundationConfiguration}}"
+    )
+endforeach()
+
+separate_arguments(
+    cueFoundationGlobalCompileFlagList
+    WINDOWS_COMMAND
+    "${cueFoundationGlobalCompileFlags}"
+)
+
+foreach(cueFoundationGlobalCompileFlag IN LISTS cueFoundationGlobalCompileFlagList)
+    list(
+        FIND
+        cueFoundationAllowedGlobalCompileFlags
+        "${cueFoundationGlobalCompileFlag}"
+        cueFoundationGlobalCompileFlagIndex
+    )
+
+    if(cueFoundationGlobalCompileFlagIndex EQUAL -1)
+        message(
+            FATAL_ERROR
+            "Cue.Foundation inherits an unapproved global C++ flag: ${cueFoundationGlobalCompileFlag}"
+        )
+    endif()
+endforeach()
+
 get_target_property(cueFoundationCompileFlags Cue.Foundation COMPILE_FLAGS)
 
 if(cueFoundationCompileFlags MATCHES "-NOTFOUND$")
@@ -368,6 +411,7 @@ set(cueFoundationPrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
 set(cueFoundationForcedIncludeOptionsDisplay "<none>; private options restricted by allowlist")
+set(cueFoundationGlobalCompileFlagsDisplay "approved allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
 set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")

@@ -101,6 +101,7 @@ foreach(
         "INTERFACE_PRECOMPILE_HEADERS: <none>"
         "INTERFACE_COMPILE_OPTIONS: <none>"
         "FORCED_INCLUDE_OPTIONS: <none>; private options restricted by allowlist"
+        "GLOBAL_CXX_FLAGS: approved allowlist"
         "COMPILE_FLAGS: <none>"
         "SOURCE_COMPILE_PROPERTIES: <none>"
         "SOURCE_GENERATOR_EXPRESSIONS: <none>"
