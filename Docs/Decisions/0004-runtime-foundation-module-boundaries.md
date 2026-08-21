@@ -153,7 +153,10 @@ CueRuntimeHost
 - Platform実装は`Cue.Platform`へ、RHI Backendは`Cue.RHI`へだけ実装依存を持つ
 - RHI BackendはWindow実装やNative Window型を直接要求しない。必要な連携契約はPlatform非依存な値または後続ADRで定義する明示的なBoundaryへ置く
 - RuntimeHostはComposition Rootとして具体実装を選択できるが、具体型を他Moduleの公開APIへ渡さない
-- Editor、Tool、Game Runtimeなど将来の上位TargetはRuntimeHostまたは個別契約へ依存できるが、Foundationから上位Targetへの逆依存を作らない
+- `CueRuntimeHost`は最終Executableであり、他TargetからLinkしない
+- Editor、Tool、Game Runtimeなど将来のExecutableは、それぞれを独立したComposition Rootとし、必要な契約と実装Targetへ直接依存する
+- 複数Executableで再利用するLifecycle処理が確認された場合は、Executableへ置かず、責務を定義したStatic Libraryへ分離する
+- Foundationから上位Targetへの逆依存を作らない
 
 CMakeでは`target_link_libraries`の`PUBLIC`、`PRIVATE`を使用し、Headerに現れる依存だけを`PUBLIC`とします。依存の便宜だけを理由にTransitive Dependencyを公開しません。
 
@@ -187,7 +190,7 @@ PlatformまたはBackend固有の失敗は、その実装境界でFoundationのE
 | Foundation Value | 呼び出し側がValueとして所有 | 値自身のLifetime | Immutable操作は任意Thread。可変操作は外部同期 |
 | Factory Result | 成功時に呼び出し側へ一意所有権を移譲 | Ownerの破棄まで | FactoryごとにDoxygenへ記述 |
 | Non-owning View | 所有権を持たない | 呼び出し中だけ有効をDefaultとし、例外は明記 | 参照先のThread規則を継承 |
-| Sink／Callback | 登録側が所有し、登録先は非所有参照 | 登録解除またはOwner破棄まで | 呼出Threadと同期要件を登録APIへ記述 |
+| Sink／Callback | 登録側がCallback OwnerとRegistration Handleを所有し、登録先は非所有参照 | Registration Handleの破棄または明示解除まで。Callback Ownerより先に解除する | 呼出Threadと同期要件を登録APIへ記述 |
 | Platform Object | RuntimeHostまたは上位Ownerが一意所有 | Native Resourceより先にOwnerを破棄しない | 生成Threadを既定とし、詳細はPlatform ADRで決定 |
 | RHI Object | RuntimeHostまたはRHI Ownerが一意所有 | Parent DeviceとQueueの規則に従う | 詳細はRHI ADRで決定 |
 
@@ -196,6 +199,8 @@ PlatformまたはBackend固有の失敗は、その実装境界でFoundationのE
 - 破棄順序はOwnerの型とFactory Resultで表し、Global Shutdown順序へ依存しない
 - Thread Safeと記載しないAPIはThread Safeとみなさない
 - Callbackは呼出Thread、再入可能性、登録解除との競合を明記する
+- Callback登録はMove-onlyなRAII Registration Handleを返し、その解除完了後は登録先からCallbackが呼ばれないことを保証する
+- Callback OwnerはRegistration Handleより長く生存させる。Registration HandleはCallback Ownerの破棄前に明示解除または破棄する
 
 ### ABI Boundary
 
@@ -220,9 +225,9 @@ Module側では、利用する最小依存だけを宣言します。
 
 ```cmake
 target_link_libraries(Cue.Platform PUBLIC Cue.Foundation)
-target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform PRIVATE Cue.Foundation)
+target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform)
 target_link_libraries(Cue.RHI PUBLIC Cue.Foundation)
-target_link_libraries(Cue.RHI.D3D12 PUBLIC Cue.RHI PRIVATE Cue.Foundation)
+target_link_libraries(Cue.RHI.D3D12 PUBLIC Cue.RHI)
 
 target_link_libraries(
     CueRuntimeHost
