@@ -93,7 +93,7 @@ git diff --check
 - Debug、Development、ReleaseのBuild成功
 - 全3構成のCTestは、それぞれ`16/16`成功
 - Dependency Testは、生成Target GraphのOutgoing Edgeがないことと、Windows SDK／UCRT Platform Header解決検査の成功を出力
-- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、Custom Commandの`$<TARGET_FILE:...>`、生成SourceのCustom Target依存、`processthreadsapi.h`と`io.h`の直接Include、公開PCHの`windows.h`、非公開`/FIwindows.h`、`#pragma comment(lib, "d3d12.lib")`、`__pragma(comment(lib, "d3d12.lib"))`、`__pragma(comment(linker, "-defaultlib:d3d12.lib"))`がそれぞれGateを失敗させることを確認
+- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、Custom Commandの`$<TARGET_FILE:...>`、生成SourceのCustom Target依存、`processthreadsapi.h`と`io.h`の直接Include、公開PCHの`windows.h`、非公開`/FIwindows.h`、条件Generator Expression内の`/FIwindows.h`、`#pragma comment(lib, "d3d12.lib")`、`__pragma(comment(lib, "d3d12.lib"))`、`__pragma(comment(linker, "-defaultlib:d3d12.lib"))`がそれぞれGateを失敗させることを確認
 - `git diff --check`成功
 
 ## Clean Checkout Validation
