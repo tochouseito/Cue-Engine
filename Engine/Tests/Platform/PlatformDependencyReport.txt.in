@@ -2,5 +2,13 @@ Cue.Platform LINK_LIBRARIES: @cuePlatformLinks@
 Cue.Platform INTERFACE_LINK_LIBRARIES: @cuePlatformInterfaceLinks@
 Cue.Platform.Windows LINK_LIBRARIES: @cuePlatformWindowsLinks@
 Cue.Platform.Windows INTERFACE_LINK_LIBRARIES: @cuePlatformWindowsInterfaceLinks@
+Cue.Platform MANUALLY_ADDED_DEPENDENCIES: <none>
+Cue.Platform INTERFACE_SOURCES: <none>
+Cue.Platform INTERFACE_LINK_LIBRARIES_DIRECT: <none>
+Cue.Platform.Windows MANUALLY_ADDED_DEPENDENCIES: <none>
+Cue.Platform.Windows INTERFACE_SOURCES: <none>
+Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>
+Generated and target object sources: <none>
+Allowed Windows PRIVATE links: User32
 Forbidden dependencies: Cue.RHI;D3D12;Editor
 Windows SDK include boundary: Windows/Private

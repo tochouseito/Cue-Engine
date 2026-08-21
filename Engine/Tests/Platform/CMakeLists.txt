@@ -54,12 +54,51 @@ endforeach()
 
 get_target_property(cuePlatformLinks Cue.Platform LINK_LIBRARIES)
 get_target_property(cuePlatformInterfaceLinks Cue.Platform INTERFACE_LINK_LIBRARIES)
+get_target_property(cuePlatformManualDependencies Cue.Platform MANUALLY_ADDED_DEPENDENCIES)
+get_target_property(cuePlatformInterfaceSources Cue.Platform INTERFACE_SOURCES)
+get_target_property(
+    cuePlatformInterfaceDirectLinks
+    Cue.Platform
+    INTERFACE_LINK_LIBRARIES_DIRECT
+)
+get_target_property(cuePlatformSources Cue.Platform SOURCES)
 get_target_property(cuePlatformWindowsLinks Cue.Platform.Windows LINK_LIBRARIES)
 get_target_property(
     cuePlatformWindowsInterfaceLinks
     Cue.Platform.Windows
     INTERFACE_LINK_LIBRARIES
 )
+get_target_property(
+    cuePlatformWindowsManualDependencies
+    Cue.Platform.Windows
+    MANUALLY_ADDED_DEPENDENCIES
+)
+get_target_property(
+    cuePlatformWindowsInterfaceSources
+    Cue.Platform.Windows
+    INTERFACE_SOURCES
+)
+get_target_property(
+    cuePlatformWindowsInterfaceDirectLinks
+    Cue.Platform.Windows
+    INTERFACE_LINK_LIBRARIES_DIRECT
+)
+get_target_property(cuePlatformWindowsSources Cue.Platform.Windows SOURCES)
+
+foreach(
+    targetProperty
+    IN ITEMS
+        cuePlatformManualDependencies
+        cuePlatformInterfaceSources
+        cuePlatformInterfaceDirectLinks
+        cuePlatformWindowsManualDependencies
+        cuePlatformWindowsInterfaceSources
+        cuePlatformWindowsInterfaceDirectLinks
+)
+    if(${targetProperty} MATCHES "-NOTFOUND$")
+        set(${targetProperty} "")
+    endif()
+endforeach()
 
 if(NOT "${cuePlatformLinks}" STREQUAL "Cue.Foundation")
     message(FATAL_ERROR "Cue.Platform must link only Cue.Foundation: ${cuePlatformLinks}")
@@ -72,19 +111,86 @@ if(NOT "${cuePlatformInterfaceLinks}" STREQUAL "Cue.Foundation")
     )
 endif()
 
-if(NOT "${cuePlatformWindowsLinks}" STREQUAL "Cue.Platform")
-    message(
-        FATAL_ERROR
-        "Cue.Platform.Windows must link only Cue.Platform: ${cuePlatformWindowsLinks}"
-    )
-endif()
-
 if(NOT "${cuePlatformWindowsInterfaceLinks}" STREQUAL "Cue.Platform")
     message(
         FATAL_ERROR
         "Cue.Platform.Windows must expose only Cue.Platform: ${cuePlatformWindowsInterfaceLinks}"
     )
 endif()
+
+set(cuePlatformWindowsAllowedLinks Cue.Platform User32)
+
+foreach(cuePlatformWindowsLink IN LISTS cuePlatformWindowsLinks)
+    list(
+        FIND
+        cuePlatformWindowsAllowedLinks
+        "${cuePlatformWindowsLink}"
+        cuePlatformWindowsLinkIndex
+    )
+
+    if(cuePlatformWindowsLinkIndex EQUAL -1)
+        message(
+            FATAL_ERROR
+            "Cue.Platform.Windows contains an unapproved link dependency: ${cuePlatformWindowsLink}"
+        )
+    endif()
+endforeach()
+
+list(FIND cuePlatformWindowsLinks Cue.Platform cuePlatformWindowsPlatformLinkIndex)
+
+if(cuePlatformWindowsPlatformLinkIndex EQUAL -1)
+    message(FATAL_ERROR "Cue.Platform.Windows must link Cue.Platform")
+endif()
+
+foreach(
+    targetProperty
+    IN ITEMS
+        cuePlatformManualDependencies
+        cuePlatformInterfaceSources
+        cuePlatformInterfaceDirectLinks
+        cuePlatformWindowsManualDependencies
+        cuePlatformWindowsInterfaceSources
+        cuePlatformWindowsInterfaceDirectLinks
+)
+    if(NOT "${${targetProperty}}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Platform targets must not expose non-link target edges: ${targetProperty}=${${targetProperty}}"
+        )
+    endif()
+endforeach()
+
+set(cuePlatformTargetNames Cue.Platform Cue.Platform.Windows)
+set(cuePlatformTargetSources cuePlatformSources cuePlatformWindowsSources)
+
+foreach(targetIndex RANGE 0 1)
+    list(GET cuePlatformTargetNames ${targetIndex} targetName)
+    list(GET cuePlatformTargetSources ${targetIndex} targetSourcesVariable)
+    set(targetSources "${${targetSourcesVariable}}")
+
+    if(targetSources MATCHES "\\$<TARGET_OBJECTS:" OR targetSources MATCHES "\\$<")
+        message(
+            FATAL_ERROR
+            "${targetName} must not consume generated target sources: ${targetSources}"
+        )
+    endif()
+
+    foreach(targetSource IN LISTS targetSources)
+        get_source_file_property(
+            isGeneratedSource
+            "${targetSource}"
+            TARGET_DIRECTORY ${targetName}
+            GENERATED
+        )
+
+        if(isGeneratedSource)
+            message(
+                FATAL_ERROR
+                "${targetName} must not consume generated sources: ${targetSource}"
+            )
+        endif()
+    endforeach()
+endforeach()
 
 set(
     cuePlatformDependencyReport
@@ -113,6 +219,7 @@ add_test(
         ${CMAKE_COMMAND}
         -DREPORT_FILE=${cuePlatformDependencyReport}
         -DPLATFORM_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Platform
+        -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyPlatformDependencies.cmake
 )
 

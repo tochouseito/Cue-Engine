@@ -8,7 +8,11 @@
 
 namespace cue
 {
-/** @brief Window 生成時の Platform 非依存 Descriptor */
+/**
+ * @brief Window 生成時の Platform 非依存 Descriptor
+ *
+ * title は create_window() 呼出中だけ有効な非所有 View とし、実装は呼出後に保持しない
+ */
 struct WindowDescriptor final
 {
     std::string_view title;
@@ -33,7 +37,14 @@ class WindowSystem
     /** @brief Window Thread 上で Owner を破棄する */
     virtual ~WindowSystem() noexcept;
 
-    /** @brief Window の一意な所有権を生成する */
+    /**
+     * @brief Window の一意な所有権を生成する
+     * @param a_descriptor 呼出中だけ借用する生成情報
+     * @return 生成した Window、または検証・Platform 処理の Error
+     *
+     * M02 は単一 Main Window だけを許可し、既存 Window がある場合は Error を返す
+     * 失敗時は Native Ownership と Window Class 参照を呼出前の状態へ戻し、再試行を許可する
+     */
     [[nodiscard]] virtual Result<std::unique_ptr<Window>> create_window(
         const WindowDescriptor &a_descriptor) noexcept = 0;
 
