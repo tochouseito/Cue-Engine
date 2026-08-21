@@ -36,7 +36,6 @@ class WindowsWindowSystem final : public WindowSystem
     HINSTANCE m_instance;
     DWORD m_threadId;
     WindowsWindow *m_window = nullptr;
-    bool m_isClassRegistered = false;
 };
 
 class WindowsWindow final : public Window

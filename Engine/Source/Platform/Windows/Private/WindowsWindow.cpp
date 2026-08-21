@@ -48,23 +48,118 @@ constexpr std::int64_t k_classUnregistrationFailed = 10;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
-[[nodiscard]] cue::Result<RECT> calculate_window_rectangle(const cue::WindowDescriptor &a_descriptor,
-                                                           const cue::AssertContext &a_context) noexcept
+class WindowClassRegistry final
+{
+  public:
+    [[nodiscard]] cue::Result<void> acquire(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
+    {
+        AcquireSRWLockExclusive(&m_lock);
+
+        if (m_referenceCount > 0)
+        {
+            CUE_ASSERT(a_context, m_instance == a_instance,
+                       "Window Class Registry can only manage one Module instance");
+            ++m_referenceCount;
+            ReleaseSRWLockExclusive(&m_lock);
+            return cue::Result<void>::success();
+        }
+
+        WNDCLASSEXW windowClass = {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.style = CS_HREDRAW | CS_VREDRAW;
+        windowClass.lpfnWndProc = cue::WindowsWindow::window_procedure;
+        windowClass.hInstance = a_instance;
+        windowClass.lpszClassName = k_windowClassName;
+
+        if (RegisterClassExW(&windowClass) == 0)
+        {
+            DWORD nativeCode = GetLastError();
+            WNDCLASSEXW existingClass = {};
+            existingClass.cbSize = sizeof(existingClass);
+            bool canAcquireExisting = nativeCode == ERROR_CLASS_ALREADY_EXISTS &&
+                                      GetClassInfoExW(a_instance, k_windowClassName, &existingClass) != FALSE &&
+                                      existingClass.lpfnWndProc == cue::WindowsWindow::window_procedure;
+
+            if (!canAcquireExisting)
+            {
+                ReleaseSRWLockExclusive(&m_lock);
+                return cue::Result<void>::failure(make_native_error(
+                    a_context, k_classRegistrationFailed, "Windows Window Class registration failed", nativeCode));
+            }
+        }
+
+        m_instance = a_instance;
+        m_referenceCount = 1;
+        ReleaseSRWLockExclusive(&m_lock);
+        return cue::Result<void>::success();
+    }
+
+    void release(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
+    {
+        AcquireSRWLockExclusive(&m_lock);
+        CUE_ASSERT(a_context, m_referenceCount > 0, "Window Class reference count must not underflow");
+        CUE_ASSERT(a_context, m_instance == a_instance,
+                   "Window Class reference must be released by its Module instance");
+        --m_referenceCount;
+
+        if (m_referenceCount > 0)
+        {
+            ReleaseSRWLockExclusive(&m_lock);
+            return;
+        }
+
+        BOOL didUnregister = UnregisterClassW(k_windowClassName, a_instance);
+        DWORD nativeCode = didUnregister != FALSE ? ERROR_SUCCESS : GetLastError();
+        m_instance = nullptr;
+        ReleaseSRWLockExclusive(&m_lock);
+
+        if (didUnregister != FALSE || nativeCode == ERROR_CLASS_DOES_NOT_EXIST)
+        {
+            return;
+        }
+
+        cue::Error error = make_native_error(a_context, k_classUnregistrationFailed,
+                                             "Windows Window Class unregistration failed", nativeCode);
+        [[maybe_unused]] cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Warning, "Windows Window Class could not be unregistered", std::move(error));
+    }
+
+  private:
+    SRWLOCK m_lock = SRWLOCK_INIT;
+    HINSTANCE m_instance = nullptr;
+    std::uint32_t m_referenceCount = 0;
+};
+
+[[nodiscard]] WindowClassRegistry &window_class_registry() noexcept
+{
+    // Win32 Window ClassはModule単位Resourceのため、Window System間で参照数を共有する
+    static WindowClassRegistry registry;
+    return registry;
+}
+
+[[nodiscard]] cue::Result<void> validate_descriptor(const cue::WindowDescriptor &a_descriptor,
+                                                    const cue::AssertContext &a_context) noexcept
 {
     if (a_descriptor.clientSize.width == 0 || a_descriptor.clientSize.height == 0 ||
         a_descriptor.title.find('\0') != std::string_view::npos)
     {
-        return cue::Result<RECT>::failure(make_error(a_context, k_invalidDescriptor, "Window descriptor is invalid"));
+        return cue::Result<void>::failure(make_error(a_context, k_invalidDescriptor, "Window descriptor is invalid"));
     }
 
     constexpr std::uint32_t k_maxSignedSize = static_cast<std::uint32_t>(std::numeric_limits<int>::max());
 
     if (a_descriptor.clientSize.width > k_maxSignedSize || a_descriptor.clientSize.height > k_maxSignedSize)
     {
-        return cue::Result<RECT>::failure(
+        return cue::Result<void>::failure(
             make_error(a_context, k_invalidDescriptor, "Window client size is out of range"));
     }
 
+    return cue::Result<void>::success();
+}
+
+[[nodiscard]] cue::Result<RECT> calculate_window_rectangle(const cue::WindowDescriptor &a_descriptor,
+                                                           const cue::AssertContext &a_context) noexcept
+{
     RECT rectangle = {0, 0, static_cast<LONG>(a_descriptor.clientSize.width),
                       static_cast<LONG>(a_descriptor.clientSize.height)};
 
@@ -105,7 +200,6 @@ WindowsWindowSystem::~WindowsWindowSystem() noexcept
     CUE_ASSERT(*m_assertContext, GetCurrentThreadId() == m_threadId,
                "Window System must be destroyed on its creation thread");
     CUE_ASSERT(*m_assertContext, m_window == nullptr, "Window System must outlive all Windows Window owners");
-    unregister_window_class();
 }
 
 Result<std::unique_ptr<Window>> WindowsWindowSystem::create_window(const WindowDescriptor &a_descriptor) noexcept
@@ -119,6 +213,13 @@ Result<std::unique_ptr<Window>> WindowsWindowSystem::create_window(const WindowD
     {
         return Result<std::unique_ptr<Window>>::failure(
             make_error(context, k_windowAlreadyExists, "Window System already has a Main Window"));
+    }
+
+    Result<void> descriptorResult = validate_descriptor(a_descriptor, context);
+
+    if (!descriptorResult)
+    {
+        return Result<std::unique_ptr<Window>>::failure(std::move(*descriptorResult.try_error()));
     }
 
     Result<std::wstring> titleResult = utf8_to_utf16(a_descriptor.title, context);
@@ -212,82 +313,12 @@ void WindowsWindowSystem::release_window(WindowsWindow &a_window) noexcept
 
 Result<void> WindowsWindowSystem::register_window_class() noexcept
 {
-    if (m_isClassRegistered)
-    {
-        WNDCLASSEXW existingClass = {};
-        existingClass.cbSize = sizeof(existingClass);
-
-        if (GetClassInfoExW(m_instance, k_windowClassName, &existingClass) != FALSE &&
-            existingClass.lpfnWndProc == WindowsWindow::window_procedure)
-        {
-            return Result<void>::success();
-        }
-
-        m_isClassRegistered = false;
-    }
-
-    WNDCLASSEXW windowClass = {};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.style = CS_HREDRAW | CS_VREDRAW;
-    windowClass.lpfnWndProc = WindowsWindow::window_procedure;
-    windowClass.hInstance = m_instance;
-    windowClass.lpszClassName = k_windowClassName;
-
-    if (RegisterClassExW(&windowClass) == 0)
-    {
-        DWORD nativeCode = GetLastError();
-
-        if (nativeCode == ERROR_CLASS_ALREADY_EXISTS)
-        {
-            WNDCLASSEXW existingClass = {};
-            existingClass.cbSize = sizeof(existingClass);
-
-            if (GetClassInfoExW(m_instance, k_windowClassName, &existingClass) != FALSE &&
-                existingClass.lpfnWndProc == WindowsWindow::window_procedure)
-            {
-                m_isClassRegistered = true;
-                return Result<void>::success();
-            }
-        }
-
-        return Result<void>::failure(make_native_error(*m_assertContext, k_classRegistrationFailed,
-                                                       "Windows Window Class registration failed", nativeCode));
-    }
-
-    m_isClassRegistered = true;
-    return Result<void>::success();
+    return window_class_registry().acquire(*m_assertContext, m_instance);
 }
 
 void WindowsWindowSystem::unregister_window_class() noexcept
 {
-    if (!m_isClassRegistered)
-    {
-        return;
-    }
-
-    if (UnregisterClassW(k_windowClassName, m_instance) != FALSE)
-    {
-        m_isClassRegistered = false;
-        return;
-    }
-
-    DWORD nativeCode = GetLastError();
-
-    if (nativeCode == ERROR_CLASS_DOES_NOT_EXIST)
-    {
-        m_isClassRegistered = false;
-        return;
-    }
-
-    if (nativeCode == ERROR_CLASS_HAS_WINDOWS)
-    {
-        return;
-    }
-
-    Error error = make_native_error(*m_assertContext, k_classUnregistrationFailed,
-                                    "Windows Window Class unregistration failed", nativeCode);
-    [[maybe_unused]] LogResult logResult = m_assertContext->logger().log(
-        LogLevel::Warning, "Windows Window Class could not be unregistered", std::move(error));
+    window_class_registry().release(*m_assertContext, m_instance);
 }
 
 WindowsWindow::WindowsWindow(WindowsWindowSystem &a_system) noexcept : m_system(&a_system)

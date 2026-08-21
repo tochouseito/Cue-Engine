@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 
+#include <barrier>
 #include <cstdlib>
 #include <iterator>
 #include <memory>
@@ -58,6 +59,15 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 
     const char invalidTitle[] = {static_cast<char>(0xc3), static_cast<char>(0x28)};
+    cue::WindowDescriptor invalidDescriptor = {std::string_view(invalidTitle, sizeof(invalidTitle)), {0, 360}};
+    cue::Result<std::unique_ptr<cue::Window>> invalidDescriptorResult = a_system.create_window(invalidDescriptor);
+
+    if (invalidDescriptorResult || invalidDescriptorResult.try_error() == nullptr ||
+        invalidDescriptorResult.try_error()->try_native_error() != nullptr)
+    {
+        return false;
+    }
+
     cue::WindowDescriptor invalidUtf8 = {std::string_view(invalidTitle, sizeof(invalidTitle)), {640, 360}};
     cue::Result<std::unique_ptr<cue::Window>> utf8Result = a_system.create_window(invalidUtf8);
 
@@ -126,6 +136,44 @@ class TestFatalHandler final : public cue::FatalHandler
     secondWindow.reset();
     secondSystem.reset();
     return is_window_class_unregistered();
+}
+
+[[nodiscard]] bool test_shared_window_class_across_threads(cue::AssertContext &a_context)
+{
+    std::barrier createBarrier(2);
+    std::barrier destroyBarrier(2);
+    bool didSucceed[2] = {};
+
+    auto runWindow = [&a_context, &createBarrier, &destroyBarrier, &didSucceed](std::size_t a_index)
+    {
+        cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(a_context);
+        createBarrier.arrive_and_wait();
+
+        if (systemResult)
+        {
+            std::unique_ptr<cue::WindowSystem> system = std::move(*systemResult.try_value());
+            cue::WindowDescriptor descriptor = {"thread system", {320, 180}};
+            cue::Result<std::unique_ptr<cue::Window>> windowResult = system->create_window(descriptor);
+            didSucceed[a_index] = windowResult.has_value();
+            destroyBarrier.arrive_and_wait();
+
+            if (windowResult)
+            {
+                std::unique_ptr<cue::Window> window = std::move(*windowResult.try_value());
+                didSucceed[a_index] = window->destroy().has_value();
+            }
+
+            return;
+        }
+
+        destroyBarrier.arrive_and_wait();
+    };
+
+    std::thread firstThread(runWindow, 0);
+    std::thread secondThread(runWindow, 1);
+    firstThread.join();
+    secondThread.join();
+    return didSucceed[0] && didSucceed[1] && is_window_class_unregistered();
 }
 
 [[nodiscard]] bool test_window_lifecycle(cue::WindowSystem &a_system)
@@ -262,18 +310,23 @@ class TestFatalHandler final : public cue::FatalHandler
         return 4;
     }
 
-    if (!test_window_lifecycle(*system))
+    if (!test_shared_window_class_across_threads(context))
     {
         return 5;
     }
 
-    if (!is_window_class_unregistered())
+    if (!test_window_lifecycle(*system))
     {
         return 6;
     }
 
+    if (!is_window_class_unregistered())
+    {
+        return 7;
+    }
+
     system.reset();
-    return is_window_class_unregistered() ? 0 : 7;
+    return is_window_class_unregistered() ? 0 : 8;
 }
 
 [[nodiscard]] int run_invalid_show()
