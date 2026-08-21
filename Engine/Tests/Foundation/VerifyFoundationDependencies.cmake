@@ -246,15 +246,21 @@ while(foundationSourceQueue)
     string(
         REGEX MATCH
         "(^|\n)[ \t]*#[ \t]*pragma[ \t]+comment[ \t]*\\("
-        implicitLinkDirective
+        preprocessorCommentDirective
+        "${sourceContentsLower}"
+    )
+    string(
+        REGEX MATCH
+        "(__pragma|_pragma)[ \t]*\\([^\r\n]*comment[ \t]*\\("
+        compilerCommentDirective
         "${sourceContentsLower}"
     )
 
-    if(implicitLinkDirective)
+    if(preprocessorCommentDirective OR compilerCommentDirective)
         file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
         message(
             FATAL_ERROR
-            "Foundation source contains an MSVC comment directive that can hide linker inputs: ${relativeSource}: ${implicitLinkDirective}"
+            "Foundation source contains a compiler comment directive that can hide linker inputs: ${relativeSource}"
         )
     endif()
 
