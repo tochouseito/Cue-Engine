@@ -166,7 +166,8 @@ Created --show()--> Visible
 - `WindowDescriptor`はUTF-8 Titleと要求Client Sizeを持つ
 - TitleはFactory呼出中だけ有効な非所有Viewとして受け取り、Windows実装が作成前にUTF-16へ変換する
 - Client Sizeは符号なし32-bitの幅と高さで表現し、0を作成要求として許可しない
-- Windows実装は`AdjustWindowRectEx`系APIで要求Client Sizeから外枠込みWindow Sizeを計算する
+- Windows実装は要求Client SizeがWin32の符号付き`LONG`／`int`で表現できることをNarrowing前に検証する。表現不能な値は`CreateWindowExW`へ渡さず、Descriptor Errorを返す
+- Windows実装は`AdjustWindowRectEx`系APIで要求Client Sizeから外枠込みWindow Sizeを計算し、非Client領域の加算をChecked Arithmeticで行う。計算結果が正の`int`範囲に収まらない場合もDescriptor Errorを返す
 - EventのResize SizeはClient Areaの幅と高さを表す
 - Minimize時の0 Sizeを通常Resizeとして通知しない
 - `SIZE_RESTORED`を受信したとき、直前がMinimizedならRestore、それ以外は通常Resizeとして扱う
@@ -276,7 +277,7 @@ Validate Descriptor
     -> Return Window
 ```
 
-- Descriptor検証またはUTF変換失敗ではNative状態を変更しない
+- Descriptor検証、Win32 Size範囲検証、外枠込みSizeのOverflow検出、またはUTF変換失敗ではWindowを生成しない。Window Class登録前に判定できる失敗ではNative状態を変更しない
 - Windows実装Factory、`WindowSystem`、`Window`は注入された`AssertContext`へ到達できる非所有参照を保持する。`noexcept`境界内のAllocation失敗では、その`FatalHandler`のEmergency Entry Pointを追加Allocationなしに呼ぶ
 - Window Class登録失敗ではNative Error付きResultを返す
 - Window Size計算またはWindow生成失敗では、今回取得したWindow Class参照を解放する
@@ -422,7 +423,7 @@ WM_SIZE(restored) -> GetClientRect -> Restored(nonzero latest client size)
 
 - `Cue.Platform`の公開Header単体Compile TestでWindows SDK非依存を検査する
 - CMake Target GraphでFoundation、Platform、Windows実装の依存方向を検査する
-- Windows Lifecycle Testで要求Client Size、生成、表示、破棄、二重破棄、失敗Cleanupを検査する
+- Windows Lifecycle Testで要求Client Size、Win32表現上限と外枠加算Overflow、生成、表示、破棄、二重破棄、失敗Cleanupを検査する
 - Event TestでClose、Resize、Minimize、Restore、Destroyedの順序と値を検査する
 - RuntimeHost Smoke Testで初期化、Message Pump、Close、Shutdownを検査する
 - Native Handleを通常Window HeaderまたはRHI公開Headerへ追加する変更は、このADRの変更としてReviewする
