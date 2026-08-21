@@ -39,13 +39,13 @@ M01では、WindowやGraphicsを実装する前に、PlatformとRenderingから�
 - Platform非依存APIへWindows型を公開しない
 - RHI APIへD3D12型を公開しない
 - FoundationはPlatform、RHI、RuntimeHostへ依存しない
-- 実装選択と所有権の組み立てを一つのComposition Rootへ限定する
+- 実装選択と所有権の組み立てを各最終ExecutableのComposition Rootへ限定する
 - 公開HeaderとPrivate実装をSource配置とCMake Usage Requirementの両方で分離する
 - Plugin ABIを先回りせず、将来の境界へSTL所有権やC++例外を公開しない
 
 ### New Design
 
-Foundationを依存Graphの最下層とし、PlatformとRHIは相互に依存しない契約Targetとします。WindowsとD3D12は個別の実装Targetに隔離し、`CueRuntimeHost`だけが必要な実装を選択して所有します。
+Foundationを依存Graphの最下層とし、PlatformとRHIは相互に依存しない契約Targetとします。WindowsとD3D12は個別の実装Targetに隔離し、各最終ExecutableのComposition Rootだけが必要な実装を選択して所有します。M01からM05では`CueRuntimeHost`がその役割を担います。
 
 ### Validation
 
@@ -190,7 +190,7 @@ PlatformまたはBackend固有の失敗は、その実装境界でFoundationのE
 | Foundation Value | 呼び出し側がValueとして所有 | 値自身のLifetime | Immutable操作は任意Thread。可変操作は外部同期 |
 | Factory Result | 成功時に呼び出し側へ一意所有権を移譲 | Ownerの破棄まで | FactoryごとにDoxygenへ記述 |
 | Non-owning View | 所有権を持たない | 呼び出し中だけ有効をDefaultとし、例外は明記 | 参照先のThread規則を継承 |
-| Sink／Callback | 登録側がCallback OwnerとRegistration Handleを所有し、登録先は非所有参照 | Registration Handleの破棄または明示解除まで。Callback Ownerより先に解除する | 呼出Threadと同期要件を登録APIへ記述 |
+| Sink／Callback | 登録側がCallback OwnerとRegistration Handleを所有し、登録先は非所有参照 | Registration Handleの破棄または明示解除まで。登録先とCallback Ownerの両方がHandleより長く生存する | 呼出Threadと同期要件を登録APIへ記述 |
 | Platform Object | RuntimeHostまたは上位Ownerが一意所有 | Native Resourceより先にOwnerを破棄しない | 生成Threadを既定とし、詳細はPlatform ADRで決定 |
 | RHI Object | RuntimeHostまたはRHI Ownerが一意所有 | Parent DeviceとQueueの規則に従う | 詳細はRHI ADRで決定 |
 
@@ -201,6 +201,8 @@ PlatformまたはBackend固有の失敗は、その実装境界でFoundationのE
 - Callbackは呼出Thread、再入可能性、登録解除との競合を明記する
 - Callback登録はMove-onlyなRAII Registration Handleを返し、その解除完了後は登録先からCallbackが呼ばれないことを保証する
 - Callback OwnerはRegistration Handleより長く生存させる。Registration HandleはCallback Ownerの破棄前に明示解除または破棄する
+- 登録先はすべてのRegistration Handleより長く生存させる。Composition OwnerはHandle、Callback Owner、登録先の順に破棄する
+- 登録先の破棄時に有効なRegistration Handleが残る設計を許可しない。安全な失効機構を別ADRで決定した場合だけ例外とする
 
 ### ABI Boundary
 
@@ -248,7 +250,7 @@ target_link_libraries(
 
 - WindowsとD3D12のHeaderをFoundationと契約Targetから排除できる
 - PlatformとRHIを独立してTestできる
-- RuntimeHost以外のModuleが具体実装の組み合わせを知る必要がない
+- 各ExecutableのComposition Root以外のModuleが具体実装の組み合わせを知る必要がない
 - Source配置とCMake Usage Requirementから公開境界を判断できる
 - Moduleごとの所有権、Lifetime、Thread Affinityの記述漏れをReviewできる
 
