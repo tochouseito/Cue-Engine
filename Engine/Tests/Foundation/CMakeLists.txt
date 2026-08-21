@@ -464,6 +464,12 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         TARGET_DIRECTORY Cue.Foundation
         INCLUDE_DIRECTORIES
     )
+    get_source_file_property(
+        cueFoundationSourceVisualStudioSettings
+        "${cueFoundationSourcePath}"
+        TARGET_DIRECTORY Cue.Foundation
+        VS_SETTINGS
+    )
 
     if(NOT "${cueFoundationSourceCompileFlags}" STREQUAL "NOTFOUND"
        AND NOT "${cueFoundationSourceCompileFlags}" STREQUAL "")
@@ -486,6 +492,14 @@ foreach(cueFoundationSource IN LISTS cueFoundationSources)
         message(
             FATAL_ERROR
             "Foundation sources must not use INCLUDE_DIRECTORIES: ${cueFoundationSourcePath}: ${cueFoundationSourceIncludeDirectories}"
+        )
+    endif()
+
+    if(NOT "${cueFoundationSourceVisualStudioSettings}" STREQUAL "NOTFOUND"
+       AND NOT "${cueFoundationSourceVisualStudioSettings}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "Foundation sources must not use VS_SETTINGS: ${cueFoundationSourcePath}: ${cueFoundationSourceVisualStudioSettings}"
         )
     endif()
 endforeach()
@@ -536,6 +550,7 @@ set(cueFoundationGlobalCompileFlagsDisplay "approved allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
 set(cueFoundationSourceIncludeDirectoriesDisplay "<none>")
+set(cueFoundationSourceVisualStudioSettingsDisplay "<none>")
 set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
 set(cueFoundationHeaderSetGeneratorExpressionsDisplay "<none>")
 set(cueFoundationExternalHeaderSetFilesDisplay "<none>")

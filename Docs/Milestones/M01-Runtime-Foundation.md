@@ -58,6 +58,7 @@ INTERFACE_LINK_LIBRARIES_DIRECT: <none>
 INTERFACE_SOURCES: <none>
 VS_USER_PROPS: <none>
 SOURCE_INCLUDE_DIRECTORIES: <none>
+SOURCE_VS_SETTINGS: <none>
 PROJECT_INCLUDE_DIRECTORIES: Foundation only
 PROJECT_HEADER_TRAVERSAL: recursive; Foundation only
 TARGET_OBJECT_SOURCES: <none>
@@ -69,7 +70,7 @@ Cycle review: generated CMake target graph has no outgoing Cue.Foundation edge
 
 `Cue.Foundation.Dependencies`は、Custom Targetを含めてCMakeが生成したTarget Graphを検査し、`Cue.Foundation`から出るEdgeがないことを確認します。これにより、Link、Object Source、`add_dependencies`に加え、Target Generator Expressionを使うCustom Commandや生成SourceからCustom TargetへのEdgeも検出します。Foundationから出るTarget Edgeを許可しないため、Foundationを含むTarget依存循環も成立しません。
 
-Foundation配下のC++ SourceとHeaderのLiteralな直接Includeは、選択中Windows SDKの`um`、`shared`、`winrt`、`cppwinrt`、`ucrt`で解決し、Macro形式と絶対PathのIncludeは拒否します。Foundation内で解決できるProject Headerは未登録の拡張子も含めて再帰的に走査し、Foundation外で解決されるProject HeaderとFoundation外のTarget Include Directoryは拒否します。Source単位のInclude DirectoryとVisual Studioの`VS_USER_PROPS`は空必須です。Header SetとTarget Sourceの全ファイルも拡張子に関係なく同じ内容検査へ含めます。前4 DirectoryのHeaderと、UCRT内のISO C標準Header以外を拒否するため、限定したPlatform Header名の列挙には依存しません。PCHと公開Compile Optionを空必須とし、非公開Compile OptionとFoundation Target定義ScopeでDebug／Development／Releaseへ適用されるGlobal C++ Flagは現在必要な警告、準拠、UTF-8、Runtime既定、最適化・Debug情報のAllowlistだけを許可します。Targetの`COMPILE_FLAGS`とSource単位の`COMPILE_FLAGS`／`COMPILE_OPTIONS`も空必須とし、`SOURCES`とHeader Set内のGenerator Expression、およびFoundation外のHeader Set Fileを禁止します。加えて、Source上のMSVC `#pragma comment(...)`を拒否し、生成された`Cue.Foundation.lib`のLinker Directiveを`dumpbin`で検査します。`/`と`-`のOption Prefixを正規化し、MSVC Runtime以外の`DEFAULTLIB`と未承認Directiveを拒否するため、`__pragma(comment(...))`などCMakeのTarget Propertyに現れない暗黙依存も検出します。
+Foundation配下のC++ SourceとHeaderのLiteralな直接Includeは、選択中Windows SDKの`um`、`shared`、`winrt`、`cppwinrt`、`ucrt`で解決し、Macro形式と絶対PathのIncludeは拒否します。Foundation内で解決できるProject Headerは未登録の拡張子も含めて再帰的に走査し、Foundation外で解決されるProject HeaderとFoundation外のTarget Include Directoryは拒否します。Source単位のInclude Directoryと`VS_SETTINGS`、Target単位の`VS_USER_PROPS`は空必須です。Header SetとTarget Sourceの全ファイルも拡張子に関係なく同じ内容検査へ含めます。前4 DirectoryのHeaderと、UCRT内のISO C標準Header以外を拒否するため、限定したPlatform Header名の列挙には依存しません。PCHと公開Compile Optionを空必須とし、非公開Compile OptionとFoundation Target定義ScopeでDebug／Development／Releaseへ適用されるGlobal C++ Flagは現在必要な警告、準拠、UTF-8、Runtime既定、最適化・Debug情報のAllowlistだけを許可します。Targetの`COMPILE_FLAGS`とSource単位の`COMPILE_FLAGS`／`COMPILE_OPTIONS`も空必須とし、`SOURCES`とHeader Set内のGenerator Expression、およびFoundation外のHeader Set Fileを禁止します。加えて、Source上のMSVC `#pragma comment(...)`を拒否し、生成された`Cue.Foundation.lib`のLinker Directiveを`dumpbin`で検査します。`/`と`-`のOption Prefixを正規化し、MSVC Runtime以外の`DEFAULTLIB`と未承認Directiveを拒否するため、`__pragma(comment(...))`などCMakeのTarget Propertyに現れない暗黙依存も検出します。
 
 ## Local Validation
 
@@ -97,7 +98,7 @@ git diff --check
 - Debug、Development、ReleaseのBuild成功
 - 全3構成のCTestは、それぞれ`16/16`成功
 - Dependency Testは、生成Target GraphのOutgoing Edgeがないことと、Windows SDK／UCRT Platform Header解決検査の成功を出力
-- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、Custom Commandの`$<TARGET_FILE:...>`、生成SourceのCustom Target依存、`processthreadsapi.h`と`io.h`の直接Include、Macro経由と絶対Pathの`windows.h` Include、Foundation外のProject Headerへの相対Include、未登録のFoundation内`.ipp`を介した`windows.h` Include、Foundation外のTarget Include DirectoryとSource単位Include Directory、`VS_USER_PROPS`、公開PCHの`windows.h`、非公開・条件Generator Expression内・`SHELL:`内・分割Generator Expression内・RootとTarget定義ScopeのGlobal Debug Flagにある`/FIwindows.h`、TargetとSource単位の`COMPILE_FLAGS`による`/FIwindows.h`、条件付きSource Generator ExpressionとSource単位`/FIwindows.h`の組み合わせ、公開Header Setの条件Generator Expression、Header Set内`.ipp`とprivate Target Source `.hxx`からの`windows.h` Include、`#pragma comment(lib, "d3d12.lib")`、`__pragma(comment(lib, "d3d12.lib"))`、`__pragma(comment(linker, "-defaultlib:d3d12.lib"))`がそれぞれGateを失敗させることを確認
+- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、Custom Commandの`$<TARGET_FILE:...>`、生成SourceのCustom Target依存、`processthreadsapi.h`と`io.h`の直接Include、Macro経由と絶対Pathの`windows.h` Include、Foundation外のProject Headerへの相対Include、未登録のFoundation内`.ipp`を介した`windows.h` Include、Foundation外のTarget Include DirectoryとSource単位Include Directory、`VS_USER_PROPS`とSource単位`VS_SETTINGS`、公開PCHの`windows.h`、非公開・条件Generator Expression内・`SHELL:`内・分割Generator Expression内・RootとTarget定義ScopeのGlobal Debug Flagにある`/FIwindows.h`、TargetとSource単位の`COMPILE_FLAGS`による`/FIwindows.h`、条件付きSource Generator ExpressionとSource単位`/FIwindows.h`の組み合わせ、公開Header Setの条件Generator Expression、Header Set内`.ipp`とprivate Target Source `.hxx`からの`windows.h` Include、`#pragma comment(lib, "d3d12.lib")`、`__pragma(comment(lib, "d3d12.lib"))`、`__pragma(comment(linker, "-defaultlib:d3d12.lib"))`がそれぞれGateを失敗させることを確認
 - `git diff --check`成功
 
 ## Clean Checkout Validation

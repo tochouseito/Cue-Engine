@@ -14,6 +14,7 @@ GLOBAL_CXX_FLAGS: @cueFoundationGlobalCompileFlagsDisplay@
 COMPILE_FLAGS: @cueFoundationCompileFlagsDisplay@
 SOURCE_COMPILE_PROPERTIES: @cueFoundationSourceCompilePropertiesDisplay@
 SOURCE_INCLUDE_DIRECTORIES: @cueFoundationSourceIncludeDirectoriesDisplay@
+SOURCE_VS_SETTINGS: @cueFoundationSourceVisualStudioSettingsDisplay@
 SOURCE_GENERATOR_EXPRESSIONS: @cueFoundationSourceGeneratorExpressionsDisplay@
 HEADER_SET_GENERATOR_EXPRESSIONS: @cueFoundationHeaderSetGeneratorExpressionsDisplay@
 EXTERNAL_HEADER_SET_FILES: @cueFoundationExternalHeaderSetFilesDisplay@
