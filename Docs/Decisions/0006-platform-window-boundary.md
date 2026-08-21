@@ -143,12 +143,12 @@ Created --show()--> Visible
 - `Created`はNative Windowが存在するが、まだ表示されていない状態
 - `Visible`は表示済みで通常のMessageを処理できる状態
 - `CloseRequested`は利用者が終了判断を行う状態であり、Native Windowはまだ有効
-- `Destroyed`はNative Handleが無効で、`show()`、`destroy()`、Native View取得を拒否する終端状態
+- `Destroyed`はNative Handleが無効な終端状態である。`destroy()`だけは冪等な成功とし、その他のNative操作を許可しない
 - `WM_CLOSE`を受信しただけでは`DestroyWindow`を呼ばず、Default Window Procedureへも渡さない。`CloseRequested` Eventを通知し、RuntimeHostが終了判断後に`destroy()`を呼ぶ
 - `WM_DESTROY`で状態を`Destroyed`へ遷移し、`Destroyed` Eventを通知してから、単一Main Windowの終了通知として`PostQuitMessage`を呼ぶ
 - 同じClose Requestは、前回のRequestが処理されるまで重複Queueしない
 - `destroy()`は同じThreadから複数回呼ばれた場合、既に`Destroyed`なら成功として扱う
-- 不正状態の`show()`とNative View取得はRecoverable Errorで拒否する
+- `Destroyed`を含む不正状態での`show()`とNative View取得はProgrammer Errorとし、`Result`へ変換せずAssertする
 
 ### Thread Affinity
 
