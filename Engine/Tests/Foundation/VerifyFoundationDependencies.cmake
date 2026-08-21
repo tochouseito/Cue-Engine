@@ -100,7 +100,7 @@ foreach(
         "PRECOMPILE_HEADERS: <none>"
         "INTERFACE_PRECOMPILE_HEADERS: <none>"
         "INTERFACE_COMPILE_OPTIONS: <none>"
-        "FORCED_INCLUDE_OPTIONS: <none>"
+        "FORCED_INCLUDE_OPTIONS: <none>; private options restricted by allowlist"
         "COMPILE_FLAGS: <none>"
         "SOURCE_COMPILE_PROPERTIES: <none>"
         "SOURCE_GENERATOR_EXPRESSIONS: <none>"

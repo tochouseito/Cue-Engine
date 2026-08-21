@@ -152,14 +152,32 @@ if(cueFoundationCompileOptions MATCHES "-NOTFOUND$")
     set(cueFoundationCompileOptions "")
 endif()
 
-string(TOLOWER "${cueFoundationCompileOptions}" cueFoundationCompileOptionsLower)
+set(
+    cueFoundationAllowedCompileOptions
+    /W4
+    /WX
+    /permissive-
+    /Zc:__cplusplus
+    /utf-8
+    "$<$<CONFIG:Development>:/O2>"
+    "$<$<CONFIG:Development>:/Zi>"
+)
 
-if(cueFoundationCompileOptionsLower MATCHES "(^|[;>:, \t])/fi|(^|[;>:, \t])-include")
-    message(
-        FATAL_ERROR
-        "Cue.Foundation must not force-include headers through compile options: ${cueFoundationCompileOptions}"
+foreach(cueFoundationCompileOption IN LISTS cueFoundationCompileOptions)
+    list(
+        FIND
+        cueFoundationAllowedCompileOptions
+        "${cueFoundationCompileOption}"
+        cueFoundationCompileOptionIndex
     )
-endif()
+
+    if(cueFoundationCompileOptionIndex EQUAL -1)
+        message(
+            FATAL_ERROR
+            "Cue.Foundation contains an unapproved compile option: ${cueFoundationCompileOption}"
+        )
+    endif()
+endforeach()
 
 get_target_property(cueFoundationCompileFlags Cue.Foundation COMPILE_FLAGS)
 
@@ -349,7 +367,7 @@ set(cueFoundationInterfaceSourcesDisplay "<none>")
 set(cueFoundationPrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
-set(cueFoundationForcedIncludeOptionsDisplay "<none>")
+set(cueFoundationForcedIncludeOptionsDisplay "<none>; private options restricted by allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
 set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
