@@ -1,0 +1,31 @@
+Target: Cue.Foundation
+LINK_LIBRARIES: @cueFoundationLinkLibrariesDisplay@
+INTERFACE_LINK_LIBRARIES: @cueFoundationInterfaceLinkLibrariesDisplay@
+MANUALLY_ADDED_DEPENDENCIES: @cueFoundationManualDependenciesDisplay@
+INTERFACE_LINK_OPTIONS: @cueFoundationInterfaceLinkOptionsDisplay@
+INTERFACE_LINK_LIBRARIES_DIRECT: @cueFoundationInterfaceDirectLinksDisplay@
+INTERFACE_SOURCES: @cueFoundationInterfaceSourcesDisplay@
+PRECOMPILE_HEADERS: @cueFoundationPrecompileHeadersDisplay@
+INTERFACE_PRECOMPILE_HEADERS: @cueFoundationInterfacePrecompileHeadersDisplay@
+INTERFACE_COMPILE_OPTIONS: @cueFoundationInterfaceCompileOptionsDisplay@
+VS_USER_PROPS: @cueFoundationVisualStudioUserPropsDisplay@
+VS_PROJECT_IMPORT: @cueFoundationVisualStudioProjectImportDisplay@
+UNITY_BUILD_INJECTED_CODE: @cueFoundationUnityBuildInjectedCodeDisplay@
+FORCED_INCLUDE_OPTIONS: @cueFoundationForcedIncludeOptionsDisplay@
+GLOBAL_CXX_FLAGS: @cueFoundationGlobalCompileFlagsDisplay@
+COMPILE_FLAGS: @cueFoundationCompileFlagsDisplay@
+SOURCE_COMPILE_PROPERTIES: @cueFoundationSourceCompilePropertiesDisplay@
+SOURCE_INCLUDE_DIRECTORIES: @cueFoundationSourceIncludeDirectoriesDisplay@
+SOURCE_VS_SETTINGS: @cueFoundationSourceVisualStudioSettingsDisplay@
+SOURCE_GENERATOR_EXPRESSIONS: @cueFoundationSourceGeneratorExpressionsDisplay@
+HEADER_SET_GENERATOR_EXPRESSIONS: @cueFoundationHeaderSetGeneratorExpressionsDisplay@
+EXTERNAL_HEADER_SET_FILES: @cueFoundationExternalHeaderSetFilesDisplay@
+HEADER_SET_CONTENT_SCAN: @cueFoundationHeaderSetContentScanDisplay@
+TARGET_SOURCE_CONTENT_SCAN: @cueFoundationTargetSourceContentScanDisplay@
+PROJECT_INCLUDE_DIRECTORIES: @cueFoundationProjectIncludeDirectoriesDisplay@
+PROJECT_HEADER_TRAVERSAL: @cueFoundationProjectHeaderTraversalDisplay@
+TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
+LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
+TARGET_GRAPH_OUTGOING_EDGES: <none>
+Forbidden platform link inputs: Windows SDK, DXGI, D3D12
+Cycle review: generated CMake target graph has no outgoing Cue.Foundation edge; Cue.Foundation cannot participate in a target dependency cycle
