@@ -253,6 +253,14 @@ foreach(sourceFile IN LISTS foundationSources)
             "${includeDirective}"
         )
 
+        if(IS_ABSOLUTE "${includedHeader}")
+            file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
+            message(
+                FATAL_ERROR
+                "Foundation source directly includes an absolute path: ${relativeSource}: ${includedHeader}"
+            )
+        endif()
+
         foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
             if(EXISTS "${includeRoot}/${includedHeader}")
                 file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
