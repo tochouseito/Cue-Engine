@@ -182,6 +182,13 @@ if(cueFoundationSourcesLower MATCHES "\\$<target_objects:")
     )
 endif()
 
+if(cueFoundationSources MATCHES "\\$<")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not use generator expressions in SOURCES: ${cueFoundationSources}"
+    )
+endif()
+
 get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
 
 foreach(cueFoundationSource IN LISTS cueFoundationSources)
@@ -252,6 +259,7 @@ set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
 set(cueFoundationForcedIncludeOptionsDisplay "<none>")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
+set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")

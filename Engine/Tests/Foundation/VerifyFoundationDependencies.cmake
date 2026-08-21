@@ -89,6 +89,7 @@ foreach(
         "FORCED_INCLUDE_OPTIONS: <none>"
         "COMPILE_FLAGS: <none>"
         "SOURCE_COMPILE_PROPERTIES: <none>"
+        "SOURCE_GENERATOR_EXPRESSIONS: <none>"
         "TARGET_OBJECT_SOURCES: <none>"
         "TARGET_GRAPH_OUTGOING_EDGES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
