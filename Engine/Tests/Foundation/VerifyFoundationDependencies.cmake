@@ -174,6 +174,22 @@ set(
 
 foreach(sourceFile IN LISTS foundationSources)
     file(READ "${sourceFile}" sourceContents)
+    string(TOLOWER "${sourceContents}" sourceContentsLower)
+    string(
+        REGEX MATCH
+        "(^|\n)[ \t]*#[ \t]*pragma[ \t]+comment[ \t]*\\("
+        implicitLinkDirective
+        "${sourceContentsLower}"
+    )
+
+    if(implicitLinkDirective)
+        file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
+        message(
+            FATAL_ERROR
+            "Foundation source contains an MSVC comment directive that can hide linker inputs: ${relativeSource}: ${implicitLinkDirective}"
+        )
+    endif()
+
     string(
         REGEX MATCHALL
         "#[ \t]*include[ \t]*[<\"][^>\"]+[>\"]"
@@ -218,3 +234,4 @@ endforeach()
 message(STATUS "Foundation dependency report: ${REPORT_FILE}")
 message(STATUS "Cue.Foundation generated target graph outgoing edges: <none>")
 message(STATUS "Foundation Windows SDK and UCRT platform header resolution: passed")
+message(STATUS "Foundation implicit MSVC linker directive scan: passed")
