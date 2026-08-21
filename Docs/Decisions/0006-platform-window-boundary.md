@@ -270,17 +270,18 @@ Window生成は次の順序で行い、失敗時は完了済み処理だけを�
 ```text
 Validate Descriptor
     -> Convert UTF-8 Title
-    -> Register or acquire Window Class
     -> Calculate Window Rectangle
-    -> Create Native Window
-    -> Attach Owner
+    -> Prepare Owner in Rollback State
+    -> Register or acquire Window Class
+    -> Create Native Window and Attach Owner
+    -> Mark Owner as Published
     -> Return Window
 ```
 
 - Descriptor検証、Win32 Size範囲検証、外枠込みSizeのOverflow検出、またはUTF変換失敗ではWindowを生成しない。Window Class登録前に判定できる失敗ではNative状態を変更しない
 - Windows実装Factory、`WindowSystem`、`Window`は注入された`AssertContext`へ到達できる非所有参照を保持する。`noexcept`境界内のAllocation失敗では、その`FatalHandler`のEmergency Entry Pointを追加Allocationなしに呼ぶ
 - Window Class登録失敗ではNative Error付きResultを返す
-- Window Size計算またはWindow生成失敗では、今回取得したWindow Class参照を解放する
+- Window生成失敗では、今回取得したWindow Class参照を解放する
 - `CreateWindowExW`中にWindow ProcedureへOwnerを関連付け、失敗時にDangling Pointerを残さない
 - Window生成成功後、Factoryから所有権を返す前の失敗ではRollback状態のまま`DestroyWindow`を呼び、`WM_DESTROY`から`WM_QUIT`を投稿しない。Handle無効化を確認してから所有権を破棄する
 - 公開済みMain Windowの終了だけが`WM_QUIT`を投稿するため、Recoverableな生成失敗後も同じThreadでWindow生成を再試行できる
