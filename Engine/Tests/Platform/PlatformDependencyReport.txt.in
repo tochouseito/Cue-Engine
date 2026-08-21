@@ -1,0 +1,6 @@
+Cue.Platform LINK_LIBRARIES: @cuePlatformLinks@
+Cue.Platform INTERFACE_LINK_LIBRARIES: @cuePlatformInterfaceLinks@
+Cue.Platform.Windows LINK_LIBRARIES: @cuePlatformWindowsLinks@
+Cue.Platform.Windows INTERFACE_LINK_LIBRARIES: @cuePlatformWindowsInterfaceLinks@
+Forbidden dependencies: Cue.RHI;D3D12;Editor
+Windows SDK include boundary: Windows/Private
