@@ -264,13 +264,13 @@ LoggerとSinkの規則:
 - Loggerは0個以上の`std::unique_ptr<LogSink>`を受け取り、Sinkを一意所有する
 - Global Logger、Global Sink Registry、Service Locatorを導入しない
 - `Logger::log`と`Logger::flush`は同期かつ非例外APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する。通常Log Recordの構築もLogger Entry Pointの例外境界内で行う
-- 各Logger Entry PointはMutex取得前に、Allocation不要なThread-local Reentry Guard Chainを確認する。Chain上に同じLoggerがあれば待機せずEmergency Entry Pointを呼び、異なるLoggerの入れ子は許可する
-- Reentry Guardは呼び出しStack上のNodeとThread-localな現在NodeへのPointerだけで構成し、Heap Allocationを行わない。Scope終了時に以前のNodeを復元する
+- 各Logger Entry PointはMutex取得前に、Allocation不要なThread-local Sink Dispatch Guardを確認する。いずれかのLoggerがSinkを呼び出しているThreadでは、同一・別Instanceを問わずLoggerへ再入せずEmergency Entry Pointを呼ぶ
+- Sink Dispatch Guardは呼び出しStack上のScope ObjectとThread-localなDepth Counterだけで構成し、Heap Allocationを行わない。Sink呼び出しの直前にCounterを増やし、Scope終了時に以前の値へ戻す
 - 通常APIのMutex待機取得が例外を投げた場合、Loggerは内部で捕捉し、診断経路へ再入せずFatal HandlerのEmergency Entry Pointを直接呼ぶ。Mutex再入やResource異常を回復可能なLog失敗へ降格しない
 - Fatal経路は`Logger::log_and_flush`を使用し、Mutexを`try_lock`で一度だけ取得する。取得成功時は同じLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了し、他ThreadのRecordを割り込ませない
 - Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
-- SinkはLoggerのLock保持中に呼ばれ、同じLoggerへ再入してはならない
+- SinkはLoggerのLock保持中に呼ばれ、直接・間接を問わずいずれのLoggerへも再入してはならない
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
 - Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
@@ -324,8 +324,7 @@ ConsoleとDebugger Outputの選択規則:
 - Flushが全Sinkへ伝播することを検証する
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 - Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
-- Sinkから同一Loggerへ再入するとMutex取得前に検出され、Emergency Entry Pointから規定終了することをProcess Testで検証する
-- Sinkから異なるLoggerを呼ぶ入れ子は許可され、各Recordが一度ずつ出力されることを検証する
+- Sinkから同一または別Loggerへ再入するとMutex取得前に検出され、Emergency Entry Pointから規定終了することをProcess Testで検証する
 - 通常LoggerのMutex取得例外が内部で捕捉され、Emergency Entry Pointから規定終了することをProcess Testで検証する
 - Sinkが非例外で失敗を返す場合は残りのSinkが処理され、Sinkが例外を投げる場合は残りのSinkが呼ばれずEmergency Entry Pointから規定終了することを検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
