@@ -90,6 +90,8 @@ foreach(
         "COMPILE_FLAGS: <none>"
         "SOURCE_COMPILE_PROPERTIES: <none>"
         "SOURCE_GENERATOR_EXPRESSIONS: <none>"
+        "HEADER_SET_GENERATOR_EXPRESSIONS: <none>"
+        "EXTERNAL_HEADER_SET_FILES: <none>"
         "TARGET_OBJECT_SOURCES: <none>"
         "TARGET_GRAPH_OUTGOING_EDGES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
@@ -204,6 +206,25 @@ foreach(sourceFile IN LISTS foundationSources)
             "Foundation source contains an MSVC comment directive that can hide linker inputs: ${relativeSource}: ${implicitLinkDirective}"
         )
     endif()
+
+    string(
+        REGEX MATCHALL
+        "(^|\n)[ \t]*#[ \t]*include[^\r\n]*"
+        allIncludeDirectives
+        "${sourceContents}"
+    )
+
+    foreach(includeDirective IN LISTS allIncludeDirectives)
+        string(STRIP "${includeDirective}" includeDirective)
+
+        if(NOT includeDirective MATCHES "^#[ \t]*include[ \t]*[<\"][^>\"]+[>\"]")
+            file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
+            message(
+                FATAL_ERROR
+                "Foundation source contains a non-literal include directive: ${relativeSource}: ${includeDirective}"
+            )
+        endif()
+    endforeach()
 
     string(
         REGEX MATCHALL

@@ -191,6 +191,61 @@ endif()
 
 get_target_property(cueFoundationSourceDirectory Cue.Foundation SOURCE_DIR)
 
+get_target_property(cueFoundationHeaderSets Cue.Foundation HEADER_SETS)
+get_target_property(cueFoundationInterfaceHeaderSets Cue.Foundation INTERFACE_HEADER_SETS)
+
+foreach(headerSetProperty IN ITEMS cueFoundationHeaderSets cueFoundationInterfaceHeaderSets)
+    if(${headerSetProperty} MATCHES "-NOTFOUND$")
+        set(${headerSetProperty} "")
+    endif()
+endforeach()
+
+set(cueFoundationAllHeaderSets ${cueFoundationHeaderSets} ${cueFoundationInterfaceHeaderSets})
+list(REMOVE_DUPLICATES cueFoundationAllHeaderSets)
+
+foreach(cueFoundationHeaderSet IN LISTS cueFoundationAllHeaderSets)
+    if(cueFoundationHeaderSet STREQUAL "HEADERS")
+        set(cueFoundationHeaderSetProperty HEADER_SET)
+    else()
+        set(cueFoundationHeaderSetProperty "HEADER_SET_${cueFoundationHeaderSet}")
+    endif()
+
+    get_target_property(
+        cueFoundationHeaderSetFiles
+        Cue.Foundation
+        "${cueFoundationHeaderSetProperty}"
+    )
+
+    if(cueFoundationHeaderSetFiles MATCHES "\\$<")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation Header Sets must not use generator expressions: ${cueFoundationHeaderSetFiles}"
+        )
+    endif()
+
+    foreach(cueFoundationHeader IN LISTS cueFoundationHeaderSetFiles)
+        get_filename_component(
+            cueFoundationHeaderPath
+            "${cueFoundationHeader}"
+            ABSOLUTE
+            BASE_DIR "${cueFoundationSourceDirectory}"
+        )
+        file(
+            RELATIVE_PATH
+            cueFoundationHeaderRelativePath
+            "${cueFoundationSourceDirectory}"
+            "${cueFoundationHeaderPath}"
+        )
+
+        if(cueFoundationHeaderRelativePath MATCHES "^\\.\\./")
+            message(
+                FATAL_ERROR
+                "Cue.Foundation Header Sets must remain under the Foundation source directory: ${cueFoundationHeaderPath}"
+            )
+        endif()
+    endforeach()
+endforeach()
+
 foreach(cueFoundationSource IN LISTS cueFoundationSources)
     if(cueFoundationSource MATCHES "^\\$<")
         continue()
@@ -260,6 +315,8 @@ set(cueFoundationForcedIncludeOptionsDisplay "<none>")
 set(cueFoundationCompileFlagsDisplay "<none>")
 set(cueFoundationSourceCompilePropertiesDisplay "<none>")
 set(cueFoundationSourceGeneratorExpressionsDisplay "<none>")
+set(cueFoundationHeaderSetGeneratorExpressionsDisplay "<none>")
+set(cueFoundationExternalHeaderSetFilesDisplay "<none>")
 set(cueFoundationTargetObjectSourcesDisplay "<none>")
 
 if("${cueFoundationLinkOptions}" STREQUAL "")
