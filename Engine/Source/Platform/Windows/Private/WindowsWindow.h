@@ -4,9 +4,11 @@
 
 #include <Windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace cue
 {
@@ -60,14 +62,19 @@ class WindowsWindow final : public Window
 
   private:
     [[nodiscard]] LRESULT process_message(UINT a_message, WPARAM a_wParam, LPARAM a_lParam) noexcept;
+    void push_event(WindowEvent a_event) noexcept;
     void release_system_reference() noexcept;
     void verify_thread() const noexcept;
 
     WindowsWindowSystem *m_system;
+    std::vector<WindowEvent> m_events;
+    std::size_t m_eventReadIndex = 0;
     HWND m_window = nullptr;
     WindowSize m_clientSize = {};
     WindowState m_state = WindowState::Destroyed;
     bool m_hasClassReference = false;
     bool m_isPublished = false;
+    bool m_isClosePending = false;
+    bool m_isMinimized = false;
 };
 } // namespace cue

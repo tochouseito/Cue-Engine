@@ -18,6 +18,10 @@ enum class WindowState
  * @brief Platform 非依存の Window 操作契約
  *
  * 全 API と Destructor は Window System の作成 Thread 上で呼び出す
+ *
+ * Native Callback は外部 Callback を呼ばず、Event を Window 所有の FIFO Queue へ値として格納する
+ * Queue は Window
+ * と同時に破棄され、取得済み Event だけが Window 破棄後も呼出側で保持できる
  */
 class Window
 {
@@ -39,7 +43,10 @@ class Window
 
     /**
      * @brief FIFO Queue の先頭 Event を取得する
-     * @return Event を取得した場合は true、Queue が空の場合は false
+     * @return Event を取得した場合は true、Queue が空の場合は
+     * false
+     *
+     * Queue が空の場合は a_event を変更しない
      */
     [[nodiscard]] virtual bool try_pop_event(WindowEvent &a_event) noexcept = 0;
 };

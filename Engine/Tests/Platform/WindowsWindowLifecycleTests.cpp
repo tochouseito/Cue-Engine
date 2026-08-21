@@ -48,6 +48,61 @@ class TestFatalHandler final : public cue::FatalHandler
 
 [[nodiscard]] bool is_window_class_unregistered();
 
+[[nodiscard]] bool has_event(cue::Window &a_window, cue::WindowEventType a_type, cue::WindowSize a_size = {})
+{
+    cue::WindowEvent event = {};
+
+    if (!a_window.try_pop_event(event) || event.type != a_type)
+    {
+        return false;
+    }
+
+    if (a_type == cue::WindowEventType::Resized || a_type == cue::WindowEventType::Restored)
+    {
+        return event.clientSize.width == a_size.width && event.clientSize.height == a_size.height;
+    }
+
+    return true;
+}
+
+[[nodiscard]] bool is_event_queue_empty(cue::Window &a_window)
+{
+    cue::WindowEvent event = {cue::WindowEventType::Resized, {123, 456}};
+
+    if (a_window.try_pop_event(event))
+    {
+        return false;
+    }
+
+    return event.type == cue::WindowEventType::Resized && event.clientSize.width == 123 &&
+           event.clientSize.height == 456;
+}
+
+[[nodiscard]] bool resize_client(HWND a_window, cue::WindowSize a_size)
+{
+    RECT rectangle = {0, 0, static_cast<LONG>(a_size.width), static_cast<LONG>(a_size.height)};
+    DWORD style = static_cast<DWORD>(GetWindowLongPtrW(a_window, GWL_STYLE));
+    DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(a_window, GWL_EXSTYLE));
+
+    if (AdjustWindowRectEx(&rectangle, style, FALSE, extendedStyle) == FALSE)
+    {
+        return false;
+    }
+
+    int width = rectangle.right - rectangle.left;
+    int height = rectangle.bottom - rectangle.top;
+
+    if (SetWindowPos(a_window, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) == FALSE)
+    {
+        return false;
+    }
+
+    RECT clientRectangle = {};
+    return GetClientRect(a_window, &clientRectangle) != FALSE &&
+           static_cast<std::uint32_t>(clientRectangle.right - clientRectangle.left) == a_size.width &&
+           static_cast<std::uint32_t>(clientRectangle.bottom - clientRectangle.top) == a_size.height;
+}
+
 [[nodiscard]] bool test_descriptor_failures(cue::WindowSystem &a_system)
 {
     cue::WindowDescriptor zeroSize = {"zero", {0, 360}};
@@ -329,6 +384,126 @@ class TestFatalHandler final : public cue::FatalHandler
     return is_window_class_unregistered() ? 0 : 8;
 }
 
+[[nodiscard]] int run_events()
+{
+    TestFatalHandler handler;
+    std::unique_ptr<cue::Logger> logger = create_logger(handler);
+    cue::AssertContext context(*logger, handler);
+    cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(context);
+
+    if (!systemResult)
+    {
+        return 30;
+    }
+
+    std::unique_ptr<cue::WindowSystem> system = std::move(*systemResult.try_value());
+    cue::WindowDescriptor descriptor = {"window events", {640, 360}};
+    cue::Result<std::unique_ptr<cue::Window>> windowResult = system->create_window(descriptor);
+
+    if (!windowResult)
+    {
+        return 31;
+    }
+
+    std::unique_ptr<cue::Window> window = std::move(*windowResult.try_value());
+    cue::Result<cue::NativeWindowView> viewResult = cue::get_native_window_view(*window);
+
+    if (!viewResult || !is_event_queue_empty(*window))
+    {
+        return 32;
+    }
+
+    HWND nativeWindow = static_cast<HWND>(const_cast<void *>(viewResult.try_value()->value()));
+    constexpr cue::WindowSize k_firstSize = {800, 450};
+    constexpr cue::WindowSize k_secondSize = {700, 400};
+    constexpr cue::WindowSize k_thirdSize = {720, 420};
+    constexpr cue::WindowSize k_fourthSize = {740, 430};
+
+    if (!resize_client(nativeWindow, k_firstSize) || !has_event(*window, cue::WindowEventType::Resized, k_firstSize) ||
+        !resize_client(nativeWindow, k_secondSize) || !resize_client(nativeWindow, k_thirdSize) ||
+        !has_event(*window, cue::WindowEventType::Resized, k_secondSize) ||
+        !resize_client(nativeWindow, k_fourthSize) || !has_event(*window, cue::WindowEventType::Resized, k_thirdSize) ||
+        !has_event(*window, cue::WindowEventType::Resized, k_fourthSize) || !is_event_queue_empty(*window))
+    {
+        return 33;
+    }
+
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_MINIMIZED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Minimized))
+    {
+        return 34;
+    }
+
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_MAXIMIZED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Resized, k_fourthSize))
+    {
+        return 35;
+    }
+
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_MINIMIZED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Minimized))
+    {
+        return 36;
+    }
+
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_RESTORED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Restored, k_fourthSize) ||
+        window->client_size().width != k_fourthSize.width || window->client_size().height != k_fourthSize.height)
+    {
+        return 37;
+    }
+
+    if (PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE || PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE)
+    {
+        return 38;
+    }
+
+    cue::Result<cue::PumpStatus> pumpResult = system->pump_events();
+
+    if (!pumpResult || *pumpResult.try_value() != cue::PumpStatus::Running ||
+        !has_event(*window, cue::WindowEventType::CloseRequested) || !is_event_queue_empty(*window) ||
+        window->state() != cue::WindowState::CloseRequested)
+    {
+        return 39;
+    }
+
+    if (PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE)
+    {
+        return 40;
+    }
+
+    cue::Result<cue::PumpStatus> repeatedClosePumpResult = system->pump_events();
+
+    if (!repeatedClosePumpResult || *repeatedClosePumpResult.try_value() != cue::PumpStatus::Running ||
+        !has_event(*window, cue::WindowEventType::CloseRequested))
+    {
+        return 41;
+    }
+
+    if (!window->destroy() || PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0) == FALSE)
+    {
+        return 42;
+    }
+
+    cue::Result<cue::PumpStatus> quitResult = system->pump_events();
+    MSG remainingMessage = {};
+
+    if (!quitResult || *quitResult.try_value() != cue::PumpStatus::QuitRequested ||
+        PeekMessageW(&remainingMessage, nullptr, 0, 0, PM_NOREMOVE) != FALSE ||
+        !has_event(*window, cue::WindowEventType::Destroyed) || !is_event_queue_empty(*window))
+    {
+        return 43;
+    }
+
+    window.reset();
+    system.reset();
+    return is_window_class_unregistered() ? 0 : 44;
+}
+
 [[nodiscard]] int run_invalid_show()
 {
     TestFatalHandler handler;
@@ -448,6 +623,11 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "Lifecycle")
     {
         return run_lifecycle();
+    }
+
+    if (mode == "Events")
+    {
+        return run_events();
     }
 
     if (mode == "InvalidShow")

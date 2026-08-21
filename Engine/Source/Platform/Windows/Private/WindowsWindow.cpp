@@ -4,6 +4,7 @@
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
+#include <Cue/Foundation/Fatal.h>
 
 #include <Windows.h>
 
@@ -271,7 +272,22 @@ Result<PumpStatus> WindowsWindowSystem::pump_events() noexcept
 {
     CUE_ASSERT(*m_assertContext, GetCurrentThreadId() == m_threadId,
                "Window events must be pumped on the Window System thread");
-    return Result<PumpStatus>::success(PumpStatus::Running);
+    MSG message = {};
+    bool isQuitRequested = false;
+
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+    {
+        if (message.message == WM_QUIT)
+        {
+            isQuitRequested = true;
+            continue;
+        }
+
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+
+    return Result<PumpStatus>::success(isQuitRequested ? PumpStatus::QuitRequested : PumpStatus::Running);
 }
 
 const AssertContext &WindowsWindowSystem::assert_context() const noexcept
@@ -384,8 +400,27 @@ WindowSize WindowsWindow::client_size() const noexcept
 bool WindowsWindow::try_pop_event(WindowEvent &a_event) noexcept
 {
     verify_thread();
-    static_cast<void>(a_event);
-    return false;
+
+    if (m_eventReadIndex == m_events.size())
+    {
+        return false;
+    }
+
+    a_event = m_events[m_eventReadIndex];
+    ++m_eventReadIndex;
+
+    if (a_event.type == WindowEventType::CloseRequested)
+    {
+        m_isClosePending = false;
+    }
+
+    if (m_eventReadIndex == m_events.size())
+    {
+        m_events.clear();
+        m_eventReadIndex = 0;
+    }
+
+    return true;
 }
 
 const void *WindowsWindow::native_view_value() const noexcept
@@ -480,13 +515,64 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 {
     if (a_message == WM_CLOSE)
     {
-        m_state = WindowState::CloseRequested;
+        if (m_isPublished && m_state != WindowState::Destroyed && !m_isClosePending)
+        {
+            push_event({WindowEventType::CloseRequested, {0, 0}});
+            m_state = WindowState::CloseRequested;
+            m_isClosePending = true;
+        }
+
         return 0;
     }
 
     if (a_message == WM_DESTROY)
     {
         m_state = WindowState::Destroyed;
+
+        if (m_isPublished)
+        {
+            push_event({WindowEventType::Destroyed, {0, 0}});
+            PostQuitMessage(0);
+        }
+
+        return 0;
+    }
+
+    if (a_message == WM_SIZE && m_isPublished && m_state != WindowState::Destroyed)
+    {
+        if (a_wParam == SIZE_MINIMIZED)
+        {
+            push_event({WindowEventType::Minimized, {0, 0}});
+            m_isMinimized = true;
+            return 0;
+        }
+
+        RECT clientRectangle = {};
+
+        if (GetClientRect(m_window, &clientRectangle) == FALSE)
+        {
+            DWORD nativeCode = GetLastError();
+            Error error = make_native_error(m_system->assert_context(), k_clientSizeQueryFailed,
+                                            "Windows Window client size query failed", nativeCode);
+            report_fatal(m_system->assert_context().logger(), m_system->assert_context().fatal_handler(),
+                         "Window Event conversion failed", std::move(error));
+        }
+
+        WindowSize clientSize = {
+            static_cast<std::uint32_t>(clientRectangle.right - clientRectangle.left),
+            static_cast<std::uint32_t>(clientRectangle.bottom - clientRectangle.top),
+        };
+
+        if (clientSize.width == 0 || clientSize.height == 0)
+        {
+            return 0;
+        }
+
+        bool isRestored = a_wParam == SIZE_RESTORED && m_isMinimized;
+        WindowEventType type = isRestored ? WindowEventType::Restored : WindowEventType::Resized;
+        push_event({type, clientSize});
+        m_clientSize = clientSize;
+        m_isMinimized = false;
         return 0;
     }
 
@@ -500,6 +586,25 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
     }
 
     return DefWindowProcW(m_window, a_message, a_wParam, a_lParam);
+}
+
+void WindowsWindow::push_event(WindowEvent a_event) noexcept
+{
+    try
+    {
+        if (m_eventReadIndex > 0 && m_eventReadIndex >= m_events.size() / 2)
+        {
+            m_events.erase(m_events.begin(), m_events.begin() + m_eventReadIndex);
+            m_eventReadIndex = 0;
+        }
+
+        m_events.push_back(a_event);
+    }
+    catch (...)
+    {
+        m_system->assert_context().fatal_handler().terminate("Window Event Queue allocation failed");
+        std::abort();
+    }
 }
 
 void WindowsWindow::release_system_reference() noexcept
