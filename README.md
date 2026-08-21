@@ -6,8 +6,9 @@ CueEngineは、C++を中心に一から再設計・再実装するモジュー�
 旧CueEngineのコードは、問題設定、技術的知見、性能計測、失敗事例を調査するための参考資料として扱います。
 新実装へ直接コピー、移植、改名は行いません。
 
-現在は`M00 Repository Foundation`として、再現可能なConfigure、Build、Test、CI、開発手順の基盤を整備しています。
-Runtime、Renderer、Editorなどの機能実装はまだ対象外です。
+`M00 Repository Foundation`では、再現可能なConfigure、Build、Test、CI、開発手順の基盤を整備しました。
+M00の完了証跡は[Repository Foundation completion evidence](Docs/Milestones/M00-Repository-Foundation.md)に集約しています。
+Runtime、Renderer、Editorなどの機能実装はM01以降で扱い、現時点ではまだ実装していません。
 
 ## Repository Layout
 
@@ -30,6 +31,18 @@ Repository Root は CMake の Build 入口、License、Repository 設定など�
 - Windows x64
 - Visual Studio 2026（Desktop development with C++）
 - CMake 4.2.0以上
+
+## Clean Checkout
+
+新規Checkoutでは、既定の`Rebuild`ブランチをCloneしてRepository Rootへ移動します。
+
+```powershell
+git clone https://github.com/tochouseito/CueEngine.git
+Set-Location CueEngine
+git branch --show-current
+```
+
+最後のコマンドが`Rebuild`を出力することを確認してから、以下のConfigure、Build、Testを順に実行します。
 
 ## Configure
 
@@ -76,3 +89,4 @@ ctest --preset windows-vs2026-release
 - [Project rules](AGENTS.md)
 - [Rebuild decision](Docs/Decisions/0001-rebuild-from-first-principles.md)
 - [C++ build policy](Docs/Decisions/0003-cpp-build-policy.md)
+- [M00 Repository Foundation completion evidence](Docs/Milestones/M00-Repository-Foundation.md)
