@@ -157,6 +157,17 @@ elseif(NOT "${cueFoundationVisualStudioUserProps}" STREQUAL "")
     )
 endif()
 
+get_target_property(cueFoundationVisualStudioProjectImport Cue.Foundation VS_PROJECT_IMPORT)
+
+if(cueFoundationVisualStudioProjectImport MATCHES "-NOTFOUND$")
+    set(cueFoundationVisualStudioProjectImport "")
+elseif(NOT "${cueFoundationVisualStudioProjectImport}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not import Visual Studio project props: ${cueFoundationVisualStudioProjectImport}"
+    )
+endif()
+
 get_target_property(cueFoundationCompileOptions Cue.Foundation COMPILE_OPTIONS)
 
 if(cueFoundationCompileOptions MATCHES "-NOTFOUND$")
@@ -545,6 +556,7 @@ set(cueFoundationPrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfacePrecompileHeadersDisplay "<none>")
 set(cueFoundationInterfaceCompileOptionsDisplay "<none>")
 set(cueFoundationVisualStudioUserPropsDisplay "<none>")
+set(cueFoundationVisualStudioProjectImportDisplay "<none>")
 set(cueFoundationForcedIncludeOptionsDisplay "<none>; private options restricted by allowlist")
 set(cueFoundationGlobalCompileFlagsDisplay "approved allowlist")
 set(cueFoundationCompileFlagsDisplay "<none>")
