@@ -90,4 +90,5 @@ ctest --preset windows-vs2026-release
 - [Rebuild decision](Docs/Decisions/0001-rebuild-from-first-principles.md)
 - [C++ build policy](Docs/Decisions/0003-cpp-build-policy.md)
 - [Runtime Foundation module boundaries](Docs/Decisions/0004-runtime-foundation-module-boundaries.md)
+- [Error, assert, and log policy](Docs/Decisions/0005-error-assert-log-policy.md)
 - [M00 Repository Foundation completion evidence](Docs/Milestones/M00-Repository-Foundation.md)
