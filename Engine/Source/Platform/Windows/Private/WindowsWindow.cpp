@@ -568,7 +568,8 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
             return 0;
         }
 
-        WindowEventType type = m_isMinimized ? WindowEventType::Restored : WindowEventType::Resized;
+        bool isRestored = a_wParam == SIZE_RESTORED && m_isMinimized;
+        WindowEventType type = isRestored ? WindowEventType::Restored : WindowEventType::Resized;
         push_event({type, clientSize});
         m_clientSize = clientSize;
         m_isMinimized = false;

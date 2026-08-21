@@ -435,17 +435,31 @@ class TestFatalHandler final : public cue::FatalHandler
         return 34;
     }
 
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_MAXIMIZED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Resized, k_fourthSize))
+    {
+        return 35;
+    }
+
+    SendMessageW(nativeWindow, WM_SIZE, SIZE_MINIMIZED, 0);
+
+    if (!has_event(*window, cue::WindowEventType::Minimized))
+    {
+        return 36;
+    }
+
     SendMessageW(nativeWindow, WM_SIZE, SIZE_RESTORED, 0);
 
     if (!has_event(*window, cue::WindowEventType::Restored, k_fourthSize) ||
         window->client_size().width != k_fourthSize.width || window->client_size().height != k_fourthSize.height)
     {
-        return 35;
+        return 37;
     }
 
     if (PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE || PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE)
     {
-        return 36;
+        return 38;
     }
 
     cue::Result<cue::PumpStatus> pumpResult = system->pump_events();
@@ -454,12 +468,12 @@ class TestFatalHandler final : public cue::FatalHandler
         !has_event(*window, cue::WindowEventType::CloseRequested) || !is_event_queue_empty(*window) ||
         window->state() != cue::WindowState::CloseRequested)
     {
-        return 37;
+        return 39;
     }
 
     if (PostMessageW(nativeWindow, WM_CLOSE, 0, 0) == FALSE)
     {
-        return 38;
+        return 40;
     }
 
     cue::Result<cue::PumpStatus> repeatedClosePumpResult = system->pump_events();
@@ -467,12 +481,12 @@ class TestFatalHandler final : public cue::FatalHandler
     if (!repeatedClosePumpResult || *repeatedClosePumpResult.try_value() != cue::PumpStatus::Running ||
         !has_event(*window, cue::WindowEventType::CloseRequested))
     {
-        return 38;
+        return 41;
     }
 
     if (!window->destroy() || PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0) == FALSE)
     {
-        return 39;
+        return 42;
     }
 
     cue::Result<cue::PumpStatus> quitResult = system->pump_events();
@@ -482,12 +496,12 @@ class TestFatalHandler final : public cue::FatalHandler
         PeekMessageW(&remainingMessage, nullptr, 0, 0, PM_NOREMOVE) != FALSE ||
         !has_event(*window, cue::WindowEventType::Destroyed) || !is_event_queue_empty(*window))
     {
-        return 40;
+        return 43;
     }
 
     window.reset();
     system.reset();
-    return is_window_class_unregistered() ? 0 : 41;
+    return is_window_class_unregistered() ? 0 : 44;
 }
 
 [[nodiscard]] int run_invalid_show()
