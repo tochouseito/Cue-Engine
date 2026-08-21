@@ -234,6 +234,107 @@ function(
     set(${outputDirectIncludes} "${directIncludes}" PARENT_SCOPE)
 endfunction()
 
+function(cue_verify_platform_forced_include_options targetName)
+    foreach(
+        compileOptionProperty
+        IN ITEMS
+            COMPILE_OPTIONS
+            INTERFACE_COMPILE_OPTIONS
+    )
+        get_target_property(compileOptions ${targetName} ${compileOptionProperty})
+
+        if(compileOptions MATCHES "-NOTFOUND$")
+            set(compileOptions "")
+        endif()
+
+        foreach(compileOption IN LISTS compileOptions)
+            string(TOLOWER "${compileOption}" compileOptionLower)
+
+            if(
+                compileOptionLower MATCHES "(^|[:>; \\t])/(fi)"
+                OR compileOptionLower MATCHES "(^|[:>; \\t])-(include|imacros)($|[=,;:<> \\t])"
+            )
+                message(
+                    FATAL_ERROR
+                    "${targetName} contains a forced include option in ${compileOptionProperty}: ${compileOption}"
+                )
+            endif()
+        endforeach()
+    endforeach()
+
+    get_target_property(targetSources ${targetName} SOURCES)
+    get_target_property(targetSourceDirectory ${targetName} SOURCE_DIR)
+
+    foreach(targetSource IN LISTS targetSources)
+        get_filename_component(
+            targetSourcePath
+            "${targetSource}"
+            ABSOLUTE
+            BASE_DIR "${targetSourceDirectory}"
+        )
+
+        foreach(sourceOptionProperty IN ITEMS COMPILE_OPTIONS COMPILE_FLAGS)
+            get_source_file_property(
+                sourceOptions
+                "${targetSourcePath}"
+                TARGET_DIRECTORY ${targetName}
+                ${sourceOptionProperty}
+            )
+
+            if(sourceOptions MATCHES "-NOTFOUND$")
+                set(sourceOptions "")
+            endif()
+
+            foreach(sourceOption IN LISTS sourceOptions)
+                string(TOLOWER "${sourceOption}" sourceOptionLower)
+
+                if(
+                    sourceOptionLower MATCHES "(^|[:>; \\t])/(fi)"
+                    OR sourceOptionLower MATCHES "(^|[:>; \\t])-(include|imacros)($|[=,;:<> \\t])"
+                )
+                    message(
+                        FATAL_ERROR
+                        "${targetName} source contains a forced include option in ${sourceOptionProperty}: ${targetSource}: ${sourceOption}"
+                    )
+                endif()
+            endforeach()
+        endforeach()
+    endforeach()
+endfunction()
+
+function(cue_verify_platform_link_options targetName)
+    foreach(
+        linkOptionProperty
+        IN ITEMS
+            LINK_OPTIONS
+            INTERFACE_LINK_OPTIONS
+            LINK_FLAGS
+            STATIC_LIBRARY_OPTIONS
+    )
+        get_target_property(linkOptions ${targetName} ${linkOptionProperty})
+
+        if(linkOptions MATCHES "-NOTFOUND$")
+            set(linkOptions "")
+        endif()
+
+        foreach(linkOption IN LISTS linkOptions)
+            string(TOLOWER "${linkOption}" linkOptionLower)
+
+            if(
+                linkOptionLower MATCHES "defaultlib"
+                OR linkOptionLower MATCHES "wholearchive"
+                OR linkOptionLower MATCHES "\\.lib($|[,;:<> \\t])"
+                OR linkOptionLower MATCHES "(^|[,;:<> \\t])-l[a-z0-9_]"
+            )
+                message(
+                    FATAL_ERROR
+                    "${targetName} contains a library-injecting link option in ${linkOptionProperty}: ${linkOption}"
+                )
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+
 get_target_property(cuePlatformLinks Cue.Platform LINK_LIBRARIES)
 get_target_property(cuePlatformInterfaceLinks Cue.Platform INTERFACE_LINK_LIBRARIES)
 get_target_property(cuePlatformManualDependencies Cue.Platform MANUALLY_ADDED_DEPENDENCIES)
@@ -251,6 +352,8 @@ cue_collect_platform_precompile_headers(
     cuePlatformPrecompileHeaders
     cuePlatformDirectPrecompileHeaders
 )
+cue_verify_platform_forced_include_options(Cue.Platform)
+cue_verify_platform_link_options(Cue.Platform)
 get_target_property(cuePlatformSourceDirectory Cue.Platform SOURCE_DIR)
 get_target_property(cuePlatformWindowsLinks Cue.Platform.Windows LINK_LIBRARIES)
 get_target_property(
@@ -281,6 +384,8 @@ cue_collect_platform_precompile_headers(
     cuePlatformWindowsPrecompileHeaders
     cuePlatformWindowsDirectPrecompileHeaders
 )
+cue_verify_platform_forced_include_options(Cue.Platform.Windows)
+cue_verify_platform_link_options(Cue.Platform.Windows)
 get_target_property(
     cuePlatformWindowsSourceDirectory
     Cue.Platform.Windows

@@ -181,6 +181,8 @@ foreach(
         "Named CXX Module File Sets: scanned"
         "PRECOMPILE_HEADERS and INTERFACE_PRECOMPILE_HEADERS: scanned"
         "PRECOMPILE_HEADERS_REUSE_FROM: <none>"
+        "Target, interface, and source forced include options: forbidden"
+        "Library-injecting link options: forbidden"
         "Allowed Windows PRIVATE links: User32"
         "Required Windows PUBLIC link: Cue.Platform"
         "Allowed Windows LINK_ONLY links: User32"
