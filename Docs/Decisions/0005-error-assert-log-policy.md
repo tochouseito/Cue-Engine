@@ -119,6 +119,7 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 - 各最終ExecutableのComposition Rootは、Module境界の契約違反やEntry Point自身の例外に備えた最後のFallbackとして捕捉できる。捕捉後に通常実行へ復帰せずFatal終了する
 - Allocation失敗からのRecovery方針はM01では決定しない。`std::bad_alloc`をRecoverable Errorとして暗黙変換しない
 - First-party Module内で`std::bad_alloc`を捕捉した場合は、通常処理、通常Log、Fatal、Assertの区別なく、所有文字列、`Error`、`LogRecord`、残りのSink出力を新規生成せず、注入済みFatal HandlerのEmergency Entry Pointを直接呼ぶ。AdapterとModule Public Entry Pointは、この経路へ到達できる非所有参照を構築時に受け取る
+- Fatal HandlerのOwnerは、その非所有参照を保持する全Module、Adapter、Loggerより長く生存する。Composition Rootは参照側をすべて破棄してからFatal Handlerを最後に破棄する
 - Emergency Entry Pointは静的文字列Viewだけを受け取り、追加Allocationを行わず、`noexcept`かつ呼び出し側へ戻らない。既定Handlerは`std::abort`を使用する
 
 Compilerの例外機能を無効化するかは、外部Libraryと標準Libraryの要件を調査する別Decisionとします。このADRは言語機能が有効でもEngine API契約に使用しないことを定めます。
@@ -263,6 +264,8 @@ LoggerとSinkの規則:
 - Loggerは0個以上の`std::unique_ptr<LogSink>`を受け取り、Sinkを一意所有する
 - Global Logger、Global Sink Registry、Service Locatorを導入しない
 - `Logger::log`と`Logger::flush`は同期かつ非例外APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する。通常Log Recordの構築もLogger Entry Pointの例外境界内で行う
+- 各Logger Entry PointはMutex取得前に、Allocation不要なThread-local Reentry Guard Chainを確認する。Chain上に同じLoggerがあれば待機せずEmergency Entry Pointを呼び、異なるLoggerの入れ子は許可する
+- Reentry Guardは呼び出しStack上のNodeとThread-localな現在NodeへのPointerだけで構成し、Heap Allocationを行わない。Scope終了時に以前のNodeを復元する
 - 通常APIのMutex待機取得が例外を投げた場合、Loggerは内部で捕捉し、診断経路へ再入せずFatal HandlerのEmergency Entry Pointを直接呼ぶ。Mutex再入やResource異常を回復可能なLog失敗へ降格しない
 - Fatal経路は`Logger::log_and_flush`を使用し、Mutexを`try_lock`で一度だけ取得する。取得成功時は同じLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了し、他ThreadのRecordを割り込ませない
 - Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
@@ -321,6 +324,8 @@ ConsoleとDebugger Outputの選択規則:
 - Flushが全Sinkへ伝播することを検証する
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 - Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
+- Sinkから同一Loggerへ再入するとMutex取得前に検出され、Emergency Entry Pointから規定終了することをProcess Testで検証する
+- Sinkから異なるLoggerを呼ぶ入れ子は許可され、各Recordが一度ずつ出力されることを検証する
 - 通常LoggerのMutex取得例外が内部で捕捉され、Emergency Entry Pointから規定終了することをProcess Testで検証する
 - Sinkが非例外で失敗を返す場合は残りのSinkが処理され、Sinkが例外を投げる場合は残りのSinkが呼ばれずEmergency Entry Pointから規定終了することを検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
