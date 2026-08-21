@@ -3,6 +3,11 @@ add_executable(CueFoundationResultTests ResultTests.cpp)
 target_link_libraries(CueFoundationResultTests PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationResultTests PRIVATE cxx_std_20)
 
+add_executable(CueFoundationEmergencyTests EmergencyFailureTests.cpp)
+
+target_link_libraries(CueFoundationEmergencyTests PRIVATE Cue.Foundation)
+target_compile_features(CueFoundationEmergencyTests PRIVATE cxx_std_20)
+
 add_executable(
     CueFoundationPublicHeaderTest
     EmergencyHandlerHeaderCompile.cpp
@@ -16,7 +21,13 @@ add_executable(
 target_link_libraries(CueFoundationPublicHeaderTest PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationPublicHeaderTest PRIVATE cxx_std_20)
 
-foreach(testTarget IN ITEMS CueFoundationResultTests CueFoundationPublicHeaderTest)
+foreach(
+    testTarget
+    IN ITEMS
+        CueFoundationEmergencyTests
+        CueFoundationResultTests
+        CueFoundationPublicHeaderTest
+)
     set_target_properties(
         ${testTarget}
         PROPERTIES
@@ -48,10 +59,39 @@ endforeach()
 add_test(NAME Cue.Foundation.Result COMMAND CueFoundationResultTests)
 add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest)
 
+foreach(
+    emergencyMode
+    IN ITEMS
+        AddContext
+        CreateError
+        CreateErrorCode
+        Reclassify
+)
+    add_test(
+        NAME Cue.Foundation.Emergency.${emergencyMode}
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueFoundationEmergencyTests>
+            -DTEST_MODE=${emergencyMode}
+            -DEXPECTED_EXIT_CODE=73
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyEmergencyExit.cmake
+    )
+endforeach()
+
 set_tests_properties(
     Cue.Foundation.Result
     Cue.Foundation.PublicHeaders
     PROPERTIES
         LABELS Foundation
+        TIMEOUT 10
+)
+
+set_tests_properties(
+    Cue.Foundation.Emergency.AddContext
+    Cue.Foundation.Emergency.CreateError
+    Cue.Foundation.Emergency.CreateErrorCode
+    Cue.Foundation.Emergency.Reclassify
+    PROPERTIES
+        LABELS "Foundation;Emergency"
         TIMEOUT 10
 )
