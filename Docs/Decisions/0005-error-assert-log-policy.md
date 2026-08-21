@@ -63,6 +63,21 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 | Godot | [`ERR_FAIL_*` Macro](https://docs.godotengine.org/en/stable/contributing/development/core_and_modules/common_engine_methods_and_macros.html)で診断と早期Returnを組み合わせ、[`Logger`](https://docs.godotengine.org/en/stable/classes/class_logger.html)を追加できる | 継続可能な失敗を簡潔に報告でき、Custom Loggerによる拡張点を持つ | Error出力とControl FlowがMacroへ結合しやすく、下位層での重複Logを避けるには運用規則が必要になる |
 | CueEngine M01 | Recoverable Errorを`Result`、Programmer ErrorをAssert、継続不能状態をFatalへ分離し、LoggerとSinkを明示所有・注入する | Module境界、所有権、Test差し替え、Platform非依存性をReviewしやすい。Global状態なしで診断経路を検証できる | Unreal EngineのCategory／動的Verbosity、UnityのObject Context、Godotの簡潔な早期Return MacroはM01では持たない。Call SiteのResult処理と依存注入が増え、同期LoggerのI/O Costを負う |
 
+公式資料で確認した機能をCueEngineへ適用する観点から、必須の比較軸を次のように評価します。これは各Engine全体の優劣ではなく、M01のError／Assert／Log方針に限定した設計上の評価です。
+
+| Viewpoint | Unreal Engine approach | Unity approach | Godot approach | CueEngine M01 decision |
+| --- | --- | --- | --- | --- |
+| Usability | 用途別MacroとCategoryを選ぶ | 単純な`Debug` APIとObject Contextを使う | Error Macroで診断とReturnを同時記述する | `Result`処理とContext注入を明示するため記述量は増える |
+| Runtime Performance | Build別Assert除去とVerbosity FilterでCostを制御する | Message変換とConsole統合のCostを許容する | Macroによる早期Returnと必要時の出力を行う | Release Assertは無評価だが、Error所有と同期SinkにAllocation／I/O Costがある |
+| Iteration Speed | Editor Output、Log Category、`ensure`で調査しやすい | ConsoleからObject Contextへ辿りやすい | Editor OutputとTrace付きErrorを利用できる | Source LocationとCauseを持つが、Editor統合は後続Milestoneとなる |
+| Extensibility | Category、Verbosity、Output経路の選択肢が多い | `ILogger`とEditor側の表示機能へ統合される | Custom `Logger`を登録できる | 一意所有する`LogSink`を差し替えられるが、CategoryとStructured Fieldは未実装 |
+| Portability | Engine Coreの抽象化内で複数Platformへ提供される | Managed APIとして複数Player Platformへ提供される | Engine Core MacroとLoggerとして複数Platformへ提供される | Public ValueにNative型を含めず、Platform固有変換をPrivate Targetへ隔離する |
+| Data Safety | `check`／`verify`／`ensure`の選択をCall Siteへ委ねる | AssertまたはException後の継続判断がManaged実行環境と利用側に依存する | 継続を重視するError Macroが多い | Recoverable、Programmer、Fatalを分離し、予期しない例外をFatalへ固定する |
+| Compatibility | Unreal Engine固有Macroと型へ依存する | UnityEngine ObjectとManaged APIへ依存する | Godot Core Macro、String、Objectへ依存する | First-party C++ APIに限定し、Plugin ABIへSTL、例外、`Result`を公開しない |
+| Diagnostics | Category、Verbosity、Assert Family、Crash Reporter連携を持つ | Console Message、Object Context、Exception Logを持つ | File、Function、Line、Trace、Custom Loggerを持つ | Error Code、Native Error、Context、Cause、Source Locationを一つのRecordへ渡す |
+| Testability | Engine MacroとOutput Deviceを含むHarnessが必要になる | Unity Test環境とConsole／Assertion挙動へ依存する | Engine Macroと登録Loggerを含むHarnessが必要になる | Logger、Sink、Fatal HandlerをInstance注入し、Process Testで終了も検証する |
+| Complexity | 機能が豊富な分、Macro、Category、設定の選択が多い | Call Siteは単純だがManaged／Editor統合全体へ依存する | Macroは簡潔だが診断とControl Flowが結合する | 機能量を絞る代わりに、所有権、Lifetime、失敗経路を明示する必要がある |
+
 比較の結果、M01では診断機能の量より、Runtime境界の明確さ、Portability、Data Safety、Testabilityを優先します。Category、Structured Field、Editor Object Context、非同期出力は実測要件と所有権設計が揃った後のIssueで検討します。
 
 ## Decision
@@ -171,9 +186,11 @@ CueRuntimeHost
     Context: Main window initialization failed
 ```
 
-- Error Codeは最初の失敗原因を保持する
+- 再分類しない伝播ではPrimary Error Codeを保持し、Context追加で上書きしない
 - Context追加でError Codeを別Codeへ上書きしない
-- 抽象Boundaryで意味が変わる場合だけ、新しいErrorを作り、元ErrorのError Code、Summary、Context、Native情報、既存CauseをCause Chainへ構造化して残す
+- 抽象Boundaryで意味が変わる場合だけ、新しいErrorを作る。この場合のPrimary Error Codeは新しい抽象Levelの失敗を表す
+- 再分類前のPrimary Error Code、Summary、Context、Native情報、既存CauseはCause Chainへ構造化して残す
+- Root Cause CodeはCause Chainの最後のFrameにあり、CauseがないErrorではPrimary Error Code自身をRoot Cause Codeとする
 - 下位層は返却前にLogしない
 - RuntimeHostなど処理を終了、代替、利用者通知へ変換するBoundaryがLog Levelを決める
 
@@ -222,7 +239,7 @@ Fatal経路は次の順序で実行します。
 
 Fatal HandlerはComposition Rootが一意所有し、Fatal経路は非所有参照を受け取ります。Production既定Handlerは`std::abort`またはPlatform固有の終了処理を使用します。Test Processは終了Codeを固定するHandlerへ差し替え、親CTestから終了を検証できます。
 
-Fatal DispatcherはRecord構築とLogger呼び出しを例外境界で囲み、Sink失敗、予期しないSink例外、Mutex取得失敗があってもFatal Handlerを必ず呼びます。`std::bad_alloc`では通常のRecordを構築せずEmergency Entry Pointへ直行します。Fatal Handler自身の契約違反、OSによる強制終了、Process破損のようにC++で制御できない事象は保証対象外です。
+Fatal DispatcherはRecord構築とLogger呼び出しを例外境界で囲み、Sink失敗、予期しないSink例外、Mutex取得失敗があってもFatal Handlerを必ず呼びます。Fatal用`log_and_flush`はMutexを待機せず`try_lock`し、競合時はRecord出力を諦めてEmergency Entry Pointへ直行します。`std::bad_alloc`でも通常のRecord構築、残りのSink処理、結果集約を中止してEmergency Entry Pointへ直行します。Fatal Handler自身の契約違反、OSによる強制終了、Process破損のようにC++で制御できない事象は保証対象外です。
 
 ### Log Policy
 
@@ -245,14 +262,16 @@ LoggerとSinkの規則:
 - Loggerは0個以上の`std::unique_ptr<LogSink>`を受け取り、Sinkを一意所有する
 - Global Logger、Global Sink Registry、Service Locatorを導入しない
 - `Logger::log`と`Logger::flush`は同期APIとし、同じLogger内部Mutexで`write`と`flush`を直列化する
-- Fatal経路は`Logger::log_and_flush`を使用し、一度のLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了する。他ThreadのRecordはこの区間へ割り込まない
+- Fatal経路は`Logger::log_and_flush`を使用し、Mutexを`try_lock`で一度だけ取得する。取得成功時は同じLock保持中にFatal Recordの全Sinkへの`write`と全Sinkの`flush`を完了し、他ThreadのRecordを割り込ませない
+- Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
 - SinkはLoggerのLock保持中に呼ばれ、同じLoggerへ再入してはならない
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
 - Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
 - Loggerは一つのSinkが失敗しても残りのSinkを処理し、全Sinkの結果を集約した成功可否を返す。Sink失敗を同じLoggerへ再Logしない
-- Loggerは契約違反のSink例外も各呼び出し単位で捕捉し、残りのSinkを処理する
+- Loggerは契約違反のSink例外も各呼び出し単位で捕捉し、`std::bad_alloc`以外では残りのSinkを処理する
+- Sinkが`std::bad_alloc`を投げた場合、Loggerは残りのSink処理と結果集約を中止し、Allocation不要な`OutOfMemory`結果を直ちにFatal Dispatcherへ返す。通常Logでは同じ結果を呼び出し側へ返し、追加診断を生成しない
 - Fatal Dispatcherは`log_and_flush`の失敗結果または例外にかかわらずFatal Handlerを呼び、診断I/O失敗を理由に安全でない実行へ復帰しない
 - Console Sinkは出力またはFlush失敗を`false`で報告してRecordを破棄する。再帰Logや追加Allocationを伴うFallbackは行わない
 
@@ -289,6 +308,7 @@ ConsoleとDebugger Outputの選択規則:
 - `Result<void>`の成功と失敗を検証する
 - Context追加後もError Code、Native Error、既存Contextが保持される
 - Error再分類後も元Error Code、Summary、Context、Native Error、既存CauseがCause Chainに保持される
+- Error再分類後のPrimary Error Codeが新しい抽象Levelを表し、Root Cause CodeがCause Chain末尾から取得できる
 - Copy／Move後も状態と値が保持される
 
 ### Logger
@@ -298,7 +318,9 @@ ConsoleとDebugger Outputの選択規則:
 - 複数Sinkへ一度ずつ登録順に出力されることを検証する
 - Flushが全Sinkへ伝播することを検証する
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
+- Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
 - `write`または`flush`が失敗を返すSinkと例外を投げる契約違反Sinkがあっても、残りのSinkが処理されることを検証する
+- Sinkが`std::bad_alloc`を投げると残りのSinkが呼ばれず`OutOfMemory`を返すことを検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
 
 ### Assert and Fatal
@@ -309,6 +331,7 @@ ConsoleとDebugger Outputの選択規則:
 - 失敗条件は子Processで実行し、Fatal Recordと規定終了Codeを検証する
 - Fatal Handlerが呼び出し側へ戻らないことを型とProcess Testで検証する
 - Sinkの`write`／`flush`失敗と予期しない例外の後にもFatal Handlerが呼ばれることをProcess Testで検証する
+- Fatal時のLogger Mutex競合とSinkの`std::bad_alloc`後にEmergency Entry Pointから規定終了することをProcess Testで検証する
 - `std::bad_alloc`用経路が通常のLogRecordを構築せずEmergency Entry Pointから規定終了することをProcess Testで検証する
 
 ### Boundary Scenarios
