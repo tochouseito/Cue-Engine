@@ -1,0 +1,57 @@
+add_library(Cue.Platform.Windows STATIC)
+
+target_sources(
+    Cue.Platform.Windows
+    PRIVATE
+        Private/WindowsPlatform.cpp
+    PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS Public
+        FILES
+            Public/Cue/Platform/Windows/WindowsPlatform.h
+)
+
+target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform)
+target_compile_features(Cue.Platform.Windows PUBLIC cxx_std_20)
+
+target_compile_definitions(
+    Cue.Platform.Windows
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_include_directories(
+    Cue.Platform.Windows
+    PUBLIC
+        Public
+    PRIVATE
+        Private
+)
+
+set_target_properties(
+    Cue.Platform.Windows
+    PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>"
+        CXX_EXTENSIONS OFF
+)
+
+if(MSVC)
+    target_compile_options(
+        Cue.Platform.Windows
+        PRIVATE
+            /W4
+            /WX
+            /permissive-
+            /Zc:__cplusplus
+            /utf-8
+            $<$<CONFIG:Development>:/O2>
+            $<$<CONFIG:Development>:/Zi>
+    )
+
+    target_link_options(
+        Cue.Platform.Windows
+        PRIVATE
+            $<$<CONFIG:Development>:/DEBUG>
+    )
+endif()

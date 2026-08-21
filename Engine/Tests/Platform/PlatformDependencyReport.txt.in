@@ -1,0 +1,26 @@
+Cue.Platform LINK_LIBRARIES: @cuePlatformLinks@
+Cue.Platform INTERFACE_LINK_LIBRARIES: @cuePlatformInterfaceLinks@
+Cue.Platform.Windows LINK_LIBRARIES: @cuePlatformWindowsLinks@
+Cue.Platform.Windows INTERFACE_LINK_LIBRARIES: @cuePlatformWindowsInterfaceLinks@
+Cue.Platform MANUALLY_ADDED_DEPENDENCIES: <none>
+Cue.Platform INTERFACE_SOURCES: <none>
+Cue.Platform INTERFACE_LINK_LIBRARIES_DIRECT: <none>
+Cue.Platform.Windows MANUALLY_ADDED_DEPENDENCIES: <none>
+Cue.Platform.Windows INTERFACE_SOURCES: <none>
+Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>
+Generated and target object sources: <none>
+Target Source, Header, CXX Module, and precompiled header scan: enabled
+Named Header File Sets: scanned
+Named CXX Module File Sets: scanned
+PRECOMPILE_HEADERS and INTERFACE_PRECOMPILE_HEADERS: scanned
+PRECOMPILE_HEADERS_REUSE_FROM: <none>
+Target, interface, and source forced include options: forbidden
+Library-injecting link options: forbidden
+Allowed Windows PRIVATE links: User32
+Required Windows PUBLIC link: Cue.Platform
+Allowed Windows LINK_ONLY links: User32
+Forbidden dependencies: Cue.RHI;D3D12;Editor
+Windows SDK and non-standard UCRT include boundary: Windows/Private
+Compiler pragma link injection: forbidden
+Non-literal include directives: forbidden
+Preprocessor line continuations: normalized
