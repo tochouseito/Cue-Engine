@@ -54,6 +54,17 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 - Test SinkでLog Recordと同期動作を検証する
 - AssertのBuild構成別有効化とFatal終了経路をProcess Testで検証する
 
+## Reference Engine Comparison
+
+| Engine | Relevant Approach | Strengths | Trade-offs |
+| --- | --- | --- | --- |
+| Unreal Engine | [`check`、`verify`、`ensure`](https://dev.epicgames.com/documentation/unreal-engine/asserts-in-unreal-engine?lang=en-US)を用途とBuild構成で分け、[`UE_LOG`](https://dev.epicgames.com/documentation/unreal-engine/logging-in-unreal-engine?lang=en-US)はCategoryとVerbosityを持つ | 大規模Projectで診断意図を細かく表現でき、Shipping時のCostも制御しやすい | MacroとCategoryの選択肢が多く、使い分けと設定の学習Costが高い。M01で同等の機能量を導入するとFoundationのScopeを超える |
+| Unity | [`Debug.Assert`](https://docs.unity3d.com/ja/6000.0/ScriptReference/Debug.Assert.html)と[`Debug.Log`](https://docs.unity3d.com/ja/current/ScriptReference/Debug.Log.html)がConsoleおよびObject Contextへ統合される | Editor上で直感的に利用でき、Objectと診断を結び付けやすくIterationが速い | Managed ObjectとEditor統合を前提とする利便性をNative Runtime Foundationへそのまま適用できない。AllocationとEditor依存をRuntime境界へ持ち込まない設計が必要になる |
+| Godot | [`ERR_FAIL_*` Macro](https://docs.godotengine.org/en/stable/contributing/development/core_and_modules/common_engine_methods_and_macros.html)で診断と早期Returnを組み合わせ、[`Logger`](https://docs.godotengine.org/en/stable/classes/class_logger.html)を追加できる | 継続可能な失敗を簡潔に報告でき、Custom Loggerによる拡張点を持つ | Error出力とControl FlowがMacroへ結合しやすく、下位層での重複Logを避けるには運用規則が必要になる |
+| CueEngine M01 | Recoverable Errorを`Result`、Programmer ErrorをAssert、継続不能状態をFatalへ分離し、LoggerとSinkを明示所有・注入する | Module境界、所有権、Test差し替え、Platform非依存性をReviewしやすい。Global状態なしで診断経路を検証できる | Unreal EngineのCategory／動的Verbosity、UnityのObject Context、Godotの簡潔な早期Return MacroはM01では持たない。Call SiteのResult処理と依存注入が増え、同期LoggerのI/O Costを負う |
+
+比較の結果、M01では診断機能の量より、Runtime境界の明確さ、Portability、Data Safety、Testabilityを優先します。Category、Structured Field、Editor Object Context、非同期出力は実測要件と所有権設計が揃った後のIssueで検討します。
+
 ## Decision
 
 ### Error Classification
@@ -92,6 +103,8 @@ Recoverable Errorは`Result<T>`で返し、Programmer ErrorはAssert、継続不
 - 文書化された回復可能な外部例外はErrorへ変換し、それ以外の予期しない例外は同じModule内でFatalへ変換する
 - 各最終ExecutableのComposition Rootは、Module境界の契約違反やEntry Point自身の例外に備えた最後のFallbackとして捕捉できる。捕捉後に通常実行へ復帰せずFatal終了する
 - Allocation失敗からのRecovery方針はM01では決定しない。`std::bad_alloc`をRecoverable Errorとして暗黙変換しない
+- `std::bad_alloc`を捕捉した経路は、所有文字列、`Error`、`LogRecord`、Sink出力を新規生成せず、事前構築されたFatal HandlerのEmergency Entry Pointを直接呼ぶ
+- Emergency Entry Pointは静的文字列Viewだけを受け取り、追加Allocationを行わず、`noexcept`かつ呼び出し側へ戻らない。既定Handlerは`std::abort`を使用する
 
 Compilerの例外機能を無効化するかは、外部Libraryと標準Libraryの要件を調査する別Decisionとします。このADRは言語機能が有効でもEngine API契約に使用しないことを定めます。
 
@@ -108,6 +121,7 @@ Compilerの例外機能を無効化するかは、外部Libraryと標準Library�
 - 利用者向けではなく開発者向けのUTF-8 Summary
 - 0個以上のContext Frame
 - 任意のNative Error情報
+- 0個以上のCause Frame
 
 Context Frameは次を保持します。
 
@@ -118,6 +132,15 @@ Native Error情報はNative Headerへ依存しない次のValueで保持しま�
 
 - Domainを表すUTF-8文字列
 - Native値を損失なく格納する符号付き64-bit Code
+
+Cause Frameは、再分類前のErrorを構造化して保持する非再帰Valueです。
+
+- `ErrorCode`
+- UTF-8 Summary
+- 0個以上のContext Frame
+- 任意のNative Error情報
+
+新しいErrorへ再分類する場合、直前のErrorを最初のCause FrameへSnapshotし、そのErrorが既に持つCause Frameを後ろへ移します。これにより、新しいPrimary ErrorからImmediate Cause、Root Causeの順に辿れます。
 
 `Result<T>`の規則:
 
@@ -130,7 +153,7 @@ Native Error情報はNative Headerへ依存しない次のValueで保持しま�
 - 返却PointerはResultが同じ状態で生存している間だけ有効とする
 - Probe APIは`&`と`const &`修飾だけを提供し、`&&`と`const &&`からの呼び出しを削除して一時ResultからのPointer取得を禁止する
 - 状態を前提とするAccess APIを追加する場合、誤用はProgrammer ErrorとしてAssertする
-- ErrorへContextを追加する操作はError所有権を維持し、元のError CodeとNative Errorを失わない
+- ErrorへContextまたはCauseを追加する操作はError所有権を維持し、元のError Code、Native Error、既存Causeを失わない
 - Errorを含むResultから成功値をDefault生成しない
 
 ErrorとResultはM01のFirst-party Static Library境界で使用するC++ APIです。安定ABIではなく、Plugin境界へそのまま公開しません。
@@ -150,7 +173,7 @@ CueRuntimeHost
 
 - Error Codeは最初の失敗原因を保持する
 - Context追加でError Codeを別Codeへ上書きしない
-- 抽象Boundaryで意味が変わる場合だけ、新しいErrorを作り、元ErrorのSummaryとNative情報をContextへ残す
+- 抽象Boundaryで意味が変わる場合だけ、新しいErrorを作り、元ErrorのError Code、Summary、Context、Native情報、既存CauseをCause Chainへ構造化して残す
 - 下位層は返却前にLogしない
 - RuntimeHostなど処理を終了、代替、利用者通知へ変換するBoundaryがLog Levelを決める
 
@@ -199,6 +222,8 @@ Fatal経路は次の順序で実行します。
 
 Fatal HandlerはComposition Rootが一意所有し、Fatal経路は非所有参照を受け取ります。Production既定Handlerは`std::abort`またはPlatform固有の終了処理を使用します。Test Processは終了Codeを固定するHandlerへ差し替え、親CTestから終了を検証できます。
 
+Fatal DispatcherはRecord構築とLogger呼び出しを例外境界で囲み、Sink失敗、予期しないSink例外、Mutex取得失敗があってもFatal Handlerを必ず呼びます。`std::bad_alloc`では通常のRecordを構築せずEmergency Entry Pointへ直行します。Fatal Handler自身の契約違反、OSによる強制終了、Process破損のようにC++で制御できない事象は保証対象外です。
+
 ### Log Policy
 
 Log Levelは次の6種類です。
@@ -212,7 +237,7 @@ Log Levelは次の6種類です。
 | Error | 現在の操作が失敗したがProcessは継続可能 |
 | Fatal | 安全な継続ができずProcessを終了する状態 |
 
-`LogRecord`はLevel、UTF-8 Message、Source Locationを保持します。Timestamp、Thread ID、Category、Structured Fieldは実測要件が確認されるまで必須にしません。
+`LogRecord`はLevel、UTF-8 Message、Source Location、任意の`Error`をValueで所有します。Errorを持つRecordはError Code、Summary、Context、Native Error、Cause ChainをSinkへ渡せます。Sinkが受け取る`LogRecord`参照は同期`write`呼び出し中だけ有効であり、Sinkは参照または内部Pointerを保持しません。Timestamp、Thread ID、Category、Structured Fieldは実測要件が確認されるまで必須にしません。
 
 LoggerとSinkの規則:
 
@@ -225,7 +250,11 @@ LoggerとSinkの規則:
 - SinkはLoggerのLock保持中に呼ばれ、同じLoggerへ再入してはならない
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
-- Sinkの`write`失敗は例外を投げない。Fallback診断または破棄方針をSink実装ごとに明記する
+- Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
+- Loggerは一つのSinkが失敗しても残りのSinkを処理し、全Sinkの結果を集約した成功可否を返す。Sink失敗を同じLoggerへ再Logしない
+- Loggerは契約違反のSink例外も各呼び出し単位で捕捉し、残りのSinkを処理する
+- Fatal Dispatcherは`log_and_flush`の失敗結果または例外にかかわらずFatal Handlerを呼び、診断I/O失敗を理由に安全でない実行へ復帰しない
+- Console Sinkは出力またはFlush失敗を`false`で報告してRecordを破棄する。再帰Logや追加Allocationを伴うFallbackは行わない
 
 最小Formatは次とします。
 
@@ -247,7 +276,7 @@ ConsoleとDebugger Outputの選択規則:
 - `std::string`、`std::vector`、`std::unique_ptr`などSTL所有権を境界へ出さない
 - FoundationのC++ `Result`をPlugin ABIへそのまま公開しない
 - 将来のPlugin ABIはVersion付きPOD、明示的なBuffer Ownership、Error CodeとUTF-8 Viewを持つAdapterを定義する
-- 境界内部で発生した予期しない例外は境界内で捕捉し、Error Codeへ変換するかFatal終了する
+- 境界内部で発生した文書化済みの回復可能例外だけをError Codeへ変換する。予期しない例外は境界内で捕捉してFatal終了し、Recoverable Errorへ降格しない
 
 ## Test Strategy
 
@@ -259,6 +288,7 @@ ConsoleとDebugger Outputの選択規則:
 - Probe APIが右辺値Resultから呼び出せないことをCompile-time Testで検証する
 - `Result<void>`の成功と失敗を検証する
 - Context追加後もError Code、Native Error、既存Contextが保持される
+- Error再分類後も元Error Code、Summary、Context、Native Error、既存CauseがCause Chainに保持される
 - Copy／Move後も状態と値が保持される
 
 ### Logger
@@ -268,6 +298,8 @@ ConsoleとDebugger Outputの選択規則:
 - 複数Sinkへ一度ずつ登録順に出力されることを検証する
 - Flushが全Sinkへ伝播することを検証する
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
+- `write`または`flush`が失敗を返すSinkと例外を投げる契約違反Sinkがあっても、残りのSinkが処理されることを検証する
+- Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
 
 ### Assert and Fatal
 
@@ -276,6 +308,8 @@ ConsoleとDebugger Outputの選択規則:
 - 成功条件ではLogとFatal Handlerが呼ばれないことを検証する
 - 失敗条件は子Processで実行し、Fatal Recordと規定終了Codeを検証する
 - Fatal Handlerが呼び出し側へ戻らないことを型とProcess Testで検証する
+- Sinkの`write`／`flush`失敗と予期しない例外の後にもFatal Handlerが呼ばれることをProcess Testで検証する
+- `std::bad_alloc`用経路が通常のLogRecordを構築せずEmergency Entry Pointから規定終了することをProcess Testで検証する
 
 ### Boundary Scenarios
 
@@ -300,6 +334,7 @@ ConsoleとDebugger Outputの選択規則:
 - Assert ContextとLoggerを必要な経路へ注入する必要がある
 - 同期LoggerはSink I/O時間だけ呼出Threadを停止する
 - ErrorとContextのUTF-8文字列所有にAllocationが発生する
+- Errorの再分類ではCause FrameをValue所有するため追加Allocationが発生する
 - C++例外機能そのものの無効化は未決定のまま残る
 
 ## Enforcement
