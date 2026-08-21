@@ -114,17 +114,17 @@ Engine/Source/Platform/
 ### Ownership and Lifetime
 
 - RuntimeHostは`WindowSystem`を`std::unique_ptr`で一意所有する
-- RuntimeHostは`EmergencyHandler`を所有し、非所有参照をWindows実装Factoryへ注入する
+- RuntimeHostは`FatalHandler`、`Logger`、`AssertContext`をこの順に構築し、`AssertContext`の非所有参照をWindows実装Factoryへ注入する
 - `WindowSystem`はWin32 Window Class登録とWindow実装の生成を管理する
-- `WindowSystem`は注入された`EmergencyHandler`の非所有参照を保持し、Error生成とAllocation失敗のEmergency経路に使用する
+- `WindowSystem`は注入された`AssertContext`の非所有参照を保持し、Thread前提のAssertに使用する。Error生成とAllocation失敗では`AssertContext::fatal_handler()`を`EmergencyHandler`として使用する
 - RuntimeHostは`Window`を`std::unique_ptr`で一意所有する
 - `Window`はNative Window Handle、Window状態、Event Queueを所有する
 - `WindowSystem`は自身から生成したすべての`Window`より長く生存する
-- `EmergencyHandler`は`WindowSystem`と、そこから生成したすべての`Window`より長く生存する
+- `AssertContext`、その`Logger`、`FatalHandler`は`WindowSystem`と、そこから生成したすべての`Window`より長く生存する
 - `Window`の破棄完了後に`WindowSystem`を破棄し、最後のWindow破棄後にWindow Classを解除する
 - Window、Event、Native Viewは共有所有しない
 - Destructionは例外を送出しない。明示的な`destroy()`で失敗を返せる操作を完了し、Destructorは正しいThread上で残存ResourceをBest-effort Cleanupする
-- RuntimeHostは通常経路と初期化途中の失敗経路の両方で、Window、WindowSystem、EmergencyHandlerの順に破棄する
+- RuntimeHostは通常経路と初期化途中の失敗経路の両方で、Window、WindowSystem、AssertContext、Logger、FatalHandlerの順に破棄する
 
 ### Lifecycle State
 
@@ -276,7 +276,7 @@ Validate Descriptor
 ```
 
 - Descriptor検証またはUTF変換失敗ではNative状態を変更しない
-- Windows実装Factory、`WindowSystem`、`Window`は注入された`EmergencyHandler`へ到達できる非所有参照を保持し、`noexcept`境界内のAllocation失敗では追加Allocationなしに`terminate()`を呼ぶ
+- Windows実装Factory、`WindowSystem`、`Window`は注入された`AssertContext`へ到達できる非所有参照を保持する。`noexcept`境界内のAllocation失敗では、その`FatalHandler`のEmergency Entry Pointを追加Allocationなしに呼ぶ
 - Window Class登録失敗ではNative Error付きResultを返す
 - Window Size計算またはWindow生成失敗では、今回取得したWindow Class参照を解放する
 - `CreateWindowExW`中にWindow ProcedureへOwnerを関連付け、失敗時にDangling Pointerを残さない
@@ -351,11 +351,11 @@ Windows実装Factoryは`Cue/Platform/Windows/WindowsPlatform.h`へ置く。
 namespace cue
 {
 [[nodiscard]] Result<std::unique_ptr<WindowSystem>>
-create_windows_window_system(EmergencyHandler& a_emergencyHandler) noexcept;
+create_windows_window_system(const AssertContext& a_assertContext) noexcept;
 }
 ```
 
-`a_emergencyHandler`のOwnerは、返された`WindowSystem`とそこから生成した全Windowより長く生存させる。
+`a_assertContext`、参照先の`Logger`、`FatalHandler`のOwnerは、返された`WindowSystem`とそこから生成した全Windowより長く生存させる。`FatalHandler`はAllocation失敗時の`EmergencyHandler`も兼ねる。
 
 ### Lifecycle Sequences
 
