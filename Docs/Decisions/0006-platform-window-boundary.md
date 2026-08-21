@@ -145,7 +145,8 @@ Created --show()--> Visible
 - `CloseRequested`は利用者が終了判断を行う状態であり、Native Windowはまだ有効
 - `Destroyed`はNative Handleが無効な終端状態である。`destroy()`だけは冪等な成功とし、その他のNative操作を許可しない
 - `WM_CLOSE`を受信しただけでは`DestroyWindow`を呼ばず、Default Window Procedureへも渡さない。`CloseRequested` Eventを通知し、RuntimeHostが終了判断後に`destroy()`を呼ぶ
-- `WM_DESTROY`で状態を`Destroyed`へ遷移し、`Destroyed` Eventを通知してから、単一Main Windowの終了通知として`PostQuitMessage`を呼ぶ
+- `WM_DESTROY`で状態を`Destroyed`へ遷移し、`Destroyed` Eventを通知する。Factoryから所有権を返した公開済みMain Windowの破棄時だけ、終了通知として`PostQuitMessage`を呼ぶ
+- Windows実装は`CreateWindowExW`中のCallbackで参照できる公開状態を保持し、Factoryから所有権を返す直前にだけ公開済みへ遷移する。生成途中のRollback破棄では`WM_DESTROY`を処理しても`PostQuitMessage`を呼ばない
 - 同じClose Requestは、前回のRequestが処理されるまで重複Queueしない
 - `destroy()`は同じThreadから複数回呼ばれた場合、既に`Destroyed`なら成功として扱う
 - `Destroyed`を含む不正状態での`show()`とNative View取得はProgrammer Errorとし、`Result`へ変換せずAssertする
@@ -280,7 +281,8 @@ Validate Descriptor
 - Window Class登録失敗ではNative Error付きResultを返す
 - Window Size計算またはWindow生成失敗では、今回取得したWindow Class参照を解放する
 - `CreateWindowExW`中にWindow ProcedureへOwnerを関連付け、失敗時にDangling Pointerを残さない
-- Window生成成功後の失敗では`DestroyWindow`を呼び、Handle無効化を確認してから所有権を破棄する
+- Window生成成功後、Factoryから所有権を返す前の失敗ではRollback状態のまま`DestroyWindow`を呼び、`WM_DESTROY`から`WM_QUIT`を投稿しない。Handle無効化を確認してから所有権を破棄する
+- 公開済みMain Windowの終了だけが`WM_QUIT`を投稿するため、Recoverableな生成失敗後も同じThreadでWindow生成を再試行できる
 - 最後のWindow破棄後に限りWindow Classを解除する
 - 解除失敗はDestructorから例外送出せず、利用可能なら診断Sinkへ報告する。M02ではGlobal Loggerを導入しない
 - Recoverable Errorは下位層で重複Logせず、RuntimeHostの処理BoundaryでContextを追加して一度だけLogする
@@ -383,6 +385,12 @@ Validate -> Convert -> Register Class -> CreateWindowExW fails
                                       -> release class reference
                                       -> unregister if last reference
                                       -> Result Error with NativeError
+
+CreateWindowExW succeeds -> later setup fails -> keep rollback state
+                                             -> DestroyWindow / WM_DESTROY
+                                             -> no PostQuitMessage
+                                             -> release ownership and class reference
+                                             -> retry remains possible
 ```
 
 Resize、Minimize、Restore:
