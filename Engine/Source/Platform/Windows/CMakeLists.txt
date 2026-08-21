@@ -3,15 +3,27 @@ add_library(Cue.Platform.Windows STATIC)
 target_sources(
     Cue.Platform.Windows
     PRIVATE
+        Private/UtfConversion.cpp
+        Private/UtfConversion.h
+        Private/WindowsWindowInterop.cpp
+        Private/WindowsWindow.cpp
+        Private/WindowsWindow.h
         Private/WindowsPlatform.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
             Public/Cue/Platform/Windows/WindowsPlatform.h
+            Public/Cue/Platform/Windows/WindowsWindowInterop.h
 )
 
-target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform)
+target_link_libraries(
+    Cue.Platform.Windows
+    PUBLIC
+        Cue.Platform
+    PRIVATE
+        User32
+)
 target_compile_features(Cue.Platform.Windows PUBLIC cxx_std_20)
 
 target_compile_definitions(

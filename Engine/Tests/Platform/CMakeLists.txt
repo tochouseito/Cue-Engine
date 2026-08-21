@@ -13,16 +13,26 @@ add_executable(
     CuePlatformWindowsPublicHeaderTest
     PublicHeaderCompile.cpp
     WindowsPlatformHeaderCompile.cpp
+    WindowsWindowInteropHeaderCompile.cpp
 )
 
 target_link_libraries(CuePlatformWindowsPublicHeaderTest PRIVATE Cue.Platform.Windows)
 target_compile_features(CuePlatformWindowsPublicHeaderTest PRIVATE cxx_std_20)
+
+add_executable(
+    CuePlatformWindowsLifecycleTests
+    WindowsWindowLifecycleTests.cpp
+)
+
+target_link_libraries(CuePlatformWindowsLifecycleTests PRIVATE Cue.Platform.Windows)
+target_compile_features(CuePlatformWindowsLifecycleTests PRIVATE cxx_std_20)
 
 foreach(
     testTarget
     IN ITEMS
         CuePlatformPublicHeaderTest
         CuePlatformWindowsPublicHeaderTest
+        CuePlatformWindowsLifecycleTests
 )
     set_target_properties(
         ${testTarget}
@@ -615,10 +625,42 @@ add_custom_target(
     DEPENDS
         CuePlatformPublicHeaderTest
         CuePlatformWindowsPublicHeaderTest
+        CuePlatformWindowsLifecycleTests
 )
 
 add_test(NAME Cue.Platform.PublicHeaders COMMAND CuePlatformPublicHeaderTest)
 add_test(NAME Cue.Platform.Windows.PublicHeaders COMMAND CuePlatformWindowsPublicHeaderTest)
+add_test(
+    NAME Cue.Platform.Windows.Lifecycle
+    COMMAND CuePlatformWindowsLifecycleTests Lifecycle
+)
+add_test(
+    NAME Cue.Platform.Windows.InvalidShow
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CuePlatformWindowsLifecycleTests>
+        -DTEST_MODE=InvalidShow
+        -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,75>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+)
+add_test(
+    NAME Cue.Platform.Windows.InvalidNativeView
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CuePlatformWindowsLifecycleTests>
+        -DTEST_MODE=InvalidNativeView
+        -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,75>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+)
+add_test(
+    NAME Cue.Platform.Windows.ThreadViolation
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CuePlatformWindowsLifecycleTests>
+        -DTEST_MODE=ThreadViolation
+        -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,75>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+)
 
 add_test(
     NAME Cue.Platform.Dependencies
@@ -635,6 +677,10 @@ add_test(
 set_tests_properties(
     Cue.Platform.PublicHeaders
     Cue.Platform.Windows.PublicHeaders
+    Cue.Platform.Windows.Lifecycle
+    Cue.Platform.Windows.InvalidShow
+    Cue.Platform.Windows.InvalidNativeView
+    Cue.Platform.Windows.ThreadViolation
     Cue.Platform.Dependencies
     PROPERTIES
         LABELS Platform
