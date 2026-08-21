@@ -386,6 +386,8 @@ set(
 
 set(foundationSourceQueue ${foundationSources})
 set(foundationScannedSources "")
+string(ASCII 11 preprocessingVerticalTab)
+string(ASCII 12 preprocessingFormFeed)
 
 while(foundationSourceQueue)
     list(POP_FRONT foundationSourceQueue sourceFile)
@@ -403,6 +405,22 @@ while(foundationSourceQueue)
     string(REPLACE "\\\r\n" "" sourceContents "${sourceContents}")
     string(REPLACE "\\\n" "" sourceContents "${sourceContents}")
     cueStripCppComments("${sourceContents}" sourceContents sourceCodeContents)
+    string(REPLACE "${preprocessingVerticalTab}" " " sourceContents "${sourceContents}")
+    string(REPLACE "${preprocessingFormFeed}" " " sourceContents "${sourceContents}")
+    string(
+        REPLACE
+        "${preprocessingVerticalTab}"
+        " "
+        sourceCodeContents
+        "${sourceCodeContents}"
+    )
+    string(
+        REPLACE
+        "${preprocessingFormFeed}"
+        " "
+        sourceCodeContents
+        "${sourceCodeContents}"
+    )
     string(TOLOWER "${sourceContents}" sourceContentsLower)
     string(TOLOWER "${sourceCodeContents}" sourceCodeContentsLower)
     string(
