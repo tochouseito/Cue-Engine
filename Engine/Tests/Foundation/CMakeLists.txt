@@ -64,9 +64,85 @@ elseif(NOT "${cueFoundationManualDependencies}" STREQUAL "")
     )
 endif()
 
+get_target_property(
+    cueFoundationInterfaceLinkOptions
+    Cue.Foundation
+    INTERFACE_LINK_OPTIONS
+)
+
+if(cueFoundationInterfaceLinkOptions MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfaceLinkOptions "")
+elseif(NOT "${cueFoundationInterfaceLinkOptions}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not expose link options: ${cueFoundationInterfaceLinkOptions}"
+    )
+endif()
+
+get_target_property(
+    cueFoundationInterfaceDirectLinks
+    Cue.Foundation
+    INTERFACE_LINK_LIBRARIES_DIRECT
+)
+
+if(cueFoundationInterfaceDirectLinks MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfaceDirectLinks "")
+elseif(NOT "${cueFoundationInterfaceDirectLinks}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not inject direct link dependencies: ${cueFoundationInterfaceDirectLinks}"
+    )
+endif()
+
+get_target_property(cueFoundationInterfaceSources Cue.Foundation INTERFACE_SOURCES)
+
+if(cueFoundationInterfaceSources MATCHES "-NOTFOUND$")
+    set(cueFoundationInterfaceSources "")
+elseif(NOT "${cueFoundationInterfaceSources}" STREQUAL "")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not expose interface sources: ${cueFoundationInterfaceSources}"
+    )
+endif()
+
+get_target_property(cueFoundationSources Cue.Foundation SOURCES)
+string(TOLOWER "${cueFoundationSources}" cueFoundationSourcesLower)
+
+if(cueFoundationSourcesLower MATCHES "\\$<target_objects:")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not consume target object sources: ${cueFoundationSources}"
+    )
+endif()
+
+get_target_property(cueFoundationLinkOptions Cue.Foundation LINK_OPTIONS)
+
+if(cueFoundationLinkOptions MATCHES "-NOTFOUND$")
+    set(cueFoundationLinkOptions "")
+endif()
+
+string(TOLOWER "${cueFoundationLinkOptions}" cueFoundationLinkOptionsLower)
+
+if(cueFoundationLinkOptionsLower MATCHES "defaultlib:|\\.lib([ >;$]|$)")
+    message(
+        FATAL_ERROR
+        "Cue.Foundation must not inject libraries through link options: ${cueFoundationLinkOptions}"
+    )
+endif()
+
 set(cueFoundationLinkLibrariesDisplay "<none>")
 set(cueFoundationInterfaceLinkLibrariesDisplay "<none>")
 set(cueFoundationManualDependenciesDisplay "<none>")
+set(cueFoundationInterfaceLinkOptionsDisplay "<none>")
+set(cueFoundationInterfaceDirectLinksDisplay "<none>")
+set(cueFoundationInterfaceSourcesDisplay "<none>")
+set(cueFoundationTargetObjectSourcesDisplay "<none>")
+
+if("${cueFoundationLinkOptions}" STREQUAL "")
+    set(cueFoundationLinkOptionsDisplay "<none>")
+else()
+    set(cueFoundationLinkOptionsDisplay "${cueFoundationLinkOptions}")
+endif()
 set(
     cueFoundationDependencyReport
     "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.Dependencies.txt"
@@ -155,6 +231,7 @@ add_test(
         -DREPORT_FILE=${cueFoundationDependencyReport}
         -DFOUNDATION_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Foundation
         -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+        -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationDependencies.cmake
 )
 

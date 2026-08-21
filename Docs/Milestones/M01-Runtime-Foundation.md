@@ -39,6 +39,12 @@ CMake Configure時に`Cue.Foundation`のTarget Propertyを検査し、次のい�
 - `LINK_LIBRARIES`
 - `INTERFACE_LINK_LIBRARIES`
 - `MANUALLY_ADDED_DEPENDENCIES`
+- `INTERFACE_LINK_OPTIONS`
+- `INTERFACE_LINK_LIBRARIES_DIRECT`
+- `INTERFACE_SOURCES`
+- `SOURCES`内の`$<TARGET_OBJECTS:...>`
+
+Privateな`LINK_OPTIONS`はDevelopment構成の`/DEBUG`を許可しますが、`/DEFAULTLIB:`または`.lib`によるLibrary注入を拒否します。
 
 検査結果はBuild Treeの`Engine/Tests/Foundation/Cue.Foundation.Dependencies.txt`へ出力します。2026-08-21の検証結果は次のとおりです。
 
@@ -47,11 +53,16 @@ Target: Cue.Foundation
 LINK_LIBRARIES: <none>
 INTERFACE_LINK_LIBRARIES: <none>
 MANUALLY_ADDED_DEPENDENCIES: <none>
+INTERFACE_LINK_OPTIONS: <none>
+INTERFACE_LINK_LIBRARIES_DIRECT: <none>
+INTERFACE_SOURCES: <none>
+TARGET_OBJECT_SOURCES: <none>
+LINK_OPTIONS: $<$<CONFIG:Development>:/DEBUG>
 Forbidden platform link inputs: Windows SDK, DXGI, D3D12
-Cycle review: no outgoing target link or manual dependency edge
+Cycle review: no outgoing link, interface source, target object, or manual dependency edge
 ```
 
-`Cue.Foundation.Dependencies`は、上記Reportに空の依存入力が記録されていることに加え、Foundation配下のC++ SourceとHeaderがWindows、DXGI、D3D系Headerを直接Includeしていないことを検査します。Foundationから出るTarget依存Edgeを許可しないため、Foundationを含むTarget依存循環も成立しません。
+`Cue.Foundation.Dependencies`は、上記Reportに空の依存入力が記録されていることに加え、Foundation配下のC++ SourceとHeaderの直接Includeを選択中Windows SDKの`um`、`shared`、`winrt`、`cppwinrt`で解決し、Platform Headerに一致しないことを検査します。限定したHeader名の列挙ではなく、Windows SDKの実Include Directoryを基準にします。Foundationから出るTarget依存Edgeを許可しないため、Foundationを含むTarget依存循環も成立しません。
 
 ## Local Validation
 
@@ -78,7 +89,8 @@ git diff --check
 - Foundation Labelは`15/15`成功
 - Debug、Development、ReleaseのBuild成功
 - 全3構成のCTestは、それぞれ`16/16`成功
-- Dependency Testは、直接Link入力、公開Link入力、手動Target依存がすべて空であることと、Platform固有Header Scan成功を出力
+- Dependency Testは、Link／Interface／Target Object／手動Target依存が空であることと、Windows SDK Platform Header解決検査の成功を出力
+- Negative Injectionとして`INTERFACE_LINK_OPTIONS`の`/DEFAULTLIB:d3d12.lib`、`SOURCES`の`$<TARGET_OBJECTS:...>`、`processthreadsapi.h`の直接IncludeがそれぞれGateを失敗させることを確認
 - `git diff --check`成功
 
 ## Clean Checkout Validation
@@ -106,7 +118,7 @@ GitHubへPushしたCommit `d37cd7f308fac07247cf1a23fb162b334b6a17e5`を別Direct
 
 ## Known Risks and Deferred Work
 
-- Windows、DXGI、D3D系Headerの検査は明示的なIncludeを対象とします。標準Libraryの内部実装やToolchainの暗黙依存をCross-platform Compilerで検証する作業は将来のCI拡張範囲です。
+- Windows SDK Headerの検査はFoundation Sourceに記述された直接Includeを対象とします。標準Library内部の推移的IncludeやToolchainの暗黙依存をCross-platform Compilerで検証する作業は将来のCI拡張範囲です。
 - CIはWindows x64、Visual Studio 2026、MSVCだけを対象とします。Linux、macOS、他Compiler、Coverageは未検証です。
 - Loggerは同期実行です。非同期Log、Category、Structured Field、Editor統合は実測要件と所有権設計を伴う別Issueで扱います。
 - Windows Debugger Sink、Window Integration、GPU TestはM01のScope外です。

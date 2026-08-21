@@ -2,5 +2,10 @@ Target: Cue.Foundation
 LINK_LIBRARIES: @cueFoundationLinkLibrariesDisplay@
 INTERFACE_LINK_LIBRARIES: @cueFoundationInterfaceLinkLibrariesDisplay@
 MANUALLY_ADDED_DEPENDENCIES: @cueFoundationManualDependenciesDisplay@
+INTERFACE_LINK_OPTIONS: @cueFoundationInterfaceLinkOptionsDisplay@
+INTERFACE_LINK_LIBRARIES_DIRECT: @cueFoundationInterfaceDirectLinksDisplay@
+INTERFACE_SOURCES: @cueFoundationInterfaceSourcesDisplay@
+TARGET_OBJECT_SOURCES: @cueFoundationTargetObjectSourcesDisplay@
+LINK_OPTIONS: @cueFoundationLinkOptionsDisplay@
 Forbidden platform link inputs: Windows SDK, DXGI, D3D12
-Cycle review: no outgoing target link or manual dependency edge; Cue.Foundation cannot participate in a target dependency cycle
+Cycle review: no outgoing link, interface source, target object, or manual dependency edge; Cue.Foundation cannot participate in a target dependency cycle

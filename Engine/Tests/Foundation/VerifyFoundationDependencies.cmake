@@ -20,8 +20,12 @@ foreach(
         "LINK_LIBRARIES: <none>"
         "INTERFACE_LINK_LIBRARIES: <none>"
         "MANUALLY_ADDED_DEPENDENCIES: <none>"
+        "INTERFACE_LINK_OPTIONS: <none>"
+        "INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
+        "INTERFACE_SOURCES: <none>"
+        "TARGET_OBJECT_SOURCES: <none>"
         "Forbidden platform link inputs: Windows SDK, DXGI, D3D12"
-        "Cycle review: no outgoing target link or manual dependency edge"
+        "Cycle review: no outgoing link, interface source, target object, or manual dependency edge"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -42,25 +46,71 @@ file(
     "${FOUNDATION_SOURCE_DIR}/*.inl"
 )
 
-set(
-    forbiddenIncludePattern
-    "#[ \t]*include[ \t]*[<\"](windows\.h|windowsx\.h|winbase\.h|winerror\.h|minwindef\.h|unknwn\.h|wrl\.h|dxgi[^>\"]*|d3d[^>\"]*|directx/[^>\"]*)[>\"]"
+if(NOT WIN32)
+    message(FATAL_ERROR "Windows SDK dependency verification requires a Windows host")
+endif()
+
+if(NOT DEFINED WINDOWS_SDK_VERSION OR "${WINDOWS_SDK_VERSION}" STREQUAL "")
+    message(FATAL_ERROR "Selected Windows SDK version is not available")
+endif()
+
+cmake_host_system_information(
+    RESULT windowsSdkRoot
+    QUERY WINDOWS_REGISTRY "HKLM/SOFTWARE/Microsoft/Windows Kits/Installed Roots"
+    VALUE KitsRoot10
+    VIEW HOST
+    ERROR_VARIABLE windowsSdkRegistryError
 )
 
-foreach(sourceFile IN LISTS foundationSources)
-    file(READ "${sourceFile}" sourceContents)
-    string(TOLOWER "${sourceContents}" sourceContentsLower)
-    string(REGEX MATCH "${forbiddenIncludePattern}" forbiddenInclude "${sourceContentsLower}")
+if(NOT "${windowsSdkRegistryError}" STREQUAL "" OR NOT IS_DIRECTORY "${windowsSdkRoot}")
+    message(FATAL_ERROR "Windows SDK root could not be resolved: ${windowsSdkRegistryError}")
+endif()
 
-    if(forbiddenInclude)
-        file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
-        message(
-            FATAL_ERROR
-            "Foundation source includes a forbidden platform header: ${relativeSource}: ${forbiddenInclude}"
-        )
+set(windowsSdkIncludeRoot "${windowsSdkRoot}/Include/${WINDOWS_SDK_VERSION}")
+set(
+    windowsPlatformIncludeRoots
+    "${windowsSdkIncludeRoot}/um"
+    "${windowsSdkIncludeRoot}/shared"
+    "${windowsSdkIncludeRoot}/winrt"
+    "${windowsSdkIncludeRoot}/cppwinrt"
+)
+
+foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
+    if(NOT IS_DIRECTORY "${includeRoot}")
+        message(FATAL_ERROR "Windows SDK include directory does not exist: ${includeRoot}")
     endif()
 endforeach()
 
+foreach(sourceFile IN LISTS foundationSources)
+    file(READ "${sourceFile}" sourceContents)
+    string(
+        REGEX MATCHALL
+        "#[ \t]*include[ \t]*[<\"][^>\"]+[>\"]"
+        includeDirectives
+        "${sourceContents}"
+    )
+
+    foreach(includeDirective IN LISTS includeDirectives)
+        string(
+            REGEX REPLACE
+            "^#[ \t]*include[ \t]*[<\"]([^>\"]+)[>\"]$"
+            "\\1"
+            includedHeader
+            "${includeDirective}"
+        )
+
+        foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
+            if(EXISTS "${includeRoot}/${includedHeader}")
+                file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
+                message(
+                    FATAL_ERROR
+                    "Foundation source directly includes a Windows SDK platform header: ${relativeSource}: ${includedHeader}"
+                )
+            endif()
+        endforeach()
+    endforeach()
+endforeach()
+
 message(STATUS "Foundation dependency report: ${REPORT_FILE}")
-message(STATUS "Cue.Foundation target dependency inputs: <none>")
-message(STATUS "Foundation platform header scan: passed")
+message(STATUS "Cue.Foundation outgoing target dependency inputs: <none>")
+message(STATUS "Foundation Windows SDK platform header resolution: passed")
