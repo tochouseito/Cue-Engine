@@ -8,6 +8,7 @@ INTERFACE_SOURCES: @cueFoundationInterfaceSourcesDisplay@
 PRECOMPILE_HEADERS: @cueFoundationPrecompileHeadersDisplay@
 INTERFACE_PRECOMPILE_HEADERS: @cueFoundationInterfacePrecompileHeadersDisplay@
 INTERFACE_COMPILE_OPTIONS: @cueFoundationInterfaceCompileOptionsDisplay@
+VS_USER_PROPS: @cueFoundationVisualStudioUserPropsDisplay@
 FORCED_INCLUDE_OPTIONS: @cueFoundationForcedIncludeOptionsDisplay@
 GLOBAL_CXX_FLAGS: @cueFoundationGlobalCompileFlagsDisplay@
 COMPILE_FLAGS: @cueFoundationCompileFlagsDisplay@

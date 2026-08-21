@@ -107,6 +107,7 @@ foreach(
         "PRECOMPILE_HEADERS: <none>"
         "INTERFACE_PRECOMPILE_HEADERS: <none>"
         "INTERFACE_COMPILE_OPTIONS: <none>"
+        "VS_USER_PROPS: <none>"
         "FORCED_INCLUDE_OPTIONS: <none>; private options restricted by allowlist"
         "GLOBAL_CXX_FLAGS: approved allowlist"
         "COMPILE_FLAGS: <none>"
