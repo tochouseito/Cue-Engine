@@ -9,8 +9,11 @@ Cue.Platform.Windows MANUALLY_ADDED_DEPENDENCIES: <none>
 Cue.Platform.Windows INTERFACE_SOURCES: <none>
 Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>
 Generated and target object sources: <none>
-Target Source and Header File Set scan: enabled
+Target Source, Header, CXX Module, and precompiled header scan: enabled
 Named Header File Sets: scanned
+Named CXX Module File Sets: scanned
+PRECOMPILE_HEADERS and INTERFACE_PRECOMPILE_HEADERS: scanned
+PRECOMPILE_HEADERS_REUSE_FROM: <none>
 Allowed Windows PRIVATE links: User32
 Required Windows PUBLIC link: Cue.Platform
 Allowed Windows LINK_ONLY links: User32

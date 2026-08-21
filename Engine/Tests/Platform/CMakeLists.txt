@@ -86,6 +86,154 @@ function(cue_collect_platform_header_files targetName outputVariable)
     set(${outputVariable} "${headerFiles}" PARENT_SCOPE)
 endfunction()
 
+function(cue_collect_platform_cxx_module_files targetName outputVariable)
+    get_target_property(targetModuleSets ${targetName} CXX_MODULE_SETS)
+    get_target_property(targetInterfaceModuleSets ${targetName} INTERFACE_CXX_MODULE_SETS)
+
+    foreach(moduleSetProperty IN ITEMS targetModuleSets targetInterfaceModuleSets)
+        if(${moduleSetProperty} MATCHES "-NOTFOUND$")
+            set(${moduleSetProperty} "")
+        endif()
+    endforeach()
+
+    set(allModuleSets ${targetModuleSets} ${targetInterfaceModuleSets})
+    list(REMOVE_DUPLICATES allModuleSets)
+    set(moduleFiles "")
+
+    foreach(moduleSet IN LISTS allModuleSets)
+        if(moduleSet STREQUAL "CXX_MODULES")
+            set(moduleSetProperty CXX_MODULE_SET)
+        else()
+            set(moduleSetProperty "CXX_MODULE_SET_${moduleSet}")
+        endif()
+
+        get_target_property(targetModuleFiles ${targetName} "${moduleSetProperty}")
+
+        if(targetModuleFiles MATCHES "-NOTFOUND$")
+            set(targetModuleFiles "")
+        endif()
+
+        list(APPEND moduleFiles ${targetModuleFiles})
+    endforeach()
+
+    list(REMOVE_DUPLICATES moduleFiles)
+    set(${outputVariable} "${moduleFiles}" PARENT_SCOPE)
+endfunction()
+
+function(
+    cue_collect_platform_precompile_headers
+    targetName
+    outputFiles
+    outputDirectIncludes
+)
+    get_target_property(targetSourceDirectory ${targetName} SOURCE_DIR)
+    get_target_property(targetReuseFrom ${targetName} PRECOMPILE_HEADERS_REUSE_FROM)
+
+    if(targetReuseFrom MATCHES "-NOTFOUND$")
+        set(targetReuseFrom "")
+    endif()
+
+    if(NOT "${targetReuseFrom}" STREQUAL "")
+        message(
+            FATAL_ERROR
+            "${targetName} must not reuse another target's precompiled header: ${targetReuseFrom}"
+        )
+    endif()
+
+    set(precompileHeaderFiles "")
+    set(directIncludes "")
+
+    set(precompileHeaderProperties PRECOMPILE_HEADERS INTERFACE_PRECOMPILE_HEADERS)
+    set(precompileHeaderVisibilities PRIVATE INTERFACE)
+
+    foreach(propertyIndex RANGE 0 1)
+        list(GET precompileHeaderProperties ${propertyIndex} precompileHeaderProperty)
+        list(GET precompileHeaderVisibilities ${propertyIndex} visibility)
+        get_target_property(
+            precompileHeaders
+            ${targetName}
+            ${precompileHeaderProperty}
+        )
+
+        if(precompileHeaders MATCHES "-NOTFOUND$")
+            set(precompileHeaders "")
+        endif()
+
+        foreach(precompileHeader IN LISTS precompileHeaders)
+            if(precompileHeader MATCHES "\\$<")
+                message(
+                    FATAL_ERROR
+                    "${targetName} contains an uninspectable precompiled header: ${precompileHeader}"
+                )
+            endif()
+
+            if(precompileHeader MATCHES "^<[^>]+>$" OR precompileHeader MATCHES "^\"[^\"]+\"$")
+                list(
+                    APPEND
+                    directIncludes
+                    "${targetName}|${visibility}|${precompileHeader}"
+                )
+                continue()
+            endif()
+
+            get_filename_component(
+                precompileHeaderPath
+                "${precompileHeader}"
+                ABSOLUTE
+                BASE_DIR "${targetSourceDirectory}"
+            )
+
+            if(NOT EXISTS "${precompileHeaderPath}" OR IS_DIRECTORY "${precompileHeaderPath}")
+                message(
+                    FATAL_ERROR
+                    "${targetName} precompiled header cannot be inspected: ${precompileHeader}"
+                )
+            endif()
+
+            file(
+                RELATIVE_PATH
+                relativePrecompileHeader
+                "${targetSourceDirectory}"
+                "${precompileHeaderPath}"
+            )
+
+            if(relativePrecompileHeader MATCHES "^\\.\\.(/|$)")
+                message(
+                    FATAL_ERROR
+                    "${targetName} precompiled header must remain in its source tree: ${precompileHeaderPath}"
+                )
+            endif()
+
+            if(
+                targetName STREQUAL "Cue.Platform"
+                AND relativePrecompileHeader MATCHES "^Windows/"
+            )
+                message(
+                    FATAL_ERROR
+                    "Cue.Platform must not consume a Windows implementation precompiled header: ${precompileHeaderPath}"
+                )
+            endif()
+
+            if(
+                visibility STREQUAL "INTERFACE"
+                AND relativePrecompileHeader MATCHES "(^|/)Private/"
+            )
+                message(
+                    FATAL_ERROR
+                    "${targetName} must not expose a private precompiled header: ${precompileHeaderPath}"
+                )
+            endif()
+
+            list(APPEND precompileHeaderFiles "${precompileHeaderPath}")
+        endforeach()
+    endforeach()
+
+    list(REMOVE_DUPLICATES precompileHeaderFiles)
+    list(REMOVE_DUPLICATES directIncludes)
+    set(${outputFiles} "${precompileHeaderFiles}" PARENT_SCOPE)
+    set(${outputDirectIncludes} "${directIncludes}" PARENT_SCOPE)
+endfunction()
+
 get_target_property(cuePlatformLinks Cue.Platform LINK_LIBRARIES)
 get_target_property(cuePlatformInterfaceLinks Cue.Platform INTERFACE_LINK_LIBRARIES)
 get_target_property(cuePlatformManualDependencies Cue.Platform MANUALLY_ADDED_DEPENDENCIES)
@@ -97,6 +245,12 @@ get_target_property(
 )
 get_target_property(cuePlatformSources Cue.Platform SOURCES)
 cue_collect_platform_header_files(Cue.Platform cuePlatformHeaders)
+cue_collect_platform_cxx_module_files(Cue.Platform cuePlatformModules)
+cue_collect_platform_precompile_headers(
+    Cue.Platform
+    cuePlatformPrecompileHeaders
+    cuePlatformDirectPrecompileHeaders
+)
 get_target_property(cuePlatformSourceDirectory Cue.Platform SOURCE_DIR)
 get_target_property(cuePlatformWindowsLinks Cue.Platform.Windows LINK_LIBRARIES)
 get_target_property(
@@ -121,6 +275,12 @@ get_target_property(
 )
 get_target_property(cuePlatformWindowsSources Cue.Platform.Windows SOURCES)
 cue_collect_platform_header_files(Cue.Platform.Windows cuePlatformWindowsHeaders)
+cue_collect_platform_cxx_module_files(Cue.Platform.Windows cuePlatformWindowsModules)
+cue_collect_platform_precompile_headers(
+    Cue.Platform.Windows
+    cuePlatformWindowsPrecompileHeaders
+    cuePlatformWindowsDirectPrecompileHeaders
+)
 get_target_property(
     cuePlatformWindowsSourceDirectory
     Cue.Platform.Windows
@@ -265,7 +425,14 @@ endforeach()
 
 set(cuePlatformTargetFiles "")
 
-foreach(targetFile IN LISTS cuePlatformSources cuePlatformHeaders)
+foreach(
+    targetFile
+    IN LISTS
+        cuePlatformSources
+        cuePlatformHeaders
+        cuePlatformModules
+        cuePlatformPrecompileHeaders
+)
     get_filename_component(
         targetFilePath
         "${targetFile}"
@@ -275,7 +442,14 @@ foreach(targetFile IN LISTS cuePlatformSources cuePlatformHeaders)
     list(APPEND cuePlatformTargetFiles "${targetFilePath}")
 endforeach()
 
-foreach(targetFile IN LISTS cuePlatformWindowsSources cuePlatformWindowsHeaders)
+foreach(
+    targetFile
+    IN LISTS
+        cuePlatformWindowsSources
+        cuePlatformWindowsHeaders
+        cuePlatformWindowsModules
+        cuePlatformWindowsPrecompileHeaders
+)
     get_filename_component(
         targetFilePath
         "${targetFile}"
@@ -295,6 +469,28 @@ file(
     GENERATE
     OUTPUT "${cuePlatformTargetFileList}"
     CONTENT "${cuePlatformTargetFileContent}\n"
+)
+
+set(
+    cuePlatformDirectPrecompileHeaderList
+    "${CMAKE_CURRENT_BINARY_DIR}/Cue.Platform.DirectPrecompileHeaders.txt"
+)
+set(
+    cuePlatformDirectPrecompileHeaders
+    ${cuePlatformDirectPrecompileHeaders}
+    ${cuePlatformWindowsDirectPrecompileHeaders}
+)
+string(
+    REPLACE
+    ";"
+    "\n"
+    cuePlatformDirectPrecompileHeaderContent
+    "${cuePlatformDirectPrecompileHeaders}"
+)
+file(
+    GENERATE
+    OUTPUT "${cuePlatformDirectPrecompileHeaderList}"
+    CONTENT "${cuePlatformDirectPrecompileHeaderContent}\n"
 )
 
 set(
@@ -325,6 +521,7 @@ add_test(
         -DREPORT_FILE=${cuePlatformDependencyReport}
         -DPLATFORM_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Platform
         -DPLATFORM_TARGET_FILE_LIST=${cuePlatformTargetFileList}
+        -DPLATFORM_DIRECT_PRECOMPILE_HEADER_LIST=${cuePlatformDirectPrecompileHeaderList}
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyPlatformDependencies.cmake
 )

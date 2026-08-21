@@ -176,8 +176,11 @@ foreach(
         "Cue.Platform.Windows INTERFACE_SOURCES: <none>"
         "Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
         "Generated and target object sources: <none>"
-        "Target Source and Header File Set scan: enabled"
+        "Target Source, Header, CXX Module, and precompiled header scan: enabled"
         "Named Header File Sets: scanned"
+        "Named CXX Module File Sets: scanned"
+        "PRECOMPILE_HEADERS and INTERFACE_PRECOMPILE_HEADERS: scanned"
+        "PRECOMPILE_HEADERS_REUSE_FROM: <none>"
         "Allowed Windows PRIVATE links: User32"
         "Required Windows PUBLIC link: Cue.Platform"
         "Allowed Windows LINK_ONLY links: User32"
@@ -292,6 +295,58 @@ set(
     wchar.h
     wctype.h
 )
+
+if(NOT EXISTS "${PLATFORM_DIRECT_PRECOMPILE_HEADER_LIST}")
+    message(
+        FATAL_ERROR
+        "Platform direct precompiled header list does not exist: ${PLATFORM_DIRECT_PRECOMPILE_HEADER_LIST}"
+    )
+endif()
+
+file(STRINGS "${PLATFORM_DIRECT_PRECOMPILE_HEADER_LIST}" directPrecompileHeaders)
+
+foreach(directPrecompileHeader IN LISTS directPrecompileHeaders)
+    if(NOT directPrecompileHeader MATCHES "^([^|]+)\\|([^|]+)\\|[<\"]([^>\"]+)[>\"]$")
+        message(
+            FATAL_ERROR
+            "Platform direct precompiled header entry is invalid: ${directPrecompileHeader}"
+        )
+    endif()
+
+    set(targetName "${CMAKE_MATCH_1}")
+    set(visibility "${CMAKE_MATCH_2}")
+    set(includedHeader "${CMAKE_MATCH_3}")
+    set(isWindowsSdkInclude FALSE)
+
+    foreach(includeRoot IN LISTS windowsPlatformIncludeRoots)
+        if(EXISTS "${includeRoot}/${includedHeader}")
+            set(isWindowsSdkInclude TRUE)
+            break()
+        endif()
+    endforeach()
+
+    if(NOT isWindowsSdkInclude AND EXISTS "${windowsUcrtIncludeRoot}/${includedHeader}")
+        string(TOLOWER "${includedHeader}" includedHeaderLower)
+        list(FIND standardCHeaders "${includedHeaderLower}" standardHeaderIndex)
+
+        if(standardHeaderIndex EQUAL -1)
+            set(isWindowsSdkInclude TRUE)
+        endif()
+    endif()
+
+    if(
+        isWindowsSdkInclude
+        AND NOT (
+            targetName STREQUAL "Cue.Platform.Windows"
+            AND visibility STREQUAL "PRIVATE"
+        )
+    )
+        message(
+            FATAL_ERROR
+            "Windows SDK precompiled header escaped the Windows private boundary: ${targetName} ${visibility}: ${includedHeader}"
+        )
+    endif()
+endforeach()
 
 foreach(platformSource IN LISTS platformSources)
     if(NOT EXISTS "${platformSource}" OR IS_DIRECTORY "${platformSource}")
