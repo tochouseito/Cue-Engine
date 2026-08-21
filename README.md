@@ -9,6 +9,22 @@ CueEngineは、C++を中心に一から再設計・再実装するモジュー�
 現在は`M00 Repository Foundation`として、再現可能なConfigure、Build、Test、CI、開発手順の基盤を整備しています。
 Runtime、Renderer、Editorなどの機能実装はまだ対象外です。
 
+## Repository Layout
+
+Engine が所有する Source の正本は `Engine/Source` です。
+現在の最小構成は次のとおりです。
+
+```text
+Engine/
+    Documents/
+    Source/
+        CueBuildProbe/
+            Main.cpp
+```
+
+Repository Root は CMake の Build 入口、License、Repository 設定などに使用します。
+将来の Module 構成は個別の Research Issue と ADR で決定します。
+
 ## Requirements
 
 - Windows x64

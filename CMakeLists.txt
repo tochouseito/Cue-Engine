@@ -20,7 +20,7 @@ add_executable(CueBuildProbe)
 target_sources(
     CueBuildProbe
     PRIVATE
-        Source/CueBuildProbe/Main.cpp
+        Engine/Source/CueBuildProbe/Main.cpp
 )
 
 target_compile_features(CueBuildProbe PRIVATE cxx_std_20)

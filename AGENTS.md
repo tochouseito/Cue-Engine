@@ -15,6 +15,7 @@ CueEngineは、旧CueEngineで得た実装経験を材料にしながら、ゲ�
 - DirectX 12を最初のGraphics API
 - 3Dゲームを主対象
 - CMakeを正式なビルド定義
+- Engineが所有するSourceの正本は`Engine/Source`
 - Runtime、Editor、Toolsを分離
 - Source AssetとRuntime Assetを分離
 - 将来、Unity、Unreal Engine、Godotでも利用できるクロスエンジンSDKを抽出
