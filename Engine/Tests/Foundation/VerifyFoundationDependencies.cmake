@@ -251,16 +251,16 @@ while(foundationSourceQueue)
     )
     string(
         REGEX MATCH
-        "(__pragma|_pragma)[ \t]*\\([^\r\n]*comment[ \t]*\\("
-        compilerCommentDirective
+        "(__pragma|_pragma)[ \t\r\n]*\\("
+        compilerPragmaDirective
         "${sourceContentsLower}"
     )
 
-    if(preprocessorCommentDirective OR compilerCommentDirective)
+    if(preprocessorCommentDirective OR compilerPragmaDirective)
         file(RELATIVE_PATH relativeSource "${REPOSITORY_ROOT}" "${sourceFile}")
         message(
             FATAL_ERROR
-            "Foundation source contains a compiler comment directive that can hide linker inputs: ${relativeSource}"
+            "Foundation source contains a compiler pragma directive that can hide dependencies: ${relativeSource}"
         )
     endif()
 
