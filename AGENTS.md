@@ -128,6 +128,11 @@ Unreal Engine、Unity、Godotは模倣対象ではなく、設計比較の参考
 
 ユーザーの変更と自分の変更を混同しないでください。予期しない変更を発見した場合は、勝手に修正・削除せず報告してください。
 
+## 8.1 GitHub Code Review
+
+- GitHub 上の Pull Request Review、Inline Review Comment、Review Thread への返信は日本語で記述してください。
+- コード識別子、API 名、外部 Tool 名、Error Message は英語のまま扱えます。
+
 ## 9. Validation
 
 変更は、関連する検証に成功するまで完了扱いにしません。
