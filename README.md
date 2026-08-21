@@ -28,13 +28,23 @@ cmake --preset windows-vs2026
 
 ```powershell
 cmake --build --preset windows-vs2026-debug
+cmake --build --preset windows-vs2026-development
 cmake --build --preset windows-vs2026-release
 ```
 
-現段階ではRepository Configure基盤だけを定義しているため、Build対象のC++ Targetや実行ファイルはまだありません。
-最小TargetとCTestは後続のM00 Issueで追加します。
+各構成の最小 C++ Target は次のコマンドで実行できます。
+
+```powershell
+out/build/windows-vs2026/bin/Debug/CueBuildProbe.exe
+out/build/windows-vs2026/bin/Development/CueBuildProbe.exe
+out/build/windows-vs2026/bin/Release/CueBuildProbe.exe
+```
+
+`Development` は最適化とデバッグ情報を有効にし、`NDEBUG` を定義しません。
+CTest は後続の M00 Issue で追加します。
 
 ## Project Policy
 
 - [Project rules](AGENTS.md)
 - [Rebuild decision](Docs/Decisions/0001-rebuild-from-first-principles.md)
+- [C++ build policy](Docs/Decisions/0003-cpp-build-policy.md)
