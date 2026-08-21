@@ -21,7 +21,7 @@ add_test(
     COMMAND
         CueRuntimeHost
         --smoke-test
-        --title "CueEngine Runtime Host Smoke"
+        --title "CueEngine Runtime Host 日本語"
         --width 640
         --height 360
 )

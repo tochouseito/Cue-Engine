@@ -13,6 +13,12 @@ target_link_libraries(
         Cue.Platform.Windows
 )
 target_compile_features(CueRuntimeHost PRIVATE cxx_std_20)
+target_compile_definitions(
+    CueRuntimeHost
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
 
 set_target_properties(
     CueRuntimeHost

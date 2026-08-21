@@ -4,13 +4,16 @@
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
 
-#include <charconv>
+#include <Windows.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cwchar>
+#include <limits>
 #include <memory>
+#include <string>
 #include <string_view>
-#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -26,19 +29,73 @@ constexpr int k_windowDestroyFailed = 5;
 
 struct RuntimeOptions final
 {
-    std::string_view title = "CueEngine Runtime Host";
+    std::string title = "CueEngine Runtime Host";
     cue::WindowSize clientSize = {1280, 720};
     bool isSmokeTest = false;
 };
 
-[[nodiscard]] bool parse_size(std::string_view a_text, std::uint32_t &a_value) noexcept
+[[nodiscard]] bool convert_title(std::wstring_view a_text, std::string &a_result)
 {
-    std::uint32_t value = 0;
-    const char *begin = a_text.data();
-    const char *end = begin + a_text.size();
-    std::from_chars_result result = std::from_chars(begin, end, value);
+    if (a_text.empty())
+    {
+        a_result.clear();
+        return true;
+    }
 
-    if (result.ec != std::errc() || result.ptr != end || value == 0)
+    if (a_text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    {
+        return false;
+    }
+
+    int sourceLength = static_cast<int>(a_text.size());
+    int convertedLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength, nullptr, 0,
+                                              nullptr, nullptr);
+
+    if (convertedLength == 0)
+    {
+        return false;
+    }
+
+    std::string result(static_cast<std::size_t>(convertedLength), '\0');
+    int writtenLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength, result.data(),
+                                            convertedLength, nullptr, nullptr);
+
+    if (writtenLength != convertedLength)
+    {
+        return false;
+    }
+
+    a_result = std::move(result);
+    return true;
+}
+
+[[nodiscard]] bool parse_size(std::wstring_view a_text, std::uint32_t &a_value) noexcept
+{
+    if (a_text.empty())
+    {
+        return false;
+    }
+
+    std::uint32_t value = 0;
+
+    for (wchar_t character : a_text)
+    {
+        if (character < L'0' || character > L'9')
+        {
+            return false;
+        }
+
+        std::uint32_t digit = static_cast<std::uint32_t>(character - L'0');
+
+        if (value > (std::numeric_limits<std::uint32_t>::max() - digit) / 10)
+        {
+            return false;
+        }
+
+        value = value * 10 + digit;
+    }
+
+    if (value == 0)
     {
         return false;
     }
@@ -47,13 +104,13 @@ struct RuntimeOptions final
     return true;
 }
 
-[[nodiscard]] bool parse_options(int a_argumentCount, char **a_arguments, RuntimeOptions &a_options) noexcept
+[[nodiscard]] bool parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options)
 {
     for (int index = 1; index < a_argumentCount; ++index)
     {
-        std::string_view argument = a_arguments[index];
+        std::wstring_view argument = a_arguments[index];
 
-        if (argument == "--smoke-test")
+        if (argument == L"--smoke-test")
         {
             a_options.isSmokeTest = true;
             continue;
@@ -64,20 +121,23 @@ struct RuntimeOptions final
             return false;
         }
 
-        std::string_view value = a_arguments[++index];
+        std::wstring_view value = a_arguments[++index];
 
-        if (argument == "--title")
+        if (argument == L"--title")
         {
-            a_options.title = value;
+            if (!convert_title(value, a_options.title))
+            {
+                return false;
+            }
         }
-        else if (argument == "--width")
+        else if (argument == L"--width")
         {
             if (!parse_size(value, a_options.clientSize.width))
             {
                 return false;
             }
         }
-        else if (argument == "--height")
+        else if (argument == L"--height")
         {
             if (!parse_size(value, a_options.clientSize.height))
             {
@@ -95,8 +155,8 @@ struct RuntimeOptions final
 
 void print_usage() noexcept
 {
-    std::fputs("Usage: CueRuntimeHost [--smoke-test] [--title <UTF-8 title>] [--width <pixels>] [--height <pixels>]\n",
-               stderr);
+    std::fputws(L"Usage: CueRuntimeHost [--smoke-test] [--title <title>] [--width <pixels>] [--height <pixels>]\n",
+                stderr);
 }
 
 [[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_message, cue::Error &&a_error,
@@ -208,20 +268,20 @@ void print_usage() noexcept
 }
 } // namespace
 
-int main(int a_argumentCount, char **a_arguments)
+int wmain(int a_argumentCount, wchar_t **a_arguments)
 {
-    RuntimeOptions options;
-
-    if (!parse_options(a_argumentCount, a_arguments, options))
-    {
-        print_usage();
-        return k_invalidArguments;
-    }
-
     cue::AbortFatalHandler fatalHandler;
 
     try
     {
+        RuntimeOptions options;
+
+        if (!parse_options(a_argumentCount, a_arguments, options))
+        {
+            print_usage();
+            return k_invalidArguments;
+        }
+
         return run(options, fatalHandler);
     }
     catch (...)
