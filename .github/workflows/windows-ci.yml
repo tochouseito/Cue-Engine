@@ -1,0 +1,80 @@
+name: Windows CI
+
+on:
+    pull_request:
+        branches:
+            - Rebuild
+    push:
+        branches:
+            - Rebuild
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-and-test:
+        name: Build and Test (${{ matrix.configuration }})
+        runs-on: windows-2025-vs2026
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - configuration: Debug
+                      build_preset: windows-vs2026-debug
+                      test_preset: windows-vs2026-debug
+                    - configuration: Development
+                      build_preset: windows-vs2026-development
+                      test_preset: windows-vs2026-development
+                    - configuration: Release
+                      build_preset: windows-vs2026-release
+                      test_preset: windows-vs2026-release
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+
+            - name: Record toolchain versions
+              shell: pwsh
+              run: |
+                  cmake --version
+                  ctest --version
+
+                  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+                  $installationPath = & $vswhere `
+                      -latest `
+                      -products * `
+                      -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                      -property installationPath
+                  $installationVersion = & $vswhere `
+                      -latest `
+                      -products * `
+                      -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                      -property installationVersion
+
+                  $msvcVersion = Get-ChildItem `
+                      -Directory `
+                      -LiteralPath "$installationPath\VC\Tools\MSVC" |
+                      Sort-Object Name -Descending |
+                      Select-Object -First 1 -ExpandProperty Name
+                  $windowsSdkVersion = Get-ChildItem `
+                      -Directory `
+                      -LiteralPath "${env:ProgramFiles(x86)}\Windows Kits\10\Include" |
+                      Sort-Object Name -Descending |
+                      Select-Object -First 1 -ExpandProperty Name
+
+                  "Visual Studio: $installationVersion"
+                  "MSVC: $msvcVersion"
+                  "Windows SDK: $windowsSdkVersion"
+
+            - name: Configure
+              run: cmake --preset windows-vs2026
+
+            - name: Build
+              run: cmake --build --preset ${{ matrix.build_preset }}
+
+            - name: Test
+              run: ctest --preset ${{ matrix.test_preset }}
