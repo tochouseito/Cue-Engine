@@ -156,13 +156,22 @@ Cause Frameは、再分類前のErrorを構造化して保持する非再帰Valu
 - 0個以上のContext Frame
 - 任意のNative Error情報
 
-新しいErrorへ再分類する場合、直前のErrorを最初のCause FrameへSnapshotし、そのErrorが既に持つCause Frameを後ろへ移します。これにより、新しいPrimary ErrorからImmediate Cause、Root Causeの順に辿れます。
+新しいErrorへ再分類する場合、直前のErrorの所有Dataを最初のCause FrameへMoveし、そのErrorが既に持つCause Frameを後ろへ移します。これにより、新しいPrimary ErrorからImmediate Cause、Root Causeの順に辿れます。
+
+Error系列の所有型はMove-onlyとします。
+
+- `ErrorCode`、`Error`、Context Frame、Cause FrameはCopy constructorとCopy assignmentを削除する
+- Move constructorとMove assignmentは`noexcept`とし、所有Bufferを移して追加Allocationを行わない
+- 所有UTF-8文字列を生成するConstructorは非公開とし、Error生成、Context追加、再分類はEmergency Handlerへの非所有参照を受けるFactory／Mutation APIだけで行う
+- Allocationを伴うAPIは内部で`std::bad_alloc`を捕捉し、追加AllocationなしでEmergency Entry Pointを呼ぶ。部分更新したErrorを呼び出し側へ返さない
+- M01ではCopy可能なError Snapshot APIを提供しない。必要性が確認された場合はAllocation失敗契約と一緒に別Issueで設計する
 
 `Result<T>`の規則:
 
 - 成功時の`T`または失敗時の`Error`の正確に一方だけを保持する
 - Default構築を許可せず、明示的なSuccessまたはFailure Factoryから生成する
-- Copy／Move可否は`T`の性質に従い、ErrorはValueとしてCopy／Moveできる
+- `Result<T>`と`Result<void>`はCopyを禁止し、Move-onlyとする
+- `T`は`noexcept` Move ConstructibleかつDestructibleであることをCompile-timeに要求し、Resultの状態移動から例外を出さない
 - `Result<void>`は成功状態またはErrorの一方だけを保持する
 - `has_value()`と明示的`operator bool`で状態を確認できる
 - `try_value()`と`try_error()`は非所有Pointerを返し、状態が一致しない場合は`nullptr`を返す
@@ -255,7 +264,7 @@ Log Levelは次の6種類です。
 | Error | 現在の操作が失敗したがProcessは継続可能 |
 | Fatal | 安全な継続ができずProcessを終了する状態 |
 
-`LogRecord`はLevel、UTF-8 Message、Source Location、任意の`Error`をValueで所有します。Errorを持つRecordはError Code、Summary、Context、Native Error、Cause ChainをSinkへ渡せます。Sinkが受け取る`LogRecord`参照は同期`write`呼び出し中だけ有効であり、Sinkは参照または内部Pointerを保持しません。Timestamp、Thread ID、Category、Structured Fieldは実測要件が確認されるまで必須にしません。
+`LogRecord`はLevel、UTF-8 Message、Source Location、任意の`Error`をValueで所有するMove-only Typeです。Errorを持つRecordはError所有権をMoveで受け取り、Error Code、Summary、Context、Native Error、Cause ChainをSinkへ渡せます。Sinkが受け取る`LogRecord`参照は同期`write`呼び出し中だけ有効であり、Sinkは参照または内部Pointerを保持しません。Timestamp、Thread ID、Category、Structured Fieldは実測要件が確認されるまで必須にしません。
 
 LoggerとSinkの規則:
 
@@ -271,8 +280,8 @@ LoggerとSinkの規則:
 - Fatal用Mutexが競合した場合は待機せず`Contended`を返し、Fatal DispatcherはLoggerを迂回してEmergency Entry Pointを呼ぶ
 - 一つのRecordは構成された各Sinkへ一度ずつ、登録順に渡す
 - SinkはLoggerのLock保持中に呼ばれ、同じThreadからは直接・間接を問わずいずれのLoggerへも再入してはならない
-- SinkがWorker Threadへ処理を委譲して完了を待つ場合、そのWorkerとWorkerから同期的に呼ぶ処理は、同一・別Instanceを問わずLoggerを呼んではならない。Loggerを呼び得る作業の完了待ち、Join、Callback待ちは禁止する
-- Sinkが待機しない作業をWorkerへ委譲する場合、`LogRecord`の参照や内部PointerをWorkerへ渡さず、必要なDataをSink自身の責任でCopyした後にSink呼び出しを終了する。Worker側のLogは元SinkがReturnしてLogger Mutexが解放された後にだけ行う
+- M01のSinkは`write`／`flush`処理を呼び出されたThread上で完了し、Worker Thread、Task Queue、非同期Callbackへ処理またはRecord Dataを委譲しない
+- 非同期SinkはLoggerとSinkのShutdown Protocol、Task所有権、Drain、破棄順序を決める別Issueまで導入しない
 - Loggerが直列化するため、個別Sinkは同じLoggerからの並行`write`へ対応する必要がない
 - 複数Loggerから同じSinkを共有しない。共有要件が確認された場合は別の同期所有設計を行う
 - Sinkの`write`と`flush`は成功可否をAllocation不要な値で返し、例外を投げない契約とする
@@ -316,7 +325,8 @@ ConsoleとDebugger Outputの選択規則:
 - Context追加後もError Code、Native Error、既存Contextが保持される
 - Error再分類後も元Error Code、Summary、Context、Native Error、既存CauseがCause Chainに保持される
 - Error再分類後のPrimary Error Codeが新しい抽象Levelを表し、Root Cause CodeがCause Chain末尾から取得できる
-- Copy／Move後も状態と値が保持される
+- ErrorとResultがCopyできないことをCompile-time Testで検証する
+- Move後のResultが元の状態と値を保持する
 
 ### Logger
 
@@ -327,7 +337,7 @@ ConsoleとDebugger Outputの選択規則:
 - Fatalの`log_and_flush`中に他ThreadのRecordが割り込まず、`write`と`flush`が競合しないことを検証する
 - Fatal時にLogger Mutexが競合すると待機せず`Contended`を返すことを検証する
 - Sinkから同一または別Loggerへ再入するとMutex取得前に検出され、Emergency Entry Pointから規定終了することをProcess Testで検証する
-- Sinkが完了を待つWorkerからLoggerを呼ばないことを実装Reviewで確認し、First-party Sinkにはその構造を導入しない
+- First-party SinkがWorker Thread、Task Queue、非同期Callbackへ処理またはRecord Dataを委譲していないことを実装Reviewで確認する
 - 通常LoggerのMutex取得例外が内部で捕捉され、Emergency Entry Pointから規定終了することをProcess Testで検証する
 - Sinkが非例外で失敗を返す場合は残りのSinkが処理され、Sinkが例外を投げる場合は残りのSinkが呼ばれずEmergency Entry Pointから規定終了することを検証する
 - Error付きRecordがError全体をValue所有し、元ErrorのLifetime終了後もSink処理中に参照できることを検証する
