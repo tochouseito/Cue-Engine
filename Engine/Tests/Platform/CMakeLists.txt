@@ -62,6 +62,8 @@ get_target_property(
     INTERFACE_LINK_LIBRARIES_DIRECT
 )
 get_target_property(cuePlatformSources Cue.Platform SOURCES)
+get_target_property(cuePlatformHeaders Cue.Platform HEADER_SET)
+get_target_property(cuePlatformSourceDirectory Cue.Platform SOURCE_DIR)
 get_target_property(cuePlatformWindowsLinks Cue.Platform.Windows LINK_LIBRARIES)
 get_target_property(
     cuePlatformWindowsInterfaceLinks
@@ -84,6 +86,18 @@ get_target_property(
     INTERFACE_LINK_LIBRARIES_DIRECT
 )
 get_target_property(cuePlatformWindowsSources Cue.Platform.Windows SOURCES)
+get_target_property(cuePlatformWindowsHeaders Cue.Platform.Windows HEADER_SET)
+get_target_property(
+    cuePlatformWindowsSourceDirectory
+    Cue.Platform.Windows
+    SOURCE_DIR
+)
+
+foreach(targetProperty IN ITEMS cuePlatformHeaders cuePlatformWindowsHeaders)
+    if(${targetProperty} MATCHES "-NOTFOUND$")
+        set(${targetProperty} "")
+    endif()
+endforeach()
 
 foreach(
     targetProperty
@@ -221,6 +235,40 @@ foreach(targetIndex RANGE 0 1)
     endforeach()
 endforeach()
 
+set(cuePlatformTargetFiles "")
+
+foreach(targetFile IN LISTS cuePlatformSources cuePlatformHeaders)
+    get_filename_component(
+        targetFilePath
+        "${targetFile}"
+        ABSOLUTE
+        BASE_DIR "${cuePlatformSourceDirectory}"
+    )
+    list(APPEND cuePlatformTargetFiles "${targetFilePath}")
+endforeach()
+
+foreach(targetFile IN LISTS cuePlatformWindowsSources cuePlatformWindowsHeaders)
+    get_filename_component(
+        targetFilePath
+        "${targetFile}"
+        ABSOLUTE
+        BASE_DIR "${cuePlatformWindowsSourceDirectory}"
+    )
+    list(APPEND cuePlatformTargetFiles "${targetFilePath}")
+endforeach()
+
+list(REMOVE_DUPLICATES cuePlatformTargetFiles)
+string(REPLACE ";" "\n" cuePlatformTargetFileContent "${cuePlatformTargetFiles}")
+set(
+    cuePlatformTargetFileList
+    "${CMAKE_CURRENT_BINARY_DIR}/Cue.Platform.TargetFiles.txt"
+)
+file(
+    GENERATE
+    OUTPUT "${cuePlatformTargetFileList}"
+    CONTENT "${cuePlatformTargetFileContent}\n"
+)
+
 set(
     cuePlatformDependencyReport
     "${CMAKE_CURRENT_BINARY_DIR}/Cue.Platform.Dependencies.txt"
@@ -248,6 +296,7 @@ add_test(
         ${CMAKE_COMMAND}
         -DREPORT_FILE=${cuePlatformDependencyReport}
         -DPLATFORM_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Platform
+        -DPLATFORM_TARGET_FILE_LIST=${cuePlatformTargetFileList}
         -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyPlatformDependencies.cmake
 )

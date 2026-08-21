@@ -16,11 +16,13 @@ foreach(
         "Cue.Platform.Windows INTERFACE_SOURCES: <none>"
         "Cue.Platform.Windows INTERFACE_LINK_LIBRARIES_DIRECT: <none>"
         "Generated and target object sources: <none>"
+        "Target Source and Header File Set scan: enabled"
         "Allowed Windows PRIVATE links: User32"
         "Required Windows PUBLIC link: Cue.Platform"
         "Allowed Windows LINK_ONLY links: User32"
         "Forbidden dependencies: Cue.RHI;D3D12;Editor"
         "Windows SDK and non-standard UCRT include boundary: Windows/Private"
+        "Compiler pragma link injection: forbidden"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -33,9 +35,25 @@ file(
     GLOB_RECURSE
     platformSources
     LIST_DIRECTORIES FALSE
+    "${PLATFORM_SOURCE_DIR}/*.c"
+    "${PLATFORM_SOURCE_DIR}/*.cc"
     "${PLATFORM_SOURCE_DIR}/*.cpp"
+    "${PLATFORM_SOURCE_DIR}/*.cxx"
     "${PLATFORM_SOURCE_DIR}/*.h"
+    "${PLATFORM_SOURCE_DIR}/*.hh"
+    "${PLATFORM_SOURCE_DIR}/*.hpp"
+    "${PLATFORM_SOURCE_DIR}/*.hxx"
+    "${PLATFORM_SOURCE_DIR}/*.inl"
+    "${PLATFORM_SOURCE_DIR}/*.ixx"
 )
+
+if(NOT EXISTS "${PLATFORM_TARGET_FILE_LIST}")
+    message(FATAL_ERROR "Platform Target file list does not exist: ${PLATFORM_TARGET_FILE_LIST}")
+endif()
+
+file(STRINGS "${PLATFORM_TARGET_FILE_LIST}" platformTargetFiles)
+list(APPEND platformSources ${platformTargetFiles})
+list(REMOVE_DUPLICATES platformSources)
 
 set(hasWindowsSdkInclude FALSE)
 
@@ -113,8 +131,33 @@ set(
 )
 
 foreach(platformSource IN LISTS platformSources)
+    if(NOT EXISTS "${platformSource}" OR IS_DIRECTORY "${platformSource}")
+        message(FATAL_ERROR "Platform source file does not exist: ${platformSource}")
+    endif()
+
     file(READ "${platformSource}" sourceContents)
     file(RELATIVE_PATH relativeSource "${PLATFORM_SOURCE_DIR}" "${platformSource}")
+    string(TOLOWER "${sourceContents}" sourceContentsLower)
+    string(
+        REGEX MATCH
+        "(^|\n)[ \t]*#[ \t]*pragma[ \t]+comment[ \t]*\\("
+        preprocessorCommentDirective
+        "${sourceContentsLower}"
+    )
+    string(
+        REGEX MATCH
+        "(__pragma|_pragma)[ \t\r\n]*\\("
+        compilerPragmaDirective
+        "${sourceContentsLower}"
+    )
+
+    if(preprocessorCommentDirective OR compilerPragmaDirective)
+        message(
+            FATAL_ERROR
+            "Platform source contains a compiler pragma that can inject link dependencies: ${relativeSource}"
+        )
+    endif()
+
     string(
         REGEX MATCHALL
         "#[ \t]*include[ \t]*[<\"][^>\"]+[>\"]"
