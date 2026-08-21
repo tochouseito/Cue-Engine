@@ -83,7 +83,7 @@ git diff --check
 
 ## Clean Checkout Validation
 
-GitHubへPushしたCommit `4316ed82f7915173c1f0c078b828fea7252d90cb`を別Directoryへ新規Cloneし、Configure、全3構成Build、全3構成CTestを再実行しました。
+GitHubへPushしたCommit `d37cd7f308fac07247cf1a23fb162b334b6a17e5`を別Directoryへ新規Cloneし、Configure、全3構成Build、全3構成CTestを再実行しました。
 
 - Clone直後のBranchは`feature/Engine/M01/35-foundation-completion-gates`
 - Clone直後のWorking TreeはClean
@@ -92,8 +92,6 @@ GitHubへPushしたCommit `4316ed82f7915173c1f0c078b828fea7252d90cb`を別Direct
 - 全3構成のCTestは、それぞれ`16/16`成功
 - 検証後もTracked Fileの変更なし
 - `git diff --check`成功
-
-検証DirectoryをWindowsの一時Directory配下に置いたため、MSBuildは`MSB8029`としてIncremental Buildへの注意を出しました。Compile、Link、CTestは失敗しておらず、Repository内の通常BuildとGitHub Actionsではこの一時Directory条件を使用しません。
 
 ## Acceptance Gates
 
