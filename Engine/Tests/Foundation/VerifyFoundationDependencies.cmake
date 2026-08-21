@@ -277,8 +277,14 @@ foreach(dumpbinLine IN LISTS dumpbinLines)
     string(STRIP "${dumpbinLine}" linkerDirective)
     string(TOLOWER "${linkerDirective}" linkerDirectiveLower)
 
-    if(linkerDirectiveLower MATCHES "^/defaultlib:")
-        string(REGEX REPLACE "^/defaultlib:[\"]?" "" defaultLibrary "${linkerDirectiveLower}")
+    if(linkerDirectiveLower MATCHES "^-[a-z]")
+        string(REGEX REPLACE "^-" "/" linkerDirectiveNormalized "${linkerDirectiveLower}")
+    else()
+        set(linkerDirectiveNormalized "${linkerDirectiveLower}")
+    endif()
+
+    if(linkerDirectiveNormalized MATCHES "^/defaultlib:")
+        string(REGEX REPLACE "^/defaultlib:[\"]?" "" defaultLibrary "${linkerDirectiveNormalized}")
         string(REGEX REPLACE "[\"]?$" "" defaultLibrary "${defaultLibrary}")
         string(REGEX REPLACE "\\.lib$" "" defaultLibrary "${defaultLibrary}")
         list(FIND allowedDefaultLibraries "${defaultLibrary}" allowedLibraryIndex)
@@ -290,8 +296,8 @@ foreach(dumpbinLine IN LISTS dumpbinLines)
             )
         endif()
     elseif(
-        linkerDirectiveLower MATCHES "^/"
-        AND NOT linkerDirectiveLower MATCHES "^/failifmismatch:|^/alternatename:"
+        linkerDirectiveNormalized MATCHES "^/"
+        AND NOT linkerDirectiveNormalized MATCHES "^/failifmismatch:|^/alternatename:"
     )
         message(
             FATAL_ERROR
