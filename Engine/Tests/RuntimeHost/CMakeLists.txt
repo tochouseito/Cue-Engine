@@ -43,6 +43,7 @@ configure_file(
 add_custom_target(
     Cue.RuntimeHost.Tests
     DEPENDS
+        CueRhiD3d12AdapterSelectionProcess
         CueRuntimeHost
         CueRuntimeHostRhiOwnershipCompile
 )
@@ -74,6 +75,25 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyRuntimeHostFailure.cmake
 )
 
+add_test(
+    NAME Cue.RuntimeHost.D3D12DeviceSmoke.Hardware
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueRuntimeHost>
+        -DADAPTER_PROBE_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12AdapterSelectionProcess>
+        -DMODE=hardware
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12DeviceSmoke.cmake
+)
+
+add_test(
+    NAME Cue.RuntimeHost.D3D12DeviceSmoke.Warp
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueRuntimeHost>
+        -DMODE=warp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12DeviceSmoke.cmake
+)
+
 set_tests_properties(
     Cue.RuntimeHost.Smoke
     PROPERTIES
@@ -87,4 +107,19 @@ set_tests_properties(
     PROPERTIES
         LABELS RuntimeHost
         TIMEOUT 10
+)
+
+set_tests_properties(
+    Cue.RuntimeHost.D3D12DeviceSmoke.Hardware
+    PROPERTIES
+        LABELS "RuntimeHost;RHI;Smoke"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 20
+)
+
+set_tests_properties(
+    Cue.RuntimeHost.D3D12DeviceSmoke.Warp
+    PROPERTIES
+        LABELS "RuntimeHost;RHI;Smoke"
+        TIMEOUT 20
 )

@@ -102,7 +102,20 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
                                          "Optional D3D12 diagnostics are unavailable", a_nativeCode);
     cue::LogResult logResult =
         a_context.logger().log(cue::LogLevel::Warning, a_message, std::move(error));
-    return validate_log_result(logResult, a_context);
+
+    if (logResult == cue::LogResult::Success)
+    {
+        return cue::Result<void>::success();
+    }
+
+    cue::Error cause = make_native_error(a_context, k_optionalDiagnosticsUnavailable,
+                                         "Optional D3D12 diagnostics are unavailable", a_nativeCode);
+    cue::ErrorCode code = cue::ErrorCode::create(
+        a_context.fatal_handler(), "Cue.RHI.D3D12", k_diagnosticLogFailed);
+    cue::Error logError = cue::Error::reclassify(
+        a_context.fatal_handler(), std::move(code),
+        "Foundation Logger could not record D3D12 diagnostics", std::move(cause));
+    return cue::Result<void>::failure(std::move(logError));
 }
 
 [[nodiscard]] bool try_convert_dred_name(const wchar_t *a_name, std::string &a_storage,
@@ -436,6 +449,43 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
     }
 
     a_status.isInfoQueueEnabled = true;
+    return Result<void>::success();
+}
+
+Result<void> report_d3d12_live_device_objects(
+    ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status,
+    const AssertContext &a_assertContext) noexcept
+{
+    if (!a_status.isDebugLayerEnabled || !are_d3d12_diagnostics_allowed())
+    {
+        return Result<void>::success();
+    }
+
+    if (a_device == nullptr)
+    {
+        return Result<void>::failure(
+            make_error(a_assertContext, k_invalidDevice,
+                       "D3D12 Device is required for live object diagnostics"));
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12DebugDevice1> debugDevice;
+    HRESULT queryResult = a_device->QueryInterface(IID_PPV_ARGS(&debugDevice));
+
+    if (FAILED(queryResult))
+    {
+        return log_fallback(
+            a_assertContext, "D3D12 Live Object診断Interfaceを取得できません", queryResult);
+    }
+
+    HRESULT reportResult = debugDevice->ReportLiveDeviceObjects(
+        D3D12_RLDO_SUMMARY | D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
+
+    if (FAILED(reportResult))
+    {
+        return log_fallback(
+            a_assertContext, "D3D12 Live Object診断を実行できません", reportResult);
+    }
+
     return Result<void>::success();
 }
 

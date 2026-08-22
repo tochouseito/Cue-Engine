@@ -3,6 +3,7 @@
 #include <Cue/Foundation/Log.h>
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
+#include <Cue/RHI/D3D12/D3d12Backend.h>
 
 #include <chrono>
 #include <cstdint>
@@ -16,6 +17,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT
+#error CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT must be provided by the CueRuntimeHost CMake target
+#endif
+
 namespace
 {
 constexpr int k_invalidArguments = 64;
@@ -24,12 +29,17 @@ constexpr int k_windowCreationFailed = 2;
 constexpr int k_windowShowFailed = 3;
 constexpr int k_messagePumpFailed = 4;
 constexpr int k_windowDestroyFailed = 5;
+constexpr int k_graphicsBackendCreationFailed = 6;
+constexpr int k_graphicsBackendShutdownFailed = 7;
+constexpr int k_graphicsLogFailed = 8;
 
 struct RuntimeOptions final
 {
     std::string title = "CueEngine Runtime Host";
     cue::WindowSize clientSize = {1280, 720};
     bool isSmokeTest = false;
+    bool isGraphicsSmoke = false;
+    cue::D3d12AdapterPolicy graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
 };
 
 [[nodiscard]] bool parse_size(std::wstring_view a_text, std::uint32_t &a_value) noexcept
@@ -80,6 +90,32 @@ struct RuntimeOptions final
             continue;
         }
 
+        if (argument == L"--graphics-smoke")
+        {
+            if (index + 1 >= a_argumentCount)
+            {
+                return cue::Result<bool>::success(false);
+            }
+
+            std::wstring_view value = a_arguments[++index];
+
+            if (value == L"hardware")
+            {
+                a_options.graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
+            }
+            else if (value == L"warp")
+            {
+                a_options.graphicsAdapterPolicy = cue::D3d12AdapterPolicy::Warp;
+            }
+            else
+            {
+                return cue::Result<bool>::success(false);
+            }
+
+            a_options.isGraphicsSmoke = true;
+            continue;
+        }
+
         if (index + 1 >= a_argumentCount)
         {
             return cue::Result<bool>::success(false);
@@ -118,13 +154,77 @@ struct RuntimeOptions final
         }
     }
 
-    return cue::Result<bool>::success(true);
+    return cue::Result<bool>::success(!(a_options.isSmokeTest && a_options.isGraphicsSmoke));
 }
 
 void print_usage() noexcept
 {
-    std::fputws(L"Usage: CueRuntimeHost [--smoke-test] [--title <title>] [--width <pixels>] [--height <pixels>]\n",
-                stderr);
+    std::fputws(
+        L"Usage: CueRuntimeHost [--smoke-test | --graphics-smoke <hardware|warp>] "
+        L"[--title <title>] [--width <pixels>] [--height <pixels>]\n",
+        stderr);
+}
+
+[[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_message, cue::Error &&a_error,
+                               int a_exitCode) noexcept;
+
+[[nodiscard]] int run_graphics_smoke(const RuntimeOptions &a_options, cue::Logger &a_logger,
+                                     cue::AssertContext &a_assertContext)
+{
+    constexpr bool enableDiagnostics = CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT != 0;
+    cue::D3d12BackendDescriptor descriptor = {
+        a_options.graphicsAdapterPolicy,
+        enableDiagnostics ? cue::D3d12ValidationMode::Standard : cue::D3d12ValidationMode::Disabled,
+        enableDiagnostics,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
+        cue::create_d3d12_backend(descriptor, a_assertContext);
+
+    if (!backendResult)
+    {
+        return report_error(a_logger, "Runtime Host failed to create D3D12 Backend",
+                            std::move(*backendResult.try_error()), k_graphicsBackendCreationFailed);
+    }
+
+    std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    const cue::CapabilityReport &capabilities = backend->capabilities();
+    std::string capabilityMessage =
+        "D3D12 Device Smoke ready: Adapter=" + capabilities.adapterName +
+        ", VendorId=" + std::to_string(capabilities.vendorId) +
+        ", DeviceId=" + std::to_string(capabilities.deviceId) +
+        ", DedicatedVideoMemoryBytes=" + std::to_string(capabilities.dedicatedVideoMemoryBytes) +
+        ", UMA=" + (capabilities.isUma ? "true" : "false");
+    cue::LogResult capabilityLogResult = a_logger.log(cue::LogLevel::Info, capabilityMessage);
+    cue::Result<void> shutdownResult = backend->shutdown();
+
+    if (!shutdownResult)
+    {
+        if (backend->state() == cue::GraphicsBackendState::Unavailable)
+        {
+            cue::report_fatal(
+                a_logger, a_assertContext.fatal_handler(),
+                "Runtime Host could not prove safe D3D12 Backend shutdown",
+                std::move(*shutdownResult.try_error()));
+        }
+
+        backend.reset();
+        return report_error(a_logger, "Runtime Host failed to shutdown D3D12 Backend",
+                            std::move(*shutdownResult.try_error()), k_graphicsBackendShutdownFailed);
+    }
+
+    backend.reset();
+
+    if (capabilityLogResult != cue::LogResult::Success)
+    {
+        return k_graphicsLogFailed;
+    }
+
+    cue::LogResult shutdownLogResult = a_logger.log(
+        cue::LogLevel::Info, "D3D12 Device Smoke shutdown completed");
+    cue::LogResult flushResult = a_logger.flush();
+    return shutdownLogResult == cue::LogResult::Success && flushResult == cue::LogResult::Success
+               ? 0
+               : k_graphicsLogFailed;
 }
 
 [[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_message, cue::Error &&a_error,
@@ -138,6 +238,12 @@ void print_usage() noexcept
 [[nodiscard]] int run(const RuntimeOptions &a_options, cue::Logger &a_logger, cue::AssertContext &a_assertContext)
 {
     static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
+
+    if (a_options.isGraphicsSmoke)
+    {
+        return run_graphics_smoke(a_options, a_logger, a_assertContext);
+    }
+
     cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult =
         cue::create_windows_window_system(a_assertContext);
 
