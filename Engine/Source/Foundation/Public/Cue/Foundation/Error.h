@@ -174,6 +174,15 @@ class Error final
                                           std::string_view a_summary, Error &&a_cause) noexcept;
 
     /**
+     * @brief Native Error付きでErrorを新しい抽象Levelへ再分類する
+     * @param a_cause 消費される直前のError
+
+     */
+    [[nodiscard]] static Error reclassify(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
+                                          std::string_view a_summary, NativeError &&a_nativeError,
+                                          Error &&a_cause) noexcept;
+
+    /**
      * @brief 伝播Contextを追加する
      * @param a_emergencyHandler Allocation失敗時の非所有終了境界
      * @param a_message Context Message
@@ -201,6 +210,10 @@ class Error final
     [[nodiscard]] const ErrorCode &root_code() const noexcept;
 
   private:
+    [[nodiscard]] static Error reclassify_impl(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
+                                               std::string_view a_summary, std::optional<NativeError> &&a_nativeError,
+                                               Error &&a_cause) noexcept;
+
     Error(ErrorCode &&a_code, std::string &&a_summary, std::optional<NativeError> &&a_nativeError) noexcept;
 
     ErrorCode m_code;

@@ -3,6 +3,7 @@
 #include "D3d12AdapterSelection.h"
 #include "D3d12DeviceCreation.h"
 #include "D3d12Diagnostics.h"
+#include "D3d12QueueState.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
@@ -25,6 +26,8 @@ constexpr std::int64_t k_deviceNameFailed = 31;
 constexpr std::int64_t k_capabilityQueryFailed = 32;
 constexpr std::int64_t k_backendUnavailable = 33;
 constexpr std::int64_t k_deviceRemoved = 34;
+constexpr std::int64_t k_invalidWaitTimeout = 35;
+constexpr std::uint32_t k_maximumWaitTimeoutMilliseconds = 60000;
 
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
@@ -137,11 +140,13 @@ class D3d12BackendImpl final : public cue::D3d12Backend
   public:
     D3d12BackendImpl(cue::D3d12AdapterSelection &&a_selection,
                      Microsoft::WRL::ComPtr<ID3D12Device> a_device,
+                     cue::D3d12QueueState &&a_queueState,
                      cue::D3d12DiagnosticsStatus a_diagnostics,
                      cue::CapabilityReport &&a_capabilities,
                      cue::AssertContext &a_assertContext) noexcept
         : m_factory(std::move(a_selection.factory)), m_adapter(std::move(a_selection.adapter)),
-          m_device(std::move(a_device)), m_capabilities(std::move(a_capabilities)),
+          m_device(std::move(a_device)), m_queueState(std::move(a_queueState)),
+          m_capabilities(std::move(a_capabilities)),
           m_diagnostics(a_diagnostics), m_assertContext(&a_assertContext),
           m_creationThread(std::this_thread::get_id()), m_state(cue::GraphicsBackendState::Ready)
     {
@@ -152,7 +157,8 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
                    "D3D12 Backend must be destroyed on the creation thread");
 
-        if (m_state != cue::GraphicsBackendState::Shutdown || m_device != nullptr ||
+        if (m_state != cue::GraphicsBackendState::Shutdown ||
+            m_queueState.has_gpu_objects() || m_device != nullptr ||
             m_adapter != nullptr || m_factory != nullptr)
         {
             m_assertContext->fatal_handler().terminate(
@@ -191,13 +197,22 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         }
 
         std::optional<cue::Error> firstError;
-        HRESULT removalReason = m_device->GetDeviceRemovedReason();
+        cue::Result<void> queueShutdownResult = m_queueState.shutdown();
 
-        if (FAILED(removalReason))
+        if (!queueShutdownResult)
+        {
+            firstError.emplace(std::move(*queueShutdownResult.try_error()));
+
+            if (m_queueState.status() == cue::D3d12QueueStateStatus::Unavailable)
+            {
+                m_state = cue::GraphicsBackendState::Unavailable;
+                return cue::Result<void>::failure(std::move(*firstError));
+            }
+        }
+
+        if (m_queueState.status() == cue::D3d12QueueStateStatus::DeviceRemoved)
         {
             m_state = cue::GraphicsBackendState::DeviceRemoved;
-            firstError.emplace(make_native_error(
-                *m_assertContext, k_deviceRemoved, "D3D12 Device was removed", removalReason));
 
             cue::Result<void> dredResult = cue::collect_d3d12_device_removed_diagnostics(
                 m_device.Get(), m_diagnostics, *m_assertContext);
@@ -205,6 +220,18 @@ class D3d12BackendImpl final : public cue::D3d12Backend
                 firstError, dredResult,
                 "D3D12 DRED diagnostics also failed while handling device removal",
                 *m_assertContext);
+
+            cue::Result<void> queueReleaseResult = m_queueState.release_after_device_removed();
+            retain_shutdown_error(
+                firstError, queueReleaseResult,
+                "D3D12 Queue cleanup also failed after device removal",
+                *m_assertContext);
+
+            if (m_queueState.status() == cue::D3d12QueueStateStatus::Unavailable)
+            {
+                m_state = cue::GraphicsBackendState::Unavailable;
+                return cue::Result<void>::failure(std::move(*firstError));
+            }
         }
 
         cue::Result<void> liveObjectResult = cue::report_d3d12_live_device_objects(
@@ -238,6 +265,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     Microsoft::WRL::ComPtr<IDXGIFactory6> m_factory;
     Microsoft::WRL::ComPtr<IDXGIAdapter4> m_adapter;
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
+    cue::D3d12QueueState m_queueState;
     cue::CapabilityReport m_capabilities;
     cue::D3d12DiagnosticsStatus m_diagnostics;
     cue::AssertContext *m_assertContext;
@@ -253,6 +281,14 @@ D3d12Backend::~D3d12Backend() noexcept = default;
 Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(
     const D3d12BackendDescriptor &a_descriptor, AssertContext &a_assertContext) noexcept
 {
+    if (a_descriptor.gpuWaitTimeoutMilliseconds == 0 ||
+        a_descriptor.gpuWaitTimeoutMilliseconds > k_maximumWaitTimeoutMilliseconds)
+    {
+        return Result<std::unique_ptr<D3d12Backend>>::failure(make_error(
+            a_assertContext, k_invalidWaitTimeout,
+            "D3D12 GPU Wait Timeout must be between 1 and 60000 milliseconds"));
+    }
+
     Result<D3d12DiagnosticsStatus> diagnosticsResult =
         configure_d3d12_pre_device_diagnostics(a_descriptor, a_assertContext);
 
@@ -321,10 +357,20 @@ Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(
             std::move(*capabilityReportResult.try_error()));
     }
 
+    Result<D3d12QueueState> queueStateResult =
+        create_d3d12_queue_state(device.Get(), a_descriptor.gpuWaitTimeoutMilliseconds, a_assertContext);
+
+    if (!queueStateResult)
+    {
+        return Result<std::unique_ptr<D3d12Backend>>::failure(
+            std::move(*queueStateResult.try_error()));
+    }
+
     try
     {
         std::unique_ptr<D3d12Backend> backend = std::make_unique<D3d12BackendImpl>(
-            std::move(selection), std::move(device), diagnostics,
+            std::move(selection), std::move(device),
+            std::move(*queueStateResult.try_value()), diagnostics,
             std::move(*capabilityReportResult.try_value()), a_assertContext);
         return Result<std::unique_ptr<D3d12Backend>>::success(std::move(backend));
     }

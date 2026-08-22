@@ -47,6 +47,7 @@ class ProcessLogSink final : public cue::LogSink
         a_policy,
         cue::D3d12ValidationMode::Disabled,
         false,
+        5000,
     };
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(descriptor, a_assertContext);
@@ -91,6 +92,7 @@ class ProcessLogSink final : public cue::LogSink
         cue::D3d12AdapterPolicy::Warp,
         cue::D3d12ValidationMode::Disabled,
         false,
+        5000,
     };
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(descriptor, a_assertContext);
@@ -117,6 +119,22 @@ class ProcessLogSink final : public cue::LogSink
     return 0;
 #endif
 }
+
+[[nodiscard]] int run_invalid_wait_timeout(cue::AssertContext &a_assertContext) noexcept
+{
+    cue::D3d12BackendDescriptor descriptor = {
+        cue::D3d12AdapterPolicy::Warp,
+        cue::D3d12ValidationMode::Disabled,
+        false,
+        0,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> result =
+        cue::create_d3d12_backend(descriptor, a_assertContext);
+    return !result && result.try_error() != nullptr &&
+                   result.try_error()->code().domain() == "Cue.RHI.D3D12"
+               ? 0
+               : 11;
+}
 } // namespace
 
 int main(int a_argumentCount, char **a_arguments)
@@ -129,7 +147,7 @@ int main(int a_argumentCount, char **a_arguments)
     std::string_view mode = a_arguments[1];
 
     if (mode != "Hardware" && mode != "Warp" && mode != "DeviceFailure" &&
-        mode != "ThreadDestruction")
+        mode != "ThreadDestruction" && mode != "InvalidWaitTimeout")
     {
         return 2;
     }
@@ -148,6 +166,11 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "ThreadDestruction")
     {
         return run_backend_thread_destruction(assertContext);
+    }
+
+    if (mode == "InvalidWaitTimeout")
+    {
+        return run_invalid_wait_timeout(assertContext);
     }
 
     cue::D3d12AdapterPolicy policy = mode == "Warp" ? cue::D3d12AdapterPolicy::Warp

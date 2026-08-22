@@ -126,6 +126,7 @@ if(WIN32)
     add_executable(CueRhiD3d12AdapterSelectionProcess D3d12AdapterSelectionProcess.cpp)
     add_executable(CueRhiD3d12BackendProcess D3d12BackendProcess.cpp)
     add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
+    add_executable(CueRhiD3d12QueueStateProcess D3d12QueueStateProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
@@ -135,6 +136,8 @@ if(WIN32)
     target_compile_features(CueRhiD3d12BackendProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12DiagnosticsProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12DiagnosticsProcess PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12QueueStateProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12QueueStateProcess PRIVATE cxx_std_20)
     list(
         APPEND
         cueRhiTestTargets
@@ -142,6 +145,7 @@ if(WIN32)
         CueRhiD3d12AdapterSelectionProcess
         CueRhiD3d12BackendProcess
         CueRhiD3d12DiagnosticsProcess
+        CueRhiD3d12QueueStateProcess
     )
     list(
         APPEND
@@ -157,8 +161,26 @@ if(WIN32)
         Cue.RHI.D3D12.Backend.Warp
         Cue.RHI.D3D12.Backend.DeviceFailure
         Cue.RHI.D3D12.Backend.ThreadDestruction
+        Cue.RHI.D3D12.Backend.InvalidWaitTimeout
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
+        Cue.RHI.D3D12.QueueState.Smoke
+        Cue.RHI.D3D12.QueueState.Exhaustion
+        Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
+        Cue.RHI.D3D12.QueueState.StaleEventFollowup
+        Cue.RHI.D3D12.QueueState.WaitFailedUnavailable
+        Cue.RHI.D3D12.QueueState.EventCloseFailure
+        Cue.RHI.D3D12.QueueState.EventCreateFailure
+        Cue.RHI.D3D12.QueueState.SignalCompletion
+        Cue.RHI.D3D12.QueueState.SignalDeviceRemoved
+        Cue.RHI.D3D12.QueueState.SignalCompletionDeviceRemovedRace
+        Cue.RHI.D3D12.QueueState.SignalUnavailable
+        Cue.RHI.D3D12.QueueState.SignalEventCloseFailure
+        Cue.RHI.D3D12.QueueState.SignalEventCreateFailure
+        Cue.RHI.D3D12.QueueState.TerminalSignalCompletion
+        Cue.RHI.D3D12.QueueState.TerminalSignalDeviceRemoved
+        Cue.RHI.D3D12.QueueState.TerminalSignalUnavailable
+        Cue.RHI.D3D12.QueueState.TerminalCloseFailure
         Cue.RHI.Dependencies
     )
 endif()
@@ -336,6 +358,78 @@ if(WIN32)
     add_test(
         NAME Cue.RHI.D3D12.Diagnostics.Configured
         COMMAND CueRhiD3d12DiagnosticsProcess Configured
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout
+        COMMAND CueRhiD3d12BackendProcess InvalidWaitTimeout
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.Smoke
+        COMMAND CueRhiD3d12QueueStateProcess Smoke
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.Exhaustion
+        COMMAND CueRhiD3d12QueueStateProcess Exhaustion
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
+        COMMAND CueRhiD3d12QueueStateProcess WaitRecoveryMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.WaitFailedUnavailable
+        COMMAND CueRhiD3d12QueueStateProcess WaitFailedUnavailable
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.StaleEventFollowup
+        COMMAND CueRhiD3d12QueueStateProcess StaleEventFollowup
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.EventCloseFailure
+        COMMAND CueRhiD3d12QueueStateProcess EventCloseFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.EventCreateFailure
+        COMMAND CueRhiD3d12QueueStateProcess EventCreateFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalCompletion
+        COMMAND CueRhiD3d12QueueStateProcess SignalCompletion
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalDeviceRemoved
+        COMMAND CueRhiD3d12QueueStateProcess SignalDeviceRemoved
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalCompletionDeviceRemovedRace
+        COMMAND CueRhiD3d12QueueStateProcess SignalCompletionDeviceRemovedRace
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalUnavailable
+        COMMAND CueRhiD3d12QueueStateProcess SignalUnavailable
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalEventCloseFailure
+        COMMAND CueRhiD3d12QueueStateProcess SignalEventCloseFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.SignalEventCreateFailure
+        COMMAND CueRhiD3d12QueueStateProcess SignalEventCreateFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.TerminalSignalCompletion
+        COMMAND CueRhiD3d12QueueStateProcess TerminalSignalCompletion
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.TerminalSignalDeviceRemoved
+        COMMAND CueRhiD3d12QueueStateProcess TerminalSignalDeviceRemoved
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.TerminalSignalUnavailable
+        COMMAND CueRhiD3d12QueueStateProcess TerminalSignalUnavailable
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.TerminalCloseFailure
+        COMMAND CueRhiD3d12QueueStateProcess TerminalCloseFailure
     )
     add_test(
         NAME Cue.RHI.Dependencies

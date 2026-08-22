@@ -2,6 +2,7 @@
 
 #include <Cue/RHI/GraphicsBackend.h>
 
+#include <cstdint>
 #include <memory>
 
 namespace cue
@@ -36,6 +37,9 @@ struct D3d12BackendDescriptor final
 
     /** @brief DREDを有効化する場合はtrue。Releaseではtrueを指定すると生成に失敗する */
     bool isDredEnabled;
+
+    /** @brief GPU完了を待つ有限Timeout。1から60,000 msを許可する */
+    std::uint32_t gpuWaitTimeoutMilliseconds;
 };
 
 class AssertContext;
@@ -61,6 +65,6 @@ class D3d12Backend : public GraphicsBackend
  * @param a_assertContext Backendより長く生存するAssert Context
  * @return 成功時はD3D12 Backendの一意Owner、失敗時は診断可能なError
  */
-[[nodiscard]] Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(
-    const D3d12BackendDescriptor &a_descriptor, AssertContext &a_assertContext) noexcept;
+[[nodiscard]] Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(const D3d12BackendDescriptor &a_descriptor,
+                                                                         AssertContext &a_assertContext) noexcept;
 } // namespace cue
