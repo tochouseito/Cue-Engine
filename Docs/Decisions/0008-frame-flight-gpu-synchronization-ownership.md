@@ -147,10 +147,13 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   ListをResetして空のままCloseし、`IdleClosed`へ遷移する。ResetまたはCloseが失敗してもGPUへ未投入の
   内容なので、既存`lastSignaledFence`をDrainした後に安全なContext Cleanupを行う
 - Fence枯渇後の待機で完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移する
-- Queueの`Signal`が成功した後だけ、Backendの`lastSignaledFence`、対象Frame Contextの
-  `reuseFenceValue`、そのPresentation Contextの`lastSubmittedFence`を同じSignal値へ更新する
-- `lastSubmittedFence`は通常Frame、Present Error後の補完Signal、Context terminal Signalのすべてで
-  更新し、ResizeとContext ShutdownがそのContextの全Submitを覆う値を必ず参照できるようにする
+- Queueのすべての`Signal`成功時に、Backendの`lastSignaledFence`をそのSignal値へ更新する
+- Frame Submitの通常SignalまたはPresent Error後の補完Signalが成功した場合だけ、Allocatorを使用した
+  対象Frame Contextの`reuseFenceValue`を同じSignal値へ更新する。Context terminal SignalとBackend
+  terminal Signalには対象Frame Contextがないため、`reuseFenceValue`を更新しない
+- Presentation Contextに属する通常Frame、補完Signal、Context terminal Signalが成功した場合は、その
+  Presentation Contextの`lastSubmittedFence`を同じSignal値へ更新する。Backend terminal Signalには
+  対象Presentation Contextがないため、`lastSubmittedFence`を更新しない
 - `ExecuteCommandLists`後にSignalが失敗した場合、投入済みWorkの完了点を証明できないため、
   Device Removal確認または`Unavailable`遷移を行う
 
