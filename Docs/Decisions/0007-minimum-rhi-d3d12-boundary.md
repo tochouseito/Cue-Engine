@@ -134,10 +134,21 @@ Backend状態は`Ready`、`DeviceRemoved`、`Shutdown`の三つとする。
 - `capabilities()`と`state()`はBackend Objectの破棄まで参照できる
 - `shutdown()`は明示的に呼び、成功後の再呼出は成功する冪等操作とする
 - `shutdown()`開始後は新しいWorkを拒否し、途中で失敗してもBest-effort Cleanupを最後まで行って必ず`Shutdown`へ遷移し、最初のErrorを返す。完了後の再呼出は直前の成否にかかわらず成功する
-- Queue追加後の通常`shutdown()`は最後のFenceをSignalし、RuntimeHostが指定する有限時間だけ待つ。M04のQueue ADRで既定時間と待機Primitiveを決定する
+- Queue追加後の通常`shutdown()`はPresentation Contextがゼロであることを確認し、Backend自身が所有する最後のFenceだけをSignalしてRuntimeHostが指定する有限時間だけ待つ。M04のQueue ADRで既定時間と待機Primitiveを決定する
 - Fence Signal、Wait、Device Removal診断の失敗は`shutdown()`の`Result`で返し、RuntimeHostが一度Logして終了Codeを決定する
 - `DeviceRemoved`ではFence完了を待たず、DRED収集後にNative Objectを解放する
 - RuntimeHostはBackend Destructorより前に`shutdown()`を呼ぶ。Destructorは未解放Native Objectを例外なしで解放する最後の安全網であり、失敗を隠す通常経路として使用しない
+
+M04でPresentation Contextを追加する場合は、Backendと独立した明示`shutdown()`契約を持たせる。
+
+- Presentation Contextは`Ready`、`DeviceRemoved`、`Shutdown`状態を持つ
+- `PresentationContext::shutdown()`は新しいFrameを拒否し、自身が最後に投入したFenceをSignalして有限時間だけ待ち、Frame Context、Back Buffer、RTV、Swap Chainを順に解放する
+- `PresentationContext::shutdown()`は途中で失敗してもBest-effort Cleanupを最後まで行い、必ず`Shutdown`へ遷移して最初のErrorを返す
+- Device Removed時はFenceを待たず、Presentation Resourceを解放してBackendのDRED診断へ移る
+- Backendは生成した有効なPresentation Context数を追跡し、Contextを所有しない
+- 有効なPresentation Contextが残る`GraphicsBackend::shutdown()`は状態を変更せず`RHI.ActivePresentationContexts` Errorを返す
+- Composition Rootは全Presentation Contextの`shutdown()`結果を処理してContextを破棄してから、Backendの`shutdown()`を呼ぶ
+- Backendの`shutdown()`はContextがゼロであることを確認した後、Backend自身が所有する未完了Workだけを有限時間待ち、QueueとDeviceを解放する
 
 `std::unique_ptr`はAccepted ADR-0004で定めた同一Repository、同一ToolchainのFirst-party Static Library境界でのみ使用する。これは安定ABIではない。将来のDLLまたはPlugin境界では、このFactoryを直接公開せず、Version付きABI AdapterでSTL所有権、C++例外、Raw Ownershipを越境させない。
 
@@ -355,7 +366,22 @@ struct D3d12BackendDescriptor final
 };
 
 class D3d12WindowsPresentationAccess;
-class PresentationContext;
+
+enum class PresentationContextState
+{
+    Ready,
+    DeviceRemoved,
+    Shutdown,
+};
+
+class PresentationContext
+{
+  public:
+    virtual ~PresentationContext() = default;
+
+    [[nodiscard]] virtual PresentationContextState state() const noexcept = 0;
+    [[nodiscard]] virtual Result<void> shutdown() noexcept = 0;
+};
 
 class D3d12Backend : public GraphicsBackend
 {
@@ -409,15 +435,21 @@ RuntimeHost      Windows Adapter       Platform Window      Presentation Context
 通常Shutdown:
 
 ```text
-Stop accepting frames
-    -> signal and wait for last submitted graphics fence
-    -> destroy Frame Contexts
-    -> destroy Swap Chain and Presentation Context
+PresentationContext.shutdown()
+    -> stop accepting frames
+    -> signal and wait for the Context's last submitted fence
+    -> destroy Frame Contexts, Back Buffers, and RTVs
+    -> destroy Swap Chain
+    -> unregister Context from Backend
+    -> destroy Presentation Context
+GraphicsBackend.shutdown()
+    -> verify that no Presentation Context remains
+    -> wait for Backend-owned work
     -> destroy Graphics Queue
     -> destroy D3D12 Device
     -> release Adapter
     -> release DXGI Factory and diagnostic interfaces
-    -> destroy Window
+destroy Window
     -> destroy Window System
     -> flush Logger
 ```
