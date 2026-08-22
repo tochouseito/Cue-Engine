@@ -36,6 +36,8 @@ target_sources(
         Private/D3d12DeviceCreation.h
         Private/D3d12Diagnostics.cpp
         Private/D3d12Diagnostics.h
+        Private/D3d12FrameCommandState.cpp
+        Private/D3d12FrameCommandState.h
         Private/D3d12QueueState.cpp
         Private/D3d12QueueState.h
     PUBLIC
@@ -81,6 +83,7 @@ if(BUILD_TESTING)
             Private/TestSupport/D3d12AdapterSelectionProbe.cpp
             Private/TestSupport/D3d12BackendProbe.cpp
             Private/TestSupport/D3d12DiagnosticsProbe.cpp
+            Private/TestSupport/D3d12FrameCommandProbe.cpp
             Private/TestSupport/D3d12QueueStateProbe.cpp
         PUBLIC
             FILE_SET HEADERS
@@ -88,6 +91,7 @@ if(BUILD_TESTING)
                 Public/Cue/RHI/D3D12/TestSupport/D3d12AdapterSelectionProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12BackendProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12DiagnosticsProbe.h
+                Public/Cue/RHI/D3D12/TestSupport/D3d12FrameCommandProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12QueueStateProbe.h
     )
 endif()

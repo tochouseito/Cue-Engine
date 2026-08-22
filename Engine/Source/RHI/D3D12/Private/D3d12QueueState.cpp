@@ -136,6 +136,12 @@ void retain_secondary_error(cue::Error &a_primaryError, cue::Result<void> &a_sec
     }
 }
 
+void execute_command_lists(ID3D12CommandQueue *a_queue, UINT a_count,
+                           ID3D12CommandList *const *a_commandLists) noexcept
+{
+    a_queue->ExecuteCommandLists(a_count, a_commandLists);
+}
+
 HRESULT signal_queue(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     return a_queue->Signal(a_fence, a_value);
@@ -162,8 +168,8 @@ namespace cue
 const D3d12QueueNativeFunctions &default_d3d12_queue_native_functions() noexcept
 {
     static const D3d12QueueNativeFunctions functions = {
-        signal_queue, get_completed_value, set_event_on_completion,   WaitForSingleObject, CreateEventW,
-        CloseHandle,  GetLastError,        get_device_removed_reason,
+        execute_command_lists, signal_queue, get_completed_value, set_event_on_completion, WaitForSingleObject,
+        CreateEventW,           CloseHandle,  GetLastError,        get_device_removed_reason,
     };
     return functions;
 }
@@ -277,6 +283,15 @@ Result<std::uint64_t> D3d12QueueState::reserve_fence_value() noexcept
     return Result<std::uint64_t>::success(std::move(reservedValue));
 }
 
+void D3d12QueueState::execute_command_list(ID3D12CommandList *a_commandList) noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready,
+               "D3D12 Command List execution requires a ready Queue");
+    CUE_ASSERT(*m_assertContext, a_commandList != nullptr, "D3D12 Command List execution requires a Command List");
+    ID3D12CommandList *commandLists[] = {a_commandList};
+    m_functions.executeCommandLists(m_queue.Get(), 1, commandLists);
+}
+
 Result<void> D3d12QueueState::signal_reserved(std::uint64_t a_fenceValue) noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready, "D3D12 Queue Signal requires a ready Queue");
@@ -304,6 +319,19 @@ Result<void> D3d12QueueState::signal_reserved(std::uint64_t a_fenceValue) noexce
     }
 
     return Result<void>::success();
+}
+
+Result<void> D3d12QueueState::reclassify_device_failure(Error &&a_error) noexcept
+{
+    const HRESULT removalReason = m_functions.getDeviceRemovedReason(m_device);
+
+    if (FAILED(removalReason))
+    {
+        m_status = D3d12QueueStateStatus::DeviceRemoved;
+        return Result<void>::failure(make_device_removed_error(*m_assertContext, removalReason, std::move(a_error)));
+    }
+
+    return Result<void>::failure(std::move(a_error));
 }
 
 Result<void> D3d12QueueState::resolve_failed_signal(std::uint64_t a_fenceValue, Error &&a_signalError,

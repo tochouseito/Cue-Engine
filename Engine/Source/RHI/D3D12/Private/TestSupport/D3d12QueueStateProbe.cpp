@@ -71,6 +71,13 @@ void observe_native_call() noexcept
     }
 }
 
+void execute_command_lists_for_fault(ID3D12CommandQueue *a_queue, UINT a_count,
+                                     ID3D12CommandList *const *a_commandLists) noexcept
+{
+    observe_native_call();
+    a_queue->ExecuteCommandLists(a_count, a_commandLists);
+}
+
 HRESULT signal_for_fault(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     observe_native_call();
@@ -243,6 +250,7 @@ HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
 [[nodiscard]] cue::D3d12QueueNativeFunctions make_fault_functions() noexcept
 {
     return {
+        execute_command_lists_for_fault,
         signal_for_fault,
         get_completed_value_for_fault,
         set_event_on_completion_for_fault,
