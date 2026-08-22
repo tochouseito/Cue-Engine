@@ -24,6 +24,7 @@ constexpr std::int64_t k_commandAllocatorResetFailed = 61;
 constexpr std::int64_t k_commandListResetFailed = 62;
 constexpr std::int64_t k_commandListCloseFailed = 63;
 constexpr std::int64_t k_frameAcceptanceStopped = 64;
+constexpr std::int64_t k_invalidFrameResource = 65;
 constexpr std::int64_t k_fenceValueExhausted = 45;
 constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uint32_t>::max)();
 
@@ -146,14 +147,16 @@ D3d12FrameCommandState::D3d12FrameCommandState(std::array<D3d12FrameContext, k_d
     : m_frames(std::move(a_frames)), m_commandList(std::move(a_commandList)), m_queueState(&a_queueState),
       m_assertContext(&a_assertContext), m_functions(a_functions), m_lastSubmittedFence(0), m_pendingFenceValue(0),
       m_activeFrameIndex(k_invalidFrameIndexValue), m_commandListState(D3d12CommandListState::IdleClosed),
-      m_status(D3d12FrameCommandStatus::Ready), m_acceptingFrames(true)
+      m_status(D3d12FrameCommandStatus::Ready), m_acceptingFrames(true), m_isResizeSuspended(false),
+      m_resizeGpuIdleProven(false)
 {
 }
 
 D3d12FrameCommandState::D3d12FrameCommandState(D3d12FrameCommandState &&a_other) noexcept
     : m_queueState(nullptr), m_assertContext(nullptr), m_functions({}), m_lastSubmittedFence(0), m_pendingFenceValue(0),
       m_activeFrameIndex(k_invalidFrameIndexValue), m_commandListState(D3d12CommandListState::IdleClosed),
-      m_status(D3d12FrameCommandStatus::Shutdown), m_acceptingFrames(false)
+      m_status(D3d12FrameCommandStatus::Shutdown), m_acceptingFrames(false), m_isResizeSuspended(false),
+      m_resizeGpuIdleProven(false)
 {
     take_from(std::move(a_other));
 }
@@ -195,6 +198,8 @@ void D3d12FrameCommandState::take_from(D3d12FrameCommandState &&a_other) noexcep
     m_commandListState = a_other.m_commandListState;
     m_status = a_other.m_status;
     m_acceptingFrames = a_other.m_acceptingFrames;
+    m_isResizeSuspended = a_other.m_isResizeSuspended;
+    m_resizeGpuIdleProven = a_other.m_resizeGpuIdleProven;
 
     a_other.m_queueState = nullptr;
     a_other.m_assertContext = nullptr;
@@ -203,6 +208,16 @@ void D3d12FrameCommandState::take_from(D3d12FrameCommandState &&a_other) noexcep
     a_other.m_activeFrameIndex = k_invalidFrameIndexValue;
     a_other.m_status = D3d12FrameCommandStatus::Shutdown;
     a_other.m_acceptingFrames = false;
+    a_other.m_isResizeSuspended = false;
+    a_other.m_resizeGpuIdleProven = false;
+
+    for (D3d12FrameContext &frame : a_other.m_frames)
+    {
+        frame.backBuffer.Reset();
+        frame.rtvSlot.reset();
+        frame.backBufferState = D3d12BackBufferState::Unknown;
+        frame.reuseFenceValue = 0;
+    }
 }
 
 void D3d12FrameCommandState::update_status_from_queue() noexcept
@@ -483,9 +498,178 @@ Result<std::uint64_t> D3d12FrameCommandState::signal_frame() noexcept
     return Result<std::uint64_t>::success(std::move(fenceValue));
 }
 
-Result<void> D3d12FrameCommandState::shutdown() noexcept
+Result<void> D3d12FrameCommandState::suspend_for_resize() noexcept
+{
+    update_status_from_queue();
+
+    if (m_status != D3d12FrameCommandStatus::Ready)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped, "D3D12 Frame Command State is unavailable"));
+    }
+
+    if (!m_acceptingFrames)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped,
+                       "D3D12 Frame acceptance was stopped before Resize suspension"));
+    }
+
+    if (m_commandListState != D3d12CommandListState::IdleClosed &&
+        m_commandListState != D3d12CommandListState::Submitted)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Resize suspension requires an idle or submitted Command List");
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidCommandListState, "D3D12 Resize suspension state is invalid"));
+    }
+
+    m_acceptingFrames = false;
+    m_isResizeSuspended = true;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::prepare_for_resize(std::uint32_t a_frameIndex) noexcept
+{
+    update_status_from_queue();
+    m_resizeGpuIdleProven = false;
+
+    if (m_status != D3d12FrameCommandStatus::Ready)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped, "D3D12 Frame Command State is unavailable"));
+    }
+
+    if (!m_acceptingFrames && !m_isResizeSuspended)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped,
+                       "D3D12 Frame acceptance was stopped before Resize preparation"));
+    }
+
+    if (a_frameIndex >= k_d3d12FrameContextCount)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Resize Frame Context index is out of range");
+        m_acceptingFrames = false;
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidFrameIndex, "D3D12 Resize Frame Context index is out of range"));
+    }
+
+    if (m_commandListState != D3d12CommandListState::IdleClosed &&
+        m_commandListState != D3d12CommandListState::Submitted)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Resize requires an idle or submitted Command List");
+        m_acceptingFrames = false;
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidCommandListState, "D3D12 Resize Command List state is invalid"));
+    }
+
+    m_acceptingFrames = false;
+    m_isResizeSuspended = true;
+    Result<void> waitResult =
+        m_queueState->wait_for_fence(m_lastSubmittedFence, D3d12FenceWaitPurpose::Reusable);
+
+    if (!waitResult)
+    {
+        m_resizeGpuIdleProven = m_queueState->was_last_wait_completion_proven();
+        update_status_from_queue();
+        return Result<void>::failure(std::move(*waitResult.try_error()));
+    }
+
+    m_resizeGpuIdleProven = true;
+
+    D3d12FrameContext &frame = m_frames[a_frameIndex];
+    const HRESULT allocatorResetResult = m_functions.resetCommandAllocator(frame.allocator.Get());
+
+    if (FAILED(allocatorResetResult))
+    {
+        return handle_reset_failure(make_native_error(*m_assertContext, k_commandAllocatorResetFailed,
+                                                      "D3D12 Resize Command Allocator reset failed",
+                                                      allocatorResetResult));
+    }
+
+    const HRESULT listResetResult = m_functions.resetCommandList(m_commandList.Get(), frame.allocator.Get());
+
+    if (FAILED(listResetResult))
+    {
+        return handle_reset_failure(make_native_error(*m_assertContext, k_commandListResetFailed,
+                                                      "D3D12 Resize Graphics Command List reset failed",
+                                                      listResetResult));
+    }
+
+    const HRESULT closeResult = m_functions.closeCommandList(m_commandList.Get());
+
+    if (FAILED(closeResult))
+    {
+        return handle_close_failure(make_native_error(*m_assertContext, k_commandListCloseFailed,
+                                                      "D3D12 Resize Graphics Command List close failed", closeResult));
+    }
+
+    for (D3d12FrameContext &completedFrame : m_frames)
+    {
+        completedFrame.reuseFenceValue = 0;
+    }
+
+    m_activeFrameIndex = k_invalidFrameIndexValue;
+    m_pendingFenceValue = 0;
+    m_commandListState = D3d12CommandListState::IdleClosed;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::resume_after_resize() noexcept
+{
+    update_status_from_queue();
+
+    if (m_status != D3d12FrameCommandStatus::Ready || !m_isResizeSuspended ||
+        (m_commandListState != D3d12CommandListState::IdleClosed &&
+         m_commandListState != D3d12CommandListState::Submitted))
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped, "D3D12 Frame acceptance cannot resume"));
+    }
+
+    m_acceptingFrames = true;
+    m_isResizeSuspended = false;
+    m_resizeGpuIdleProven = false;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::begin_release_after_gpu_idle() noexcept
+{
+    update_status_from_queue();
+    CUE_ASSERT(*m_assertContext, m_status == D3d12FrameCommandStatus::Ready && !m_acceptingFrames,
+               "D3D12 Frame Command GPU-idle cleanup requires stopped frame acceptance");
+
+    if (m_status != D3d12FrameCommandStatus::Ready || m_acceptingFrames)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidCommandListState,
+                                                "D3D12 Frame Command GPU-idle cleanup state is invalid"));
+    }
+
+    release_command_list();
+    m_status = D3d12FrameCommandStatus::CleanupPending;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::release_after_gpu_idle() noexcept
+{
+    Result<void> beginResult = begin_release_after_gpu_idle();
+
+    if (!beginResult)
+    {
+        return beginResult;
+    }
+
+    return release_allocators_after_presentation_cleanup();
+}
+
+Result<void> D3d12FrameCommandState::begin_shutdown() noexcept
 {
     if (m_status == D3d12FrameCommandStatus::Shutdown)
+    {
+        return Result<void>::success();
+    }
+
+    if (m_status == D3d12FrameCommandStatus::CleanupPending)
     {
         return Result<void>::success();
     }
@@ -563,8 +747,8 @@ Result<void> D3d12FrameCommandState::shutdown() noexcept
             if (m_queueState->last_signaled_fence() >= terminalFence)
             {
                 m_lastSubmittedFence = terminalFence;
-                release_native_objects();
-                m_status = D3d12FrameCommandStatus::Shutdown;
+                release_command_list();
+                m_status = D3d12FrameCommandStatus::CleanupPending;
             }
 
             return Result<void>::failure(std::move(*firstError));
@@ -611,8 +795,8 @@ Result<void> D3d12FrameCommandState::shutdown() noexcept
         }
     }
 
-    release_native_objects();
-    m_status = D3d12FrameCommandStatus::Shutdown;
+    release_command_list();
+    m_status = D3d12FrameCommandStatus::CleanupPending;
 
     if (firstError)
     {
@@ -622,7 +806,26 @@ Result<void> D3d12FrameCommandState::shutdown() noexcept
     return Result<void>::success();
 }
 
-Result<void> D3d12FrameCommandState::release_after_device_removed() noexcept
+Result<void> D3d12FrameCommandState::shutdown() noexcept
+{
+    Result<void> beginResult = begin_shutdown();
+
+    if (m_status != D3d12FrameCommandStatus::CleanupPending)
+    {
+        return beginResult;
+    }
+
+    Result<void> allocatorResult = release_allocators_after_presentation_cleanup();
+
+    if (!beginResult)
+    {
+        return beginResult;
+    }
+
+    return allocatorResult;
+}
+
+Result<void> D3d12FrameCommandState::begin_release_after_device_removed() noexcept
 {
     update_status_from_queue();
     CUE_ASSERT(*m_assertContext, m_status == D3d12FrameCommandStatus::DeviceRemoved,
@@ -634,23 +837,158 @@ Result<void> D3d12FrameCommandState::release_after_device_removed() noexcept
                                                 "D3D12 Frame Command Device Removed cleanup state is invalid"));
     }
 
-    release_native_objects();
+    release_command_list();
+    m_status = D3d12FrameCommandStatus::CleanupPending;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::release_after_device_removed() noexcept
+{
+    Result<void> beginResult = begin_release_after_device_removed();
+
+    if (!beginResult)
+    {
+        return beginResult;
+    }
+
+    return release_allocators_after_presentation_cleanup();
+}
+
+Result<void> D3d12FrameCommandState::release_allocators_after_presentation_cleanup() noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_status == D3d12FrameCommandStatus::CleanupPending,
+               "D3D12 Frame Allocator cleanup requires released Presentation resources");
+
+    if (m_status != D3d12FrameCommandStatus::CleanupPending)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidCommandListState,
+                                                "D3D12 Frame Allocator cleanup state is invalid"));
+    }
+
+    release_allocators();
     m_status = D3d12FrameCommandStatus::Shutdown;
     return Result<void>::success();
 }
 
-void D3d12FrameCommandState::release_native_objects() noexcept
+Result<void> D3d12FrameCommandState::bind_back_buffers(D3d12FrameBackBuffers &&a_backBuffers) noexcept
+{
+    for (std::uint32_t index = 0; index < k_d3d12FrameContextCount; ++index)
+    {
+        CUE_ASSERT(*m_assertContext, m_frames[index].backBuffer == nullptr && !m_frames[index].rtvSlot,
+                   "D3D12 Frame Back Buffer binding requires empty Frame resources");
+
+        if (m_frames[index].backBuffer != nullptr || m_frames[index].rtvSlot || a_backBuffers[index] == nullptr)
+        {
+            return Result<void>::failure(make_error(*m_assertContext, k_invalidFrameResource,
+                                                    "D3D12 Frame Back Buffer binding is invalid"));
+        }
+    }
+
+    for (std::uint32_t index = 0; index < k_d3d12FrameContextCount; ++index)
+    {
+        m_frames[index].backBuffer = std::move(a_backBuffers[index]);
+        m_frames[index].backBufferState = D3d12BackBufferState::Present;
+    }
+
+    return Result<void>::success();
+}
+
+Result<ID3D12Resource *> D3d12FrameCommandState::back_buffer(std::uint32_t a_frameIndex) const noexcept
+{
+    if (a_frameIndex >= k_d3d12FrameContextCount)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Frame Back Buffer index is out of range");
+        return Result<ID3D12Resource *>::failure(
+            make_error(*m_assertContext, k_invalidFrameIndex, "D3D12 Frame Back Buffer index is out of range"));
+    }
+
+    if (m_frames[a_frameIndex].backBuffer == nullptr)
+    {
+        return Result<ID3D12Resource *>::failure(
+            make_error(*m_assertContext, k_invalidFrameResource, "D3D12 Frame Back Buffer is unavailable"));
+    }
+
+    ID3D12Resource *backBuffer = m_frames[a_frameIndex].backBuffer.Get();
+    return Result<ID3D12Resource *>::success(std::move(backBuffer));
+}
+
+Result<void> D3d12FrameCommandState::bind_rtv_slot(std::uint32_t a_frameIndex, D3d12RtvSlot a_slot) noexcept
+{
+    if (a_frameIndex >= k_d3d12FrameContextCount)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Frame RTV Slot index is out of range");
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidFrameIndex, "D3D12 Frame RTV Slot index is out of range"));
+    }
+
+    D3d12FrameContext &frame = m_frames[a_frameIndex];
+    CUE_ASSERT(*m_assertContext, frame.backBuffer != nullptr && !frame.rtvSlot,
+               "D3D12 Frame RTV Slot binding requires a Back Buffer without an RTV");
+
+    if (frame.backBuffer == nullptr || frame.rtvSlot)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidFrameResource, "D3D12 Frame RTV Slot binding is invalid"));
+    }
+
+    frame.rtvSlot = a_slot;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::release_rtv_slots(D3d12RtvHeap &a_heap) noexcept
+{
+    std::optional<Error> firstError;
+
+    for (D3d12FrameContext &frame : m_frames)
+    {
+        if (!frame.rtvSlot)
+        {
+            continue;
+        }
+
+        Result<void> releaseResult = a_heap.release(*frame.rtvSlot);
+
+        if (!releaseResult && !firstError)
+        {
+            firstError.emplace(std::move(*releaseResult.try_error()));
+        }
+
+        frame.rtvSlot.reset();
+    }
+
+    if (firstError)
+    {
+        return Result<void>::failure(std::move(*firstError));
+    }
+
+    return Result<void>::success();
+}
+
+void D3d12FrameCommandState::release_back_buffers() noexcept
+{
+    for (D3d12FrameContext &frame : m_frames)
+    {
+        CUE_ASSERT(*m_assertContext, !frame.rtvSlot, "D3D12 Back Buffer release requires released RTV metadata");
+        frame.backBuffer.Reset();
+        frame.backBufferState = D3d12BackBufferState::Unknown;
+    }
+}
+
+void D3d12FrameCommandState::release_command_list() noexcept
 {
     m_commandList.Reset();
 
+    m_activeFrameIndex = k_invalidFrameIndexValue;
+    m_pendingFenceValue = 0;
+}
+
+void D3d12FrameCommandState::release_allocators() noexcept
+{
     for (D3d12FrameContext &frame : m_frames)
     {
         frame.allocator.Reset();
         frame.reuseFenceValue = 0;
     }
-
-    m_activeFrameIndex = k_invalidFrameIndexValue;
-    m_pendingFenceValue = 0;
 }
 
 D3d12CommandListState D3d12FrameCommandState::command_list_state() const noexcept
@@ -680,6 +1018,87 @@ bool D3d12FrameCommandState::is_accepting_frames() const noexcept
     return m_acceptingFrames;
 }
 
+bool D3d12FrameCommandState::was_resize_gpu_idle_proven() const noexcept
+{
+    return m_resizeGpuIdleProven;
+}
+
+bool D3d12FrameCommandState::has_command_list() const noexcept
+{
+    return m_commandList != nullptr;
+}
+
+std::uint32_t D3d12FrameCommandState::allocator_count() const noexcept
+{
+    std::uint32_t count = 0;
+
+    for (const D3d12FrameContext &frame : m_frames)
+    {
+        if (frame.allocator != nullptr)
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+std::uint32_t D3d12FrameCommandState::back_buffer_count() const noexcept
+{
+    std::uint32_t count = 0;
+
+    for (const D3d12FrameContext &frame : m_frames)
+    {
+        if (frame.backBuffer != nullptr)
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+std::uint32_t D3d12FrameCommandState::rtv_count() const noexcept
+{
+    std::uint32_t count = 0;
+
+    for (const D3d12FrameContext &frame : m_frames)
+    {
+        if (frame.rtvSlot)
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+bool D3d12FrameCommandState::has_all_back_buffers() const noexcept
+{
+    for (const D3d12FrameContext &frame : m_frames)
+    {
+        if (frame.backBuffer == nullptr)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool D3d12FrameCommandState::are_back_buffers_present() const noexcept
+{
+    for (const D3d12FrameContext &frame : m_frames)
+    {
+        if (frame.backBuffer == nullptr || frame.backBufferState != D3d12BackBufferState::Present)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool D3d12FrameCommandState::has_native_objects() const noexcept
 {
     if (m_commandList != nullptr)
@@ -689,7 +1108,7 @@ bool D3d12FrameCommandState::has_native_objects() const noexcept
 
     for (const D3d12FrameContext &frame : m_frames)
     {
-        if (frame.allocator != nullptr)
+        if (frame.allocator != nullptr || frame.backBuffer != nullptr || frame.rtvSlot)
         {
             return true;
         }
@@ -731,6 +1150,7 @@ Result<D3d12FrameCommandState> create_d3d12_frame_command_state(
         }
 
         frames[frameIndex].reuseFenceValue = 0;
+        frames[frameIndex].backBufferState = D3d12BackBufferState::Unknown;
     }
 
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList;

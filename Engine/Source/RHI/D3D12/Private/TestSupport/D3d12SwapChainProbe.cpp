@@ -11,6 +11,7 @@
 
 #include <d3d12sdklayers.h>
 
+#include <array>
 #include <cstddef>
 #include <iterator>
 #include <memory>
@@ -30,6 +31,8 @@ enum class ProbeFault
     SecondBackBuffer,
     BackBufferName,
     InvalidCurrentIndex,
+    Resize,
+    ReacquireBackBuffer,
 };
 
 enum class ProbeTearingOverride
@@ -142,7 +145,8 @@ HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_
                                   ID3D12Resource **a_backBuffer) noexcept
 {
     if ((g_probeState.fault == ProbeFault::FirstBackBuffer && a_index == 0) ||
-        (g_probeState.fault == ProbeFault::SecondBackBuffer && a_index == 1))
+        (g_probeState.fault == ProbeFault::SecondBackBuffer && a_index == 1) ||
+        (g_probeState.fault == ProbeFault::ReacquireBackBuffer && a_index == 0))
     {
         return E_FAIL;
     }
@@ -170,11 +174,22 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
+HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount, std::uint32_t a_width,
+                                 std::uint32_t a_height, DXGI_FORMAT a_format, std::uint32_t a_flags) noexcept
+{
+    if (g_probeState.fault == ProbeFault::Resize)
+    {
+        return E_FAIL;
+    }
+
+    return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
+}
+
 [[nodiscard]] cue::D3d12SwapChainNativeFunctions make_probe_functions() noexcept
 {
     return {
         check_tearing_for_probe,   create_swap_chain_for_probe, disable_alt_enter_for_probe, query_swap_chain_for_probe,
-        get_back_buffer_for_probe, get_current_index_for_probe, set_name_for_probe,
+        get_back_buffer_for_probe, get_current_index_for_probe, set_name_for_probe,        resize_buffers_for_probe,
     };
 }
 
@@ -205,6 +220,10 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
         break;
     case ProbeFault::BackBufferName:
         resourcesAreValid = hasBaseSwapChain && hasSwapChain && hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    case ProbeFault::Resize:
+    case ProbeFault::ReacquireBackBuffer:
+        resourcesAreValid = !hasBaseSwapChain && hasSwapChain && !hasFirstBackBuffer && !hasSecondBackBuffer;
         break;
     default:
         resourcesAreValid = false;
@@ -610,5 +629,61 @@ bool verify_d3d12_swap_chain_validation_for_probe(const void *a_nativeWindow, st
     const bool valid =
         has_error_code(invalidDescriptorResult.try_error(), 77) && has_error_code(invalidIndexResult.try_error(), 84);
     return shutdown_probe_objects(objects) && valid;
+}
+
+bool verify_d3d12_swap_chain_resize_failure_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                       std::uint32_t a_height,
+                                                       const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, true);
+    D3d12SwapChainNativeFunctions functions = make_probe_functions();
+    D3d12SwapChainFailureHandler failureHandler = {nullptr, handle_native_failure_for_probe};
+    constexpr std::array<ProbeFault, 2> resizeFaults = {
+        ProbeFault::Resize,
+        ProbeFault::ReacquireBackBuffer,
+    };
+
+    for (ProbeFault fault : resizeFaults)
+    {
+        reset_probe_state(ProbeFault::None);
+        Result<D3d12SwapChainState> stateResult =
+            create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                          descriptor, a_assertContext, functions, failureHandler);
+
+        if (!stateResult)
+        {
+            static_cast<void>(shutdown_probe_objects(objects));
+            return false;
+        }
+
+        D3d12SwapChainState state = std::move(*stateResult.try_value());
+        reset_probe_state(fault);
+        Result<void> resizeResult = state.resize(a_width + 1, a_height + 1);
+        const std::int64_t expectedCode = fault == ProbeFault::Resize ? 90 : 82;
+        const std::uint32_t expectedWidth = fault == ProbeFault::Resize ? a_width : a_width + 1;
+        const std::uint32_t expectedHeight = fault == ProbeFault::Resize ? a_height : a_height + 1;
+        const bool valid = !resizeResult && has_error_code(resizeResult.try_error(), expectedCode) &&
+                           has_native_error_domain(resizeResult.try_error(), "DXGI") &&
+                           g_probeState.failureHandlerCalled && g_probeState.failureResourcesWereAlive &&
+                           !state.has_all_back_buffers() && state.width() == expectedWidth &&
+                           state.height() == expectedHeight;
+        Result<void> stateShutdownResult = state.shutdown();
+
+        if (!valid || !stateShutdownResult)
+        {
+            static_cast<void>(shutdown_probe_objects(objects));
+            return false;
+        }
+    }
+
+    return shutdown_probe_objects(objects);
 }
 } // namespace cue

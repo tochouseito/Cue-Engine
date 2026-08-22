@@ -729,6 +729,21 @@ bool D3d12QueueState::has_gpu_objects() const noexcept
     return m_queue != nullptr || m_fence != nullptr;
 }
 
+bool D3d12QueueState::has_queue() const noexcept
+{
+    return m_queue != nullptr;
+}
+
+bool D3d12QueueState::has_fence() const noexcept
+{
+    return m_fence != nullptr;
+}
+
+bool D3d12QueueState::has_fence_event() const noexcept
+{
+    return m_event.is_open();
+}
+
 ID3D12CommandQueue *D3d12QueueState::native_queue_for_presentation() const noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready,

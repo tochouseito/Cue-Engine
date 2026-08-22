@@ -1,5 +1,7 @@
 #pragma once
 
+#include "D3d12RtvHeap.h"
+
 #include <Cue/Foundation/Result.h>
 
 #include <d3d12.h>
@@ -7,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 namespace cue
 {
@@ -33,12 +36,25 @@ enum class D3d12FrameCommandStatus
     Ready,
     DeviceRemoved,
     Unavailable,
+    CleanupPending,
     Shutdown,
 };
+
+enum class D3d12BackBufferState
+{
+    Unknown,
+    Present,
+};
+
+using D3d12FrameBackBuffers =
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12FrameContextCount>;
 
 struct D3d12FrameContext final
 {
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
+    Microsoft::WRL::ComPtr<ID3D12Resource> backBuffer;
+    std::optional<D3d12RtvSlot> rtvSlot;
+    D3d12BackBufferState backBufferState;
     std::uint64_t reuseFenceValue;
 };
 
@@ -68,14 +84,34 @@ class D3d12FrameCommandState final
     [[nodiscard]] Result<void> execute_frame() noexcept;
     [[nodiscard]] Result<void> mark_present_attempted() noexcept;
     [[nodiscard]] Result<std::uint64_t> signal_frame() noexcept;
+    [[nodiscard]] Result<void> suspend_for_resize() noexcept;
+    [[nodiscard]] Result<void> prepare_for_resize(std::uint32_t a_frameIndex) noexcept;
+    [[nodiscard]] Result<void> resume_after_resize() noexcept;
+    [[nodiscard]] Result<void> begin_release_after_gpu_idle() noexcept;
+    [[nodiscard]] Result<void> release_after_gpu_idle() noexcept;
+    [[nodiscard]] Result<void> begin_shutdown() noexcept;
     [[nodiscard]] Result<void> shutdown() noexcept;
+    [[nodiscard]] Result<void> begin_release_after_device_removed() noexcept;
     [[nodiscard]] Result<void> release_after_device_removed() noexcept;
+    [[nodiscard]] Result<void> release_allocators_after_presentation_cleanup() noexcept;
+    [[nodiscard]] Result<void> bind_back_buffers(D3d12FrameBackBuffers &&a_backBuffers) noexcept;
+    [[nodiscard]] Result<ID3D12Resource *> back_buffer(std::uint32_t a_frameIndex) const noexcept;
+    [[nodiscard]] Result<void> bind_rtv_slot(std::uint32_t a_frameIndex, D3d12RtvSlot a_slot) noexcept;
+    [[nodiscard]] Result<void> release_rtv_slots(D3d12RtvHeap &a_heap) noexcept;
+    void release_back_buffers() noexcept;
 
     [[nodiscard]] D3d12CommandListState command_list_state() const noexcept;
     [[nodiscard]] D3d12FrameCommandStatus status() const noexcept;
     [[nodiscard]] std::uint64_t frame_reuse_fence(std::uint32_t a_frameIndex) const noexcept;
     [[nodiscard]] std::uint64_t last_submitted_fence() const noexcept;
     [[nodiscard]] bool is_accepting_frames() const noexcept;
+    [[nodiscard]] bool was_resize_gpu_idle_proven() const noexcept;
+    [[nodiscard]] bool has_command_list() const noexcept;
+    [[nodiscard]] std::uint32_t allocator_count() const noexcept;
+    [[nodiscard]] std::uint32_t back_buffer_count() const noexcept;
+    [[nodiscard]] std::uint32_t rtv_count() const noexcept;
+    [[nodiscard]] bool has_all_back_buffers() const noexcept;
+    [[nodiscard]] bool are_back_buffers_present() const noexcept;
     [[nodiscard]] bool has_native_objects() const noexcept;
 
   private:
@@ -89,7 +125,8 @@ class D3d12FrameCommandState final
 
     void take_from(D3d12FrameCommandState &&a_other) noexcept;
     void update_status_from_queue() noexcept;
-    void release_native_objects() noexcept;
+    void release_command_list() noexcept;
+    void release_allocators() noexcept;
     [[nodiscard]] Result<void> discard_closed_frame_after_exhaustion() noexcept;
     [[nodiscard]] Result<void> handle_reset_failure(Error &&a_error) noexcept;
     [[nodiscard]] Result<void> handle_close_failure(Error &&a_error) noexcept;
@@ -105,6 +142,8 @@ class D3d12FrameCommandState final
     D3d12CommandListState m_commandListState;
     D3d12FrameCommandStatus m_status;
     bool m_acceptingFrames;
+    bool m_isResizeSuspended;
+    bool m_resizeGpuIdleProven;
 };
 
 [[nodiscard]] Result<D3d12FrameCommandState> create_d3d12_frame_command_state(

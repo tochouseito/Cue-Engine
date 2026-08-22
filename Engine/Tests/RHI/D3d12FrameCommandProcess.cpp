@@ -140,6 +140,14 @@ int main(int a_argumentCount, char **a_arguments)
                    : 10;
     }
 
+    if (mode == "StateOrderResizeSuspend")
+    {
+        return cue::verify_d3d12_frame_state_order_for_probe(
+                   cue::D3d12FrameCommandOrderProbeMode::ResizeSuspend, assertContext)
+                   ? 0
+                   : 22;
+    }
+
     if (mode == "AllocatorResetFailure")
     {
         return cue::verify_d3d12_frame_command_fault_for_probe(cue::D3d12FrameCommandFaultProbeMode::AllocatorReset,
@@ -162,6 +170,11 @@ int main(int a_argumentCount, char **a_arguments)
                                                                assertContext)
                    ? 0
                    : 7;
+    }
+
+    if (mode == "ResizePreparationFailureMatrix")
+    {
+        return cue::verify_d3d12_resize_preparation_fault_matrix_for_probe(assertContext) ? 0 : 21;
     }
 
     return 13;

@@ -1417,6 +1417,11 @@ bool verify_d3d12_frame_signal_outcome_matrix_for_probe(const AssertContext &a_a
             completionProven ? D3d12CommandListState::Submitted : D3d12CommandListState::ExecutedUnfenced;
         const std::int64_t expectedErrorCode = outcome == ProbeWaitFaultMode::DeviceRemoved ? 52 : 46;
         const std::uint64_t expectedFenceValue = completionProven ? 1 : 0;
+        Result<void> resizeSuspendResult = objects->frameState->suspend_for_resize();
+        Result<void> resizeResumeResult = objects->frameState->resume_after_resize();
+        const bool resizeRejectionValid = !completionProven ||
+                                          (!resizeSuspendResult && matches_error(resizeSuspendResult.try_error(), 64) &&
+                                           !resizeResumeResult && matches_error(resizeResumeResult.try_error(), 64));
         const bool valid = !signalResult && matches_error(signalResult.try_error(), expectedErrorCode) &&
                            objects->frameState->status() == expectedStatus &&
                            objects->frameState->command_list_state() == expectedCommandState &&
@@ -1425,7 +1430,7 @@ bool verify_d3d12_frame_signal_outcome_matrix_for_probe(const AssertContext &a_a
                            objects->frameState->last_submitted_fence() == expectedFenceValue &&
                            objects->queueState.last_signaled_fence() == expectedFenceValue &&
                            g_probeState.allocatorResetCounts[0] == 1 && g_probeState.commandListResetCount == 1 &&
-                           g_probeState.executeCount == 1;
+                           g_probeState.executeCount == 1 && resizeRejectionValid;
 
         if (!finish_probe_objects(std::move(objects), valid))
         {
@@ -1462,6 +1467,26 @@ bool verify_d3d12_frame_state_order_for_probe(D3d12FrameCommandOrderProbeMode a_
         Result<void> secondBeginResult = objects->frameState->begin_frame(1);
         valid = matches_error(secondBeginResult.try_error(), 60) && g_probeState.executeCount == 0;
         std::_Exit(valid ? 0 : 4);
+    }
+
+    if (a_mode == D3d12FrameCommandOrderProbeMode::ResizeSuspend)
+    {
+        Result<void> beginResult = objects->frameState->begin_frame(0);
+
+        if (!beginResult)
+        {
+            return false;
+        }
+
+        Result<void> suspendResult = objects->frameState->suspend_for_resize();
+        valid = matches_error(suspendResult.try_error(), 60) && objects->frameState->is_accepting_frames() &&
+                objects->frameState->command_list_state() == D3d12CommandListState::Recording &&
+                g_probeState.executeCount == 0;
+        Result<void> closeResult = objects->frameState->close_frame();
+        Result<std::uint64_t> submitResult =
+            closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                        : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+        return submitResult && shutdown_probe_objects(objects) && valid;
     }
 
     if (a_mode == D3d12FrameCommandOrderProbeMode::Close)
@@ -1539,5 +1564,128 @@ bool verify_d3d12_frame_command_fault_for_probe(D3d12FrameCommandFaultProbeMode 
     return shutdownValid && valid && !objects->frameState->has_native_objects() &&
            g_probeState.allocatorResetCounts == resetCounts && g_probeState.commandListResetCount == listResetCount &&
            g_probeState.commandListCloseCount == listCloseCount && g_probeState.executeCount == 0;
+}
+
+bool verify_d3d12_resize_preparation_fault_matrix_for_probe(const AssertContext &a_assertContext) noexcept
+{
+    constexpr std::array<ProbeFaultMode, 3> faultModes = {
+        ProbeFaultMode::AllocatorReset,
+        ProbeFaultMode::CommandListReset,
+        ProbeFaultMode::CommandListClose,
+    };
+    constexpr std::array<std::int64_t, 3> expectedErrorCodes = {61, 62, 63};
+    constexpr std::array<D3d12CommandListState, 3> expectedStates = {
+        D3d12CommandListState::FrameResetFailed,
+        D3d12CommandListState::FrameResetFailed,
+        D3d12CommandListState::RecordingCloseFailed,
+    };
+
+    for (std::size_t faultIndex = 0; faultIndex < faultModes.size(); ++faultIndex)
+    {
+        Result<std::unique_ptr<ProbeObjects>> objectsResult =
+            create_probe_objects(faultModes[faultIndex], false, a_assertContext);
+
+        if (!objectsResult)
+        {
+            return false;
+        }
+
+        std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+        Result<void> resizeResult = objects->frameState->prepare_for_resize(0);
+        const bool preparationValid =
+            matches_native_error(resizeResult.try_error(), expectedErrorCodes[faultIndex], k_probeFailure) &&
+            objects->frameState->status() == D3d12FrameCommandStatus::Ready &&
+            objects->frameState->command_list_state() == expectedStates[faultIndex] &&
+            !objects->frameState->is_accepting_frames() && objects->frameState->was_resize_gpu_idle_proven() &&
+            objects->frameState->has_native_objects() && objects->frameState->frame_reuse_fence(0) == 0 &&
+            objects->frameState->frame_reuse_fence(1) == 0 && g_probeState.executeCount == 0;
+        Result<void> frameBeginResult = objects->frameState->begin_release_after_gpu_idle();
+        bool allocatorReleased = false;
+
+        if (objects->frameState->status() == D3d12FrameCommandStatus::CleanupPending)
+        {
+            Result<void> allocatorResult = objects->frameState->release_allocators_after_presentation_cleanup();
+            allocatorReleased = static_cast<bool>(allocatorResult);
+        }
+
+        Result<void> queueShutdownResult = objects->queueState.shutdown();
+        const bool cleanupValid = frameBeginResult && allocatorReleased && queueShutdownResult &&
+                                  objects->frameState->status() == D3d12FrameCommandStatus::Shutdown &&
+                                  !objects->frameState->has_native_objects() && g_probeState.executeCount == 0;
+
+        if (!preparationValid || !cleanupValid)
+        {
+            return false;
+        }
+    }
+
+    constexpr std::array<ProbeWaitFaultMode, 3> waitOutcomes = {
+        ProbeWaitFaultMode::Timeout,
+        ProbeWaitFaultMode::Unavailable,
+        ProbeWaitFaultMode::DeviceRemoved,
+    };
+
+    for (ProbeWaitFaultMode outcome : waitOutcomes)
+    {
+        Result<std::unique_ptr<ProbeObjects>> objectsResult =
+            create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+        if (!objectsResult)
+        {
+            return false;
+        }
+
+        std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+        Result<std::uint64_t> submitResult = submit_empty_frame_for_probe(*objects, 0);
+
+        if (!submitResult)
+        {
+            return finish_probe_objects(std::move(objects), false);
+        }
+
+        const std::uint32_t allocatorResetCount = g_probeState.allocatorResetCounts[0];
+        const std::uint32_t listResetCount = g_probeState.commandListResetCount;
+        const std::uint32_t listCloseCount = g_probeState.commandListCloseCount;
+        g_probeState.waitFaultMode = outcome;
+        g_probeState.waitFaultActive = true;
+        g_probeState.completedCallCount = 0;
+        Result<void> resizeResult = objects->frameState->prepare_for_resize(0);
+        const bool completionProven = outcome == ProbeWaitFaultMode::Timeout;
+        const D3d12FrameCommandStatus expectedStatus =
+            completionProven ? D3d12FrameCommandStatus::Ready
+                             : (outcome == ProbeWaitFaultMode::DeviceRemoved ? D3d12FrameCommandStatus::DeviceRemoved
+                                                                             : D3d12FrameCommandStatus::Unavailable);
+        bool valid = !resizeResult && objects->frameState->status() == expectedStatus &&
+                     objects->frameState->command_list_state() == D3d12CommandListState::Submitted &&
+                     !objects->frameState->is_accepting_frames() &&
+                     objects->frameState->was_resize_gpu_idle_proven() == completionProven &&
+                     objects->frameState->has_native_objects() &&
+                     objects->frameState->frame_reuse_fence(0) == *submitResult.try_value() &&
+                     objects->frameState->last_submitted_fence() == *submitResult.try_value() &&
+                     g_probeState.allocatorResetCounts[0] == allocatorResetCount &&
+                     g_probeState.commandListResetCount == listResetCount &&
+                     g_probeState.commandListCloseCount == listCloseCount && g_probeState.executeCount == 1;
+
+        if (completionProven)
+        {
+            disable_probe_faults();
+            Result<void> frameBeginResult = objects->frameState->begin_release_after_gpu_idle();
+            Result<void> allocatorResult = objects->frameState->release_allocators_after_presentation_cleanup();
+            Result<void> queueShutdownResult = objects->queueState.shutdown();
+            valid = valid && frameBeginResult && allocatorResult && queueShutdownResult &&
+                    !objects->frameState->has_native_objects();
+
+            if (!valid)
+            {
+                return false;
+            }
+        }
+        else if (!finish_probe_objects(std::move(objects), valid))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 } // namespace cue
