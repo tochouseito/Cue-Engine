@@ -11,7 +11,7 @@ target_link_libraries(
     PRIVATE
         Cue.Foundation
         Cue.Platform.Windows
-        Cue.RHI.D3D12
+        Cue.RHI.D3D12.Windows
 )
 target_compile_features(CueRuntimeHost PRIVATE cxx_std_20)
 

@@ -136,8 +136,7 @@ void retain_secondary_error(cue::Error &a_primaryError, cue::Result<void> &a_sec
     }
 }
 
-void execute_command_lists(ID3D12CommandQueue *a_queue, UINT a_count,
-                           ID3D12CommandList *const *a_commandLists) noexcept
+void execute_command_lists(ID3D12CommandQueue *a_queue, UINT a_count, ID3D12CommandList *const *a_commandLists) noexcept
 {
     a_queue->ExecuteCommandLists(a_count, a_commandLists);
 }
@@ -168,8 +167,8 @@ namespace cue
 const D3d12QueueNativeFunctions &default_d3d12_queue_native_functions() noexcept
 {
     static const D3d12QueueNativeFunctions functions = {
-        execute_command_lists, signal_queue, get_completed_value, set_event_on_completion, WaitForSingleObject,
-        CreateEventW,           CloseHandle,  GetLastError,        get_device_removed_reason,
+        execute_command_lists, signal_queue, get_completed_value, set_event_on_completion,   WaitForSingleObject,
+        CreateEventW,          CloseHandle,  GetLastError,        get_device_removed_reason,
     };
     return functions;
 }
@@ -706,6 +705,13 @@ bool D3d12QueueState::has_native_objects() const noexcept
 bool D3d12QueueState::has_gpu_objects() const noexcept
 {
     return m_queue != nullptr || m_fence != nullptr;
+}
+
+ID3D12CommandQueue *D3d12QueueState::native_queue_for_presentation() const noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready,
+               "D3D12 Presentation requires a ready Direct Queue");
+    return m_status == D3d12QueueStateStatus::Ready ? m_queue.Get() : nullptr;
 }
 
 void D3d12QueueState::set_next_fence_value_for_test(std::uint64_t a_nextFenceValue) noexcept

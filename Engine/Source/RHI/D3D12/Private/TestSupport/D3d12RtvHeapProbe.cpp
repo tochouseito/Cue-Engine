@@ -34,6 +34,8 @@ struct ProbeNativeState final
     D3D12_DESCRIPTOR_HEAP_DESC descriptor = {};
     D3D12_CPU_DESCRIPTOR_HANDLE startHandle = {};
     bool descriptorCaptured = false;
+    bool failureHandlerCalled = false;
+    bool failureResourceWasAlive = false;
 };
 
 struct ProbeDevice final
@@ -110,6 +112,15 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
         get_start_for_probe,
         set_name_for_probe,
     };
+}
+
+cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
+                                                  const cue::D3d12RtvHeapFailureResources &a_resources) noexcept
+{
+    g_probeState.failureHandlerCalled = true;
+    g_probeState.failureResourceWasAlive =
+        g_probeState.fault == ProbeCreationFault::Creation ? a_resources.heap == nullptr : a_resources.heap != nullptr;
+    return cue::Result<void>::failure(std::move(a_error));
 }
 
 [[nodiscard]] cue::Result<ProbeDevice> create_probe_device(bool a_enableDiagnostics,
@@ -351,9 +362,19 @@ bool verify_d3d12_rtv_heap_creation_faults_for_probe(const AssertContext &a_asse
     {
         reset_probe_state(faults[index]);
         D3d12RtvHeapNativeFunctions functions = make_probe_functions();
-        Result<D3d12RtvHeap> result = create_d3d12_rtv_heap(device.device.Get(), a_assertContext, functions);
+        D3d12RtvHeapFailureHandler failureHandler = {
+            nullptr,
+            handle_native_failure_for_probe,
+        };
+        Result<D3d12RtvHeap> result =
+            create_d3d12_rtv_heap(device.device.Get(), a_assertContext, functions, failureHandler);
+        const bool isNativeFault =
+            faults[index] == ProbeCreationFault::Creation || faults[index] == ProbeCreationFault::Name;
+        const bool failureHandlerValid = isNativeFault
+                                             ? g_probeState.failureHandlerCalled && g_probeState.failureResourceWasAlive
+                                             : !g_probeState.failureHandlerCalled;
 
-        if (result || !has_error_code(result.try_error(), expectedCodes[index]))
+        if (result || !has_error_code(result.try_error(), expectedCodes[index]) || !failureHandlerValid)
         {
             if (result)
             {

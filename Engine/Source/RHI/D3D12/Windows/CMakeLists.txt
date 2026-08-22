@@ -1,31 +1,33 @@
-add_library(Cue.RHI STATIC)
+add_library(Cue.RHI.D3D12.Windows STATIC)
 
 target_sources(
-    Cue.RHI
+    Cue.RHI.D3D12.Windows
     PRIVATE
-        Private/GraphicsBackend.cpp
-        Private/PresentationContext.cpp
+        Private/D3d12WindowsPresentation.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
-            Public/Cue/RHI/GraphicsBackend.h
-            Public/Cue/RHI/PresentationContext.h
+            Public/Cue/RHI/D3D12/Windows/D3d12WindowsPresentation.h
 )
 
-target_link_libraries(Cue.RHI PUBLIC Cue.Foundation)
-target_compile_features(Cue.RHI PUBLIC cxx_std_20)
+target_link_libraries(
+    Cue.RHI.D3D12.Windows
+    PUBLIC
+        Cue.RHI.D3D12
+    PRIVATE
+        Cue.Platform.Windows
+)
+target_compile_features(Cue.RHI.D3D12.Windows PUBLIC cxx_std_20)
 
 target_include_directories(
-    Cue.RHI
+    Cue.RHI.D3D12.Windows
     PUBLIC
         Public
-    PRIVATE
-        Private
 )
 
 set_target_properties(
-    Cue.RHI
+    Cue.RHI.D3D12.Windows
     PROPERTIES
         ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>"
         CXX_EXTENSIONS OFF
@@ -33,7 +35,7 @@ set_target_properties(
 
 if(MSVC)
     target_compile_options(
-        Cue.RHI
+        Cue.RHI.D3D12.Windows
         PRIVATE
             /W4
             /WX
@@ -45,12 +47,8 @@ if(MSVC)
     )
 
     target_link_options(
-        Cue.RHI
+        Cue.RHI.D3D12.Windows
         PRIVATE
             $<$<CONFIG:Development>:/DEBUG>
     )
-endif()
-
-if(WIN32)
-    add_subdirectory(D3D12)
 endif()

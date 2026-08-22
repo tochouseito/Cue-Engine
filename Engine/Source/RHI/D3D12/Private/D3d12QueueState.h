@@ -92,6 +92,7 @@ class D3d12QueueState final
     [[nodiscard]] bool was_last_wait_completion_proven() const noexcept;
     [[nodiscard]] bool has_native_objects() const noexcept;
     [[nodiscard]] bool has_gpu_objects() const noexcept;
+    [[nodiscard]] ID3D12CommandQueue *native_queue_for_presentation() const noexcept;
 
     void set_next_fence_value_for_test(std::uint64_t a_nextFenceValue) noexcept;
 

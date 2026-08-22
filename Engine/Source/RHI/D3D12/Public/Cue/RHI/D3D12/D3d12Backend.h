@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Cue/RHI/GraphicsBackend.h>
+#include <Cue/RHI/PresentationContext.h>
 
 #include <cstdint>
 #include <memory>
@@ -43,6 +44,7 @@ struct D3d12BackendDescriptor final
 };
 
 class AssertContext;
+class D3d12WindowsPresentationAccess;
 
 /**
  * @brief D3D12固有のBackend型識別境界
@@ -57,6 +59,19 @@ class D3d12Backend : public GraphicsBackend
 
   protected:
     D3d12Backend() = default;
+
+  private:
+    friend class D3d12WindowsPresentationAccess;
+    friend Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &) noexcept;
+    friend Result<std::uint32_t> d3d12_dred_attempt_count_for_probe(D3d12Backend &) noexcept;
+
+    /** @brief Windows Adapter から渡された短命な Native Window 値を同期消費する */
+    [[nodiscard]] virtual Result<std::unique_ptr<PresentationContext>> create_windows_presentation(
+        const void *a_nativeWindow, std::uint32_t a_width, std::uint32_t a_height,
+        const PresentationDescriptor &a_descriptor) noexcept = 0;
+
+    /** @brief Windows Adapter の provenance 診断に使用する非所有 Context を返す */
+    [[nodiscard]] virtual const AssertContext &assert_context_for_presentation() const noexcept = 0;
 };
 
 /**

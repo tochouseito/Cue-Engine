@@ -11,6 +11,7 @@
 namespace cue
 {
 class AssertContext;
+class Error;
 
 constexpr std::uint32_t k_d3d12RtvDescriptorCapacity = 2;
 
@@ -28,6 +29,17 @@ struct D3d12RtvHeapNativeFunctions final
     UINT (*getDescriptorHandleIncrementSize)(ID3D12Device *) noexcept;
     D3D12_CPU_DESCRIPTOR_HANDLE (*getCpuDescriptorHandleForHeapStart)(ID3D12DescriptorHeap *) noexcept;
     HRESULT (*setObjectName)(ID3D12Object *, LPCWSTR) noexcept;
+};
+
+struct D3d12RtvHeapFailureResources final
+{
+    ID3D12DescriptorHeap *heap;
+};
+
+struct D3d12RtvHeapFailureHandler final
+{
+    void *owner;
+    Result<void> (*handleNativeFailure)(void *, Error &&, const D3d12RtvHeapFailureResources &) noexcept;
 };
 
 [[nodiscard]] const D3d12RtvHeapNativeFunctions &default_d3d12_rtv_heap_native_functions() noexcept;
@@ -55,7 +67,8 @@ class D3d12RtvHeap final
 
   private:
     friend Result<D3d12RtvHeap> create_d3d12_rtv_heap(ID3D12Device *, const AssertContext &,
-                                                      const D3d12RtvHeapNativeFunctions &) noexcept;
+                                                      const D3d12RtvHeapNativeFunctions &,
+                                                      const D3d12RtvHeapFailureHandler &) noexcept;
 
     D3d12RtvHeap(Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> a_heap,
                  std::array<D3D12_CPU_DESCRIPTOR_HANDLE, k_d3d12RtvDescriptorCapacity> a_handles,
@@ -77,5 +90,6 @@ class D3d12RtvHeap final
 
 [[nodiscard]] Result<D3d12RtvHeap> create_d3d12_rtv_heap(
     ID3D12Device *a_device, const AssertContext &a_assertContext,
-    const D3d12RtvHeapNativeFunctions &a_functions = default_d3d12_rtv_heap_native_functions()) noexcept;
+    const D3d12RtvHeapNativeFunctions &a_functions = default_d3d12_rtv_heap_native_functions(),
+    const D3d12RtvHeapFailureHandler &a_failureHandler = {}) noexcept;
 } // namespace cue
