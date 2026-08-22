@@ -221,6 +221,13 @@ Completed Value確認で完了へ変わるraceでは、旧Eventがsignaledのま
 - 旧EventのCloseまたは新Event生成が失敗した場合は新しいWorkを停止し、Backendと対象Contextを
   `Unavailable`へ遷移する。GPU参照可能Resource、登録、まだOpenなEventを保持し、既に正常Closeした旧Eventを
   再利用しない
+- `CloseHandle`が失敗した場合は、他のWin32またはCOM APIを呼ぶ前に`GetLastError`を取得し、旧Handleを
+  まだOpenとして保持する。Close成功時だけ保存HandleをNullへ更新する
+- 新Event生成が失敗した場合も直後に`GetLastError`を取得する。この時点では正常Close済みの旧Handleを再利用
+  せず、保存HandleをNullのままにする
+- Event置換失敗はADR-0005に従って`RHI.FenceWaitEventRecoveryFailed`を新しいPrimary Errorとし、Closeまたは
+  Createの保存済みWin32 ErrorをNative Error、先行するPresent、Signal、Wait Errorを存在するものだけ発生順の
+  Cause Contextとして保持する
 - 新Eventへの置換後、次の未完了Fence Waitは必ず新Eventへ登録し、旧Eventのstale signalを観測しない
 
 - Busy Pollingを使用しない
@@ -530,7 +537,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
 - Issue #47で非terminal Wait Error後の最終完了をFault Injectionし、完了証明後だけ旧Eventを閉じて初期
   未signaledの新Eventへ置換することをTestする。旧Event Closeと新Event生成の各失敗を注入し、二重Close、
   Handle Leak、stale Event再利用がなく、失敗時は`Unavailable`としてまだOpenなHandleとGPU Resourceを
-  保持し、正常Close済みHandleを再利用しないことをTestする
+  保持し、正常Close済みHandleを再利用しないことをTestする。各失敗で`GetLastError`を他APIより先に保存し、
+  `RHI.FenceWaitEventRecoveryFailed`、保存済みNative Error、先行するPresent／Signal／Wait Errorが規定順で
+  保持されることを確認する
 - Issue #47のTest Supportで初期`nextFenceValue`を`UINT64_MAX - 1`へ設定し、最後のSignal成功、次回の
   `RHI.FenceValueExhausted`、Fence値の非Wrap／非再利用、Execute前Discard、既存`lastSignaledFence`
   Drain後だけCleanupする経路をTestする
