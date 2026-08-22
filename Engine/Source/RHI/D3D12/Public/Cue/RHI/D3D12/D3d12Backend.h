@@ -13,7 +13,11 @@ enum class D3d12AdapterPolicy
     Warp,
 };
 
-/** @brief D3D12 Validation設定 */
+/**
+ * @brief D3D12 Validation設定
+ *
+ * GpuBasedは高Costのため明示指定時だけ有効化する。ReleaseではDisabled以外を指定すると生成に失敗する
+ */
 enum class D3d12ValidationMode
 {
     Disabled,
@@ -30,7 +34,7 @@ struct D3d12BackendDescriptor final
     /** @brief Validation設定 */
     D3d12ValidationMode validationMode;
 
-    /** @brief DREDを有効化する場合はtrue */
+    /** @brief DREDを有効化する場合はtrue。Releaseではtrueを指定すると生成に失敗する */
     bool isDredEnabled;
 };
 

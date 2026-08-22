@@ -123,11 +123,21 @@ if(WIN32)
         PublicHeaderCompile.cpp
         D3d12BackendHeaderCompile.cpp
     )
+    add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
-    list(APPEND cueRhiTestTargets CueRhiD3d12PublicHeaderTest)
-    list(APPEND cueRhiTests Cue.RHI.D3D12.PublicHeaders Cue.RHI.Dependencies)
+    target_link_libraries(CueRhiD3d12DiagnosticsProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12DiagnosticsProcess PRIVATE cxx_std_20)
+    list(APPEND cueRhiTestTargets CueRhiD3d12PublicHeaderTest CueRhiD3d12DiagnosticsProcess)
+    list(
+        APPEND
+        cueRhiTests
+        Cue.RHI.D3D12.PublicHeaders
+        Cue.RHI.D3D12.Diagnostics.Disabled
+        Cue.RHI.D3D12.Diagnostics.Configured
+        Cue.RHI.Dependencies
+    )
 endif()
 
 foreach(testTarget IN LISTS cueRhiTestTargets)
@@ -252,6 +262,14 @@ add_test(NAME Cue.RHI.PublicHeaders COMMAND CueRhiPublicHeaderTest)
 
 if(WIN32)
     add_test(NAME Cue.RHI.D3D12.PublicHeaders COMMAND CueRhiD3d12PublicHeaderTest)
+    add_test(
+        NAME Cue.RHI.D3D12.Diagnostics.Disabled
+        COMMAND CueRhiD3d12DiagnosticsProcess Disabled
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Diagnostics.Configured
+        COMMAND CueRhiD3d12DiagnosticsProcess Configured
+    )
     add_test(
         NAME Cue.RHI.Dependencies
         COMMAND
