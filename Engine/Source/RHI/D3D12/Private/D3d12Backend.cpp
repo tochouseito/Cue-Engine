@@ -117,8 +117,24 @@ class D3d12BackendImpl final : public cue::D3d12Backend
             firstError.emplace(make_native_error(
                 *m_assertContext, k_deviceRemoved, "D3D12 Device was removed", removalReason));
 
-            static_cast<void>(cue::collect_d3d12_device_removed_diagnostics(
-                m_device.Get(), m_diagnostics, *m_assertContext));
+            cue::Result<void> dredResult = cue::collect_d3d12_device_removed_diagnostics(
+                m_device.Get(), m_diagnostics, *m_assertContext);
+
+            if (!dredResult)
+            {
+                cue::Error *dredError = dredResult.try_error();
+                firstError->add_context(
+                    m_assertContext->fatal_handler(),
+                    "D3D12 DRED diagnostics also failed while handling device removal");
+                firstError->add_context(
+                    m_assertContext->fatal_handler(), dredError->summary());
+
+                for (const cue::ErrorContext &context : dredError->contexts())
+                {
+                    firstError->add_context(
+                        m_assertContext->fatal_handler(), context.message());
+                }
+            }
         }
 
         cue::Result<void> liveObjectResult = cue::report_d3d12_live_device_objects(
