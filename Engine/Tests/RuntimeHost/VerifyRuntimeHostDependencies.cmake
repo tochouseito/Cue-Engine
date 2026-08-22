@@ -4,19 +4,26 @@ if(NOT EXISTS "${REPORT_FILE}")
     message(FATAL_ERROR "Runtime Host dependency report does not exist: ${REPORT_FILE}")
 endif()
 
-file(READ "${REPORT_FILE}" dependencyReport)
+file(STRINGS "${REPORT_FILE}" dependencyReportLines)
 
 foreach(
     requiredLine
     IN ITEMS
-        "CueRuntimeHost LINK_LIBRARIES: Cue.Foundation;Cue.Platform.Windows"
-        "Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows"
-        "Forbidden dependencies: WindowsSDK;Cue.RHI;D3D12;Renderer;Editor;ECS;Asset"
+        "CueRuntimeHost LINK_LIBRARIES: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12"
+        "Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12"
+        "Forbidden source dependencies: WindowsSDK;D3D12NativeTypes;Renderer;Editor;ECS;Asset"
 )
-    string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
+    set(hasRequiredLine FALSE)
 
-    if(linePosition EQUAL -1)
-        message(FATAL_ERROR "Runtime Host dependency report is missing: ${requiredLine}")
+    foreach(reportLine IN LISTS dependencyReportLines)
+        if(reportLine STREQUAL requiredLine)
+            set(hasRequiredLine TRUE)
+            break()
+        endif()
+    endforeach()
+
+    if(NOT hasRequiredLine)
+        message(FATAL_ERROR "Runtime Host dependency report is missing an exact line: ${requiredLine}")
     endif()
 endforeach()
 
@@ -38,7 +45,7 @@ foreach(runtimeHostSource IN LISTS runtimeHostSources)
     file(READ "${runtimeHostSource}" sourceContents)
     string(
         REGEX MATCH
-        "Windows\\.h|WideCharToMultiByte|MultiByteToWideChar|Cue/RHI|d3d12\\.h|DirectX|Renderer|Editor|ECS|Asset"
+        "Windows\\.h|WideCharToMultiByte|MultiByteToWideChar|d3d12\\.h|dxgi[0-9_]*\\.h|ID3D12|IDXGI|D3D12_|DXGI_|DirectX|Renderer|Editor|ECS|Asset"
         forbiddenDependency
         "${sourceContents}"
     )

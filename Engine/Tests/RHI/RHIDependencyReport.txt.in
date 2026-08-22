@@ -1,0 +1,29 @@
+Cue.RHI LINK_LIBRARIES: @cueRhiLinks@
+Cue.RHI INTERFACE_LINK_LIBRARIES: @cueRhiInterfaceLinks@
+Cue.RHI MANUALLY_ADDED_DEPENDENCIES: @cueRhiManualDependencies@
+Cue.RHI INTERFACE_SOURCES: @cueRhiInterfaceSources@
+Cue.RHI INTERFACE_LINK_LIBRARIES_DIRECT: @cueRhiInterfaceDirectLinks@
+Cue.RHI INTERFACE_SYSTEM_INCLUDE_DIRECTORIES: @cueRhiInterfaceSystemIncludes@
+Cue.RHI LINK_OPTIONS: @cueRhiLinkOptions@
+Cue.RHI INTERFACE_LINK_OPTIONS: @cueRhiInterfaceLinkOptions@
+Cue.RHI LINK_FLAGS: @cueRhiLinkFlags@
+Cue.RHI STATIC_LIBRARY_OPTIONS: @cueRhiStaticLibraryOptions@
+Cue.RHI.D3D12 LINK_LIBRARIES: @cueRhiD3d12Links@
+Cue.RHI.D3D12 INTERFACE_LINK_LIBRARIES: @cueRhiD3d12InterfaceLinks@
+Cue.RHI.D3D12 MANUALLY_ADDED_DEPENDENCIES: @cueRhiD3d12ManualDependencies@
+Cue.RHI.D3D12 INTERFACE_SOURCES: @cueRhiD3d12InterfaceSources@
+Cue.RHI.D3D12 INTERFACE_LINK_LIBRARIES_DIRECT: @cueRhiD3d12InterfaceDirectLinks@
+Cue.RHI.D3D12 INTERFACE_SYSTEM_INCLUDE_DIRECTORIES: @cueRhiD3d12InterfaceSystemIncludes@
+Cue.RHI.D3D12 LINK_OPTIONS: @cueRhiD3d12LinkOptions@
+Cue.RHI.D3D12 INTERFACE_LINK_OPTIONS: @cueRhiD3d12InterfaceLinkOptions@
+Cue.RHI.D3D12 LINK_FLAGS: @cueRhiD3d12LinkFlags@
+Cue.RHI.D3D12 STATIC_LIBRARY_OPTIONS: @cueRhiD3d12StaticLibraryOptions@
+Selected Windows SDK: @CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
+Minimum Windows SDK: @cueRhiD3d12MinimumWindowsSdkVersion@
+Allowed graph: Cue.RHI.D3D12->Cue.RHI->Cue.Foundation
+Native links are LINK_ONLY: D3D12;DXGI;DXGUID
+Windows and D3D12 native types in public headers: forbidden
+Target Source and Header File Sets: scanned
+Precompiled Headers and CXX Modules: forbidden
+Interface include roots: target Public directories only
+Library-injecting link options and compiler pragmas: forbidden

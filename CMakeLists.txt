@@ -17,6 +17,7 @@ endif()
 
 add_subdirectory(Engine/Source/Foundation)
 add_subdirectory(Engine/Source/Platform)
+add_subdirectory(Engine/Source/RHI)
 
 if(WIN32)
     add_subdirectory(Engine/Source/RuntimeHost)
@@ -62,6 +63,7 @@ endif()
 if(BUILD_TESTING)
     add_subdirectory(Engine/Tests/Foundation)
     add_subdirectory(Engine/Tests/Platform)
+    add_subdirectory(Engine/Tests/RHI)
 
     if(WIN32)
         add_subdirectory(Engine/Tests/RuntimeHost)

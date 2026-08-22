@@ -1,5 +1,34 @@
 get_target_property(cueRuntimeHostLinks CueRuntimeHost LINK_LIBRARIES)
 
+add_library(
+    CueRuntimeHostRhiOwnershipCompile
+    OBJECT
+    BackendOwnershipCompile.cpp
+)
+
+target_link_libraries(CueRuntimeHostRhiOwnershipCompile PRIVATE Cue.RHI.D3D12)
+target_compile_features(CueRuntimeHostRhiOwnershipCompile PRIVATE cxx_std_20)
+
+set_target_properties(
+    CueRuntimeHostRhiOwnershipCompile
+    PROPERTIES
+        CXX_EXTENSIONS OFF
+)
+
+if(MSVC)
+    target_compile_options(
+        CueRuntimeHostRhiOwnershipCompile
+        PRIVATE
+            /W4
+            /WX
+            /permissive-
+            /Zc:__cplusplus
+            /utf-8
+            $<$<CONFIG:Development>:/O2>
+            $<$<CONFIG:Development>:/Zi>
+    )
+endif()
+
 set(
     cueRuntimeHostDependencyReport
     "${CMAKE_CURRENT_BINARY_DIR}/CueRuntimeHost.Dependencies.txt"
@@ -13,7 +42,9 @@ configure_file(
 
 add_custom_target(
     Cue.RuntimeHost.Tests
-    DEPENDS CueRuntimeHost
+    DEPENDS
+        CueRuntimeHost
+        CueRuntimeHostRhiOwnershipCompile
 )
 
 add_test(
