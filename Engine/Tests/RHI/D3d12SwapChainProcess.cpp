@@ -32,8 +32,13 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
-    [[nodiscard]] bool write(const cue::LogRecord &) override
+    [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
+        if (a_record.level() == cue::LogLevel::Error || a_record.level() == cue::LogLevel::Fatal)
+        {
+            ++m_errorCount;
+        }
+
         return m_isEnabled;
     }
 
@@ -47,7 +52,13 @@ class ProcessLogSink final : public cue::LogSink
         m_isEnabled = a_isEnabled;
     }
 
+    [[nodiscard]] std::uint32_t error_count() const noexcept
+    {
+        return m_errorCount;
+    }
+
   private:
+    std::uint32_t m_errorCount = 0;
     bool m_isEnabled = true;
 };
 
@@ -170,6 +181,69 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+[[nodiscard]] bool run_resize_lifecycle(cue::Window &a_window, ProcessLogSink &a_logSink,
+                                        cue::AssertContext &a_assertContext) noexcept
+{
+    const std::uint32_t initialErrorCount = a_logSink.error_count();
+    cue::D3d12BackendDescriptor backendDescriptor = {
+        cue::D3d12AdapterPolicy::Warp,
+        cue::are_d3d12_diagnostics_allowed_for_probe() ? cue::D3d12ValidationMode::Standard
+                                                       : cue::D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
+        cue::create_d3d12_backend(backendDescriptor, a_assertContext);
+
+    if (!backendResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::PresentationDescriptor descriptor = {true};
+    cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
+        cue::create_d3d12_windows_presentation(*backend, a_window, descriptor);
+
+    if (!presentationResult)
+    {
+        static_cast<void>(backend->shutdown());
+        return false;
+    }
+
+    std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
+    cue::D3d12PresentationProbeReport initialReport = cue::probe_d3d12_presentation(*presentation);
+    bool valid = initialReport.rtvCount == 2 && initialReport.formatsMatch && initialReport.isAcceptingFrames;
+    valid = valid && presentation->resize(640, 360) && !presentation->is_resize_pending();
+    valid = valid && presentation->resize(0, 360) && presentation->is_resize_pending() &&
+            presentation->width() == 640 && presentation->height() == 360;
+    cue::D3d12PresentationProbeReport suspendedReport = cue::probe_d3d12_presentation(*presentation);
+    valid = valid && suspendedReport.rtvCount == 2 && suspendedReport.formatsMatch &&
+            !suspendedReport.isAcceptingFrames;
+    valid = valid && presentation->resize(640, 360) && !presentation->is_resize_pending();
+
+    for (std::uint32_t iteration = 0; iteration < 50 && valid; ++iteration)
+    {
+        const std::uint32_t width = 641 + iteration;
+        const std::uint32_t height = 361 + (iteration % 7);
+        cue::Result<void> resizeResult = presentation->resize(width, height);
+        cue::D3d12PresentationProbeReport report = cue::probe_d3d12_presentation(*presentation);
+        valid = resizeResult && presentation->state() == cue::PresentationContextState::Ready &&
+                presentation->width() == width && presentation->height() == height &&
+                presentation->current_back_buffer_index() < 2 && report.rtvCount == 2 && report.formatsMatch &&
+                report.isAcceptingFrames;
+    }
+
+    cue::Result<void> presentationShutdownResult = presentation->shutdown();
+    presentation.reset();
+    cue::Result<void> backendShutdownResult = backend->shutdown();
+    valid = valid && presentationShutdownResult && backendShutdownResult &&
+            backend->state() == cue::GraphicsBackendState::Shutdown &&
+            a_logSink.error_count() == initialErrorCount;
+    backend.reset();
+    return valid;
+}
+
 [[nodiscard]] int run_device_removal_lifecycle(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor backendDescriptor = {
@@ -223,6 +297,69 @@ class ForeignWindow final : public cue::Window
     const bool backendValid = backendShutdownResult && backend->state() == cue::GraphicsBackendState::Shutdown;
     backend.reset();
     return unclassifiedRemovalValid && contextValid && backendValid ? 0 : 15;
+}
+
+[[nodiscard]] int run_device_removal_resize(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
+{
+    cue::D3d12BackendDescriptor backendDescriptor = {
+        cue::D3d12AdapterPolicy::Warp,
+        cue::D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
+        cue::create_d3d12_backend(backendDescriptor, a_assertContext);
+
+    if (!backendResult)
+    {
+        return 22;
+    }
+
+    std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::PresentationDescriptor descriptor = {true};
+    cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
+        cue::create_d3d12_windows_presentation(*backend, a_window, descriptor);
+
+    if (!presentationResult)
+    {
+        static_cast<void>(backend->shutdown());
+        return 23;
+    }
+
+    std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
+    cue::Result<void> removalResult = cue::remove_d3d12_device_without_classification_for_probe(*backend);
+
+    if (has_error_code(removalResult.try_error(), 89))
+    {
+        static_cast<void>(presentation->shutdown());
+        presentation.reset();
+        static_cast<void>(backend->shutdown());
+        return 77;
+    }
+
+    cue::Result<std::uint32_t> firstCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
+    cue::Result<void> resizeResult = presentation->resize(641, 361);
+    cue::Result<std::uint32_t> resizeCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
+    cue::Result<cue::D3d12DredOwnerProbeReport> dredOwnerResult =
+        cue::probe_d3d12_dred_owners_for_probe(*backend);
+    const cue::D3d12DredOwnerProbeReport *dredOwners = dredOwnerResult.try_value();
+    const bool resizeValid = removalResult && firstCountResult && *firstCountResult.try_value() == 0 &&
+                             !resizeResult && has_error_code(resizeResult.try_error(), 34) && resizeCountResult &&
+                             *resizeCountResult.try_value() == 1 &&
+                             dredOwners != nullptr && dredOwners->hasCommandList &&
+                             dredOwners->allocatorCount == 2 && dredOwners->backBufferCount == 2 &&
+                             dredOwners->rtvCount == 2 &&
+                             dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue &&
+                             dredOwners->hasFence && dredOwners->hasFenceEvent &&
+                             presentation->state() == cue::PresentationContextState::Shutdown &&
+                             backend->state() == cue::GraphicsBackendState::DeviceRemoved;
+    cue::Result<void> presentationShutdownResult = presentation->shutdown();
+    presentation.reset();
+    cue::Result<void> backendShutdownResult = backend->shutdown();
+    const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
+                              backend->state() == cue::GraphicsBackendState::Shutdown;
+    backend.reset();
+    return resizeValid && cleanupValid ? 0 : 24;
 }
 
 [[nodiscard]] int run_device_removal_dred_failure(cue::Window &a_window, ProcessLogSink &a_logSink,
@@ -377,9 +514,39 @@ int main(int a_argumentCount, char **a_arguments)
         valid = run_production_ownership(*window, assertContext);
         failureCode = valid ? 0 : 9;
     }
+    else if (mode == "ResizeLifecycle")
+    {
+        valid = run_resize_lifecycle(*window, *processSinkView, assertContext);
+        failureCode = valid ? 0 : 19;
+    }
+    else if (mode == "ResizeFailure")
+    {
+        valid = cue::verify_d3d12_swap_chain_resize_failure_for_probe(nativeWindow, 640, 360, assertContext);
+        failureCode = valid ? 0 : 20;
+    }
+    else if (mode == "RtvRebuildFailure")
+    {
+        valid = cue::verify_d3d12_rtv_rebuild_failure_for_probe(nativeWindow, 640, 360, assertContext);
+        failureCode = valid ? 0 : 21;
+    }
+    else if (mode == "TerminalResizeRejection")
+    {
+        valid = cue::verify_d3d12_terminal_resize_rejection_for_probe(nativeWindow, 640, 360, assertContext);
+        failureCode = valid ? 0 : 25;
+    }
+    else if (mode == "ResizeUnavailableRetention")
+    {
+        valid = cue::verify_d3d12_resize_unavailable_retention_for_probe(nativeWindow, 640, 360, assertContext);
+        failureCode = valid ? 0 : 26;
+    }
     else if (mode == "DeviceRemovalLifecycle")
     {
         failureCode = run_device_removal_lifecycle(*window, assertContext);
+        valid = failureCode == 0 || failureCode == 77;
+    }
+    else if (mode == "DeviceRemovalResize")
+    {
+        failureCode = run_device_removal_resize(*window, assertContext);
         valid = failureCode == 0 || failureCode == 77;
     }
     else if (mode == "DeviceRemovalDredFailure")

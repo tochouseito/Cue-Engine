@@ -62,6 +62,26 @@ class PresentationContext
     /** @brief 現在の Presentation 設定で Tearing を使用する場合は true */
     [[nodiscard]] virtual bool is_tearing_enabled() const noexcept = 0;
 
+    /** @brief 0 Size のため Resize が延期されている場合は true */
+    [[nodiscard]] virtual bool is_resize_pending() const noexcept = 0;
+
+    /**
+     * @brief Presentation Resource を指定 Size へ再構築する
+     *
+     * Width または Height が 0 の場合は Native Resize を行わず延期する。同一 Size は no-op とする。
+     * 再構築前に Context が使用する GPU Work の完了を有限時間で待機する
+     *
+     * GPU完了を証明できない場合はUnavailableへ遷移し、Native ResourceとBackend登録を保持する。
+     * GPU完了後のCommand再初期化、ResizeBuffers、Back Buffer再取得、RTV再構築に失敗した場合は、
+     * Native Resourceを規定順で解放してBackend登録を解除し、Shutdownへ遷移する。
+     * Device Removalを検出した場合はDRED収集をNative Resource解放より先に一度試行し、
+     * 診断結果をErrorへ保持したうえで登録解除とShutdownを完遂する。
+     * Resize以外のErrorでFrame受付を停止したContextは再開せず、Resourceと登録を保持してErrorを返す。
+     *
+     * @return 再構築または延期の成功、もしくは診断可能な Resize Error
+     */
+    [[nodiscard]] virtual Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept = 0;
+
     /**
      * @brief Presentation Resource を安全に停止して Backend 登録を解除する
      *

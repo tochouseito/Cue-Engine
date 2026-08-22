@@ -21,6 +21,7 @@ constexpr std::int64_t k_backBufferNameFailed = 83;
 constexpr std::int64_t k_invalidBackBufferIndex = 84;
 constexpr std::int64_t k_swapChainLogFailed = 85;
 constexpr std::int64_t k_swapChainShutdown = 86;
+constexpr std::int64_t k_swapChainResizeFailed = 90;
 
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
@@ -121,6 +122,12 @@ HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
+HRESULT resize_buffers(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount, std::uint32_t a_width,
+                       std::uint32_t a_height, DXGI_FORMAT a_format, std::uint32_t a_flags) noexcept
+{
+    return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
+}
+
 [[nodiscard]] cue::Result<void> log_swap_chain(const cue::D3d12SwapChainDescriptor &a_descriptor,
                                                std::uint32_t a_currentBackBufferIndex, bool a_isTearingSupported,
                                                bool a_isTearingEnabled,
@@ -159,19 +166,21 @@ const D3d12SwapChainNativeFunctions &default_d3d12_swap_chain_native_functions()
 {
     static const D3d12SwapChainNativeFunctions functions = {
         check_tearing_support, create_swap_chain_for_window,  disable_alt_enter, query_swap_chain_3,
-        get_back_buffer,       get_current_back_buffer_index, set_object_name,
+        get_back_buffer,       get_current_back_buffer_index, set_object_name,   resize_buffers,
     };
     return functions;
 }
 
 D3d12SwapChainState::D3d12SwapChainState(
     Microsoft::WRL::ComPtr<IDXGISwapChain3> a_swapChain,
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12SwapChainBufferCount> &&a_backBuffers,
+    D3d12SwapChainBackBuffers &&a_backBuffers,
     const D3d12SwapChainDescriptor &a_descriptor, std::uint32_t a_currentBackBufferIndex, bool a_isTearingSupported,
     bool a_isTearingEnabled, const D3d12SwapChainNativeFunctions &a_functions,
+    const D3d12SwapChainFailureHandler &a_failureHandler,
     const AssertContext &a_assertContext) noexcept
     : m_swapChain(std::move(a_swapChain)), m_backBuffers(std::move(a_backBuffers)), m_functions(a_functions),
-      m_assertContext(&a_assertContext), m_width(a_descriptor.width), m_height(a_descriptor.height),
+      m_failureHandler(a_failureHandler), m_assertContext(&a_assertContext), m_width(a_descriptor.width),
+      m_height(a_descriptor.height),
       m_currentBackBufferIndex(a_currentBackBufferIndex), m_format(a_descriptor.format),
       m_isVsyncEnabled(a_descriptor.isVsyncEnabled), m_isTearingSupported(a_isTearingSupported),
       m_isTearingEnabled(a_isTearingEnabled)
@@ -179,7 +188,8 @@ D3d12SwapChainState::D3d12SwapChainState(
 }
 
 D3d12SwapChainState::D3d12SwapChainState(D3d12SwapChainState &&a_other) noexcept
-    : m_functions({}), m_assertContext(nullptr), m_width(0), m_height(0), m_currentBackBufferIndex(0),
+    : m_functions({}), m_failureHandler({}), m_assertContext(nullptr), m_width(0), m_height(0),
+      m_currentBackBufferIndex(0),
       m_format(DXGI_FORMAT_UNKNOWN), m_isVsyncEnabled(false), m_isTearingSupported(false), m_isTearingEnabled(false)
 {
     take_from(std::move(a_other));
@@ -213,6 +223,7 @@ void D3d12SwapChainState::take_from(D3d12SwapChainState &&a_other) noexcept
     m_swapChain = std::move(a_other.m_swapChain);
     m_backBuffers = std::move(a_other.m_backBuffers);
     m_functions = a_other.m_functions;
+    m_failureHandler = a_other.m_failureHandler;
     m_assertContext = a_other.m_assertContext;
     m_width = a_other.m_width;
     m_height = a_other.m_height;
@@ -229,6 +240,76 @@ void D3d12SwapChainState::take_from(D3d12SwapChainState &&a_other) noexcept
     a_other.m_isVsyncEnabled = false;
     a_other.m_isTearingSupported = false;
     a_other.m_isTearingEnabled = false;
+}
+
+void D3d12SwapChainState::release_back_buffers() noexcept
+{
+    for (Microsoft::WRL::ComPtr<ID3D12Resource> &backBuffer : m_backBuffers)
+    {
+        backBuffer.Reset();
+    }
+}
+
+Result<void> D3d12SwapChainState::acquire_back_buffers() noexcept
+{
+    constexpr LPCWSTR backBufferNames[k_d3d12SwapChainBufferCount] = {
+        L"CueEngine D3D12 Swap Chain Back Buffer 0",
+        L"CueEngine D3D12 Swap Chain Back Buffer 1",
+    };
+
+    release_back_buffers();
+
+    for (std::uint32_t index = 0; index < k_d3d12SwapChainBufferCount; ++index)
+    {
+        const HRESULT bufferResult =
+            m_functions.getBackBuffer(m_swapChain.Get(), index, m_backBuffers[index].GetAddressOf());
+
+        if (FAILED(bufferResult))
+        {
+            return Result<void>::failure(make_native_error(*m_assertContext, k_backBufferAcquisitionFailed,
+                                                           "D3D12 Swap Chain Back Buffer acquisition failed", "DXGI",
+                                                           bufferResult));
+        }
+
+        const HRESULT nameResult = m_functions.setObjectName(m_backBuffers[index].Get(), backBufferNames[index]);
+
+        if (FAILED(nameResult))
+        {
+            return Result<void>::failure(make_native_error(*m_assertContext, k_backBufferNameFailed,
+                                                           "D3D12 Back Buffer diagnostic name could not be set",
+                                                           "D3D12", nameResult));
+        }
+    }
+
+    const std::uint32_t currentIndex = m_functions.getCurrentBackBufferIndex(m_swapChain.Get());
+
+    if (currentIndex >= k_d3d12SwapChainBufferCount)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidBackBufferIndex, "DXGI Current Back Buffer index is out of range"));
+    }
+
+    m_currentBackBufferIndex = currentIndex;
+    return Result<void>::success();
+}
+
+Result<void> D3d12SwapChainState::classify_native_failure(Error &&a_error) noexcept
+{
+    if (m_failureHandler.handleNativeFailure == nullptr)
+    {
+        return Result<void>::failure(std::move(a_error));
+    }
+
+    Result<void> handlerResult = m_failureHandler.handleNativeFailure(
+        m_failureHandler.owner, std::move(a_error),
+        make_failure_resources(nullptr, m_swapChain.Get(), m_backBuffers));
+
+    if (handlerResult)
+    {
+        m_assertContext->fatal_handler().terminate("D3D12 native failure handler did not retain an Error");
+    }
+
+    return Result<void>::failure(std::move(*handlerResult.try_error()));
 }
 
 Result<std::uint32_t> D3d12SwapChainState::refresh_current_back_buffer_index() noexcept
@@ -270,13 +351,66 @@ Result<ID3D12Resource *> D3d12SwapChainState::back_buffer(std::uint32_t a_index)
     return Result<ID3D12Resource *>::success(std::move(resource));
 }
 
-Result<void> D3d12SwapChainState::shutdown() noexcept
+Result<D3d12SwapChainBackBuffers> D3d12SwapChainState::take_back_buffers() noexcept
 {
-    for (Microsoft::WRL::ComPtr<ID3D12Resource> &backBuffer : m_backBuffers)
+    if (!has_all_back_buffers())
     {
-        backBuffer.Reset();
+        return Result<D3d12SwapChainBackBuffers>::failure(
+            make_error(*m_assertContext, k_swapChainShutdown, "D3D12 Back Buffer ownership is unavailable"));
     }
 
+    D3d12SwapChainBackBuffers backBuffers = std::move(m_backBuffers);
+    return Result<D3d12SwapChainBackBuffers>::success(std::move(backBuffers));
+}
+
+Result<void> D3d12SwapChainState::resize(std::uint32_t a_width, std::uint32_t a_height) noexcept
+{
+    if (m_swapChain == nullptr)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_swapChainShutdown, "D3D12 Swap Chain is shutdown"));
+    }
+
+    if (a_width == 0 || a_height == 0)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidDescriptor, "D3D12 Swap Chain Resize Size is invalid"));
+    }
+
+    if (a_width == m_width && a_height == m_height)
+    {
+        return Result<void>::success();
+    }
+
+    release_back_buffers();
+    const std::uint32_t flags = m_isTearingEnabled ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    const HRESULT resizeResult = m_functions.resizeBuffers(m_swapChain.Get(), k_d3d12SwapChainBufferCount, a_width,
+                                                           a_height, m_format, flags);
+
+    if (FAILED(resizeResult))
+    {
+        Error resizeError = make_native_error(*m_assertContext, k_swapChainResizeFailed,
+                                              "DXGI Swap Chain Resize failed", "DXGI", resizeResult);
+        return classify_native_failure(std::move(resizeError));
+    }
+
+    m_width = a_width;
+    m_height = a_height;
+    Result<void> acquisitionResult = acquire_back_buffers();
+
+    if (!acquisitionResult)
+    {
+        return classify_native_failure(std::move(*acquisitionResult.try_error()));
+    }
+
+    D3d12SwapChainDescriptor descriptor = {nullptr, m_width, m_height, m_format, m_isVsyncEnabled};
+    return log_swap_chain(descriptor, m_currentBackBufferIndex, m_isTearingSupported, m_isTearingEnabled,
+                          *m_assertContext);
+}
+
+Result<void> D3d12SwapChainState::shutdown() noexcept
+{
+    release_back_buffers();
     m_swapChain.Reset();
     m_width = 0;
     m_height = 0;
@@ -328,6 +462,19 @@ bool D3d12SwapChainState::is_tearing_enabled() const noexcept
     return m_isTearingEnabled;
 }
 
+bool D3d12SwapChainState::has_all_back_buffers() const noexcept
+{
+    for (const Microsoft::WRL::ComPtr<ID3D12Resource> &backBuffer : m_backBuffers)
+    {
+        if (backBuffer == nullptr)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool D3d12SwapChainState::has_native_objects() const noexcept
 {
     if (m_swapChain != nullptr)
@@ -361,7 +508,7 @@ Result<D3d12SwapChainState> create_d3d12_swap_chain_state(IDXGIFactory6 *a_facto
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> baseSwapChain;
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12SwapChainBufferCount> backBuffers = {};
+    D3d12SwapChainBackBuffers backBuffers = {};
     BOOL tearingSupported = FALSE;
     const HRESULT tearingResult = a_functions.checkTearingSupport(a_factory, &tearingSupported);
 
@@ -471,7 +618,7 @@ Result<D3d12SwapChainState> create_d3d12_swap_chain_state(IDXGIFactory6 *a_facto
     }
 
     D3d12SwapChainState state(std::move(swapChain), std::move(backBuffers), a_descriptor, currentIndex,
-                              isTearingSupported, isTearingEnabled, a_functions, a_assertContext);
+                              isTearingSupported, isTearingEnabled, a_functions, a_failureHandler, a_assertContext);
     return Result<D3d12SwapChainState>::success(std::move(state));
 }
 } // namespace cue

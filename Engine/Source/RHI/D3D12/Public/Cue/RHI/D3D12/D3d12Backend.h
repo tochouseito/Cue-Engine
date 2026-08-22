@@ -45,6 +45,8 @@ struct D3d12BackendDescriptor final
 
 class AssertContext;
 class D3d12WindowsPresentationAccess;
+struct D3d12BackendOwnerProbeReport;
+struct D3d12DredOwnerProbeReport;
 
 /**
  * @brief D3D12固有のBackend型識別境界
@@ -65,6 +67,14 @@ class D3d12Backend : public GraphicsBackend
     friend Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &) noexcept;
     friend Result<void> remove_d3d12_device_without_classification_for_probe(D3d12Backend &) noexcept;
     friend Result<std::uint32_t> d3d12_dred_attempt_count_for_probe(D3d12Backend &) noexcept;
+    friend Result<D3d12BackendOwnerProbeReport> probe_d3d12_backend_owners_for_probe(D3d12Backend &) noexcept;
+    friend Result<D3d12DredOwnerProbeReport> probe_d3d12_dred_owners_for_probe(D3d12Backend &) noexcept;
+    friend bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *, std::uint32_t, std::uint32_t,
+                                                            AssertContext &) noexcept;
+    friend bool verify_d3d12_terminal_resize_rejection_for_probe(const void *, std::uint32_t, std::uint32_t,
+                                                                  AssertContext &) noexcept;
+    friend bool verify_d3d12_resize_unavailable_retention_for_probe(const void *, std::uint32_t, std::uint32_t,
+                                                                    AssertContext &) noexcept;
 
     /** @brief Windows Adapter から渡された短命な Native Window 値を同期消費する */
     [[nodiscard]] virtual Result<std::unique_ptr<PresentationContext>> create_windows_presentation(

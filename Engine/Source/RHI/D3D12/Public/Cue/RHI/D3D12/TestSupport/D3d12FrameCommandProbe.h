@@ -33,6 +33,7 @@ enum class D3d12FrameCommandOrderProbeMode
     Begin,
     Close,
     Execute,
+    ResizeSuspend,
 };
 
 /** @brief WARP上で2 Frame Contextを300回周回して空Command ListのLifecycleを検証する */
@@ -70,4 +71,8 @@ enum class D3d12FrameCommandOrderProbeMode
 /** @brief Reset／Close失敗後の状態と未Executeを検証する */
 [[nodiscard]] bool verify_d3d12_frame_command_fault_for_probe(D3d12FrameCommandFaultProbeMode a_mode,
                                                               const AssertContext &a_assertContext) noexcept;
+
+/** @brief Resize準備中のAllocator／Command List Reset／Close失敗とGPU Idle後の安全な解放を検証する */
+[[nodiscard]] bool verify_d3d12_resize_preparation_fault_matrix_for_probe(
+    const AssertContext &a_assertContext) noexcept;
 } // namespace cue

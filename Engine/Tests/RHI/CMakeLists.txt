@@ -202,9 +202,11 @@ if(WIN32)
         Cue.RHI.D3D12.FrameCommand.StateOrderBegin
         Cue.RHI.D3D12.FrameCommand.StateOrderClose
         Cue.RHI.D3D12.FrameCommand.StateOrderExecute
+        Cue.RHI.D3D12.FrameCommand.StateOrderResizeSuspend
         Cue.RHI.D3D12.FrameCommand.AllocatorResetFailure
         Cue.RHI.D3D12.FrameCommand.CommandListResetFailure
         Cue.RHI.D3D12.FrameCommand.CommandListCloseFailure
+        Cue.RHI.D3D12.FrameCommand.ResizePreparationFailureMatrix
         Cue.RHI.D3D12.QueueState.Smoke
         Cue.RHI.D3D12.QueueState.Exhaustion
         Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
@@ -243,7 +245,13 @@ if(WIN32)
         Cue.RHI.D3D12.SwapChain.LogFailure
         Cue.RHI.D3D12.SwapChain.Validation
         Cue.RHI.D3D12.SwapChain.ProductionOwnership
+        Cue.RHI.D3D12.SwapChain.ResizeLifecycle
+        Cue.RHI.D3D12.SwapChain.ResizeFailure
+        Cue.RHI.D3D12.SwapChain.RtvRebuildFailure
+        Cue.RHI.D3D12.SwapChain.TerminalResizeRejection
+        Cue.RHI.D3D12.SwapChain.ResizeUnavailableRetention
         Cue.RHI.D3D12.SwapChain.DeviceRemovalLifecycle
+        Cue.RHI.D3D12.SwapChain.DeviceRemovalResize
         Cue.RHI.D3D12.SwapChain.DeviceRemovalDredFailure
         Cue.RHI.D3D12.Windows.PublicHeaders
         Cue.RHI.Dependencies
@@ -531,6 +539,18 @@ if(WIN32)
         COMMAND CueRhiD3d12FrameCommandProcess CommandListCloseFailure
     )
     add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.StateOrderResizeSuspend
+        COMMAND ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=StateOrderResizeSuspend
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.ResizePreparationFailureMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess ResizePreparationFailureMatrix
+    )
+    add_test(
         NAME Cue.RHI.D3D12.QueueState.Smoke
         COMMAND CueRhiD3d12QueueStateProcess Smoke
     )
@@ -652,7 +672,7 @@ if(WIN32)
     endforeach()
     foreach(
         swapChainMode
-        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership DeviceRemovalLifecycle DeviceRemovalDredFailure
+        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
     )
         add_test(
             NAME Cue.RHI.D3D12.SwapChain.${swapChainMode}

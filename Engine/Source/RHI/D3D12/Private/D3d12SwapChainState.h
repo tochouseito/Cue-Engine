@@ -16,6 +16,8 @@ class AssertContext;
 class Error;
 
 constexpr std::uint32_t k_d3d12SwapChainBufferCount = 2;
+using D3d12SwapChainBackBuffers =
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12SwapChainBufferCount>;
 
 struct D3d12SwapChainDescriptor final
 {
@@ -36,6 +38,8 @@ struct D3d12SwapChainNativeFunctions final
     HRESULT (*getBackBuffer)(IDXGISwapChain3 *, std::uint32_t, ID3D12Resource **) noexcept;
     std::uint32_t (*getCurrentBackBufferIndex)(IDXGISwapChain3 *) noexcept;
     HRESULT (*setObjectName)(ID3D12Object *, LPCWSTR) noexcept;
+    HRESULT (*resizeBuffers)(IDXGISwapChain3 *, std::uint32_t, std::uint32_t, std::uint32_t, DXGI_FORMAT,
+                             std::uint32_t) noexcept;
 };
 
 struct D3d12SwapChainFailureResources final
@@ -64,6 +68,8 @@ class D3d12SwapChainState final
 
     [[nodiscard]] Result<std::uint32_t> refresh_current_back_buffer_index() noexcept;
     [[nodiscard]] Result<ID3D12Resource *> back_buffer(std::uint32_t a_index) const noexcept;
+    [[nodiscard]] Result<D3d12SwapChainBackBuffers> take_back_buffers() noexcept;
+    [[nodiscard]] Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept;
     [[nodiscard]] Result<void> shutdown() noexcept;
 
     [[nodiscard]] std::uint32_t width() const noexcept;
@@ -74,6 +80,7 @@ class D3d12SwapChainState final
     [[nodiscard]] bool is_vsync_enabled() const noexcept;
     [[nodiscard]] bool is_tearing_supported() const noexcept;
     [[nodiscard]] bool is_tearing_enabled() const noexcept;
+    [[nodiscard]] bool has_all_back_buffers() const noexcept;
     [[nodiscard]] bool has_native_objects() const noexcept;
 
   private:
@@ -84,17 +91,22 @@ class D3d12SwapChainState final
                                                                      const D3d12SwapChainFailureHandler &) noexcept;
 
     D3d12SwapChainState(Microsoft::WRL::ComPtr<IDXGISwapChain3> a_swapChain,
-                        std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12SwapChainBufferCount> &&a_backBuffers,
+                        D3d12SwapChainBackBuffers &&a_backBuffers,
                         const D3d12SwapChainDescriptor &a_descriptor, std::uint32_t a_currentBackBufferIndex,
                         bool a_isTearingSupported, bool a_isTearingEnabled,
                         const D3d12SwapChainNativeFunctions &a_functions,
+                        const D3d12SwapChainFailureHandler &a_failureHandler,
                         const AssertContext &a_assertContext) noexcept;
 
     void take_from(D3d12SwapChainState &&a_other) noexcept;
+    void release_back_buffers() noexcept;
+    [[nodiscard]] Result<void> acquire_back_buffers() noexcept;
+    [[nodiscard]] Result<void> classify_native_failure(Error &&a_error) noexcept;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain3> m_swapChain;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, k_d3d12SwapChainBufferCount> m_backBuffers;
+    D3d12SwapChainBackBuffers m_backBuffers;
     D3d12SwapChainNativeFunctions m_functions;
+    D3d12SwapChainFailureHandler m_failureHandler;
     const AssertContext *m_assertContext;
     std::uint32_t m_width;
     std::uint32_t m_height;
