@@ -55,6 +55,9 @@ struct D3d12SwapChainProbeReport final
 /** @brief Test用にD3D12 Device Removalを発生させ、Backendへ分類させる */
 [[nodiscard]] Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &a_backend) noexcept;
 
+/** @brief Test用にBackendへ未分類のD3D12 Device Removalを発生させる */
+[[nodiscard]] Result<void> remove_d3d12_device_without_classification_for_probe(D3d12Backend &a_backend) noexcept;
+
 /** @brief BackendがDRED収集を試行した回数を返す */
 [[nodiscard]] Result<std::uint32_t> d3d12_dred_attempt_count_for_probe(D3d12Backend &a_backend) noexcept;
 } // namespace cue

@@ -333,6 +333,28 @@ Result<void> D3d12QueueState::reclassify_device_failure(Error &&a_error) noexcep
     return Result<void>::failure(std::move(a_error));
 }
 
+bool D3d12QueueState::refresh_device_removed_status() noexcept
+{
+    CUE_ASSERT(*m_assertContext,
+               m_status == D3d12QueueStateStatus::Ready || m_status == D3d12QueueStateStatus::DeviceRemoved,
+               "D3D12 Device Removal refresh requires a live Queue");
+
+    if (m_status == D3d12QueueStateStatus::DeviceRemoved)
+    {
+        return true;
+    }
+
+    const HRESULT removalReason = m_functions.getDeviceRemovedReason(m_device);
+
+    if (FAILED(removalReason))
+    {
+        m_status = D3d12QueueStateStatus::DeviceRemoved;
+        return true;
+    }
+
+    return false;
+}
+
 Result<void> D3d12QueueState::resolve_failed_signal(std::uint64_t a_fenceValue, Error &&a_signalError,
                                                     D3d12FenceWaitPurpose a_purpose) noexcept
 {

@@ -79,6 +79,7 @@ class D3d12QueueState final
     void execute_command_list(ID3D12CommandList *a_commandList) noexcept;
     [[nodiscard]] Result<void> signal_reserved(std::uint64_t a_fenceValue) noexcept;
     [[nodiscard]] Result<void> reclassify_device_failure(Error &&a_error) noexcept;
+    [[nodiscard]] bool refresh_device_removed_status() noexcept;
     [[nodiscard]] Result<void> resolve_failed_signal(std::uint64_t a_fenceValue, Error &&a_signalError,
                                                      D3d12FenceWaitPurpose a_purpose) noexcept;
     [[nodiscard]] std::uint64_t completed_value() noexcept;

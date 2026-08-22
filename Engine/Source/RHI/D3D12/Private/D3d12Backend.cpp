@@ -133,7 +133,7 @@ void retain_shutdown_error(std::optional<cue::Error> &a_firstError, cue::Result<
 }
 
 using UnregisterPresentation = void (*)(void *) noexcept;
-using PrepareDeviceRemovedCleanup = cue::Result<void> (*)(void *) noexcept;
+using PreparePresentationCleanup = cue::Result<void> (*)(void *) noexcept;
 
 class D3d12PresentationContext final : public cue::PresentationContext
 {
@@ -141,11 +141,11 @@ class D3d12PresentationContext final : public cue::PresentationContext
     D3d12PresentationContext(cue::D3d12SwapChainState &&a_swapChain, cue::D3d12RtvHeap &&a_rtvHeap,
                              cue::GraphicsBackend &a_backend, void *a_backendOwner,
                              UnregisterPresentation a_unregisterPresentation,
-                             PrepareDeviceRemovedCleanup a_prepareDeviceRemovedCleanup,
+                             PreparePresentationCleanup a_preparePresentationCleanup,
                              cue::AssertContext &a_assertContext) noexcept
         : m_swapChain(std::move(a_swapChain)), m_rtvHeap(std::move(a_rtvHeap)), m_backend(&a_backend),
           m_backendOwner(a_backendOwner), m_unregisterPresentation(a_unregisterPresentation),
-          m_prepareDeviceRemovedCleanup(a_prepareDeviceRemovedCleanup), m_assertContext(&a_assertContext),
+          m_preparePresentationCleanup(a_preparePresentationCleanup), m_assertContext(&a_assertContext),
           m_creationThread(std::this_thread::get_id()), m_state(cue::PresentationContextState::Ready),
           m_isRegistered(true)
     {
@@ -229,19 +229,15 @@ class D3d12PresentationContext final : public cue::PresentationContext
                 make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Context is unavailable"));
         }
 
+        std::optional<cue::Error> firstError;
+        cue::Result<void> diagnosticsResult = m_preparePresentationCleanup(m_backendOwner);
+        retain_shutdown_error(firstError, diagnosticsResult,
+                              "D3D12 Device Removal diagnostics failed before Presentation cleanup",
+                              *m_assertContext);
+
         if (m_backend->state() == cue::GraphicsBackendState::DeviceRemoved)
         {
             m_state = cue::PresentationContextState::DeviceRemoved;
-        }
-
-        std::optional<cue::Error> firstError;
-
-        if (m_state == cue::PresentationContextState::DeviceRemoved)
-        {
-            cue::Result<void> diagnosticsResult = m_prepareDeviceRemovedCleanup(m_backendOwner);
-            retain_shutdown_error(firstError, diagnosticsResult,
-                                  "D3D12 Device Removal diagnostics failed before Presentation cleanup",
-                                  *m_assertContext);
         }
 
         cue::Result<void> swapChainResult = m_swapChain.shutdown();
@@ -285,7 +281,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     cue::GraphicsBackend *m_backend;
     void *m_backendOwner;
     UnregisterPresentation m_unregisterPresentation;
-    PrepareDeviceRemovedCleanup m_prepareDeviceRemovedCleanup;
+    PreparePresentationCleanup m_preparePresentationCleanup;
     cue::AssertContext *m_assertContext;
     std::thread::id m_creationThread;
     cue::PresentationContextState m_state;
@@ -334,6 +330,20 @@ class D3d12BackendImpl final : public cue::D3d12Backend
 
     [[nodiscard]] cue::Result<void> force_device_removal_for_probe() noexcept
     {
+        cue::Result<void> removalResult = remove_device_without_classification_for_probe();
+
+        if (!removalResult)
+        {
+            return removalResult;
+        }
+
+        cue::Error removalError = make_native_error(
+            *m_assertContext, k_deviceRemoved, "D3D12 Device Removal probe was requested", DXGI_ERROR_DEVICE_REMOVED);
+        return classify_presentation_native_failure(std::move(removalError));
+    }
+
+    [[nodiscard]] cue::Result<void> remove_device_without_classification_for_probe() noexcept
+    {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
                    "D3D12 Device Removal probe must run on the Backend creation thread");
         Microsoft::WRL::ComPtr<ID3D12Device5> device5;
@@ -347,9 +357,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         }
 
         device5->RemoveDevice();
-        cue::Error removalError = make_native_error(
-            *m_assertContext, k_deviceRemoved, "D3D12 Device Removal probe was requested", DXGI_ERROR_DEVICE_REMOVED);
-        return classify_presentation_native_failure(std::move(removalError));
+        return cue::Result<void>::success();
     }
 
     [[nodiscard]] std::uint32_t dred_attempt_count_for_probe() const noexcept
@@ -549,7 +557,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         {
             std::unique_ptr<cue::PresentationContext> presentation = std::make_unique<D3d12PresentationContext>(
                 std::move(swapChain), std::move(*rtvHeapResult.try_value()), *this, this, unregister_presentation,
-                prepare_device_removed_cleanup, *m_assertContext);
+                prepare_presentation_cleanup, *m_assertContext);
             ++m_activePresentationCount;
             return cue::Result<std::unique_ptr<cue::PresentationContext>>::success(std::move(presentation));
         }
@@ -612,11 +620,22 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         --backend.m_activePresentationCount;
     }
 
-    [[nodiscard]] static cue::Result<void> prepare_device_removed_cleanup(void *a_backend) noexcept
+    [[nodiscard]] static cue::Result<void> prepare_presentation_cleanup(void *a_backend) noexcept
     {
         D3d12BackendImpl &backend = *static_cast<D3d12BackendImpl *>(a_backend);
         CUE_ASSERT(*backend.m_assertContext, std::this_thread::get_id() == backend.m_creationThread,
-                   "D3D12 Device Removal diagnostics must run on the Backend creation thread");
+                   "D3D12 Presentation cleanup preparation must run on the Backend creation thread");
+
+        if (backend.m_queueState.refresh_device_removed_status())
+        {
+            backend.m_state = cue::GraphicsBackendState::DeviceRemoved;
+        }
+
+        if (backend.m_state != cue::GraphicsBackendState::DeviceRemoved)
+        {
+            return cue::Result<void>::success();
+        }
+
         return backend.ensure_device_removed_diagnostics();
     }
 
@@ -650,6 +669,20 @@ Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &a_backend) noexc
     }
 
     return backend->force_device_removal_for_probe();
+}
+
+Result<void> remove_d3d12_device_without_classification_for_probe(D3d12Backend &a_backend) noexcept
+{
+    D3d12BackendImpl *backend = dynamic_cast<D3d12BackendImpl *>(&a_backend);
+
+    if (backend == nullptr)
+    {
+        return Result<void>::failure(make_error(a_backend.assert_context_for_presentation(),
+                                                k_deviceRemovalProbeUnavailable,
+                                                "D3D12 Device Removal probe requires the production Backend"));
+    }
+
+    return backend->remove_device_without_classification_for_probe();
 }
 
 Result<std::uint32_t> d3d12_dred_attempt_count_for_probe(D3d12Backend &a_backend) noexcept

@@ -63,6 +63,7 @@ class D3d12Backend : public GraphicsBackend
   private:
     friend class D3d12WindowsPresentationAccess;
     friend Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &) noexcept;
+    friend Result<void> remove_d3d12_device_without_classification_for_probe(D3d12Backend &) noexcept;
     friend Result<std::uint32_t> d3d12_dred_attempt_count_for_probe(D3d12Backend &) noexcept;
 
     /** @brief Windows Adapter から渡された短命な Native Window 値を同期消費する */

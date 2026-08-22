@@ -105,24 +105,6 @@ class ForeignWindow final : public cue::Window
            a_error->code().value() == a_value;
 }
 
-[[nodiscard]] bool has_context(const cue::Error *a_error, std::string_view a_expected) noexcept
-{
-    if (a_error == nullptr)
-    {
-        return false;
-    }
-
-    for (const cue::ErrorContext &context : a_error->contexts())
-    {
-        if (context.message().find(a_expected) != std::string_view::npos)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 [[nodiscard]] bool run_production_ownership(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor backendDescriptor = {
@@ -216,7 +198,7 @@ class ForeignWindow final : public cue::Window
     }
 
     std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
-    cue::Result<void> removalResult = cue::force_d3d12_device_removal_for_probe(*backend);
+    cue::Result<void> removalResult = cue::remove_d3d12_device_without_classification_for_probe(*backend);
 
     if (has_error_code(removalResult.try_error(), 89))
     {
@@ -228,22 +210,19 @@ class ForeignWindow final : public cue::Window
     }
 
     cue::Result<std::uint32_t> firstCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
-    cue::Result<void> activeGateResult = backend->shutdown();
-    cue::Result<std::uint32_t> gateCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
-    const bool classificationValid = !removalResult && firstCountResult && *firstCountResult.try_value() == 1 &&
-                                     backend->state() == cue::GraphicsBackendState::DeviceRemoved &&
-                                     !activeGateResult && has_error_code(activeGateResult.try_error(), 87) &&
-                                     gateCountResult && *gateCountResult.try_value() == 1;
+    const bool unclassifiedRemovalValid = removalResult && firstCountResult && *firstCountResult.try_value() == 0 &&
+                                          backend->state() == cue::GraphicsBackendState::Ready;
     cue::Result<void> presentationShutdownResult = presentation->shutdown();
     cue::Result<std::uint32_t> contextCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
     const bool contextValid = presentationShutdownResult &&
-                              presentation->state() == cue::PresentationContextState::Shutdown && contextCountResult &&
+                              presentation->state() == cue::PresentationContextState::Shutdown &&
+                              backend->state() == cue::GraphicsBackendState::DeviceRemoved && contextCountResult &&
                               *contextCountResult.try_value() == 1;
     presentation.reset();
     cue::Result<void> backendShutdownResult = backend->shutdown();
     const bool backendValid = backendShutdownResult && backend->state() == cue::GraphicsBackendState::Shutdown;
     backend.reset();
-    return classificationValid && contextValid && backendValid ? 0 : 15;
+    return unclassifiedRemovalValid && contextValid && backendValid ? 0 : 15;
 }
 
 [[nodiscard]] int run_device_removal_dred_failure(cue::Window &a_window, ProcessLogSink &a_logSink,
@@ -280,25 +259,24 @@ class ForeignWindow final : public cue::Window
     }
 
     std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
-    a_logSink.set_enabled(false);
-    cue::Result<void> removalResult = cue::force_d3d12_device_removal_for_probe(*backend);
-    a_logSink.set_enabled(true);
+    cue::Result<void> removalResult = cue::remove_d3d12_device_without_classification_for_probe(*backend);
     cue::Result<std::uint32_t> firstCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
-    const bool removalValid =
-        !removalResult &&
-        has_context(removalResult.try_error(), "D3D12 DRED diagnostics also failed during Presentation creation") &&
-        firstCountResult && *firstCountResult.try_value() == 1;
-    cue::Result<void> activeGateResult = backend->shutdown();
-    cue::Result<std::uint32_t> gateCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
-    const bool gateValid = !activeGateResult && has_error_code(activeGateResult.try_error(), 87) && gateCountResult &&
-                           *gateCountResult.try_value() == 1;
+    const bool removalValid = removalResult && firstCountResult && *firstCountResult.try_value() == 0 &&
+                              backend->state() == cue::GraphicsBackendState::Ready;
+    a_logSink.set_enabled(false);
     cue::Result<void> presentationShutdownResult = presentation->shutdown();
+    a_logSink.set_enabled(true);
+    cue::Result<std::uint32_t> contextCountResult = cue::d3d12_dred_attempt_count_for_probe(*backend);
+    const bool contextValid = !presentationShutdownResult &&
+                              presentation->state() == cue::PresentationContextState::Shutdown &&
+                              backend->state() == cue::GraphicsBackendState::DeviceRemoved && contextCountResult &&
+                              *contextCountResult.try_value() == 1;
     presentation.reset();
     cue::Result<void> backendShutdownResult = backend->shutdown();
     const bool cleanupValid =
-        presentationShutdownResult && backendShutdownResult && backend->state() == cue::GraphicsBackendState::Shutdown;
+        backendShutdownResult && backend->state() == cue::GraphicsBackendState::Shutdown;
     backend.reset();
-    return removalValid && gateValid && cleanupValid ? 0 : 18;
+    return removalValid && contextValid && cleanupValid ? 0 : 18;
 }
 } // namespace
 
