@@ -43,6 +43,7 @@ configure_file(
 add_custom_target(
     Cue.RuntimeHost.Tests
     DEPENDS
+        CueRhiD3d12AdapterSelectionProcess
         CueRuntimeHost
         CueRuntimeHostRhiOwnershipCompile
 )
