@@ -575,7 +575,11 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
 - Issue #48でAllocatorとCommand Listの`Reset`失敗を個別にFault Injectionする。Device Removal時は新規Frame
   受付停止、`DeviceRemoved`遷移、Reset Errorを保持したDRED／Cleanupを確認する。Removalでない場合は
   `FrameResetFailed`へ遷移し、再Reset／Close／Executeを禁止してContext terminal SignalとWait後だけ安全に
-  解放することを確認する
+  解放することを確認する。さらに`FrameResetFailed`からのterminal Signal失敗と、Signal成功後のEvent登録、
+  Wait Timeout、`WAIT_FAILED`、予期しないWait結果をFault Injectionする。予約値またはterminal値の最終完了を
+  証明できた場合は規定追跡値を更新し、必要なEvent置換後に元Errorを返しつつ安全に解放する。Device Removal
+  ならDREDとCleanupへ進み、Event置換失敗または完了もRemovalも証明できない場合はContextとBackendを
+  `Unavailable`へ遷移してResourceとBackend登録を保持することを確認する
 - Command ListのState順序違反とFrame Index範囲外をProcess TestまたはTest Supportで検証する
 - Issue #50でSwap Chain Buffer Countが2であり、Current Back Buffer Indexが範囲内であることを検証する
 - Issue #51で通常Resize、同一Size、0 Size、Restore、最低50回の連続Resizeを検証する
