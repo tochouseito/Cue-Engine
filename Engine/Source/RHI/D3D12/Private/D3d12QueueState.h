@@ -28,6 +28,7 @@ enum class D3d12QueueStateStatus
 
 struct D3d12QueueNativeFunctions final
 {
+    void (*executeCommandLists)(ID3D12CommandQueue *, UINT, ID3D12CommandList *const *) noexcept;
     HRESULT (*signal)(ID3D12CommandQueue *, ID3D12Fence *, std::uint64_t) noexcept;
     std::uint64_t (*getCompletedValue)(ID3D12Fence *) noexcept;
     HRESULT (*setEventOnCompletion)(ID3D12Fence *, std::uint64_t, HANDLE) noexcept;
@@ -75,7 +76,9 @@ class D3d12QueueState final
     ~D3d12QueueState() noexcept = default;
 
     [[nodiscard]] Result<std::uint64_t> reserve_fence_value() noexcept;
+    void execute_command_list(ID3D12CommandList *a_commandList) noexcept;
     [[nodiscard]] Result<void> signal_reserved(std::uint64_t a_fenceValue) noexcept;
+    [[nodiscard]] Result<void> reclassify_device_failure(Error &&a_error) noexcept;
     [[nodiscard]] Result<void> resolve_failed_signal(std::uint64_t a_fenceValue, Error &&a_signalError,
                                                      D3d12FenceWaitPurpose a_purpose) noexcept;
     [[nodiscard]] std::uint64_t completed_value() noexcept;

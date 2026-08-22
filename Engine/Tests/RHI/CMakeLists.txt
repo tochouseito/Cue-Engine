@@ -126,6 +126,7 @@ if(WIN32)
     add_executable(CueRhiD3d12AdapterSelectionProcess D3d12AdapterSelectionProcess.cpp)
     add_executable(CueRhiD3d12BackendProcess D3d12BackendProcess.cpp)
     add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
+    add_executable(CueRhiD3d12FrameCommandProcess D3d12FrameCommandProcess.cpp)
     add_executable(CueRhiD3d12QueueStateProcess D3d12QueueStateProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
@@ -136,6 +137,8 @@ if(WIN32)
     target_compile_features(CueRhiD3d12BackendProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12DiagnosticsProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12DiagnosticsProcess PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12FrameCommandProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12FrameCommandProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12QueueStateProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12QueueStateProcess PRIVATE cxx_std_20)
     list(
@@ -145,6 +148,7 @@ if(WIN32)
         CueRhiD3d12AdapterSelectionProcess
         CueRhiD3d12BackendProcess
         CueRhiD3d12DiagnosticsProcess
+        CueRhiD3d12FrameCommandProcess
         CueRhiD3d12QueueStateProcess
     )
     list(
@@ -164,6 +168,21 @@ if(WIN32)
         Cue.RHI.D3D12.Backend.InvalidWaitTimeout
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
+        Cue.RHI.D3D12.FrameCommand.Smoke300
+        Cue.RHI.D3D12.FrameCommand.InfoQueue300
+        Cue.RHI.D3D12.FrameCommand.InvalidIndex
+        Cue.RHI.D3D12.FrameCommand.WaitRecoveryMatrix
+        Cue.RHI.D3D12.FrameCommand.BeginFrameTerminalOutcomeMatrix
+        Cue.RHI.D3D12.FrameCommand.FrameResetFailedTerminalMatrix
+        Cue.RHI.D3D12.FrameCommand.RecordingCloseFailedTerminalMatrix
+        Cue.RHI.D3D12.FrameCommand.FenceExhaustionMatrix
+        Cue.RHI.D3D12.FrameCommand.FrameSignalOutcomeMatrix
+        Cue.RHI.D3D12.FrameCommand.StateOrderBegin
+        Cue.RHI.D3D12.FrameCommand.StateOrderClose
+        Cue.RHI.D3D12.FrameCommand.StateOrderExecute
+        Cue.RHI.D3D12.FrameCommand.AllocatorResetFailure
+        Cue.RHI.D3D12.FrameCommand.CommandListResetFailure
+        Cue.RHI.D3D12.FrameCommand.CommandListCloseFailure
         Cue.RHI.D3D12.QueueState.Smoke
         Cue.RHI.D3D12.QueueState.Exhaustion
         Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
@@ -365,6 +384,86 @@ if(WIN32)
         COMMAND CueRhiD3d12BackendProcess InvalidWaitTimeout
     )
     add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.Smoke300
+        COMMAND CueRhiD3d12FrameCommandProcess Smoke300
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.InfoQueue300
+        COMMAND CueRhiD3d12FrameCommandProcess InfoQueue300
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.InvalidIndex
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=InvalidIndex
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.StateOrderBegin
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=StateOrderBegin
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.WaitRecoveryMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess WaitRecoveryMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.BeginFrameTerminalOutcomeMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess BeginFrameTerminalOutcomeMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.FrameResetFailedTerminalMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess FrameResetFailedTerminalMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.RecordingCloseFailedTerminalMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess RecordingCloseFailedTerminalMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.FenceExhaustionMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess FenceExhaustionMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.FrameSignalOutcomeMatrix
+        COMMAND CueRhiD3d12FrameCommandProcess FrameSignalOutcomeMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.StateOrderClose
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=StateOrderClose
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.StateOrderExecute
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=StateOrderExecute
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.AllocatorResetFailure
+        COMMAND CueRhiD3d12FrameCommandProcess AllocatorResetFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.CommandListResetFailure
+        COMMAND CueRhiD3d12FrameCommandProcess CommandListResetFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.CommandListCloseFailure
+        COMMAND CueRhiD3d12FrameCommandProcess CommandListCloseFailure
+    )
+    add_test(
         NAME Cue.RHI.D3D12.QueueState.Smoke
         COMMAND CueRhiD3d12QueueStateProcess Smoke
     )
@@ -451,6 +550,7 @@ endif()
 if(WIN32)
     set_tests_properties(
         Cue.RHI.D3D12.AdapterSelection.Hardware
+        Cue.RHI.D3D12.FrameCommand.InfoQueue300
         PROPERTIES
             SKIP_RETURN_CODE 77
     )
@@ -462,3 +562,12 @@ set_tests_properties(
         LABELS RHI
         TIMEOUT 10
 )
+
+if(WIN32)
+    set_tests_properties(
+        Cue.RHI.D3D12.FrameCommand.Smoke300
+        Cue.RHI.D3D12.FrameCommand.InfoQueue300
+        PROPERTIES
+            TIMEOUT 30
+    )
+endif()
