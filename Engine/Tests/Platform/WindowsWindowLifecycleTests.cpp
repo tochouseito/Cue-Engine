@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iterator>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
@@ -47,6 +48,22 @@ class TestFatalHandler final : public cue::FatalHandler
 }
 
 [[nodiscard]] bool is_window_class_unregistered();
+
+[[nodiscard]] bool test_windows_argument_conversion(cue::AssertContext &a_context)
+{
+    cue::Result<std::string> validResult = cue::convert_windows_argument_to_utf8(L"CueEngine 日本語", a_context);
+
+    if (!validResult || *validResult.try_value() != "CueEngine 日本語")
+    {
+        return false;
+    }
+
+    const wchar_t invalidArgument[] = {static_cast<wchar_t>(0xd800)};
+    cue::Result<std::string> invalidResult = cue::convert_windows_argument_to_utf8(
+        std::wstring_view(invalidArgument, std::size(invalidArgument)), a_context);
+    return !invalidResult && invalidResult.try_error() != nullptr &&
+           has_expected_native_error(*invalidResult.try_error(), ERROR_NO_UNICODE_TRANSLATION);
+}
 
 [[nodiscard]] bool has_event(cue::Window &a_window, cue::WindowEventType a_type, cue::WindowSize a_size = {})
 {
@@ -341,6 +358,12 @@ class TestFatalHandler final : public cue::FatalHandler
     TestFatalHandler handler;
     std::unique_ptr<cue::Logger> logger = create_logger(handler);
     cue::AssertContext context(*logger, handler);
+
+    if (!test_windows_argument_conversion(context))
+    {
+        return 23;
+    }
+
     cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(context);
 
     if (!systemResult)

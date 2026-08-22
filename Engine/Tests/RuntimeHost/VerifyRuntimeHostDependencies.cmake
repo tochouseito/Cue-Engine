@@ -11,7 +11,7 @@ foreach(
     IN ITEMS
         "CueRuntimeHost LINK_LIBRARIES: Cue.Foundation;Cue.Platform.Windows"
         "Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows"
-        "Forbidden dependencies: Cue.RHI;D3D12;Renderer;Editor;ECS;Asset"
+        "Forbidden dependencies: WindowsSDK;Cue.RHI;D3D12;Renderer;Editor;ECS;Asset"
 )
     string(FIND "${dependencyReport}" "${requiredLine}" linePosition)
 
@@ -38,7 +38,7 @@ foreach(runtimeHostSource IN LISTS runtimeHostSources)
     file(READ "${runtimeHostSource}" sourceContents)
     string(
         REGEX MATCH
-        "Cue/RHI|d3d12\\.h|DirectX|Renderer|Editor|ECS|Asset"
+        "Windows\\.h|WideCharToMultiByte|MultiByteToWideChar|Cue/RHI|d3d12\\.h|DirectX|Renderer|Editor|ECS|Asset"
         forbiddenDependency
         "${sourceContents}"
     )

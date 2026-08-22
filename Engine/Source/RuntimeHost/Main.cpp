@@ -4,8 +4,6 @@
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
 
-#include <Windows.h>
-
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -33,41 +31,6 @@ struct RuntimeOptions final
     cue::WindowSize clientSize = {1280, 720};
     bool isSmokeTest = false;
 };
-
-[[nodiscard]] bool convert_title(std::wstring_view a_text, std::string &a_result)
-{
-    if (a_text.empty())
-    {
-        a_result.clear();
-        return true;
-    }
-
-    if (a_text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-    {
-        return false;
-    }
-
-    int sourceLength = static_cast<int>(a_text.size());
-    int convertedLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength, nullptr, 0,
-                                              nullptr, nullptr);
-
-    if (convertedLength == 0)
-    {
-        return false;
-    }
-
-    std::string result(static_cast<std::size_t>(convertedLength), '\0');
-    int writtenLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength, result.data(),
-                                            convertedLength, nullptr, nullptr);
-
-    if (writtenLength != convertedLength)
-    {
-        return false;
-    }
-
-    a_result = std::move(result);
-    return true;
-}
 
 [[nodiscard]] bool parse_size(std::wstring_view a_text, std::uint32_t &a_value) noexcept
 {
@@ -104,7 +67,8 @@ struct RuntimeOptions final
     return true;
 }
 
-[[nodiscard]] bool parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options)
+[[nodiscard]] cue::Result<bool> parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options,
+                                              const cue::AssertContext &a_assertContext) noexcept
 {
     for (int index = 1; index < a_argumentCount; ++index)
     {
@@ -118,39 +82,43 @@ struct RuntimeOptions final
 
         if (index + 1 >= a_argumentCount)
         {
-            return false;
+            return cue::Result<bool>::success(false);
         }
 
         std::wstring_view value = a_arguments[++index];
 
         if (argument == L"--title")
         {
-            if (!convert_title(value, a_options.title))
+            cue::Result<std::string> titleResult = cue::convert_windows_argument_to_utf8(value, a_assertContext);
+
+            if (!titleResult)
             {
-                return false;
+                return cue::Result<bool>::failure(std::move(*titleResult.try_error()));
             }
+
+            a_options.title = std::move(*titleResult.try_value());
         }
         else if (argument == L"--width")
         {
             if (!parse_size(value, a_options.clientSize.width))
             {
-                return false;
+                return cue::Result<bool>::success(false);
             }
         }
         else if (argument == L"--height")
         {
             if (!parse_size(value, a_options.clientSize.height))
             {
-                return false;
+                return cue::Result<bool>::success(false);
             }
         }
         else
         {
-            return false;
+            return cue::Result<bool>::success(false);
         }
     }
 
-    return true;
+    return cue::Result<bool>::success(true);
 }
 
 void print_usage() noexcept
@@ -167,20 +135,16 @@ void print_usage() noexcept
     return a_exitCode;
 }
 
-[[nodiscard]] int run(const RuntimeOptions &a_options, cue::AbortFatalHandler &a_fatalHandler)
+[[nodiscard]] int run(const RuntimeOptions &a_options, cue::Logger &a_logger, cue::AssertContext &a_assertContext)
 {
-    std::vector<std::unique_ptr<cue::LogSink>> sinks;
-    sinks.push_back(std::make_unique<cue::ConsoleLogSink>());
-    cue::Logger logger(a_fatalHandler, std::move(sinks));
-    cue::AssertContext assertContext(logger, a_fatalHandler);
-
-    static_cast<void>(logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
-    cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(assertContext);
+    static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
+    cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult =
+        cue::create_windows_window_system(a_assertContext);
 
     if (!systemResult)
     {
-        return report_error(logger, "Runtime Host failed to create Window System", std::move(*systemResult.try_error()),
-                            k_systemCreationFailed);
+        return report_error(a_logger, "Runtime Host failed to create Window System",
+                            std::move(*systemResult.try_error()), k_systemCreationFailed);
     }
 
     std::unique_ptr<cue::WindowSystem> windowSystem = std::move(*systemResult.try_value());
@@ -189,7 +153,7 @@ void print_usage() noexcept
 
     if (!windowResult)
     {
-        return report_error(logger, "Runtime Host failed to create Window", std::move(*windowResult.try_error()),
+        return report_error(a_logger, "Runtime Host failed to create Window", std::move(*windowResult.try_error()),
                             k_windowCreationFailed);
     }
 
@@ -198,11 +162,11 @@ void print_usage() noexcept
 
     if (!showResult)
     {
-        return report_error(logger, "Runtime Host failed to show Window", std::move(*showResult.try_error()),
+        return report_error(a_logger, "Runtime Host failed to show Window", std::move(*showResult.try_error()),
                             k_windowShowFailed);
     }
 
-    static_cast<void>(logger.log(cue::LogLevel::Info, "Runtime Host Main Loop started"));
+    static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host Main Loop started"));
     bool isShutdownRequested = a_options.isSmokeTest;
 
     while (true)
@@ -211,7 +175,7 @@ void print_usage() noexcept
 
         if (!pumpResult)
         {
-            return report_error(logger, "Runtime Host Message Pump failed", std::move(*pumpResult.try_error()),
+            return report_error(a_logger, "Runtime Host Message Pump failed", std::move(*pumpResult.try_error()),
                                 k_messagePumpFailed);
         }
 
@@ -242,7 +206,7 @@ void print_usage() noexcept
 
             if (!destroyResult)
             {
-                return report_error(logger, "Runtime Host failed to destroy Window",
+                return report_error(a_logger, "Runtime Host failed to destroy Window",
                                     std::move(*destroyResult.try_error()), k_windowDestroyFailed);
             }
 
@@ -262,8 +226,8 @@ void print_usage() noexcept
 
     window.reset();
     windowSystem.reset();
-    static_cast<void>(logger.log(cue::LogLevel::Info, "Runtime Host shutdown completed"));
-    static_cast<void>(logger.flush());
+    static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host shutdown completed"));
+    static_cast<void>(a_logger.flush());
     return 0;
 }
 } // namespace
@@ -274,15 +238,26 @@ int wmain(int a_argumentCount, wchar_t **a_arguments)
 
     try
     {
+        std::vector<std::unique_ptr<cue::LogSink>> sinks;
+        sinks.push_back(std::make_unique<cue::ConsoleLogSink>());
+        cue::Logger logger(fatalHandler, std::move(sinks));
+        cue::AssertContext assertContext(logger, fatalHandler);
         RuntimeOptions options;
+        cue::Result<bool> optionsResult = parse_options(a_argumentCount, a_arguments, options, assertContext);
 
-        if (!parse_options(a_argumentCount, a_arguments, options))
+        if (!optionsResult)
+        {
+            return report_error(logger, "Runtime Host failed to convert command line",
+                                std::move(*optionsResult.try_error()), k_invalidArguments);
+        }
+
+        if (!*optionsResult.try_value())
         {
             print_usage();
             return k_invalidArguments;
         }
 
-        return run(options, fatalHandler);
+        return run(options, logger, assertContext);
     }
     catch (...)
     {

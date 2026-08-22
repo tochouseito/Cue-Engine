@@ -224,9 +224,14 @@ struct WindowEvent
 ### UTF-8 and UTF-16 Boundary
 
 - Engine側の文字列契約はUTF-8とする
+- Windows RuntimeHostは`wmain`でOSのUTF-16 Command Line Argumentを受け、`Cue.Platform.Windows`の変換APIを通してUTF-8へ変換する
+- RuntimeHostはWindows SDK HeaderをIncludeせず、Unicode Win32 APIを直接呼ばない
+- UTF-16 Command Line Argument変換APIは`std::wstring_view`を入力、`Result<std::string>`を出力とし、Win32型を公開しない
 - Windows実装はUnicode版Win32 APIを明示的に呼び、Encoding-neutral Macroへ依存しない
 - UTF-8からUTF-16への変換は`Cue.Platform.Windows`のPrivate Helperだけが担当する
+- UTF-16からUTF-8への変換はWindows RuntimeHost入口向けの`Cue.Platform.Windows`公開Helperだけが担当する
 - 無効なUTF-8、変換失敗、長さOverflowはWindow生成前に`Result` Errorとして返す
+- 無効なUTF-16 Command Line Argument、変換失敗、長さOverflowも`Result` Errorとして返す
 - 変換後のBufferはWindow生成呼出中だけ保持し、Platform公開型へ`std::wstring`を出さない
 - Native Errorは`NativeError`へDomainと整数値で保持し、`DWORD`や`HRESULT`を公開しない
 
