@@ -1,6 +1,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/RHI/D3D12/TestSupport/D3d12AdapterSelectionProbe.h>
 
+#include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
@@ -89,7 +90,7 @@ class FailingLogSink final : public cue::LogSink
 }
 
 
-[[nodiscard]] bool has_independent_hardware_adapter() noexcept
+[[nodiscard]] bool has_independent_supported_hardware_adapter() noexcept
 {
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
 
@@ -120,7 +121,9 @@ class FailingLogSink final : public cue::LogSink
             return true;
         }
 
-        if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0)
+        if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
+            SUCCEEDED(D3D12CreateDevice(
+                adapter.Get(), D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device), nullptr)))
         {
             return true;
         }
@@ -185,8 +188,9 @@ int main(int a_argumentCount, char **a_arguments)
                    : 9;
     }
 
-    cue::D3d12AdapterPolicy policy = mode == "Warp" ? cue::D3d12AdapterPolicy::Warp
-                                                     : cue::D3d12AdapterPolicy::HighPerformanceHardware;
+    bool useWarp = mode == "Warp" || mode == "LogFailure";
+    cue::D3d12AdapterPolicy policy = useWarp ? cue::D3d12AdapterPolicy::Warp
+                                             : cue::D3d12AdapterPolicy::HighPerformanceHardware;
     cue::Result<cue::D3d12AdapterSelectionProbeReport> result =
         cue::probe_d3d12_adapter_selection(policy, assertContext);
 
@@ -201,7 +205,7 @@ int main(int a_argumentCount, char **a_arguments)
                        : 7;
         }
 
-        bool isHardwareUnavailable = mode == "Hardware" && !has_independent_hardware_adapter() &&
+        bool isHardwareUnavailable = mode == "Hardware" && !has_independent_supported_hardware_adapter() &&
                                      error != nullptr &&
                                      error->code().domain() == "Cue.RHI.D3D12" &&
                                      error->code().value() == k_noHardwareAdapter;
