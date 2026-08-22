@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
@@ -50,6 +51,67 @@ constexpr std::int64_t k_deviceRemoved = 34;
         a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label,
+                                const cue::ErrorCode &a_code,
+                                const cue::NativeError *a_nativeError,
+                                const cue::AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        std::string codeContext(a_label);
+        codeContext.append(" Code=");
+        codeContext.append(a_code.domain());
+        codeContext.push_back('/');
+        codeContext.append(std::to_string(a_code.value()));
+        a_primaryError.add_context(a_assertContext.fatal_handler(), codeContext);
+
+        if (a_nativeError != nullptr)
+        {
+            std::string nativeContext(a_label);
+            nativeContext.append(" NativeError=");
+            nativeContext.append(a_nativeError->domain());
+            nativeContext.push_back('/');
+            nativeContext.append(std::to_string(a_nativeError->value()));
+            a_primaryError.add_context(a_assertContext.fatal_handler(), nativeContext);
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+}
+
+void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
+                                 std::string_view a_context,
+                                 const cue::AssertContext &a_assertContext) noexcept
+{
+    a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
+    a_primaryError.add_context(a_assertContext.fatal_handler(), a_secondaryError.summary());
+    add_error_identity_context(
+        a_primaryError, "Secondary shutdown Error", a_secondaryError.code(),
+        a_secondaryError.try_native_error(), a_assertContext);
+
+    for (const cue::ErrorContext &context : a_secondaryError.contexts())
+    {
+        a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
+    }
+
+    for (const cue::ErrorCause &cause : a_secondaryError.causes())
+    {
+        a_primaryError.add_context(
+            a_assertContext.fatal_handler(), "Secondary shutdown Error cause");
+        a_primaryError.add_context(a_assertContext.fatal_handler(), cause.summary());
+        add_error_identity_context(
+            a_primaryError, "Secondary shutdown Error cause", cause.code(),
+            cause.try_native_error(), a_assertContext);
+
+        for (const cue::ErrorContext &context : cause.contexts())
+        {
+            a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
+        }
+    }
+}
+
 void retain_shutdown_error(std::optional<cue::Error> &a_firstError,
                            cue::Result<void> &a_result, std::string_view a_context,
                            const cue::AssertContext &a_assertContext) noexcept
@@ -67,13 +129,7 @@ void retain_shutdown_error(std::optional<cue::Error> &a_firstError,
         return;
     }
 
-    a_firstError->add_context(a_assertContext.fatal_handler(), a_context);
-    a_firstError->add_context(a_assertContext.fatal_handler(), error->summary());
-
-    for (const cue::ErrorContext &context : error->contexts())
-    {
-        a_firstError->add_context(a_assertContext.fatal_handler(), context.message());
-    }
+    add_secondary_error_context(*a_firstError, *error, a_context, a_assertContext);
 }
 
 class D3d12BackendImpl final : public cue::D3d12Backend
