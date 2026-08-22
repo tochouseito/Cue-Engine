@@ -61,7 +61,7 @@ class TestFatalHandler final : public cue::FatalHandler
     const wchar_t invalidArgument[] = {static_cast<wchar_t>(0xd800)};
     cue::Result<std::string> invalidResult = cue::convert_windows_argument_to_utf8(
         std::wstring_view(invalidArgument, std::size(invalidArgument)), a_context);
-    return !invalidResult && invalidResult.try_error() != nullptr &&
+    return !invalidResult && invalidResult.try_error() != nullptr && invalidResult.try_error()->code().value() == 11 &&
            has_expected_native_error(*invalidResult.try_error(), ERROR_NO_UNICODE_TRANSLATION);
 }
 

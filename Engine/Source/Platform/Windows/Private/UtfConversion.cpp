@@ -13,7 +13,7 @@
 namespace
 {
 constexpr std::int64_t k_invalidUtf8 = 2;
-constexpr std::int64_t k_invalidUtf16 = 3;
+constexpr std::int64_t k_invalidUtf16 = 11;
 
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
