@@ -30,6 +30,8 @@ target_sources(
     Cue.RHI.D3D12
     PRIVATE
         Private/D3d12Backend.cpp
+        Private/D3d12Diagnostics.cpp
+        Private/D3d12Diagnostics.h
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
@@ -51,6 +53,9 @@ target_compile_features(Cue.RHI.D3D12 PUBLIC cxx_std_20)
 target_compile_definitions(
     Cue.RHI.D3D12
     PRIVATE
+        $<$<CONFIG:Debug>:CUE_D3D12_DIAGNOSTICS_ALLOWED=1>
+        $<$<CONFIG:Development>:CUE_D3D12_DIAGNOSTICS_ALLOWED=1>
+        $<$<CONFIG:Release>:CUE_D3D12_DIAGNOSTICS_ALLOWED=0>
         NOMINMAX
         WIN32_LEAN_AND_MEAN
 )
@@ -62,6 +67,18 @@ target_include_directories(
     PRIVATE
         Private
 )
+
+if(BUILD_TESTING)
+    target_sources(
+        Cue.RHI.D3D12
+        PRIVATE
+            Private/TestSupport/D3d12DiagnosticsProbe.cpp
+        PUBLIC
+            FILE_SET HEADERS
+            FILES
+                Public/Cue/RHI/D3D12/TestSupport/D3d12DiagnosticsProbe.h
+    )
+endif()
 
 set_target_properties(
     Cue.RHI.D3D12
