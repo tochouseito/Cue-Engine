@@ -128,6 +128,7 @@ if(WIN32)
     add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
     add_executable(CueRhiD3d12FrameCommandProcess D3d12FrameCommandProcess.cpp)
     add_executable(CueRhiD3d12QueueStateProcess D3d12QueueStateProcess.cpp)
+    add_executable(CueRhiD3d12RtvHeapProcess D3d12RtvHeapProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
@@ -141,6 +142,8 @@ if(WIN32)
     target_compile_features(CueRhiD3d12FrameCommandProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12QueueStateProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12QueueStateProcess PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12RtvHeapProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12RtvHeapProcess PRIVATE cxx_std_20)
     list(
         APPEND
         cueRhiTestTargets
@@ -150,6 +153,7 @@ if(WIN32)
         CueRhiD3d12DiagnosticsProcess
         CueRhiD3d12FrameCommandProcess
         CueRhiD3d12QueueStateProcess
+        CueRhiD3d12RtvHeapProcess
     )
     list(
         APPEND
@@ -201,6 +205,18 @@ if(WIN32)
         Cue.RHI.D3D12.QueueState.TerminalSignalDeviceRemoved
         Cue.RHI.D3D12.QueueState.TerminalSignalUnavailable
         Cue.RHI.D3D12.QueueState.TerminalCloseFailure
+        Cue.RHI.D3D12.RtvHeap.Smoke
+        Cue.RHI.D3D12.RtvHeap.InfoQueue
+        Cue.RHI.D3D12.RtvHeap.CreationFaults
+        Cue.RHI.D3D12.RtvHeap.HandleOverflow
+        Cue.RHI.D3D12.RtvHeap.GenerationExhaustion
+        Cue.RHI.D3D12.RtvHeap.HeapMove
+        Cue.RHI.D3D12.RtvHeap.DoubleRelease
+        Cue.RHI.D3D12.RtvHeap.StaleRelease
+        Cue.RHI.D3D12.RtvHeap.ForeignRelease
+        Cue.RHI.D3D12.RtvHeap.LiveSlotShutdown
+        Cue.RHI.D3D12.RtvHeap.OwnerDestructor
+        Cue.RHI.D3D12.RtvHeap.ActiveMoveAssignment
         Cue.RHI.Dependencies
     )
 endif()
@@ -536,6 +552,54 @@ if(WIN32)
         COMMAND CueRhiD3d12QueueStateProcess TerminalCloseFailure
     )
     add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.Smoke
+        COMMAND CueRhiD3d12RtvHeapProcess Smoke
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.InfoQueue
+        COMMAND CueRhiD3d12RtvHeapProcess InfoQueue
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.CreationFaults
+        COMMAND CueRhiD3d12RtvHeapProcess CreationFaults
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.HandleOverflow
+        COMMAND CueRhiD3d12RtvHeapProcess HandleOverflow
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.GenerationExhaustion
+        COMMAND CueRhiD3d12RtvHeapProcess GenerationExhaustion
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.RtvHeap.HeapMove
+        COMMAND CueRhiD3d12RtvHeapProcess HeapMove
+    )
+
+    foreach(violationMode IN ITEMS DoubleRelease StaleRelease ForeignRelease LiveSlotShutdown)
+        add_test(
+            NAME Cue.RHI.D3D12.RtvHeap.${violationMode}
+            COMMAND
+                ${CMAKE_COMMAND}
+                -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12RtvHeapProcess>
+                -DTEST_MODE=${violationMode}
+                -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12RtvHeapViolation.cmake
+        )
+    endforeach()
+
+    foreach(ownerViolationMode IN ITEMS OwnerDestructor ActiveMoveAssignment)
+        add_test(
+            NAME Cue.RHI.D3D12.RtvHeap.${ownerViolationMode}
+            COMMAND
+                ${CMAKE_COMMAND}
+                -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12RtvHeapProcess>
+                -DTEST_MODE=${ownerViolationMode}
+                -DEXPECTED_EXIT_CODE=91
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12RtvHeapViolation.cmake
+        )
+    endforeach()
+    add_test(
         NAME Cue.RHI.Dependencies
         COMMAND
             ${CMAKE_COMMAND}
@@ -551,6 +615,7 @@ if(WIN32)
     set_tests_properties(
         Cue.RHI.D3D12.AdapterSelection.Hardware
         Cue.RHI.D3D12.FrameCommand.InfoQueue300
+        Cue.RHI.D3D12.RtvHeap.InfoQueue
         PROPERTIES
             SKIP_RETURN_CODE 77
     )

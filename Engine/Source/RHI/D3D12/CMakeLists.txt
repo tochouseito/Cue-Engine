@@ -40,6 +40,8 @@ target_sources(
         Private/D3d12FrameCommandState.h
         Private/D3d12QueueState.cpp
         Private/D3d12QueueState.h
+        Private/D3d12RtvHeap.cpp
+        Private/D3d12RtvHeap.h
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
@@ -85,6 +87,7 @@ if(BUILD_TESTING)
             Private/TestSupport/D3d12DiagnosticsProbe.cpp
             Private/TestSupport/D3d12FrameCommandProbe.cpp
             Private/TestSupport/D3d12QueueStateProbe.cpp
+            Private/TestSupport/D3d12RtvHeapProbe.cpp
         PUBLIC
             FILE_SET HEADERS
             FILES
@@ -93,6 +96,7 @@ if(BUILD_TESTING)
                 Public/Cue/RHI/D3D12/TestSupport/D3d12DiagnosticsProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12FrameCommandProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12QueueStateProbe.h
+                Public/Cue/RHI/D3D12/TestSupport/D3d12RtvHeapProbe.h
     )
 endif()
 
