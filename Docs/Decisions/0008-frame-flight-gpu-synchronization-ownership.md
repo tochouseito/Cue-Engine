@@ -528,7 +528,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   Signal Errorを追加しないことも確認する
 - Issue #47、#51、#54でSignal失敗後の完了確認にもWait ErrorをFault Injectionし、最終完了時、Device
   Removal時、証明不能時のすべてで、該当するPresent Error、Signal Error、Wait ErrorがMatrixの優先順位と
-  発生順で保持されることをTestする
+  発生順で保持されることをTestする。最終Completed Valueで予約値完了を証明する組み合わせは4種類のSignal
+  Originすべてで実行し、Error保持だけでなく、Matrix所定のFence追跡値更新、`Submitted`または`Shutdown`への
+  状態遷移、受付停止、Resourceと登録の安全なCleanupまで同じFault Injectionで確認する
 - Issue #54でPresentの非Device Removal失敗をFault Injectionし、補完Signal成功時は対象Frameの
   `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
   更新されて`Submitted`へ遷移し、新規Frame受付を停止してPresent Errorを返すことをTestする。補完Signalが
