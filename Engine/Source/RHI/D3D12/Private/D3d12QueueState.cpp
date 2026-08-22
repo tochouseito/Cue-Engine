@@ -460,8 +460,13 @@ Result<void> D3d12QueueState::wait_for_fence(std::uint64_t a_fenceValue, D3d12Fe
 Result<void> D3d12QueueState::resolve_abnormal_wait(Error &&a_waitError, std::uint64_t a_fenceValue,
                                                     D3d12FenceWaitPurpose a_purpose) noexcept
 {
-    const HRESULT removalReason = m_functions.getDeviceRemovedReason(m_device);
+    HRESULT removalReason = m_functions.getDeviceRemovedReason(m_device);
     const std::uint64_t finalCompletedValue = completed_value();
+
+    if (finalCompletedValue == k_deviceRemovedCompletedValue && SUCCEEDED(removalReason))
+    {
+        removalReason = m_functions.getDeviceRemovedReason(m_device);
+    }
 
     if (FAILED(removalReason) || finalCompletedValue == k_deviceRemovedCompletedValue)
     {

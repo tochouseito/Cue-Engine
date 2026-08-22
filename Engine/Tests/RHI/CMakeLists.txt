@@ -167,6 +167,7 @@ if(WIN32)
         Cue.RHI.D3D12.QueueState.Smoke
         Cue.RHI.D3D12.QueueState.Exhaustion
         Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
+        Cue.RHI.D3D12.QueueState.WaitSentinelRefreshRemoval
         Cue.RHI.D3D12.QueueState.StaleEventFollowup
         Cue.RHI.D3D12.QueueState.WaitFailedUnavailable
         Cue.RHI.D3D12.QueueState.EventCloseFailure
@@ -374,6 +375,10 @@ if(WIN32)
     add_test(
         NAME Cue.RHI.D3D12.QueueState.WaitRecoveryMatrix
         COMMAND CueRhiD3d12QueueStateProcess WaitRecoveryMatrix
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.QueueState.WaitSentinelRefreshRemoval
+        COMMAND CueRhiD3d12QueueStateProcess WaitSentinelRefreshRemoval
     )
     add_test(
         NAME Cue.RHI.D3D12.QueueState.WaitFailedUnavailable

@@ -20,6 +20,7 @@ struct D3d12QueueStateProbeReport final
 enum class D3d12QueueFaultProbeMode
 {
     WaitRecoveryMatrix,
+    WaitSentinelRefreshRemoval,
     StaleEventFollowup,
     WaitFailedUnavailable,
     EventCloseFailure,

@@ -25,6 +25,7 @@ enum class NativeFaultMode
     WaitEventIncompleteCompletion,
     WaitFailedCompletion,
     WaitUnexpectedCompletion,
+    WaitSentinelRefreshRemoval,
     FollowupNoSignal,
     WaitFailedUnavailable,
     EventCloseFailure,
@@ -46,6 +47,7 @@ struct NativeFaultState final
     std::uint32_t createEventCallCount = 0;
     std::uint32_t closeHandleCallCount = 0;
     std::uint32_t getLastErrorCallCount = 0;
+    std::uint32_t removalReasonCallCount = 0;
     bool nativeFailurePending = false;
     bool getLastErrorOrderValid = true;
 };
@@ -118,6 +120,8 @@ std::uint64_t get_completed_value_for_fault(ID3D12Fence *a_fence) noexcept
         return g_faultState.completedCallCount == 1 ? 0 : g_faultState.targetFenceValue;
     case NativeFaultMode::WaitEventIncompleteCompletion:
         return g_faultState.completedCallCount <= 2 ? 0 : g_faultState.targetFenceValue;
+    case NativeFaultMode::WaitSentinelRefreshRemoval:
+        return g_faultState.completedCallCount == 1 ? 0 : (std::numeric_limits<std::uint64_t>::max)();
     case NativeFaultMode::WaitFailedUnavailable:
     case NativeFaultMode::SignalDeviceRemoved:
     case NativeFaultMode::SignalUnavailable:
@@ -155,6 +159,7 @@ DWORD WINAPI wait_for_single_object_for_fault(HANDLE a_event, DWORD a_timeout)
     case NativeFaultMode::SignalUnavailable:
     case NativeFaultMode::SignalEventCloseFailure:
     case NativeFaultMode::SignalEventCreateFailure:
+    case NativeFaultMode::WaitSentinelRefreshRemoval:
         return WAIT_TIMEOUT;
     case NativeFaultMode::WaitEventIncompleteCompletion:
         return WAIT_OBJECT_0;
@@ -219,6 +224,12 @@ DWORD WINAPI get_last_error_for_fault()
 HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
 {
     observe_native_call();
+    ++g_faultState.removalReasonCallCount;
+
+    if (g_faultState.mode == NativeFaultMode::WaitSentinelRefreshRemoval)
+    {
+        return g_faultState.removalReasonCallCount == 1 ? S_OK : DXGI_ERROR_DEVICE_REMOVED;
+    }
 
     if (g_faultState.mode == NativeFaultMode::SignalDeviceRemoved ||
         g_faultState.mode == NativeFaultMode::SignalCompletionDeviceRemovedRace)
@@ -559,6 +570,9 @@ bool verify_d3d12_queue_fault_for_probe(D3d12QueueFaultProbeMode a_mode, const A
 
     switch (a_mode)
     {
+    case D3d12QueueFaultProbeMode::WaitSentinelRefreshRemoval:
+        nativeMode = NativeFaultMode::WaitSentinelRefreshRemoval;
+        break;
     case D3d12QueueFaultProbeMode::StaleEventFollowup:
         nativeMode = NativeFaultMode::WaitTimeoutCompletion;
         break;
@@ -673,6 +687,23 @@ bool verify_d3d12_queue_fault_for_probe(D3d12QueueFaultProbeMode a_mode, const A
 
     const std::uint64_t fenceValue = *reservationResult.try_value();
     Result<void> signalResult = objects->state.signal_reserved(fenceValue);
+
+    if (a_mode == D3d12QueueFaultProbeMode::WaitSentinelRefreshRemoval)
+    {
+        if (!signalResult)
+        {
+            return finish_fault_probe(std::move(objects), false);
+        }
+
+        Result<void> waitResult = objects->state.wait_for_fence(fenceValue, D3d12FenceWaitPurpose::BackendTerminal);
+        const Error *error = waitResult.try_error();
+        const bool valid = error != nullptr &&
+                           matches_error(*error, 52, "D3D12", static_cast<std::int64_t>(DXGI_ERROR_DEVICE_REMOVED)) &&
+                           error->causes().size() == 1 && error->causes().front().code().value() == 48 &&
+                           g_faultState.removalReasonCallCount == 2 &&
+                           objects->state.status() == D3d12QueueStateStatus::DeviceRemoved;
+        return finish_fault_probe(std::move(objects), valid);
+    }
 
     if (a_mode == D3d12QueueFaultProbeMode::StaleEventFollowup)
     {

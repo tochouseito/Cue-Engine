@@ -75,6 +75,14 @@ int main(int a_argumentCount, char **a_arguments)
                    : 5;
     }
 
+    if (mode == "WaitSentinelRefreshRemoval")
+    {
+        return cue::verify_d3d12_queue_fault_for_probe(cue::D3d12QueueFaultProbeMode::WaitSentinelRefreshRemoval,
+                                                       assertContext)
+                   ? 0
+                   : 23;
+    }
+
     if (mode == "WaitFailedUnavailable")
     {
         const bool valid = cue::verify_d3d12_queue_fault_for_probe(cue::D3d12QueueFaultProbeMode::WaitFailedUnavailable,
@@ -178,5 +186,5 @@ int main(int a_argumentCount, char **a_arguments)
                    : 12;
     }
 
-    return 22;
+    return 24;
 }
