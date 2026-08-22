@@ -147,15 +147,21 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   ListをResetして空のままCloseし、`IdleClosed`へ遷移する。ResetまたはCloseが失敗してもGPUへ未投入の
   内容なので、既存`lastSignaledFence`をDrainした後に安全なContext Cleanupを行う
 - Fence枯渇後の待機で完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移する
-- Queueのすべての`Signal`成功時に、Backendの`lastSignaledFence`をそのSignal値へ更新する
-- Frame Submitの通常SignalまたはPresent Error後の補完Signalが成功した場合だけ、Allocatorを使用した
-  対象Frame Contextの`reuseFenceValue`を同じSignal値へ更新する。Context terminal SignalとBackend
+- Queueの`Signal`成功時、または失敗後の再確認で予約値の完了を証明できた時に、Backendの
+  `lastSignaledFence`をそのSignal値へ更新する
+- Frame Submitの通常SignalまたはPresent Error後の補完Signalについて成功または予約値の完了を証明できた
+  場合だけ、Allocatorを使用した対象Frame Contextの`reuseFenceValue`を同じSignal値へ更新する。Context
+  terminal SignalとBackend
   terminal Signalには対象Frame Contextがないため、`reuseFenceValue`を更新しない
-- Presentation Contextに属する通常Frame、補完Signal、Context terminal Signalが成功した場合は、その
-  Presentation Contextの`lastSubmittedFence`を同じSignal値へ更新する。Backend terminal Signalには
+- Presentation Contextに属する通常Frame、補完Signal、Context terminal Signalについて成功または予約値の
+  完了を証明できた場合は、そのPresentation Contextの`lastSubmittedFence`を同じSignal値へ更新する。
+  Backend terminal Signalには
   対象Presentation Contextがないため、`lastSubmittedFence`を更新しない
-- `ExecuteCommandLists`後にSignalが失敗した場合、投入済みWorkの完了点を証明できないため、
-  Device Removal確認または`Unavailable`遷移を行う
+- `Signal`が失敗した場合は、後述の有限Wait Policyで予約値の完了を確認し、Device Removalも再確認する。
+  予約値の完了を証明できた場合は上記の対象値を更新し、Frame Signalでは新規Frame受付を停止して
+  `Submitted`へ遷移し、元のNative Errorを返す。terminal Signalでは安全なCleanupを継続して元のErrorを
+  返す。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、失敗した予約値をどの追跡値にも
+  保存しない
 
 Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる古いFrameの誤完了判定を許可しない。
 
@@ -199,7 +205,7 @@ Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる
 | `RecordingCloseFailed` | Native `Close`が失敗し、未Submit内容を実行できない | Context Shutdownだけを許可する |
 | `Closed` | Frame Commandの記録終了済みで、まだExecuteしていない | `Execute`または未Submit内容の明示Discardだけを許可する |
 | `ExecutedAwaitingPresent` | Execute済みで、Presentをまだ試行していない | Presentを一度だけ許可する |
-| `ExecutedUnfenced` | Present試行済みだが、ExecuteしたWorkを覆うFence Signalが未成功 | Signal成功、Device Removed、`Unavailable`への遷移だけを許可する |
+| `ExecutedUnfenced` | Present試行済みだが、ExecuteしたWorkを覆うFence Signalが未成功 | Signal成功、予約値の完了証明、Device Removed、`Unavailable`への遷移だけを許可する |
 
 生成には既存の`ID3D12Device::CreateCommandList`を使用し、生成直後の`Initial`状態を一度`Close`して
 `IdleClosed`へ遷移する。`ID3D12Device4::CreateCommandList1`を使うためだけにDevice Interface要件を
@@ -218,8 +224,9 @@ Frame記録の規則:
 - `submit_frame`は`Closed`からだけ呼び、Execute直後に`ExecutedAwaitingPresent`へ遷移する
 - Presentを一度試行した直後に、結果を処理する前に`ExecutedUnfenced`へ遷移する
 - `ExecutedAwaitingPresent`と`ExecutedUnfenced`ではCommand ListとAllocatorをReset、再Execute、破棄しない
-- Signal成功後に`Submitted`へ遷移し、Frame Contextの`reuseFenceValue`、Presentation Contextの
-  `lastSubmittedFence`、Backendの`lastSignaledFence`へ同じFence値を保存する
+- Signal成功後、またはSignal失敗後に予約値の完了を証明できた場合は`Submitted`へ遷移し、Frame Contextの
+  `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`へ同じ
+  Fence値を保存する。失敗後の完了証明では新規Frame受付を停止し、元のNative Errorを返す
 - State順序違反とFrame Index範囲外はProgrammer ErrorとしてDebug／DevelopmentでAssertする
 - Native API失敗はNative Error付き`Result`で返す
 - Command ListはExecute後に別の完了済みAllocatorを使ってResetできるが、Allocator自身は対応Fence完了前に
@@ -266,8 +273,9 @@ Frame再利用Fence更新を行って上位へOccluded状態として伝える�
 Present失敗では、既にExecuteしたWorkを覆うFence Signalを試みる。Signal成功時はFrame Contextへ値を
 保存し、新しいFrame受付を停止する。Contextは安全なFence Waitと通常Shutdownを行うため`Ready`を維持し、
 次の`begin_frame`は`RHI.PresentationStopped`を返す。Composition Rootは元のPresent Errorを処理して通常
-Shutdownを選ぶ。Signalも失敗した場合は完了またはDevice Removalを確認し、どちらも証明できなければ
-`Unavailable`へ遷移する。
+Shutdownを選ぶ。Signalも失敗した場合は予約値の完了またはDevice Removalを確認する。完了を証明できた
+場合は3種類のFence値を保存して`Submitted`へ遷移し、元のSignal Errorを返した後に通常Shutdownを許可する。
+どちらも証明できなければ`Unavailable`へ遷移する。
 
 ### Resize Sequence
 
@@ -360,6 +368,7 @@ FenceまたはQueue操作で失敗した場合は、ADR-0007の状態規則を�
 | Observation | State | Cleanup Rule |
 | --- | --- | --- |
 | Fence完了を確認できた | `Ready`または`Shutdown`へ進行 | 完了Fenceが覆うResourceを解放できる |
+| Signal失敗後に予約値の完了を確認できた | Frameは受付停止付き`Submitted`、terminal経路は`Shutdown`へ進行 | 対象追跡値を更新し、元のErrorを返しながら完了Fenceが覆うResourceを安全に解放できる |
 | `GetDeviceRemovedReason`が失敗HRESULT | `DeviceRemoved` | Fenceを待たずDREDをBest-effort収集し、Native Objectを逆順に解放する |
 | Wait Timeout、`WAIT_FAILED`、Signal失敗後に完了もRemovalも証明不能 | `Unavailable` | GPUが参照し得るAllocator、Back Buffer、RTV、Swap Chain、Queue、Fence、Event、Deviceを保持する |
 | Fence Completed Valueが`UINT64_MAX` | `DeviceRemoved` | Removal ReasonとDREDを収集し、Device Removed経路で解放する |
@@ -473,14 +482,16 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   再取得、RTV再構築を各段階でFault Injectionする。GPU完了未証明時はResourceとBackend登録を保持し、
   GPU Idle確認後の失敗は規定順で解放して登録解除することをTestする
 - Issue #47と#51でContext／Backend Shutdownのterminal Signal、Event登録、Wait Timeout、
-  `WAIT_FAILED`をFault Injectionし、`Unavailable`時のResource保持と安全完了時の逆順解放をTestする
+  `WAIT_FAILED`をFault Injectionし、Signal失敗後に予約値完了を証明できる場合の追跡値更新、元Error保持、
+  安全な逆順解放、および`Unavailable`時のResource保持をTestする
 - Issue #54でPresentの非Device Removal失敗をFault Injectionし、補完Signal成功時は対象Frameの
   `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
   更新されて`Submitted`へ遷移し、新規Frame受付を停止することをTestする。補完Signalも失敗した場合は
   `ExecutedUnfenced`から`Unavailable`へ遷移して全Resourceを保持することをTestする
-- Issue #54でPresent成功後の通常SignalもFault Injectionし、失敗した予約値を3種類のFence値へ保存しない
-  こと、Device Removalまたは`Unavailable`へ遷移すること、完了未証明の`Unavailable`では全Resourceを
-  保持することをTestする
+- Issue #54でPresent成功後の通常SignalもFault Injectionする。失敗後に予約値の完了を証明できる場合は
+  3種類のFence値を更新し、受付停止付き`Submitted`へ遷移して元のErrorを返し、安全なShutdownを行うことを
+  Testする。完了を証明できない場合は3種類の値を更新せず、Device Removalまたは`Unavailable`へ遷移し、
+  `Unavailable`では全Resourceを保持することをTestする
 - Debug、Development、ReleaseでHardwareとWARPのSmoke Testを実行する
 - Debug LayerとInfoQueueにAllocator Reset、Command List、Resource Lifetime Errorがないことを確認する
 - `Cue.RHI`公開Header Compile TestでWindows、DXGI、D3D12型が露出しないことを維持する
