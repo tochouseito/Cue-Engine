@@ -478,6 +478,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
   更新されて`Submitted`へ遷移し、新規Frame受付を停止することをTestする。補完Signalも失敗した場合は
   `ExecutedUnfenced`から`Unavailable`へ遷移して全Resourceを保持することをTestする
+- Issue #54でPresent成功後の通常SignalもFault Injectionし、失敗した予約値を3種類のFence値へ保存しない
+  こと、Device Removalまたは`Unavailable`へ遷移すること、完了未証明の`Unavailable`では全Resourceを
+  保持することをTestする
 - Debug、Development、ReleaseでHardwareとWARPのSmoke Testを実行する
 - Debug LayerとInfoQueueにAllocator Reset、Command List、Resource Lifetime Errorがないことを確認する
 - `Cue.RHI`公開Header Compile TestでWindows、DXGI、D3D12型が露出しないことを維持する
