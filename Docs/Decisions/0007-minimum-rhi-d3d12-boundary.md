@@ -143,7 +143,8 @@ Backend状態は`Ready`、`DeviceRemoved`、`Unavailable`、`Shutdown`の四つ�
 M04でPresentation Contextを追加する場合は、Backendと独立した明示`shutdown()`契約を持たせる。
 
 - Presentation Contextは`Ready`、`DeviceRemoved`、`Unavailable`、`Shutdown`状態を持つ
-- `PresentationContext::shutdown()`はContext状態を最初に検査する。`Shutdown`は成功、`Unavailable`は副作用なく`RHI.BackendUnavailable`を返し、`DeviceRemoved`はFenceをSignalまたはWaitせず、BackendによるDRED収集後に安全な解放と登録解除を行う。`Ready`の場合だけ通常のFence経路を開始する
+- `PresentationContext::shutdown()`はContext状態とBackend状態をGPU操作より前に検査する。Contextが`Shutdown`なら成功する。ContextまたはBackendが`Unavailable`ならContextも`Unavailable`へ遷移し、GPU操作、Resource解放、登録解除を行わず`RHI.BackendUnavailable`を返す。ContextまたはBackendが`DeviceRemoved`ならContextも`DeviceRemoved`へ遷移し、FenceをSignalまたはWaitせず、BackendによるDRED収集後に安全な解放と登録解除を行う。ContextとBackendの両方が`Ready`の場合だけ通常のFence経路を開始する
+- 一つのPresentation ContextがDevice Removalまたは安全な解放を証明できない失敗を検出した時点でBackend状態を先に遷移させる。登録済みの他Contextは次の公開操作または`shutdown()`入口でBackend状態を取り込み、Device Removal後のQueue操作を開始しない
 - `PresentationContext::shutdown()`は新しいFrameを拒否し、自身が最後に投入したFenceをSignalして有限時間だけ待ち、Frame Context、Back Buffer、RTV、Swap Chainを順に解放する
 - `PresentationContext::shutdown()`はGPU完了後、途中で失敗しても安全に解放できるPresentation ResourceのBest-effort Cleanupを最後まで行い、`Shutdown`へ遷移して最初のErrorを返す
 - Device Removed時はFenceを待たず、BackendでRemoval Reasonを記録してDREDをBest-effortで収集した後にPresentation Resourceを解放する
