@@ -196,6 +196,7 @@ Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる
 | `IdleClosed` | 初期化または明示Discard後の空Command ListがClose済み | 完了済みAllocatorを指定した`Reset`を許可する |
 | `Submitted` | QueueへExecute済みで、対応FenceをSignal済み | 完了済みAllocatorを指定した`Reset`だけを許可する |
 | `Recording` | AllocatorとCommand ListをReset済みで記録中 | Command記録と`Close`だけを許可する |
+| `RecordingCloseFailed` | Native `Close`が失敗し、未Submit内容を実行できない | Context Shutdownだけを許可する |
 | `Closed` | Frame Commandの記録終了済みで、まだExecuteしていない | `Execute`または未Submit内容の明示Discardだけを許可する |
 | `ExecutedAwaitingPresent` | Execute済みで、Presentをまだ試行していない | Presentを一度だけ許可する |
 | `ExecutedUnfenced` | Present試行済みだが、ExecuteしたWorkを覆うFence Signalが未成功 | Signal成功、Device Removed、`Unavailable`への遷移だけを許可する |
@@ -211,6 +212,9 @@ Frame記録の規則:
 - Command List Reset失敗時はAllocatorを再利用可能だがFrame開始失敗としてErrorを返す
 - `Recording`以外でCommandを記録しない
 - `close_frame`は`Recording`からだけ呼び、成功後`Closed`へ遷移する
+- `close_frame`のNative `Close`が失敗した場合はDevice Removalを確認する。Removalでなければ新しいFrame受付を
+  停止して`RecordingCloseFailed`へ遷移し、未Submit内容をExecute、Reset、再CloseせずNative Error付き
+  `Result`を返す
 - `submit_frame`は`Closed`からだけ呼び、Execute直後に`ExecutedAwaitingPresent`へ遷移する
 - Presentを一度試行した直後に、結果を処理する前に`ExecutedUnfenced`へ遷移する
 - `ExecutedAwaitingPresent`と`ExecutedUnfenced`ではCommand ListとAllocatorをReset、再Execute、破棄しない
@@ -309,7 +313,7 @@ Presentation Contextの通常Shutdown:
 
 ```text
 stop accepting frames
-    -> require Command List state is IdleClosed or Submitted
+    -> require Command List state is IdleClosed, Submitted, or RecordingCloseFailed
     -> reserve and signal a Context terminal fence on the shared Queue
     -> store the terminal value as lastSubmittedFence
     -> wait for the terminal fence with finite timeout
@@ -326,7 +330,8 @@ Context terminal fenceは、そのContextが最後にSubmitしたWorkより後�
 Workを一度もSubmitしていないContextも同じ経路を使い、Shutdown専用の分岐を増やさない。Signalまたは
 Waitで完了を証明できない場合はResourceを解放せず、ContextとBackendを`Unavailable`へ遷移する。
 Fence枯渇済みの場合だけterminal Signalを省略し、既存`lastSignaledFence`の完了確認後に同じ解放順序へ
-進む。
+進む。`RecordingCloseFailed`でも失敗したCommand Listを再CloseまたはExecuteせず、terminal SignalとWaitで
+既存Queue Workの完了を証明した後にCommand Listを含むContext Resourceを解放する。
 
 D3D12 Backendの通常Shutdown:
 
@@ -458,6 +463,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   Drain後だけCleanupする経路をTestする
 - Issue #48で2 Frame Contextを最低300回周回し、Allocator Resetが対応Fence完了後だけ行われることを
   Testする
+- Issue #48でCommand List `Close`をFault Injectionし、`RecordingCloseFailed`への遷移、新規Frame受付停止、
+  Execute／Reset／再Close禁止、Context terminal SignalとWait後の安全な解放をTestする。terminal Signal
+  またはWaitも失敗した場合は`Unavailable`としてResourceを保持することをTestする
 - Command ListのState順序違反とFrame Index範囲外をProcess TestまたはTest Supportで検証する
 - Issue #50でSwap Chain Buffer Countが2であり、Current Back Buffer Indexが範囲内であることを検証する
 - Issue #51で通常Resize、同一Size、0 Size、Restore、最低50回の連続Resizeを検証する
@@ -466,6 +474,10 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   GPU Idle確認後の失敗は規定順で解放して登録解除することをTestする
 - Issue #47と#51でContext／Backend Shutdownのterminal Signal、Event登録、Wait Timeout、
   `WAIT_FAILED`をFault Injectionし、`Unavailable`時のResource保持と安全完了時の逆順解放をTestする
+- Issue #54でPresentの非Device Removal失敗をFault Injectionし、補完Signal成功時は対象Frameの
+  `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
+  更新されて`Submitted`へ遷移し、新規Frame受付を停止することをTestする。補完Signalも失敗した場合は
+  `ExecutedUnfenced`から`Unavailable`へ遷移して全Resourceを保持することをTestする
 - Debug、Development、ReleaseでHardwareとWARPのSmoke Testを実行する
 - Debug LayerとInfoQueueにAllocator Reset、Command List、Resource Lifetime Errorがないことを確認する
 - `Cue.RHI`公開Header Compile TestでWindows、DXGI、D3D12型が露出しないことを維持する
