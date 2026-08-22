@@ -50,14 +50,6 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
-void log_fallback(const cue::AssertContext &a_context, std::string_view a_message, HRESULT a_nativeCode) noexcept
-{
-    cue::Error error = make_native_error(a_context, k_optionalDiagnosticsUnavailable,
-                                         "Optional D3D12 diagnostics are unavailable", a_nativeCode);
-    [[maybe_unused]] cue::LogResult logResult =
-        a_context.logger().log(cue::LogLevel::Warning, a_message, std::move(error));
-}
-
 [[nodiscard]] cue::LogLevel to_log_level(D3D12_MESSAGE_SEVERITY a_severity) noexcept
 {
     switch (a_severity)
@@ -92,6 +84,16 @@ void log_fallback(const cue::AssertContext &a_context, std::string_view a_messag
 
     return cue::Result<void>::failure(
         make_error(a_context, k_diagnosticLogFailed, "Foundation Logger could not record D3D12 diagnostics"));
+}
+
+[[nodiscard]] cue::Result<void> log_fallback(const cue::AssertContext &a_context,
+                                              std::string_view a_message, HRESULT a_nativeCode) noexcept
+{
+    cue::Error error = make_native_error(a_context, k_optionalDiagnosticsUnavailable,
+                                         "Optional D3D12 diagnostics are unavailable", a_nativeCode);
+    cue::LogResult logResult =
+        a_context.logger().log(cue::LogLevel::Warning, a_message, std::move(error));
+    return validate_log_result(logResult, a_context);
 }
 
 [[nodiscard]] cue::Result<void> log_dred_breadcrumbs(
@@ -232,7 +234,13 @@ Result<D3d12DiagnosticsStatus> configure_d3d12_pre_device_diagnostics(
         }
         else
         {
-            log_fallback(a_assertContext, "D3D12 DREDを利用できないため診断なしで続行します", dredResult);
+            Result<void> fallbackResult = log_fallback(
+                a_assertContext, "D3D12 DREDを利用できないため診断なしで続行します", dredResult);
+
+            if (!fallbackResult)
+            {
+                return Result<D3d12DiagnosticsStatus>::failure(std::move(*fallbackResult.try_error()));
+            }
         }
     }
 
@@ -246,7 +254,14 @@ Result<D3d12DiagnosticsStatus> configure_d3d12_pre_device_diagnostics(
 
     if (FAILED(debugResult))
     {
-        log_fallback(a_assertContext, "D3D12 Debug Layerを利用できないため診断なしで続行します", debugResult);
+        Result<void> fallbackResult = log_fallback(
+            a_assertContext, "D3D12 Debug Layerを利用できないため診断なしで続行します", debugResult);
+
+        if (!fallbackResult)
+        {
+            return Result<D3d12DiagnosticsStatus>::failure(std::move(*fallbackResult.try_error()));
+        }
+
         return Result<D3d12DiagnosticsStatus>::success(std::move(status));
     }
 
@@ -260,8 +275,14 @@ Result<D3d12DiagnosticsStatus> configure_d3d12_pre_device_diagnostics(
 
         if (FAILED(gpuValidationResult))
         {
-            log_fallback(a_assertContext, "D3D12 GPU Based Validationを利用できないためStandardで続行します",
-                         gpuValidationResult);
+            Result<void> fallbackResult = log_fallback(
+                a_assertContext, "D3D12 GPU Based Validationを利用できないためStandardで続行します",
+                gpuValidationResult);
+
+            if (!fallbackResult)
+            {
+                return Result<D3d12DiagnosticsStatus>::failure(std::move(*fallbackResult.try_error()));
+            }
         }
         else
         {
@@ -293,8 +314,8 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
 
     if (FAILED(queryResult))
     {
-        log_fallback(a_assertContext, "D3D12 InfoQueueを利用できないため診断なしで続行します", queryResult);
-        return Result<void>::success();
+        return log_fallback(
+            a_assertContext, "D3D12 InfoQueueを利用できないため診断なしで続行します", queryResult);
     }
 
     infoQueue->ClearStorageFilter();
@@ -315,9 +336,9 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
                     "D3D12 InfoQueue Break policy could not be rolled back", rollbackResult));
             }
 
-            log_fallback(a_assertContext, "D3D12 InfoQueueのBreak Policyを設定できないため診断なしで続行します",
-                         breakResult);
-            return Result<void>::success();
+            return log_fallback(
+                a_assertContext, "D3D12 InfoQueueのBreak Policyを設定できないため診断なしで続行します",
+                breakResult);
         }
     }
 
@@ -334,9 +355,9 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
                 "D3D12 InfoQueue Break policy could not be rolled back", rollbackResult));
         }
 
-        log_fallback(a_assertContext, "D3D12 InfoQueueのWarning Policyを設定できないため診断なしで続行します",
-                     warningBreakResult);
-        return Result<void>::success();
+        return log_fallback(
+            a_assertContext, "D3D12 InfoQueueのWarning Policyを設定できないため診断なしで続行します",
+            warningBreakResult);
     }
 
     a_status.isInfoQueueEnabled = true;
@@ -464,8 +485,8 @@ Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
 
     if (FAILED(queryResult))
     {
-        log_fallback(a_assertContext, "D3D12 Device RemovalのDRED Interfaceを取得できません", queryResult);
-        return Result<void>::success();
+        return log_fallback(
+            a_assertContext, "D3D12 Device RemovalのDRED Interfaceを取得できません", queryResult);
     }
 
     D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs = {};
@@ -473,8 +494,13 @@ Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
 
     if (FAILED(breadcrumbsResult))
     {
-        log_fallback(a_assertContext, "D3D12 Device RemovalのAuto Breadcrumbを取得できません",
-                     breadcrumbsResult);
+        Result<void> fallbackResult = log_fallback(
+            a_assertContext, "D3D12 Device RemovalのAuto Breadcrumbを取得できません", breadcrumbsResult);
+
+        if (!fallbackResult)
+        {
+            return fallbackResult;
+        }
     }
     else
     {
@@ -505,7 +531,13 @@ Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
 
     if (FAILED(pageFaultResult))
     {
-        log_fallback(a_assertContext, "D3D12 Device RemovalのPage Fault情報を取得できません", pageFaultResult);
+        Result<void> fallbackResult = log_fallback(
+            a_assertContext, "D3D12 Device RemovalのPage Fault情報を取得できません", pageFaultResult);
+
+        if (!fallbackResult)
+        {
+            return fallbackResult;
+        }
     }
     else
     {
