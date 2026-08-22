@@ -50,6 +50,32 @@ constexpr std::int64_t k_deviceRemoved = 34;
         a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+void retain_shutdown_error(std::optional<cue::Error> &a_firstError,
+                           cue::Result<void> &a_result, std::string_view a_context,
+                           const cue::AssertContext &a_assertContext) noexcept
+{
+    if (a_result)
+    {
+        return;
+    }
+
+    cue::Error *error = a_result.try_error();
+
+    if (!a_firstError)
+    {
+        a_firstError.emplace(std::move(*error));
+        return;
+    }
+
+    a_firstError->add_context(a_assertContext.fatal_handler(), a_context);
+    a_firstError->add_context(a_assertContext.fatal_handler(), error->summary());
+
+    for (const cue::ErrorContext &context : error->contexts())
+    {
+        a_firstError->add_context(a_assertContext.fatal_handler(), context.message());
+    }
+}
+
 class D3d12BackendImpl final : public cue::D3d12Backend
 {
   public:
@@ -119,39 +145,25 @@ class D3d12BackendImpl final : public cue::D3d12Backend
 
             cue::Result<void> dredResult = cue::collect_d3d12_device_removed_diagnostics(
                 m_device.Get(), m_diagnostics, *m_assertContext);
-
-            if (!dredResult)
-            {
-                cue::Error *dredError = dredResult.try_error();
-                firstError->add_context(
-                    m_assertContext->fatal_handler(),
-                    "D3D12 DRED diagnostics also failed while handling device removal");
-                firstError->add_context(
-                    m_assertContext->fatal_handler(), dredError->summary());
-
-                for (const cue::ErrorContext &context : dredError->contexts())
-                {
-                    firstError->add_context(
-                        m_assertContext->fatal_handler(), context.message());
-                }
-            }
+            retain_shutdown_error(
+                firstError, dredResult,
+                "D3D12 DRED diagnostics also failed while handling device removal",
+                *m_assertContext);
         }
 
         cue::Result<void> liveObjectResult = cue::report_d3d12_live_device_objects(
             m_device.Get(), m_diagnostics, *m_assertContext);
 
-        if (!liveObjectResult && !firstError)
-        {
-            firstError.emplace(std::move(*liveObjectResult.try_error()));
-        }
+        retain_shutdown_error(
+            firstError, liveObjectResult, "D3D12 Live Object diagnostics also failed",
+            *m_assertContext);
 
         cue::Result<void> messageResult = cue::log_d3d12_messages_at_quiescent_point(
             m_device.Get(), m_diagnostics, "D3D12 Backend shutdown", *m_assertContext);
 
-        if (!messageResult && !firstError)
-        {
-            firstError.emplace(std::move(*messageResult.try_error()));
-        }
+        retain_shutdown_error(
+            firstError, messageResult, "D3D12 InfoQueue diagnostics also failed",
+            *m_assertContext);
 
         m_device.Reset();
         m_adapter.Reset();
