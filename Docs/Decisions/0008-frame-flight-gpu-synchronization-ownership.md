@@ -147,8 +147,10 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   ListをResetして空のままCloseし、`IdleClosed`へ遷移する。ResetまたはCloseが失敗してもGPUへ未投入の
   内容なので、既存`lastSignaledFence`をDrainした後に安全なContext Cleanupを行う
 - Fence枯渇後の待機で完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移する
-- Queueの`Signal`が成功した後だけ`lastSignaledFence`とFrame Contextの
-  `reuseFenceValue`を更新する
+- Queueの`Signal`が成功した後だけ、Backendの`lastSignaledFence`、対象Frame Contextの
+  `reuseFenceValue`、そのPresentation Contextの`lastSubmittedFence`を同じSignal値へ更新する
+- `lastSubmittedFence`は通常Frame、Present Error後の補完Signal、Context terminal Signalのすべてで
+  更新し、ResizeとContext ShutdownがそのContextの全Submitを覆う値を必ず参照できるようにする
 - `ExecuteCommandLists`後にSignalが失敗した場合、投入済みWorkの完了点を証明できないため、
   Device Removal確認または`Unavailable`遷移を行う
 
@@ -209,7 +211,8 @@ Frame記録の規則:
 - `submit_frame`は`Closed`からだけ呼び、Execute直後に`ExecutedAwaitingPresent`へ遷移する
 - Presentを一度試行した直後に、結果を処理する前に`ExecutedUnfenced`へ遷移する
 - `ExecutedAwaitingPresent`と`ExecutedUnfenced`ではCommand ListとAllocatorをReset、再Execute、破棄しない
-- Signal成功後に`Submitted`へ遷移し、Frame ContextへFence値を保存する
+- Signal成功後に`Submitted`へ遷移し、Frame Contextの`reuseFenceValue`、Presentation Contextの
+  `lastSubmittedFence`、Backendの`lastSignaledFence`へ同じFence値を保存する
 - State順序違反とFrame Index範囲外はProgrammer ErrorとしてDebug／DevelopmentでAssertする
 - Native API失敗はNative Error付き`Result`で返す
 - Command ListはExecute後に別の完了済みAllocatorを使ってResetできるが、Allocator自身は対応Fence完了前に
@@ -243,7 +246,7 @@ Presentation Context       Frame Context       Command List       Queue / Fence 
         | execute -------------------------- ExecutedAwaitingPresent -------------------------->|
         | present ------------------------------ ExecutedUnfenced ------------------------->|
         | signal next fence ------------------------------------>|                              |
-        | store reuse fence ------->|                 | Submitted        |                   |
+        | store frame reuse + presentation lastSubmitted fence -------->| Submitted         |
         | get current index <----------------------------------------------------------------|
 ```
 
@@ -447,11 +450,19 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
 ## Enforcement
 
 - Issue #47でQueue、Fence、Eventの生成、Signal、Completed Value、有限Wait、Handle解放をTestする
+- Issue #47のTest Supportで初期`nextFenceValue`を`UINT64_MAX - 1`へ設定し、最後のSignal成功、次回の
+  `RHI.FenceValueExhausted`、Fence値の非Wrap／非再利用、Execute前Discard、既存`lastSignaledFence`
+  Drain後だけCleanupする経路をTestする
 - Issue #48で2 Frame Contextを最低300回周回し、Allocator Resetが対応Fence完了後だけ行われることを
   Testする
 - Command ListのState順序違反とFrame Index範囲外をProcess TestまたはTest Supportで検証する
 - Issue #50でSwap Chain Buffer Countが2であり、Current Back Buffer Indexが範囲内であることを検証する
 - Issue #51で通常Resize、同一Size、0 Size、Restore、最低50回の連続Resizeを検証する
+- Issue #51でFence Timeout、Allocator Reset、Command List Reset／Close、`ResizeBuffers`、Back Buffer
+  再取得、RTV再構築を各段階でFault Injectionする。GPU完了未証明時はResourceとBackend登録を保持し、
+  GPU Idle確認後の失敗は規定順で解放して登録解除することをTestする
+- Issue #47と#51でContext／Backend Shutdownのterminal Signal、Event登録、Wait Timeout、
+  `WAIT_FAILED`をFault Injectionし、`Unavailable`時のResource保持と安全完了時の逆順解放をTestする
 - Debug、Development、ReleaseでHardwareとWARPのSmoke Testを実行する
 - Debug LayerとInfoQueueにAllocator Reset、Command List、Resource Lifetime Errorがないことを確認する
 - `Cue.RHI`公開Header Compile TestでWindows、DXGI、D3D12型が露出しないことを維持する
