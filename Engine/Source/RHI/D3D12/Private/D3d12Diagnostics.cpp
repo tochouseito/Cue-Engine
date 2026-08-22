@@ -4,6 +4,8 @@
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Log.h>
 
+#include <Windows.h>
+
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <wrl/client.h>
@@ -13,6 +15,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -33,6 +36,12 @@ constexpr std::int64_t k_diagnosticMessagesDropped = 7;
 constexpr std::int64_t k_diagnosticLogFailed = 8;
 constexpr std::uint64_t k_maxDiagnosticMessages = 4096;
 constexpr std::uint32_t k_maxDredNodes = 4096;
+
+[[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
+{
+    a_context.fatal_handler().terminate("D3D12 diagnostics allocation failed");
+    std::abort();
+}
 
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
@@ -96,6 +105,69 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return validate_log_result(logResult, a_context);
 }
 
+[[nodiscard]] bool try_convert_dred_name(const wchar_t *a_name, std::string &a_storage,
+                                         const cue::AssertContext &a_context) noexcept
+{
+    if (a_name == nullptr)
+    {
+        return false;
+    }
+
+    std::wstring_view name(a_name);
+
+    if (name.empty() || name.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+    {
+        return false;
+    }
+
+    int sourceLength = static_cast<int>(name.size());
+    int convertedLength = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), sourceLength, nullptr, 0, nullptr, nullptr);
+
+    if (convertedLength == 0)
+    {
+        return false;
+    }
+
+    try
+    {
+        a_storage.resize(static_cast<std::size_t>(convertedLength));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
+
+    int writtenLength = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), sourceLength, a_storage.data(), convertedLength,
+        nullptr, nullptr);
+
+    if (writtenLength != convertedLength)
+    {
+        a_storage.clear();
+        return false;
+    }
+
+    return true;
+}
+
+[[nodiscard]] std::string_view select_dred_name(
+    const char *a_utf8Name, const wchar_t *a_utf16Name, std::string_view a_fallback,
+    std::string &a_storage, const cue::AssertContext &a_context) noexcept
+{
+    if (a_utf8Name != nullptr)
+    {
+        return a_utf8Name;
+    }
+
+    if (try_convert_dred_name(a_utf16Name, a_storage, a_context))
+    {
+        return a_storage;
+    }
+
+    return a_fallback;
+}
+
 [[nodiscard]] cue::Result<void> log_dred_breadcrumbs(
     const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 &a_breadcrumbs,
     const cue::AssertContext &a_context) noexcept
@@ -115,9 +187,10 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
             operationValue = static_cast<std::int64_t>(node->pCommandHistory[operationIndex]);
         }
 
-        std::string_view commandListName =
-            node->pCommandListDebugNameA != nullptr ? std::string_view(node->pCommandListDebugNameA)
-                                                    : std::string_view("Unnamed D3D12 Command List");
+        std::string commandListNameStorage;
+        std::string_view commandListName = select_dred_name(
+            node->pCommandListDebugNameA, node->pCommandListDebugNameW,
+            "Unnamed D3D12 Command List", commandListNameStorage, a_context);
         cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "D3D12.DRED.Breadcrumb",
                                                      static_cast<std::int64_t>(lastBreadcrumb));
         cue::NativeError operation = cue::NativeError::create(a_context.fatal_handler(),
@@ -125,9 +198,14 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
         cue::Error error = cue::Error::create(a_context.fatal_handler(), std::move(code), commandListName,
                                               std::move(operation));
 
-        if (node->pCommandQueueDebugNameA != nullptr)
+        std::string commandQueueNameStorage;
+        std::string_view commandQueueName = select_dred_name(
+            node->pCommandQueueDebugNameA, node->pCommandQueueDebugNameW,
+            std::string_view(), commandQueueNameStorage, a_context);
+
+        if (!commandQueueName.empty())
         {
-            error.add_context(a_context.fatal_handler(), node->pCommandQueueDebugNameA);
+            error.add_context(a_context.fatal_handler(), commandQueueName);
         }
 
         cue::LogResult logResult = a_context.logger().log(
@@ -162,8 +240,10 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
 
     while (node != nullptr && nodeCount < k_maxDredNodes)
     {
-        std::string_view objectName = node->ObjectNameA != nullptr ? std::string_view(node->ObjectNameA)
-                                                                  : std::string_view("Unnamed D3D12 allocation");
+        std::string objectNameStorage;
+        std::string_view objectName = select_dred_name(
+            node->ObjectNameA, node->ObjectNameW, "Unnamed D3D12 allocation",
+            objectNameStorage, a_context);
         cue::ErrorCode code = cue::ErrorCode::create(
             a_context.fatal_handler(), a_domain, static_cast<std::int64_t>(node->AllocationType));
         cue::Error error = cue::Error::create(a_context.fatal_handler(), std::move(code), objectName);
@@ -190,11 +270,6 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Result<void>::success();
 }
 
-[[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
-{
-    a_context.fatal_handler().terminate("D3D12 diagnostics allocation failed");
-    std::abort();
-}
 } // namespace
 
 namespace cue
@@ -364,8 +439,9 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
     return Result<void>::success();
 }
 
-Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status,
-                                std::string_view a_context, const AssertContext &a_assertContext) noexcept
+Result<void> log_d3d12_messages_at_quiescent_point(
+    ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status, std::string_view a_context,
+    const AssertContext &a_assertContext) noexcept
 {
     if (!a_status.isInfoQueueEnabled)
     {
@@ -387,65 +463,86 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
                                                        "D3D12 InfoQueue is unavailable", queryResult));
     }
 
-    const std::uint64_t messageCount =
-        (std::min)(infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter(), k_maxDiagnosticMessages);
+    std::uint64_t messageIndex = 0;
+    std::uint64_t storedMessageCount = 0;
 
-    for (std::uint64_t index = 0; index < messageCount; ++index)
+    do
     {
-        SIZE_T messageSize = 0;
-        HRESULT sizeResult = infoQueue->GetMessage(index, nullptr, &messageSize);
-
-        if (FAILED(sizeResult))
+        while (messageIndex < k_maxDiagnosticMessages)
         {
-            return Result<void>::failure(make_native_error(a_assertContext, k_infoQueueMessageFailed,
-                                                           "D3D12 InfoQueue message size could not be read",
-                                                           sizeResult));
-        }
+            std::uint64_t availableMessageCount =
+                infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
 
-        try
-        {
-            std::vector<std::byte> messageStorage(messageSize);
-            D3D12_MESSAGE *message = reinterpret_cast<D3D12_MESSAGE *>(messageStorage.data());
-            HRESULT messageResult = infoQueue->GetMessage(index, message, &messageSize);
-
-            if (FAILED(messageResult))
+            if (messageIndex >= availableMessageCount)
             {
-                return Result<void>::failure(make_native_error(a_assertContext, k_infoQueueMessageFailed,
-                                                               "D3D12 InfoQueue message could not be read",
-                                                               messageResult));
+                std::uint64_t confirmedMessageCount =
+                    infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
+
+                if (messageIndex >= confirmedMessageCount)
+                {
+                    break;
+                }
+
+                continue;
             }
 
-            std::string_view description = message->pDescription != nullptr
-                                               ? std::string_view(message->pDescription)
-                                               : std::string_view("D3D12 message description is unavailable");
-            ErrorCode code = ErrorCode::create(a_assertContext.fatal_handler(), "D3D12.Message",
-                                               static_cast<std::int64_t>(message->ID));
-            Error error = Error::create(a_assertContext.fatal_handler(), std::move(code), description);
-            error.add_context(a_assertContext.fatal_handler(), a_context);
-            LogResult logResult = a_assertContext.logger().log(
-                to_log_level(message->Severity), "D3D12診断メッセージを取得しました", std::move(error));
-            Result<void> validationResult = validate_log_result(logResult, a_assertContext);
+            SIZE_T messageSize = 0;
+            HRESULT sizeResult = infoQueue->GetMessage(messageIndex, nullptr, &messageSize);
 
-            if (!validationResult)
+            if (FAILED(sizeResult))
             {
-                return validationResult;
+                return Result<void>::failure(make_native_error(
+                    a_assertContext, k_infoQueueMessageFailed,
+                    "D3D12 InfoQueue message size could not be read", sizeResult));
+            }
+
+            try
+            {
+                std::vector<std::byte> messageStorage(messageSize);
+                D3D12_MESSAGE *message = reinterpret_cast<D3D12_MESSAGE *>(messageStorage.data());
+                HRESULT messageResult = infoQueue->GetMessage(messageIndex, message, &messageSize);
+
+                if (FAILED(messageResult))
+                {
+                    return Result<void>::failure(make_native_error(
+                        a_assertContext, k_infoQueueMessageFailed,
+                        "D3D12 InfoQueue message could not be read", messageResult));
+                }
+
+                std::string_view description = message->pDescription != nullptr
+                                                   ? std::string_view(message->pDescription)
+                                                   : std::string_view("D3D12 message description is unavailable");
+                ErrorCode code = ErrorCode::create(a_assertContext.fatal_handler(), "D3D12.Message",
+                                                   static_cast<std::int64_t>(message->ID));
+                Error error = Error::create(a_assertContext.fatal_handler(), std::move(code), description);
+                error.add_context(a_assertContext.fatal_handler(), a_context);
+                LogResult logResult = a_assertContext.logger().log(
+                    to_log_level(message->Severity), "D3D12診断メッセージを取得しました", std::move(error));
+                Result<void> validationResult = validate_log_result(logResult, a_assertContext);
+
+                if (!validationResult)
+                {
+                    return validationResult;
+                }
+
+                ++messageIndex;
+            }
+            catch (...)
+            {
+                terminate_allocation(a_assertContext);
             }
         }
-        catch (...)
-        {
-            terminate_allocation(a_assertContext);
-        }
-    }
 
-    const std::uint64_t storedMessageCount = infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
+        storedMessageCount = infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
+    } while (messageIndex < (std::min)(storedMessageCount, k_maxDiagnosticMessages));
 
-    if (storedMessageCount > messageCount)
+    if (storedMessageCount > messageIndex)
     {
         ErrorCode code = ErrorCode::create(a_assertContext.fatal_handler(), "D3D12.Message",
                                            k_diagnosticMessagesDropped);
         NativeError droppedCount = NativeError::create(
             a_assertContext.fatal_handler(), "D3D12.DroppedMessageCount",
-            static_cast<std::int64_t>(storedMessageCount - messageCount));
+            static_cast<std::int64_t>(storedMessageCount - messageIndex));
         Error error = Error::create(a_assertContext.fatal_handler(), std::move(code),
                                     "D3D12 diagnostic message limit was exceeded", std::move(droppedCount));
         error.add_context(a_assertContext.fatal_handler(), a_context);
@@ -459,6 +556,7 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
         }
     }
 
+    // The caller guarantees that no CPU or GPU work can append a message between the final count and this clear.
     infoQueue->ClearStoredMessages();
     return Result<void>::success();
 }
