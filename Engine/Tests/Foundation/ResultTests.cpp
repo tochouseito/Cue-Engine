@@ -68,6 +68,34 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            primaryError.causes()[0].contexts().size() == 1;
 }
 
+[[nodiscard]] bool test_native_reclassification(TestEmergencyHandler &a_emergencyHandler)
+{
+    cue::ErrorCode rootCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Root", 31);
+    cue::NativeError rootNativeError = cue::NativeError::create(a_emergencyHandler, "D3D12", -1);
+    cue::Error rootError =
+        cue::Error::create(a_emergencyHandler, std::move(rootCode), "root failure", std::move(rootNativeError));
+    rootError.add_context(a_emergencyHandler, "root context");
+
+    cue::ErrorCode middleCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Middle", 32);
+    cue::Error middleError =
+        cue::Error::reclassify(a_emergencyHandler, std::move(middleCode), "middle failure", std::move(rootError));
+
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Primary", 33);
+    cue::NativeError primaryNativeError = cue::NativeError::create(a_emergencyHandler, "Win32", 6);
+    cue::Error primaryError = cue::Error::reclassify(a_emergencyHandler, std::move(primaryCode), "primary failure",
+                                                     std::move(primaryNativeError), std::move(middleError));
+    const cue::NativeError *storedPrimaryNativeError = primaryError.try_native_error();
+
+    return primaryError.code().domain() == "Cue.Primary" && storedPrimaryNativeError != nullptr &&
+           storedPrimaryNativeError->domain() == "Win32" && storedPrimaryNativeError->value() == 6 &&
+           primaryError.causes().size() == 2 && primaryError.causes()[0].code().domain() == "Cue.Middle" &&
+           primaryError.causes()[1].code().domain() == "Cue.Root" &&
+           primaryError.causes()[1].try_native_error() != nullptr &&
+           primaryError.causes()[1].try_native_error()->domain() == "D3D12" &&
+           primaryError.causes()[1].try_native_error()->value() == -1 &&
+           primaryError.causes()[1].contexts().size() == 1 && primaryError.root_code().domain() == "Cue.Root";
+}
+
 [[nodiscard]] bool test_void_result(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::Result<void> success = cue::Result<void>::success();
@@ -120,9 +148,14 @@ int main()
         return 4;
     }
 
-    if (!test_move())
+    if (!test_native_reclassification(emergencyHandler))
     {
         return 5;
+    }
+
+    if (!test_move())
+    {
+        return 6;
     }
 
     return 0;

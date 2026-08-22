@@ -140,9 +140,22 @@ Error Error::create(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code, st
 Error Error::reclassify(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code, std::string_view a_summary,
                         Error &&a_cause) noexcept
 {
+    return reclassify_impl(a_emergencyHandler, std::move(a_code), a_summary, std::nullopt, std::move(a_cause));
+}
+
+Error Error::reclassify(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code, std::string_view a_summary,
+                        NativeError &&a_nativeError, Error &&a_cause) noexcept
+{
+    return reclassify_impl(a_emergencyHandler, std::move(a_code), a_summary,
+                           std::optional<NativeError>(std::move(a_nativeError)), std::move(a_cause));
+}
+
+Error Error::reclassify_impl(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code, std::string_view a_summary,
+                             std::optional<NativeError> &&a_nativeError, Error &&a_cause) noexcept
+{
     try
     {
-        Error result(std::move(a_code), std::string(a_summary), std::nullopt);
+        Error result(std::move(a_code), std::string(a_summary), std::move(a_nativeError));
 
         result.m_causes.reserve(a_cause.m_causes.size() + 1);
         ErrorCause causeFrame(std::move(a_cause.m_code), std::move(a_cause.m_summary), std::move(a_cause.m_contexts),

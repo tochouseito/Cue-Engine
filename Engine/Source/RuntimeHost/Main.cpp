@@ -176,6 +176,7 @@ void print_usage() noexcept
         a_options.graphicsAdapterPolicy,
         enableDiagnostics ? cue::D3d12ValidationMode::Standard : cue::D3d12ValidationMode::Disabled,
         enableDiagnostics,
+        5000,
     };
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(descriptor, a_assertContext);
