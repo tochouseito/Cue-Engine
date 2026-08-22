@@ -34,6 +34,35 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 };
 
+class ForeignWindow final : public cue::Window
+{
+  public:
+    [[nodiscard]] cue::Result<void> show() noexcept override
+    {
+        return cue::Result<void>::success();
+    }
+
+    [[nodiscard]] cue::Result<void> destroy() noexcept override
+    {
+        return cue::Result<void>::success();
+    }
+
+    [[nodiscard]] cue::WindowState state() const noexcept override
+    {
+        return cue::WindowState::Created;
+    }
+
+    [[nodiscard]] cue::WindowSize client_size() const noexcept override
+    {
+        return {320, 180};
+    }
+
+    [[nodiscard]] bool try_pop_event(cue::WindowEvent &) noexcept override
+    {
+        return false;
+    }
+};
+
 [[nodiscard]] std::unique_ptr<cue::Logger> create_logger(TestFatalHandler &a_handler)
 {
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
@@ -248,7 +277,7 @@ class TestFatalHandler final : public cue::FatalHandler
     return didSucceed[0] && didSucceed[1] && is_window_class_unregistered();
 }
 
-[[nodiscard]] bool test_window_lifecycle(cue::WindowSystem &a_system)
+[[nodiscard]] bool test_window_lifecycle(cue::WindowSystem &a_system, cue::AssertContext &a_context)
 {
     constexpr std::uint32_t k_width = 640;
     constexpr std::uint32_t k_height = 360;
@@ -263,7 +292,7 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 
     std::unique_ptr<cue::Window> window = std::move(*createResult.try_value());
-    cue::Result<cue::NativeWindowView> nativeViewResult = cue::get_native_window_view(*window);
+    cue::Result<cue::NativeWindowView> nativeViewResult = cue::get_native_window_view(*window, a_context);
 
     if (!nativeViewResult)
     {
@@ -332,7 +361,7 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 
     std::unique_ptr<cue::Window> replacement = std::move(*replacementResult.try_value());
-    cue::Result<cue::NativeWindowView> replacementViewResult = cue::get_native_window_view(*replacement);
+    cue::Result<cue::NativeWindowView> replacementViewResult = cue::get_native_window_view(*replacement, a_context);
 
     if (!replacementViewResult)
     {
@@ -393,7 +422,7 @@ class TestFatalHandler final : public cue::FatalHandler
         return 5;
     }
 
-    if (!test_window_lifecycle(*system))
+    if (!test_window_lifecycle(*system, context))
     {
         return 6;
     }
@@ -412,6 +441,16 @@ class TestFatalHandler final : public cue::FatalHandler
     TestFatalHandler handler;
     std::unique_ptr<cue::Logger> logger = create_logger(handler);
     cue::AssertContext context(*logger, handler);
+    ForeignWindow foreignWindow;
+    cue::Result<cue::NativeWindowView> foreignViewResult = cue::get_native_window_view(foreignWindow, context);
+
+    if (foreignViewResult || foreignViewResult.try_error() == nullptr ||
+        foreignViewResult.try_error()->code().domain() != "Cue.Platform.Windows" ||
+        foreignViewResult.try_error()->code().value() != 12)
+    {
+        return 9;
+    }
+
     cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(context);
 
     if (!systemResult)
@@ -429,7 +468,7 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 
     std::unique_ptr<cue::Window> window = std::move(*windowResult.try_value());
-    cue::Result<cue::NativeWindowView> viewResult = cue::get_native_window_view(*window);
+    cue::Result<cue::NativeWindowView> viewResult = cue::get_native_window_view(*window, context);
 
     if (!viewResult || !is_event_queue_empty(*window))
     {
@@ -593,7 +632,7 @@ class TestFatalHandler final : public cue::FatalHandler
     }
 
 #if CUE_ENABLE_ASSERTS
-    static_cast<void>(cue::get_native_window_view(*window));
+    static_cast<void>(cue::get_native_window_view(*window, context));
     return 17;
 #else
     return 0;

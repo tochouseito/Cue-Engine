@@ -1,0 +1,614 @@
+#include <Cue/RHI/D3D12/TestSupport/D3d12SwapChainProbe.h>
+
+#include "D3d12AdapterSelection.h"
+#include "D3d12DeviceCreation.h"
+#include "D3d12Diagnostics.h"
+#include "D3d12QueueState.h"
+#include "D3d12SwapChainState.h"
+
+#include <Cue/Foundation/Assert.h>
+#include <Cue/RHI/D3D12/D3d12Backend.h>
+
+#include <d3d12sdklayers.h>
+
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <utility>
+#include <vector>
+
+namespace
+{
+enum class ProbeFault
+{
+    None,
+    TearingQuery,
+    SwapChainCreation,
+    AltEnter,
+    Interface,
+    FirstBackBuffer,
+    SecondBackBuffer,
+    BackBufferName,
+    InvalidCurrentIndex,
+};
+
+enum class ProbeTearingOverride
+{
+    Native,
+    Supported,
+    Unsupported,
+};
+
+struct ProbeNativeState final
+{
+    ProbeFault fault = ProbeFault::None;
+    ProbeTearingOverride tearingOverride = ProbeTearingOverride::Native;
+    DXGI_SWAP_CHAIN_DESC1 descriptor = {};
+    bool descriptorCaptured = false;
+    bool altEnterDisabled = false;
+    bool failureHandlerCalled = false;
+    bool failureResourcesWereAlive = false;
+};
+
+struct ProbeObjects final
+{
+    ProbeObjects(Microsoft::WRL::ComPtr<IDXGIFactory6> a_factory, Microsoft::WRL::ComPtr<ID3D12Device> a_device,
+                 cue::D3d12QueueState &&a_queueState, cue::D3d12DiagnosticsStatus a_diagnostics) noexcept
+        : factory(std::move(a_factory)), device(std::move(a_device)), queueState(std::move(a_queueState)),
+          diagnostics(a_diagnostics)
+    {
+    }
+
+    ProbeObjects(const ProbeObjects &) = delete;
+    ProbeObjects &operator=(const ProbeObjects &) = delete;
+    ProbeObjects(ProbeObjects &&) noexcept = delete;
+    ProbeObjects &operator=(ProbeObjects &&) noexcept = delete;
+    ~ProbeObjects() noexcept = default;
+
+    Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    cue::D3d12QueueState queueState;
+    cue::D3d12DiagnosticsStatus diagnostics;
+};
+
+thread_local ProbeNativeState g_probeState;
+
+void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_override = ProbeTearingOverride::Native) noexcept
+{
+    g_probeState = {};
+    g_probeState.fault = a_fault;
+    g_probeState.tearingOverride = a_override;
+}
+
+HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) noexcept
+{
+    if (g_probeState.fault == ProbeFault::TearingQuery)
+    {
+        return E_FAIL;
+    }
+
+    if (g_probeState.tearingOverride == ProbeTearingOverride::Supported)
+    {
+        *a_isSupported = TRUE;
+        return S_OK;
+    }
+
+    if (g_probeState.tearingOverride == ProbeTearingOverride::Unsupported)
+    {
+        *a_isSupported = FALSE;
+        return S_OK;
+    }
+
+    return a_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, a_isSupported, sizeof(*a_isSupported));
+}
+
+HRESULT create_swap_chain_for_probe(IDXGIFactory6 *a_factory, ID3D12CommandQueue *a_queue, HWND a_window,
+                                    const DXGI_SWAP_CHAIN_DESC1 *a_descriptor, IDXGISwapChain1 **a_swapChain) noexcept
+{
+    g_probeState.descriptor = *a_descriptor;
+    g_probeState.descriptorCaptured = true;
+
+    if (g_probeState.fault == ProbeFault::SwapChainCreation)
+    {
+        return E_FAIL;
+    }
+
+    return a_factory->CreateSwapChainForHwnd(a_queue, a_window, a_descriptor, nullptr, nullptr, a_swapChain);
+}
+
+HRESULT disable_alt_enter_for_probe(IDXGIFactory6 *a_factory, HWND a_window) noexcept
+{
+    if (g_probeState.fault == ProbeFault::AltEnter)
+    {
+        return E_FAIL;
+    }
+
+    const HRESULT result = a_factory->MakeWindowAssociation(a_window, DXGI_MWA_NO_ALT_ENTER);
+    g_probeState.altEnterDisabled = SUCCEEDED(result);
+    return result;
+}
+
+HRESULT query_swap_chain_for_probe(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3 **a_swapChain3) noexcept
+{
+    if (g_probeState.fault == ProbeFault::Interface)
+    {
+        return E_NOINTERFACE;
+    }
+
+    return a_swapChain->QueryInterface(IID_PPV_ARGS(a_swapChain3));
+}
+
+HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_index,
+                                  ID3D12Resource **a_backBuffer) noexcept
+{
+    if ((g_probeState.fault == ProbeFault::FirstBackBuffer && a_index == 0) ||
+        (g_probeState.fault == ProbeFault::SecondBackBuffer && a_index == 1))
+    {
+        return E_FAIL;
+    }
+
+    return a_swapChain->GetBuffer(a_index, IID_PPV_ARGS(a_backBuffer));
+}
+
+std::uint32_t get_current_index_for_probe(IDXGISwapChain3 *a_swapChain) noexcept
+{
+    if (g_probeState.fault == ProbeFault::InvalidCurrentIndex)
+    {
+        return cue::k_d3d12SwapChainBufferCount;
+    }
+
+    return a_swapChain->GetCurrentBackBufferIndex();
+}
+
+HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
+{
+    if (g_probeState.fault == ProbeFault::BackBufferName)
+    {
+        return E_FAIL;
+    }
+
+    return a_object->SetName(a_name);
+}
+
+[[nodiscard]] cue::D3d12SwapChainNativeFunctions make_probe_functions() noexcept
+{
+    return {
+        check_tearing_for_probe,   create_swap_chain_for_probe, disable_alt_enter_for_probe, query_swap_chain_for_probe,
+        get_back_buffer_for_probe, get_current_index_for_probe, set_name_for_probe,
+    };
+}
+
+cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
+                                                  const cue::D3d12SwapChainFailureResources &a_resources) noexcept
+{
+    const bool hasBaseSwapChain = a_resources.baseSwapChain != nullptr;
+    const bool hasSwapChain = a_resources.swapChain != nullptr;
+    const bool hasFirstBackBuffer = a_resources.backBuffers[0] != nullptr;
+    const bool hasSecondBackBuffer = a_resources.backBuffers[1] != nullptr;
+    bool resourcesAreValid = false;
+
+    switch (g_probeState.fault)
+    {
+    case ProbeFault::TearingQuery:
+    case ProbeFault::SwapChainCreation:
+        resourcesAreValid = !hasBaseSwapChain && !hasSwapChain && !hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    case ProbeFault::AltEnter:
+    case ProbeFault::Interface:
+        resourcesAreValid = hasBaseSwapChain && !hasSwapChain && !hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    case ProbeFault::FirstBackBuffer:
+        resourcesAreValid = hasBaseSwapChain && hasSwapChain && !hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    case ProbeFault::SecondBackBuffer:
+        resourcesAreValid = hasBaseSwapChain && hasSwapChain && hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    case ProbeFault::BackBufferName:
+        resourcesAreValid = hasBaseSwapChain && hasSwapChain && hasFirstBackBuffer && !hasSecondBackBuffer;
+        break;
+    default:
+        resourcesAreValid = false;
+        break;
+    }
+
+    g_probeState.failureHandlerCalled = true;
+    g_probeState.failureResourcesWereAlive = resourcesAreValid;
+    return cue::Result<void>::failure(std::move(a_error));
+}
+
+[[nodiscard]] cue::Result<std::unique_ptr<ProbeObjects>> create_probe_objects(
+    bool a_enableDiagnostics, const cue::AssertContext &a_assertContext) noexcept
+{
+    cue::D3d12BackendDescriptor descriptor = {};
+    descriptor.adapterPolicy = cue::D3d12AdapterPolicy::Warp;
+    descriptor.validationMode = a_enableDiagnostics && cue::are_d3d12_diagnostics_allowed()
+                                    ? cue::D3d12ValidationMode::Standard
+                                    : cue::D3d12ValidationMode::Disabled;
+    descriptor.isDredEnabled = false;
+    descriptor.gpuWaitTimeoutMilliseconds = 5'000;
+    cue::Result<cue::D3d12DiagnosticsStatus> diagnosticsResult =
+        cue::configure_d3d12_pre_device_diagnostics(descriptor, a_assertContext);
+
+    if (!diagnosticsResult)
+    {
+        return cue::Result<std::unique_ptr<ProbeObjects>>::failure(std::move(*diagnosticsResult.try_error()));
+    }
+
+    cue::D3d12DiagnosticsStatus diagnostics = *diagnosticsResult.try_value();
+    cue::Result<cue::D3d12AdapterSelection> selectionResult =
+        cue::select_d3d12_adapter(cue::D3d12AdapterPolicy::Warp, diagnostics, a_assertContext);
+
+    if (!selectionResult)
+    {
+        return cue::Result<std::unique_ptr<ProbeObjects>>::failure(std::move(*selectionResult.try_error()));
+    }
+
+    cue::D3d12AdapterSelection selection = std::move(*selectionResult.try_value());
+    cue::Result<Microsoft::WRL::ComPtr<ID3D12Device>> deviceResult =
+        cue::create_d3d12_device(selection.adapter.Get(), selection.featureLevel, a_assertContext);
+
+    if (!deviceResult)
+    {
+        return cue::Result<std::unique_ptr<ProbeObjects>>::failure(std::move(*deviceResult.try_error()));
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12Device> device = std::move(*deviceResult.try_value());
+    cue::Result<void> infoQueueResult = cue::configure_d3d12_info_queue(device.Get(), diagnostics, a_assertContext);
+
+    if (!infoQueueResult)
+    {
+        return cue::Result<std::unique_ptr<ProbeObjects>>::failure(std::move(*infoQueueResult.try_error()));
+    }
+
+    cue::Result<cue::D3d12QueueState> queueResult =
+        cue::create_d3d12_queue_state(device.Get(), descriptor.gpuWaitTimeoutMilliseconds, a_assertContext);
+
+    if (!queueResult)
+    {
+        return cue::Result<std::unique_ptr<ProbeObjects>>::failure(std::move(*queueResult.try_error()));
+    }
+
+    cue::D3d12QueueState queueState = std::move(*queueResult.try_value());
+    std::unique_ptr<ProbeObjects> objects = std::make_unique<ProbeObjects>(
+        std::move(selection.factory), std::move(device), std::move(queueState), diagnostics);
+    return cue::Result<std::unique_ptr<ProbeObjects>>::success(std::move(objects));
+}
+
+[[nodiscard]] std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
+{
+    Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
+
+    if (FAILED(a_device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
+    {
+        return 0;
+    }
+
+    const std::uint64_t messageCount = infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
+    std::uint64_t errorCount = 0;
+
+    for (std::uint64_t messageIndex = 0; messageIndex < messageCount; ++messageIndex)
+    {
+        SIZE_T messageSize = 0;
+
+        if (FAILED(infoQueue->GetMessage(messageIndex, nullptr, &messageSize)) || messageSize == 0)
+        {
+            ++errorCount;
+            continue;
+        }
+
+        try
+        {
+            std::vector<std::byte> storage(messageSize);
+            D3D12_MESSAGE *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+
+            if (FAILED(infoQueue->GetMessage(messageIndex, message, &messageSize)) ||
+                message->Severity == D3D12_MESSAGE_SEVERITY_ERROR ||
+                message->Severity == D3D12_MESSAGE_SEVERITY_CORRUPTION)
+            {
+                ++errorCount;
+            }
+        }
+        catch (...)
+        {
+            return errorCount + 1;
+        }
+    }
+
+    return errorCount;
+}
+
+[[nodiscard]] bool has_error_code(const cue::Error *a_error, std::int64_t a_value) noexcept
+{
+    return a_error != nullptr && a_error->code().domain() == "Cue.RHI.D3D12" && a_error->code().value() == a_value;
+}
+
+[[nodiscard]] bool has_native_error_domain(const cue::Error *a_error, std::string_view a_domain) noexcept
+{
+    if (a_error == nullptr)
+    {
+        return false;
+    }
+
+    const cue::NativeError *nativeError = a_error->try_native_error();
+    return nativeError != nullptr && nativeError->domain() == a_domain;
+}
+
+[[nodiscard]] cue::D3d12SwapChainDescriptor make_descriptor(const void *a_nativeWindow, std::uint32_t a_width,
+                                                            std::uint32_t a_height, bool a_isVsyncEnabled) noexcept
+{
+    return {
+        static_cast<HWND>(const_cast<void *>(a_nativeWindow)),
+        a_width,
+        a_height,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        a_isVsyncEnabled,
+    };
+}
+
+[[nodiscard]] bool shutdown_probe_objects(std::unique_ptr<ProbeObjects> &a_objects) noexcept
+{
+    cue::Result<void> queueResult = a_objects->queueState.shutdown();
+    return static_cast<bool>(queueResult);
+}
+} // namespace
+
+namespace cue
+{
+Result<D3d12SwapChainProbeReport> probe_d3d12_swap_chain(const void *a_nativeWindow, std::uint32_t a_width,
+                                                         std::uint32_t a_height, bool a_isVsyncEnabled,
+                                                         const AssertContext &a_assertContext) noexcept
+{
+    reset_probe_state(ProbeFault::None);
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(true, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return Result<D3d12SwapChainProbeReport>::failure(std::move(*objectsResult.try_error()));
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, a_isVsyncEnabled);
+    D3d12SwapChainNativeFunctions functions = make_probe_functions();
+    Result<D3d12SwapChainState> stateResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      descriptor, a_assertContext, functions);
+
+    if (!stateResult)
+    {
+        static_cast<void>(shutdown_probe_objects(objects));
+        return Result<D3d12SwapChainProbeReport>::failure(std::move(*stateResult.try_error()));
+    }
+
+    D3d12SwapChainState state = std::move(*stateResult.try_value());
+    Result<ID3D12Resource *> firstBuffer = state.back_buffer(0);
+    Result<ID3D12Resource *> secondBuffer = state.back_buffer(1);
+    const bool buffersAvailable = firstBuffer && secondBuffer && *firstBuffer.try_value() != nullptr &&
+                                  *secondBuffer.try_value() != nullptr &&
+                                  *firstBuffer.try_value() != *secondBuffer.try_value();
+    const bool descriptorValid =
+        g_probeState.descriptorCaptured && g_probeState.descriptor.Width == a_width &&
+        g_probeState.descriptor.Height == a_height && g_probeState.descriptor.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        g_probeState.descriptor.SampleDesc.Count == 1 && g_probeState.descriptor.SampleDesc.Quality == 0 &&
+        g_probeState.descriptor.BufferUsage == DXGI_USAGE_RENDER_TARGET_OUTPUT &&
+        g_probeState.descriptor.BufferCount == k_d3d12SwapChainBufferCount &&
+        g_probeState.descriptor.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    D3d12SwapChainProbeReport report = {};
+    report.width = state.width();
+    report.height = state.height();
+    report.bufferCount = state.buffer_count();
+    report.currentBackBufferIndex = state.current_back_buffer_index();
+    report.descriptorShapeIsValid = descriptorValid;
+    report.backBuffersAreAvailable = buffersAvailable;
+    report.altEnterWasDisabled = g_probeState.altEnterDisabled;
+    report.isVsyncEnabled = state.is_vsync_enabled();
+    report.isTearingSupported = state.is_tearing_supported();
+    report.isTearingEnabled = state.is_tearing_enabled();
+    report.diagnosticsAvailable = objects->diagnostics.isInfoQueueEnabled;
+    Result<void> stateShutdownResult = state.shutdown();
+    Result<void> queueShutdownResult = objects->queueState.shutdown();
+
+    if (!stateShutdownResult || !queueShutdownResult)
+    {
+        Error error = !stateShutdownResult ? std::move(*stateShutdownResult.try_error())
+                                           : std::move(*queueShutdownResult.try_error());
+        return Result<D3d12SwapChainProbeReport>::failure(std::move(error));
+    }
+
+    Result<void> liveObjectResult =
+        report_d3d12_live_device_objects(objects->device.Get(), objects->diagnostics, a_assertContext);
+
+    if (!liveObjectResult)
+    {
+        return Result<D3d12SwapChainProbeReport>::failure(std::move(*liveObjectResult.try_error()));
+    }
+
+    report.infoQueueErrorCount = count_info_queue_errors(objects->device.Get());
+    return Result<D3d12SwapChainProbeReport>::success(std::move(report));
+}
+
+bool verify_d3d12_swap_chain_tearing_matrix_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                      std::uint32_t a_height,
+                                                      const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    struct Case final
+    {
+        bool isVsyncEnabled;
+        ProbeTearingOverride tearingOverride;
+        bool expectedTearingEnabled;
+    };
+    constexpr Case cases[] = {
+        {true, ProbeTearingOverride::Supported, false},
+        {false, ProbeTearingOverride::Supported, true},
+        {false, ProbeTearingOverride::Unsupported, false},
+    };
+    bool valid = true;
+
+    for (const Case &testCase : cases)
+    {
+        reset_probe_state(ProbeFault::None, testCase.tearingOverride);
+        D3d12SwapChainDescriptor descriptor =
+            make_descriptor(a_nativeWindow, a_width, a_height, testCase.isVsyncEnabled);
+        D3d12SwapChainNativeFunctions functions = make_probe_functions();
+        Result<D3d12SwapChainState> stateResult =
+            create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                          descriptor, a_assertContext, functions);
+
+        if (!stateResult)
+        {
+            valid = false;
+            break;
+        }
+
+        D3d12SwapChainState state = std::move(*stateResult.try_value());
+        const bool flagEnabled = (g_probeState.descriptor.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
+        valid = valid && state.is_tearing_enabled() == testCase.expectedTearingEnabled &&
+                flagEnabled == testCase.expectedTearingEnabled &&
+                !(state.is_vsync_enabled() && state.is_tearing_enabled()) && state.shutdown();
+    }
+
+    return shutdown_probe_objects(objects) && valid;
+}
+
+bool verify_d3d12_swap_chain_faults_for_probe(const void *a_nativeWindow, std::uint32_t a_width, std::uint32_t a_height,
+                                              const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(true, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    constexpr ProbeFault faults[] = {
+        ProbeFault::TearingQuery,    ProbeFault::SwapChainCreation, ProbeFault::AltEnter,       ProbeFault::Interface,
+        ProbeFault::FirstBackBuffer, ProbeFault::SecondBackBuffer,  ProbeFault::BackBufferName,
+    };
+    constexpr std::int64_t expectedCodes[] = {78, 79, 80, 81, 82, 82, 83};
+    constexpr std::string_view expectedNativeDomains[] = {"DXGI", "DXGI", "DXGI", "DXGI", "DXGI", "DXGI", "D3D12"};
+    bool valid = true;
+
+    for (std::size_t index = 0; index < std::size(faults); ++index)
+    {
+        reset_probe_state(faults[index]);
+        D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, true);
+        D3d12SwapChainNativeFunctions functions = make_probe_functions();
+        D3d12SwapChainFailureHandler failureHandler = {
+            nullptr,
+            handle_native_failure_for_probe,
+        };
+        Result<D3d12SwapChainState> result =
+            create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                          descriptor, a_assertContext, functions, failureHandler);
+        valid = valid && has_error_code(result.try_error(), expectedCodes[index]) &&
+                has_native_error_domain(result.try_error(), expectedNativeDomains[index]) &&
+                g_probeState.failureHandlerCalled && g_probeState.failureResourcesWereAlive;
+
+        if (result)
+        {
+            static_cast<void>(result.try_value()->shutdown());
+            valid = false;
+        }
+    }
+
+    reset_probe_state(ProbeFault::None);
+    D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, true);
+    D3d12SwapChainNativeFunctions functions = make_probe_functions();
+    Result<D3d12SwapChainState> recoveryResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      descriptor, a_assertContext, functions);
+
+    if (!recoveryResult)
+    {
+        valid = false;
+    }
+    else
+    {
+        valid = static_cast<bool>(recoveryResult.try_value()->shutdown()) && valid;
+    }
+
+    const bool shutdownSucceeded = shutdown_probe_objects(objects);
+    const bool diagnosticsAllowed = are_d3d12_diagnostics_allowed();
+    Result<void> liveObjectResult =
+        report_d3d12_live_device_objects(objects->device.Get(), objects->diagnostics, a_assertContext);
+    const bool diagnosticsValid = !diagnosticsAllowed || (objects->diagnostics.isInfoQueueEnabled && liveObjectResult &&
+                                                          count_info_queue_errors(objects->device.Get()) == 0);
+    return shutdownSucceeded && diagnosticsValid && valid;
+}
+
+bool verify_d3d12_swap_chain_log_failure_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                   std::uint32_t a_height, const AssertContext &a_setupAssertContext,
+                                                   const AssertContext &a_failingAssertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(false, a_setupAssertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    reset_probe_state(ProbeFault::None);
+    D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, true);
+    D3d12SwapChainNativeFunctions functions = make_probe_functions();
+    Result<D3d12SwapChainState> failureResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      descriptor, a_failingAssertContext, functions);
+    const bool failureIsValid = has_error_code(failureResult.try_error(), 85);
+
+    if (failureResult)
+    {
+        static_cast<void>(failureResult.try_value()->shutdown());
+        static_cast<void>(shutdown_probe_objects(objects));
+        return false;
+    }
+
+    reset_probe_state(ProbeFault::None);
+    Result<D3d12SwapChainState> recoveryResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      descriptor, a_setupAssertContext, functions);
+
+    if (!recoveryResult)
+    {
+        static_cast<void>(shutdown_probe_objects(objects));
+        return false;
+    }
+
+    Result<void> stateShutdownResult = recoveryResult.try_value()->shutdown();
+    return failureIsValid && stateShutdownResult && shutdown_probe_objects(objects);
+}
+
+bool verify_d3d12_swap_chain_validation_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                  std::uint32_t a_height, const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    D3d12SwapChainNativeFunctions functions = make_probe_functions();
+    D3d12SwapChainDescriptor invalidDescriptor = make_descriptor(nullptr, a_width, a_height, true);
+    Result<D3d12SwapChainState> invalidDescriptorResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      invalidDescriptor, a_assertContext, functions);
+    reset_probe_state(ProbeFault::InvalidCurrentIndex);
+    D3d12SwapChainDescriptor descriptor = make_descriptor(a_nativeWindow, a_width, a_height, true);
+    Result<D3d12SwapChainState> invalidIndexResult =
+        create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                      descriptor, a_assertContext, functions);
+    const bool valid =
+        has_error_code(invalidDescriptorResult.try_error(), 77) && has_error_code(invalidIndexResult.try_error(), 84);
+    return shutdown_probe_objects(objects) && valid;
+}
+} // namespace cue

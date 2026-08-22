@@ -18,9 +18,13 @@ Cue.RHI.D3D12 LINK_OPTIONS: @cueRhiD3d12LinkOptions@
 Cue.RHI.D3D12 INTERFACE_LINK_OPTIONS: @cueRhiD3d12InterfaceLinkOptions@
 Cue.RHI.D3D12 LINK_FLAGS: @cueRhiD3d12LinkFlags@
 Cue.RHI.D3D12 STATIC_LIBRARY_OPTIONS: @cueRhiD3d12StaticLibraryOptions@
+Cue.RHI.D3D12.Windows LINK_LIBRARIES: @cueRhiD3d12WindowsLinks@
+Cue.RHI.D3D12.Windows INTERFACE_LINK_LIBRARIES: @cueRhiD3d12WindowsInterfaceLinks@
+Cue.RHI.D3D12.Windows INTERFACE_INCLUDE_DIRECTORIES: @cueRhiD3d12WindowsInterfaceIncludes@
 Selected Windows SDK: @CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
 Minimum Windows SDK: @cueRhiD3d12MinimumWindowsSdkVersion@
 Allowed graph: Cue.RHI.D3D12->Cue.RHI->Cue.Foundation
+Allowed Windows adapter graph: Cue.RHI.D3D12.Windows->Cue.RHI.D3D12+Cue.Platform.Windows
 Native links are LINK_ONLY: D3D12;DXGI;DXGUID
 Windows and D3D12 native types in public headers: forbidden
 Target Source and Header File Sets: scanned

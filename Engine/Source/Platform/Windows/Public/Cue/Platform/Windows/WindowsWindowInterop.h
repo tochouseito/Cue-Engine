@@ -5,6 +5,8 @@
 
 namespace cue
 {
+class AssertContext;
+
 /** @brief Native Window ViewのPlatform種別 */
 enum class NativeWindowKind
 {
@@ -26,7 +28,8 @@ class NativeWindowView final
     [[nodiscard]] const void *value() const noexcept;
 
   private:
-    friend Result<NativeWindowView> get_native_window_view(Window &a_window) noexcept;
+    friend Result<NativeWindowView> get_native_window_view(Window &a_window,
+                                                           const AssertContext &a_assertContext) noexcept;
 
     explicit NativeWindowView(const void *a_value) noexcept;
 
@@ -37,7 +40,12 @@ class NativeWindowView final
  * @brief Windows Windowの短命なNative Viewを取得する
  *
  * a_windowはcreate_windows_window_system()から生成し、Window Thread上のCreated、Visible、
+ *
  * CloseRequested状態で呼び出す
+ * @param a_assertContext 診断に使用する Context
+ * @return Windows Window の短命な
+ * View、または異種 Window を示す Error
  */
-[[nodiscard]] Result<NativeWindowView> get_native_window_view(Window &a_window) noexcept;
+[[nodiscard]] Result<NativeWindowView> get_native_window_view(Window &a_window,
+                                                              const AssertContext &a_assertContext) noexcept;
 } // namespace cue

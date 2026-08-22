@@ -109,6 +109,7 @@ add_executable(
     CueRhiPublicHeaderTest
     PublicHeaderCompile.cpp
     GraphicsBackendHeaderCompile.cpp
+    PresentationContextHeaderCompile.cpp
 )
 
 target_link_libraries(CueRhiPublicHeaderTest PRIVATE Cue.RHI)
@@ -129,6 +130,12 @@ if(WIN32)
     add_executable(CueRhiD3d12FrameCommandProcess D3d12FrameCommandProcess.cpp)
     add_executable(CueRhiD3d12QueueStateProcess D3d12QueueStateProcess.cpp)
     add_executable(CueRhiD3d12RtvHeapProcess D3d12RtvHeapProcess.cpp)
+    add_executable(CueRhiD3d12SwapChainProcess D3d12SwapChainProcess.cpp)
+    add_executable(
+        CueRhiD3d12WindowsPublicHeaderTest
+        PublicHeaderCompile.cpp
+        D3d12WindowsPresentationHeaderCompile.cpp
+    )
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
@@ -144,6 +151,15 @@ if(WIN32)
     target_compile_features(CueRhiD3d12QueueStateProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12RtvHeapProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12RtvHeapProcess PRIVATE cxx_std_20)
+    target_link_libraries(
+        CueRhiD3d12SwapChainProcess
+        PRIVATE
+            Cue.Platform.Windows
+            Cue.RHI.D3D12.Windows
+    )
+    target_compile_features(CueRhiD3d12SwapChainProcess PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12WindowsPublicHeaderTest PRIVATE Cue.RHI.D3D12.Windows)
+    target_compile_features(CueRhiD3d12WindowsPublicHeaderTest PRIVATE cxx_std_20)
     list(
         APPEND
         cueRhiTestTargets
@@ -154,6 +170,8 @@ if(WIN32)
         CueRhiD3d12FrameCommandProcess
         CueRhiD3d12QueueStateProcess
         CueRhiD3d12RtvHeapProcess
+        CueRhiD3d12SwapChainProcess
+        CueRhiD3d12WindowsPublicHeaderTest
     )
     list(
         APPEND
@@ -217,6 +235,17 @@ if(WIN32)
         Cue.RHI.D3D12.RtvHeap.LiveSlotShutdown
         Cue.RHI.D3D12.RtvHeap.OwnerDestructor
         Cue.RHI.D3D12.RtvHeap.ActiveMoveAssignment
+        Cue.RHI.D3D12.SwapChain.SmokeVsync
+        Cue.RHI.D3D12.SwapChain.SmokeImmediate
+        Cue.RHI.D3D12.SwapChain.InfoQueue
+        Cue.RHI.D3D12.SwapChain.TearingMatrix
+        Cue.RHI.D3D12.SwapChain.CreationFaults
+        Cue.RHI.D3D12.SwapChain.LogFailure
+        Cue.RHI.D3D12.SwapChain.Validation
+        Cue.RHI.D3D12.SwapChain.ProductionOwnership
+        Cue.RHI.D3D12.SwapChain.DeviceRemovalLifecycle
+        Cue.RHI.D3D12.SwapChain.DeviceRemovalDredFailure
+        Cue.RHI.D3D12.Windows.PublicHeaders
         Cue.RHI.Dependencies
     )
 endif()
@@ -256,6 +285,10 @@ if(WIN32)
     cue_verify_rhi_target_shape(
         Cue.RHI.D3D12
         "${PROJECT_SOURCE_DIR}/Engine/Source/RHI/D3D12/Public"
+    )
+    cue_verify_rhi_target_shape(
+        Cue.RHI.D3D12.Windows
+        "${PROJECT_SOURCE_DIR}/Engine/Source/RHI/D3D12/Windows/Public"
     )
 
     cue_get_rhi_target_property(Cue.RHI LINK_LIBRARIES cueRhiLinks)
@@ -319,10 +352,27 @@ if(WIN32)
         CUE_MINIMUM_WINDOWS_SDK_VERSION
         cueRhiD3d12MinimumWindowsSdkVersion
     )
+    cue_get_rhi_target_property(Cue.RHI.D3D12.Windows LINK_LIBRARIES cueRhiD3d12WindowsLinks)
+    cue_get_rhi_target_property(
+        Cue.RHI.D3D12.Windows
+        INTERFACE_LINK_LIBRARIES
+        cueRhiD3d12WindowsInterfaceLinks
+    )
+    cue_get_rhi_target_property(
+        Cue.RHI.D3D12.Windows
+        INTERFACE_INCLUDE_DIRECTORIES
+        cueRhiD3d12WindowsInterfaceIncludes
+    )
 
     cue_collect_rhi_target_files(Cue.RHI cueRhiTargetFiles)
     cue_collect_rhi_target_files(Cue.RHI.D3D12 cueRhiD3d12TargetFiles)
-    set(allRhiTargetFiles ${cueRhiTargetFiles} ${cueRhiD3d12TargetFiles})
+    cue_collect_rhi_target_files(Cue.RHI.D3D12.Windows cueRhiD3d12WindowsTargetFiles)
+    set(
+        allRhiTargetFiles
+        ${cueRhiTargetFiles}
+        ${cueRhiD3d12TargetFiles}
+        ${cueRhiD3d12WindowsTargetFiles}
+    )
     list(REMOVE_DUPLICATES allRhiTargetFiles)
     string(REPLACE ";" "\n" rhiTargetFileContents "${allRhiTargetFiles}")
     set(rhiTargetFileList "${CMAKE_CURRENT_BINARY_DIR}/Cue.RHI.TargetFiles.txt")
@@ -343,6 +393,7 @@ add_test(NAME Cue.RHI.PublicHeaders COMMAND CueRhiPublicHeaderTest)
 
 if(WIN32)
     add_test(NAME Cue.RHI.D3D12.PublicHeaders COMMAND CueRhiD3d12PublicHeaderTest)
+    add_test(NAME Cue.RHI.D3D12.Windows.PublicHeaders COMMAND CueRhiD3d12WindowsPublicHeaderTest)
     add_test(
         NAME Cue.RHI.D3D12.AdapterSelection.Hardware
         COMMAND CueRhiD3d12AdapterSelectionProcess Hardware
@@ -599,6 +650,20 @@ if(WIN32)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12RtvHeapViolation.cmake
         )
     endforeach()
+    foreach(
+        swapChainMode
+        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership DeviceRemovalLifecycle DeviceRemovalDredFailure
+    )
+        add_test(
+            NAME Cue.RHI.D3D12.SwapChain.${swapChainMode}
+            COMMAND CueRhiD3d12SwapChainProcess ${swapChainMode}
+        )
+    endforeach()
+    set_tests_properties(
+        Cue.RHI.D3D12.SwapChain.DeviceRemovalLifecycle
+        Cue.RHI.D3D12.SwapChain.DeviceRemovalDredFailure
+        PROPERTIES SKIP_RETURN_CODE 77
+    )
     add_test(
         NAME Cue.RHI.Dependencies
         COMMAND
@@ -616,6 +681,7 @@ if(WIN32)
         Cue.RHI.D3D12.AdapterSelection.Hardware
         Cue.RHI.D3D12.FrameCommand.InfoQueue300
         Cue.RHI.D3D12.RtvHeap.InfoQueue
+        Cue.RHI.D3D12.SwapChain.InfoQueue
         PROPERTIES
             SKIP_RETURN_CODE 77
     )

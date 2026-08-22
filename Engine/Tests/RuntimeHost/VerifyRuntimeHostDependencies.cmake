@@ -9,8 +9,8 @@ file(STRINGS "${REPORT_FILE}" dependencyReportLines)
 foreach(
     requiredLine
     IN ITEMS
-        "CueRuntimeHost LINK_LIBRARIES: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12"
-        "Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12"
+        "CueRuntimeHost LINK_LIBRARIES: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12.Windows"
+        "Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12.Windows"
         "Forbidden source dependencies: WindowsSDK;D3D12NativeTypes;Renderer;Editor;ECS;Asset"
 )
     set(hasRequiredLine FALSE)

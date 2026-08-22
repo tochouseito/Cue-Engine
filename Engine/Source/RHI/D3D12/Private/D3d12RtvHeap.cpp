@@ -60,6 +60,27 @@ std::atomic<std::uint64_t> g_nextHeapIncarnation = 1;
                               std::move(nativeError));
 }
 
+[[nodiscard]] cue::Result<cue::D3d12RtvHeap> fail_native_creation(
+    cue::Error &&a_error, const cue::D3d12RtvHeapFailureHandler &a_failureHandler, ID3D12DescriptorHeap *a_heap,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    if (a_failureHandler.handleNativeFailure == nullptr)
+    {
+        return cue::Result<cue::D3d12RtvHeap>::failure(std::move(a_error));
+    }
+
+    cue::D3d12RtvHeapFailureResources resources = {a_heap};
+    cue::Result<void> handlerResult =
+        a_failureHandler.handleNativeFailure(a_failureHandler.owner, std::move(a_error), resources);
+
+    if (handlerResult)
+    {
+        a_assertContext.fatal_handler().terminate("D3D12 RTV Heap failure handler did not retain an Error");
+    }
+
+    return cue::Result<cue::D3d12RtvHeap>::failure(std::move(*handlerResult.try_error()));
+}
+
 HRESULT create_descriptor_heap(ID3D12Device *a_device, const D3D12_DESCRIPTOR_HEAP_DESC *a_descriptor,
                                ID3D12DescriptorHeap **a_heap) noexcept
 {
@@ -292,7 +313,8 @@ void D3d12RtvHeap::set_slot_generation_for_test(std::uint32_t a_slotIndex, std::
 }
 
 Result<D3d12RtvHeap> create_d3d12_rtv_heap(ID3D12Device *a_device, const AssertContext &a_assertContext,
-                                           const D3d12RtvHeapNativeFunctions &a_functions) noexcept
+                                           const D3d12RtvHeapNativeFunctions &a_functions,
+                                           const D3d12RtvHeapFailureHandler &a_failureHandler) noexcept
 {
     if (a_device == nullptr)
     {
@@ -311,17 +333,19 @@ Result<D3d12RtvHeap> create_d3d12_rtv_heap(ID3D12Device *a_device, const AssertC
 
     if (FAILED(creationResult))
     {
-        return Result<D3d12RtvHeap>::failure(make_native_error(
-            a_assertContext, k_heapCreationFailed, "D3D12 RTV Descriptor Heap creation failed", creationResult));
+        return fail_native_creation(make_native_error(a_assertContext, k_heapCreationFailed,
+                                                      "D3D12 RTV Descriptor Heap creation failed", creationResult),
+                                    a_failureHandler, heap.Get(), a_assertContext);
     }
 
     const HRESULT nameResult = a_functions.setObjectName(heap.Get(), L"CueEngine D3D12 Presentation RTV Heap");
 
     if (FAILED(nameResult))
     {
-        return Result<D3d12RtvHeap>::failure(
-            make_native_error(a_assertContext, k_heapNameFailed,
-                              "D3D12 RTV Descriptor Heap diagnostic name could not be set", nameResult));
+        return fail_native_creation(make_native_error(a_assertContext, k_heapNameFailed,
+                                                      "D3D12 RTV Descriptor Heap diagnostic name could not be set",
+                                                      nameResult),
+                                    a_failureHandler, heap.Get(), a_assertContext);
     }
 
     const std::uint32_t incrementSize = a_functions.getDescriptorHandleIncrementSize(a_device);
