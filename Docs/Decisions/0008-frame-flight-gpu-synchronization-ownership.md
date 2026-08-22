@@ -238,6 +238,12 @@ PrimaryとしてDREDとCleanupへ進む。どちらも証明できない場合�
 Frame記録の規則:
 
 - `begin_frame`は対象Frame ContextのFence完了を確認してからAllocatorをResetする
+- `begin_frame`のEvent登録またはWaitが失敗しても最終Completed Valueで対象Fenceの完了を証明できた場合は、
+  その呼出ではAllocatorとCommand ListをResetせず`Submitted`を維持してWait Errorを返す。Contextは`Ready`と
+  Frame受付を維持し、次の`begin_frame`が初回Completed Value確認後に安全にResetできる
+- `begin_frame`のWait失敗後にDevice Removalを確認した場合はAllocatorをResetせずBackendとContextを
+  `DeviceRemoved`へ遷移してDRED経路へ進む。完了もRemovalも証明できない場合はAllocator、Back Buffer、
+  Context Resource、Backend登録を保持してBackendとContextを`Unavailable`へ遷移する
 - Allocator Reset成功後にCommand ListをそのAllocatorでResetし、`Recording`へ遷移する
 - Command List Reset失敗時はAllocatorを再利用可能だがFrame開始失敗としてErrorを返す
 - `Recording`以外でCommandを記録しない
@@ -505,6 +511,11 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   Drain後だけCleanupする経路をTestする
 - Issue #48で2 Frame Contextを最低300回周回し、Allocator Resetが対応Fence完了後だけ行われることを
   Testする
+- Issue #48で`begin_frame`のEvent登録失敗、Wait Timeout、`WAIT_FAILED`、予期しないWait結果、最終Completed
+  ValueとのraceをFault Injectionする。最終完了時はAllocator／ListをResetせず`Submitted`と追跡値、`Ready`、
+  Frame受付を維持してWait Errorを返し、次回呼出でだけ安全にResetすることをTestする。Device Removal時は
+  ResetせずDREDとCleanupへ進み、証明不能時は`Unavailable`としてAllocator、Back Buffer、全Context Resource、
+  Backend登録を保持することをTestする
 - Issue #48でCommand List `Close`をFault Injectionし、`RecordingCloseFailed`への遷移、新規Frame受付停止、
   Execute／Reset／再Close禁止、Context terminal SignalとWait後の安全な解放をTestする。terminal Signal
   またはWaitも失敗した場合は、予約値または既存terminal値の完了証明でErrorを返しつつ安全に解放する経路、
