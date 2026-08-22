@@ -110,7 +110,7 @@ Present Loopと測定条件が揃った後に別Issueで評価する。2 Buffer�
 | Queue Fence | D3D12 Backend | Queueと同時に生成し、全Signal、Completed Value、CPU Waitを一元化する |
 | Fence Wait Event | D3D12 Backend | Fenceより後に生成し、Fenceより先に閉じる。生成Threadからだけ使用する |
 | Next Fence Value | D3D12 Backend | 次にSignalする値を保持し、Context間で重複させない |
-| Last Signaled Fence | D3D12 Backend | Queueへ成功した最後のSignal値を保持する |
+| Last Signaled Fence | D3D12 Backend | Signal成功、またはSignal失敗後に予約値完了を証明した最大値を保持する |
 | Presentation Context | Composition Root | BackendとWindowより先に明示`shutdown()`して破棄する |
 | Graphics Command List | Presentation Context | 一つだけ所有し、Frame ContextのAllocatorを切り替えて直列に再利用する |
 | Frame Context | Presentation Context | 2個を所有し、Back Buffer Indexで選択する |
@@ -155,17 +155,25 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   terminal Signalには対象Frame Contextがないため、`reuseFenceValue`を更新しない
 - Presentation Contextに属する通常Frame、補完Signal、Context terminal Signalについて成功または予約値の
   完了を証明できた場合は、そのPresentation Contextの`lastSubmittedFence`を同じSignal値へ更新する。
-  Backend terminal Signalには
-  対象Presentation Contextがないため、`lastSubmittedFence`を更新しない
-- `Signal`が失敗した場合は、後述の有限Wait Policyで予約値の完了を確認し、Device Removalも再確認する。
-  予約値の完了を証明できた場合は上記の対象値を更新し、Frame Signalでは新規Frame受付を停止して
-  `Submitted`へ遷移する。通常Frame Signal失敗ではSignal Errorを返す。Present Error後の補完Signal失敗では
-  Present ErrorをPrimaryとして返し、Signal ErrorをSecondary Contextへ保持する。terminal Signalでは安全な
-  Cleanupを継続してSignal Errorを返す。Device Removalを確認した場合は失敗した予約値を保存せず、Backendと
-  Contextを`DeviceRemoved`へ遷移する。ADR-0005に従い`RHI.DeviceRemoved`を新しいPrimary Errorとし、Removal
-  ReasonをNative Error、先行するPresent ErrorとSignal Errorを発生順のCause Contextとして保持してDREDと
-  Device Removed Cleanupへ進む。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、失敗した
-  予約値をどの追跡値にも保存しない
+  Backend terminal Signalには対象Presentation Contextがないため、`lastSubmittedFence`を更新しない
+
+#### Signal Failure Matrix
+
+`Signal`が失敗した場合は、後述の有限Wait Policyで予約値の完了を確認し、Device Removalも再確認する。
+予約値を巻き戻さず、完了を証明できない予約値はどの追跡値にも保存しない。Signal種別ごとの処理は次の
+とおりとする。
+
+| Signal Origin | 予約値の完了を証明 | Device Removalを確認 | 完了もRemovalも証明不能 |
+| --- | --- | --- | --- |
+| 通常Frame Signal | Backend、対象Frame、Presentationの3値を更新し、受付停止付き`Submitted`へ遷移する。Signal ErrorをPrimary、完了確認中のWait ErrorをSecondary Contextとして通常Shutdownを許可する | 3値を更新せずBackendとContextを`DeviceRemoved`へ遷移する。`RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、Signal ErrorとWait ErrorをCause ContextとしてDREDとDevice Removed Cleanupへ進む | 3値を更新せずBackendとContextを`Unavailable`へ遷移する。Signal ErrorをPrimary、Wait／Removal確認ErrorをSecondary Contextとして全Resourceと登録を保持する |
+| Present Error後の補完Frame Signal | 3値を更新し、受付停止付き`Submitted`へ遷移する。Present ErrorをPrimary、Signal Error、完了確認中のWait Errorを発生順のSecondary Contextとして通常Shutdownを許可する | 3値を更新せずBackendとContextを`DeviceRemoved`へ遷移する。`RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、Present Error、Signal Error、Wait ErrorをCause ContextとしてDREDとDevice Removed Cleanupへ進む | 3値を更新せずBackendとContextを`Unavailable`へ遷移する。Present ErrorをPrimary、Signal／Wait／Removal確認ErrorをSecondary Contextとして全Resourceと登録を保持する |
+| Context terminal Signal | Backendの`lastSignaledFence`と対象Presentationの`lastSubmittedFence`だけを更新し、Context Resourceを逆順解放して`Shutdown`へ遷移する。Signal ErrorをPrimary、完了確認中のWait ErrorをSecondary Contextとして返す | 追跡値を更新せずBackendと対象Contextを`DeviceRemoved`へ遷移する。`RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、Signal ErrorとWait ErrorをCause ContextとしてDREDとContext Cleanupへ進む | 追跡値を更新せずBackendと対象Contextを`Unavailable`へ遷移する。Signal ErrorをPrimary、Wait／Removal確認ErrorをSecondary ContextとしてContext ResourceとBackend登録を保持する |
+| Backend terminal Signal | Backendの`lastSignaledFence`だけを更新し、Event、Fence、Queue、Deviceを逆順解放して`Shutdown`へ遷移する。Signal ErrorをPrimary、完了確認中のWait ErrorをSecondary Contextとして返す | 追跡値を更新せずBackendだけを`DeviceRemoved`へ遷移する。`RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、Signal ErrorとWait ErrorをCause ContextとしてDREDとBackend Cleanupへ進む | 追跡値を更新せずBackendだけを`Unavailable`へ遷移する。Signal ErrorをPrimary、Wait／Removal確認ErrorをSecondary ContextとしてEvent、Fence、Queue、Deviceを保持する |
+
+Context terminal Signalには対象Frameと先行Present Errorがなく、Backend terminal Signalには対象Contextも
+先行Present Errorもない。Composition Rootが以前の操作ErrorとShutdown Errorを統合する場合は、この表の
+Resultを上書きせず、上位Contextとして両方を保持する。
+完了確認中にWait Errorが発生していない場合は、表中のWait Errorを省略する。
 
 Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる古いFrameの誤完了判定を許可しない。
 
@@ -178,11 +186,23 @@ Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる
 3. 戻り値が`UINT64_MAX`ならDevice Removal経路へ遷移する
 4. Completed Valueが対象以上ならEventを登録せず成功する
 5. `SetEventOnCompletion`でBackend所有のAuto-reset Eventを登録する
-6. `WaitForSingleObject`で有限時間待つ
+6. Event登録成功時だけ`WaitForSingleObject`で有限時間待つ
 7. `WAIT_FAILED`なら直後に`GetLastError`を取得し、他のWin32またはCOM APIを呼ぶ前にNative Errorへ保存する
-8. Signaledなら`GetCompletedValue`を再確認し、対象以上だけを成功とする
-9. Timeout、保存済み`WAIT_FAILED`、Event後の未完了、HRESULT失敗では`GetDeviceRemovedReason`を確認する
-10. Device RemovalならDRED経路、Removalでなく安全な完了も証明できない場合は`Unavailable`へ遷移する
+8. `WAIT_OBJECT_0`なら`GetCompletedValue`を再確認し、対象以上だけを成功とする
+9. Event登録失敗、Timeout、保存済み`WAIT_FAILED`、予期しないWait結果、Event後の未完了では、そのNative
+   ErrorまたはWait ErrorをPrimary候補として保存する
+10. `GetDeviceRemovedReason`を一度確認し、Device Removalなら`RHI.DeviceRemoved`をPrimary、保存済みWait
+    ErrorをCause ContextとしてDevice Removed経路へ遷移する
+11. Removalでない場合は、`Unavailable`確定前に`GetCompletedValue`を最後にもう一度取得する
+12. 最終値が`UINT64_MAX`ならDevice Removal経路へ遷移する
+13. 最終値が対象以上ならGPU完了済みとして安全なCleanupまたは再利用を許可するが、保存済みWait Errorは
+    上位へ返す
+14. 最終値も対象未満で、完了もRemovalも証明できない場合だけ`Unavailable`へ遷移する
+
+Signal成功後のWait単独失敗では、成功時に保存済みのFence追跡値を消去または巻き戻さない。最終確認で
+完了を証明できればWait Errorを返しながら安全なCleanupを続け、Device Removalなら`RHI.DeviceRemoved`を
+PrimaryとしてDREDとCleanupへ進む。どちらも証明できない場合はWait ErrorをPrimaryとして`Unavailable`へ
+遷移し、保存済み追跡値、Resource、登録を保持する。この経路にSignal Errorは追加しない。
 
 - Busy Pollingを使用しない
 - `SetEventOnCompletion`へNull Handleを渡す同期Waitを使用しない
@@ -331,7 +351,7 @@ Presentation Contextの通常Shutdown:
 stop accepting frames
     -> require Command List state is IdleClosed, Submitted, or RecordingCloseFailed
     -> reserve and signal a Context terminal fence on the shared Queue
-    -> store the terminal value as lastSubmittedFence
+    -> after Signal success or reservation completion proof, store the terminal value
     -> wait for the terminal fence with finite timeout
     -> release Graphics Command List
     -> release Back Buffer Resources and clear RTV Slot metadata
@@ -343,8 +363,11 @@ stop accepting frames
 ```
 
 Context terminal fenceは、そのContextが最後にSubmitしたWorkより後ろへ同じThreadからSignalする。
-Workを一度もSubmitしていないContextも同じ経路を使い、Shutdown専用の分岐を増やさない。Signalまたは
-Waitで完了を証明できない場合はResourceを解放せず、ContextとBackendを`Unavailable`へ遷移する。
+Workを一度もSubmitしていないContextも同じ経路を使い、Shutdown専用の分岐を増やさない。Signal失敗は
+Signal Failure MatrixのContext terminal行に従う。Signal成功後のWait単独失敗はFence Wait Policyに従い、
+保存済みのBackendとPresentationのterminal値を維持する。最終確認で完了を証明できればWait Errorを返しつつ
+安全に解放し、Device RemovalならDREDとDevice Removed Cleanupを行う。どちらも証明できない場合だけResourceと
+Backend登録を保持し、ContextとBackendを`Unavailable`へ遷移する。
 Fence枯渇済みの場合だけterminal Signalを省略し、既存`lastSignaledFence`の完了確認後に同じ解放順序へ
 進む。`RecordingCloseFailed`でも失敗したCommand Listを再CloseまたはExecuteせず、terminal SignalとWaitで
 既存Queue Workの完了を証明した後にCommand Listを含むContext Resourceを解放する。
@@ -367,7 +390,9 @@ verify active Presentation Context count == 0
 
 Backend Shutdownのterminal fenceは、Presentation Context外でBackendが投入したWorkも含め、Queue上の
 全Workを覆う。Workを一度も投入していない場合でも、Queue生成後は同じSignal／Wait経路を使用して
-Shutdown実装を一つに保つ。
+Shutdown実装を一つに保つ。Signal失敗はSignal Failure MatrixのBackend terminal行に従う。Signal成功後の
+Wait単独失敗は保存済みのBackend terminal値を維持してFence Wait Policyに従い、いずれもBackendだけを
+遷移対象とする。
 
 ### Device Removal and Unavailable
 
@@ -482,16 +507,28 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   Testする
 - Issue #48でCommand List `Close`をFault Injectionし、`RecordingCloseFailed`への遷移、新規Frame受付停止、
   Execute／Reset／再Close禁止、Context terminal SignalとWait後の安全な解放をTestする。terminal Signal
-  またはWaitも失敗した場合は`Unavailable`としてResourceを保持することをTestする
+  またはWaitも失敗した場合は、予約値または既存terminal値の完了証明でErrorを返しつつ安全に解放する経路、
+  Device Removal確認後のDREDとCleanup、どちらも証明不能な場合だけ`Unavailable`としてResourceとBackend
+  登録を保持する経路へ分けてTestする
 - Command ListのState順序違反とFrame Index範囲外をProcess TestまたはTest Supportで検証する
 - Issue #50でSwap Chain Buffer Countが2であり、Current Back Buffer Indexが範囲内であることを検証する
 - Issue #51で通常Resize、同一Size、0 Size、Restore、最低50回の連続Resizeを検証する
 - Issue #51でFence Timeout、Allocator Reset、Command List Reset／Close、`ResizeBuffers`、Back Buffer
   再取得、RTV再構築を各段階でFault Injectionする。GPU完了未証明時はResourceとBackend登録を保持し、
   GPU Idle確認後の失敗は規定順で解放して登録解除することをTestする
-- Issue #47と#51でContext／Backend Shutdownのterminal Signal、Event登録、Wait Timeout、
-  `WAIT_FAILED`をFault Injectionし、Signal失敗後に予約値完了を証明できる場合の追跡値更新、元Error保持、
-  安全な逆順解放、および`Unavailable`時のResource保持をTestする
+- Issue #47でBackend terminal Signal、Issue #51でContext terminal Signal、Event登録、Wait Timeout、
+  `WAIT_FAILED`をFault Injectionする。予約値完了時はBackend terminalがBackendの1値だけ、Context terminalが
+  Backendと対象Presentationの2値だけを更新することをTestする。Device Removal時は各対象だけを
+  `DeviceRemoved`へ遷移してDREDとCleanupを行い、証明不能時は各対象を`Unavailable`としてResourceと登録を
+  保持することをTestする。いずれも対象Frameや存在しないContextの値を更新せず、規定Errorを保持する
+- Issue #47と#51でSignal成功後のEvent登録失敗、Wait Timeout、`WAIT_FAILED`、予期しないWait結果、Event後の
+  未完了をFault Injectionする。Removal確認後の最終Completed Value取得を必ず実行し、その時点で完了した
+  raceでは保存済みterminal値を維持してWait Errorを返しつつ安全にCleanupすること、Device RemovalではDRED
+  経路、どちらも証明不能な場合だけ`Unavailable`としてResourceを保持することをTestする。このWait単独失敗へ
+  Signal Errorを追加しないことも確認する
+- Issue #47、#51、#54でSignal失敗後の完了確認にもWait ErrorをFault Injectionし、最終完了時、Device
+  Removal時、証明不能時のすべてで、該当するPresent Error、Signal Error、Wait ErrorがMatrixの優先順位と
+  発生順で保持されることをTestする
 - Issue #54でPresentの非Device Removal失敗をFault Injectionし、補完Signal成功時は対象Frameの
   `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
   更新されて`Submitted`へ遷移し、新規Frame受付を停止してPresent Errorを返すことをTestする。補完Signalが
@@ -503,8 +540,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   Cleanupを行うことをTestする
 - Issue #54でPresent成功後の通常SignalもFault Injectionする。失敗後に予約値の完了を証明できる場合は
   3種類のFence値を更新し、受付停止付き`Submitted`へ遷移して元のErrorを返し、安全なShutdownを行うことを
-  Testする。完了を証明できない場合は3種類の値を更新せず、Device Removalまたは`Unavailable`へ遷移し、
-  `Unavailable`では全Resourceを保持することをTestする
+  Testする。Device Removalを確認した場合は3種類の値を更新せず`RHI.DeviceRemoved`、Removal Reason、
+  Signal Errorを保持してDREDとCleanupを行うことをTestする。どちらも証明できない場合は3種類の値を更新せず
+  `Unavailable`へ遷移して全Resourceを保持することをTestする
 - Debug、Development、ReleaseでHardwareとWARPのSmoke Testを実行する
 - Debug LayerとInfoQueueにAllocator Reset、Command List、Resource Lifetime Errorがないことを確認する
 - `Cue.RHI`公開Header Compile TestでWindows、DXGI、D3D12型が露出しないことを維持する
