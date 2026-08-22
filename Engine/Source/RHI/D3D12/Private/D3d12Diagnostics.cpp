@@ -397,7 +397,6 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
 
         if (FAILED(sizeResult))
         {
-            infoQueue->ClearStoredMessages();
             return Result<void>::failure(make_native_error(a_assertContext, k_infoQueueMessageFailed,
                                                            "D3D12 InfoQueue message size could not be read",
                                                            sizeResult));
@@ -411,7 +410,6 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
 
             if (FAILED(messageResult))
             {
-                infoQueue->ClearStoredMessages();
                 return Result<void>::failure(make_native_error(a_assertContext, k_infoQueueMessageFailed,
                                                                "D3D12 InfoQueue message could not be read",
                                                                messageResult));
