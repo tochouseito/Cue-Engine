@@ -30,7 +30,9 @@ constexpr std::int64_t k_infoQueueMessageFailed = 4;
 constexpr std::int64_t k_deviceRemovedDiagnosticsFailed = 5;
 constexpr std::int64_t k_optionalDiagnosticsUnavailable = 6;
 constexpr std::int64_t k_diagnosticMessagesDropped = 7;
+constexpr std::int64_t k_diagnosticLogFailed = 8;
 constexpr std::uint64_t k_maxDiagnosticMessages = 4096;
+constexpr std::uint32_t k_maxDredNodes = 4096;
 
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
@@ -78,6 +80,112 @@ void log_fallback(const cue::AssertContext &a_context, std::string_view a_messag
     HRESULT corruptionResult = a_infoQueue.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, FALSE);
     HRESULT errorResult = a_infoQueue.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, FALSE);
     return FAILED(corruptionResult) ? corruptionResult : errorResult;
+}
+
+[[nodiscard]] cue::Result<void> validate_log_result(cue::LogResult a_result,
+                                                    const cue::AssertContext &a_context) noexcept
+{
+    if (a_result == cue::LogResult::Success)
+    {
+        return cue::Result<void>::success();
+    }
+
+    return cue::Result<void>::failure(
+        make_error(a_context, k_diagnosticLogFailed, "Foundation Logger could not record D3D12 diagnostics"));
+}
+
+[[nodiscard]] cue::Result<void> log_dred_breadcrumbs(
+    const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 &a_breadcrumbs,
+    const cue::AssertContext &a_context) noexcept
+{
+    const D3D12_AUTO_BREADCRUMB_NODE1 *node = a_breadcrumbs.pHeadAutoBreadcrumbNode;
+    std::uint32_t nodeCount = 0;
+
+    while (node != nullptr && nodeCount < k_maxDredNodes)
+    {
+        const std::uint32_t lastBreadcrumb =
+            node->pLastBreadcrumbValue != nullptr ? *node->pLastBreadcrumbValue : 0;
+        std::int64_t operationValue = -1;
+
+        if (node->pCommandHistory != nullptr && node->BreadcrumbCount > 0)
+        {
+            const std::uint32_t operationIndex = (std::min)(lastBreadcrumb, node->BreadcrumbCount - 1);
+            operationValue = static_cast<std::int64_t>(node->pCommandHistory[operationIndex]);
+        }
+
+        std::string_view commandListName =
+            node->pCommandListDebugNameA != nullptr ? std::string_view(node->pCommandListDebugNameA)
+                                                    : std::string_view("Unnamed D3D12 Command List");
+        cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "D3D12.DRED.Breadcrumb",
+                                                     static_cast<std::int64_t>(lastBreadcrumb));
+        cue::NativeError operation = cue::NativeError::create(a_context.fatal_handler(),
+                                                              "D3D12.BreadcrumbOperation", operationValue);
+        cue::Error error = cue::Error::create(a_context.fatal_handler(), std::move(code), commandListName,
+                                              std::move(operation));
+
+        if (node->pCommandQueueDebugNameA != nullptr)
+        {
+            error.add_context(a_context.fatal_handler(), node->pCommandQueueDebugNameA);
+        }
+
+        cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Error, "D3D12 Device RemovalのBreadcrumb詳細を取得しました", std::move(error));
+        cue::Result<void> validationResult = validate_log_result(logResult, a_context);
+
+        if (!validationResult)
+        {
+            return validationResult;
+        }
+
+        node = node->pNext;
+        ++nodeCount;
+    }
+
+    if (node != nullptr)
+    {
+        cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Warning, "D3D12 Device RemovalのBreadcrumb Node上限を超えたため列挙を停止します");
+        return validate_log_result(logResult, a_context);
+    }
+
+    return cue::Result<void>::success();
+}
+
+[[nodiscard]] cue::Result<void> log_dred_allocations(
+    const D3D12_DRED_ALLOCATION_NODE1 *a_head, std::string_view a_domain,
+    std::string_view a_message, const cue::AssertContext &a_context) noexcept
+{
+    const D3D12_DRED_ALLOCATION_NODE1 *node = a_head;
+    std::uint32_t nodeCount = 0;
+
+    while (node != nullptr && nodeCount < k_maxDredNodes)
+    {
+        std::string_view objectName = node->ObjectNameA != nullptr ? std::string_view(node->ObjectNameA)
+                                                                  : std::string_view("Unnamed D3D12 allocation");
+        cue::ErrorCode code = cue::ErrorCode::create(
+            a_context.fatal_handler(), a_domain, static_cast<std::int64_t>(node->AllocationType));
+        cue::Error error = cue::Error::create(a_context.fatal_handler(), std::move(code), objectName);
+        cue::LogResult logResult =
+            a_context.logger().log(cue::LogLevel::Error, a_message, std::move(error));
+        cue::Result<void> validationResult = validate_log_result(logResult, a_context);
+
+        if (!validationResult)
+        {
+            return validationResult;
+        }
+
+        node = node->pNext;
+        ++nodeCount;
+    }
+
+    if (node != nullptr)
+    {
+        cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Warning, "D3D12 Device RemovalのAllocation Node上限を超えたため列挙を停止します");
+        return validate_log_result(logResult, a_context);
+    }
+
+    return cue::Result<void>::success();
 }
 
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
@@ -295,8 +403,14 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
                                                static_cast<std::int64_t>(message->ID));
             Error error = Error::create(a_assertContext.fatal_handler(), std::move(code), description);
             error.add_context(a_assertContext.fatal_handler(), a_context);
-            [[maybe_unused]] LogResult logResult = a_assertContext.logger().log(
+            LogResult logResult = a_assertContext.logger().log(
                 to_log_level(message->Severity), "D3D12診断メッセージを取得しました", std::move(error));
+            Result<void> validationResult = validate_log_result(logResult, a_assertContext);
+
+            if (!validationResult)
+            {
+                return validationResult;
+            }
         }
         catch (...)
         {
@@ -316,8 +430,14 @@ Result<void> log_d3d12_messages(ID3D12Device *a_device, const D3d12DiagnosticsSt
         Error error = Error::create(a_assertContext.fatal_handler(), std::move(code),
                                     "D3D12 diagnostic message limit was exceeded", std::move(droppedCount));
         error.add_context(a_assertContext.fatal_handler(), a_context);
-        [[maybe_unused]] LogResult logResult = a_assertContext.logger().log(
+        LogResult logResult = a_assertContext.logger().log(
             LogLevel::Warning, "D3D12診断メッセージの上限超過分を破棄します", std::move(error));
+        Result<void> validationResult = validate_log_result(logResult, a_assertContext);
+
+        if (!validationResult)
+        {
+            return validationResult;
+        }
     }
 
     infoQueue->ClearStoredMessages();
@@ -358,10 +478,26 @@ Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
     }
     else
     {
-        [[maybe_unused]] LogResult breadcrumbsLogResult = a_assertContext.logger().log(
-            LogLevel::Error, breadcrumbs.pHeadAutoBreadcrumbNode == nullptr
-                                 ? "D3D12 Device RemovalのAuto Breadcrumbは空です"
-                                 : "D3D12 Device RemovalのAuto Breadcrumbを取得しました");
+        if (breadcrumbs.pHeadAutoBreadcrumbNode == nullptr)
+        {
+            LogResult logResult = a_assertContext.logger().log(
+                LogLevel::Error, "D3D12 Device RemovalのAuto Breadcrumbは空です");
+            Result<void> validationResult = validate_log_result(logResult, a_assertContext);
+
+            if (!validationResult)
+            {
+                return validationResult;
+            }
+        }
+        else
+        {
+            Result<void> breadcrumbLogResult = log_dred_breadcrumbs(breadcrumbs, a_assertContext);
+
+            if (!breadcrumbLogResult)
+            {
+                return breadcrumbLogResult;
+            }
+        }
     }
 
     D3D12_DRED_PAGE_FAULT_OUTPUT1 pageFault = {};
@@ -380,8 +516,32 @@ Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
                                            k_deviceRemovedDiagnosticsFailed);
         Error pageFaultError = Error::create(a_assertContext.fatal_handler(), std::move(code),
                                              "D3D12 Device Removal page fault data", std::move(pageFaultAddress));
-        [[maybe_unused]] LogResult pageFaultLogResult = a_assertContext.logger().log(
+        LogResult pageFaultLogResult = a_assertContext.logger().log(
             LogLevel::Error, "D3D12 Device RemovalのPage Fault情報を取得しました", std::move(pageFaultError));
+        Result<void> validationResult = validate_log_result(pageFaultLogResult, a_assertContext);
+
+        if (!validationResult)
+        {
+            return validationResult;
+        }
+
+        Result<void> existingAllocationResult = log_dred_allocations(
+            pageFault.pHeadExistingAllocationNode, "D3D12.DRED.ExistingAllocation",
+            "D3D12 Device Removalの既存Allocation詳細を取得しました", a_assertContext);
+
+        if (!existingAllocationResult)
+        {
+            return existingAllocationResult;
+        }
+
+        Result<void> freedAllocationResult = log_dred_allocations(
+            pageFault.pHeadRecentFreedAllocationNode, "D3D12.DRED.RecentFreedAllocation",
+            "D3D12 Device Removalの解放済みAllocation詳細を取得しました", a_assertContext);
+
+        if (!freedAllocationResult)
+        {
+            return freedAllocationResult;
+        }
     }
 
     return Result<void>::success();
