@@ -123,17 +123,33 @@ if(WIN32)
         PublicHeaderCompile.cpp
         D3d12BackendHeaderCompile.cpp
     )
+    add_executable(CueRhiD3d12AdapterSelectionProcess D3d12AdapterSelectionProcess.cpp)
     add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12AdapterSelectionProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12AdapterSelectionProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12DiagnosticsProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12DiagnosticsProcess PRIVATE cxx_std_20)
-    list(APPEND cueRhiTestTargets CueRhiD3d12PublicHeaderTest CueRhiD3d12DiagnosticsProcess)
+    list(
+        APPEND
+        cueRhiTestTargets
+        CueRhiD3d12PublicHeaderTest
+        CueRhiD3d12AdapterSelectionProcess
+        CueRhiD3d12DiagnosticsProcess
+    )
     list(
         APPEND
         cueRhiTests
         Cue.RHI.D3D12.PublicHeaders
+        Cue.RHI.D3D12.AdapterSelection.Hardware
+        Cue.RHI.D3D12.AdapterSelection.Warp
+        Cue.RHI.D3D12.AdapterSelection.Skip
+        Cue.RHI.D3D12.AdapterSelection.Mapping
+        Cue.RHI.D3D12.AdapterSelection.FactoryFallback
+        Cue.RHI.D3D12.AdapterSelection.FactoryFallbackLogFailure
+        Cue.RHI.D3D12.AdapterSelection.LogFailure
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
         Cue.RHI.Dependencies
@@ -263,6 +279,34 @@ add_test(NAME Cue.RHI.PublicHeaders COMMAND CueRhiPublicHeaderTest)
 if(WIN32)
     add_test(NAME Cue.RHI.D3D12.PublicHeaders COMMAND CueRhiD3d12PublicHeaderTest)
     add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.Hardware
+        COMMAND CueRhiD3d12AdapterSelectionProcess Hardware
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.Warp
+        COMMAND CueRhiD3d12AdapterSelectionProcess Warp
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.Skip
+        COMMAND CueRhiD3d12AdapterSelectionProcess Skip
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.Mapping
+        COMMAND CueRhiD3d12AdapterSelectionProcess Mapping
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.FactoryFallback
+        COMMAND CueRhiD3d12AdapterSelectionProcess FactoryFallback
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.FactoryFallbackLogFailure
+        COMMAND CueRhiD3d12AdapterSelectionProcess FactoryFallbackLogFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.LogFailure
+        COMMAND CueRhiD3d12AdapterSelectionProcess LogFailure
+    )
+    add_test(
         NAME Cue.RHI.D3D12.Diagnostics.Disabled
         COMMAND CueRhiD3d12DiagnosticsProcess Disabled
     )
@@ -279,6 +323,14 @@ if(WIN32)
             -DRHI_TARGET_FILE_LIST=${rhiTargetFileList}
             -DWINDOWS_SDK_VERSION=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyRHIDependencies.cmake
+    )
+endif()
+
+if(WIN32)
+    set_tests_properties(
+        Cue.RHI.D3D12.AdapterSelection.Hardware
+        PROPERTIES
+            SKIP_RETURN_CODE 77
     )
 endif()
 
