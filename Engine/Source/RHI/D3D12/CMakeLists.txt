@@ -32,6 +32,8 @@ target_sources(
         Private/D3d12AdapterSelection.cpp
         Private/D3d12AdapterSelection.h
         Private/D3d12Backend.cpp
+        Private/D3d12DeviceCreation.cpp
+        Private/D3d12DeviceCreation.h
         Private/D3d12Diagnostics.cpp
         Private/D3d12Diagnostics.h
     PUBLIC
@@ -75,11 +77,13 @@ if(BUILD_TESTING)
         Cue.RHI.D3D12
         PRIVATE
             Private/TestSupport/D3d12AdapterSelectionProbe.cpp
+            Private/TestSupport/D3d12BackendProbe.cpp
             Private/TestSupport/D3d12DiagnosticsProbe.cpp
         PUBLIC
             FILE_SET HEADERS
             FILES
                 Public/Cue/RHI/D3D12/TestSupport/D3d12AdapterSelectionProbe.h
+                Public/Cue/RHI/D3D12/TestSupport/D3d12BackendProbe.h
                 Public/Cue/RHI/D3D12/TestSupport/D3d12DiagnosticsProbe.h
     )
 endif()

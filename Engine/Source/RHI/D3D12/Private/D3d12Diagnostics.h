@@ -27,6 +27,11 @@ struct D3d12DiagnosticsStatus final
                                                       D3d12DiagnosticsStatus &a_status,
                                                       const AssertContext &a_assertContext) noexcept;
 
+/** @brief Debug Layer有効時にM03 DeviceのLive Object診断を出力する */
+[[nodiscard]] Result<void> report_d3d12_live_device_objects(
+    ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status,
+    const AssertContext &a_assertContext) noexcept;
+
 /**
  * @brief D3D12 Messageを追加生成できない静止点でInfoQueueを記録して消費します。
  * @param a_device 診断対象のD3D12 Deviceです。

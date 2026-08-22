@@ -124,12 +124,15 @@ if(WIN32)
         D3d12BackendHeaderCompile.cpp
     )
     add_executable(CueRhiD3d12AdapterSelectionProcess D3d12AdapterSelectionProcess.cpp)
+    add_executable(CueRhiD3d12BackendProcess D3d12BackendProcess.cpp)
     add_executable(CueRhiD3d12DiagnosticsProcess D3d12DiagnosticsProcess.cpp)
 
     target_link_libraries(CueRhiD3d12PublicHeaderTest PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12PublicHeaderTest PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12AdapterSelectionProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12AdapterSelectionProcess PRIVATE cxx_std_20)
+    target_link_libraries(CueRhiD3d12BackendProcess PRIVATE Cue.RHI.D3D12)
+    target_compile_features(CueRhiD3d12BackendProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12DiagnosticsProcess PRIVATE Cue.RHI.D3D12)
     target_compile_features(CueRhiD3d12DiagnosticsProcess PRIVATE cxx_std_20)
     list(
@@ -137,6 +140,7 @@ if(WIN32)
         cueRhiTestTargets
         CueRhiD3d12PublicHeaderTest
         CueRhiD3d12AdapterSelectionProcess
+        CueRhiD3d12BackendProcess
         CueRhiD3d12DiagnosticsProcess
     )
     list(
@@ -150,6 +154,9 @@ if(WIN32)
         Cue.RHI.D3D12.AdapterSelection.FactoryFallback
         Cue.RHI.D3D12.AdapterSelection.FactoryFallbackLogFailure
         Cue.RHI.D3D12.AdapterSelection.LogFailure
+        Cue.RHI.D3D12.Backend.Warp
+        Cue.RHI.D3D12.Backend.DeviceFailure
+        Cue.RHI.D3D12.Backend.ThreadDestruction
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
         Cue.RHI.Dependencies
@@ -305,6 +312,22 @@ if(WIN32)
     add_test(
         NAME Cue.RHI.D3D12.AdapterSelection.LogFailure
         COMMAND CueRhiD3d12AdapterSelectionProcess LogFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.Warp
+        COMMAND CueRhiD3d12BackendProcess Warp
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.DeviceFailure
+        COMMAND CueRhiD3d12BackendProcess DeviceFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.ThreadDestruction
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12BackendProcess>
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12BackendThreadDestruction.cmake
     )
     add_test(
         NAME Cue.RHI.D3D12.Diagnostics.Disabled

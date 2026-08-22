@@ -439,6 +439,43 @@ Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12Diagnostics
     return Result<void>::success();
 }
 
+Result<void> report_d3d12_live_device_objects(
+    ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status,
+    const AssertContext &a_assertContext) noexcept
+{
+    if (!a_status.isDebugLayerEnabled || !are_d3d12_diagnostics_allowed())
+    {
+        return Result<void>::success();
+    }
+
+    if (a_device == nullptr)
+    {
+        return Result<void>::failure(
+            make_error(a_assertContext, k_invalidDevice,
+                       "D3D12 Device is required for live object diagnostics"));
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12DebugDevice1> debugDevice;
+    HRESULT queryResult = a_device->QueryInterface(IID_PPV_ARGS(&debugDevice));
+
+    if (FAILED(queryResult))
+    {
+        return log_fallback(
+            a_assertContext, "D3D12 Live Object診断Interfaceを取得できません", queryResult);
+    }
+
+    HRESULT reportResult = debugDevice->ReportLiveDeviceObjects(
+        D3D12_RLDO_SUMMARY | D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
+
+    if (FAILED(reportResult))
+    {
+        return log_fallback(
+            a_assertContext, "D3D12 Live Object診断を実行できません", reportResult);
+    }
+
+    return Result<void>::success();
+}
+
 Result<void> log_d3d12_messages_at_quiescent_point(
     ID3D12Device *a_device, const D3d12DiagnosticsStatus &a_status, std::string_view a_context,
     const AssertContext &a_assertContext) noexcept

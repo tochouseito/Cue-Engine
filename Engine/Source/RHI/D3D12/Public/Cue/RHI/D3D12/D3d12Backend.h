@@ -60,8 +60,6 @@ class D3d12Backend : public GraphicsBackend
  * @param a_descriptor Adapterと診断の生成設定
  * @param a_assertContext Backendより長く生存するAssert Context
  * @return 成功時はD3D12 Backendの一意Owner、失敗時は診断可能なError
- *
- * Device生成と実装本体はIssue #45で追加する
  */
 [[nodiscard]] Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(
     const D3d12BackendDescriptor &a_descriptor, AssertContext &a_assertContext) noexcept;

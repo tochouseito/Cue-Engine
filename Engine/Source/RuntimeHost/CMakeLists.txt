@@ -15,6 +15,14 @@ target_link_libraries(
 )
 target_compile_features(CueRuntimeHost PRIVATE cxx_std_20)
 
+target_compile_definitions(
+    CueRuntimeHost
+    PRIVATE
+        $<$<CONFIG:Debug>:CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT=1>
+        $<$<CONFIG:Development>:CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT=1>
+        $<$<CONFIG:Release>:CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT=0>
+)
+
 set_target_properties(
     CueRuntimeHost
     PROPERTIES
