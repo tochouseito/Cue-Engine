@@ -161,8 +161,11 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   予約値の完了を証明できた場合は上記の対象値を更新し、Frame Signalでは新規Frame受付を停止して
   `Submitted`へ遷移する。通常Frame Signal失敗ではSignal Errorを返す。Present Error後の補完Signal失敗では
   Present ErrorをPrimaryとして返し、Signal ErrorをSecondary Contextへ保持する。terminal Signalでは安全な
-  Cleanupを継続してSignal Errorを返す。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、
-  失敗した予約値をどの追跡値にも保存しない
+  Cleanupを継続してSignal Errorを返す。Device Removalを確認した場合は失敗した予約値を保存せず、Backendと
+  Contextを`DeviceRemoved`へ遷移する。ADR-0005に従い`RHI.DeviceRemoved`を新しいPrimary Errorとし、Removal
+  ReasonをNative Error、先行するPresent ErrorとSignal Errorを発生順のCause Contextとして保持してDREDと
+  Device Removed Cleanupへ進む。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、失敗した
+  予約値をどの追跡値にも保存しない
 
 Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる古いFrameの誤完了判定を許可しない。
 
@@ -276,8 +279,11 @@ Present失敗では、既にExecuteしたWorkを覆うFence Signalを試みる�
 次の`begin_frame`は`RHI.PresentationStopped`を返す。Composition Rootは元のPresent Errorを処理して通常
 Shutdownを選ぶ。Signalも失敗した場合は予約値の完了またはDevice Removalを確認する。完了を証明できた
 場合は3種類のFence値を保存して`Submitted`へ遷移し、Present ErrorをPrimary、Signal ErrorをSecondary
-Contextとして返した後に通常Shutdownを許可する。どちらも証明できなければ`Unavailable`へ遷移し、
-Present ErrorをPrimary、Signal、Wait、Removal確認のErrorを発生順のSecondary Contextとして保持する。
+Contextとして返した後に通常Shutdownを許可する。Device Removalを確認した場合は3種類の値を更新せず、
+BackendとContextを`DeviceRemoved`へ遷移する。`RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、
+Present ErrorとSignal ErrorをCause Contextとして保持し、DREDをBest-effortで収集してFenceを待たないDevice
+Removed Cleanupへ進む。どちらも証明できなければ`Unavailable`へ遷移し、Present ErrorをPrimary、Signal、
+Wait、Removal確認のErrorを発生順のSecondary Contextとして保持する。
 
 ### Resize Sequence
 
@@ -492,7 +498,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   失敗して予約値の完了を証明できた場合も3種類の値を更新して受付停止付き`Submitted`へ遷移し、Present
   ErrorをPrimary、Signal ErrorをSecondaryとして安全なShutdownを行うことをTestする。完了もRemovalも
   証明できない場合は3種類の値を更新せず`ExecutedUnfenced`から`Unavailable`へ遷移し、両Errorと全Resourceを
-  保持することをTestする
+  保持することをTestする。Device Removalだけを確認できた場合は3種類の値を更新せず`DeviceRemoved`へ遷移し、
+  `RHI.DeviceRemoved`、Removal Reason、Present Error、Signal Errorを保持してDREDとFence Waitなしの逆順
+  Cleanupを行うことをTestする
 - Issue #54でPresent成功後の通常SignalもFault Injectionする。失敗後に予約値の完了を証明できる場合は
   3種類のFence値を更新し、受付停止付き`Submitted`へ遷移して元のErrorを返し、安全なShutdownを行うことを
   Testする。完了を証明できない場合は3種類の値を更新せず、Device Removalまたは`Unavailable`へ遷移し、
