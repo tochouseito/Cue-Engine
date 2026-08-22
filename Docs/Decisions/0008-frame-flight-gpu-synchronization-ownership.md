@@ -227,8 +227,11 @@ Completed Value確認で完了へ変わるraceでは、旧Eventがsignaledのま
   せず、保存HandleをNullのままにする
 - Event置換失敗はADR-0005のNative Error付き`Error::reclassify` Overloadを使い、
   `RHI.FenceWaitEventRecoveryFailed`を新しいPrimary Error、CloseまたはCreateの保存済みWin32 Errorをその
-  Native Errorとする。先行するPresent、Signal、Wait Error Chainを一つのImmediate CauseとしてMoveし、
-  既存Causeを含む発生順を構造化されたまま保持する
+  Native Errorとする。先行ErrorはM03で確立した集約規則を先に適用し、最初のPresent、Signal、Wait Errorを
+  Primary、後発ErrorのCode、Native Error、Context、Causeを発生順のSecondary Contextとして保持した一つの
+  Errorにする。Event置換失敗への再分類では、この集約済みErrorをImmediate CauseへMoveし、そのError自身の
+  既存Cause Chainも保持する。現行`Error` APIが複数の独立ErrorをCauseとして追加できないため、Secondaryを
+  Cause Frameとして表現するとは規定しない
 - 新Eventへの置換後、次の未完了Fence Waitは必ず新Eventへ登録し、旧Eventのstale signalを観測しない
 
 - Busy Pollingを使用しない
@@ -541,8 +544,9 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   未signaledの新Eventへ置換することをTestする。旧Event Closeと新Event生成の各失敗を注入し、二重Close、
   Handle Leak、stale Event再利用がなく、失敗時は`Unavailable`としてまだOpenなHandleとGPU Resourceを
   保持し、正常Close済みHandleを再利用しないことをTestする。各失敗で`GetLastError`を他APIより先に保存し、
-  `RHI.FenceWaitEventRecoveryFailed`、保存済みPrimary Native Error、先行するPresent／Signal／Wait Error
-  ChainがImmediate CauseからRoot Causeまで規定順で構造化して保持されることを確認する
+  `RHI.FenceWaitEventRecoveryFailed`、保存済みPrimary Native Error、集約済み先行ErrorのImmediate Cause、
+  先行Error自身の既存Cause、後発ErrorのCode／Native Errorを含むSecondary Contextが規定順で保持されることを
+  確認する
 - Issue #47のTest Supportで初期`nextFenceValue`を`UINT64_MAX - 1`へ設定し、最後のSignal成功、次回の
   `RHI.FenceValueExhausted`、Fence値の非Wrap／非再利用、Execute前Discard、既存`lastSignaledFence`
   Drain後だけCleanupする経路をTestする
