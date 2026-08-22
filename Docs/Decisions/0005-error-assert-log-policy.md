@@ -158,6 +158,12 @@ Cause Frameは、再分類前のErrorを構造化して保持する非再帰Valu
 
 新しいErrorへ再分類する場合、直前のErrorの所有Dataを最初のCause FrameへMoveし、そのErrorが既に持つCause Frameを後ろへ移します。これにより、新しいPrimary ErrorからImmediate Cause、Root Causeの順に辿れます。
 
+再分類先の抽象Error自身にNative Errorがある場合は、`Error::reclassify`のNative Error付きOverloadを
+使用する。このOverloadは新しいPrimaryへNative Errorを所有させ、直前のErrorと既存Causeを同じ順序で
+Cause ChainへMoveする。Native Error付きPrimaryを必要とする呼出側が、CodeやNative値を文字列Contextへ
+変換して構造を失うことを許可しない。この追加はFirst-party Static Library向けSource APIであり、安定ABI
+またはPlugin ABIにはしない。
+
 Error系列の所有型はMove-onlyとします。
 
 - `ErrorCode`、`Error`、Context Frame、Cause FrameはCopy constructorとCopy assignmentを削除する
@@ -324,6 +330,8 @@ ConsoleとDebugger Outputの選択規則:
 - `Result<void>`の成功と失敗を検証する
 - Context追加後もError Code、Native Error、既存Contextが保持される
 - Error再分類後も元Error Code、Summary、Context、Native Error、既存CauseがCause Chainに保持される
+- Native Error付き再分類後は、新しいPrimaryのNative Errorと、Immediate CauseからRoot Causeまでの順序が
+  構造化されたまま保持される
 - Error再分類後のPrimary Error Codeが新しい抽象Levelを表し、Root Cause CodeがCause Chain末尾から取得できる
 - ErrorとResultがCopyできないことをCompile-time Testで検証する
 - Move後のResultが元の状態と値を保持する
@@ -394,3 +402,4 @@ ConsoleとDebugger Outputの選択規則:
 - Issue #33でError、Result、Source Location Contextを実装する
 - Issue #34でLogger、Console／Test Sink契約、Assert、Fatal経路を実装する
 - Issue #35で3構成のResult、Logger、Assert、依存方向TestをCompletion Gateへ追加する
+- Issue #47でNative Error付き`Error::reclassify` Overloadと保持順序のTestを追加する
