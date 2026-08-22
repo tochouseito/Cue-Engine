@@ -441,9 +441,11 @@ bool verify_d3d12_rtv_heap_move_for_probe(const AssertContext &a_assertContext) 
 
     const D3d12RtvSlot slot = *slotResult.try_value();
     D3d12RtvHeap target(std::move(source));
+    Result<D3d12RtvSlot> movedFromAllocation = source.allocate();
+    const bool movedFromIsDiagnosable = has_error_code(movedFromAllocation.try_error(), 74);
     const bool handleValid = static_cast<bool>(target.cpu_handle(slot));
     const bool released = static_cast<bool>(target.release(slot));
-    return finish_heap(target) && handleValid && released && !source.has_native_object();
+    return finish_heap(target) && handleValid && released && movedFromIsDiagnosable && !source.has_native_object();
 }
 
 bool verify_d3d12_rtv_heap_violation_for_probe(D3d12RtvHeapViolationProbeMode a_mode,

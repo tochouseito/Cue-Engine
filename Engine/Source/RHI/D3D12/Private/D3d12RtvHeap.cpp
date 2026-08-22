@@ -148,7 +148,6 @@ void D3d12RtvHeap::take_from(D3d12RtvHeap &&a_other) noexcept
     a_other.m_handles = {};
     a_other.m_generations = {};
     a_other.m_allocated = {};
-    a_other.m_assertContext = nullptr;
     a_other.m_incrementSize = 0;
     a_other.m_usedCount = 0;
     a_other.m_incarnation = 0;
