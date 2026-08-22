@@ -129,29 +129,30 @@ DXGIとD3D12固有のConfiguration名は`Cue.RHI.D3D12`の公開Factory Header�
 
 Backend状態は`Ready`、`DeviceRemoved`、`Unavailable`、`Shutdown`の四つとする。
 
-- 正常経路は`Ready -> Shutdown`、Device Removal経路は`Ready -> DeviceRemoved -> Shutdown`とする。Fence Timeoutは`Ready -> Unavailable`の終端経路とする
+- 正常経路は`Ready -> Shutdown`、Device Removal経路は`Ready -> DeviceRemoved -> Shutdown`とする。Fence完了もDevice Removalも証明できない失敗は`Ready -> Unavailable`の終端経路とする
 - `DeviceRemoved`または`Unavailable`後のGPU操作は新しいWorkを開始せず、`RHI.BackendUnavailable` Errorを返す
 - `capabilities()`と`state()`はBackend Objectの破棄まで参照できる
 - `shutdown()`は明示的に呼び、成功後の再呼出は成功する冪等操作とする
-- `shutdown()`開始後は新しいWorkを拒否する。GPUが完了済みまたはDevice Removedと確認できた場合は、途中で失敗しても安全に解放できるObjectのBest-effort Cleanupを最後まで行い、`Shutdown`へ遷移して最初のErrorを返す
-- Fence WaitがTimeoutし、`GetDeviceRemovedReason`もDevice Removalを示さない場合は`Unavailable`へ遷移し、GPUが参照し得るResource、Queue、Deviceを解放しない。再呼出は`RHI.BackendUnavailable`を返す
+- `shutdown()`は有効なPresentation Context数を最初に検査し、ゼロの場合だけ新しいWorkを拒否して停止処理を開始する。GPUが完了済みまたはDevice Removedと確認できた場合は、途中で失敗しても安全に解放できるObjectのBest-effort Cleanupを最後まで行い、`Shutdown`へ遷移して最初のErrorを返す
+- Fence Signal、Fence Wait、待機Primitive、Removal Reason取得のいずれかが失敗し、Fence完了もDevice Removalも証明できない場合は`Unavailable`へ遷移し、GPUが参照し得るResource、Queue、Deviceを解放しない。再呼出は`RHI.BackendUnavailable`を返す
 - Queue追加後の通常`shutdown()`はPresentation Contextがゼロであることを確認し、Backend自身が所有する最後のFenceだけをSignalしてRuntimeHostが指定する有限時間だけ待つ。M04のQueue ADRで既定時間と待機Primitiveを決定する
-- Fence Signal、Wait、Device Removal診断の失敗は`shutdown()`の`Result`で返し、RuntimeHostが一度Logして終了Codeを決定する
-- `DeviceRemoved`ではFence完了を待たず、DRED収集後にNative Objectを解放する
-- RuntimeHostはBackend Destructorより前に`shutdown()`を呼ぶ。Destructorは未解放Native Objectを例外なしで解放する最後の安全網であり、失敗を隠す通常経路として使用しない
+- Fence Signal、Wait、待機Primitive、Removal Reason取得の失敗は`shutdown()`の`Result`で返す。安全な解放を証明できない失敗ではResource保持付き`Unavailable`へ遷移し、RuntimeHostがErrorとContextをFatal Dispatcherへ一度渡す。Fatal DispatcherはADR-0005に従って`log_and_flush`後にFatal Handlerを呼ぶ
+- `DeviceRemoved`ではFence完了を待たず、DRED収集をBest-effortで行ってNative Objectを解放する。Removal ReasonでDevice Removalを確認済みなら、DRED収集失敗は安全な解放を妨げない
+- RuntimeHostはBackend Destructorより前に`shutdown()`を呼ぶ。DestructorがNative Objectを解放できる事前条件は`Shutdown`、またはGPU Workを一度も投入していない初期化失敗状態とする。`Unavailable`でDestructorへ到達した場合、実装はGPU参照可能Objectを解放せず、注入済みEmergency Entry PointでProcessを終了する。Destructorを失敗を隠す通常経路として使用しない
 
 M04でPresentation Contextを追加する場合は、Backendと独立した明示`shutdown()`契約を持たせる。
 
 - Presentation Contextは`Ready`、`DeviceRemoved`、`Unavailable`、`Shutdown`状態を持つ
 - `PresentationContext::shutdown()`は新しいFrameを拒否し、自身が最後に投入したFenceをSignalして有限時間だけ待ち、Frame Context、Back Buffer、RTV、Swap Chainを順に解放する
 - `PresentationContext::shutdown()`はGPU完了後、途中で失敗しても安全に解放できるPresentation ResourceのBest-effort Cleanupを最後まで行い、`Shutdown`へ遷移して最初のErrorを返す
-- Device Removed時はFenceを待たず、Presentation Resourceを解放してBackendのDRED診断へ移る
-- Fence WaitがTimeoutしてDevice Removalも確認できない場合は、ContextとBackendを`Unavailable`へ遷移し、Frame Context、Back Buffer、RTV、Swap Chainを保持したままBackendへ登録し続ける
+- Device Removed時はFenceを待たず、BackendでRemoval Reasonを記録してDREDをBest-effortで収集した後にPresentation Resourceを解放する
+- Fence Signal、Fence Wait、待機Primitive、Removal Reason取得のいずれかが失敗し、Fence完了もDevice Removalも確認できない場合は、ContextとBackendを`Unavailable`へ遷移し、Frame Context、Back Buffer、RTV、Swap Chainを保持したままBackendへ登録し続ける
 - Backendは生成した有効なPresentation Context数を追跡し、Contextを所有しない
-- 有効なPresentation Contextが残る`GraphicsBackend::shutdown()`は状態を変更せず`RHI.ActivePresentationContexts` Errorを返す
+- 有効なPresentation Contextが残る`GraphicsBackend::shutdown()`は、受付停止、状態遷移、Fence操作を含む副作用を一切起こさず、`Ready`とWork受付を維持したまま`RHI.ActivePresentationContexts` Errorを返す
 - Composition Rootは全Presentation Contextの`shutdown()`結果を処理してContextを破棄してから、Backendの`shutdown()`を呼ぶ
 - Backendの`shutdown()`はContextがゼロであることを確認した後、Backend自身が所有する未完了Workだけを有限時間待ち、QueueとDeviceを解放する
-- `Unavailable`は復旧不能状態とする。RuntimeHostはErrorとContextを一度Logし、Stack UnwindまたはOwner破棄を行わず`FatalHandler`でProcessを終了する。GPU ResourceはProcess Lifetimeまで保持してOSに回収させる
+- `Unavailable`は復旧不能状態とする。RuntimeHostはErrorとContextをFatal Dispatcherへ一度渡し、Stack UnwindまたはOwner破棄を行わない。Fatal Dispatcherは`log_and_flush`後にFatal Handlerを呼び、GPU ResourceをProcess Lifetimeまで保持してOSに回収させる
+- `Unavailable`のPresentation Context Destructorへ到達した場合も、実装はPresentation Resourceの解放とBackend登録解除を行わず、注入済みEmergency Entry PointでProcessを終了する
 
 `std::unique_ptr`はAccepted ADR-0004で定めた同一Repository、同一ToolchainのFirst-party Static Library境界でのみ使用する。これは安定ABIではない。将来のDLLまたはPlugin境界では、このFactoryを直接公開せず、Version付きABI AdapterでSTL所有権、C++例外、Raw Ownershipを越境させない。
 
@@ -459,18 +460,20 @@ destroy Window
     -> flush Logger
 ```
 
-Device Removed時はFence完了を無制限に待たず、Removal ReasonとDREDを収集してから同じ所有順序で破棄する。
+Device Removed時はFence完了を無制限に待たず、Removal Reasonを記録し、DREDをBest-effortで収集してから同じ所有順序で破棄する。
 
-Fence Timeout時:
+Fence完了もDevice Removalも証明できない失敗時:
 
 ```text
-Fence wait timeout
+Fence signal, wait, wait primitive, or removal-reason query failure
     -> query GetDeviceRemovedReason
     -> Device Removed: collect DRED and release through the Device Removed path
-    -> Device still available: mark Context and Backend Unavailable
+    -> A successfully signaled terminal fence covering all submitted GPU work completed:
+        release through the normal shutdown path
+    -> Neither completion nor removal proven: mark Context and Backend Unavailable
         -> retain all resources reachable by unfinished GPU work
-        -> log the timeout once
-        -> terminate through FatalHandler without stack unwinding
+        -> pass the failure once to Fatal Dispatcher
+        -> log_and_flush, then terminate through Fatal Handler without stack unwinding
 ```
 
 ## Consequences
