@@ -1,0 +1,91 @@
+set(cueD3d12MinimumWindowsSdkVersion "10.0.26100.0")
+
+if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio ")
+    message(FATAL_ERROR "Cue.RHI.D3D12 requires a Visual Studio generator")
+endif()
+
+if("${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}" STREQUAL "")
+    message(FATAL_ERROR "Selected Windows SDK version is not available")
+endif()
+
+if(
+    "${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}"
+    VERSION_LESS
+    "${cueD3d12MinimumWindowsSdkVersion}"
+)
+    message(
+        FATAL_ERROR
+        "Cue.RHI.D3D12 requires Windows SDK ${cueD3d12MinimumWindowsSdkVersion} or later; selected ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}"
+    )
+endif()
+
+add_library(Cue.RHI.D3D12 STATIC)
+
+set_property(
+    TARGET Cue.RHI.D3D12
+    PROPERTY CUE_MINIMUM_WINDOWS_SDK_VERSION "${cueD3d12MinimumWindowsSdkVersion}"
+)
+
+target_sources(
+    Cue.RHI.D3D12
+    PRIVATE
+        Private/D3d12Backend.cpp
+    PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS Public
+        FILES
+            Public/Cue/RHI/D3D12/D3d12Backend.h
+)
+
+target_link_libraries(
+    Cue.RHI.D3D12
+    PUBLIC
+        Cue.RHI
+    PRIVATE
+        D3D12
+        DXGI
+        DXGUID
+)
+target_compile_features(Cue.RHI.D3D12 PUBLIC cxx_std_20)
+
+target_compile_definitions(
+    Cue.RHI.D3D12
+    PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+target_include_directories(
+    Cue.RHI.D3D12
+    PUBLIC
+        Public
+    PRIVATE
+        Private
+)
+
+set_target_properties(
+    Cue.RHI.D3D12
+    PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>"
+        CXX_EXTENSIONS OFF
+)
+
+if(MSVC)
+    target_compile_options(
+        Cue.RHI.D3D12
+        PRIVATE
+            /W4
+            /WX
+            /permissive-
+            /Zc:__cplusplus
+            /utf-8
+            $<$<CONFIG:Development>:/O2>
+            $<$<CONFIG:Development>:/Zi>
+    )
+
+    target_link_options(
+        Cue.RHI.D3D12
+        PRIVATE
+            $<$<CONFIG:Development>:/DEBUG>
+    )
+endif()
