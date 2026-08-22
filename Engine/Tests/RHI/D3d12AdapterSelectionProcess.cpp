@@ -15,6 +15,7 @@
 namespace
 {
 constexpr std::int64_t k_noHardwareAdapter = 24;
+constexpr std::int64_t k_noSuitableAdapter = 25;
 constexpr std::int64_t k_adapterLogFailed = 27;
 
 class ProcessFatalHandler final : public cue::FatalHandler
@@ -208,7 +209,8 @@ int main(int a_argumentCount, char **a_arguments)
         bool isHardwareUnavailable = mode == "Hardware" && !has_independent_supported_hardware_adapter() &&
                                      error != nullptr &&
                                      error->code().domain() == "Cue.RHI.D3D12" &&
-                                     error->code().value() == k_noHardwareAdapter;
+                                     (error->code().value() == k_noHardwareAdapter ||
+                                      error->code().value() == k_noSuitableAdapter);
         return isHardwareUnavailable ? 77 : 5;
     }
 
