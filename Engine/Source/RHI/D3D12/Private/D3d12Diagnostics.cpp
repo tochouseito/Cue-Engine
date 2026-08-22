@@ -102,7 +102,20 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
                                          "Optional D3D12 diagnostics are unavailable", a_nativeCode);
     cue::LogResult logResult =
         a_context.logger().log(cue::LogLevel::Warning, a_message, std::move(error));
-    return validate_log_result(logResult, a_context);
+
+    if (logResult == cue::LogResult::Success)
+    {
+        return cue::Result<void>::success();
+    }
+
+    cue::Error cause = make_native_error(a_context, k_optionalDiagnosticsUnavailable,
+                                         "Optional D3D12 diagnostics are unavailable", a_nativeCode);
+    cue::ErrorCode code = cue::ErrorCode::create(
+        a_context.fatal_handler(), "Cue.RHI.D3D12", k_diagnosticLogFailed);
+    cue::Error logError = cue::Error::reclassify(
+        a_context.fatal_handler(), std::move(code),
+        "Foundation Logger could not record D3D12 diagnostics", std::move(cause));
+    return cue::Result<void>::failure(std::move(logError));
 }
 
 [[nodiscard]] bool try_convert_dred_name(const wchar_t *a_name, std::string &a_storage,
