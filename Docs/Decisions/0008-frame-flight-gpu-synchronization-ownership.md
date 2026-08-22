@@ -255,6 +255,7 @@ Completed Value確認で完了へ変わるraceでは、旧Eventがsignaledのま
 | `Initial` | Native Command List生成直後でRecording中 | 初期化用`Close`だけを許可する |
 | `IdleClosed` | 初期化または明示Discard後の空Command ListがClose済み | 完了済みAllocatorを指定した`Reset`を許可する |
 | `Submitted` | QueueへExecute済みで、対応FenceをSignal済み | 完了済みAllocatorを指定した`Reset`だけを許可する |
+| `FrameResetFailed` | AllocatorまたはCommand ListのNative `Reset`が失敗し、その呼出のWorkをSubmitしていない | Context Shutdownだけを許可する |
 | `Recording` | AllocatorとCommand ListをReset済みで記録中 | Command記録と`Close`だけを許可する |
 | `RecordingCloseFailed` | Native `Close`が失敗し、未Submit内容を実行できない | Context Shutdownだけを許可する |
 | `Closed` | Frame Commandの記録終了済みで、まだExecuteしていない | `Execute`または未Submit内容の明示Discardだけを許可する |
@@ -276,7 +277,14 @@ Frame記録の規則:
   `DeviceRemoved`へ遷移してDRED経路へ進む。完了もRemovalも証明できない場合はAllocator、Back Buffer、
   Context Resource、Backend登録を保持してBackendとContextを`Unavailable`へ遷移する
 - Allocator Reset成功後にCommand ListをそのAllocatorでResetし、`Recording`へ遷移する
-- Command List Reset失敗時はAllocatorを再利用可能だがFrame開始失敗としてErrorを返す
+- AllocatorまたはCommand ListのResetが失敗した場合は直後に`GetDeviceRemovedReason`を確認する。Device
+  Removalなら新規Frame受付を停止し、BackendとContextを`DeviceRemoved`へ遷移する。
+  `RHI.DeviceRemoved`をPrimary、Removal ReasonをNative Error、Reset ErrorをSecondary Contextとして保持し、
+  DREDとDevice Removed Cleanupへ進む
+- Reset失敗後にDevice Removalが確認されなければ、新規Frame受付を停止して`FrameResetFailed`へ遷移する。
+  失敗したAllocatorまたはCommand Listを再Reset、Close、Executeせず、元のNative Error付き`Result`を返す。
+  失敗した呼出ではWorkをSubmitしていないため、Context terminal Signalと有限Waitで既存Queue Workの完了を
+  証明した後だけContext Resourceを解放する
 - `Recording`以外でCommandを記録しない
 - `close_frame`は`Recording`からだけ呼び、成功後`Closed`へ遷移する
 - `close_frame`のNative `Close`が失敗した場合はDevice Removalを確認する。Removalでなければ新しいFrame受付を
@@ -386,7 +394,7 @@ Presentation Contextの通常Shutdown:
 
 ```text
 stop accepting frames
-    -> require Command List state is IdleClosed, Submitted, or RecordingCloseFailed
+    -> require Command List state is IdleClosed, Submitted, FrameResetFailed, or RecordingCloseFailed
     -> reserve and signal a Context terminal fence on the shared Queue
     -> after Signal success or reservation completion proof, store the terminal value
     -> wait for the terminal fence with finite timeout
@@ -407,8 +415,9 @@ Event置換成功後に安全に解放し、Device RemovalならDREDとDevice Re
 または完了もRemovalも証明できない場合だけResourceとBackend登録を保持し、ContextとBackendを`Unavailable`へ
 遷移する。
 Fence枯渇済みの場合だけterminal Signalを省略し、既存`lastSignaledFence`の完了確認後に同じ解放順序へ
-進む。`RecordingCloseFailed`でも失敗したCommand Listを再CloseまたはExecuteせず、terminal SignalとWaitで
-既存Queue Workの完了を証明した後にCommand Listを含むContext Resourceを解放する。
+進む。`FrameResetFailed`または`RecordingCloseFailed`でも失敗したObjectを再Reset、再Close、またはExecute
+せず、terminal SignalとWaitで既存Queue Workの完了を証明した後にCommand Listを含むContext Resourceを
+解放する。
 
 D3D12 Backendの通常Shutdown:
 
@@ -563,6 +572,10 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   またはWaitも失敗した場合は、予約値または既存terminal値の完了証明とEvent置換成功後にErrorを返しつつ
   安全に解放する経路、Device Removal確認後のDREDとCleanup、Event置換失敗またはどちらも証明不能な場合だけ
   `Unavailable`としてResourceとBackend登録を保持する経路へ分けてTestする
+- Issue #48でAllocatorとCommand Listの`Reset`失敗を個別にFault Injectionする。Device Removal時は新規Frame
+  受付停止、`DeviceRemoved`遷移、Reset Errorを保持したDRED／Cleanupを確認する。Removalでない場合は
+  `FrameResetFailed`へ遷移し、再Reset／Close／Executeを禁止してContext terminal SignalとWait後だけ安全に
+  解放することを確認する
 - Command ListのState順序違反とFrame Index範囲外をProcess TestまたはTest Supportで検証する
 - Issue #50でSwap Chain Buffer Countが2であり、Current Back Buffer Indexが範囲内であることを検証する
 - Issue #51で通常Resize、同一Size、0 Size、Restore、最低50回の連続Resizeを検証する
