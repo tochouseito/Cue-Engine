@@ -159,9 +159,10 @@ BackendはPresentation Contextを所有しない。ADR-0007どおり有効Contex
   対象Presentation Contextがないため、`lastSubmittedFence`を更新しない
 - `Signal`が失敗した場合は、後述の有限Wait Policyで予約値の完了を確認し、Device Removalも再確認する。
   予約値の完了を証明できた場合は上記の対象値を更新し、Frame Signalでは新規Frame受付を停止して
-  `Submitted`へ遷移し、元のNative Errorを返す。terminal Signalでは安全なCleanupを継続して元のErrorを
-  返す。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、失敗した予約値をどの追跡値にも
-  保存しない
+  `Submitted`へ遷移する。通常Frame Signal失敗ではSignal Errorを返す。Present Error後の補完Signal失敗では
+  Present ErrorをPrimaryとして返し、Signal ErrorをSecondary Contextへ保持する。terminal Signalでは安全な
+  Cleanupを継続してSignal Errorを返す。完了もDevice Removalも証明できない場合だけ`Unavailable`へ遷移し、
+  失敗した予約値をどの追跡値にも保存しない
 
 Fence値のOverflowは実運用上到達困難でも、符号なしWrapによる古いFrameの誤完了判定を許可しない。
 
@@ -274,8 +275,9 @@ Present失敗では、既にExecuteしたWorkを覆うFence Signalを試みる�
 保存し、新しいFrame受付を停止する。Contextは安全なFence Waitと通常Shutdownを行うため`Ready`を維持し、
 次の`begin_frame`は`RHI.PresentationStopped`を返す。Composition Rootは元のPresent Errorを処理して通常
 Shutdownを選ぶ。Signalも失敗した場合は予約値の完了またはDevice Removalを確認する。完了を証明できた
-場合は3種類のFence値を保存して`Submitted`へ遷移し、元のSignal Errorを返した後に通常Shutdownを許可する。
-どちらも証明できなければ`Unavailable`へ遷移する。
+場合は3種類のFence値を保存して`Submitted`へ遷移し、Present ErrorをPrimary、Signal ErrorをSecondary
+Contextとして返した後に通常Shutdownを許可する。どちらも証明できなければ`Unavailable`へ遷移し、
+Present ErrorをPrimary、Signal、Wait、Removal確認のErrorを発生順のSecondary Contextとして保持する。
 
 ### Resize Sequence
 
@@ -486,8 +488,11 @@ RuntimeHostは5,000を明示し、Factoryは許可範囲をDevice、Queue、Fenc
   安全な逆順解放、および`Unavailable`時のResource保持をTestする
 - Issue #54でPresentの非Device Removal失敗をFault Injectionし、補完Signal成功時は対象Frameの
   `reuseFenceValue`、Presentation Contextの`lastSubmittedFence`、Backendの`lastSignaledFence`が同じ値へ
-  更新されて`Submitted`へ遷移し、新規Frame受付を停止することをTestする。補完Signalも失敗した場合は
-  `ExecutedUnfenced`から`Unavailable`へ遷移して全Resourceを保持することをTestする
+  更新されて`Submitted`へ遷移し、新規Frame受付を停止してPresent Errorを返すことをTestする。補完Signalが
+  失敗して予約値の完了を証明できた場合も3種類の値を更新して受付停止付き`Submitted`へ遷移し、Present
+  ErrorをPrimary、Signal ErrorをSecondaryとして安全なShutdownを行うことをTestする。完了もRemovalも
+  証明できない場合は3種類の値を更新せず`ExecutedUnfenced`から`Unavailable`へ遷移し、両Errorと全Resourceを
+  保持することをTestする
 - Issue #54でPresent成功後の通常SignalもFault Injectionする。失敗後に予約値の完了を証明できる場合は
   3種類のFence値を更新し、受付停止付き`Submitted`へ遷移して元のErrorを返し、安全なShutdownを行うことを
   Testする。完了を証明できない場合は3種類の値を更新せず、Device Removalまたは`Unavailable`へ遷移し、
