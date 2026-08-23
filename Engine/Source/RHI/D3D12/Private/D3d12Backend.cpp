@@ -160,20 +160,39 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
 {
     if (g_presentationFrameProbeState.removeDeviceBeforePresent)
     {
+        const HRESULT presentResult =
+            cue::default_d3d12_swap_chain_native_functions().present(a_swapChain, a_syncInterval, a_flags);
+
+        if (FAILED(presentResult))
+        {
+            return presentResult;
+        }
+
         Microsoft::WRL::ComPtr<ID3D12Device5> device;
 
-        if (SUCCEEDED(a_swapChain->GetDevice(IID_PPV_ARGS(&device))))
-        {
-            device->RemoveDevice();
-        }
-        else
+        if (FAILED(a_swapChain->GetDevice(IID_PPV_ARGS(&device))))
         {
             g_deviceRemovalProbeUnavailable = true;
+            return E_NOINTERFACE;
         }
+
+        device->RemoveDevice();
+        return DXGI_ERROR_DEVICE_REMOVED;
     }
 
     if (g_presentationFrameProbeState.failPresent)
     {
+        if (g_queueLifecycleProbeState.removeDeviceBeforeSignal)
+        {
+            const HRESULT presentResult =
+                cue::default_d3d12_swap_chain_native_functions().present(a_swapChain, a_syncInterval, a_flags);
+
+            if (FAILED(presentResult))
+            {
+                return presentResult;
+            }
+        }
+
         return E_FAIL;
     }
 
