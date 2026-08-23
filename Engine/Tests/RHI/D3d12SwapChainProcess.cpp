@@ -214,7 +214,9 @@ class ForeignWindow final : public cue::Window
     std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
     cue::D3d12PresentationProbeReport initialReport = cue::probe_d3d12_presentation(*presentation);
     bool valid = initialReport.rtvCount == 2 && initialReport.formatsMatch && initialReport.isAcceptingFrames;
+    valid = valid && cue::submit_d3d12_transition_frame_for_probe(*presentation);
     valid = valid && presentation->resize(640, 360) && !presentation->is_resize_pending();
+    valid = valid && cue::submit_d3d12_transition_frame_for_probe(*presentation);
     valid = valid && presentation->resize(0, 360) && presentation->is_resize_pending() &&
             presentation->width() == 640 && presentation->height() == 360;
     cue::D3d12PresentationProbeReport suspendedReport = cue::probe_d3d12_presentation(*presentation);
@@ -232,6 +234,11 @@ class ForeignWindow final : public cue::Window
                 presentation->width() == width && presentation->height() == height &&
                 presentation->current_back_buffer_index() < 2 && report.rtvCount == 2 && report.formatsMatch &&
                 report.isAcceptingFrames;
+
+        if (iteration == 0 && valid)
+        {
+            valid = cue::submit_d3d12_transition_frame_for_probe(*presentation);
+        }
     }
 
     cue::Result<void> presentationShutdownResult = presentation->shutdown();

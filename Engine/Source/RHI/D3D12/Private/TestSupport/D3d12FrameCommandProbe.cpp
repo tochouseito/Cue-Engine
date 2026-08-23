@@ -55,6 +55,7 @@ struct ProbeNativeState final
     ProbeFaultMode faultMode = ProbeFaultMode::None;
     ProbeWaitFaultMode waitFaultMode = ProbeWaitFaultMode::None;
     std::array<ID3D12CommandAllocator *, cue::k_d3d12FrameContextCount> allocators = {};
+    std::array<ID3D12Resource *, cue::k_d3d12FrameContextCount> backBuffers = {};
     std::array<std::uint32_t, cue::k_d3d12FrameContextCount> allocatorResetCounts = {};
     std::array<bool, cue::k_d3d12FrameContextCount> completionCheckedSinceSubmit = {true, true};
     std::array<std::uint64_t, cue::k_d3d12FrameContextCount> submittedFenceValues = {};
@@ -63,6 +64,7 @@ struct ProbeNativeState final
     std::uint32_t commandListResetCount = 0;
     std::uint32_t commandListCloseCount = 0;
     std::uint32_t executeCount = 0;
+    std::uint32_t barrierCount = 0;
     std::uint32_t completedCallCount = 0;
     std::uint32_t createEventCallCount = 0;
     std::uint32_t closeHandleCallCount = 0;
@@ -73,6 +75,7 @@ struct ProbeNativeState final
     bool waitFaultActive = false;
     bool signalFaultActive = false;
     bool frameSignalPending = false;
+    bool barriersAreValid = true;
     HANDLE initialEvent = nullptr;
     HANDLE replacementEvent = nullptr;
     HANDLE lastRegisteredEvent = nullptr;
@@ -173,6 +176,26 @@ HRESULT close_list_for_probe(ID3D12GraphicsCommandList *a_commandList) noexcept
     }
 
     return a_commandList->Close();
+}
+
+void resource_barrier_for_probe(ID3D12GraphicsCommandList *a_commandList, UINT a_barrierCount,
+                                const D3D12_RESOURCE_BARRIER *a_barriers) noexcept
+{
+    const bool isRenderTargetTransition = (g_probeState.barrierCount % 2) == 0;
+    const D3D12_RESOURCE_STATES expectedBefore =
+        isRenderTargetTransition ? D3D12_RESOURCE_STATE_PRESENT : D3D12_RESOURCE_STATE_RENDER_TARGET;
+    const D3D12_RESOURCE_STATES expectedAfter =
+        isRenderTargetTransition ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_PRESENT;
+    const D3D12_RESOURCE_BARRIER *barrier = a_barrierCount == 1 && a_barriers != nullptr ? &a_barriers[0] : nullptr;
+    g_probeState.barriersAreValid =
+        g_probeState.barriersAreValid && barrier != nullptr &&
+        barrier->Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION &&
+        barrier->Flags == D3D12_RESOURCE_BARRIER_FLAG_NONE &&
+        barrier->Transition.pResource == g_probeState.backBuffers[g_probeState.nextFrameIndex] &&
+        barrier->Transition.Subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES &&
+        barrier->Transition.StateBefore == expectedBefore && barrier->Transition.StateAfter == expectedAfter;
+    g_probeState.barrierCount += a_barrierCount;
+    a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
 void execute_lists_for_probe(ID3D12CommandQueue *a_queue, UINT a_count,
@@ -340,6 +363,7 @@ HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     return {
         create_allocator_for_probe, create_list_for_probe, set_name_for_probe,
         reset_allocator_for_probe,  reset_list_for_probe,  close_list_for_probe,
+        resource_barrier_for_probe,
     };
 }
 
@@ -377,6 +401,45 @@ struct ProbeObjects final
     std::unique_ptr<cue::D3d12FrameCommandState> frameState;
     cue::D3d12DiagnosticsStatus diagnostics;
 };
+
+[[nodiscard]] cue::Result<void> bind_probe_back_buffers(ProbeObjects &a_objects,
+                                                        const cue::AssertContext &a_assertContext) noexcept
+{
+    D3D12_HEAP_PROPERTIES heapProperties = {};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heapProperties.CreationNodeMask = 1;
+    heapProperties.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC resourceDescriptor = {};
+    resourceDescriptor.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resourceDescriptor.Width = 4;
+    resourceDescriptor.Height = 4;
+    resourceDescriptor.DepthOrArraySize = 1;
+    resourceDescriptor.MipLevels = 1;
+    resourceDescriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resourceDescriptor.SampleDesc.Count = 1;
+    resourceDescriptor.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resourceDescriptor.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    cue::D3d12FrameBackBuffers backBuffers = {};
+
+    for (std::uint32_t index = 0; index < cue::k_d3d12FrameContextCount; ++index)
+    {
+        const HRESULT result = a_objects.device->CreateCommittedResource(
+            &heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDescriptor, D3D12_RESOURCE_STATE_PRESENT, nullptr,
+            IID_PPV_ARGS(&backBuffers[index]));
+
+        if (FAILED(result))
+        {
+            return cue::Result<void>::failure(cue::Error::create(
+                a_assertContext.fatal_handler(),
+                cue::ErrorCode::create(a_assertContext.fatal_handler(), "Cue.RHI.D3D12", 96),
+                "D3D12 Back Buffer Transition probe Resource creation failed"));
+        }
+
+        g_probeState.backBuffers[index] = backBuffers[index].Get();
+    }
+
+    return a_objects.frameState->bind_back_buffers(std::move(backBuffers));
+}
 
 [[nodiscard]] cue::Result<std::unique_ptr<ProbeObjects>> create_probe_objects(
     ProbeFaultMode a_mode, bool a_enableDiagnostics, const cue::AssertContext &a_assertContext) noexcept
@@ -495,15 +558,18 @@ struct ProbeObjects final
 
 [[nodiscard]] bool shutdown_probe_objects(std::unique_ptr<ProbeObjects> &a_objects) noexcept
 {
-    cue::Result<void> frameShutdownResult = a_objects->frameState->shutdown();
+    cue::Result<void> frameShutdownResult = a_objects->frameState->begin_shutdown();
 
-    if (!frameShutdownResult)
+    if (a_objects->frameState->status() != cue::D3d12FrameCommandStatus::CleanupPending)
     {
         return false;
     }
 
+    a_objects->frameState->release_back_buffers();
+    cue::Result<void> allocatorResult = a_objects->frameState->release_allocators_after_presentation_cleanup();
+
     cue::Result<void> queueShutdownResult = a_objects->queueState.shutdown();
-    return static_cast<bool>(queueShutdownResult);
+    return frameShutdownResult && allocatorResult && queueShutdownResult;
 }
 
 void disable_probe_faults() noexcept
@@ -644,6 +710,12 @@ Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(const AssertCont
     }
 
     std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<void> bindingResult = bind_probe_back_buffers(*objects, a_assertContext);
+
+    if (!bindingResult)
+    {
+        return Result<D3d12FrameCommandProbeReport>::failure(std::move(*bindingResult.try_error()));
+    }
 
     for (std::uint32_t iteration = 0; iteration < k_smokeIterationCount; ++iteration)
     {
@@ -654,6 +726,21 @@ Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(const AssertCont
         if (!beginResult)
         {
             return Result<D3d12FrameCommandProbeReport>::failure(std::move(*beginResult.try_error()));
+        }
+
+        Result<void> renderTargetResult =
+            objects->frameState->transition_back_buffer(frameIndex, D3d12BackBufferState::RenderTarget);
+        Result<void> sameStateResult =
+            renderTargetResult
+                ? objects->frameState->transition_back_buffer(frameIndex, D3d12BackBufferState::RenderTarget)
+                : Result<void>::failure(std::move(*renderTargetResult.try_error()));
+        Result<void> presentResult =
+            sameStateResult ? objects->frameState->transition_back_buffer(frameIndex, D3d12BackBufferState::Present)
+                            : Result<void>::failure(std::move(*sameStateResult.try_error()));
+
+        if (!presentResult)
+        {
+            return Result<D3d12FrameCommandProbeReport>::failure(std::move(*presentResult.try_error()));
         }
 
         Result<void> closeResult = objects->frameState->close_frame();
@@ -672,6 +759,7 @@ Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(const AssertCont
     }
 
     const std::uint64_t lastSubmittedFence = objects->frameState->last_submitted_fence();
+    const bool backBuffersReturnedToPresent = objects->frameState->are_back_buffers_present();
 
     if (!shutdown_probe_objects(objects))
     {
@@ -694,11 +782,14 @@ Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(const AssertCont
     report.frameZeroResetCount = g_probeState.allocatorResetCounts[0];
     report.frameOneResetCount = g_probeState.allocatorResetCounts[1];
     report.executeCount = g_probeState.executeCount;
+    report.barrierCount = g_probeState.barrierCount;
     report.lastSubmittedFence = lastSubmittedFence;
     report.infoQueueErrorCount = infoQueueErrorCount;
     report.frameNamesContainIndices =
         g_probeState.allocatorNamesContainIndex[0] && g_probeState.allocatorNamesContainIndex[1];
     report.fenceCheckedBeforeAllocatorReuse = g_probeState.fenceCheckedBeforeAllocatorReuse;
+    report.barriersAreValid = g_probeState.barriersAreValid;
+    report.backBuffersReturnedToPresent = backBuffersReturnedToPresent;
     report.diagnosticsAvailable = objects->diagnostics.isInfoQueueEnabled;
     return Result<D3d12FrameCommandProbeReport>::success(std::move(report));
 }
@@ -719,6 +810,132 @@ bool verify_d3d12_invalid_frame_index_for_probe(const AssertContext &a_assertCon
                        g_probeState.allocatorResetCounts[1] == 0 && g_probeState.executeCount == 0;
     return shutdown_probe_objects(objects) && valid && g_probeState.allocatorResetCounts[0] == 0 &&
            g_probeState.allocatorResetCounts[1] == 0 && g_probeState.executeCount == 0;
+}
+
+bool verify_d3d12_transition_invalid_index_for_probe(const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<void> beginResult = objects->frameState->begin_frame(0);
+    Result<void> transitionResult =
+        beginResult ? objects->frameState->transition_back_buffer(k_d3d12FrameContextCount,
+                                                                  D3d12BackBufferState::RenderTarget)
+                    : Result<void>::failure(std::move(*beginResult.try_error()));
+    const bool valid = matches_error(transitionResult.try_error(), 59) && g_probeState.barrierCount == 0;
+    Result<void> closeResult = objects->frameState->close_frame();
+    Result<std::uint64_t> submitResult =
+        closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                    : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+    return submitResult && shutdown_probe_objects(objects) && valid && g_probeState.barrierCount == 0;
+}
+
+bool verify_d3d12_transition_null_resource_for_probe(const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<void> beginResult = objects->frameState->begin_frame(0);
+    Result<void> transitionResult =
+        beginResult ? objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget)
+                    : Result<void>::failure(std::move(*beginResult.try_error()));
+    const bool valid = matches_error(transitionResult.try_error(), 95) && g_probeState.barrierCount == 0;
+    Result<void> closeResult = objects->frameState->close_frame();
+    Result<std::uint64_t> submitResult =
+        closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                    : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+    return submitResult && shutdown_probe_objects(objects) && valid && g_probeState.barrierCount == 0;
+}
+
+bool verify_d3d12_transition_order_for_probe(D3d12BackBufferTransitionOrderProbeMode a_mode,
+                                              const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+
+    if (a_mode == D3d12BackBufferTransitionOrderProbeMode::OutsideRecording)
+    {
+        Result<void> transitionResult =
+            objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget);
+        const bool valid = matches_error(transitionResult.try_error(), 94) && g_probeState.barrierCount == 0;
+        return shutdown_probe_objects(objects) && valid;
+    }
+
+    Result<void> beginResult = objects->frameState->begin_frame(0);
+    Result<void> transitionResult =
+        beginResult ? objects->frameState->transition_back_buffer(1, D3d12BackBufferState::RenderTarget)
+                    : Result<void>::failure(std::move(*beginResult.try_error()));
+    const bool valid = matches_error(transitionResult.try_error(), 94) && g_probeState.barrierCount == 0;
+    Result<void> closeResult = objects->frameState->close_frame();
+    Result<std::uint64_t> submitResult =
+        closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                    : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+    return submitResult && shutdown_probe_objects(objects) && valid && g_probeState.barrierCount == 0;
+}
+
+bool verify_d3d12_transition_unknown_target_for_probe(const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<void> bindingResult = bind_probe_back_buffers(*objects, a_assertContext);
+
+    if (!bindingResult)
+    {
+        static_cast<void>(shutdown_probe_objects(objects));
+        return false;
+    }
+
+    Result<void> beginResult = objects->frameState->begin_frame(0);
+
+    if (!beginResult)
+    {
+        static_cast<void>(shutdown_probe_objects(objects));
+        return false;
+    }
+
+    Result<void> invalidTargetResult =
+        objects->frameState->transition_back_buffer(0, D3d12BackBufferState::Unknown);
+    bool valid = matches_error(invalidTargetResult.try_error(), 94) && g_probeState.barrierCount == 0 &&
+                 objects->frameState->are_back_buffers_present();
+    Result<void> renderTargetResult =
+        objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget);
+    Result<void> presentResult =
+        renderTargetResult ? objects->frameState->transition_back_buffer(0, D3d12BackBufferState::Present)
+                           : Result<void>::failure(std::move(*renderTargetResult.try_error()));
+    Result<void> closeResult = presentResult ? objects->frameState->close_frame()
+                                             : Result<void>::failure(std::move(*presentResult.try_error()));
+    Result<std::uint64_t> submitResult =
+        closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                    : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+    valid = valid && submitResult && g_probeState.barrierCount == 2 && g_probeState.barriersAreValid &&
+            objects->frameState->are_back_buffers_present();
+    return shutdown_probe_objects(objects) && valid;
 }
 
 bool verify_d3d12_frame_wait_recovery_for_probe(const AssertContext &a_assertContext) noexcept
@@ -1487,6 +1704,38 @@ bool verify_d3d12_frame_state_order_for_probe(D3d12FrameCommandOrderProbeMode a_
             closeResult ? execute_present_signal_for_probe(*objects->frameState)
                         : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
         return submitResult && shutdown_probe_objects(objects) && valid;
+    }
+
+    if (a_mode == D3d12FrameCommandOrderProbeMode::PresentState)
+    {
+        Result<void> bindingResult = bind_probe_back_buffers(*objects, a_assertContext);
+
+        if (!bindingResult)
+        {
+            return false;
+        }
+
+        Result<void> beginResult = objects->frameState->begin_frame(0);
+        Result<void> transitionResult =
+            beginResult ? objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget)
+                        : Result<void>::failure(std::move(*beginResult.try_error()));
+        Result<void> closeResult = transitionResult ? objects->frameState->close_frame()
+                                                    : Result<void>::failure(std::move(*transitionResult.try_error()));
+        Result<void> executeResult = closeResult ? objects->frameState->execute_frame()
+                                                 : Result<void>::failure(std::move(*closeResult.try_error()));
+        Result<void> presentResult = executeResult ? objects->frameState->mark_present_attempted()
+                                                   : Result<void>::failure(std::move(*executeResult.try_error()));
+        valid = matches_error(presentResult.try_error(), 94) &&
+                objects->frameState->command_list_state() == D3d12CommandListState::ExecutedUnfenced &&
+                g_probeState.executeCount == 1;
+
+        if (!valid)
+        {
+            std::_Exit(26);
+        }
+
+        Result<std::uint64_t> signalResult = objects->frameState->signal_frame();
+        return signalResult && shutdown_probe_objects(objects) && valid;
     }
 
     if (a_mode == D3d12FrameCommandOrderProbeMode::Close)

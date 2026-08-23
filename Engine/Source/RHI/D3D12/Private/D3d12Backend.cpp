@@ -704,13 +704,30 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return report;
     }
 
-    [[nodiscard]] cue::Result<std::uint64_t> submit_empty_frame_for_probe() noexcept
+    [[nodiscard]] cue::Result<std::uint64_t> submit_transition_frame_for_probe() noexcept
     {
-        cue::Result<void> beginResult = m_frameCommandState.begin_frame(m_swapChain.current_back_buffer_index());
+        const std::uint32_t frameIndex = m_swapChain.current_back_buffer_index();
+        cue::Result<void> beginResult = m_frameCommandState.begin_frame(frameIndex);
 
         if (!beginResult)
         {
             return cue::Result<std::uint64_t>::failure(std::move(*beginResult.try_error()));
+        }
+
+        cue::Result<void> renderTargetResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::RenderTarget);
+
+        if (!renderTargetResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*renderTargetResult.try_error()));
+        }
+
+        cue::Result<void> presentStateResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::Present);
+
+        if (!presentStateResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*presentStateResult.try_error()));
         }
 
         cue::Result<void> closeResult = m_frameCommandState.close_frame();
@@ -1321,6 +1338,18 @@ D3d12PresentationProbeReport probe_d3d12_presentation(PresentationContext &a_pre
     return presentation->probe_report();
 }
 
+bool submit_d3d12_transition_frame_for_probe(PresentationContext &a_presentation) noexcept
+{
+    D3d12PresentationContext *presentation = dynamic_cast<D3d12PresentationContext *>(&a_presentation);
+
+    if (presentation == nullptr)
+    {
+        return false;
+    }
+
+    return static_cast<bool>(presentation->submit_transition_frame_for_probe());
+}
+
 Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &a_backend) noexcept
 {
     D3d12BackendImpl *backend = dynamic_cast<D3d12BackendImpl *>(&a_backend);
@@ -1501,7 +1530,7 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
     }
 
     g_queueLifecycleProbeState.failSignalAfterForwarding = true;
-    Result<std::uint64_t> submitResult = d3d12Presentation->submit_empty_frame_for_probe();
+    Result<std::uint64_t> submitResult = d3d12Presentation->submit_transition_frame_for_probe();
     g_queueLifecycleProbeState.failSignalAfterForwarding = false;
     Result<void> resizeResult = presentation->resize(0, a_height);
     Result<void> sameSizeResult = presentation->resize(a_width, a_height);
@@ -1574,7 +1603,7 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
         return false;
     }
 
-    Result<std::uint64_t> submitResult = d3d12Presentation->submit_empty_frame_for_probe();
+    Result<std::uint64_t> submitResult = d3d12Presentation->submit_transition_frame_for_probe();
     g_queueLifecycleProbeState.failWaitWithoutCompletion = true;
     Result<void> resizeResult = presentation->resize(a_width + 1, a_height + 1);
     D3d12PresentationProbeReport report = d3d12Presentation->probe_report();
