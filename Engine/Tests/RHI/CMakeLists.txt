@@ -253,11 +253,19 @@ if(WIN32)
         Cue.RHI.D3D12.SwapChain.SmokeImmediate
         Cue.RHI.D3D12.SwapChain.InfoQueue
         Cue.RHI.D3D12.SwapChain.TearingMatrix
+        Cue.RHI.D3D12.SwapChain.PresentMatrix
+        Cue.RHI.D3D12.SwapChain.PresentSignalRecovery
+        Cue.RHI.D3D12.SwapChain.PresentUnavailableRetention
+        Cue.RHI.D3D12.SwapChain.SignalUnavailableRetention
+        Cue.RHI.D3D12.SwapChain.DirectPresentDeviceRemoved
+        Cue.RHI.D3D12.SwapChain.RecoverySignalDeviceRemoved
+        Cue.RHI.D3D12.SwapChain.RegularSignalDeviceRemoved
         Cue.RHI.D3D12.SwapChain.CreationFaults
         Cue.RHI.D3D12.SwapChain.LogFailure
         Cue.RHI.D3D12.SwapChain.Validation
         Cue.RHI.D3D12.SwapChain.ProductionOwnership
         Cue.RHI.D3D12.SwapChain.ClearSmoke
+        Cue.RHI.D3D12.SwapChain.PresentFrames300
         Cue.RHI.D3D12.SwapChain.ResizeLifecycle
         Cue.RHI.D3D12.SwapChain.ResizeFailure
         Cue.RHI.D3D12.SwapChain.RtvRebuildFailure
@@ -752,7 +760,7 @@ if(WIN32)
     endforeach()
     foreach(
         swapChainMode
-        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership ClearSmoke ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
+        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix PresentMatrix PresentSignalRecovery PresentUnavailableRetention SignalUnavailableRetention DirectPresentDeviceRemoved RecoverySignalDeviceRemoved RegularSignalDeviceRemoved CreationFaults LogFailure Validation ProductionOwnership ClearSmoke PresentFrames300 ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
     )
         add_test(
             NAME Cue.RHI.D3D12.SwapChain.${swapChainMode}
@@ -760,6 +768,9 @@ if(WIN32)
         )
     endforeach()
     set_tests_properties(
+        Cue.RHI.D3D12.SwapChain.DirectPresentDeviceRemoved
+        Cue.RHI.D3D12.SwapChain.RecoverySignalDeviceRemoved
+        Cue.RHI.D3D12.SwapChain.RegularSignalDeviceRemoved
         Cue.RHI.D3D12.SwapChain.DeviceRemovalLifecycle
         Cue.RHI.D3D12.SwapChain.DeviceRemovalDredFailure
         PROPERTIES SKIP_RETURN_CODE 77
@@ -793,6 +804,13 @@ set_tests_properties(
         LABELS RHI
         TIMEOUT 10
 )
+
+if(WIN32)
+    set_tests_properties(
+        Cue.RHI.D3D12.SwapChain.PresentFrames300
+        PROPERTIES TIMEOUT 30
+    )
+endif()
 
 if(WIN32)
     set_tests_properties(

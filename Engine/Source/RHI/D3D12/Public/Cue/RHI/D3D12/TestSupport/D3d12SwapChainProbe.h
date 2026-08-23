@@ -11,6 +11,16 @@ class AssertContext;
 class D3d12Backend;
 class PresentationContext;
 
+enum class D3d12PresentFailureProbeMode
+{
+    RecoveryMatrix,
+    PresentUnavailable,
+    SignalUnavailable,
+    DirectPresentDeviceRemoved,
+    RecoverySignalDeviceRemoved,
+    RegularSignalDeviceRemoved,
+};
+
 struct D3d12SwapChainProbeReport final
 {
     std::uint32_t width;
@@ -29,6 +39,8 @@ struct D3d12SwapChainProbeReport final
 
 struct D3d12PresentationProbeReport final
 {
+    std::uint64_t lastSubmittedFence;
+    std::array<std::uint64_t, 2> frameReuseFences;
     std::uint32_t allocatorCount;
     std::uint32_t backBufferCount;
     std::uint32_t rtvCount;
@@ -42,6 +54,7 @@ struct D3d12PresentationProbeReport final
 
 struct D3d12BackendOwnerProbeReport final
 {
+    std::uint64_t lastSignaledFence;
     bool hasQueue;
     bool hasFence;
     bool hasFenceEvent;
@@ -74,6 +87,11 @@ struct D3d12DredOwnerProbeReport final
                                                                     std::uint32_t a_height,
                                                                     const AssertContext &a_assertContext) noexcept;
 
+/** @brief VSync、Tearing、OccludedのPresent引数と結果を検証する */
+[[nodiscard]] bool verify_d3d12_swap_chain_present_matrix_for_probe(const void *a_nativeWindow,
+                                                                    std::uint32_t a_width, std::uint32_t a_height,
+                                                                    const AssertContext &a_assertContext) noexcept;
+
 /** @brief DXGI生成、Association、Interface、Back Buffer取得、命名失敗のrollbackを検証する */
 [[nodiscard]] bool verify_d3d12_swap_chain_faults_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
                                                             std::uint32_t a_height,
@@ -104,6 +122,15 @@ struct D3d12DredOwnerProbeReport final
 [[nodiscard]] bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow,
                                                                      std::uint32_t a_width, std::uint32_t a_height,
                                                                      AssertContext &a_assertContext) noexcept;
+
+/** @brief Present失敗後の補完Signalと通常Present後のSignal失敗回収を検証する */
+[[nodiscard]] bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow,
+                                                                  std::uint32_t a_width, std::uint32_t a_height,
+                                                                  D3d12PresentFailureProbeMode a_mode,
+                                                                  AssertContext &a_assertContext) noexcept;
+
+/** @brief Present経路のDevice Removal Probeが現在のD3D12 Deviceで利用できなかったかを返す */
+[[nodiscard]] bool was_d3d12_present_device_removal_probe_unavailable() noexcept;
 
 /** @brief GPU完了未証明時にProduction Presentationが全ResourceとBackend登録を保持することを検証する */
 [[nodiscard]] bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWindow,

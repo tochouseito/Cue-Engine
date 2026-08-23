@@ -16,6 +16,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -52,9 +53,22 @@ struct QueueLifecycleProbeState final
     bool useProbeFunctions;
     bool failSignalAfterForwarding;
     bool failWaitWithoutCompletion;
+    bool removeDeviceBeforeSignal;
+    bool failWaitAfterCompletion;
+    std::uint32_t hiddenCompletedValueCount;
 };
 
 thread_local QueueLifecycleProbeState g_queueLifecycleProbeState = {};
+
+struct PresentationFrameProbeState final
+{
+    bool useProbeFunctions;
+    bool failPresent;
+    bool removeDeviceBeforePresent;
+};
+
+thread_local PresentationFrameProbeState g_presentationFrameProbeState = {};
+thread_local bool g_deviceRemovalProbeUnavailable = false;
 
 void execute_command_lists_for_lifecycle_probe(ID3D12CommandQueue *a_queue, UINT a_count,
                                                 ID3D12CommandList *const *a_lists) noexcept
@@ -65,15 +79,51 @@ void execute_command_lists_for_lifecycle_probe(ID3D12CommandQueue *a_queue, UINT
 HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence,
                                    std::uint64_t a_value) noexcept
 {
+    if (g_queueLifecycleProbeState.removeDeviceBeforeSignal)
+    {
+        Microsoft::WRL::ComPtr<ID3D12Device5> device;
+
+        if (SUCCEEDED(a_queue->GetDevice(IID_PPV_ARGS(&device))))
+        {
+            device->RemoveDevice();
+        }
+        else
+        {
+            g_deviceRemovalProbeUnavailable = true;
+        }
+    }
+
     const HRESULT result = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
     return SUCCEEDED(result) && g_queueLifecycleProbeState.failSignalAfterForwarding ? E_FAIL : result;
 }
 
 std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
 {
+    if (g_queueLifecycleProbeState.hiddenCompletedValueCount > 0)
+    {
+        --g_queueLifecycleProbeState.hiddenCompletedValueCount;
+        return 0;
+    }
+
     if (g_queueLifecycleProbeState.failWaitWithoutCompletion)
     {
         return 0;
+    }
+
+    if (g_queueLifecycleProbeState.failWaitAfterCompletion)
+    {
+        for (std::uint32_t attempt = 0; attempt < 100; ++attempt)
+        {
+            const std::uint64_t completedValue =
+                cue::default_d3d12_queue_native_functions().getCompletedValue(a_fence);
+
+            if (completedValue != 0)
+            {
+                return completedValue;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
 
     return cue::default_d3d12_queue_native_functions().getCompletedValue(a_fence);
@@ -86,7 +136,8 @@ HRESULT set_event_for_lifecycle_probe(ID3D12Fence *a_fence, std::uint64_t a_valu
 
 DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
 {
-    if (g_queueLifecycleProbeState.failWaitWithoutCompletion)
+    if (g_queueLifecycleProbeState.failWaitWithoutCompletion ||
+        g_queueLifecycleProbeState.failWaitAfterCompletion)
     {
         return WAIT_TIMEOUT;
     }
@@ -102,6 +153,37 @@ DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
     functions.getCompletedValue = completed_value_for_lifecycle_probe;
     functions.setEventOnCompletion = set_event_for_lifecycle_probe;
     functions.waitForSingleObject = wait_for_lifecycle_probe;
+    return functions;
+}
+
+HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
+{
+    if (g_presentationFrameProbeState.removeDeviceBeforePresent)
+    {
+        Microsoft::WRL::ComPtr<ID3D12Device5> device;
+
+        if (SUCCEEDED(a_swapChain->GetDevice(IID_PPV_ARGS(&device))))
+        {
+            device->RemoveDevice();
+        }
+        else
+        {
+            g_deviceRemovalProbeUnavailable = true;
+        }
+    }
+
+    if (g_presentationFrameProbeState.failPresent)
+    {
+        return E_FAIL;
+    }
+
+    return cue::default_d3d12_swap_chain_native_functions().present(a_swapChain, a_syncInterval, a_flags);
+}
+
+[[nodiscard]] cue::D3d12SwapChainNativeFunctions make_swap_chain_lifecycle_probe_functions() noexcept
+{
+    cue::D3d12SwapChainNativeFunctions functions = cue::default_d3d12_swap_chain_native_functions();
+    functions.present = present_for_lifecycle_probe;
     return functions;
 }
 
@@ -181,6 +263,68 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
             a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
         }
     }
+}
+
+[[nodiscard]] bool has_error_context(const cue::Error &a_error, std::string_view a_expected) noexcept
+{
+    for (const cue::ErrorContext &context : a_error.contexts())
+    {
+        if (context.message().find(a_expected) != std::string_view::npos)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+[[nodiscard]] bool has_error_contexts_in_order(const cue::Error &a_error, std::string_view a_first,
+                                               std::string_view a_second, std::string_view a_third = {}) noexcept
+{
+    std::uint32_t expectedIndex = 0;
+
+    for (const cue::ErrorContext &context : a_error.contexts())
+    {
+        const std::string_view message = context.message();
+
+        if (expectedIndex == 0 && message.find(a_first) != std::string_view::npos)
+        {
+            expectedIndex = 1;
+        }
+        else if (expectedIndex == 1 && message.find(a_second) != std::string_view::npos)
+        {
+            expectedIndex = a_third.empty() ? 3 : 2;
+        }
+        else if (expectedIndex == 2 && message.find(a_third) != std::string_view::npos)
+        {
+            expectedIndex = 3;
+        }
+    }
+
+    return expectedIndex == 3;
+}
+
+[[nodiscard]] cue::Error make_device_removed_error_with_present_cause(
+    cue::Error &&a_deviceRemovedError, cue::Error &&a_presentError,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    cue::ErrorCode code = cue::ErrorCode::create(a_assertContext.fatal_handler(),
+                                                 a_deviceRemovedError.code().domain(),
+                                                 a_deviceRemovedError.code().value());
+    const cue::NativeError *nativeError = a_deviceRemovedError.try_native_error();
+    cue::Error reorderedError = nativeError != nullptr
+                                    ? cue::Error::reclassify(
+                                          a_assertContext.fatal_handler(), std::move(code),
+                                          a_deviceRemovedError.summary(),
+                                          cue::NativeError::create(a_assertContext.fatal_handler(),
+                                                                   nativeError->domain(), nativeError->value()),
+                                          std::move(a_presentError))
+                                    : cue::Error::reclassify(a_assertContext.fatal_handler(), std::move(code),
+                                                             a_deviceRemovedError.summary(),
+                                                             std::move(a_presentError));
+    add_secondary_error_context(reorderedError, a_deviceRemovedError,
+                                "D3D12 recovery Signal failed after DXGI Present", a_assertContext);
+    return reorderedError;
 }
 
 void retain_shutdown_error(std::optional<cue::Error> &a_firstError, cue::Result<void> &a_result,
@@ -407,6 +551,203 @@ class D3d12PresentationContext final : public cue::PresentationContext
     {
         assert_thread("D3D12 Presentation Resize pending state must be queried on the creation thread");
         return m_isResizePending;
+    }
+
+    [[nodiscard]] cue::Result<cue::PresentationFrameStatus> present_frame(
+        const cue::PresentationFrameDescriptor &a_descriptor) noexcept override
+    {
+        assert_thread("D3D12 Presentation Frame must run on the creation thread");
+
+        if (m_state != cue::PresentationContextState::Ready ||
+            m_backend->state() != cue::GraphicsBackendState::Ready || m_isResizePending)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(
+                make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Frame is unavailable"));
+        }
+
+        const std::uint32_t frameIndex = m_swapChain.current_back_buffer_index();
+        cue::Result<void> beginResult = m_frameCommandState.begin_frame(frameIndex);
+
+        if (!beginResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(*beginResult.try_error()));
+        }
+
+        cue::Result<void> renderTargetResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::RenderTarget);
+
+        if (!renderTargetResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(
+                std::move(*renderTargetResult.try_error()));
+        }
+
+        cue::Result<void> clearResult =
+            m_frameCommandState.clear_back_buffer(frameIndex, m_rtvHeap, a_descriptor.clearColor);
+
+        if (!clearResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(*clearResult.try_error()));
+        }
+
+        cue::Result<void> presentStateResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::Present);
+
+        if (!presentStateResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(
+                std::move(*presentStateResult.try_error()));
+        }
+
+        cue::Result<void> closeResult = m_frameCommandState.close_frame();
+
+        if (!closeResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(*closeResult.try_error()));
+        }
+
+        cue::Result<void> executeResult = m_frameCommandState.execute_frame();
+
+        if (!executeResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(*executeResult.try_error()));
+        }
+
+        cue::Result<void> presentMarkerResult = m_frameCommandState.mark_present_attempted();
+
+        if (!presentMarkerResult)
+        {
+            return cue::Result<cue::PresentationFrameStatus>::failure(
+                std::move(*presentMarkerResult.try_error()));
+        }
+
+        cue::Result<cue::D3d12PresentStatus> presentResult = m_swapChain.present();
+
+        if (!presentResult)
+        {
+            cue::Error presentError = std::move(*presentResult.try_error());
+
+            if (m_backend->state() == cue::GraphicsBackendState::DeviceRemoved)
+            {
+                m_state = cue::PresentationContextState::DeviceRemoved;
+                cue::Result<void> frameStopResult = m_frameCommandState.stop_after_device_removal();
+
+                if (!frameStopResult)
+                {
+                    add_secondary_error_context(presentError, *frameStopResult.try_error(),
+                                                "D3D12 Frame acceptance also failed to stop after Device Removal",
+                                                *m_assertContext);
+                }
+
+                cue::Result<void> backendResult = prepare_backend_cleanup();
+
+                if (!backendResult)
+                {
+                    add_secondary_error_context(presentError, *backendResult.try_error(),
+                                                "D3D12 Device Removal diagnostics also failed after Present",
+                                                *m_assertContext);
+                }
+
+                return cue::Result<cue::PresentationFrameStatus>::failure(std::move(presentError));
+            }
+
+            cue::Result<std::uint64_t> recoverySignalResult = m_frameCommandState.signal_frame(
+                cue::D3d12FrameSignalPurpose::PresentFailureRecovery);
+
+            if (!recoverySignalResult)
+            {
+                cue::Error signalError = std::move(*recoverySignalResult.try_error());
+
+                if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
+                {
+                    m_state = cue::PresentationContextState::DeviceRemoved;
+                    cue::Result<void> backendResult = prepare_backend_cleanup();
+
+                    if (!backendResult)
+                    {
+                        add_secondary_error_context(signalError, *backendResult.try_error(),
+                                                    "D3D12 Device Removal diagnostics also failed after recovery Signal",
+                                                    *m_assertContext);
+                    }
+
+                    cue::Error deviceRemovedError = make_device_removed_error_with_present_cause(
+                        std::move(signalError), std::move(presentError), *m_assertContext);
+                    return cue::Result<cue::PresentationFrameStatus>::failure(std::move(deviceRemovedError));
+                }
+
+                if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::Unavailable)
+                {
+                    m_state = cue::PresentationContextState::Unavailable;
+                    cue::Result<void> backendResult = prepare_backend_cleanup();
+
+                    if (!backendResult)
+                    {
+                        add_secondary_error_context(signalError, *backendResult.try_error(),
+                                                    "D3D12 Backend also became unavailable after recovery Signal",
+                                                    *m_assertContext);
+                    }
+                }
+
+                add_secondary_error_context(presentError, signalError,
+                                            "D3D12 recovery Signal also failed after Present", *m_assertContext);
+            }
+
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(presentError));
+        }
+
+        cue::Result<std::uint64_t> signalResult = m_frameCommandState.signal_frame();
+
+        if (!signalResult)
+        {
+            if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
+            {
+                m_state = cue::PresentationContextState::DeviceRemoved;
+                cue::Result<void> backendResult = prepare_backend_cleanup();
+
+                if (!backendResult)
+                {
+                    add_secondary_error_context(*signalResult.try_error(), *backendResult.try_error(),
+                                                "D3D12 Device Removal diagnostics also failed after Frame Signal",
+                                                *m_assertContext);
+                }
+            }
+            else if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::Unavailable)
+            {
+                m_state = cue::PresentationContextState::Unavailable;
+                cue::Result<void> backendResult = prepare_backend_cleanup();
+
+                if (!backendResult)
+                {
+                    add_secondary_error_context(*signalResult.try_error(), *backendResult.try_error(),
+                                                "D3D12 Backend also became unavailable after Frame Signal",
+                                                *m_assertContext);
+                }
+            }
+
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(*signalResult.try_error()));
+        }
+
+        cue::Result<std::uint32_t> indexResult = m_swapChain.refresh_current_back_buffer_index();
+
+        if (!indexResult)
+        {
+            cue::Error indexError = std::move(*indexResult.try_error());
+            cue::Result<void> stopResult = m_frameCommandState.stop_after_presentation_error();
+
+            if (!stopResult)
+            {
+                add_secondary_error_context(indexError, *stopResult.try_error(),
+                                            "D3D12 Frame acceptance also failed to stop after index refresh",
+                                            *m_assertContext);
+            }
+
+            return cue::Result<cue::PresentationFrameStatus>::failure(std::move(indexError));
+        }
+
+        cue::PresentationFrameStatus status = *presentResult.try_value() == cue::D3d12PresentStatus::Occluded
+                                                  ? cue::PresentationFrameStatus::Occluded
+                                                  : cue::PresentationFrameStatus::Presented;
+        return cue::Result<cue::PresentationFrameStatus>::success(std::move(status));
     }
 
     [[nodiscard]] cue::Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept override
@@ -674,6 +1015,11 @@ class D3d12PresentationContext final : public cue::PresentationContext
     [[nodiscard]] cue::D3d12PresentationProbeReport probe_report() const noexcept
     {
         cue::D3d12PresentationProbeReport report = {};
+        report.lastSubmittedFence = m_frameCommandState.last_submitted_fence();
+        report.frameReuseFences = {
+            m_frameCommandState.frame_reuse_fence(0),
+            m_frameCommandState.frame_reuse_fence(1),
+        };
         report.formatsMatch = true;
 
         for (std::uint32_t index = 0; index < cue::k_d3d12SwapChainBufferCount; ++index)
@@ -973,6 +1319,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     [[nodiscard]] cue::D3d12BackendOwnerProbeReport owner_report_for_probe() const noexcept
     {
         return {
+            m_queueState.last_signaled_fence(),
             m_queueState.has_queue(),
             m_queueState.has_fence(),
             m_queueState.has_fence_event(),
@@ -1106,11 +1453,6 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     [[nodiscard]] cue::Result<void> ensure_device_removed_diagnostics(
         const PresentationCleanupOwnerShape *a_presentationShape = nullptr) noexcept
     {
-        if (m_dredCollectionAttemptCount != 0)
-        {
-            return cue::Result<void>::success();
-        }
-
         if (a_presentationShape != nullptr)
         {
             m_lastDredOwnerReport = {
@@ -1124,6 +1466,11 @@ class D3d12BackendImpl final : public cue::D3d12Backend
                 m_queueState.has_fence(),
                 m_queueState.has_fence_event(),
             };
+        }
+
+        if (m_dredCollectionAttemptCount != 0)
+        {
+            return cue::Result<void>::success();
         }
 
         ++m_dredCollectionAttemptCount;
@@ -1159,9 +1506,12 @@ class D3d12BackendImpl final : public cue::D3d12Backend
             this,
             handle_swap_chain_native_failure,
         };
+        cue::D3d12SwapChainNativeFunctions swapChainFunctions =
+            g_presentationFrameProbeState.useProbeFunctions ? make_swap_chain_lifecycle_probe_functions()
+                                                            : cue::default_d3d12_swap_chain_native_functions();
         cue::Result<cue::D3d12SwapChainState> swapChainResult = cue::create_d3d12_swap_chain_state(
             m_factory.Get(), m_queueState.native_queue_for_presentation(), swapChainDescriptor, *m_assertContext,
-            cue::default_d3d12_swap_chain_native_functions(), failureHandler);
+            swapChainFunctions, failureHandler);
 
         if (!swapChainResult)
         {
@@ -1622,6 +1972,282 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
                               backend->state() == GraphicsBackendState::Shutdown;
     backend.reset();
     return rejectionValid && cleanupValid;
+}
+
+bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                     std::uint32_t a_height,
+                                                     D3d12PresentFailureProbeMode a_mode,
+                                                     AssertContext &a_assertContext) noexcept
+{
+    g_deviceRemovalProbeUnavailable = false;
+
+    struct ProbeReset final
+    {
+        ~ProbeReset() noexcept
+        {
+            g_presentationFrameProbeState = {};
+            g_queueLifecycleProbeState = {};
+        }
+    } probeReset;
+
+    static_cast<void>(probeReset);
+    const auto runCase = [&](bool a_failPresent, bool a_failSignal, bool a_failWaitAfterCompletion,
+                             std::int64_t a_expectedCode) noexcept {
+        g_presentationFrameProbeState = {true, false, false};
+        g_queueLifecycleProbeState = {true, false, false, false, false, 0};
+        D3d12BackendDescriptor backendDescriptor = {
+            D3d12AdapterPolicy::Warp,
+            D3d12ValidationMode::Disabled,
+            false,
+            5'000,
+        };
+        Result<std::unique_ptr<D3d12Backend>> backendResult =
+            create_d3d12_backend(backendDescriptor, a_assertContext);
+
+        if (!backendResult)
+        {
+            return false;
+        }
+
+        std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+        PresentationDescriptor presentationDescriptor = {true};
+        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
+            a_nativeWindow, a_width, a_height, presentationDescriptor);
+
+        if (!presentationResult)
+        {
+            static_cast<void>(backend->shutdown());
+            return false;
+        }
+
+        std::unique_ptr<PresentationContext> presentation = std::move(*presentationResult.try_value());
+        const std::uint32_t submittedIndex = presentation->current_back_buffer_index();
+        g_presentationFrameProbeState.failPresent = a_failPresent;
+        g_queueLifecycleProbeState.failSignalAfterForwarding = a_failSignal;
+        g_queueLifecycleProbeState.failWaitAfterCompletion = a_failWaitAfterCompletion;
+        g_queueLifecycleProbeState.hiddenCompletedValueCount = a_failWaitAfterCompletion ? 1 : 0;
+        constexpr std::array<float, 4> color = {0.06F, 0.18F, 0.32F, 1.0F};
+        PresentationFrameDescriptor frameDescriptor = {color};
+        Result<PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
+        g_presentationFrameProbeState.failPresent = false;
+        g_queueLifecycleProbeState.failSignalAfterForwarding = false;
+        g_queueLifecycleProbeState.failWaitAfterCompletion = false;
+        g_queueLifecycleProbeState.hiddenCompletedValueCount = 0;
+        D3d12PresentationProbeReport report = probe_d3d12_presentation(*presentation);
+        Result<D3d12BackendOwnerProbeReport> backendOwnerResult = probe_d3d12_backend_owners_for_probe(*backend);
+        const Error *frameError = frameResult.try_error();
+        const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
+        const bool signalErrorRetained =
+            !a_failSignal ||
+            (frameError != nullptr &&
+             (frameError->code().value() == 46 || has_error_context(*frameError, "Cue.RHI.D3D12/46")));
+        const bool waitErrorRetained = !a_failWaitAfterCompletion ||
+                                       (frameError != nullptr &&
+                                        has_error_context(*frameError, "Cue.RHI.D3D12/48"));
+        const bool recoveryOrderValid = !a_failPresent || !a_failSignal || !a_failWaitAfterCompletion ||
+                                        (frameError != nullptr &&
+                                         has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46",
+                                                                     "Cue.RHI.D3D12/48"));
+
+        const bool frameValid = !frameResult && frameError != nullptr && signalErrorRetained && waitErrorRetained &&
+                                recoveryOrderValid &&
+                                frameError->code().domain() == "Cue.RHI.D3D12" &&
+                                frameError->code().value() == a_expectedCode &&
+                                presentation->state() == PresentationContextState::Ready &&
+                                report.lastSubmittedFence == 1 && report.frameReuseFences[submittedIndex] == 1 &&
+                                !report.isAcceptingFrames && backendOwners != nullptr &&
+                                backendOwners->lastSignaledFence == 1;
+        Result<void> presentationShutdownResult = presentation->shutdown();
+        presentation.reset();
+        Result<void> backendShutdownResult = backend->shutdown();
+        const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
+                                  backend->state() == GraphicsBackendState::Shutdown;
+        backend.reset();
+        return frameValid && cleanupValid;
+    };
+
+    const auto runUnavailableCase = [&](bool a_failPresent, std::int64_t a_expectedCode) noexcept {
+        g_presentationFrameProbeState = {true, false, false};
+        g_queueLifecycleProbeState = {true, false, false, false, false, 0};
+        D3d12BackendDescriptor backendDescriptor = {
+            D3d12AdapterPolicy::Warp,
+            D3d12ValidationMode::Disabled,
+            false,
+            5'000,
+        };
+        Result<std::unique_ptr<D3d12Backend>> backendResult =
+            create_d3d12_backend(backendDescriptor, a_assertContext);
+
+        if (!backendResult)
+        {
+            return false;
+        }
+
+        std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+        PresentationDescriptor presentationDescriptor = {true};
+        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
+            a_nativeWindow, a_width, a_height, presentationDescriptor);
+
+        if (!presentationResult)
+        {
+            static_cast<void>(backend->shutdown());
+            return false;
+        }
+
+        std::unique_ptr<PresentationContext> presentation = std::move(*presentationResult.try_value());
+        g_presentationFrameProbeState.failPresent = a_failPresent;
+        g_queueLifecycleProbeState.failSignalAfterForwarding = true;
+        g_queueLifecycleProbeState.failWaitWithoutCompletion = true;
+        constexpr std::array<float, 4> color = {0.06F, 0.18F, 0.32F, 1.0F};
+        PresentationFrameDescriptor frameDescriptor = {color};
+        Result<PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
+        D3d12PresentationProbeReport report = probe_d3d12_presentation(*presentation);
+        Result<D3d12BackendOwnerProbeReport> backendOwnerResult = probe_d3d12_backend_owners_for_probe(*backend);
+        Result<void> presentationShutdownResult = presentation->shutdown();
+        Result<void> backendShutdownResult = backend->shutdown();
+        const Error *frameError = frameResult.try_error();
+        const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
+        const bool errorOrderValid =
+            frameError != nullptr &&
+            (a_failPresent
+                 ? has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/48",
+                                               "Cue.RHI.D3D12/33")
+                 : has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/48", "Cue.RHI.D3D12/33"));
+        const bool valid = !frameResult && frameError != nullptr &&
+                           frameError->code().domain() == "Cue.RHI.D3D12" &&
+                           frameError->code().value() == a_expectedCode && errorOrderValid &&
+                           presentation->state() == PresentationContextState::Unavailable &&
+                           backend->state() == GraphicsBackendState::Unavailable &&
+                           report.lastSubmittedFence == 0 && report.frameReuseFences[0] == 0 &&
+                           report.frameReuseFences[1] == 0 && !report.isAcceptingFrames && report.hasCommandList &&
+                           report.allocatorCount == k_d3d12FrameContextCount &&
+                           report.backBufferCount == k_d3d12SwapChainBufferCount &&
+                           report.rtvCount == k_d3d12SwapChainBufferCount && report.formatsMatch &&
+                           report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+                           backendOwners != nullptr && backendOwners->lastSignaledFence == 0 &&
+                           backendOwners->hasQueue && backendOwners->hasFence &&
+                           backendOwners->hasFenceEvent && backendOwners->hasDevice && backendOwners->hasAdapter &&
+                           backendOwners->hasFactory && !presentationShutdownResult && !backendShutdownResult;
+        static_cast<void>(presentation.release());
+        static_cast<void>(backend.release());
+        g_presentationFrameProbeState = {};
+        g_queueLifecycleProbeState = {};
+        return valid;
+    };
+
+    const auto runDeviceRemovedCase = [&](bool a_removeBeforePresent, bool a_failPresent,
+                                          bool a_removeBeforeSignal, std::int64_t a_expectedCauseCode) noexcept {
+        g_presentationFrameProbeState = {true, false, false};
+        g_queueLifecycleProbeState = {true, false, false, false, false, 0};
+        D3d12BackendDescriptor backendDescriptor = {
+            D3d12AdapterPolicy::Warp,
+            D3d12ValidationMode::Disabled,
+            false,
+            5'000,
+        };
+        Result<std::unique_ptr<D3d12Backend>> backendResult =
+            create_d3d12_backend(backendDescriptor, a_assertContext);
+
+        if (!backendResult)
+        {
+            return false;
+        }
+
+        std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+        PresentationDescriptor presentationDescriptor = {true};
+        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
+            a_nativeWindow, a_width, a_height, presentationDescriptor);
+
+        if (!presentationResult)
+        {
+            static_cast<void>(backend->shutdown());
+            return false;
+        }
+
+        std::unique_ptr<PresentationContext> presentation = std::move(*presentationResult.try_value());
+        g_presentationFrameProbeState.failPresent = a_failPresent;
+        g_presentationFrameProbeState.removeDeviceBeforePresent = a_removeBeforePresent;
+        g_queueLifecycleProbeState.removeDeviceBeforeSignal = a_removeBeforeSignal;
+        g_queueLifecycleProbeState.failSignalAfterForwarding = a_removeBeforeSignal;
+        constexpr std::array<float, 4> color = {0.06F, 0.18F, 0.32F, 1.0F};
+        PresentationFrameDescriptor frameDescriptor = {color};
+        Result<PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
+        const bool removalProbeAvailable = !g_deviceRemovalProbeUnavailable;
+        g_presentationFrameProbeState = {};
+        g_queueLifecycleProbeState = {};
+        D3d12PresentationProbeReport report = probe_d3d12_presentation(*presentation);
+        Result<D3d12BackendOwnerProbeReport> backendOwnerResult = probe_d3d12_backend_owners_for_probe(*backend);
+        Result<D3d12DredOwnerProbeReport> dredOwnerResult = probe_d3d12_dred_owners_for_probe(*backend);
+        Result<std::uint32_t> dredCountResult = d3d12_dred_attempt_count_for_probe(*backend);
+        const Error *frameError = frameResult.try_error();
+        const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
+        const D3d12DredOwnerProbeReport *dredOwners = dredOwnerResult.try_value();
+        const PresentationContextState presentationStateBeforeShutdown = presentation->state();
+        const GraphicsBackendState backendStateBeforeShutdown = backend->state();
+        const bool recoverySignalErrorValid = !a_failPresent || !a_removeBeforeSignal ||
+                                              (frameError != nullptr &&
+                                               has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46",
+                                                                           "Cue.RHI.D3D12/50") &&
+                                               has_error_context(*frameError, "NativeError=D3D12/"));
+        const bool frameValid = removalProbeAvailable && !frameResult && frameError != nullptr &&
+                                frameError->code().domain() == "Cue.RHI.D3D12" &&
+                                frameError->code().value() == 52 && frameError->try_native_error() != nullptr &&
+                                !frameError->causes().empty() &&
+                                frameError->causes().front().code().value() == a_expectedCauseCode &&
+                                recoverySignalErrorValid &&
+                                presentationStateBeforeShutdown == PresentationContextState::DeviceRemoved &&
+                                backendStateBeforeShutdown == GraphicsBackendState::DeviceRemoved &&
+                                report.lastSubmittedFence == 0 && report.frameReuseFences[0] == 0 &&
+                                report.frameReuseFences[1] == 0 && !report.isAcceptingFrames && report.hasCommandList &&
+                                report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+                                backendOwners != nullptr && backendOwners->lastSignaledFence == 0 &&
+                                backendOwners->hasQueue && backendOwners->hasFence && backendOwners->hasFenceEvent &&
+                                dredCountResult && *dredCountResult.try_value() == 1 && dredOwners != nullptr &&
+                                dredOwners->hasCommandList && dredOwners->allocatorCount == 2 &&
+                                dredOwners->backBufferCount == 2 && dredOwners->rtvCount == 2 &&
+                                dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue &&
+                                dredOwners->hasFence && dredOwners->hasFenceEvent;
+        Result<void> presentationShutdownResult = presentation->shutdown();
+        presentation.reset();
+        Result<void> backendShutdownResult = backend->shutdown();
+        const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
+                                  backend->state() == GraphicsBackendState::Shutdown;
+        backend.reset();
+        return frameValid && cleanupValid;
+    };
+
+    if (a_mode == D3d12PresentFailureProbeMode::PresentUnavailable)
+    {
+        return runUnavailableCase(true, 98);
+    }
+
+    if (a_mode == D3d12PresentFailureProbeMode::SignalUnavailable)
+    {
+        return runUnavailableCase(false, 46);
+    }
+
+    if (a_mode == D3d12PresentFailureProbeMode::DirectPresentDeviceRemoved)
+    {
+        return runDeviceRemovedCase(true, false, false, 98);
+    }
+
+    if (a_mode == D3d12PresentFailureProbeMode::RecoverySignalDeviceRemoved)
+    {
+        return runDeviceRemovedCase(false, true, true, 98);
+    }
+
+    if (a_mode == D3d12PresentFailureProbeMode::RegularSignalDeviceRemoved)
+    {
+        return runDeviceRemovedCase(false, false, true, 46);
+    }
+
+    return runCase(true, false, false, 98) && runCase(false, true, false, 46) &&
+           runCase(true, true, true, 98);
+}
+
+bool was_d3d12_present_device_removal_probe_unavailable() noexcept
+{
+    return g_deviceRemovalProbeUnavailable;
 }
 
 bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWindow, std::uint32_t a_width,

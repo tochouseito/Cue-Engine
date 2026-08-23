@@ -485,7 +485,7 @@ Result<void> D3d12FrameCommandState::mark_present_attempted() noexcept
     return Result<void>::success();
 }
 
-Result<std::uint64_t> D3d12FrameCommandState::signal_frame() noexcept
+Result<std::uint64_t> D3d12FrameCommandState::signal_frame(D3d12FrameSignalPurpose a_purpose) noexcept
 {
     update_status_from_queue();
 
@@ -529,7 +529,40 @@ Result<std::uint64_t> D3d12FrameCommandState::signal_frame() noexcept
     m_pendingFenceValue = 0;
     m_activeFrameIndex = k_invalidFrameIndexValue;
     m_commandListState = D3d12CommandListState::Submitted;
+    if (a_purpose == D3d12FrameSignalPurpose::PresentFailureRecovery)
+    {
+        m_acceptingFrames = false;
+    }
+
     return Result<std::uint64_t>::success(std::move(fenceValue));
+}
+
+Result<void> D3d12FrameCommandState::stop_after_presentation_error() noexcept
+{
+    update_status_from_queue();
+
+    if (m_status != D3d12FrameCommandStatus::Ready || m_commandListState != D3d12CommandListState::Submitted)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidCommandListState,
+                                                "D3D12 Presentation Error requires a submitted Frame"));
+    }
+
+    m_acceptingFrames = false;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::stop_after_device_removal() noexcept
+{
+    update_status_from_queue();
+
+    if (m_status != D3d12FrameCommandStatus::DeviceRemoved)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidCommandListState,
+                                                "D3D12 Frame Command did not observe Device Removal"));
+    }
+
+    m_acceptingFrames = false;
+    return Result<void>::success();
 }
 
 Result<void> D3d12FrameCommandState::suspend_for_resize() noexcept
