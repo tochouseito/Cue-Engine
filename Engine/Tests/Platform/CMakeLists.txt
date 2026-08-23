@@ -13,6 +13,7 @@ add_executable(
     CuePlatformWindowsPublicHeaderTest
     PublicHeaderCompile.cpp
     WindowsPlatformHeaderCompile.cpp
+    WindowsWindowLifecycleProbeHeaderCompile.cpp
     WindowsWindowInteropHeaderCompile.cpp
 )
 
@@ -24,7 +25,12 @@ add_executable(
     WindowsWindowLifecycleTests.cpp
 )
 
-target_link_libraries(CuePlatformWindowsLifecycleTests PRIVATE Cue.Platform.Windows)
+target_link_libraries(
+    CuePlatformWindowsLifecycleTests
+    PRIVATE
+        Cue.Platform.Windows
+        Cue.Platform.Windows.TestSupport
+)
 target_compile_features(CuePlatformWindowsLifecycleTests PRIVATE cxx_std_20)
 
 foreach(
@@ -639,6 +645,10 @@ add_test(
     COMMAND CuePlatformWindowsLifecycleTests Events
 )
 add_test(
+    NAME Cue.Platform.Windows.LifecycleProbeValidation
+    COMMAND CuePlatformWindowsLifecycleTests LifecycleProbeValidation
+)
+add_test(
     NAME Cue.Platform.Windows.InvalidShow
     COMMAND
         ${CMAKE_COMMAND}
@@ -683,6 +693,7 @@ set_tests_properties(
     Cue.Platform.Windows.PublicHeaders
     Cue.Platform.Windows.Lifecycle
     Cue.Platform.Windows.Events
+    Cue.Platform.Windows.LifecycleProbeValidation
     Cue.Platform.Windows.InvalidShow
     Cue.Platform.Windows.InvalidNativeView
     Cue.Platform.Windows.ThreadViolation

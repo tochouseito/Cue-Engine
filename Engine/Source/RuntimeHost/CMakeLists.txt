@@ -15,6 +15,11 @@ target_link_libraries(
 )
 target_compile_features(CueRuntimeHost PRIVATE cxx_std_20)
 
+if(BUILD_TESTING)
+    target_link_libraries(CueRuntimeHost PRIVATE Cue.Platform.Windows.TestSupport)
+    target_compile_definitions(CueRuntimeHost PRIVATE CUE_RUNTIME_RESIZE_SMOKE_SUPPORT=1)
+endif()
+
 target_compile_definitions(
     CueRuntimeHost
     PRIVATE

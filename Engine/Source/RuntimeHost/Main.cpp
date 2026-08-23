@@ -1,8 +1,12 @@
 #include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+#include <Cue/Platform/Windows/TestSupport/WindowsWindowLifecycleProbe.h>
+#endif
 #include <Cue/RHI/D3D12/D3d12Backend.h>
 #include <Cue/RHI/D3D12/Windows/D3d12WindowsPresentation.h>
 
@@ -38,6 +42,13 @@ constexpr int k_graphicsLogFailed = 8;
 constexpr int k_presentationCreationFailed = 9;
 constexpr int k_presentationShutdownFailed = 10;
 constexpr int k_presentationFrameFailed = 11;
+constexpr int k_presentationResizeFailed = 12;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+constexpr int k_resizeSmokeFailed = 13;
+constexpr std::uint32_t k_resizeSmokeCycleCount = 50;
+constexpr std::uint32_t k_resizeSmokeResizeActionCount = k_resizeSmokeCycleCount * 3;
+constexpr std::uint32_t k_resizeSmokeActionCount = k_resizeSmokeResizeActionCount + 1;
+#endif
 
 struct RuntimeOptions final
 {
@@ -47,6 +58,9 @@ struct RuntimeOptions final
     bool isGraphicsSmoke = false;
     bool isPresentationSmoke = false;
     bool isRenderSmoke = false;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+    bool isResizeSmoke = false;
+#endif
     cue::D3d12AdapterPolicy graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
 };
 
@@ -98,8 +112,13 @@ struct RuntimeOptions final
             continue;
         }
 
-        if (argument == L"--graphics-smoke" || argument == L"--presentation-smoke" ||
-            argument == L"--render-smoke")
+        bool isGraphicsModeArgument = argument == L"--graphics-smoke" || argument == L"--presentation-smoke" ||
+                                      argument == L"--render-smoke";
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+        isGraphicsModeArgument = isGraphicsModeArgument || argument == L"--resize-smoke";
+#endif
+
+        if (isGraphicsModeArgument)
         {
             if (index + 1 >= a_argumentCount)
             {
@@ -129,10 +148,16 @@ struct RuntimeOptions final
             {
                 a_options.isPresentationSmoke = true;
             }
-            else
+            else if (argument == L"--render-smoke")
             {
                 a_options.isRenderSmoke = true;
             }
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+            else
+            {
+                a_options.isResizeSmoke = true;
+            }
+#endif
             continue;
         }
 
@@ -174,17 +199,28 @@ struct RuntimeOptions final
         }
     }
 
-    const int modeCount = static_cast<int>(a_options.isSmokeTest) + static_cast<int>(a_options.isGraphicsSmoke) +
-                          static_cast<int>(a_options.isPresentationSmoke) + static_cast<int>(a_options.isRenderSmoke);
+    int modeCount = static_cast<int>(a_options.isSmokeTest) + static_cast<int>(a_options.isGraphicsSmoke) +
+                    static_cast<int>(a_options.isPresentationSmoke) + static_cast<int>(a_options.isRenderSmoke);
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+    modeCount += static_cast<int>(a_options.isResizeSmoke);
+#endif
     return cue::Result<bool>::success(modeCount <= 1);
 }
 
 void print_usage() noexcept
 {
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+    std::fputws(L"Usage: CueRuntimeHost [--smoke-test | --graphics-smoke <hardware|warp> | "
+                L"--presentation-smoke <hardware|warp> | --render-smoke <hardware|warp> | "
+                L"--resize-smoke <hardware|warp>] "
+                L"[--title <title>] [--width <pixels>] [--height <pixels>]\n",
+                stderr);
+#else
     std::fputws(L"Usage: CueRuntimeHost [--smoke-test | --graphics-smoke <hardware|warp> | "
                 L"--presentation-smoke <hardware|warp> | --render-smoke <hardware|warp>] "
                 L"[--title <title>] [--width <pixels>] [--height <pixels>]\n",
                 stderr);
+#endif
 }
 
 [[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_message, cue::Error &&a_error,
@@ -200,6 +236,43 @@ void print_usage() noexcept
         5000,
     };
 }
+
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+[[nodiscard]] cue::Error make_runtime_error(const cue::AssertContext &a_assertContext,
+                                            std::string_view a_summary) noexcept
+{
+    cue::ErrorCode code = cue::ErrorCode::create(a_assertContext.fatal_handler(), "Cue.RuntimeHost",
+                                                 k_resizeSmokeFailed);
+    return cue::Error::create(a_assertContext.fatal_handler(), std::move(code), a_summary);
+}
+
+[[nodiscard]] cue::Result<void> issue_resize_smoke_action(cue::Window &a_window, std::uint32_t a_actionIndex,
+                                                          const cue::AssertContext &a_assertContext) noexcept
+{
+    if (a_actionIndex == k_resizeSmokeResizeActionCount)
+    {
+        return cue::issue_windows_window_lifecycle_probe_action(
+            a_window, cue::WindowsWindowLifecycleProbeAction::ResizeThenClose, {832, 468}, {768, 432},
+            a_assertContext);
+    }
+
+    const std::uint32_t phase = a_actionIndex % 3;
+
+    if (phase == 0)
+    {
+        const std::uint32_t cycleIndex = a_actionIndex / 3;
+        const cue::WindowSize finalSize = cycleIndex % 2 == 0 ? cue::WindowSize{768, 432}
+                                                              : cue::WindowSize{704, 396};
+        return cue::issue_windows_window_lifecycle_probe_action(
+            a_window, cue::WindowsWindowLifecycleProbeAction::Resize, {832, 468}, finalSize, a_assertContext);
+    }
+
+    const cue::WindowsWindowLifecycleProbeAction action =
+        phase == 1 ? cue::WindowsWindowLifecycleProbeAction::Minimize
+                   : cue::WindowsWindowLifecycleProbeAction::Restore;
+    return cue::issue_windows_window_lifecycle_probe_action(a_window, action, {}, {}, a_assertContext);
+}
+#endif
 
 void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
@@ -447,10 +520,60 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     int loopErrorExitCode = k_presentationFrameFailed;
     std::uint64_t frameCount = 0;
     std::uint64_t occludedFrameCount = 0;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+    std::uint64_t resizeEventCount = 0;
+    std::uint64_t minimizeEventCount = 0;
+    std::uint64_t restoreEventCount = 0;
+    std::uint64_t resizeApplyCount = 0;
+    std::uint64_t minimizedFrameSkipCount = 0;
+    std::uint64_t resizeSmokePresentedFrameCount = 0;
+    std::uint32_t resizeSmokeActionIndex = 0;
+    bool isResizeSmokeBatchProbeIssued = false;
+    bool isResizeSmokeStarted = false;
+#endif
+    bool isMinimized = false;
     bool isShutdownRequested = false;
 
     while (!isShutdownRequested)
     {
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+        if (a_options.isResizeSmoke && !isResizeSmokeStarted && !isResizeSmokeBatchProbeIssued)
+        {
+            cue::Result<void> minimizeResult = issue_resize_smoke_action(a_window, 1, a_assertContext);
+            cue::Result<void> restoreResult = minimizeResult
+                                                  ? issue_resize_smoke_action(a_window, 2, a_assertContext)
+                                                  : cue::Result<void>::success();
+
+            if (!minimizeResult || !restoreResult)
+            {
+                frameError.emplace(minimizeResult ? std::move(*restoreResult.try_error())
+                                                  : std::move(*minimizeResult.try_error()));
+                loopErrorMessage = "Runtime Host Resize Smoke batch probe failed";
+                loopErrorExitCode = k_resizeSmokeFailed;
+                break;
+            }
+
+            isResizeSmokeBatchProbeIssued = true;
+        }
+
+        if (a_options.isResizeSmoke && isResizeSmokeStarted &&
+            resizeSmokeActionIndex < k_resizeSmokeActionCount)
+        {
+            cue::Result<void> actionResult =
+                issue_resize_smoke_action(a_window, resizeSmokeActionIndex, a_assertContext);
+
+            if (!actionResult)
+            {
+                frameError.emplace(std::move(*actionResult.try_error()));
+                loopErrorMessage = "Runtime Host Resize Smoke Window operation failed";
+                loopErrorExitCode = k_resizeSmokeFailed;
+                break;
+            }
+
+            ++resizeSmokeActionIndex;
+        }
+#endif
+
         cue::Result<cue::PumpStatus> pumpResult = a_windowSystem.pump_events();
 
         if (!pumpResult)
@@ -467,6 +590,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         }
 
         cue::WindowEvent event = {};
+        std::optional<cue::WindowSize> pendingResize;
 
         while (a_window.try_pop_event(event))
         {
@@ -474,11 +598,94 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
             {
                 isShutdownRequested = true;
             }
+            else if (event.type == cue::WindowEventType::Resized)
+            {
+                pendingResize = event.clientSize;
+                isMinimized = false;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+                ++resizeEventCount;
+#endif
+            }
+            else if (event.type == cue::WindowEventType::Minimized)
+            {
+                pendingResize = cue::WindowSize{0, 0};
+                isMinimized = true;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+                ++minimizeEventCount;
+#endif
+            }
+            else if (event.type == cue::WindowEventType::Restored)
+            {
+                pendingResize = event.clientSize;
+                isMinimized = false;
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+                ++restoreEventCount;
+#endif
+            }
         }
 
         if (isShutdownRequested)
         {
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+            if (a_options.isResizeSmoke)
+            {
+                const bool smokeSequenceValid =
+                    resizeSmokeActionIndex == k_resizeSmokeActionCount &&
+                    resizeEventCount == k_resizeSmokeCycleCount * 2 + 2 &&
+                    minimizeEventCount == k_resizeSmokeCycleCount &&
+                    restoreEventCount == k_resizeSmokeCycleCount &&
+                    resizeApplyCount == k_resizeSmokeResizeActionCount &&
+                    minimizedFrameSkipCount == k_resizeSmokeCycleCount &&
+                    resizeSmokePresentedFrameCount == k_resizeSmokeCycleCount * 2 &&
+                    presentation->width() == 704 && presentation->height() == 396;
+
+                if (!smokeSequenceValid)
+                {
+                    frameError.emplace(make_runtime_error(
+                        a_assertContext, "Runtime Host Resize Smoke observed an incomplete Window Event sequence"));
+                    loopErrorMessage = "Runtime Host Resize Smoke sequence failed";
+                    loopErrorExitCode = k_resizeSmokeFailed;
+                }
+            }
+#endif
+
             break;
+        }
+
+        if (pendingResize)
+        {
+            cue::Result<void> resizeResult =
+                presentation->resize(pendingResize->width, pendingResize->height);
+
+            if (!resizeResult)
+            {
+                frameError.emplace(std::move(*resizeResult.try_error()));
+                loopErrorMessage = "Runtime Host failed to resize D3D12 Presentation";
+                loopErrorExitCode = k_presentationResizeFailed;
+                break;
+            }
+
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+            ++resizeApplyCount;
+            if (a_options.isResizeSmoke && pendingResize->width != 0 && pendingResize->height != 0 &&
+                (presentation->width() != pendingResize->width || presentation->height() != pendingResize->height))
+            {
+                frameError.emplace(make_runtime_error(
+                    a_assertContext, "Runtime Host Resize Smoke did not apply the latest Window Client Size"));
+                loopErrorMessage = "Runtime Host Resize Smoke size verification failed";
+                loopErrorExitCode = k_resizeSmokeFailed;
+                break;
+            }
+#endif
+        }
+
+        if (isMinimized || presentation->is_resize_pending())
+        {
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+            ++minimizedFrameSkipCount;
+#endif
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            continue;
         }
 
         cue::PresentationFrameDescriptor frameDescriptor = {clearColor};
@@ -497,6 +704,38 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
             ++occludedFrameCount;
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
+
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+        if (a_options.isResizeSmoke)
+        {
+            if (!isResizeSmokeStarted)
+            {
+                const bool batchProbeValid = isResizeSmokeBatchProbeIssued && minimizeEventCount == 1 &&
+                                             restoreEventCount == 1 && !isMinimized &&
+                                             !presentation->is_resize_pending();
+
+                if (!batchProbeValid)
+                {
+                    frameError.emplace(make_runtime_error(
+                        a_assertContext, "Runtime Host Resize Smoke did not preserve the latest batched Window state"));
+                    loopErrorMessage = "Runtime Host Resize Smoke batch verification failed";
+                    loopErrorExitCode = k_resizeSmokeFailed;
+                    break;
+                }
+
+                resizeEventCount = 0;
+                minimizeEventCount = 0;
+                restoreEventCount = 0;
+                resizeApplyCount = 0;
+                minimizedFrameSkipCount = 0;
+                isResizeSmokeStarted = true;
+            }
+            else
+            {
+                ++resizeSmokePresentedFrameCount;
+            }
+        }
+#endif
 
         if (a_options.isRenderSmoke && frameCount >= renderSmokeFrameCount)
         {
@@ -578,6 +817,22 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
                             std::move(*backendShutdownError), k_graphicsBackendShutdownFailed);
     }
 
+    cue::LogResult resizeSmokeLogResult = cue::LogResult::Success;
+
+#if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+    if (a_options.isResizeSmoke)
+    {
+        std::string resizeSmokeMessage =
+            "D3D12 Resize Smoke completed: ResizeEventCount=" + std::to_string(resizeEventCount) +
+            ", MinimizeEventCount=" + std::to_string(minimizeEventCount) +
+            ", RestoreEventCount=" + std::to_string(restoreEventCount) +
+            ", ResizeApplyCount=" + std::to_string(resizeApplyCount) +
+            ", MinimizedFrameSkipCount=" + std::to_string(minimizedFrameSkipCount) +
+            ", PresentedFrameCount=" + std::to_string(resizeSmokePresentedFrameCount);
+        resizeSmokeLogResult = a_logger.log(cue::LogLevel::Info, resizeSmokeMessage);
+    }
+#endif
+
     std::string completionMessage =
         "D3D12 Render Loop completed: FrameCount=" + std::to_string(frameCount) +
         ", OccludedFrameCount=" + std::to_string(occludedFrameCount) +
@@ -585,7 +840,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     cue::LogResult completionLogResult = a_logger.log(cue::LogLevel::Info, completionMessage);
     cue::LogResult shutdownLogResult = a_logger.log(cue::LogLevel::Info, "D3D12 Render Loop shutdown completed");
     cue::LogResult flushResult = a_logger.flush();
-    return readyLogResult == cue::LogResult::Success && completionLogResult == cue::LogResult::Success &&
+    return readyLogResult == cue::LogResult::Success && resizeSmokeLogResult == cue::LogResult::Success &&
+                   completionLogResult == cue::LogResult::Success &&
                    shutdownLogResult == cue::LogResult::Success && flushResult == cue::LogResult::Success
                ? 0
                : k_graphicsLogFailed;

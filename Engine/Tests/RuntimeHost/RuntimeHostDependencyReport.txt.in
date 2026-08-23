@@ -1,3 +1,4 @@
 CueRuntimeHost LINK_LIBRARIES: @cueRuntimeHostLinks@
 Allowed direct dependencies: Cue.Foundation;Cue.Platform.Windows;Cue.RHI.D3D12.Windows
+Testing-only direct dependency: Cue.Platform.Windows.TestSupport
 Forbidden source dependencies: WindowsSDK;D3D12NativeTypes;Renderer;Editor;ECS;Asset
