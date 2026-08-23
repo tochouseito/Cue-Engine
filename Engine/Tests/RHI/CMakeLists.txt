@@ -255,6 +255,8 @@ if(WIN32)
         Cue.RHI.D3D12.SwapChain.TearingMatrix
         Cue.RHI.D3D12.SwapChain.PresentMatrix
         Cue.RHI.D3D12.SwapChain.PresentSignalRecovery
+        Cue.RHI.D3D12.SwapChain.BeginFrameUnavailableRetention
+        Cue.RHI.D3D12.SwapChain.CloseFrameDeviceRemoved
         Cue.RHI.D3D12.SwapChain.PresentUnavailableRetention
         Cue.RHI.D3D12.SwapChain.SignalUnavailableRetention
         Cue.RHI.D3D12.SwapChain.DirectPresentDeviceRemoved
@@ -760,7 +762,7 @@ if(WIN32)
     endforeach()
     foreach(
         swapChainMode
-        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix PresentMatrix PresentSignalRecovery PresentUnavailableRetention SignalUnavailableRetention DirectPresentDeviceRemoved RecoverySignalDeviceRemoved RegularSignalDeviceRemoved CreationFaults LogFailure Validation ProductionOwnership ClearSmoke PresentFrames300 ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
+        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix PresentMatrix PresentSignalRecovery BeginFrameUnavailableRetention CloseFrameDeviceRemoved PresentUnavailableRetention SignalUnavailableRetention DirectPresentDeviceRemoved RecoverySignalDeviceRemoved RegularSignalDeviceRemoved CreationFaults LogFailure Validation ProductionOwnership ClearSmoke PresentFrames300 ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
     )
         add_test(
             NAME Cue.RHI.D3D12.SwapChain.${swapChainMode}

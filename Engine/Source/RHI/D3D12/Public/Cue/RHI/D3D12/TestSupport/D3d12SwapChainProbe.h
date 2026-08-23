@@ -14,6 +14,8 @@ class PresentationContext;
 enum class D3d12PresentFailureProbeMode
 {
     RecoveryMatrix,
+    BeginFrameUnavailable,
+    CloseFrameDeviceRemoved,
     PresentUnavailable,
     SignalUnavailable,
     DirectPresentDeviceRemoved,

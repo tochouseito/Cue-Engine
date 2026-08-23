@@ -643,6 +643,18 @@ int main(int a_argumentCount, char **a_arguments)
             nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::RecoveryMatrix, assertContext);
         failureCode = valid ? 0 : 30;
     }
+    else if (mode == "BeginFrameUnavailableRetention")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::BeginFrameUnavailable, assertContext);
+        failureCode = valid ? 0 : 36;
+    }
+    else if (mode == "CloseFrameDeviceRemoved")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::CloseFrameDeviceRemoved, assertContext);
+        failureCode = valid ? 0 : 37;
+    }
     else if (mode == "PresentUnavailableRetention")
     {
         valid = cue::verify_d3d12_present_signal_recovery_for_probe(
