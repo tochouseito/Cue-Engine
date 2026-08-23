@@ -40,6 +40,7 @@ struct D3d12SwapChainNativeFunctions final
     HRESULT (*setObjectName)(ID3D12Object *, LPCWSTR) noexcept;
     HRESULT (*resizeBuffers)(IDXGISwapChain3 *, std::uint32_t, std::uint32_t, std::uint32_t, DXGI_FORMAT,
                              std::uint32_t) noexcept;
+    HRESULT (*present)(IDXGISwapChain3 *, UINT, UINT) noexcept;
 };
 
 struct D3d12SwapChainFailureResources final
@@ -53,6 +54,12 @@ struct D3d12SwapChainFailureHandler final
 {
     void *owner;
     Result<void> (*handleNativeFailure)(void *, Error &&, const D3d12SwapChainFailureResources &) noexcept;
+};
+
+enum class D3d12PresentStatus
+{
+    Presented,
+    Occluded,
 };
 
 [[nodiscard]] const D3d12SwapChainNativeFunctions &default_d3d12_swap_chain_native_functions() noexcept;
@@ -70,6 +77,7 @@ class D3d12SwapChainState final
     [[nodiscard]] Result<ID3D12Resource *> back_buffer(std::uint32_t a_index) const noexcept;
     [[nodiscard]] Result<D3d12SwapChainBackBuffers> take_back_buffers() noexcept;
     [[nodiscard]] Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept;
+    [[nodiscard]] Result<D3d12PresentStatus> present() noexcept;
     [[nodiscard]] Result<void> shutdown() noexcept;
 
     [[nodiscard]] std::uint32_t width() const noexcept;

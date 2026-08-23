@@ -2,6 +2,7 @@
 
 #include <Cue/Foundation/Result.h>
 
+#include <array>
 #include <cstdint>
 
 namespace cue
@@ -22,12 +23,25 @@ struct PresentationDescriptor final
     bool isVsyncEnabled;
 };
 
+/** @brief 最小Presentation Frameの入力 */
+struct PresentationFrameDescriptor final
+{
+    /** @brief Back Bufferへ書き込むRGBA Clear Color */
+    std::array<float, 4> clearColor;
+};
+
+/** @brief Presentation結果 */
+enum class PresentationFrameStatus
+{
+    Presented,
+    Occluded,
+};
+
 /**
  * @brief Window に対応する Presentation Resource の一意所有契約
  *
  * Context は生成 Thread 上でのみ操作し、Backend と Window より先に shutdown して破棄する。
- * 現段階の Context 生成は GPU Work を submit しない。将来 Frame submit を追加する際は、
- * shutdown 前に Context 所有 Work の terminal Fence 完了を保証する
+ * ContextがsubmitしたGPU WorkはFrame ContextのFenceで追跡し、shutdown前にterminal Fence完了を保証する
  */
 class PresentationContext
 {
@@ -64,6 +78,18 @@ class PresentationContext
 
     /** @brief 0 Size のため Resize が延期されている場合は true */
     [[nodiscard]] virtual bool is_resize_pending() const noexcept = 0;
+
+    /**
+     * @brief Back BufferをClearしてSubmit、Present、Signalする
+     *
+     * Current Back Bufferの再利用Fence完了を待ってからCommandを記録する。
+     * Present成功後と非Device Removal失敗後はExecute済みWorkを覆うFenceをSignalする。
+     * Present失敗またはSignal回収後のErrorでは新しいFrame受付を停止する。
+     * Device RemovalではDRED後にFence Waitなしで解放し、GPU完了を証明できない場合はUnavailableとして
+     * Native Resourceを保持する。Native同期値は公開せず、成功時は表示結果だけを返す。
+     */
+    [[nodiscard]] virtual Result<PresentationFrameStatus> present_frame(
+        const PresentationFrameDescriptor &a_descriptor) noexcept = 0;
 
     /**
      * @brief Presentation Resource を指定 Size へ再構築する

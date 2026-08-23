@@ -227,6 +227,61 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+[[nodiscard]] bool run_present_frames_300(cue::Window &a_window, ProcessLogSink &a_logSink,
+                                          cue::AssertContext &a_assertContext) noexcept
+{
+    const std::uint32_t initialErrorCount = a_logSink.error_count();
+    cue::D3d12BackendDescriptor backendDescriptor = {
+        cue::D3d12AdapterPolicy::Warp,
+        cue::are_d3d12_diagnostics_allowed_for_probe() ? cue::D3d12ValidationMode::Standard
+                                                       : cue::D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
+        cue::create_d3d12_backend(backendDescriptor, a_assertContext);
+
+    if (!backendResult || !a_window.show())
+    {
+        return false;
+    }
+
+    std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::PresentationDescriptor descriptor = {true};
+    cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
+        cue::create_d3d12_windows_presentation(*backend, a_window, descriptor);
+
+    if (!presentationResult)
+    {
+        static_cast<void>(backend->shutdown());
+        return false;
+    }
+
+    std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
+    constexpr std::array<float, 4> color = {0.06F, 0.18F, 0.32F, 1.0F};
+    bool valid = true;
+
+    for (std::uint64_t frameNumber = 1; frameNumber <= 300 && valid; ++frameNumber)
+    {
+        const std::uint32_t submittedIndex = presentation->current_back_buffer_index();
+        cue::PresentationFrameDescriptor frameDescriptor = {color};
+        cue::Result<cue::PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
+        cue::D3d12PresentationProbeReport report = cue::probe_d3d12_presentation(*presentation);
+        valid = frameResult && submittedIndex < 2 && presentation->current_back_buffer_index() < 2 &&
+                report.lastSubmittedFence == frameNumber && report.frameReuseFences[submittedIndex] == frameNumber &&
+                report.isAcceptingFrames;
+    }
+
+    cue::Result<void> presentationShutdownResult = presentation->shutdown();
+    presentation.reset();
+    cue::Result<void> backendShutdownResult = backend->shutdown();
+    valid = valid && presentationShutdownResult && backendShutdownResult &&
+            backend->state() == cue::GraphicsBackendState::Shutdown &&
+            a_logSink.error_count() == initialErrorCount;
+    backend.reset();
+    return valid;
+}
+
 [[nodiscard]] bool run_resize_lifecycle(cue::Window &a_window, ProcessLogSink &a_logSink,
                                         cue::AssertContext &a_assertContext) noexcept
 {
@@ -571,6 +626,64 @@ int main(int a_argumentCount, char **a_arguments)
     {
         valid = run_clear_smoke(*window, *processSinkView, assertContext);
         failureCode = valid ? 0 : 27;
+    }
+    else if (mode == "PresentFrames300")
+    {
+        valid = run_present_frames_300(*window, *processSinkView, assertContext);
+        failureCode = valid ? 0 : 28;
+    }
+    else if (mode == "PresentMatrix")
+    {
+        valid = cue::verify_d3d12_swap_chain_present_matrix_for_probe(nativeWindow, 640, 360, assertContext);
+        failureCode = valid ? 0 : 29;
+    }
+    else if (mode == "PresentSignalRecovery")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::RecoveryMatrix, assertContext);
+        failureCode = valid ? 0 : 30;
+    }
+    else if (mode == "BeginFrameUnavailableRetention")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::BeginFrameUnavailable, assertContext);
+        failureCode = valid ? 0 : 36;
+    }
+    else if (mode == "CloseFrameDeviceRemoved")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::CloseFrameDeviceRemoved, assertContext);
+        failureCode = valid ? 0 : 37;
+    }
+    else if (mode == "PresentUnavailableRetention")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::PresentUnavailable, assertContext);
+        failureCode = valid ? 0 : 31;
+    }
+    else if (mode == "SignalUnavailableRetention")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::SignalUnavailable, assertContext);
+        failureCode = valid ? 0 : 32;
+    }
+    else if (mode == "DirectPresentDeviceRemoved")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::DirectPresentDeviceRemoved, assertContext);
+        failureCode = valid ? 0 : (cue::was_d3d12_present_device_removal_probe_unavailable() ? 77 : 33);
+    }
+    else if (mode == "RecoverySignalDeviceRemoved")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::RecoverySignalDeviceRemoved, assertContext);
+        failureCode = valid ? 0 : (cue::was_d3d12_present_device_removal_probe_unavailable() ? 77 : 34);
+    }
+    else if (mode == "RegularSignalDeviceRemoved")
+    {
+        valid = cue::verify_d3d12_present_signal_recovery_for_probe(
+            nativeWindow, 640, 360, cue::D3d12PresentFailureProbeMode::RegularSignalDeviceRemoved, assertContext);
+        failureCode = valid ? 0 : (cue::was_d3d12_present_device_removal_probe_unavailable() ? 77 : 35);
     }
     else if (mode == "ResizeLifecycle")
     {

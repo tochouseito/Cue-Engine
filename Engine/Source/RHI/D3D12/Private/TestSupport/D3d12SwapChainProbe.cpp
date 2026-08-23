@@ -42,15 +42,26 @@ enum class ProbeTearingOverride
     Unsupported,
 };
 
+enum class ProbePresentOverride
+{
+    Native,
+    Presented,
+    Occluded,
+};
+
 struct ProbeNativeState final
 {
     ProbeFault fault = ProbeFault::None;
     ProbeTearingOverride tearingOverride = ProbeTearingOverride::Native;
+    ProbePresentOverride presentOverride = ProbePresentOverride::Native;
     DXGI_SWAP_CHAIN_DESC1 descriptor = {};
     bool descriptorCaptured = false;
     bool altEnterDisabled = false;
     bool failureHandlerCalled = false;
     bool failureResourcesWereAlive = false;
+    bool presentCaptured = false;
+    UINT presentSyncInterval = 0;
+    UINT presentFlags = 0;
 };
 
 struct ProbeObjects final
@@ -76,11 +87,13 @@ struct ProbeObjects final
 
 thread_local ProbeNativeState g_probeState;
 
-void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_override = ProbeTearingOverride::Native) noexcept
+void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_tearingOverride = ProbeTearingOverride::Native,
+                       ProbePresentOverride a_presentOverride = ProbePresentOverride::Native) noexcept
 {
     g_probeState = {};
     g_probeState.fault = a_fault;
-    g_probeState.tearingOverride = a_override;
+    g_probeState.tearingOverride = a_tearingOverride;
+    g_probeState.presentOverride = a_presentOverride;
 }
 
 HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) noexcept
@@ -185,11 +198,31 @@ HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_b
     return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
 }
 
+HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
+{
+    g_probeState.presentCaptured = true;
+    g_probeState.presentSyncInterval = a_syncInterval;
+    g_probeState.presentFlags = a_flags;
+
+    if (g_probeState.presentOverride == ProbePresentOverride::Presented)
+    {
+        return S_OK;
+    }
+
+    if (g_probeState.presentOverride == ProbePresentOverride::Occluded)
+    {
+        return DXGI_STATUS_OCCLUDED;
+    }
+
+    return a_swapChain->Present(a_syncInterval, a_flags);
+}
+
 [[nodiscard]] cue::D3d12SwapChainNativeFunctions make_probe_functions() noexcept
 {
     return {
         check_tearing_for_probe,   create_swap_chain_for_probe, disable_alt_enter_for_probe, query_swap_chain_for_probe,
         get_back_buffer_for_probe, get_current_index_for_probe, set_name_for_probe,        resize_buffers_for_probe,
+        present_for_probe,
     };
 }
 
@@ -491,6 +524,65 @@ bool verify_d3d12_swap_chain_tearing_matrix_for_probe(const void *a_nativeWindow
         valid = valid && state.is_tearing_enabled() == testCase.expectedTearingEnabled &&
                 flagEnabled == testCase.expectedTearingEnabled &&
                 !(state.is_vsync_enabled() && state.is_tearing_enabled()) && state.shutdown();
+    }
+
+    return shutdown_probe_objects(objects) && valid;
+}
+
+bool verify_d3d12_swap_chain_present_matrix_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
+                                                      std::uint32_t a_height,
+                                                      const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult = create_probe_objects(false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    struct Case final
+    {
+        bool isVsyncEnabled;
+        ProbeTearingOverride tearingOverride;
+        ProbePresentOverride presentOverride;
+        UINT expectedSyncInterval;
+        UINT expectedFlags;
+        bool expectOccluded;
+    };
+    constexpr Case cases[] = {
+        {true, ProbeTearingOverride::Supported, ProbePresentOverride::Presented, 1, 0, false},
+        {false, ProbeTearingOverride::Supported, ProbePresentOverride::Presented, 0,
+         DXGI_PRESENT_ALLOW_TEARING, false},
+        {false, ProbeTearingOverride::Unsupported, ProbePresentOverride::Presented, 0, 0, false},
+        {true, ProbeTearingOverride::Supported, ProbePresentOverride::Occluded, 1, 0, true},
+    };
+    bool valid = true;
+
+    for (const Case &testCase : cases)
+    {
+        reset_probe_state(ProbeFault::None, testCase.tearingOverride, testCase.presentOverride);
+        D3d12SwapChainDescriptor descriptor =
+            make_descriptor(a_nativeWindow, a_width, a_height, testCase.isVsyncEnabled);
+        D3d12SwapChainNativeFunctions functions = make_probe_functions();
+        Result<D3d12SwapChainState> stateResult =
+            create_d3d12_swap_chain_state(objects->factory.Get(), objects->queueState.native_queue_for_presentation(),
+                                          descriptor, a_assertContext, functions);
+
+        if (!stateResult)
+        {
+            valid = false;
+            break;
+        }
+
+        D3d12SwapChainState state = std::move(*stateResult.try_value());
+        Result<D3d12PresentStatus> presentResult = state.present();
+        const D3d12PresentStatus expectedStatus =
+            testCase.expectOccluded ? D3d12PresentStatus::Occluded : D3d12PresentStatus::Presented;
+        const bool statusValid = presentResult && *presentResult.try_value() == expectedStatus;
+        valid = valid && statusValid && g_probeState.presentCaptured &&
+                g_probeState.presentSyncInterval == testCase.expectedSyncInterval &&
+                g_probeState.presentFlags == testCase.expectedFlags && state.shutdown();
     }
 
     return shutdown_probe_objects(objects) && valid;

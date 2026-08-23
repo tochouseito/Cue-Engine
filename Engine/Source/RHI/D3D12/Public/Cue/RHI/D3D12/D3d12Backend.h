@@ -47,6 +47,7 @@ class AssertContext;
 class D3d12WindowsPresentationAccess;
 struct D3d12BackendOwnerProbeReport;
 struct D3d12DredOwnerProbeReport;
+enum class D3d12PresentFailureProbeMode;
 
 /**
  * @brief D3D12固有のBackend型識別境界
@@ -73,6 +74,9 @@ class D3d12Backend : public GraphicsBackend
                                                             AssertContext &) noexcept;
     friend bool verify_d3d12_terminal_resize_rejection_for_probe(const void *, std::uint32_t, std::uint32_t,
                                                                   AssertContext &) noexcept;
+    friend bool verify_d3d12_present_signal_recovery_for_probe(const void *, std::uint32_t, std::uint32_t,
+                                                                D3d12PresentFailureProbeMode,
+                                                                AssertContext &) noexcept;
     friend bool verify_d3d12_resize_unavailable_retention_for_probe(const void *, std::uint32_t, std::uint32_t,
                                                                     AssertContext &) noexcept;
 

@@ -40,6 +40,12 @@ enum class D3d12FrameCommandStatus
     Shutdown,
 };
 
+enum class D3d12FrameSignalPurpose
+{
+    Regular,
+    PresentFailureRecovery,
+};
+
 enum class D3d12BackBufferState
 {
     Unknown,
@@ -92,7 +98,10 @@ class D3d12FrameCommandState final
     [[nodiscard]] Result<void> close_frame() noexcept;
     [[nodiscard]] Result<void> execute_frame() noexcept;
     [[nodiscard]] Result<void> mark_present_attempted() noexcept;
-    [[nodiscard]] Result<std::uint64_t> signal_frame() noexcept;
+    [[nodiscard]] Result<std::uint64_t> signal_frame(
+        D3d12FrameSignalPurpose a_purpose = D3d12FrameSignalPurpose::Regular) noexcept;
+    [[nodiscard]] Result<void> stop_after_presentation_error() noexcept;
+    [[nodiscard]] Result<void> stop_after_device_removal() noexcept;
     [[nodiscard]] Result<void> suspend_for_resize() noexcept;
     [[nodiscard]] Result<void> prepare_for_resize(std::uint32_t a_frameIndex) noexcept;
     [[nodiscard]] Result<void> resume_after_resize() noexcept;

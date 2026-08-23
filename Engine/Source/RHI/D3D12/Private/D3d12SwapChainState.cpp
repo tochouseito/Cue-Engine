@@ -22,6 +22,7 @@ constexpr std::int64_t k_invalidBackBufferIndex = 84;
 constexpr std::int64_t k_swapChainLogFailed = 85;
 constexpr std::int64_t k_swapChainShutdown = 86;
 constexpr std::int64_t k_swapChainResizeFailed = 90;
+constexpr std::int64_t k_swapChainPresentFailed = 98;
 
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
@@ -128,6 +129,11 @@ HRESULT resize_buffers(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount
     return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
 }
 
+HRESULT present_swap_chain(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
+{
+    return a_swapChain->Present(a_syncInterval, a_flags);
+}
+
 [[nodiscard]] cue::Result<void> log_swap_chain(const cue::D3d12SwapChainDescriptor &a_descriptor,
                                                std::uint32_t a_currentBackBufferIndex, bool a_isTearingSupported,
                                                bool a_isTearingEnabled,
@@ -167,6 +173,7 @@ const D3d12SwapChainNativeFunctions &default_d3d12_swap_chain_native_functions()
     static const D3d12SwapChainNativeFunctions functions = {
         check_tearing_support, create_swap_chain_for_window,  disable_alt_enter, query_swap_chain_3,
         get_back_buffer,       get_current_back_buffer_index, set_object_name,   resize_buffers,
+        present_swap_chain,
     };
     return functions;
 }
@@ -406,6 +413,31 @@ Result<void> D3d12SwapChainState::resize(std::uint32_t a_width, std::uint32_t a_
     D3d12SwapChainDescriptor descriptor = {nullptr, m_width, m_height, m_format, m_isVsyncEnabled};
     return log_swap_chain(descriptor, m_currentBackBufferIndex, m_isTearingSupported, m_isTearingEnabled,
                           *m_assertContext);
+}
+
+Result<D3d12PresentStatus> D3d12SwapChainState::present() noexcept
+{
+    if (m_swapChain == nullptr)
+    {
+        return Result<D3d12PresentStatus>::failure(
+            make_error(*m_assertContext, k_swapChainShutdown, "D3D12 Swap Chain is shutdown"));
+    }
+
+    const UINT syncInterval = m_isVsyncEnabled ? 1 : 0;
+    const UINT flags = m_isTearingEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    const HRESULT presentResult = m_functions.present(m_swapChain.Get(), syncInterval, flags);
+
+    if (FAILED(presentResult))
+    {
+        Error presentError = make_native_error(*m_assertContext, k_swapChainPresentFailed,
+                                               "DXGI Swap Chain Present failed", "DXGI", presentResult);
+        Result<void> classificationResult = classify_native_failure(std::move(presentError));
+        return Result<D3d12PresentStatus>::failure(std::move(*classificationResult.try_error()));
+    }
+
+    D3d12PresentStatus status =
+        presentResult == DXGI_STATUS_OCCLUDED ? D3d12PresentStatus::Occluded : D3d12PresentStatus::Presented;
+    return Result<D3d12PresentStatus>::success(std::move(status));
 }
 
 Result<void> D3d12SwapChainState::shutdown() noexcept
