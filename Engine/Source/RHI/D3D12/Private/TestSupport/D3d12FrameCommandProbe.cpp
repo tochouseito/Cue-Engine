@@ -12,7 +12,9 @@
 
 #include <d3d12sdklayers.h>
 
+#include <algorithm>
 #include <array>
+#include <cstring>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -56,6 +58,8 @@ struct ProbeNativeState final
     ProbeWaitFaultMode waitFaultMode = ProbeWaitFaultMode::None;
     std::array<ID3D12CommandAllocator *, cue::k_d3d12FrameContextCount> allocators = {};
     std::array<ID3D12Resource *, cue::k_d3d12FrameContextCount> backBuffers = {};
+    std::array<SIZE_T, cue::k_d3d12FrameContextCount> clearHandles = {};
+    std::array<std::array<float, 4>, cue::k_d3d12FrameContextCount> clearColors = {};
     std::array<std::uint32_t, cue::k_d3d12FrameContextCount> allocatorResetCounts = {};
     std::array<bool, cue::k_d3d12FrameContextCount> completionCheckedSinceSubmit = {true, true};
     std::array<std::uint64_t, cue::k_d3d12FrameContextCount> submittedFenceValues = {};
@@ -65,6 +69,8 @@ struct ProbeNativeState final
     std::uint32_t commandListCloseCount = 0;
     std::uint32_t executeCount = 0;
     std::uint32_t barrierCount = 0;
+    std::uint32_t markerCount = 0;
+    std::uint32_t clearCount = 0;
     std::uint32_t completedCallCount = 0;
     std::uint32_t createEventCallCount = 0;
     std::uint32_t closeHandleCallCount = 0;
@@ -76,6 +82,9 @@ struct ProbeNativeState final
     bool signalFaultActive = false;
     bool frameSignalPending = false;
     bool barriersAreValid = true;
+    bool markerNamesAreValid = true;
+    bool clearArgumentsAreValid = true;
+    bool clearOrderIsValid = true;
     HANDLE initialEvent = nullptr;
     HANDLE replacementEvent = nullptr;
     HANDLE lastRegisteredEvent = nullptr;
@@ -196,6 +205,39 @@ void resource_barrier_for_probe(ID3D12GraphicsCommandList *a_commandList, UINT a
         barrier->Transition.StateBefore == expectedBefore && barrier->Transition.StateAfter == expectedAfter;
     g_probeState.barrierCount += a_barrierCount;
     a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
+}
+
+void set_marker_for_probe(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name) noexcept
+{
+    g_probeState.markerNamesAreValid =
+        g_probeState.markerNamesAreValid && a_name != nullptr && std::strcmp(a_name, "ClearBackBuffer") == 0;
+    g_probeState.clearOrderIsValid =
+        g_probeState.clearOrderIsValid && g_probeState.barrierCount == (g_probeState.markerCount * 2) + 1;
+    ++g_probeState.markerCount;
+    cue::default_d3d12_frame_command_native_functions().setMarker(a_commandList, a_name);
+}
+
+void clear_render_target_view_for_probe(ID3D12GraphicsCommandList *a_commandList,
+                                        D3D12_CPU_DESCRIPTOR_HANDLE a_handle, const FLOAT a_color[4],
+                                        UINT a_rectangleCount, const D3D12_RECT *a_rectangles) noexcept
+{
+    const std::uint32_t frameIndex = g_probeState.nextFrameIndex;
+    g_probeState.clearArgumentsAreValid =
+        g_probeState.clearArgumentsAreValid && frameIndex < cue::k_d3d12FrameContextCount &&
+        a_handle.ptr == g_probeState.clearHandles[frameIndex] && a_color != nullptr && a_rectangleCount == 0 &&
+        a_rectangles == nullptr;
+    g_probeState.clearOrderIsValid =
+        g_probeState.clearOrderIsValid && g_probeState.markerCount == g_probeState.clearCount + 1 &&
+        g_probeState.barrierCount == (g_probeState.clearCount * 2) + 1;
+
+    if (a_color != nullptr && g_probeState.clearCount < cue::k_d3d12FrameContextCount)
+    {
+        std::copy_n(a_color, 4, g_probeState.clearColors[g_probeState.clearCount].begin());
+    }
+
+    ++g_probeState.clearCount;
+    cue::default_d3d12_frame_command_native_functions().clearRenderTargetView(
+        a_commandList, a_handle, a_color, a_rectangleCount, a_rectangles);
 }
 
 void execute_lists_for_probe(ID3D12CommandQueue *a_queue, UINT a_count,
@@ -363,7 +405,7 @@ HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     return {
         create_allocator_for_probe, create_list_for_probe, set_name_for_probe,
         reset_allocator_for_probe,  reset_list_for_probe,  close_list_for_probe,
-        resource_barrier_for_probe,
+        resource_barrier_for_probe, set_marker_for_probe,   clear_render_target_view_for_probe,
     };
 }
 
@@ -792,6 +834,218 @@ Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(const AssertCont
     report.backBuffersReturnedToPresent = backBuffersReturnedToPresent;
     report.diagnosticsAvailable = objects->diagnostics.isInfoQueueEnabled;
     return Result<D3d12FrameCommandProbeReport>::success(std::move(report));
+}
+
+bool verify_d3d12_back_buffer_clear_for_probe(const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, true, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<void> backBufferResult = bind_probe_back_buffers(*objects, a_assertContext);
+
+    if (!backBufferResult)
+    {
+        return shutdown_probe_objects(objects) && false;
+    }
+
+    Result<D3d12RtvHeap> heapResult = create_d3d12_rtv_heap(objects->device.Get(), a_assertContext);
+
+    if (!heapResult)
+    {
+        return shutdown_probe_objects(objects) && false;
+    }
+
+    D3d12RtvHeap heap = std::move(*heapResult.try_value());
+    bool valid = true;
+
+    for (std::uint32_t index = 0; index < k_d3d12FrameContextCount && valid; ++index)
+    {
+        Result<D3d12RtvSlot> slotResult = heap.allocate();
+
+        if (!slotResult)
+        {
+            valid = false;
+            break;
+        }
+
+        const D3d12RtvSlot slot = *slotResult.try_value();
+        Result<D3D12_CPU_DESCRIPTOR_HANDLE> handleResult = heap.cpu_handle(slot);
+        Result<ID3D12Resource *> bufferResult = objects->frameState->back_buffer(index);
+
+        if (!handleResult || !bufferResult)
+        {
+            static_cast<void>(heap.release(slot));
+            valid = false;
+            break;
+        }
+
+        D3D12_RENDER_TARGET_VIEW_DESC descriptor = {};
+        descriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        descriptor.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        descriptor.Texture2D.MipSlice = 0;
+        descriptor.Texture2D.PlaneSlice = 0;
+        objects->device->CreateRenderTargetView(*bufferResult.try_value(), &descriptor, *handleResult.try_value());
+        Result<void> bindingResult = objects->frameState->bind_rtv_slot(index, slot);
+
+        if (!bindingResult)
+        {
+            static_cast<void>(heap.release(slot));
+            valid = false;
+            break;
+        }
+
+        g_probeState.clearHandles[index] = handleResult.try_value()->ptr;
+    }
+
+    constexpr std::array<std::array<float, 4>, k_d3d12FrameContextCount> colors = {
+        std::array<float, 4>{0.125F, 0.25F, 0.5F, 1.0F},
+        std::array<float, 4>{0.75F, 0.375F, 0.0625F, 1.0F},
+    };
+
+    for (std::uint32_t frameIndex = 0; frameIndex < k_d3d12FrameContextCount && valid; ++frameIndex)
+    {
+        g_probeState.nextFrameIndex = frameIndex;
+        Result<void> beginResult = objects->frameState->begin_frame(frameIndex);
+        Result<void> renderTargetResult =
+            beginResult ? objects->frameState->transition_back_buffer(frameIndex, D3d12BackBufferState::RenderTarget)
+                        : Result<void>::failure(std::move(*beginResult.try_error()));
+        Result<void> clearResult = renderTargetResult
+                                       ? objects->frameState->clear_back_buffer(frameIndex, heap, colors[frameIndex])
+                                       : Result<void>::failure(std::move(*renderTargetResult.try_error()));
+        Result<void> presentResult =
+            clearResult ? objects->frameState->transition_back_buffer(frameIndex, D3d12BackBufferState::Present)
+                        : Result<void>::failure(std::move(*clearResult.try_error()));
+        Result<void> closeResult = presentResult ? objects->frameState->close_frame()
+                                                 : Result<void>::failure(std::move(*presentResult.try_error()));
+        Result<std::uint64_t> submitResult =
+            closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                        : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+        valid = static_cast<bool>(submitResult);
+    }
+
+    valid = valid && g_probeState.markerCount == k_d3d12FrameContextCount &&
+            g_probeState.clearCount == k_d3d12FrameContextCount && g_probeState.markerNamesAreValid &&
+            g_probeState.clearArgumentsAreValid && g_probeState.clearOrderIsValid &&
+            g_probeState.clearColors == colors && g_probeState.barrierCount == 4 && g_probeState.barriersAreValid &&
+            objects->frameState->are_back_buffers_present();
+    Result<void> releaseResult = objects->frameState->release_rtv_slots(heap);
+    Result<void> heapShutdownResult = heap.shutdown();
+    valid = valid && releaseResult && heapShutdownResult && shutdown_probe_objects(objects);
+    const std::uint64_t infoQueueErrorCount = count_info_queue_errors(objects->device.Get());
+    Result<void> messageResult = log_d3d12_messages_at_quiescent_point(
+        objects->device.Get(), objects->diagnostics, "D3D12 Back Buffer Clear probe", a_assertContext);
+    return valid && infoQueueErrorCount == 0 && messageResult;
+}
+
+bool verify_d3d12_back_buffer_clear_rejection_for_probe(D3d12BackBufferClearRejectionProbeMode a_mode,
+                                                         const AssertContext &a_assertContext) noexcept
+{
+    Result<std::unique_ptr<ProbeObjects>> objectsResult =
+        create_probe_objects(ProbeFaultMode::None, false, a_assertContext);
+
+    if (!objectsResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<ProbeObjects> objects = std::move(*objectsResult.try_value());
+    Result<D3d12RtvHeap> heapResult = create_d3d12_rtv_heap(objects->device.Get(), a_assertContext);
+
+    if (!heapResult)
+    {
+        return shutdown_probe_objects(objects) && false;
+    }
+
+    D3d12RtvHeap heap = std::move(*heapResult.try_value());
+    const bool needsBackBuffer = a_mode == D3d12BackBufferClearRejectionProbeMode::PresentState ||
+                                 a_mode == D3d12BackBufferClearRejectionProbeMode::MissingRtv ||
+                                 a_mode == D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle;
+    bool valid = !needsBackBuffer || bind_probe_back_buffers(*objects, a_assertContext);
+
+    if (valid && a_mode == D3d12BackBufferClearRejectionProbeMode::PresentState)
+    {
+        Result<D3d12RtvSlot> slotResult = heap.allocate();
+        Result<D3D12_CPU_DESCRIPTOR_HANDLE> handleResult =
+            slotResult ? heap.cpu_handle(*slotResult.try_value())
+                       : Result<D3D12_CPU_DESCRIPTOR_HANDLE>::failure(std::move(*slotResult.try_error()));
+        Result<ID3D12Resource *> bufferResult = objects->frameState->back_buffer(0);
+
+        if (handleResult && bufferResult)
+        {
+            D3D12_RENDER_TARGET_VIEW_DESC descriptor = {};
+            descriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            descriptor.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            descriptor.Texture2D.MipSlice = 0;
+            descriptor.Texture2D.PlaneSlice = 0;
+            objects->device->CreateRenderTargetView(*bufferResult.try_value(), &descriptor,
+                                                    *handleResult.try_value());
+            valid = static_cast<bool>(objects->frameState->bind_rtv_slot(0, *slotResult.try_value()));
+        }
+        else
+        {
+            if (slotResult)
+            {
+                static_cast<void>(heap.release(*slotResult.try_value()));
+            }
+
+            valid = false;
+        }
+    }
+    else if (valid && a_mode == D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle)
+    {
+        const D3d12RtvSlot invalidSlot = {0, k_d3d12RtvDescriptorCapacity, 0};
+        valid = static_cast<bool>(objects->frameState->bind_rtv_slot(0, invalidSlot));
+    }
+
+    constexpr std::array<float, 4> color = {0.25F, 0.5F, 0.75F, 1.0F};
+    const std::uint32_t clearFrameIndex =
+        a_mode == D3d12BackBufferClearRejectionProbeMode::NonCurrentFrame ? 1 : 0;
+    Result<void> beginResult =
+        a_mode == D3d12BackBufferClearRejectionProbeMode::OutsideRecording
+            ? Result<void>::success()
+            : objects->frameState->begin_frame(0);
+    const bool needsRenderTarget = a_mode == D3d12BackBufferClearRejectionProbeMode::MissingRtv ||
+                                   a_mode == D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle;
+    Result<void> renderTargetResult =
+        beginResult && needsRenderTarget
+            ? objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget)
+            : (beginResult ? Result<void>::success() : Result<void>::failure(std::move(*beginResult.try_error())));
+    Result<void> clearResult =
+        valid && renderTargetResult
+            ? objects->frameState->clear_back_buffer(clearFrameIndex, heap, color)
+            : Result<void>::failure(Error::create(
+                  a_assertContext.fatal_handler(), ErrorCode::create(a_assertContext.fatal_handler(), "Probe", 1),
+                  "D3D12 Back Buffer Clear rejection probe setup failed"));
+    const std::int64_t expectedCode =
+        a_mode == D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle ? 69 : 97;
+    valid = !clearResult && matches_error(clearResult.try_error(), expectedCode) && g_probeState.markerCount == 0 &&
+            g_probeState.clearCount == 0;
+
+    if (needsRenderTarget && renderTargetResult)
+    {
+        valid = objects->frameState->transition_back_buffer(0, D3d12BackBufferState::Present) && valid;
+    }
+
+    if (a_mode != D3d12BackBufferClearRejectionProbeMode::OutsideRecording && beginResult)
+    {
+        Result<void> closeResult = objects->frameState->close_frame();
+        Result<std::uint64_t> submitResult =
+            closeResult ? execute_present_signal_for_probe(*objects->frameState)
+                        : Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+        valid = submitResult && valid;
+    }
+
+    Result<void> releaseResult = objects->frameState->release_rtv_slots(heap);
+    const bool expectedReleaseFailure = a_mode == D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle;
+    valid = static_cast<bool>(releaseResult) == !expectedReleaseFailure && valid;
+    Result<void> heapShutdownResult = heap.shutdown();
+    return heapShutdownResult && shutdown_probe_objects(objects) && valid;
 }
 
 bool verify_d3d12_invalid_frame_index_for_probe(const AssertContext &a_assertContext) noexcept

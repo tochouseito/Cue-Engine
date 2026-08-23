@@ -46,9 +46,25 @@ enum class D3d12BackBufferTransitionOrderProbeMode
     NonCurrentFrame,
 };
 
+enum class D3d12BackBufferClearRejectionProbeMode
+{
+    OutsideRecording,
+    NonCurrentFrame,
+    PresentState,
+    MissingRtv,
+    InvalidRtvHandle,
+};
+
 /** @brief WARP上で2 Frame Contextを300回周回してBack Buffer BarrierとLifecycleを検証する */
 [[nodiscard]] Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(
     const AssertContext &a_assertContext) noexcept;
+
+/** @brief 異なる2色のBack Buffer Clear、Marker、Command順序を実D3D12 Command Listで検証する */
+[[nodiscard]] bool verify_d3d12_back_buffer_clear_for_probe(const AssertContext &a_assertContext) noexcept;
+
+/** @brief Back Buffer Clearの状態・RTV違反がNative記録前に拒否されることを検証する */
+[[nodiscard]] bool verify_d3d12_back_buffer_clear_rejection_for_probe(
+    D3d12BackBufferClearRejectionProbeMode a_mode, const AssertContext &a_assertContext) noexcept;
 
 /** @brief Frame Index範囲外がNative操作前にErrorになることを検証する */
 [[nodiscard]] bool verify_d3d12_invalid_frame_index_for_probe(const AssertContext &a_assertContext) noexcept;

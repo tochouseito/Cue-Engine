@@ -11,6 +11,8 @@
 #include <string_view>
 #include <utility>
 
+#include <pix.h>
+
 namespace
 {
 constexpr std::int64_t k_commandAllocatorCreationFailed = 54;
@@ -27,6 +29,7 @@ constexpr std::int64_t k_frameAcceptanceStopped = 64;
 constexpr std::int64_t k_invalidFrameResource = 65;
 constexpr std::int64_t k_invalidBackBufferTransition = 94;
 constexpr std::int64_t k_invalidBackBufferResource = 95;
+constexpr std::int64_t k_invalidBackBufferClear = 97;
 constexpr std::int64_t k_fenceValueExhausted = 45;
 constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uint32_t>::max)();
 
@@ -88,6 +91,18 @@ void resource_barrier(ID3D12GraphicsCommandList *a_commandList, UINT a_barrierCo
     a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
+void set_marker(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name) noexcept
+{
+    PIXSetMarker(a_commandList, PIX_COLOR_DEFAULT, a_name);
+}
+
+void clear_render_target_view(ID3D12GraphicsCommandList *a_commandList, D3D12_CPU_DESCRIPTOR_HANDLE a_handle,
+                              const FLOAT a_color[4], UINT a_rectangleCount,
+                              const D3D12_RECT *a_rectangles) noexcept
+{
+    a_commandList->ClearRenderTargetView(a_handle, a_color, a_rectangleCount, a_rectangles);
+}
+
 [[nodiscard]] bool is_fence_exhaustion(const cue::Error &a_error) noexcept
 {
     return a_error.code().domain() == "Cue.RHI.D3D12" && a_error.code().value() == k_fenceValueExhausted;
@@ -144,7 +159,7 @@ const D3d12FrameCommandNativeFunctions &default_d3d12_frame_command_native_funct
     static const D3d12FrameCommandNativeFunctions functions = {
         create_command_allocator, create_command_list, set_object_name,
         reset_command_allocator,  reset_command_list,  close_command_list,
-        resource_barrier,
+        resource_barrier,         set_marker,          clear_render_target_view,
     };
     return functions;
 }
@@ -608,6 +623,52 @@ Result<void> D3d12FrameCommandState::transition_back_buffer(std::uint32_t a_fram
     barrier.Transition.StateAfter = afterState;
     m_functions.resourceBarrier(m_commandList.Get(), 1, &barrier);
     frame.backBufferState = a_targetState;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::clear_back_buffer(std::uint32_t a_frameIndex, D3d12RtvHeap &a_heap,
+                                                       const std::array<float, 4> &a_color) noexcept
+{
+    update_status_from_queue();
+
+    if (!m_acceptingFrames || m_status != D3d12FrameCommandStatus::Ready)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped, "D3D12 Back Buffer clear is unavailable"));
+    }
+
+    if (a_frameIndex >= k_d3d12FrameContextCount)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Back Buffer clear index is out of range");
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidFrameIndex, "D3D12 Back Buffer clear index is out of range"));
+    }
+
+    if (m_commandListState != D3d12CommandListState::Recording || a_frameIndex != m_activeFrameIndex)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Back Buffer clear requires the Current Back Buffer while recording");
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferClear,
+                                                "D3D12 Back Buffer clear Frame state is invalid"));
+    }
+
+    const D3d12FrameContext &frame = m_frames[a_frameIndex];
+
+    if (frame.backBuffer == nullptr || frame.backBufferState != D3d12BackBufferState::RenderTarget ||
+        !frame.rtvSlot.has_value())
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferClear,
+                                                "D3D12 Back Buffer clear Resource state or RTV is invalid"));
+    }
+
+    Result<D3D12_CPU_DESCRIPTOR_HANDLE> handleResult = a_heap.cpu_handle(*frame.rtvSlot);
+
+    if (!handleResult)
+    {
+        return Result<void>::failure(std::move(*handleResult.try_error()));
+    }
+
+    m_functions.setMarker(m_commandList.Get(), "ClearBackBuffer");
+    m_functions.clearRenderTargetView(m_commandList.Get(), *handleResult.try_value(), a_color.data(), 0, nullptr);
     return Result<void>::success();
 }
 

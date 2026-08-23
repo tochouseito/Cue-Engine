@@ -2,6 +2,7 @@
 
 #include <Cue/Foundation/Result.h>
 
+#include <array>
 #include <cstdint>
 
 namespace cue
@@ -130,4 +131,8 @@ struct D3d12DredOwnerProbeReport final
 
 /** @brief Production PresentationのCurrent Back Bufferへ往復Barrierを記録してSubmitする */
 [[nodiscard]] bool submit_d3d12_transition_frame_for_probe(PresentationContext &a_presentation) noexcept;
+
+/** @brief Production PresentationのCurrent Back Bufferを指定色でClearしてSubmitする */
+[[nodiscard]] bool submit_d3d12_clear_frame_for_probe(PresentationContext &a_presentation,
+                                                       const std::array<float, 4> &a_color) noexcept;
 } // namespace cue
