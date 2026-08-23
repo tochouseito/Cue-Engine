@@ -456,6 +456,15 @@ Result<void> D3d12FrameCommandState::mark_present_attempted() noexcept
             make_error(*m_assertContext, k_invalidCommandListState, "D3D12 Present marker state is invalid"));
     }
 
+    const D3d12FrameContext &frame = m_frames[m_activeFrameIndex];
+
+    if (frame.backBuffer != nullptr && frame.backBufferState != D3d12BackBufferState::Present)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Present requires the Current Back Buffer in Present state");
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferTransition,
+                                                "D3D12 Present Back Buffer state is invalid"));
+    }
+
     m_commandListState = D3d12CommandListState::ExecutedUnfenced;
     return Result<void>::success();
 }

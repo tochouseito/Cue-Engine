@@ -1706,6 +1706,31 @@ bool verify_d3d12_frame_state_order_for_probe(D3d12FrameCommandOrderProbeMode a_
         return submitResult && shutdown_probe_objects(objects) && valid;
     }
 
+    if (a_mode == D3d12FrameCommandOrderProbeMode::PresentState)
+    {
+        Result<void> bindingResult = bind_probe_back_buffers(*objects, a_assertContext);
+
+        if (!bindingResult)
+        {
+            return false;
+        }
+
+        Result<void> beginResult = objects->frameState->begin_frame(0);
+        Result<void> transitionResult =
+            beginResult ? objects->frameState->transition_back_buffer(0, D3d12BackBufferState::RenderTarget)
+                        : Result<void>::failure(std::move(*beginResult.try_error()));
+        Result<void> closeResult = transitionResult ? objects->frameState->close_frame()
+                                                    : Result<void>::failure(std::move(*transitionResult.try_error()));
+        Result<void> executeResult = closeResult ? objects->frameState->execute_frame()
+                                                 : Result<void>::failure(std::move(*closeResult.try_error()));
+        Result<void> presentResult = executeResult ? objects->frameState->mark_present_attempted()
+                                                   : Result<void>::failure(std::move(*executeResult.try_error()));
+        valid = matches_error(presentResult.try_error(), 94) &&
+                objects->frameState->command_list_state() == D3d12CommandListState::ExecutedAwaitingPresent &&
+                g_probeState.executeCount == 1;
+        std::_Exit(valid ? 0 : 26);
+    }
+
     if (a_mode == D3d12FrameCommandOrderProbeMode::Close)
     {
         Result<void> closeResult = objects->frameState->close_frame();

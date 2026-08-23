@@ -36,6 +36,7 @@ enum class D3d12FrameCommandOrderProbeMode
     Begin,
     Close,
     Execute,
+    PresentState,
     ResizeSuspend,
 };
 

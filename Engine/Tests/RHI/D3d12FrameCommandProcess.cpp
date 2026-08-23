@@ -173,6 +173,14 @@ int main(int a_argumentCount, char **a_arguments)
                    : 10;
     }
 
+    if (mode == "StateOrderPresentState")
+    {
+        return cue::verify_d3d12_frame_state_order_for_probe(
+                   cue::D3d12FrameCommandOrderProbeMode::PresentState, assertContext)
+                   ? 0
+                   : 26;
+    }
+
     if (mode == "StateOrderResizeSuspend")
     {
         return cue::verify_d3d12_frame_state_order_for_probe(

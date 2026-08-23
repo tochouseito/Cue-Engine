@@ -207,6 +207,7 @@ if(WIN32)
         Cue.RHI.D3D12.FrameCommand.StateOrderBegin
         Cue.RHI.D3D12.FrameCommand.StateOrderClose
         Cue.RHI.D3D12.FrameCommand.StateOrderExecute
+        Cue.RHI.D3D12.FrameCommand.StateOrderPresentState
         Cue.RHI.D3D12.FrameCommand.StateOrderResizeSuspend
         Cue.RHI.D3D12.FrameCommand.AllocatorResetFailure
         Cue.RHI.D3D12.FrameCommand.CommandListResetFailure
@@ -563,6 +564,15 @@ if(WIN32)
             ${CMAKE_COMMAND}
             -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
             -DTEST_MODE=StateOrderExecute
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.StateOrderPresentState
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=StateOrderPresentState
             -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
     )
