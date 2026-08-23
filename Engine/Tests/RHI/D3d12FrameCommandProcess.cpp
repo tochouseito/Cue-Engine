@@ -90,6 +90,51 @@ int main(int a_argumentCount, char **a_arguments)
         return cue::verify_d3d12_invalid_frame_index_for_probe(assertContext) ? 0 : 3;
     }
 
+    if (mode == "ClearTwoColors")
+    {
+        return cue::verify_d3d12_back_buffer_clear_for_probe(assertContext) ? 0 : 28;
+    }
+
+    if (mode == "ClearOutsideRecording")
+    {
+        return cue::verify_d3d12_back_buffer_clear_rejection_for_probe(
+                   cue::D3d12BackBufferClearRejectionProbeMode::OutsideRecording, assertContext)
+                   ? 0
+                   : 29;
+    }
+
+    if (mode == "ClearNonCurrentFrame")
+    {
+        return cue::verify_d3d12_back_buffer_clear_rejection_for_probe(
+                   cue::D3d12BackBufferClearRejectionProbeMode::NonCurrentFrame, assertContext)
+                   ? 0
+                   : 30;
+    }
+
+    if (mode == "ClearPresentState")
+    {
+        return cue::verify_d3d12_back_buffer_clear_rejection_for_probe(
+                   cue::D3d12BackBufferClearRejectionProbeMode::PresentState, assertContext)
+                   ? 0
+                   : 31;
+    }
+
+    if (mode == "ClearMissingRtv")
+    {
+        return cue::verify_d3d12_back_buffer_clear_rejection_for_probe(
+                   cue::D3d12BackBufferClearRejectionProbeMode::MissingRtv, assertContext)
+                   ? 0
+                   : 32;
+    }
+
+    if (mode == "ClearInvalidRtvHandle")
+    {
+        return cue::verify_d3d12_back_buffer_clear_rejection_for_probe(
+                   cue::D3d12BackBufferClearRejectionProbeMode::InvalidRtvHandle, assertContext)
+                   ? 0
+                   : 33;
+    }
+
     if (mode == "TransitionInvalidIndex")
     {
         return cue::verify_d3d12_transition_invalid_index_for_probe(assertContext) ? 0 : 23;

@@ -754,6 +754,64 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return m_frameCommandState.signal_frame();
     }
 
+    [[nodiscard]] cue::Result<std::uint64_t> submit_clear_frame_for_probe(
+        const std::array<float, 4> &a_color) noexcept
+    {
+        const std::uint32_t frameIndex = m_swapChain.current_back_buffer_index();
+        cue::Result<void> beginResult = m_frameCommandState.begin_frame(frameIndex);
+
+        if (!beginResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*beginResult.try_error()));
+        }
+
+        cue::Result<void> renderTargetResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::RenderTarget);
+
+        if (!renderTargetResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*renderTargetResult.try_error()));
+        }
+
+        cue::Result<void> clearResult = m_frameCommandState.clear_back_buffer(frameIndex, m_rtvHeap, a_color);
+
+        if (!clearResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*clearResult.try_error()));
+        }
+
+        cue::Result<void> presentStateResult =
+            m_frameCommandState.transition_back_buffer(frameIndex, cue::D3d12BackBufferState::Present);
+
+        if (!presentStateResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*presentStateResult.try_error()));
+        }
+
+        cue::Result<void> closeResult = m_frameCommandState.close_frame();
+
+        if (!closeResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*closeResult.try_error()));
+        }
+
+        cue::Result<void> executeResult = m_frameCommandState.execute_frame();
+
+        if (!executeResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*executeResult.try_error()));
+        }
+
+        cue::Result<void> presentResult = m_frameCommandState.mark_present_attempted();
+
+        if (!presentResult)
+        {
+            return cue::Result<std::uint64_t>::failure(std::move(*presentResult.try_error()));
+        }
+
+        return m_frameCommandState.signal_frame();
+    }
+
   private:
     [[nodiscard]] cue::Result<void> prepare_backend_cleanup() noexcept
     {
@@ -1348,6 +1406,19 @@ bool submit_d3d12_transition_frame_for_probe(PresentationContext &a_presentation
     }
 
     return static_cast<bool>(presentation->submit_transition_frame_for_probe());
+}
+
+bool submit_d3d12_clear_frame_for_probe(PresentationContext &a_presentation,
+                                        const std::array<float, 4> &a_color) noexcept
+{
+    D3d12PresentationContext *presentation = dynamic_cast<D3d12PresentationContext *>(&a_presentation);
+
+    if (presentation == nullptr)
+    {
+        return false;
+    }
+
+    return static_cast<bool>(presentation->submit_clear_frame_for_probe(a_color));
 }
 
 Result<void> force_d3d12_device_removal_for_probe(D3d12Backend &a_backend) noexcept

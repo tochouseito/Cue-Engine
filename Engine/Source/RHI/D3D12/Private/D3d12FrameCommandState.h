@@ -68,6 +68,9 @@ struct D3d12FrameCommandNativeFunctions final
     HRESULT (*resetCommandList)(ID3D12GraphicsCommandList *, ID3D12CommandAllocator *) noexcept;
     HRESULT (*closeCommandList)(ID3D12GraphicsCommandList *) noexcept;
     void (*resourceBarrier)(ID3D12GraphicsCommandList *, UINT, const D3D12_RESOURCE_BARRIER *) noexcept;
+    void (*setMarker)(ID3D12GraphicsCommandList *, PCSTR) noexcept;
+    void (*clearRenderTargetView)(ID3D12GraphicsCommandList *, D3D12_CPU_DESCRIPTOR_HANDLE, const FLOAT[4], UINT,
+                                  const D3D12_RECT *) noexcept;
 };
 
 [[nodiscard]] const D3d12FrameCommandNativeFunctions &default_d3d12_frame_command_native_functions() noexcept;
@@ -84,6 +87,8 @@ class D3d12FrameCommandState final
     [[nodiscard]] Result<void> begin_frame(std::uint32_t a_frameIndex) noexcept;
     [[nodiscard]] Result<void> transition_back_buffer(std::uint32_t a_frameIndex,
                                                       D3d12BackBufferState a_targetState) noexcept;
+    [[nodiscard]] Result<void> clear_back_buffer(std::uint32_t a_frameIndex, D3d12RtvHeap &a_heap,
+                                                 const std::array<float, 4> &a_color) noexcept;
     [[nodiscard]] Result<void> close_frame() noexcept;
     [[nodiscard]] Result<void> execute_frame() noexcept;
     [[nodiscard]] Result<void> mark_present_attempted() noexcept;

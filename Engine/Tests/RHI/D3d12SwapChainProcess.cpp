@@ -7,6 +7,7 @@
 #include <Cue/RHI/D3D12/TestSupport/D3d12SwapChainProbe.h>
 #include <Cue/RHI/D3D12/Windows/D3d12WindowsPresentation.h>
 
+#include <array>
 #include <cstdlib>
 #include <memory>
 #include <string_view>
@@ -177,6 +178,51 @@ class ForeignWindow final : public cue::Window
         return false;
     }
 
+    backend.reset();
+    return valid;
+}
+
+[[nodiscard]] bool run_clear_smoke(cue::Window &a_window, ProcessLogSink &a_logSink,
+                                   cue::AssertContext &a_assertContext) noexcept
+{
+    const std::uint32_t initialErrorCount = a_logSink.error_count();
+    cue::D3d12BackendDescriptor backendDescriptor = {
+        cue::D3d12AdapterPolicy::Warp,
+        cue::are_d3d12_diagnostics_allowed_for_probe() ? cue::D3d12ValidationMode::Standard
+                                                       : cue::D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
+        cue::create_d3d12_backend(backendDescriptor, a_assertContext);
+
+    if (!backendResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::PresentationDescriptor descriptor = {true};
+    cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
+        cue::create_d3d12_windows_presentation(*backend, a_window, descriptor);
+
+    if (!presentationResult)
+    {
+        static_cast<void>(backend->shutdown());
+        return false;
+    }
+
+    std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
+    constexpr std::array<float, 4> firstColor = {0.125F, 0.25F, 0.5F, 1.0F};
+    constexpr std::array<float, 4> secondColor = {0.75F, 0.375F, 0.0625F, 1.0F};
+    bool valid = cue::submit_d3d12_clear_frame_for_probe(*presentation, firstColor) &&
+                 cue::submit_d3d12_clear_frame_for_probe(*presentation, secondColor);
+    cue::Result<void> presentationShutdownResult = presentation->shutdown();
+    presentation.reset();
+    cue::Result<void> backendShutdownResult = backend->shutdown();
+    valid = valid && presentationShutdownResult && backendShutdownResult &&
+            backend->state() == cue::GraphicsBackendState::Shutdown &&
+            a_logSink.error_count() == initialErrorCount;
     backend.reset();
     return valid;
 }
@@ -520,6 +566,11 @@ int main(int a_argumentCount, char **a_arguments)
     {
         valid = run_production_ownership(*window, assertContext);
         failureCode = valid ? 0 : 9;
+    }
+    else if (mode == "ClearSmoke")
+    {
+        valid = run_clear_smoke(*window, *processSinkView, assertContext);
+        failureCode = valid ? 0 : 27;
     }
     else if (mode == "ResizeLifecycle")
     {

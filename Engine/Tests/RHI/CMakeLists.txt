@@ -192,6 +192,12 @@ if(WIN32)
         Cue.RHI.D3D12.Diagnostics.Configured
         Cue.RHI.D3D12.FrameCommand.Smoke300
         Cue.RHI.D3D12.FrameCommand.InfoQueue300
+        Cue.RHI.D3D12.FrameCommand.ClearTwoColors
+        Cue.RHI.D3D12.FrameCommand.ClearPresentState
+        Cue.RHI.D3D12.FrameCommand.ClearMissingRtv
+        Cue.RHI.D3D12.FrameCommand.ClearOutsideRecording
+        Cue.RHI.D3D12.FrameCommand.ClearNonCurrentFrame
+        Cue.RHI.D3D12.FrameCommand.ClearInvalidRtvHandle
         Cue.RHI.D3D12.FrameCommand.InvalidIndex
         Cue.RHI.D3D12.FrameCommand.TransitionInvalidIndex
         Cue.RHI.D3D12.FrameCommand.TransitionNullResource
@@ -251,6 +257,7 @@ if(WIN32)
         Cue.RHI.D3D12.SwapChain.LogFailure
         Cue.RHI.D3D12.SwapChain.Validation
         Cue.RHI.D3D12.SwapChain.ProductionOwnership
+        Cue.RHI.D3D12.SwapChain.ClearSmoke
         Cue.RHI.D3D12.SwapChain.ResizeLifecycle
         Cue.RHI.D3D12.SwapChain.ResizeFailure
         Cue.RHI.D3D12.SwapChain.RtvRebuildFailure
@@ -472,6 +479,29 @@ if(WIN32)
         NAME Cue.RHI.D3D12.FrameCommand.InfoQueue300
         COMMAND CueRhiD3d12FrameCommandProcess InfoQueue300
     )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.ClearTwoColors
+        COMMAND CueRhiD3d12FrameCommandProcess ClearTwoColors
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.ClearPresentState
+        COMMAND CueRhiD3d12FrameCommandProcess ClearPresentState
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.ClearMissingRtv
+        COMMAND CueRhiD3d12FrameCommandProcess ClearMissingRtv
+    )
+    foreach(clearViolationMode IN ITEMS ClearOutsideRecording ClearNonCurrentFrame ClearInvalidRtvHandle)
+        add_test(
+            NAME Cue.RHI.D3D12.FrameCommand.${clearViolationMode}
+            COMMAND
+                ${CMAKE_COMMAND}
+                -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+                -DTEST_MODE=${clearViolationMode}
+                -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+        )
+    endforeach()
     add_test(
         NAME Cue.RHI.D3D12.FrameCommand.InvalidIndex
         COMMAND
@@ -722,7 +752,7 @@ if(WIN32)
     endforeach()
     foreach(
         swapChainMode
-        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
+        IN ITEMS SmokeVsync SmokeImmediate InfoQueue TearingMatrix CreationFaults LogFailure Validation ProductionOwnership ClearSmoke ResizeLifecycle ResizeFailure RtvRebuildFailure TerminalResizeRejection ResizeUnavailableRetention DeviceRemovalLifecycle DeviceRemovalResize DeviceRemovalDredFailure
     )
         add_test(
             NAME Cue.RHI.D3D12.SwapChain.${swapChainMode}
