@@ -461,6 +461,7 @@ Result<void> D3d12FrameCommandState::mark_present_attempted() noexcept
     if (frame.backBuffer != nullptr && frame.backBufferState != D3d12BackBufferState::Present)
     {
         CUE_ASSERT(*m_assertContext, false, "D3D12 Present requires the Current Back Buffer in Present state");
+        m_commandListState = D3d12CommandListState::ExecutedUnfenced;
         return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferTransition,
                                                 "D3D12 Present Back Buffer state is invalid"));
     }

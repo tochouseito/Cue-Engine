@@ -1726,9 +1726,16 @@ bool verify_d3d12_frame_state_order_for_probe(D3d12FrameCommandOrderProbeMode a_
         Result<void> presentResult = executeResult ? objects->frameState->mark_present_attempted()
                                                    : Result<void>::failure(std::move(*executeResult.try_error()));
         valid = matches_error(presentResult.try_error(), 94) &&
-                objects->frameState->command_list_state() == D3d12CommandListState::ExecutedAwaitingPresent &&
+                objects->frameState->command_list_state() == D3d12CommandListState::ExecutedUnfenced &&
                 g_probeState.executeCount == 1;
-        std::_Exit(valid ? 0 : 26);
+
+        if (!valid)
+        {
+            std::_Exit(26);
+        }
+
+        Result<std::uint64_t> signalResult = objects->frameState->signal_frame();
+        return signalResult && shutdown_probe_objects(objects) && valid;
     }
 
     if (a_mode == D3d12FrameCommandOrderProbeMode::Close)
