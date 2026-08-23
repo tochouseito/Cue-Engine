@@ -1,0 +1,137 @@
+CueEngine M05 RuntimeHost Debug Hardware Evidence
+Date: 2026-08-23
+Source commit: cf30356aacaf49f4e20b267190eabeb7335d8905
+
+Environment
+- OS reported by Windows: Windows 10 Home 25H2, Build 26200.9168
+- CMake/CTest: 4.2.3
+- Visual Studio: 18.9.12105.275
+- MSVC: 14.51.36231 (cl 19.51.36256.0)
+- Windows SDK: 10.0.26100.0
+- GPU: NVIDIA GeForce RTX 3060
+- Driver: 32.0.16.1047
+
+Command
+out/build/windows-vs2026/bin/Debug/CueRuntimeHost.exe --render-smoke hardware --width 1280 --height 720
+
+Selected output
+[Info] Runtime Host initialization started
+[Info] D3D12 Adapterを選択しました
+  DXGI.Adapter.DeviceId/9475 NVIDIA GeForce RTX 3060
+[Info] D3D12 Render Loop ready: Width=1280, Height=720, BufferCount=2, VSync=true
+[Info] D3D12 Render Loop completed: FrameCount=300, OccludedFrameCount=0, FinalBackBufferIndex=0
+[Info] D3D12 Render Loop shutdown completed
+ExitCode=0
+
+Negative diagnostic scan
+- Log Level [Error]: no match
+- DeviceRemoved: no match
+- DRED Device Removal: no match
+- Live D3D12 Object Error: no match
+
+Diagnostic activation audit
+
+Command
+out/build/windows-vs2026/bin/Debug/CueRhiD3d12DiagnosticsProcess.exe Configured
+
+Result
+ExitCode=0
+
+The Configured probe requests Standard validation and DRED. Exit Code 0 verifies that diagnostics are
+allowed by the Debug build and that Debug Layer and DRED enabled status match interface availability.
+
+The 300-frame command was rerun with stdout and stderr retained together. The following PowerShell was
+used to capture the process result and evaluate each scan:
+
+$runtimeOutput = @(
+    & $runtime --render-smoke hardware --width 1280 --height 720 2>&1 |
+        ForEach-Object { "$_" }
+)
+$runtimeExit = $LASTEXITCODE
+
+$fallbackPatterns = @(
+    'D3D12 DREDを利用できないため診断なしで続行します',
+    'D3D12 Debug Layerを利用できないため診断なしで続行します',
+    'D3D12 InfoQueueを利用できないため診断なしで続行します',
+    'D3D12 InfoQueueのBreak Policyを設定できないため診断なしで続行します',
+    'D3D12 InfoQueueのWarning Policyを設定できないため診断なしで続行します',
+    'D3D12 Live Object診断Interfaceを取得できません',
+    'D3D12 Live Object診断を実行できません'
+)
+
+foreach ($pattern in $fallbackPatterns)
+{
+    @($runtimeOutput | Select-String -SimpleMatch $pattern).Count
+}
+
+@($runtimeOutput | Select-String -Pattern '\[Error\]').Count
+@($runtimeOutput | Select-String -Pattern 'DeviceRemoved').Count
+@($runtimeOutput | Select-String -Pattern 'Device Removal').Count
+@($runtimeOutput | Select-String -Pattern 'D3D12\.DRED').Count
+@($runtimeOutput | Select-String -SimpleMatch 'D3D12診断メッセージを取得しました').Count
+
+$liveRecords = @(
+    $runtimeOutput | Select-String -Pattern 'Live ID3D12[A-Za-z0-9_]*'
+)
+$unexpectedLiveRecords = @(
+    $liveRecords | Where-Object {
+        $_.Line -notmatch 'Live ID3D12Device\b.*Name: CueEngine D3D12 Device, Refcount: 2'
+    }
+)
+
+Results
+- Runtime ExitCode: 0
+- D3D12 InfoQueue message records: 60
+- Log Level [Error]: 0
+- DeviceRemoved: 0
+- Device Removal: 0
+- D3D12.DRED: 0
+- DRED unavailable fallback: 0
+- Debug Layer unavailable fallback: 0
+- InfoQueue unavailable fallback: 0
+- InfoQueue Break Policy fallback: 0
+- InfoQueue Warning Policy fallback: 0
+- Live Object interface fallback: 0
+- Live Object execution fallback: 0
+- Live ID3D12 object records: 1
+- Expected live CueEngine D3D12 Device records: 1
+- Unexpected live ID3D12 object records: 0
+
+ReportLiveDeviceObjects evidence
+[Warning] D3D12診断メッセージを取得しました
+  Error: D3D12.Message/255 Using ID3D12DebugDevice2::ReportLiveDeviceObjects with D3D12_RLDO_DETAIL will help drill into object lifetimes.
+[Warning] D3D12診断メッセージを取得しました
+  Error: D3D12.Message/274 Live ID3D12Device, Name: CueEngine D3D12 Device, Refcount: 2
+
+These are D3D12 Debug Layer report records collected at the explicit live-object reporting point. The
+device itself is still owned while it is being inspected, so the report contains the expected device
+record. The complete `Live ID3D12*` enumeration contained this Device record only; no Resource, Queue,
+Fence, Allocator, Command List, Swap Chain, or other unexpected live D3D12 object was reported. Neither
+record was emitted at Cue Log Level [Error], and the ReportLiveDeviceObjects failure fallback count was
+zero.
+
+Command
+out/build/windows-vs2026/bin/Debug/CueRuntimeHost.exe --resize-smoke hardware --width 640 --height 360
+
+Selected output
+[Info] Runtime Host initialization started
+[Info] D3D12 Adapterを選択しました
+  DXGI.Adapter.DeviceId/9475 NVIDIA GeForce RTX 3060
+[Info] D3D12 Render Loop ready: Width=640, Height=360, BufferCount=2, VSync=true
+[Info] D3D12 Resize Smoke completed: ResizeEventCount=102, MinimizeEventCount=50, RestoreEventCount=50, ResizeApplyCount=150, MinimizedFrameSkipCount=50, PresentedFrameCount=100
+[Info] D3D12 Render Loop completed: FrameCount=101, OccludedFrameCount=0, FinalBackBufferIndex=0
+[Info] D3D12 Render Loop shutdown completed
+ExitCode=0
+
+Negative diagnostic scan
+- Log Level [Error]: no match
+- DeviceRemoved: no match
+- DRED Device Removal: no match
+- Live D3D12 Object Error: no match
+
+Notes
+- The Configured probe, 60 InfoQueue records, and zero fallback counts show that Debug Layer, InfoQueue,
+  DRED, and ReportLiveDeviceObjects did not silently fall back on this machine.
+- Informational object create/destroy messages and the report operation itself are logged at Info/Warning.
+- The RuntimeHost CTest wrapper rejects D3D12 diagnostic messages emitted at Log Level Error.
+- Screenshot: Docs/Evidence/M05/ClearBackBuffer.png

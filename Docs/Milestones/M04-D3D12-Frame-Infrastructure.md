@@ -18,7 +18,7 @@ M05のRender Target Clearへ進むためのAcceptance Gateを満たしたこと�
 | [#48 Frame ContextとCommand Lifecycle](https://github.com/tochouseito/CueEngine/issues/48) | [#79](https://github.com/tochouseito/CueEngine/pull/79) | 2 Allocator、共有Command List、Frame再利用Fenceと状態機械を実装 |
 | [#49 RTV Descriptor Heap Ownership](https://github.com/tochouseito/CueEngine/issues/49) | [#80](https://github.com/tochouseito/CueEngine/pull/80) | 2 slot RTV Heap、世代付きSlot、所有権診断を実装 |
 | [#50 DXGI Swap ChainとBack Buffer](https://github.com/tochouseito/CueEngine/issues/50) | [#81](https://github.com/tochouseito/CueEngine/pull/81) | Windows Presentation境界、2-buffer Flip Discard、VSync／Tearing、Back Buffer取得を実装 |
-| [#51 Back Buffer RTVとResize Lifecycle](https://github.com/tochouseito/CueEngine/issues/51) | 本変更 | Frame Context単位のBack Buffer／RTV対応、Resize／Minimize／Restore、規定順Shutdownを実装 |
+| [#51 Back Buffer RTVとResize Lifecycle](https://github.com/tochouseito/CueEngine/issues/51) | [#82](https://github.com/tochouseito/CueEngine/pull/82) | Frame Context単位のBack Buffer／RTV対応、Resize／Minimize／Restore、規定順Shutdownを実装 |
 
 正式な設計判断は[ADR-0008](../Decisions/0008-frame-flight-gpu-synchronization-ownership.md)を正本とし、
 RHI／Windows境界とError契約は[ADR-0007](../Decisions/0007-minimum-rhi-d3d12-boundary.md)および
