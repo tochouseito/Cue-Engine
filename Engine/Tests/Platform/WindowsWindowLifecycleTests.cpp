@@ -2,6 +2,7 @@
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
+#include <Cue/Platform/Windows/TestSupport/WindowsWindowLifecycleProbe.h>
 #include <Cue/Platform/Windows/WindowsWindowInterop.h>
 
 #include <Windows.h>
@@ -603,6 +604,54 @@ class ForeignWindow final : public cue::Window
 #endif
 }
 
+[[nodiscard]] int run_lifecycle_probe_validation()
+{
+    TestFatalHandler handler;
+    std::unique_ptr<cue::Logger> logger = create_logger(handler);
+    cue::AssertContext context(*logger, handler);
+    cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(context);
+
+    if (!systemResult)
+    {
+        return 45;
+    }
+
+    std::unique_ptr<cue::WindowSystem> system = std::move(*systemResult.try_value());
+    cue::WindowDescriptor descriptor = {"lifecycle probe validation", {640, 360}};
+    cue::Result<std::unique_ptr<cue::Window>> windowResult = system->create_window(descriptor);
+
+    if (!windowResult)
+    {
+        return 46;
+    }
+
+    std::unique_ptr<cue::Window> window = std::move(*windowResult.try_value());
+    cue::Result<void> invalidWidthResult = cue::issue_windows_window_lifecycle_probe_action(
+        *window, cue::WindowsWindowLifecycleProbeAction::Resize, {UINT32_MAX, 360}, {640, 360}, context);
+    cue::Result<void> invalidHeightResult = cue::issue_windows_window_lifecycle_probe_action(
+        *window, cue::WindowsWindowLifecycleProbeAction::Resize, {640, UINT32_MAX}, {640, 360}, context);
+
+    if (invalidWidthResult || invalidHeightResult || invalidWidthResult.try_error() == nullptr ||
+        invalidHeightResult.try_error() == nullptr)
+    {
+        return 47;
+    }
+
+    const cue::NativeError *widthNativeError = invalidWidthResult.try_error()->try_native_error();
+    const cue::NativeError *heightNativeError = invalidHeightResult.try_error()->try_native_error();
+
+    if (invalidWidthResult.try_error()->code().domain() != "Cue.Platform.Windows.TestSupport" ||
+        invalidHeightResult.try_error()->code().domain() != "Cue.Platform.Windows.TestSupport" ||
+        widthNativeError == nullptr || heightNativeError == nullptr ||
+        widthNativeError->value() != ERROR_INVALID_PARAMETER ||
+        heightNativeError->value() != ERROR_INVALID_PARAMETER)
+    {
+        return 48;
+    }
+
+    return window->destroy() ? 0 : 49;
+}
+
 [[nodiscard]] int run_invalid_native_view()
 {
     TestFatalHandler handler;
@@ -690,6 +739,11 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "Events")
     {
         return run_events();
+    }
+
+    if (mode == "LifecycleProbeValidation")
+    {
+        return run_lifecycle_probe_validation();
     }
 
     if (mode == "InvalidShow")

@@ -132,6 +132,25 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12RenderSmoke.cmake
 )
 
+add_test(
+    NAME Cue.RuntimeHost.D3D12ResizeSmoke.Hardware
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueRuntimeHost>
+        -DADAPTER_PROBE_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12AdapterSelectionProcess>
+        -DMODE=hardware
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12ResizeSmoke.cmake
+)
+
+add_test(
+    NAME Cue.RuntimeHost.D3D12ResizeSmoke.Warp
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueRuntimeHost>
+        -DMODE=warp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12ResizeSmoke.cmake
+)
+
 set_tests_properties(
     Cue.RuntimeHost.Smoke
     PROPERTIES
@@ -187,6 +206,21 @@ set_tests_properties(
 
 set_tests_properties(
     Cue.RuntimeHost.D3D12RenderSmoke.Warp
+    PROPERTIES
+        LABELS "RuntimeHost;RHI;Smoke"
+        TIMEOUT 60
+)
+
+set_tests_properties(
+    Cue.RuntimeHost.D3D12ResizeSmoke.Hardware
+    PROPERTIES
+        LABELS "RuntimeHost;RHI;Smoke"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 60
+)
+
+set_tests_properties(
+    Cue.RuntimeHost.D3D12ResizeSmoke.Warp
     PROPERTIES
         LABELS "RuntimeHost;RHI;Smoke"
         TIMEOUT 60

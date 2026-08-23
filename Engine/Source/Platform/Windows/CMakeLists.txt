@@ -67,3 +67,61 @@ if(MSVC)
             $<$<CONFIG:Development>:/DEBUG>
     )
 endif()
+
+if(BUILD_TESTING)
+    add_library(Cue.Platform.Windows.TestSupport STATIC)
+
+    target_sources(
+        Cue.Platform.Windows.TestSupport
+        PRIVATE
+            Private/TestSupport/WindowsWindowLifecycleProbe.cpp
+        PUBLIC
+            FILE_SET HEADERS
+            BASE_DIRS Public
+            FILES
+                Public/Cue/Platform/Windows/TestSupport/WindowsWindowLifecycleProbe.h
+    )
+
+    target_link_libraries(
+        Cue.Platform.Windows.TestSupport
+        PUBLIC
+            Cue.Platform.Windows
+        PRIVATE
+            User32
+    )
+    target_compile_features(Cue.Platform.Windows.TestSupport PUBLIC cxx_std_20)
+
+    target_compile_definitions(
+        Cue.Platform.Windows.TestSupport
+        PRIVATE
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+    )
+
+    set_target_properties(
+        Cue.Platform.Windows.TestSupport
+        PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>"
+            CXX_EXTENSIONS OFF
+    )
+
+    if(MSVC)
+        target_compile_options(
+            Cue.Platform.Windows.TestSupport
+            PRIVATE
+                /W4
+                /WX
+                /permissive-
+                /Zc:__cplusplus
+                /utf-8
+                $<$<CONFIG:Development>:/O2>
+                $<$<CONFIG:Development>:/Zi>
+        )
+
+        target_link_options(
+            Cue.Platform.Windows.TestSupport
+            PRIVATE
+                $<$<CONFIG:Development>:/DEBUG>
+        )
+    endif()
+endif()
