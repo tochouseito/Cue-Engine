@@ -70,6 +70,15 @@ foreach ($pattern in $fallbackPatterns)
 @($runtimeOutput | Select-String -Pattern 'D3D12\.DRED').Count
 @($runtimeOutput | Select-String -SimpleMatch 'D3D12診断メッセージを取得しました').Count
 
+$liveRecords = @(
+    $runtimeOutput | Select-String -Pattern 'Live ID3D12[A-Za-z0-9_]*'
+)
+$unexpectedLiveRecords = @(
+    $liveRecords | Where-Object {
+        $_.Line -notmatch 'Live ID3D12Device\b.*Name: CueEngine D3D12 Device, Refcount: 2'
+    }
+)
+
 Results
 - Runtime ExitCode: 0
 - D3D12 InfoQueue message records: 60
@@ -84,6 +93,9 @@ Results
 - InfoQueue Warning Policy fallback: 0
 - Live Object interface fallback: 0
 - Live Object execution fallback: 0
+- Live ID3D12 object records: 1
+- Expected live CueEngine D3D12 Device records: 1
+- Unexpected live ID3D12 object records: 0
 
 ReportLiveDeviceObjects evidence
 [Warning] D3D12診断メッセージを取得しました
@@ -93,8 +105,10 @@ ReportLiveDeviceObjects evidence
 
 These are D3D12 Debug Layer report records collected at the explicit live-object reporting point. The
 device itself is still owned while it is being inspected, so the report contains the expected device
-record. Neither record was emitted at Cue Log Level [Error], and the ReportLiveDeviceObjects failure
-fallback count was zero.
+record. The complete `Live ID3D12*` enumeration contained this Device record only; no Resource, Queue,
+Fence, Allocator, Command List, Swap Chain, or other unexpected live D3D12 object was reported. Neither
+record was emitted at Cue Log Level [Error], and the ReportLiveDeviceObjects failure fallback count was
+zero.
 
 Command
 out/build/windows-vs2026/bin/Debug/CueRuntimeHost.exe --resize-smoke hardware --width 640 --height 360

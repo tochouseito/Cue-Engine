@@ -124,7 +124,8 @@ Debug HardwareのConfigured ProbeはExit Code 0で、Debug Layer／DREDの有効
 Fallbackは各0件だった。Log Level `Error`のD3D12診断、Device Removal、DRED記録、Live D3D12 Object Errorも
 各0件だった。Debug Layer／InfoQueueはObject生成・破棄とReport Live Objects実行自体をInfo／Warningとして
 報告する。Report時点で所有中のDevice自体は期待されるRecordとして現れるが、Cue Log Level `Error`ではなく、
-Report失敗Fallbackもなかった。CTestはSeverity Errorを個別に拒否し、終了時の診断Errorなしを確認する。
+全`Live ID3D12*`列挙でこのDevice 1件以外のResource、Queue、Fence、Allocator、Command List、Swap Chainなどは
+0件だった。Report失敗Fallbackもなかった。CTestはSeverity Errorを個別に拒否し、終了時の診断Errorなしを確認する。
 ReleaseはADR-0007どおりDebug Layer、InfoQueue Callback、DREDを無効化する。
 
 次の依存方向GateをClean WorktreeのDebugで`--verbose`実行し、4件すべて成功した。
