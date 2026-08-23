@@ -14,10 +14,13 @@ struct D3d12FrameCommandProbeReport final
     std::uint32_t frameZeroResetCount;
     std::uint32_t frameOneResetCount;
     std::uint32_t executeCount;
+    std::uint32_t barrierCount;
     std::uint64_t lastSubmittedFence;
     std::uint64_t infoQueueErrorCount;
     bool frameNamesContainIndices;
     bool fenceCheckedBeforeAllocatorReuse;
+    bool barriersAreValid;
+    bool backBuffersReturnedToPresent;
     bool diagnosticsAvailable;
 };
 
@@ -36,12 +39,31 @@ enum class D3d12FrameCommandOrderProbeMode
     ResizeSuspend,
 };
 
-/** @brief WARP上で2 Frame Contextを300回周回して空Command ListのLifecycleを検証する */
+enum class D3d12BackBufferTransitionOrderProbeMode
+{
+    OutsideRecording,
+    NonCurrentFrame,
+};
+
+/** @brief WARP上で2 Frame Contextを300回周回してBack Buffer BarrierとLifecycleを検証する */
 [[nodiscard]] Result<D3d12FrameCommandProbeReport> probe_d3d12_frame_commands(
     const AssertContext &a_assertContext) noexcept;
 
 /** @brief Frame Index範囲外がNative操作前にErrorになることを検証する */
 [[nodiscard]] bool verify_d3d12_invalid_frame_index_for_probe(const AssertContext &a_assertContext) noexcept;
+
+/** @brief Back Buffer Transitionの範囲外IndexがBarrier記録前にErrorになることを検証する */
+[[nodiscard]] bool verify_d3d12_transition_invalid_index_for_probe(const AssertContext &a_assertContext) noexcept;
+
+/** @brief Back Buffer TransitionのNull Resourceが状態変更とBarrier記録前にErrorになることを検証する */
+[[nodiscard]] bool verify_d3d12_transition_null_resource_for_probe(const AssertContext &a_assertContext) noexcept;
+
+/** @brief Back Buffer TransitionのRecording順序とCurrent Frame制約を検証する */
+[[nodiscard]] bool verify_d3d12_transition_order_for_probe(D3d12BackBufferTransitionOrderProbeMode a_mode,
+                                                           const AssertContext &a_assertContext) noexcept;
+
+/** @brief Back Buffer TransitionがUnknown targetを拒否してPresent状態を維持することを検証する */
+[[nodiscard]] bool verify_d3d12_transition_unknown_target_for_probe(const AssertContext &a_assertContext) noexcept;
 
 /** @brief Frame再利用Wait異常後にResetを延期し、Event復旧後の再試行だけを許可することを検証する */
 [[nodiscard]] bool verify_d3d12_frame_wait_recovery_for_probe(const AssertContext &a_assertContext) noexcept;

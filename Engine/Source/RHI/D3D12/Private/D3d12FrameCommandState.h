@@ -44,6 +44,7 @@ enum class D3d12BackBufferState
 {
     Unknown,
     Present,
+    RenderTarget,
 };
 
 using D3d12FrameBackBuffers =
@@ -66,6 +67,7 @@ struct D3d12FrameCommandNativeFunctions final
     HRESULT (*resetCommandAllocator)(ID3D12CommandAllocator *) noexcept;
     HRESULT (*resetCommandList)(ID3D12GraphicsCommandList *, ID3D12CommandAllocator *) noexcept;
     HRESULT (*closeCommandList)(ID3D12GraphicsCommandList *) noexcept;
+    void (*resourceBarrier)(ID3D12GraphicsCommandList *, UINT, const D3D12_RESOURCE_BARRIER *) noexcept;
 };
 
 [[nodiscard]] const D3d12FrameCommandNativeFunctions &default_d3d12_frame_command_native_functions() noexcept;
@@ -80,6 +82,8 @@ class D3d12FrameCommandState final
     ~D3d12FrameCommandState() noexcept;
 
     [[nodiscard]] Result<void> begin_frame(std::uint32_t a_frameIndex) noexcept;
+    [[nodiscard]] Result<void> transition_back_buffer(std::uint32_t a_frameIndex,
+                                                      D3d12BackBufferState a_targetState) noexcept;
     [[nodiscard]] Result<void> close_frame() noexcept;
     [[nodiscard]] Result<void> execute_frame() noexcept;
     [[nodiscard]] Result<void> mark_present_attempted() noexcept;

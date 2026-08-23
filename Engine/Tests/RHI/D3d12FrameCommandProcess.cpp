@@ -58,6 +58,8 @@ int main(int a_argumentCount, char **a_arguments)
         const cue::D3d12FrameCommandProbeReport *report = result.try_value();
         return report != nullptr && report->iterationCount == 300 && report->frameZeroResetCount == 150 &&
                        report->frameOneResetCount == 150 && report->executeCount == 300 &&
+                       report->barrierCount == 600 && report->barriersAreValid &&
+                       report->backBuffersReturnedToPresent &&
                        report->lastSubmittedFence == 300 && report->infoQueueErrorCount == 0 &&
                        report->frameNamesContainIndices && report->fenceCheckedBeforeAllocatorReuse
                    ? 0
@@ -86,6 +88,37 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "InvalidIndex")
     {
         return cue::verify_d3d12_invalid_frame_index_for_probe(assertContext) ? 0 : 3;
+    }
+
+    if (mode == "TransitionInvalidIndex")
+    {
+        return cue::verify_d3d12_transition_invalid_index_for_probe(assertContext) ? 0 : 23;
+    }
+
+    if (mode == "TransitionNullResource")
+    {
+        return cue::verify_d3d12_transition_null_resource_for_probe(assertContext) ? 0 : 24;
+    }
+
+    if (mode == "TransitionOutsideRecording")
+    {
+        return cue::verify_d3d12_transition_order_for_probe(
+                   cue::D3d12BackBufferTransitionOrderProbeMode::OutsideRecording, assertContext)
+                   ? 0
+                   : 25;
+    }
+
+    if (mode == "TransitionNonCurrentFrame")
+    {
+        return cue::verify_d3d12_transition_order_for_probe(
+                   cue::D3d12BackBufferTransitionOrderProbeMode::NonCurrentFrame, assertContext)
+                   ? 0
+                   : 26;
+    }
+
+    if (mode == "TransitionUnknownTarget")
+    {
+        return cue::verify_d3d12_transition_unknown_target_for_probe(assertContext) ? 0 : 27;
     }
 
     if (mode == "WaitRecoveryMatrix")

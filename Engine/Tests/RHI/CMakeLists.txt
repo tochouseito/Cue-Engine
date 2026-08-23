@@ -193,6 +193,11 @@ if(WIN32)
         Cue.RHI.D3D12.FrameCommand.Smoke300
         Cue.RHI.D3D12.FrameCommand.InfoQueue300
         Cue.RHI.D3D12.FrameCommand.InvalidIndex
+        Cue.RHI.D3D12.FrameCommand.TransitionInvalidIndex
+        Cue.RHI.D3D12.FrameCommand.TransitionNullResource
+        Cue.RHI.D3D12.FrameCommand.TransitionOutsideRecording
+        Cue.RHI.D3D12.FrameCommand.TransitionNonCurrentFrame
+        Cue.RHI.D3D12.FrameCommand.TransitionUnknownTarget
         Cue.RHI.D3D12.FrameCommand.WaitRecoveryMatrix
         Cue.RHI.D3D12.FrameCommand.BeginFrameTerminalOutcomeMatrix
         Cue.RHI.D3D12.FrameCommand.FrameResetFailedTerminalMatrix
@@ -474,6 +479,41 @@ if(WIN32)
             -DTEST_MODE=InvalidIndex
             -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.TransitionInvalidIndex
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=TransitionInvalidIndex
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.TransitionNullResource
+        COMMAND CueRhiD3d12FrameCommandProcess TransitionNullResource
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.TransitionOutsideRecording
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=TransitionOutsideRecording
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.TransitionNonCurrentFrame
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueRhiD3d12FrameCommandProcess>
+            -DTEST_MODE=TransitionNonCurrentFrame
+            -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,90>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyD3d12FrameCommandStateOrder.cmake
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.FrameCommand.TransitionUnknownTarget
+        COMMAND CueRhiD3d12FrameCommandProcess TransitionUnknownTarget
     )
     add_test(
         NAME Cue.RHI.D3D12.FrameCommand.StateOrderBegin

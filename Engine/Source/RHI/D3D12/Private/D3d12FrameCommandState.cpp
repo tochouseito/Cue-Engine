@@ -25,6 +25,8 @@ constexpr std::int64_t k_commandListResetFailed = 62;
 constexpr std::int64_t k_commandListCloseFailed = 63;
 constexpr std::int64_t k_frameAcceptanceStopped = 64;
 constexpr std::int64_t k_invalidFrameResource = 65;
+constexpr std::int64_t k_invalidBackBufferTransition = 94;
+constexpr std::int64_t k_invalidBackBufferResource = 95;
 constexpr std::int64_t k_fenceValueExhausted = 45;
 constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uint32_t>::max)();
 
@@ -78,6 +80,12 @@ HRESULT reset_command_list(ID3D12GraphicsCommandList *a_commandList, ID3D12Comma
 HRESULT close_command_list(ID3D12GraphicsCommandList *a_commandList) noexcept
 {
     return a_commandList->Close();
+}
+
+void resource_barrier(ID3D12GraphicsCommandList *a_commandList, UINT a_barrierCount,
+                      const D3D12_RESOURCE_BARRIER *a_barriers) noexcept
+{
+    a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
 [[nodiscard]] bool is_fence_exhaustion(const cue::Error &a_error) noexcept
@@ -136,6 +144,7 @@ const D3d12FrameCommandNativeFunctions &default_d3d12_frame_command_native_funct
     static const D3d12FrameCommandNativeFunctions functions = {
         create_command_allocator, create_command_list, set_object_name,
         reset_command_allocator,  reset_command_list,  close_command_list,
+        resource_barrier,
     };
     return functions;
 }
@@ -525,6 +534,70 @@ Result<void> D3d12FrameCommandState::suspend_for_resize() noexcept
 
     m_acceptingFrames = false;
     m_isResizeSuspended = true;
+    return Result<void>::success();
+}
+
+Result<void> D3d12FrameCommandState::transition_back_buffer(std::uint32_t a_frameIndex,
+                                                            D3d12BackBufferState a_targetState) noexcept
+{
+    update_status_from_queue();
+
+    if (!m_acceptingFrames || m_status != D3d12FrameCommandStatus::Ready)
+    {
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_frameAcceptanceStopped, "D3D12 Back Buffer transition is unavailable"));
+    }
+
+    if (a_frameIndex >= k_d3d12FrameContextCount)
+    {
+        CUE_ASSERT(*m_assertContext, false, "D3D12 Back Buffer transition index is out of range");
+        return Result<void>::failure(
+            make_error(*m_assertContext, k_invalidFrameIndex, "D3D12 Back Buffer transition index is out of range"));
+    }
+
+    if (m_commandListState != D3d12CommandListState::Recording || a_frameIndex != m_activeFrameIndex)
+    {
+        CUE_ASSERT(*m_assertContext, false,
+                   "D3D12 Back Buffer transition requires the Current Back Buffer while recording");
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferTransition,
+                                                "D3D12 Back Buffer transition Frame state is invalid"));
+    }
+
+    D3d12FrameContext &frame = m_frames[a_frameIndex];
+
+    if (frame.backBuffer == nullptr || frame.backBufferState == D3d12BackBufferState::Unknown)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferResource,
+                                                "D3D12 Back Buffer transition Resource is unavailable"));
+    }
+
+    if (a_targetState != D3d12BackBufferState::Present &&
+        a_targetState != D3d12BackBufferState::RenderTarget)
+    {
+        return Result<void>::failure(make_error(*m_assertContext, k_invalidBackBufferTransition,
+                                                "D3D12 Back Buffer transition target State is invalid"));
+    }
+
+    if (frame.backBufferState == a_targetState)
+    {
+        return Result<void>::success();
+    }
+
+    const D3D12_RESOURCE_STATES beforeState = frame.backBufferState == D3d12BackBufferState::Present
+                                                  ? D3D12_RESOURCE_STATE_PRESENT
+                                                  : D3D12_RESOURCE_STATE_RENDER_TARGET;
+    const D3D12_RESOURCE_STATES afterState = a_targetState == D3d12BackBufferState::Present
+                                                 ? D3D12_RESOURCE_STATE_PRESENT
+                                                 : D3D12_RESOURCE_STATE_RENDER_TARGET;
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = frame.backBuffer.Get();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = beforeState;
+    barrier.Transition.StateAfter = afterState;
+    m_functions.resourceBarrier(m_commandList.Get(), 1, &barrier);
+    frame.backBufferState = a_targetState;
     return Result<void>::success();
 }
 

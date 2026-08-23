@@ -127,4 +127,7 @@ struct D3d12DredOwnerProbeReport final
 
 /** @brief Production PresentationのBack BufferとRTV対応状態を返す */
 [[nodiscard]] D3d12PresentationProbeReport probe_d3d12_presentation(PresentationContext &a_presentation) noexcept;
+
+/** @brief Production PresentationのCurrent Back Bufferへ往復Barrierを記録してSubmitする */
+[[nodiscard]] bool submit_d3d12_transition_frame_for_probe(PresentationContext &a_presentation) noexcept;
 } // namespace cue
