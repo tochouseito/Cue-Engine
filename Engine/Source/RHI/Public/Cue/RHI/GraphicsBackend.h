@@ -7,41 +7,48 @@
 
 namespace cue
 {
-/** @brief Graphics Backendの実装種別 */
+/** @brief Native Graphics API 型を公開せずに Backend 実装を識別する値 */
 enum class GraphicsBackendKind
 {
     D3d12,
 };
 
-/** @brief 選択されたGraphics Adapterの種別 */
+/** @brief Adapter 選択結果を Hardware と Software の役割で分類する値 */
 enum class GraphicsAdapterKind
 {
     Hardware,
     Software,
 };
 
-/** @brief Graphics機能契約のProfile */
+/** @brief Renderer が利用可能な最小 Graphics 機能契約を識別する Profile */
 enum class GraphicsProfile
 {
     Baseline3D,
 };
 
-/** @brief Graphics BackendのLifecycle状態 */
+/** @brief Owner が許可する操作と破棄可否を判断する Graphics Backend の Lifecycle 状態 */
 enum class GraphicsBackendState
 {
+    /** @brief 通常の Graphics 操作を受け付ける状態 */
     Ready,
+
+    /** @brief Device Removal 後に診断と制御された解放だけを許可する状態 */
     DeviceRemoved,
+
+    /** @brief 安全な解放を証明できず、Process 終了まで Owner を保持する状態 */
     Unavailable,
+
+    /** @brief Native Resource の解放が完了し、Owner を破棄できる状態 */
     Shutdown,
 };
 
-/** @brief Platform非依存のGraphics Capability値 */
+/** @brief Feature 選択と診断に使用する Platform 非依存の Graphics Capability Snapshot */
 struct CapabilityReport final
 {
-    /** @brief UTF-8のAdapter表示名 */
+    /** @brief UTF-8 の Adapter 表示名 */
     std::string adapterName;
 
-    /** @brief Dedicated Video MemoryのByte数 */
+    /** @brief Dedicated Video Memory の Byte 数 */
     std::uint64_t dedicatedVideoMemoryBytes;
 
     /** @brief PCI Vendor ID */
@@ -50,33 +57,33 @@ struct CapabilityReport final
     /** @brief PCI Device ID */
     std::uint32_t deviceId;
 
-    /** @brief 選択されたBackendの実装種別 */
+    /** @brief 選択された Backend の実装種別 */
     GraphicsBackendKind backendKind;
 
-    /** @brief 選択されたAdapterの種別 */
+    /** @brief 選択された Adapter の種別 */
     GraphicsAdapterKind adapterKind;
 
-    /** @brief 提供されるGraphics Profile */
+    /** @brief 提供される Graphics Profile */
     GraphicsProfile profile;
 
-    /** @brief Unified Memory Architectureの場合はtrue */
+    /** @brief Unified Memory Architecture の場合は true */
     bool isUma;
 };
 
 /**
- * @brief Platform非依存のGraphics Backend所有契約
+ * @brief Platform 非依存の Graphics Backend 所有契約
  *
- * Backendは生成Thread上で一意所有し、全ての公開操作とDestructorを同じThread上で呼び出す
+ * Backend は生成 Thread 上で一意所有し、全ての公開操作と Destructor を同じ Thread 上で呼び出す
  *
- * `Unavailable`は安全なResource解放を証明できないProcess終端状態であり、Ownerを破棄しない
+ * `Unavailable` は安全な Resource 解放を証明できない Process 終端状態であり、Owner を破棄しない
  */
 class GraphicsBackend
 {
   public:
     /**
-     * @brief 明示Shutdown後にBackend Ownerを破棄する
+     * @brief 明示 Shutdown 後に Backend Owner を破棄する
      *
-     * `Shutdown`、またはGPU Workを投入していない初期化失敗状態だけで破棄できる
+     * `Shutdown`、または GPU Work を投入していない初期化失敗状態だけで破棄できる
      */
     virtual ~GraphicsBackend() noexcept;
 
@@ -84,21 +91,22 @@ class GraphicsBackend
     GraphicsBackend &operator=(const GraphicsBackend &) = delete;
 
     /**
-     * @brief Backendが保持するCapability Reportを返す
-     * @return Backend破棄開始まで有効なImmutable参照
+     * @brief Backend が保持する Capability Report を返す
+     * @return Backend 破棄開始まで有効な Immutable 参照
      */
     [[nodiscard]] virtual const CapabilityReport &capabilities() const noexcept = 0;
 
-    /** @brief 現在のBackend Lifecycle状態を返す */
+    /** @brief 現在の Backend Lifecycle 状態を返す */
     [[nodiscard]] virtual GraphicsBackendState state() const noexcept = 0;
 
     /**
-     * @brief Backendを安全に停止する
-     * @return 停止成功、または診断可能な停止Error
+     * @brief Backend を安全に停止する
+     * @return 停止成功、または診断可能な停止 Error
      *
-     * `Shutdown`では成功する冪等操作とする
-     * `Unavailable`ではResourceを解放せず`RHI.BackendUnavailable`を返す
-     * 有効なPresentation Contextが残る場合は副作用なく`RHI.ActivePresentationContexts`を返す
+     * `Shutdown` では成功する冪等操作とする
+     * `Unavailable` では Resource を解放せず `RHI.BackendUnavailable` を返す
+     * 有効な Presentation Context が残る場合は Native Resource を解放せず `RHI.ActivePresentationContexts` を返す
+     * `DeviceRemoved` では Native Resource 解放前に診断を試行し、解放完了後も診断 Error を返す場合がある
      */
     [[nodiscard]] virtual Result<void> shutdown() noexcept = 0;
 

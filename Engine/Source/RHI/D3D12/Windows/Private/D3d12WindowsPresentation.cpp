@@ -8,6 +8,8 @@
 
 namespace cue
 {
+// Windows 固有の Native Window 抽出をこの接続境界に閉じ込める
+// Platform 非依存の上位 RHI API へ Windows 型を露出させないための Adapter とする
 class D3d12WindowsPresentationAccess final
 {
   public:
@@ -28,6 +30,8 @@ Result<std::unique_ptr<PresentationContext>> create_d3d12_windows_presentation(
     D3d12Backend &a_backend, Window &a_window, const PresentationDescriptor &a_descriptor) noexcept
 {
     const WindowSize size = a_window.client_size();
+    // NativeWindowView は Window の所有権や寿命を延長しない
+    // 生成処理へ Native Window 値を同期的に渡す短命 View としてだけ使用する
     Result<NativeWindowView> windowResult =
         get_native_window_view(a_window, D3d12WindowsPresentationAccess::assert_context(a_backend));
 
