@@ -74,7 +74,7 @@ class PresentationContext
     /** @brief Back Buffer 数を返す */
     [[nodiscard]] virtual std::uint32_t buffer_count() const noexcept = 0;
 
-    /** @brief 次の Frame が使用する現在の Back Buffer Index を返す */
+    /** @brief 現在保持する Swap Chain の Back Buffer Index を返す */
     [[nodiscard]] virtual std::uint32_t current_back_buffer_index() const noexcept = 0;
 
     /** @brief VSync 設定を返す */
