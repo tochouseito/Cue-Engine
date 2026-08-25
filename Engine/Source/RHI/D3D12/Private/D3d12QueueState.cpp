@@ -670,7 +670,7 @@ Result<void> D3d12QueueState::shutdown() noexcept
     return releaseResult;
 }
 
-// Device Removal 後は通常 Fence 待機が成立しないため、診断収集後に専用経路で Native Object を解放する
+// Device Removal 後は通常 Fence 待機が成立しないため、呼出側が利用可能な診断を試行した後に専用経路で解放する
 Result<void> D3d12QueueState::release_after_device_removed() noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::DeviceRemoved,
