@@ -15,6 +15,12 @@ namespace cue
 class AssertContext;
 class WindowsWindow;
 
+/**
+ * @brief Win32 の Window Class、Main Window、Message Queue を Platform 契約へ適合させる実装
+ *
+ * Win32 Window は作成 Thread に所属するため、生成時の Thread ID を保持して全操作の所属を検証する
+ * M02 の単一 Main Window 制約と Window Class 参照寿命もこの System が管理する
+ */
 class WindowsWindowSystem final : public WindowSystem
 {
   public:
@@ -34,12 +40,22 @@ class WindowsWindowSystem final : public WindowSystem
     [[nodiscard]] Result<void> register_window_class() noexcept;
     void unregister_window_class() noexcept;
 
+    // Window と WindowSystem の全寿命を通して、契約違反と Native Error を同じ経路へ報告する
     const AssertContext *m_assertContext;
+    // Window Class と HWND を同じ実行 Module へ所属させるため保持する
     HINSTANCE m_instance;
+    // Win32 Window 操作を生成 Thread へ限定し、Thread Queue と HWND の所属を一致させる
     DWORD m_threadId;
+    // M02 の単一 Main Window 制約を検証する非所有参照
     WindowsWindow *m_window = nullptr;
 };
 
+/**
+ * @brief HWND の寿命と Win32 Message から変換した WindowEvent Queue を所有する実装
+ *
+ * Native Callback 中に通常の Runtime Event Callback を呼び戻さず、Message を値 Event へ変換する
+ * 診断と回復不能 Error の経路では Logger または FatalHandler を同期呼び出す場合がある
+ */
 class WindowsWindow final : public Window
 {
   public:
@@ -66,15 +82,22 @@ class WindowsWindow final : public Window
     void release_system_reference() noexcept;
     void verify_thread() const noexcept;
 
+    // System は本 Window より長く生存し、Thread 検証と診断 Context を提供する
     WindowsWindowSystem *m_system;
+    // 読み取り済み範囲を Index で保持し、Event 取得ごとの先頭要素削除を避ける
     std::vector<WindowEvent> m_events;
     std::size_t m_eventReadIndex = 0;
+    // HWND は WM_NCDESTROY まで有効であり、WindowsWindow 自身だけが破棄を管理する
     HWND m_window = nullptr;
     WindowSize m_clientSize = {};
     WindowState m_state = WindowState::Destroyed;
+    // Native 生成失敗時にも Window Class の参照を一度だけ解放するため個別に追跡する
     bool m_hasClassReference = false;
+    // 生成中の Win32 Message を Runtime Event として公開しないため、生成完了後に切り替える
     bool m_isPublished = false;
+    // OS が同じ閉じる Message を繰り返しても未処理要求を一件に保つ
     bool m_isClosePending = false;
+    // SIZE_RESTORED を通常 Resize と最小化復帰へ分類するため直前状態を保持する
     bool m_isMinimized = false;
 };
 } // namespace cue

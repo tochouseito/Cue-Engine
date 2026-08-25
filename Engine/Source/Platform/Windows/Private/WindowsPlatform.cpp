@@ -34,6 +34,7 @@ namespace cue
 {
 Result<std::unique_ptr<WindowSystem>> create_windows_window_system(const AssertContext &a_assertContext) noexcept
 {
+    // Window Class の登録と Native Window 作成を同じ実行 Module に結び付けるため Handle を取得する
     HINSTANCE instance = GetModuleHandleW(nullptr);
 
     if (instance == nullptr)
@@ -45,6 +46,7 @@ Result<std::unique_ptr<WindowSystem>> create_windows_window_system(const AssertC
 
     try
     {
+        // 呼出側には Platform 非依存の所有権だけを返し、Win32 型の伝播をこの生成境界で止める
         std::unique_ptr<WindowSystem> system = std::make_unique<WindowsWindowSystem>(a_assertContext, instance);
         return Result<std::unique_ptr<WindowSystem>>::success(std::move(system));
     }

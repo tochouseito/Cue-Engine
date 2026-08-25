@@ -49,6 +49,11 @@ constexpr std::int64_t k_classUnregistrationFailed = 10;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+/**
+ * @brief Process 内の WindowSystem 間で Win32 Window Class の登録寿命を共有する
+ *
+ * Win32 Window Class は個々の HWND ではなく Module に属するため、最初の参照で登録し最後の参照で解除する
+ */
 class WindowClassRegistry final
 {
   public:
@@ -58,6 +63,7 @@ class WindowClassRegistry final
 
         if (m_referenceCount > 0)
         {
+            // 同名 Class を異なる Module 定義として共有すると WndProc と Instance の対応が崩れる
             CUE_ASSERT(a_context, m_instance == a_instance,
                        "Window Class Registry can only manage one Module instance");
             ++m_referenceCount;
@@ -77,6 +83,7 @@ class WindowClassRegistry final
             DWORD nativeCode = GetLastError();
             WNDCLASSEXW existingClass = {};
             existingClass.cbSize = sizeof(existingClass);
+            // 同じ WndProc の登録だけを共有し、外部 Class との名前衝突は明示的な失敗にする
             bool canAcquireExisting = nativeCode == ERROR_CLASS_ALREADY_EXISTS &&
                                       GetClassInfoExW(a_instance, k_windowClassName, &existingClass) != FALSE &&
                                       existingClass.lpfnWndProc == cue::WindowsWindow::window_procedure;
@@ -109,6 +116,7 @@ class WindowClassRegistry final
             return;
         }
 
+        // 最後の Window が解放された時点でのみ解除し、存続中 HWND の WndProc を失わせない
         BOOL didUnregister = UnregisterClassW(k_windowClassName, a_instance);
         DWORD nativeCode = didUnregister != FALSE ? ERROR_SUCCESS : GetLastError();
         m_instance = nullptr;
@@ -133,7 +141,7 @@ class WindowClassRegistry final
 
 [[nodiscard]] WindowClassRegistry &window_class_registry() noexcept
 {
-    // Win32 Window ClassはModule単位Resourceのため、Window System間で参照数を共有する
+    // Win32 Window Class は Module 単位 Resource のため、WindowSystem 間で参照数を共有する
     static WindowClassRegistry registry;
     return registry;
 }
@@ -141,6 +149,7 @@ class WindowClassRegistry final
 [[nodiscard]] cue::Result<void> validate_descriptor(const cue::WindowDescriptor &a_descriptor,
                                                     const cue::AssertContext &a_context) noexcept
 {
+    // Native API 呼出前に拒否し、生成途中の HWND や Window Class 参照を残さない
     if (a_descriptor.clientSize.width == 0 || a_descriptor.clientSize.height == 0 ||
         a_descriptor.title.find('\0') != std::string_view::npos)
     {
@@ -161,6 +170,7 @@ class WindowClassRegistry final
 [[nodiscard]] cue::Result<RECT> calculate_window_rectangle(const cue::WindowDescriptor &a_descriptor,
                                                            const cue::AssertContext &a_context) noexcept
 {
+    // Runtime が要求する Client Area を確保するため、Frame と Title Bar を含む外寸へ変換する
     RECT rectangle = {0, 0, static_cast<LONG>(a_descriptor.clientSize.width),
                       static_cast<LONG>(a_descriptor.clientSize.height)};
 
@@ -216,6 +226,7 @@ Result<std::unique_ptr<Window>> WindowsWindowSystem::create_window(const WindowD
             make_error(context, k_windowAlreadyExists, "Window System already has a Main Window"));
     }
 
+    // Native Resource を取得する前に入力と変換を完了し、失敗時の Rollback 対象を増やさない
     Result<void> descriptorResult = validate_descriptor(a_descriptor, context);
 
     if (!descriptorResult)
@@ -240,6 +251,7 @@ Result<std::unique_ptr<Window>> WindowsWindowSystem::create_window(const WindowD
     try
     {
         std::unique_ptr<WindowsWindow> window = std::make_unique<WindowsWindow>(*this);
+        // Class 参照を Window 所有へ移してから HWND を作り、以降の全失敗を RAII で回収する
         Result<void> classResult = register_window_class();
 
         if (!classResult)
@@ -258,6 +270,7 @@ Result<std::unique_ptr<Window>> WindowsWindowSystem::create_window(const WindowD
             return Result<std::unique_ptr<Window>>::failure(std::move(*createResult.try_error()));
         }
 
+        // 生成中 Message を Runtime Event と誤認しないよう、完全な Client Size の取得後に公開する
         window->publish();
         std::unique_ptr<Window> result = std::move(window);
         return Result<std::unique_ptr<Window>>::success(std::move(result));
@@ -275,10 +288,12 @@ Result<PumpStatus> WindowsWindowSystem::pump_events() noexcept
     MSG message = {};
     bool isQuitRequested = false;
 
+    // Frame Loop を Blocking せず、現在届いている Message を全て処理して Window の応答性を保つ
     while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
     {
         if (message.message == WM_QUIT)
         {
+            // WM_QUIT 後も Queue を Drain し、同一 Frame に到着済みの状態通知を取りこぼさない
             isQuitRequested = true;
             continue;
         }
@@ -347,6 +362,7 @@ WindowsWindow::~WindowsWindow() noexcept
 
     if (m_window != nullptr)
     {
+        // 明示的な destroy() がなくても HWND を残さず、基底所有権の破棄だけで Native 寿命を閉じる
         static_cast<void>(DestroyWindow(m_window));
     }
 
@@ -358,6 +374,7 @@ Result<void> WindowsWindow::show() noexcept
     verify_thread();
     CUE_ASSERT(m_system->assert_context(), m_state == WindowState::Created,
                "Window can only be shown from Created state");
+    // 生成と表示を分離し、RHI が表示前に Native View から SwapChain を準備できるようにする
     ShowWindow(m_window, SW_SHOW);
     m_state = WindowState::Visible;
     return Result<void>::success();
@@ -379,6 +396,7 @@ Result<void> WindowsWindow::destroy() noexcept
                                                        "Windows Window destruction failed", nativeCode));
     }
 
+    // DestroyWindow は同期的に WM_NCDESTROY まで配送し、そこで所有者との関連を切る契約とする
     CUE_ASSERT(m_system->assert_context(), m_window == nullptr,
                "DestroyWindow must synchronously detach the Window owner");
     release_system_reference();
@@ -411,11 +429,13 @@ bool WindowsWindow::try_pop_event(WindowEvent &a_event) noexcept
 
     if (a_event.type == WindowEventType::CloseRequested)
     {
+        // Runtime が要求を消費した後は、OS からの新しい Close 要求を再び通知可能にする
         m_isClosePending = false;
     }
 
     if (m_eventReadIndex == m_events.size())
     {
+        // 全 Event を消費した時点で Storage を再利用し、未読 Queue の順序は維持する
         m_events.clear();
         m_eventReadIndex = 0;
     }
@@ -445,6 +465,7 @@ Result<void> WindowsWindow::create_native(std::wstring_view a_title, int a_width
                "Window Class must be registered before native creation");
     CUE_ASSERT(m_system->assert_context(), m_window == nullptr, "Native Window must only be created once");
 
+    // this を lpParam へ渡し、最初の WM_NCCREATE から WndProc を本 Object へ関連付ける
     HWND window = CreateWindowExW(0, k_windowClassName, a_title.data(), k_windowStyle, CW_USEDEFAULT, CW_USEDEFAULT,
                                   a_width, a_height, nullptr, nullptr, m_system->instance(), this);
 
@@ -478,6 +499,7 @@ void WindowsWindow::publish() noexcept
 {
     verify_thread();
     CUE_ASSERT(m_system->assert_context(), m_window != nullptr, "Native Window must exist before publication");
+    // WindowSystem へ公開してからだけ Event を蓄積し、呼出側が未取得の Window を通知対象にしない
     m_isPublished = true;
     m_system->publish_window(*this);
 }
@@ -485,10 +507,12 @@ void WindowsWindow::publish() noexcept
 LRESULT CALLBACK WindowsWindow::window_procedure(HWND a_window, UINT a_message, WPARAM a_wParam,
                                                  LPARAM a_lParam) noexcept
 {
+    // Win32 の静的 Callback から、HWND に保存した WindowsWindow の Message 処理へ橋渡しする
     WindowsWindow *owner = reinterpret_cast<WindowsWindow *>(GetWindowLongPtrW(a_window, GWLP_USERDATA));
 
     if (a_message == WM_NCCREATE)
     {
+        // HWND 生成の最初期に Owner を保存し、CreateWindowExW 中の後続 Message も同じ Object で処理する
         CREATESTRUCTW *createData = reinterpret_cast<CREATESTRUCTW *>(a_lParam);
         owner = static_cast<WindowsWindow *>(createData->lpCreateParams);
 
@@ -505,6 +529,7 @@ LRESULT CALLBACK WindowsWindow::window_procedure(HWND a_window, UINT a_message, 
 
     if (owner == nullptr)
     {
+        // Owner 関連付け前または解除後の Message は Win32 の既定処理へ戻す
         return DefWindowProcW(a_window, a_message, a_wParam, a_lParam);
     }
 
@@ -515,6 +540,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 {
     if (a_message == WM_CLOSE)
     {
+        // OS の既定破棄を抑止し、保存確認などを行う Runtime 側へ終了判断を委ねる
         if (m_isPublished && m_state != WindowState::Destroyed && !m_isClosePending)
         {
             push_event({WindowEventType::CloseRequested, {0, 0}});
@@ -527,6 +553,8 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 
     if (a_message == WM_DESTROY)
     {
+        // 公開済み Window だけ破棄を Event 化し、Runtime Loop の終了要求を Thread Message Queue へ送る
+        // 公開前の生成 Rollback では通知先が存在しないため Event 追加と PostQuitMessage を行わない
         m_state = WindowState::Destroyed;
 
         if (m_isPublished)
@@ -542,6 +570,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
     {
         if (a_wParam == SIZE_MINIMIZED)
         {
+            // 最小化中の 0 Size を Resize として扱わず、描画休止用の意味ある Event へ変換する
             push_event({WindowEventType::Minimized, {0, 0}});
             m_isMinimized = true;
             return 0;
@@ -565,6 +594,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 
         if (clientSize.width == 0 || clientSize.height == 0)
         {
+            // SwapChain の Resize 対象にならない 0 Size は、復帰後の有効 Size 通知まで保留する
             return 0;
         }
 
@@ -578,6 +608,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 
     if (a_message == WM_NCDESTROY)
     {
+        // HWND が完全に無効になる最後の通知で関連付けを消し、Interop へ失効 Handle を返さない
         HWND window = m_window;
         LRESULT result = DefWindowProcW(window, a_message, a_wParam, a_lParam);
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
@@ -594,6 +625,7 @@ void WindowsWindow::push_event(WindowEvent a_event) noexcept
     {
         if (m_eventReadIndex > 0 && m_eventReadIndex >= m_events.size() / 2)
         {
+            // 読み取り済み領域が大きくなった時だけ詰め、通常の Pop ごとの要素移動を避ける
             m_events.erase(m_events.begin(), m_events.begin() + m_eventReadIndex);
             m_eventReadIndex = 0;
         }
@@ -614,6 +646,7 @@ void WindowsWindow::release_system_reference() noexcept
         return;
     }
 
+    // WindowSystem の Main Window 参照と共有 Window Class 参照を同じ一回の解放へまとめる
     m_hasClassReference = false;
     m_isPublished = false;
     m_system->release_window(*this);
