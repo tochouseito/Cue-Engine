@@ -51,7 +51,8 @@ enum class PresentationFrameStatus
  * @brief Window に対応する Presentation Resource の一意所有契約
  *
  * Context は生成 Thread 上でのみ操作し、Backend と Window より先に shutdown して破棄する
- * 通常 shutdown 成功時は terminal Fence 完了を保証し、Device Removal 時は Fence 完了を要求せず DRED 診断後に解放する
+ * 通常 shutdown 成功時は terminal Fence 完了を保証する
+ * Device Removal 時は Fence 完了を要求せず、有効な場合に DRED 診断を一度試行してから解放する
  */
 class PresentationContext
 {
@@ -114,7 +115,7 @@ class PresentationContext
      * GPU 完了を証明できない場合は Unavailable へ遷移し、Native Resource と Backend 登録を保持する
      * GPU 完了後の Command 再初期化、ResizeBuffers、Back Buffer 再取得、RTV 再構築に失敗した場合は、
      * Native Resource を規定順で解放して Backend 登録を解除し、Shutdown へ遷移する
-     * Device Removal を検出した場合は DRED 収集を Native Resource 解放より先に一度試行し、
+     * Device Removal を検出した場合は DRED が有効なら Native Resource 解放より先に収集を一度試行し、
      * 診断結果を Error へ保持したうえで登録解除と Shutdown を完遂する
      * Resize 以外の Error で Frame 受付を停止した Context は再開せず、Resource と登録を保持して Error を返す
      *
@@ -126,8 +127,8 @@ class PresentationContext
      * @brief Presentation Resource を安全に停止して Backend 登録を解除する
      *
      * Shutdown 状態での再呼出は成功し、Unavailable 状態では Resource と Backend 登録を保持して
-     * Error を返し、DeviceRemoved 状態では Backend の DRED 診断を Native Resource 解放より先に
-     * 一度試行し、診断が失敗しても解放と登録解除を完遂した後にその Error を返す
+     * Error を返し、DeviceRemoved 状態では Backend の DRED が有効な場合だけ Native Resource 解放より先に
+     * 収集を一度試行し、診断が失敗しても解放と登録解除を完遂した後にその Error を返す
      *
      * @return 停止成功、または診断可能な停止 Error
      */
