@@ -29,10 +29,10 @@ class ErrorCode final
     ~ErrorCode() = default;
 
     /**
- * @brief Error Code を生成する
- * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
+     * @brief Error Code を生成する
+     * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
      * @param a_domain Code Domain
- * @param a_value Domain 内の Code
+     * @param a_value Domain 内の Code
      */
     [[nodiscard]] static ErrorCode create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                                           std::int64_t a_value) noexcept;
@@ -65,7 +65,7 @@ class NativeError final
     ~NativeError() = default;
 
     /**
- * @brief Native Error 情報を生成する
+     * @brief Native Error 情報を生成する
      */
     [[nodiscard]] static NativeError create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                                             std::int64_t a_value) noexcept;
@@ -175,8 +175,8 @@ class Error final
                                       std::string_view a_summary, NativeError &&a_nativeError) noexcept;
 
     /**
- * @brief Error を新しい抽象 Level へ再分類する
- * @param a_cause 消費される直前の Error
+     * @brief Error を新しい抽象 Level へ再分類する
+     * @param a_cause 消費される直前の Error
      *
      * 下位 Module の詳細を Cause へ保存しながら、呼び出し側が扱える上位 Domain の Error へ変換する
      */
@@ -184,8 +184,8 @@ class Error final
                                           std::string_view a_summary, Error &&a_cause) noexcept;
 
     /**
- * @brief Native Error 付きで Error を新しい抽象 Level へ再分類する
- * @param a_cause 消費される直前の Error
+     * @brief Native Error 付きで Error を新しい抽象 Level へ再分類する
+     * @param a_cause 消費される直前の Error
      *
      * 新しい分類自身にも Native 情報が必要な場合に、Cause の Native 情報とは別に保持する
      */
@@ -194,10 +194,10 @@ class Error final
                                           Error &&a_cause) noexcept;
 
     /**
- * @brief 伝播 Context を追加する
- * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
+     * @brief 伝播 Context を追加する
+     * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
      * @param a_message Context Message
- * @param a_location Context 追加位置
+     * @param a_location Context 追加位置
      */
     void add_context(EmergencyHandler &a_emergencyHandler, std::string_view a_message,
                      std::source_location a_location = std::source_location::current()) noexcept;

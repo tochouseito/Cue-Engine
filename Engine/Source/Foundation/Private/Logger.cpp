@@ -12,7 +12,7 @@ thread_local unsigned int sinkDispatchDepth = 0;
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
-    // Emergency Handler の実装違反があっても、診断基盤が壊れた状態で実行を継続させない
+    // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
 }
 

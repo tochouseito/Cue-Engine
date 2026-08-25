@@ -8,7 +8,7 @@ namespace
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
-    // 外部 Handler の実装違反があっても、構築に失敗した不完全な Error で実行を継続させない
+    // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
 }
 } // namespace

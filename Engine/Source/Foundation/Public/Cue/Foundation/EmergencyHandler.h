@@ -25,7 +25,7 @@ class EmergencyHandler
      * @brief 追加 Allocation を行わず Process を終了する
      * @param a_message 静的 Storage を持つ診断 Message
      *
-     * `[[noreturn]]` 契約に従い実装は復帰してはならず、呼び出し側の `std::abort` は防御的な終了処理として残す
+     * `[[noreturn]]` 契約に従い実装は復帰してはならず、復帰した場合の動作は保証しない
      */
     [[noreturn]] virtual void terminate(std::string_view a_message) noexcept = 0;
 };

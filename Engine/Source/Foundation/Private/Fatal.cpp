@@ -8,14 +8,14 @@ namespace
 [[noreturn]] void terminate_fatal(cue::FatalHandler &a_fatalHandler) noexcept
 {
     a_fatalHandler.terminate();
-    // Custom Handler が契約に反して復帰しても、回復不能な状態から実行を継続させない
+    // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
 }
 
 [[noreturn]] void terminate_emergency(cue::FatalHandler &a_fatalHandler, std::string_view a_message) noexcept
 {
     a_fatalHandler.terminate(a_message);
-    // Logger を使えない経路なので追加診断を試みず、Process 終了だけを保証する
+    // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
 }
 } // namespace

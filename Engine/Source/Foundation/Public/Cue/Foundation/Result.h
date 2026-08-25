@@ -57,8 +57,8 @@ template <typename T> class Result final
     }
 
     /**
- * @brief 成功 Value への非所有 Pointer を返す
- * @return Error 状態では nullptr
+     * @brief 成功 Value への非所有 Pointer を返す
+     * @return Error 状態では nullptr
      */
     [[nodiscard]] T *try_value() & noexcept
     {
@@ -75,8 +75,8 @@ template <typename T> class Result final
     const T *try_value() const && = delete;
 
     /**
- * @brief Error への非所有 Pointer を返す
- * @return 成功状態では nullptr
+     * @brief Error への非所有 Pointer を返す
+     * @return 成功状態では nullptr
      */
     [[nodiscard]] Error *try_error() & noexcept
     {
@@ -142,8 +142,8 @@ template <> class Result<void> final
     }
 
     /**
- * @brief Error への非所有 Pointer を返す
- * @return 成功状態では nullptr
+     * @brief Error への非所有 Pointer を返す
+     * @return 成功状態では nullptr
      */
     [[nodiscard]] Error *try_error() & noexcept
     {
