@@ -10,7 +10,7 @@ namespace cue
 /** @brief Owner が許可する操作と破棄可否を判断する Presentation Context の Lifecycle 状態 */
 enum class PresentationContextState
 {
-    /** @brief Native Resource を保持し、個別の受付 Flag と併せて操作可否を判断する状態 */
+    /** @brief Native Resource を保持するが、この状態だけでは Frame や Resize の受理を保証しない状態 */
     Ready,
 
     /** @brief Device Removal 後に診断と制御された解放だけを許可する状態 */
