@@ -37,6 +37,7 @@ const void *NativeWindowView::value() const noexcept
 
 Result<NativeWindowView> get_native_window_view(Window &a_window, const AssertContext &a_assertContext) noexcept
 {
+    // Opaque な共通 Window が本実装の所有物であることを確認し、異種 Handle の誤用を防ぐ
     WindowsWindow *window = dynamic_cast<WindowsWindow *>(&a_window);
 
     if (window == nullptr)
@@ -45,6 +46,7 @@ Result<NativeWindowView> get_native_window_view(Window &a_window, const AssertCo
             make_error(a_assertContext, "Native Win32 View requires a Windows Window"));
     }
 
+    // 非所有 View だけを返し、Interop 呼出側へ HWND の破棄責務を移さない
     return Result<NativeWindowView>::success(NativeWindowView(window->native_view_value()));
 }
 } // namespace cue

@@ -46,7 +46,9 @@ Result<std::wstring> utf8_to_utf16(std::string_view a_text, const AssertContext 
                                   ERROR_INSUFFICIENT_BUFFER));
     }
 
+    // Win32 の長さ引数へ安全に収めた後、終端文字に依存せず String View 全体を変換する
     int sourceLength = static_cast<int>(a_text.size());
+    // 必要量を先に問い合わせ、変換結果を一回の Allocation で所有文字列へ格納する
     int convertedLength = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, a_text.data(), sourceLength, nullptr, 0);
 
     if (convertedLength == 0)
@@ -59,6 +61,7 @@ Result<std::wstring> utf8_to_utf16(std::string_view a_text, const AssertContext 
     try
     {
         std::wstring result(static_cast<std::size_t>(convertedLength), L'\0');
+        // 不正な UTF-8 を置換せず Error にして、Window Title の文字化けを診断可能にする
         int writtenLength = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, a_text.data(), sourceLength,
                                                 result.data(), convertedLength);
 
@@ -92,7 +95,9 @@ Result<std::string> convert_windows_argument_to_utf8(std::wstring_view a_text,
                                   ERROR_INSUFFICIENT_BUFFER));
     }
 
+    // Win32 Entry Point の UTF-16 を共通 Runtime が扱う UTF-8 へ正規化する
     int sourceLength = static_cast<int>(a_text.size());
+    // 必要 Byte 数を先に確定し、変換途中の Buffer を公開しない
     int convertedLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength, nullptr, 0,
                                               nullptr, nullptr);
 
@@ -106,6 +111,7 @@ Result<std::string> convert_windows_argument_to_utf8(std::wstring_view a_text,
     try
     {
         std::string result(static_cast<std::size_t>(convertedLength), '\0');
+        // 不正な UTF-16 を代替文字へ変えず Error にして、Runtime へ曖昧な引数を渡さない
         int writtenLength = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_text.data(), sourceLength,
                                                 result.data(), convertedLength, nullptr, nullptr);
 

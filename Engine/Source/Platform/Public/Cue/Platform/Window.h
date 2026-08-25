@@ -8,9 +8,13 @@ namespace cue
 /** @brief Platform Window の Lifecycle 状態 */
 enum class WindowState
 {
+    /** Native Window は生成済みだが、まだ画面へ表示していない状態 */
     Created,
+    /** Native Window を表示し、通常の Window Event を受け付ける状態 */
     Visible,
+    /** 閉じる要求を通知済みで、Runtime 側の破棄判断を待つ状態 */
     CloseRequested,
+    /** Native Window の寿命が終了し、Native View を取得できない状態 */
     Destroyed,
 };
 
@@ -19,9 +23,9 @@ enum class WindowState
  *
  * 全 API と Destructor は Window System の作成 Thread 上で呼び出す
  *
- * Native Callback は外部 Callback を呼ばず、Event を Window 所有の FIFO Queue へ値として格納する
- * Queue は Window
- * と同時に破棄され、取得済み Event だけが Window 破棄後も呼出側で保持できる
+ * Native Callback は再入による Runtime 状態変更を避けるため、外部 Callback を呼ばず Event を Window 所有の
+ * FIFO Queue へ値として格納する
+ * Queue は Window と同時に破棄され、取得済み Event だけが Window 破棄後も呼出側で保持できる
  */
 class Window
 {
@@ -29,10 +33,10 @@ class Window
     /** @brief Window Thread 上で Owner を破棄する */
     virtual ~Window() noexcept;
 
-    /** @brief Native Window を表示する */
+    /** @brief 生成を完了した Native Window を Runtime の操作対象として表示する */
     [[nodiscard]] virtual Result<void> show() noexcept = 0;
 
-    /** @brief Native Window を明示的に破棄する */
+    /** @brief Runtime が終了時点を決め、Native Window を明示的に破棄する */
     [[nodiscard]] virtual Result<void> destroy() noexcept = 0;
 
     /** @brief 現在の Lifecycle 状態を返す */
@@ -43,8 +47,7 @@ class Window
 
     /**
      * @brief FIFO Queue の先頭 Event を取得する
-     * @return Event を取得した場合は true、Queue が空の場合は
-     * false
+     * @return Event を取得した場合は true、Queue が空の場合は false
      *
      * Queue が空の場合は a_event を変更しない
      */

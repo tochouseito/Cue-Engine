@@ -15,14 +15,18 @@ namespace cue
  */
 struct WindowDescriptor final
 {
+    /** Platform API へ渡す前に Native 文字表現へ変換される UTF-8 の表示名 */
     std::string_view title;
+    /** Window Frame を含まない描画領域として要求する Size */
     WindowSize clientSize;
 };
 
 /** @brief Non-blocking Message Pump の結果 */
 enum class PumpStatus
 {
+    /** Message Queue を処理した後も Runtime Loop を継続できる状態 */
     Running,
+    /** OS の Thread 終了要求を観測し、Runtime Loop を終了すべき状態 */
     QuitRequested,
 };
 
@@ -50,8 +54,9 @@ class WindowSystem
 
     /**
      * @brief 現在の Thread Queue が空になるまで Non-blocking で処理する
-     * @return WM_QUIT を含めて Queue
-     * を Drain した場合は QuitRequested、それ以外は Running
+     * @return WM_QUIT を含めて Queue を Drain した場合は QuitRequested、それ以外は Running
+     *
+     * Runtime の Frame Loop を止めずに OS 応答性を維持するため、一件を待つ Blocking Pump にはしない
      */
     [[nodiscard]] virtual Result<PumpStatus> pump_events() noexcept = 0;
 };
