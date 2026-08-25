@@ -9,7 +9,11 @@
 
 namespace cue
 {
-/** @brief 通常FatalとEmergency終了を提供する非所有終了境界 */
+/**
+ * @brief 通常 Fatal と Emergency 終了を提供する非所有終了境界
+ *
+ * Log 出力可能な通常 Fatal と、Logger を利用できない Emergency を同じ Process 終了 Policy へ集約する
+ */
 class FatalHandler : public EmergencyHandler
 {
   public:
@@ -23,11 +27,11 @@ class FatalHandler : public EmergencyHandler
     FatalHandler(FatalHandler &&) = delete;
     FatalHandler &operator=(FatalHandler &&) = delete;
 
-    /** @brief 通常Fatal診断後にProcessを終了する */
+    /** @brief 通常 Fatal 診断後に Process を終了する */
     [[noreturn]] virtual void terminate() noexcept = 0;
 };
 
-/** @brief `std::abort`で終了するProduction既定Handler */
+/** @brief 回復不能な状態から実行を継続させないため `std::abort` で終了する Production 既定 Handler */
 class AbortFatalHandler final : public FatalHandler
 {
   public:
@@ -35,11 +39,15 @@ class AbortFatalHandler final : public FatalHandler
     [[noreturn]] void terminate(std::string_view a_message) noexcept override;
 };
 
-/** @brief Fatal Recordを出力後にProcessを終了する */
+/**
+ * @brief Fatal Record を出力後に Process を終了する
+ *
+ * 診断を可能な限り Flush してから終了し、Logger 競合時は待機せず Emergency 経路へ切り替える
+ */
 [[noreturn]] void report_fatal(Logger &a_logger, FatalHandler &a_fatalHandler, std::string_view a_message,
                                std::source_location a_location = std::source_location::current()) noexcept;
 
-/** @brief Error付きFatal Recordを出力後にProcessを終了する */
+/** @brief Error の詳細を Fatal Record へ移してから同じ終了保証を適用する */
 [[noreturn]] void report_fatal(Logger &a_logger, FatalHandler &a_fatalHandler, std::string_view a_message,
                                Error &&a_error,
                                std::source_location a_location = std::source_location::current()) noexcept;

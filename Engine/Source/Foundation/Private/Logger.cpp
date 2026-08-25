@@ -6,14 +6,17 @@
 
 namespace
 {
+// Sink から同じ Thread の Logger へ再入すると Mutex 再取得で停止するため、Dispatch 中かを Thread 単位で追跡する
 thread_local unsigned int sinkDispatchDepth = 0;
 
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
+    // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
 }
 
+// Exception や早期 Return が発生しても再入検出状態を元へ戻す Scope Guard
 class SinkDispatchGuard final
 {
   public:
@@ -47,6 +50,7 @@ class Logger::Impl final
     [[nodiscard]] LogResult write(const LogRecord &a_record)
     {
         LogResult result = LogResult::Success;
+        // 一つの Sink 失敗で後続 Sink を止めず、利用可能な診断先へ Record を残し続ける
         for (const std::unique_ptr<LogSink> &sink : sinks)
         {
             SinkDispatchGuard guard;
@@ -61,6 +65,7 @@ class Logger::Impl final
     [[nodiscard]] LogResult flush_sinks()
     {
         LogResult result = LogResult::Success;
+        // 各 Sink を独立して Flush し、一部障害時にも他の保留 Record を可能な限り確定する
         for (const std::unique_ptr<LogSink> &sink : sinks)
         {
             SinkDispatchGuard guard;
@@ -105,6 +110,7 @@ const Error *LogRecord::try_error() const noexcept
 
 Logger::Logger(EmergencyHandler &a_emergencyHandler, std::vector<std::unique_ptr<LogSink>> &&a_sinks) noexcept
 {
+    // 所有権移動後に無効 Sink が見つからないよう、Logger 状態を作る前に入力全体を検証する
     for (const std::unique_ptr<LogSink> &sink : a_sinks)
     {
         if (sink == nullptr)
@@ -127,6 +133,7 @@ Logger::~Logger() = default;
 
 LogResult Logger::log(LogLevel a_level, std::string_view a_message, std::source_location a_location) noexcept
 {
+    // Sink 実装からの再入は非再帰 Mutex を停止させるため、Lock 取得前に明示的な契約違反として扱う
     if (sinkDispatchDepth != 0)
     {
         terminate_emergency(m_impl->emergencyHandler, "Logger sink reentry detected");
@@ -134,6 +141,7 @@ LogResult Logger::log(LogLevel a_level, std::string_view a_message, std::source_
 
     try
     {
+        // Allocation を Lock 取得前に完了し、Sink を直列化する Critical Section を出力処理だけに限定する
         LogRecord record(a_level, std::string(a_message), SourceLocation::from(a_location), std::nullopt);
         const std::lock_guard lock(m_impl->mutex);
         return m_impl->write(record);
@@ -147,6 +155,7 @@ LogResult Logger::log(LogLevel a_level, std::string_view a_message, std::source_
 LogResult Logger::log(LogLevel a_level, std::string_view a_message, Error &&a_error,
                       std::source_location a_location) noexcept
 {
+    // Sink 実装からの再入は非再帰 Mutex を停止させるため、Lock 取得前に明示的な契約違反として扱う
     if (sinkDispatchDepth != 0)
     {
         terminate_emergency(m_impl->emergencyHandler, "Logger sink reentry detected");
@@ -154,6 +163,7 @@ LogResult Logger::log(LogLevel a_level, std::string_view a_message, Error &&a_er
 
     try
     {
+        // Error 所有権を Record へ移してから Lock し、Critical Section 内での構築失敗を避ける
         LogRecord record(a_level, std::string(a_message), SourceLocation::from(a_location),
                          std::optional<Error>(std::move(a_error)));
         const std::lock_guard lock(m_impl->mutex);
@@ -167,6 +177,7 @@ LogResult Logger::log(LogLevel a_level, std::string_view a_message, Error &&a_er
 
 LogResult Logger::flush() noexcept
 {
+    // write と同じ直列化境界を使用し、Record 出力中に Sink 状態を Flush しないようにする
     if (sinkDispatchDepth != 0)
     {
         terminate_emergency(m_impl->emergencyHandler, "Logger sink reentry detected");
@@ -193,12 +204,14 @@ LogResult Logger::log_and_flush(std::string_view a_message, std::source_location
     try
     {
         LogRecord record(LogLevel::Fatal, std::string(a_message), SourceLocation::from(a_location), std::nullopt);
+        // Fatal 経路では Lock 待機による Deadlock を避け、競合を Emergency 終了へ引き渡す
         const std::unique_lock lock(m_impl->mutex, std::try_to_lock);
         if (!lock.owns_lock())
         {
             return LogResult::Contended;
         }
 
+        // 同じ Lock 保持中に write と flush を完了し、Fatal Record より後の出力が割り込むことを防ぐ
         const LogResult writeResult = m_impl->write(record);
         const LogResult flushResult = m_impl->flush_sinks();
         return writeResult == LogResult::Success && flushResult == LogResult::Success ? LogResult::Success
@@ -221,12 +234,14 @@ LogResult Logger::log_and_flush(std::string_view a_message, Error &&a_error, std
     {
         LogRecord record(LogLevel::Fatal, std::string(a_message), SourceLocation::from(a_location),
                          std::optional<Error>(std::move(a_error)));
+        // Fatal 経路では Lock 待機による Deadlock を避け、競合を Emergency 終了へ引き渡す
         const std::unique_lock lock(m_impl->mutex, std::try_to_lock);
         if (!lock.owns_lock())
         {
             return LogResult::Contended;
         }
 
+        // Error 詳細を含む Record も同じ Lock 内で Flush し、終了直前の診断を一つの単位として確定する
         const LogResult writeResult = m_impl->write(record);
         const LogResult flushResult = m_impl->flush_sinks();
         return writeResult == LogResult::Success && flushResult == LogResult::Success ? LogResult::Success

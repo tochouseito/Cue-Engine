@@ -10,11 +10,14 @@
 namespace cue
 {
 /**
- * @brief 成功ValueまたはErrorの正確に一方を所有する
- * @tparam T `noexcept` Move可能な成功Value
+ * @brief 成功 Value または Error の正確に一方を所有する
+ * @tparam T `noexcept` Move 可能な成功 Value
+ *
+ * 回復可能な失敗を Exception や無効 Value へ変換せず、呼び出し側へ明示的に伝播するための戻り値型
  */
 template <typename T> class Result final
 {
+    // Error 伝播中に別の例外が発生して元の失敗情報を失わないよう、格納 Value には非例外 Move を要求する
     static_assert(std::is_object_v<T>);
     static_assert(!std::is_same_v<std::remove_cv_t<T>, Error>);
     static_assert(std::is_nothrow_move_constructible_v<T>);
@@ -29,33 +32,33 @@ template <typename T> class Result final
     Result &operator=(Result &&) noexcept = default;
     ~Result() = default;
 
-    /** @brief 成功Valueの所有権を受け取る */
+    /** @brief 成功 Value の所有権を受け取る */
     [[nodiscard]] static Result success(T &&a_value) noexcept
     {
         return Result(std::in_place_index<0>, std::move(a_value));
     }
 
-    /** @brief Errorの所有権を受け取る */
+    /** @brief Error の所有権を受け取る */
     [[nodiscard]] static Result failure(Error &&a_error) noexcept
     {
         return Result(std::in_place_index<1>, std::move(a_error));
     }
 
-    /** @brief 成功Valueを保持する場合にtrueを返す */
+    /** @brief 成功 Value を保持する場合に true を返す */
     [[nodiscard]] bool has_value() const noexcept
     {
         return m_storage.index() == 0;
     }
 
-    /** @brief 成功Valueを保持する場合にtrueを返す */
+    /** @brief 成功 Value を保持する場合に true を返す */
     [[nodiscard]] explicit operator bool() const noexcept
     {
         return has_value();
     }
 
     /**
-     * @brief 成功Valueへの非所有Pointerを返す
-     * @return Error状態ではnullptr
+     * @brief 成功 Value への非所有 Pointer を返す
+     * @return Error 状態では nullptr
      */
     [[nodiscard]] T *try_value() & noexcept
     {
@@ -72,8 +75,8 @@ template <typename T> class Result final
     const T *try_value() const && = delete;
 
     /**
-     * @brief Errorへの非所有Pointerを返す
-     * @return 成功状態ではnullptr
+     * @brief Error への非所有 Pointer を返す
+     * @return 成功状態では nullptr
      */
     [[nodiscard]] Error *try_error() & noexcept
     {
@@ -100,7 +103,9 @@ template <typename T> class Result final
 };
 
 /**
- * @brief Valueを持たない成功またはErrorの正確に一方を所有する
+ * @brief Value を持たない成功または Error の正確に一方を所有する
+ *
+ * 成功時に返す Data がない操作でも、Result<T> と同じ明示的な失敗伝播を維持する
  */
 template <> class Result<void> final
 {
@@ -118,27 +123,27 @@ template <> class Result<void> final
         return Result(SuccessTag{});
     }
 
-    /** @brief Errorの所有権を受け取る */
+    /** @brief Error の所有権を受け取る */
     [[nodiscard]] static Result failure(Error &&a_error) noexcept
     {
         return Result(std::move(a_error));
     }
 
-    /** @brief 成功状態の場合にtrueを返す */
+    /** @brief 成功状態の場合に true を返す */
     [[nodiscard]] bool has_value() const noexcept
     {
         return !m_error.has_value();
     }
 
-    /** @brief 成功状態の場合にtrueを返す */
+    /** @brief 成功状態の場合に true を返す */
     [[nodiscard]] explicit operator bool() const noexcept
     {
         return has_value();
     }
 
     /**
-     * @brief Errorへの非所有Pointerを返す
-     * @return 成功状態ではnullptr
+     * @brief Error への非所有 Pointer を返す
+     * @return 成功状態では nullptr
      */
     [[nodiscard]] Error *try_error() & noexcept
     {
