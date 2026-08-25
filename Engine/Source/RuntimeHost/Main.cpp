@@ -394,7 +394,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_presentation_smoke(const RuntimeOptions &a_options, cue::Window &a_window, cue::Logger &a_logger,
                                          cue::AssertContext &a_assertContext)
 {
-    // Presentation が参照する Device と Window を先に存続させ、SwapChain の生成と破棄だけを分離検証する
+    // Presentation が参照する Device と Window を先に存続させ、描画 Loop を通さず Presentation Resource 一式の寿命を検証する
     cue::D3d12BackendDescriptor backendDescriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(backendDescriptor, a_assertContext);
@@ -669,7 +669,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
         if (pendingResize)
         {
-            // Event drain 後に一度だけ適用し、Window と Presentation の Size を Frame 境界で同期する
+            // Event drain 後に一度だけ適用し、非 0 Size は同期し、0 Size は Native Resize を延期する
             cue::Result<void> resizeResult =
                 presentation->resize(pendingResize->width, pendingResize->height);
 
@@ -705,7 +705,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
             continue;
         }
 
-        // Clear と Present を一つの Frame として繰り返し、最小 Rendering 経路が継続動作することを保証する
+        // Clear と Present を一つの Frame として繰り返し、最小 Rendering 経路の失敗を各 Frame で検出する
         cue::PresentationFrameDescriptor frameDescriptor = {clearColor};
         cue::Result<cue::PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
 
@@ -801,7 +801,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     backend.reset();
 
-    // Rendering Error を Primary とし、終了処理で増えた Error は Secondary として診断情報へ統合する
+    // Render Loop 中に先行した Error を Primary とし、終了処理で増えた Error は Secondary として診断情報へ統合する
     if (frameError)
     {
         if (presentationShutdownError)
