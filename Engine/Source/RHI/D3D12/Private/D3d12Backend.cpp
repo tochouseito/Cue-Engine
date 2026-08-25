@@ -1004,7 +1004,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<void>::success();
     }
 
-    // 通常終了は Fence で GPU 完了を証明し、Device Removal は DRED 取得後に GPU 完了を要求せず解放準備へ進む
+    // 通常終了は Fence で GPU 完了を証明し、Device Removal は有効な場合に DRED 収集を試行して解放準備へ進む
     // どちらも Frame State を CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
