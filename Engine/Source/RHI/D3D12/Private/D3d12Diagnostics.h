@@ -45,7 +45,7 @@ struct D3d12DiagnosticsStatus final
  * @param a_assertContext Foundation 診断 Context
  * @return 記録と消費に成功した場合は Success、取得または記録に失敗した場合は Error
  * @pre 通常終了では全 Command Queue の対象 Work が Fence 完了済みであること
- * @pre Device Removal では DRED 収集後に Queue と Fence を解放済みであること
+ * @pre Device Removal では有効な場合に DRED 収集を一度試行した後、Queue と Fence を解放済みであること
  * @pre どちらの経路も他 Thread を含め D3D12 API 呼び出しが停止していること
  */
 [[nodiscard]] Result<void> log_d3d12_messages_at_quiescent_point(
