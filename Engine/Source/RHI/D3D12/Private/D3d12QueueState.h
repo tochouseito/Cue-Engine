@@ -1,6 +1,6 @@
 // Direct Command Queue、Fence、待機 Event を一つの Lifetime で所有し、GPU 完了を証明する内部状態
 // 通常終了で完了を証明できない場合は Resource を保持して Unavailable へ移行する
-// Device Removal 時は DeviceRemoved へ移行し、解放前診断の後に専用経路で Queue と Fence を解放する
+// Device Removal 時は DeviceRemoved へ移行し、呼出側が利用可能な診断を試行した後に専用経路で解放する
 
 #pragma once
 

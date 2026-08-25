@@ -609,7 +609,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return m_isResizePending;
     }
 
-    // Fence 待機、記録、Barrier、Clear、Execute、Present、Signal を一つの Frame Transaction として実行する
+    // Fence 待機から Signal までを一連の Frame 処理として順序付ける
     [[nodiscard]] cue::Result<cue::PresentationFrameStatus> present_frame(
         const cue::PresentationFrameDescriptor &a_descriptor) noexcept override
     {
@@ -839,7 +839,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<cue::PresentationFrameStatus>::success(std::move(status));
     }
 
-    // Frame 受付停止と GPU Idle 証明後に旧 View と Back Buffer を解放し、新 Size の Resource を再構築する
+    // 有効な Size 変更では Frame 受付停止と GPU Idle 証明後に旧 Resource を解放して再構築する
     [[nodiscard]] cue::Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept override
     {
         assert_thread("D3D12 Presentation Resize must run on the creation thread");
@@ -1005,7 +1005,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
     }
 
     // 通常終了は Fence で GPU 完了を証明し、Device Removal は有効な場合に DRED 収集を試行して解放準備へ進む
-    // どちらも Frame State を CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
+    // GPU 完了を証明できた通常終了と Device Removal 専用解放の成功経路では、Frame State を
+    // CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         assert_thread("D3D12 Presentation shutdown must run on the creation thread");

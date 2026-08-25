@@ -490,7 +490,8 @@ Result<void> D3d12FrameCommandState::mark_present_attempted() noexcept
     return Result<void>::success();
 }
 
-// Present 成否に関係なく Submit 済み Work へ Fence を付け、次回 Frame や Cleanup が完了を待てるようにする
+// Present 成功後または非 Device Removal の失敗後に Submit 済み Work への Fence 付与を試行し、
+// 成功時に後続の Frame Resource 再利用や Cleanup が完了を待てるようにする
 Result<std::uint64_t> D3d12FrameCommandState::signal_frame(D3d12FrameSignalPurpose a_purpose) noexcept
 {
     update_status_from_queue();
@@ -1011,7 +1012,8 @@ Result<void> D3d12FrameCommandState::shutdown() noexcept
     return allocatorResult;
 }
 
-// Device Removal 時は通常の GPU 完了を証明できないため、診断後に解放可能な専用状態へ移行する
+// Device Removal 時は通常の GPU 完了を証明できないため、呼出側が利用可能な診断を試行した後に
+// 解放可能な専用状態へ移行する
 Result<void> D3d12FrameCommandState::begin_release_after_device_removed() noexcept
 {
     update_status_from_queue();

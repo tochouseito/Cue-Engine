@@ -616,7 +616,7 @@ Result<void> log_d3d12_messages_at_quiescent_point(
     return Result<void>::success();
 }
 
-// Native Object 解放後は失われる Breadcrumb と Page Fault 情報を、Device Removal 処理の最初に保存する
+// DRED が有効な場合は、Native Object 解放後に失われる Breadcrumb と Page Fault 情報の収集を試行する
 Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
                                                        const D3d12DiagnosticsStatus &a_status,
                                                        const AssertContext &a_assertContext) noexcept
