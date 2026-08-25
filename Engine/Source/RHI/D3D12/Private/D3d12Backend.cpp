@@ -1427,7 +1427,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     }
 
     // Active Presentation が残る間は借用先が存在するため Shutdown を拒否し、先行解放を防ぐ
-    // Device Removal 時は Native Object を解放する前に DRED と InfoQueue を収集する
+    // Device Removal 時は DRED を Queue と Fence の解放前、InfoQueue を両者の解放後かつ Device 解放前に収集する
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1830,10 +1830,10 @@ class D3d12BackendImpl final : public cue::D3d12Backend
 
 namespace cue
 {
-// === Test Probe Boundary ===
-// 以下は Production API から検証専用状態へ到達する薄い入口であり、通常の Frame Loop では使用しない
 D3d12Backend::~D3d12Backend() noexcept = default;
 
+// === Test Probe Boundary ===
+// 以下は Production API から検証専用状態へ到達する薄い入口であり、通常の Frame Loop では使用しない
 D3d12PresentationProbeReport probe_d3d12_presentation(PresentationContext &a_presentation) noexcept
 {
     D3d12PresentationContext *presentation = dynamic_cast<D3d12PresentationContext *>(&a_presentation);

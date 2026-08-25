@@ -21,9 +21,10 @@ struct D3d12DiagnosticsStatus final
     bool isInfoQueueEnabled;
 };
 
-// Debug Layer と DRED は Device 生成前に有効化する必要があるため、Device Factory 処理より先に呼び出す
+// Process の診断許可だけを副作用なしで問い合わせ、Release Build の既定無効化を一箇所へ集約する
 [[nodiscard]] bool are_d3d12_diagnostics_allowed() noexcept;
 
+// Debug Layer と DRED は Device 生成前に有効化する必要があるため、Device Factory 処理より先に呼び出す
 [[nodiscard]] Result<D3d12DiagnosticsStatus> configure_d3d12_pre_device_diagnostics(
     const D3d12BackendDescriptor &a_descriptor, const AssertContext &a_assertContext) noexcept;
 
