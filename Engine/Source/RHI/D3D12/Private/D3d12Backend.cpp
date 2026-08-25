@@ -1004,7 +1004,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<void>::success();
     }
 
-    // DRED 取得、GPU 完了、RTV、Back Buffer、Allocator の順で依存先から逆向きに解放する
+    // 通常終了は Fence で GPU 完了を証明し、Device Removal は DRED 取得後に GPU 完了を要求せず解放準備へ進む
+    // どちらも Frame State を CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         assert_thread("D3D12 Presentation shutdown must run on the creation thread");
@@ -2573,6 +2574,8 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
     return retentionValid;
 }
 
+// === Production Factory ===
+// 検証専用 Probe 群を終え、正式な D3D12 Backend 生成 API を実装する
 Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(const D3d12BackendDescriptor &a_descriptor,
                                                            AssertContext &a_assertContext) noexcept
 {
