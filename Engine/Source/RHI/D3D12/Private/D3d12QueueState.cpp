@@ -1,3 +1,6 @@
+// Owner Thread 上で Command Queue への Submit、Fence Signal、CPU 待機の実行順を管理し、各 GPU Work の完了点を追跡する
+// Timeout や Signal 失敗時は Device Removal を再確認し、安全な再利用可否を状態として残す
+
 #include "D3d12QueueState.h"
 
 #include <Cue/Foundation/Assert.h>
@@ -264,6 +267,7 @@ D3d12QueueState &D3d12QueueState::operator=(D3d12QueueState &&a_other) noexcept
     return *this;
 }
 
+// Execute 前に Fence 値を予約し、Submit 済み Work と後続 Signal を同じ識別子で関連付ける
 Result<std::uint64_t> D3d12QueueState::reserve_fence_value() noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready,
@@ -291,6 +295,7 @@ void D3d12QueueState::execute_command_list(ID3D12CommandList *a_commandList) noe
     m_functions.executeCommandLists(m_queue.Get(), 1, commandLists);
 }
 
+// 予約済み値だけを Signal し、重複や飛び越しによって完了証明が曖昧になることを防ぐ
 Result<void> D3d12QueueState::signal_reserved(std::uint64_t a_fenceValue) noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready, "D3D12 Queue Signal requires a ready Queue");
@@ -424,6 +429,7 @@ std::uint64_t D3d12QueueState::completed_value() noexcept
     return m_functions.getCompletedValue(m_fence.Get());
 }
 
+// 有限時間待機後も完了しない場合は Device Removal と Fence 値を再確認し、単純 Timeout と GPU 喪失を分離する
 Result<void> D3d12QueueState::wait_for_fence(std::uint64_t a_fenceValue, D3d12FenceWaitPurpose a_purpose) noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::Ready, "D3D12 Fence Wait requires a ready Queue");
@@ -506,6 +512,7 @@ Result<void> D3d12QueueState::wait_for_fence(std::uint64_t a_fenceValue, D3d12Fe
                                  a_fenceValue, a_purpose);
 }
 
+// 待機 API の異常後にも Fence が完了済みなら Resource 再利用を許可し、未完了なら安全側の状態へ移行する
 Result<void> D3d12QueueState::resolve_abnormal_wait(Error &&a_waitError, std::uint64_t a_fenceValue,
                                                     D3d12FenceWaitPurpose a_purpose) noexcept
 {
@@ -542,6 +549,7 @@ Result<void> D3d12QueueState::resolve_abnormal_wait(Error &&a_waitError, std::ui
     return Result<void>::failure(std::move(a_waitError));
 }
 
+// Event 自体が信頼できない失敗を起こした場合は新しい Handle へ交換し、次回待機へ故障状態を持ち越さない
 Result<void> D3d12QueueState::replace_wait_event(Error &&a_cause) noexcept
 {
     if (!m_functions.closeHandle(m_event.get()))
@@ -573,6 +581,7 @@ Result<void> D3d12QueueState::replace_wait_event(Error &&a_cause) noexcept
     return Result<void>::failure(std::move(a_cause));
 }
 
+// 終了専用 Fence まで待って全 Queue Work の完了を証明してから Native Object を解放する
 Result<void> D3d12QueueState::shutdown() noexcept
 {
     if (m_status == D3d12QueueStateStatus::Shutdown)
@@ -661,6 +670,7 @@ Result<void> D3d12QueueState::shutdown() noexcept
     return releaseResult;
 }
 
+// Device Removal 後は通常 Fence 待機が成立しないため、診断収集後に専用経路で Native Object を解放する
 Result<void> D3d12QueueState::release_after_device_removed() noexcept
 {
     CUE_ASSERT(*m_assertContext, m_status == D3d12QueueStateStatus::DeviceRemoved,

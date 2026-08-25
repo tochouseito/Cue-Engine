@@ -1,3 +1,6 @@
+// D3D12 Backend の Factory、Adapter、Device、Queue と Window ごとの Presentation Resource を統括する
+// 生成、Frame 処理、Resize、Device Removal、Shutdown の依存順を統括し、各所有型の寿命管理を接続する
+
 #include <Cue/RHI/D3D12/D3d12Backend.h>
 #include <Cue/RHI/D3D12/TestSupport/D3d12SwapChainProbe.h>
 
@@ -517,6 +520,8 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
     return cue::Result<void>::success();
 }
 
+// Window 固有の Swap Chain、Back Buffer、RTV、Frame Command を所有する Presentation 実装
+// Backend の Device と Queue を借用するため、必ず Backend より先に Shutdown して登録を解除する
 class D3d12PresentationContext final : public cue::PresentationContext
 {
   public:
@@ -604,6 +609,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return m_isResizePending;
     }
 
+    // Fence 待機、記録、Barrier、Clear、Execute、Present、Signal を一つの Frame Transaction として実行する
     [[nodiscard]] cue::Result<cue::PresentationFrameStatus> present_frame(
         const cue::PresentationFrameDescriptor &a_descriptor) noexcept override
     {
@@ -833,6 +839,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<cue::PresentationFrameStatus>::success(std::move(status));
     }
 
+    // Frame 受付停止と GPU Idle 証明後に旧 View と Back Buffer を解放し、新 Size の Resource を再構築する
     [[nodiscard]] cue::Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept override
     {
         assert_thread("D3D12 Presentation Resize must run on the creation thread");
@@ -997,6 +1004,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<void>::success();
     }
 
+    // 通常終了は Fence で GPU 完了を証明し、Device Removal は有効な場合に DRED 収集を試行して解放準備へ進む
+    // どちらも Frame State を CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         assert_thread("D3D12 Presentation shutdown must run on the creation thread");
@@ -1322,6 +1331,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     bool m_isResizePending;
 };
 
+// Process 側の Factory、Adapter、Device、Queue を所有し、Presentation へ長寿命 Resource を貸し出す Backend 実装
 class D3d12BackendImpl final : public cue::D3d12Backend
 {
   public:
@@ -1417,6 +1427,9 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return m_lastDredOwnerReport;
     }
 
+    // Active Presentation が残る間は借用先が存在するため Shutdown を拒否し、先行解放を防ぐ
+    // Device Removal 時は有効な診断だけ収集を試行する
+    // DRED は Queue と Fence の解放前、InfoQueue は両者の解放後かつ Device 解放前に扱う
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1565,6 +1578,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return *m_assertContext;
     }
 
+    // Swap Chain、RTV Heap、Frame State、Back Buffer Binding、RTV 生成の依存順で Presentation を構築する
     [[nodiscard]] cue::Result<std::unique_ptr<cue::PresentationContext>> create_windows_presentation(
         const void *a_nativeWindow, std::uint32_t a_width, std::uint32_t a_height,
         const cue::PresentationDescriptor &a_descriptor) noexcept override
@@ -1820,6 +1834,8 @@ namespace cue
 {
 D3d12Backend::~D3d12Backend() noexcept = default;
 
+// === Test Probe Boundary ===
+// 以下は Production API から検証専用状態へ到達する薄い入口であり、通常の Frame Loop では使用しない
 D3d12PresentationProbeReport probe_d3d12_presentation(PresentationContext &a_presentation) noexcept
 {
     D3d12PresentationContext *presentation = dynamic_cast<D3d12PresentationContext *>(&a_presentation);
@@ -2559,6 +2575,8 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
     return retentionValid;
 }
 
+// === Production Factory ===
+// 検証専用 Probe 群を終え、正式な D3D12 Backend 生成 API を実装する
 Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(const D3d12BackendDescriptor &a_descriptor,
                                                            AssertContext &a_assertContext) noexcept
 {

@@ -1,3 +1,6 @@
+// D3D12 診断機能を Build 設定と Runtime 設定に従って有効化し、GPU 失敗時の根拠を Log へ保存する
+// 診断自体の失敗は元の Graphics Error を失わないよう Secondary Context として伝播させる
+
 #include "D3d12Diagnostics.h"
 
 #include <Cue/Foundation/Assert.h>
@@ -381,6 +384,8 @@ Result<D3d12DiagnosticsStatus> configure_d3d12_pre_device_diagnostics(
     return Result<D3d12DiagnosticsStatus>::success(std::move(status));
 }
 
+// InfoQueue は Device 生成後に取得し、開発中に見逃せない Severity だけ Debugger 停止へ接続する
+// 途中設定に失敗した場合は既に有効化した Break 条件を戻し、部分適用状態を残さない
 Result<void> configure_d3d12_info_queue(ID3D12Device *a_device, D3d12DiagnosticsStatus &a_status,
                                         const AssertContext &a_assertContext) noexcept
 {
@@ -606,11 +611,12 @@ Result<void> log_d3d12_messages_at_quiescent_point(
         }
     }
 
-    // The caller guarantees that no CPU or GPU work can append a message between the final count and this clear.
+    // 呼出側が D3D12 API 停止を保証するため、最終件数確認から Clear まで新規 Message が追加されない
     infoQueue->ClearStoredMessages();
     return Result<void>::success();
 }
 
+// Native Object 解放後は失われる Breadcrumb と Page Fault 情報を、Device Removal 処理の最初に保存する
 Result<void> collect_d3d12_device_removed_diagnostics(ID3D12Device *a_device,
                                                        const D3d12DiagnosticsStatus &a_status,
                                                        const AssertContext &a_assertContext) noexcept

@@ -1,3 +1,5 @@
+// D3D12 Device 生成を所有権付き ComPtr として完了させ、失敗時は Native HRESULT を診断情報へ残す
+
 #include "D3d12DeviceCreation.h"
 
 #include <Cue/Foundation/Assert.h>

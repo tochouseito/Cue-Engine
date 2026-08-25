@@ -1,3 +1,6 @@
+// DXGI Swap Chain と Back Buffer を所有し、Present と Resize の Native Lifecycle を管理する内部状態
+// Tearing 対応能力と実際の有効状態を分け、VSync 設定に応じた Present 条件を一箇所で決定する
+
 #pragma once
 
 #include <Cue/Foundation/Result.h>

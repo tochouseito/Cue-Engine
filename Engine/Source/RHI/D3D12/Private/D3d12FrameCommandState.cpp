@@ -1,3 +1,6 @@
+// Command List の記録、Back Buffer 状態遷移、Clear、Submit 後の Fence 関連付けを Frame 単位で実行する
+// Allocator や Back Buffer を再利用する前に対応 Fence を待ち、GPU 使用中の上書きを防ぐ
+
 #include "D3d12FrameCommandState.h"
 
 #include "D3d12QueueState.h"
@@ -258,6 +261,7 @@ void D3d12FrameCommandState::update_status_from_queue() noexcept
     }
 }
 
+// 対応 Frame Context の Fence 完了後だけ Allocator と Command List を Reset し、GPU 使用中の Memory を上書きしない
 Result<void> D3d12FrameCommandState::begin_frame(std::uint32_t a_frameIndex) noexcept
 {
     update_status_from_queue();
@@ -396,6 +400,7 @@ Result<void> D3d12FrameCommandState::discard_closed_frame_after_exhaustion() noe
     return Result<void>::success();
 }
 
+// Signal 用 Fence 値を先に確保してから Command List を Submit し、実行済み Work の追跡不能を可能な限り避ける
 Result<void> D3d12FrameCommandState::execute_frame() noexcept
 {
     update_status_from_queue();
@@ -485,6 +490,7 @@ Result<void> D3d12FrameCommandState::mark_present_attempted() noexcept
     return Result<void>::success();
 }
 
+// Present 成否に関係なく Submit 済み Work へ Fence を付け、次回 Frame や Cleanup が完了を待てるようにする
 Result<std::uint64_t> D3d12FrameCommandState::signal_frame(D3d12FrameSignalPurpose a_purpose) noexcept
 {
     update_status_from_queue();
@@ -595,6 +601,7 @@ Result<void> D3d12FrameCommandState::suspend_for_resize() noexcept
     return Result<void>::success();
 }
 
+// Back Buffer を Clear 前に PRESENT から RENDER_TARGET へ、Present 前に PRESENT へ戻す順序を状態で検証する
 Result<void> D3d12FrameCommandState::transition_back_buffer(std::uint32_t a_frameIndex,
                                                             D3d12BackBufferState a_targetState) noexcept
 {
@@ -705,6 +712,7 @@ Result<void> D3d12FrameCommandState::clear_back_buffer(std::uint32_t a_frameInde
     return Result<void>::success();
 }
 
+// 新規 Frame 受付を止めて最後の Submit 完了を待ち、Back Buffer 参照を外せる GPU Idle 状態を証明する
 Result<void> D3d12FrameCommandState::prepare_for_resize(std::uint32_t a_frameIndex) noexcept
 {
     update_status_from_queue();
@@ -792,6 +800,7 @@ Result<void> D3d12FrameCommandState::prepare_for_resize(std::uint32_t a_frameInd
     return Result<void>::success();
 }
 
+// 新 Back Buffer と RTV の再 Binding 完了後だけ Frame 受付を再開し、古い Resource への記録を防ぐ
 Result<void> D3d12FrameCommandState::resume_after_resize() noexcept
 {
     update_status_from_queue();
@@ -1002,6 +1011,7 @@ Result<void> D3d12FrameCommandState::shutdown() noexcept
     return allocatorResult;
 }
 
+// Device Removal 時は通常の GPU 完了を証明できないため、診断後に解放可能な専用状態へ移行する
 Result<void> D3d12FrameCommandState::begin_release_after_device_removed() noexcept
 {
     update_status_from_queue();

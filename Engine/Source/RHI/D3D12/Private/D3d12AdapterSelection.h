@@ -1,3 +1,6 @@
+// D3D12 Device を作成できる DXGI Adapter を選び、上位 Module へ Capability を報告する内部契約
+// Hardware と Software の選択規則を一箇所に集め、実行環境による選択差を診断可能にする
+
 #pragma once
 
 #include <Cue/Foundation/Result.h>
@@ -32,6 +35,7 @@ struct D3d12AdapterReport final
     GraphicsAdapterKind adapterKind;
 };
 
+// 選択結果を D3D12 Native Object と Platform 非依存の報告値へ分けて保持する
 struct D3d12AdapterSelection final
 {
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
@@ -40,6 +44,7 @@ struct D3d12AdapterSelection final
     D3D_FEATURE_LEVEL featureLevel;
 };
 
+// Native 生成関数を注入可能にし、OS や GPU に依存する失敗経路を検証可能にする
 using D3d12FactoryCreator = HRESULT(WINAPI *)(UINT, REFIID, void **);
 
 [[nodiscard]] bool is_supported_hardware_candidate(D3d12AdapterCandidateFacts a_candidate) noexcept;

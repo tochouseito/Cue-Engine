@@ -1,3 +1,6 @@
+// Frame ごとの Command Allocator、Command List、Back Buffer、RTV と再利用 Fence を管理する内部状態
+// CPU が次 Frame を準備する間も GPU が前 Frame を処理できるよう、2個の Frame Context を交互に使用する
+
 #pragma once
 
 #include "D3d12RtvHeap.h"
@@ -18,6 +21,7 @@ class D3d12QueueState;
 
 constexpr std::uint32_t k_d3d12FrameContextCount = 2;
 
+// Command List の Native Lifecycle を明示し、Reset や再実行を不正な順序で行わないための状態
 enum class D3d12CommandListState
 {
     Initial,
@@ -28,6 +32,7 @@ enum class D3d12CommandListState
     RecordingCloseFailed,
     Closed,
     ExecutedAwaitingPresent,
+    // GPU へ渡したが完了 Fence を発行できず、安全な Resource 再利用を証明できない状態
     ExecutedUnfenced,
 };
 
