@@ -106,7 +106,8 @@ class GraphicsBackend
      * `Shutdown` では成功する冪等操作とする
      * `Unavailable` では Resource を解放せず `RHI.BackendUnavailable` を返す
      * 有効な Presentation Context が残る場合は Native Resource を解放せず `RHI.ActivePresentationContexts` を返す
-     * `DeviceRemoved` では Native Resource 解放前に診断を試行し、解放完了後も診断 Error を返す場合がある
+     * `DeviceRemoved` では DRED が有効な場合に Native Resource 解放前の診断収集を試行し、
+     * 解放完了後も診断 Error を返す場合がある
      */
     [[nodiscard]] virtual Result<void> shutdown() noexcept = 0;
 
