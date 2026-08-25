@@ -16,7 +16,7 @@ enum class PresentationContextState
     /** @brief Device Removal 後に診断と制御された解放だけを許可する状態 */
     DeviceRemoved,
 
-    /** @brief GPU 完了を証明できず、Native Resource と Backend 登録を保持する状態 */
+    /** @brief GPU 完了または安全な Resource 解放を証明できず、残存 Resource と Backend 登録を保持する状態 */
     Unavailable,
 
     /** @brief Native Resource の解放と Backend 登録解除が完了し、Owner を破棄できる状態 */
