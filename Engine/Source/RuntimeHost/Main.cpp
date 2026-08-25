@@ -28,6 +28,7 @@
 #error CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT must be provided by the CueRuntimeHost CMake target
 #endif
 
+// Runtime Host は Platform と RHI を組み立て、起動から安全な終了までの Runtime 実行順を所有する
 namespace
 {
 constexpr int k_invalidArguments = 64;
@@ -228,6 +229,7 @@ void print_usage() noexcept
 
 [[nodiscard]] cue::D3d12BackendDescriptor make_backend_descriptor(const RuntimeOptions &a_options) noexcept
 {
+    // 同じ Build の診断条件を再現できるよう、Graphics 診断の既定値は Target 定義から一元的に決める
     constexpr bool enableDiagnostics = CUE_RUNTIME_GRAPHICS_DIAGNOSTICS_DEFAULT != 0;
     return {
         a_options.graphicsAdapterPolicy,
@@ -238,6 +240,7 @@ void print_usage() noexcept
 }
 
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+// === Resize Smoke Test Probe ===
 [[nodiscard]] cue::Error make_runtime_error(const cue::AssertContext &a_assertContext,
                                             std::string_view a_summary) noexcept
 {
@@ -272,11 +275,13 @@ void print_usage() noexcept
                    : cue::WindowsWindowLifecycleProbeAction::Restore;
     return cue::issue_windows_window_lifecycle_probe_action(a_window, action, {}, {}, a_assertContext);
 }
+// === Resize Smoke Test Probe End ===
 #endif
 
 void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
+    // 最初に処理を失敗させた Error を主因として保ち、後始末の失敗も同じ診断から追跡できるようにする
     try
     {
         a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
@@ -338,6 +343,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_graphics_smoke(const RuntimeOptions &a_options, cue::Logger &a_logger,
                                      cue::AssertContext &a_assertContext)
 {
+    // Window を必要としない最小経路で Adapter と Device の生成、能力取得、安全な終了を検証する
     cue::D3d12BackendDescriptor descriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(descriptor, a_assertContext);
@@ -388,6 +394,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_presentation_smoke(const RuntimeOptions &a_options, cue::Window &a_window, cue::Logger &a_logger,
                                          cue::AssertContext &a_assertContext)
 {
+    // Presentation が参照する Device と Window を先に存続させ、SwapChain の生成と破棄だけを分離検証する
     cue::D3d12BackendDescriptor backendDescriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(backendDescriptor, a_assertContext);
@@ -430,6 +437,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         ", TearingSupported=" + (presentation->is_tearing_supported() ? "true" : "false") +
         ", TearingEnabled=" + (presentation->is_tearing_enabled() ? "true" : "false");
     cue::LogResult presentationLogResult = a_logger.log(cue::LogLevel::Info, presentationMessage);
+
+    // Presentation が保持する GPU Resource を先に解放し、参照先の Backend を最後まで有効に保つ
     cue::Result<void> presentationShutdownResult = presentation->shutdown();
 
     if (!presentationShutdownResult)
@@ -476,6 +485,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 {
     constexpr std::uint64_t renderSmokeFrameCount = 300;
     constexpr std::array<float, 4> clearColor = {0.06F, 0.18F, 0.32F, 1.0F};
+
+    // Window を Presentation の Native Surface として使える状態で、Backend から依存順に描画資源を構築する
     cue::D3d12BackendDescriptor backendDescriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(backendDescriptor, a_assertContext);
@@ -537,6 +548,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     while (!isShutdownRequested)
     {
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
+        // === Resize Smoke Test Probe ===
         if (a_options.isResizeSmoke && !isResizeSmokeStarted && !isResizeSmokeBatchProbeIssued)
         {
             cue::Result<void> minimizeResult = issue_resize_smoke_action(a_window, 1, a_assertContext);
@@ -572,8 +584,10 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
             ++resizeSmokeActionIndex;
         }
+        // === Resize Smoke Test Probe End ===
 #endif
 
+        // OS Event を先に全て取り込み、終了や最新の Window 状態を描画判断へ反映する
         cue::Result<cue::PumpStatus> pumpResult = a_windowSystem.pump_events();
 
         if (!pumpResult)
@@ -590,6 +604,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         }
 
         cue::WindowEvent event = {};
+        // 同一 Pump 内の連続 Resize は最後の Client Size へ集約し、古い中間 Size で SwapChain を作り直さない
         std::optional<cue::WindowSize> pendingResize;
 
         while (a_window.try_pop_event(event))
@@ -654,6 +669,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
         if (pendingResize)
         {
+            // Event drain 後に一度だけ適用し、Window と Presentation の Size を Frame 境界で同期する
             cue::Result<void> resizeResult =
                 presentation->resize(pendingResize->width, pendingResize->height);
 
@@ -684,10 +700,12 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
             ++minimizedFrameSkipCount;
 #endif
+            // 描画可能な Client Area がない間は GPU へ Frame を投入せず、待機中の Busy Loop も避ける
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
             continue;
         }
 
+        // Clear と Present を一つの Frame として繰り返し、最小 Rendering 経路が継続動作することを保証する
         cue::PresentationFrameDescriptor frameDescriptor = {clearColor};
         cue::Result<cue::PresentationFrameStatus> frameResult = presentation->present_frame(frameDescriptor);
 
@@ -744,6 +762,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 
     const std::uint32_t finalBackBufferIndex = presentation->current_back_buffer_index();
+
+    // GPU 使用中の Presentation を先に停止し、依存先の Backend はその完了確認まで存続させる
     cue::Result<void> presentationShutdownResult = presentation->shutdown();
 
     if (!presentationShutdownResult && presentation->state() == cue::PresentationContextState::Unavailable)
@@ -761,6 +781,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 
     presentation.reset();
+
+    // Presentation の所有物がなくなってから Device を停止し、参照先を先に破棄する順序を防ぐ
     cue::Result<void> backendShutdownResult = backend->shutdown();
 
     if (!backendShutdownResult && backend->state() == cue::GraphicsBackendState::Unavailable)
@@ -779,6 +801,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     backend.reset();
 
+    // Rendering Error を Primary とし、終了処理で増えた Error は Secondary として診断情報へ統合する
     if (frameError)
     {
         if (presentationShutdownError)
@@ -800,6 +823,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (presentationShutdownError)
     {
+        // Frame が成功した場合は、依存関係上先に失敗した Presentation 終了を Primary として扱う
         if (backendShutdownError)
         {
             add_secondary_runtime_error(*presentationShutdownError, *backendShutdownError,
@@ -859,6 +883,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 {
     static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
 
+    // Graphics Smoke は Window 依存を除外し、Backend 単体の失敗範囲を明確にする
     if (a_options.isGraphicsSmoke)
     {
         return run_graphics_smoke(a_options, a_logger, a_assertContext);
@@ -872,6 +897,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
                             std::move(*systemResult.try_error()), k_systemCreationFailed);
     }
 
+    // WindowSystem を Window より長生きさせ、Platform Event と Native Window の所有順を固定する
     std::unique_ptr<cue::WindowSystem> windowSystem = std::move(*systemResult.try_value());
     cue::WindowDescriptor descriptor = {a_options.title, a_options.clientSize};
     cue::Result<std::unique_ptr<cue::Window>> windowResult = windowSystem->create_window(descriptor);
@@ -886,6 +912,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (a_options.isPresentationSmoke)
     {
+        // Presentation Smoke は表示や Main Loop を省き、Window Surface と SwapChain の境界だけを検証する
         const int presentationResult = run_presentation_smoke(a_options, *window, a_logger, a_assertContext);
         cue::Result<void> destroyResult = window->destroy();
 
@@ -910,6 +937,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (!a_options.isSmokeTest)
     {
+        // 通常実行と Rendering 系 Smoke は同じ Clear/Present 経路を通し、Smoke 固有分岐による差を抑える
         const int renderResult = run_render_loop(a_options, *windowSystem, *window, a_logger, a_assertContext);
         cue::Result<void> destroyResult = window->destroy();
 
@@ -925,6 +953,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 
     static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host Main Loop started"));
+
+    // Window Smoke は生成直後から終了要求を立て、実描画なしで Event drain と破棄手順を検証する
     bool isShutdownRequested = a_options.isSmokeTest;
 
     while (true)
@@ -960,6 +990,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
         if (isShutdownRequested && window->state() != cue::WindowState::Destroyed)
         {
+            // Destroy 後の Quit Event まで Pump を続け、Platform 側の Window 終了完了を確認する
             cue::Result<void> destroyResult = window->destroy();
 
             if (!destroyResult)
@@ -992,6 +1023,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
 int wmain(int a_argumentCount, wchar_t **a_arguments)
 {
+    // FatalHandler を最外側に置き、Logger と AssertContext の構築から破棄まで異常終了先を存続させる
     cue::AbortFatalHandler fatalHandler;
 
     try
@@ -999,6 +1031,8 @@ int wmain(int a_argumentCount, wchar_t **a_arguments)
         std::vector<std::unique_ptr<cue::LogSink>> sinks;
         sinks.push_back(std::make_unique<cue::ConsoleLogSink>());
         cue::Logger logger(fatalHandler, std::move(sinks));
+
+        // AssertContext を Logger より後に構築し、逆順破棄でも診断先が先に失われないようにする
         cue::AssertContext assertContext(logger, fatalHandler);
         RuntimeOptions options;
         cue::Result<bool> optionsResult = parse_options(a_argumentCount, a_arguments, options, assertContext);
