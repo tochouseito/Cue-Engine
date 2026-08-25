@@ -8,6 +8,7 @@ namespace
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
+    // 外部 Handler の実装違反があっても、構築に失敗した不完全な Error で実行を継続させない
     std::abort();
 }
 } // namespace
@@ -17,6 +18,7 @@ namespace cue
 ErrorCode ErrorCode::create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                             std::int64_t a_value) noexcept
 {
+    // 公開 API の noexcept 契約を守り、診断 Value を作れない場合は独立した Emergency 経路で終了する
     try
     {
         return ErrorCode(std::string(a_domain), a_value);
@@ -45,6 +47,7 @@ ErrorCode::ErrorCode(std::string &&a_domain, std::int64_t a_value) noexcept
 NativeError NativeError::create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                                 std::int64_t a_value) noexcept
 {
+    // Native Domain 名の Allocation 失敗も Error として再帰的に表現せず、Emergency 経路へ集約する
     try
     {
         return NativeError(std::string(a_domain), a_value);
@@ -114,6 +117,7 @@ const NativeError *ErrorCause::try_native_error() const noexcept
 
 Error Error::create(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code, std::string_view a_summary) noexcept
 {
+    // Error 生成自体の失敗を別の Error で包む再帰を避け、noexcept 境界を維持する
     try
     {
         return Error(std::move(a_code), std::string(a_summary), std::nullopt);
@@ -157,6 +161,7 @@ Error Error::reclassify_impl(EmergencyHandler &a_emergencyHandler, ErrorCode &&a
     {
         Error result(std::move(a_code), std::string(a_summary), std::move(a_nativeError));
 
+        // 先頭を Immediate Cause、末尾を Root Cause とする平坦な順序を再分類後も維持する
         result.m_causes.reserve(a_cause.m_causes.size() + 1);
         ErrorCause causeFrame(std::move(a_cause.m_code), std::move(a_cause.m_summary), std::move(a_cause.m_contexts),
                               std::move(a_cause.m_nativeError));
@@ -178,6 +183,7 @@ Error Error::reclassify_impl(EmergencyHandler &a_emergencyHandler, ErrorCode &&a
 void Error::add_context(EmergencyHandler &a_emergencyHandler, std::string_view a_message,
                         std::source_location a_location) noexcept
 {
+    // 分類を変えずに伝播経路だけを追加し、各 Module が同じ Error を段階的に説明できるようにする
     try
     {
         ErrorContext context(std::string(a_message), SourceLocation::from(a_location));

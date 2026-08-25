@@ -14,9 +14,10 @@
 namespace cue
 {
 /**
- * @brief Domain内で一意なError識別子
+ * @brief Domain 内で一意な Error 識別子
  *
- * Move-only Valueとして呼び出し側が所有する
+ * Domain と数値を分離し、Module 間で同じ数値を使用しても Error の意味が衝突しないようにする
+ * Move-only Value として呼び出し側が所有する
  */
 class ErrorCode final
 {
@@ -28,18 +29,18 @@ class ErrorCode final
     ~ErrorCode() = default;
 
     /**
-     * @brief Error Codeを生成する
-     * @param a_emergencyHandler Allocation失敗時の非所有終了境界
+ * @brief Error Code を生成する
+ * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
      * @param a_domain Code Domain
-     * @param a_value Domain内のCode
+ * @param a_value Domain 内の Code
      */
     [[nodiscard]] static ErrorCode create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                                           std::int64_t a_value) noexcept;
 
-    /** @brief Code Domainを返す */
+    /** @brief Code Domain を返す */
     [[nodiscard]] std::string_view domain() const noexcept;
 
-    /** @brief Domain内のCodeを返す */
+    /** @brief Domain 内の Code を返す */
     [[nodiscard]] std::int64_t value() const noexcept;
 
   private:
@@ -50,7 +51,9 @@ class ErrorCode final
 };
 
 /**
- * @brief Native Headerへ依存しないNative Error情報
+ * @brief Native Header へ依存しない Native Error 情報
+ *
+ * Win32 や Graphics API の型を Foundation 公開 API へ漏らさず、元の低 Level 診断値を保持する
  */
 class NativeError final
 {
@@ -62,15 +65,15 @@ class NativeError final
     ~NativeError() = default;
 
     /**
-     * @brief Native Error情報を生成する
+ * @brief Native Error 情報を生成する
      */
     [[nodiscard]] static NativeError create(EmergencyHandler &a_emergencyHandler, std::string_view a_domain,
                                             std::int64_t a_value) noexcept;
 
-    /** @brief Native Domainを返す */
+    /** @brief Native Domain を返す */
     [[nodiscard]] std::string_view domain() const noexcept;
 
-    /** @brief Native Codeを返す */
+    /** @brief Native Code を返す */
     [[nodiscard]] std::int64_t value() const noexcept;
 
   private:
@@ -81,7 +84,9 @@ class NativeError final
 };
 
 /**
- * @brief Error伝播時に追加された診断Context
+ * @brief Error 伝播時に追加された診断 Context
+ *
+ * Error の分類を変えずに、失敗が通過した処理と Source 位置を積み重ねる
  */
 class ErrorContext final
 {
@@ -92,10 +97,10 @@ class ErrorContext final
     ErrorContext &operator=(ErrorContext &&) noexcept = default;
     ~ErrorContext() = default;
 
-    /** @brief Context Messageを返す */
+    /** @brief Context Message を返す */
     [[nodiscard]] std::string_view message() const noexcept;
 
-    /** @brief Context追加位置を返す */
+    /** @brief Context 追加位置を返す */
     [[nodiscard]] const SourceLocation &location() const noexcept;
 
   private:
@@ -108,7 +113,9 @@ class ErrorContext final
 };
 
 /**
- * @brief 再分類前のErrorを保持する非再帰Cause Frame
+ * @brief 再分類前の Error を保持する非再帰 Cause Frame
+ *
+ * Error を再帰所有せず平坦な配列へ格納し、Cause Chain の寿命と走査順を単純に保つ
  */
 class ErrorCause final
 {
@@ -119,16 +126,16 @@ class ErrorCause final
     ErrorCause &operator=(ErrorCause &&) noexcept = default;
     ~ErrorCause() = default;
 
-    /** @brief 再分類前のError Codeを返す */
+    /** @brief 再分類前の Error Code を返す */
     [[nodiscard]] const ErrorCode &code() const noexcept;
 
-    /** @brief 再分類前のSummaryを返す */
+    /** @brief 再分類前の Summary を返す */
     [[nodiscard]] std::string_view summary() const noexcept;
 
-    /** @brief 再分類前のContextを返す */
+    /** @brief 再分類前の Context を返す */
     [[nodiscard]] std::span<const ErrorContext> contexts() const noexcept;
 
-    /** @brief Native Errorがあれば非所有Pointerを返す */
+    /** @brief Native Error があれば非所有 Pointer を返す */
     [[nodiscard]] const NativeError *try_native_error() const noexcept;
 
   private:
@@ -144,10 +151,11 @@ class ErrorCause final
 };
 
 /**
- * @brief 診断可能なMove-only Error Value
+ * @brief 診断可能な Move-only Error Value
  *
- * Immutable参照は任意Threadで利用できる
- * Mutationは外部同期し、HandlerのOwnerをErrorより長く生存させる
+ * Primary Error、伝播 Context、Native 情報、再分類前の Cause を一つの所有 Value として失敗経路へ渡す
+ * Immutable 参照は任意 Thread で利用できる
+ * Mutation は外部同期し、Handler の Owner を Error より長く生存させる
  */
 class Error final
 {
@@ -158,55 +166,58 @@ class Error final
     Error &operator=(Error &&) noexcept = default;
     ~Error() = default;
 
-    /** @brief Native ErrorなしのErrorを生成する */
+    /** @brief Native Error なしの Error を生成する */
     [[nodiscard]] static Error create(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
                                       std::string_view a_summary) noexcept;
 
-    /** @brief Native Error付きErrorを生成する */
+    /** @brief Native Error 付き Error を生成する */
     [[nodiscard]] static Error create(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
                                       std::string_view a_summary, NativeError &&a_nativeError) noexcept;
 
     /**
-     * @brief Errorを新しい抽象Levelへ再分類する
-     * @param a_cause 消費される直前のError
+ * @brief Error を新しい抽象 Level へ再分類する
+ * @param a_cause 消費される直前の Error
+     *
+     * 下位 Module の詳細を Cause へ保存しながら、呼び出し側が扱える上位 Domain の Error へ変換する
      */
     [[nodiscard]] static Error reclassify(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
                                           std::string_view a_summary, Error &&a_cause) noexcept;
 
     /**
-     * @brief Native Error付きでErrorを新しい抽象Levelへ再分類する
-     * @param a_cause 消費される直前のError
-
+ * @brief Native Error 付きで Error を新しい抽象 Level へ再分類する
+ * @param a_cause 消費される直前の Error
+     *
+     * 新しい分類自身にも Native 情報が必要な場合に、Cause の Native 情報とは別に保持する
      */
     [[nodiscard]] static Error reclassify(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
                                           std::string_view a_summary, NativeError &&a_nativeError,
                                           Error &&a_cause) noexcept;
 
     /**
-     * @brief 伝播Contextを追加する
-     * @param a_emergencyHandler Allocation失敗時の非所有終了境界
+ * @brief 伝播 Context を追加する
+ * @param a_emergencyHandler Allocation 失敗時の非所有終了境界
      * @param a_message Context Message
-     * @param a_location Context追加位置
+ * @param a_location Context 追加位置
      */
     void add_context(EmergencyHandler &a_emergencyHandler, std::string_view a_message,
                      std::source_location a_location = std::source_location::current()) noexcept;
 
-    /** @brief Primary Error Codeを返す */
+    /** @brief Primary Error Code を返す */
     [[nodiscard]] const ErrorCode &code() const noexcept;
 
-    /** @brief 開発者向けSummaryを返す */
+    /** @brief 開発者向け Summary を返す */
     [[nodiscard]] std::string_view summary() const noexcept;
 
-    /** @brief 伝播Contextを追加順で返す */
+    /** @brief 伝播 Context を追加順で返す */
     [[nodiscard]] std::span<const ErrorContext> contexts() const noexcept;
 
-    /** @brief Native Errorがあれば非所有Pointerを返す */
+    /** @brief Native Error があれば非所有 Pointer を返す */
     [[nodiscard]] const NativeError *try_native_error() const noexcept;
 
-    /** @brief Immediate CauseからRoot Causeまでを順に返す */
+    /** @brief 診断表示が失敗の伝播を追えるよう Immediate Cause から Root Cause までを順に返す */
     [[nodiscard]] std::span<const ErrorCause> causes() const noexcept;
 
-    /** @brief Root Cause Codeを返す */
+    /** @brief Root Cause Code を返す */
     [[nodiscard]] const ErrorCode &root_code() const noexcept;
 
   private:
