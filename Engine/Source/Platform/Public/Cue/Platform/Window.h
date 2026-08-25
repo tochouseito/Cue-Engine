@@ -8,9 +8,9 @@ namespace cue
 /** @brief Platform Window の Lifecycle 状態 */
 enum class WindowState
 {
-    /** Native Window は生成済みだが、まだ画面へ表示していない状態 */
+    /** Native View や SwapChain の表示前準備を行えるよう、生成と画面表示を分離した状態 */
     Created,
-    /** Native Window を表示し、通常の Window Event を受け付ける状態 */
+    /** Native Window を画面へ表示した状態 */
     Visible,
     /** 閉じる要求を通知済みで、Runtime 側の破棄判断を待つ状態 */
     CloseRequested,
@@ -23,8 +23,9 @@ enum class WindowState
  *
  * 全 API と Destructor は Window System の作成 Thread 上で呼び出す
  *
- * Native Callback は再入による Runtime 状態変更を避けるため、外部 Callback を呼ばず Event を Window 所有の
- * FIFO Queue へ値として格納する
+ * Native Callback は再入による Runtime 状態変更を避けるため、通常の Runtime Event Callback を直接呼ばず
+ * Event を Window 所有の FIFO Queue へ値として格納する
+ * 診断と回復不能 Error の経路では Logger または FatalHandler を同期呼び出しする場合がある
  * Queue は Window と同時に破棄され、取得済み Event だけが Window 破棄後も呼出側で保持できる
  */
 class Window

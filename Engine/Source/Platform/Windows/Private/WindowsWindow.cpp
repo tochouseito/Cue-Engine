@@ -553,7 +553,8 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
 
     if (a_message == WM_DESTROY)
     {
-        // Native Window の破棄開始を Event 化し、Thread Message Queue に Runtime Loop の終了要求を送る
+        // 公開済み Window だけ破棄を Event 化し、Runtime Loop の終了要求を Thread Message Queue へ送る
+        // 公開前の生成 Rollback では通知先が存在しないため Event 追加と PostQuitMessage を行わない
         m_state = WindowState::Destroyed;
 
         if (m_isPublished)
