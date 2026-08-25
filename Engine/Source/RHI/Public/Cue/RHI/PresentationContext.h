@@ -52,7 +52,7 @@ enum class PresentationFrameStatus
  *
  * Context は生成 Thread 上でのみ操作し、Backend と Window より先に shutdown して破棄する
  * 通常 shutdown 成功時は terminal Fence 完了を保証する
- * Device Removal 時は Fence 完了を要求せず、有効な場合に DRED 診断を一度試行してから解放する
+ * Device Removal 時は Fence 完了を要求せず、利用可能な Backend 固有診断を試行してから制御された解放経路へ進む
  */
 class PresentationContext
 {
@@ -96,8 +96,9 @@ class PresentationContext
      * Current Back Buffer の再利用 Fence 完了を待ってから Command を記録する
      * Present 成功後と非 Device Removal 失敗後は Execute 済み Work を覆う Fence を Signal する
      * Present 失敗または Signal 回収後の Error では新しい Frame 受付を停止する
-     * Device Removal では Frame 受付を停止して DRED 診断を準備し、Native Resource 解放は後続の shutdown へ委ねる
-     * GPU 完了を証明できない場合は Unavailable として Native Resource を保持する
+     * Device Removal では Frame 受付を停止して利用可能な Backend 固有診断を準備し、
+     * Native Resource 解放は後続の shutdown へ委ねる
+     * Device Removal 以外で GPU 完了を証明できない場合は Unavailable として Native Resource を保持する
      * Native 同期値は公開せず、成功時は表示結果だけを返す
      * Ready 以外、Backend が Ready 以外、または 0 Size の Resize 延期中は Frame を投入しない
      */
@@ -112,11 +113,13 @@ class PresentationContext
      * Frame 境界以外では Resource を変更せず Error を返し、延期中は present_frame を拒否し、
      * 次の有効 Size で Resource を再構築または Frame 受付を再開する
      *
-     * GPU 完了を証明できない場合は Unavailable へ遷移し、Native Resource と Backend 登録を保持する
+     * Device Removal 以外で GPU 完了を証明できない場合は Unavailable へ遷移し、
+     * Native Resource と Backend 登録を保持する
      * GPU 完了後の Command 再初期化、ResizeBuffers、Back Buffer 再取得、RTV 再構築に失敗した場合は、
-     * Native Resource を規定順で解放して Backend 登録を解除し、Shutdown へ遷移する
-     * Device Removal を検出した場合は DRED が有効なら Native Resource 解放より先に収集を一度試行し、
-     * 診断結果を Error へ保持したうえで登録解除と Shutdown を完遂する
+     * 制御された解放を試行し、安全に解放できた場合だけ Backend 登録を解除して Shutdown へ遷移する
+     * 解放に失敗した場合は Unavailable へ遷移して Native Resource と Backend 登録を保持する
+     * Device Removal を検出した場合は利用可能な Backend 固有診断を適切な解放時点で試行し、
+     * 診断 Error が発生しても安全な解放を継続する
      * Resize 以外の Error で Frame 受付を停止した Context は再開せず、Resource と登録を保持して Error を返す
      *
      * @return 再構築または延期の成功、もしくは診断可能な Resize Error
@@ -126,9 +129,11 @@ class PresentationContext
     /**
      * @brief Presentation Resource を安全に停止して Backend 登録を解除する
      *
-     * Shutdown 状態での再呼出は成功し、Unavailable 状態では Resource と Backend 登録を保持して
-     * Error を返し、DeviceRemoved 状態では Backend の DRED が有効な場合だけ Native Resource 解放より先に
-     * 収集を一度試行し、診断が失敗しても解放と登録解除を完遂した後にその Error を返す
+     * Shutdown 状態での再呼出は成功し、Unavailable 状態では Resource と Backend 登録を保持して Error を返す
+     * DeviceRemoved 状態では利用可能な Backend 固有診断を適切な解放時点で試行し、診断が失敗しても
+     * Cleanup を継続する
+     * 安全な解放を完了できた場合は登録解除後に Shutdown へ遷移し、診断 Error があればその Error を返す
+     * 解放に失敗した場合は Unavailable へ遷移して Resource と登録を保持する
      *
      * @return 停止成功、または診断可能な停止 Error
      */
