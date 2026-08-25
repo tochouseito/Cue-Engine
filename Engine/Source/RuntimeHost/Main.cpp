@@ -912,7 +912,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (a_options.isPresentationSmoke)
     {
-        // Presentation Smoke は表示や Main Loop を省き、Window Surface と SwapChain の境界だけを検証する
+        // Presentation Smoke は表示や Main Loop を省き、Presentation Resource 一式の生成と終了順を検証する
         const int presentationResult = run_presentation_smoke(a_options, *window, a_logger, a_assertContext);
         cue::Result<void> destroyResult = window->destroy();
 
