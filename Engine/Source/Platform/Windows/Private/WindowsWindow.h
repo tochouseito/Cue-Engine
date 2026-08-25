@@ -53,7 +53,8 @@ class WindowsWindowSystem final : public WindowSystem
 /**
  * @brief HWND の寿命と Win32 Message から変換した WindowEvent Queue を所有する実装
  *
- * Native Callback 中に Runtime を呼び戻さず、Message を値 Event へ変換して Frame Loop から取得可能にする
+ * Native Callback 中に通常の Runtime Event Callback を呼び戻さず、Message を値 Event へ変換する
+ * 診断と回復不能 Error の経路では Logger または FatalHandler を同期呼び出す場合がある
  */
 class WindowsWindow final : public Window
 {

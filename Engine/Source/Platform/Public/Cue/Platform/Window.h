@@ -12,7 +12,7 @@ enum class WindowState
     Created,
     /** Native Window を画面へ表示した状態 */
     Visible,
-    /** 閉じる要求を通知済みで、Runtime 側の破棄判断を待つ状態 */
+    /** Native Window は存続したまま、閉じる要求を一度以上受信した状態 */
     CloseRequested,
     /** Native Window の寿命が終了し、Native View を取得できない状態 */
     Destroyed,
