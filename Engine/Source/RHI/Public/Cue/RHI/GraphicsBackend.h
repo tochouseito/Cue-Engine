@@ -26,10 +26,10 @@ enum class GraphicsProfile
     Baseline3D,
 };
 
-/** @brief Owner が許可する操作と破棄可否を判断する Graphics Backend の Lifecycle 状態 */
+/** @brief Native Resource の保持段階と Owner の破棄可否を表す Graphics Backend の Lifecycle 状態 */
 enum class GraphicsBackendState
 {
-    /** @brief 通常の Graphics 操作を受け付ける状態 */
+    /** @brief Native Resource は利用可能だが、Context の有無などにより個別操作が拒否され得る状態 */
     Ready,
 
     /** @brief Device Removal 後に診断と制御された解放だけを許可する状態 */
