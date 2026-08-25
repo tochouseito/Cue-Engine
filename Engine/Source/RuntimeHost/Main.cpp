@@ -823,7 +823,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (presentationShutdownError)
     {
-        // Frame が成功した場合は、依存関係上先に失敗した Presentation 終了を Primary として扱う
+        // Render Loop 中に先行 Error がない場合は、先に失敗した Presentation 終了を Primary として扱う
         if (backendShutdownError)
         {
             add_secondary_runtime_error(*presentationShutdownError, *backendShutdownError,
