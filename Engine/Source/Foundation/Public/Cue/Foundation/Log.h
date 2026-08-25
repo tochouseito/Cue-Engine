@@ -134,7 +134,8 @@ class Logger final
      * @brief Fatal Record の出力と Flush を一度の非待機 Lock で行う
      * @return Lock 競合時は Contended
      *
-     * Fatal 発生時に別 Thread が Logger を保持していても待機による停止不能へ陥らないため、Lock 取得失敗を呼び出し側へ返す
+     * Fatal 発生時に別 Thread が Logger を保持していても待機による停止不能へ陥らないため、Lock
+     * 取得失敗を呼び出し側へ返す
      */
     [[nodiscard]] LogResult log_and_flush(std::string_view a_message,
                                           std::source_location a_location = std::source_location::current()) noexcept;
