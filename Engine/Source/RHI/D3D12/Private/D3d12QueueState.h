@@ -1,3 +1,6 @@
+// Direct Command Queue、Fence、待機 Event を一つの Lifetime で所有し、GPU 完了を証明する内部状態
+// 完了を証明できない場合は Resource を解放せず Unavailable へ移行し、GPU 使用中解放を防ぐ
+
 #pragma once
 
 #include <Cue/Foundation/Result.h>
@@ -14,7 +17,9 @@ class AssertContext;
 
 enum class D3d12FenceWaitPurpose
 {
+    // Frame Resource 再利用のための通常待機
     Reusable,
+    // Backend 終了時に全 GPU Work 完了を証明する待機
     BackendTerminal,
 };
 
@@ -41,6 +46,7 @@ struct D3d12QueueNativeFunctions final
 
 [[nodiscard]] const D3d12QueueNativeFunctions &default_d3d12_queue_native_functions() noexcept;
 
+// Win32 Event Handle の一意所有を表し、待機失敗時の Handle 交換を安全に行う
 class D3d12FenceEvent final
 {
   public:

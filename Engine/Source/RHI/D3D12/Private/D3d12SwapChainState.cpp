@@ -1,3 +1,6 @@
+// Window 用 Flip Model Swap Chain を生成し、Back Buffer 取得、Resize、Present を順序付きで管理する
+// Native 失敗は Backend へ分類を依頼し、Device Removal と局所 Error で Cleanup 経路を分ける
+
 #include "D3d12SwapChainState.h"
 
 #include <Cue/Foundation/Assert.h>
@@ -257,6 +260,7 @@ void D3d12SwapChainState::release_back_buffers() noexcept
     }
 }
 
+// Resize 後に生成し直された各 Back Buffer を再取得し、Frame Context が新しい Resource だけを参照できるようにする
 Result<void> D3d12SwapChainState::acquire_back_buffers() noexcept
 {
     constexpr LPCWSTR backBufferNames[k_d3d12SwapChainBufferCount] = {
@@ -370,6 +374,7 @@ Result<D3d12SwapChainBackBuffers> D3d12SwapChainState::take_back_buffers() noexc
     return Result<D3d12SwapChainBackBuffers>::success(std::move(backBuffers));
 }
 
+// 呼出側が GPU 完了と旧 Back Buffer 参照解放を保証した後に Resize し、新 Resource を直ちに再取得する
 Result<void> D3d12SwapChainState::resize(std::uint32_t a_width, std::uint32_t a_height) noexcept
 {
     if (m_swapChain == nullptr)
@@ -415,6 +420,7 @@ Result<void> D3d12SwapChainState::resize(std::uint32_t a_width, std::uint32_t a_
                           *m_assertContext);
 }
 
+// Occluded は表示されなかった正常結果として返し、GPU 同期を継続しながら描画頻度だけを下げられるようにする
 Result<D3d12PresentStatus> D3d12SwapChainState::present() noexcept
 {
     if (m_swapChain == nullptr)

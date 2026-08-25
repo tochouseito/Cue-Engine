@@ -1,3 +1,6 @@
+// Swap Chain Back Buffer 専用の RTV Descriptor Heap と固定 Slot を所有する内部 Allocator
+// Heap 世代と Slot 世代を Handle へ含め、Resize 前の古い Slot を新しい Heap へ誤使用しないようにする
+
 #pragma once
 
 #include <Cue/Foundation/Result.h>

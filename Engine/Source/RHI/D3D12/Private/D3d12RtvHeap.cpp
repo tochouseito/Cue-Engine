@@ -1,3 +1,6 @@
+// Back Buffer 数だけ RTV Slot を払い出し、解放済みまたは別 Heap 由来の Slot 利用を拒否する
+// Shutdown 時に使用中 Slot が残る場合は Heap を保持し、参照中 Descriptor の破棄を防ぐ
+
 #include "D3d12RtvHeap.h"
 
 #include <Cue/Foundation/Assert.h>
@@ -25,6 +28,7 @@ constexpr std::int64_t k_slotGenerationExhausted = 76;
 
 std::atomic<std::uint64_t> g_nextHeapIncarnation = 1;
 
+// Process 内で再生成された Heap へ同じ識別子を再利用せず、古い Slot との取り違えを防ぐ
 [[nodiscard]] std::uint64_t reserve_heap_incarnation() noexcept
 {
     std::uint64_t candidate = g_nextHeapIncarnation.load(std::memory_order_relaxed);
@@ -174,6 +178,7 @@ void D3d12RtvHeap::take_from(D3d12RtvHeap &&a_other) noexcept
     a_other.m_incarnation = 0;
 }
 
+// Slot 再利用時に Generation を進め、解放前に取得した古い Slot を同じ Index で誤認しないようにする
 Result<D3d12RtvSlot> D3d12RtvHeap::allocate() noexcept
 {
     if (!has_native_object())
@@ -236,6 +241,7 @@ Result<void> D3d12RtvHeap::release(D3d12RtvSlot a_slot) noexcept
     return Result<void>::success();
 }
 
+// 生成時に事前計算した CPU Handle を Slot の世代と所有権を検証してから返す
 Result<D3D12_CPU_DESCRIPTOR_HANDLE> D3d12RtvHeap::cpu_handle(D3d12RtvSlot a_slot) const noexcept
 {
     if (a_slot.index >= k_d3d12RtvDescriptorCapacity)
@@ -256,6 +262,7 @@ Result<D3D12_CPU_DESCRIPTOR_HANDLE> D3d12RtvHeap::cpu_handle(D3d12RtvSlot a_slot
     return Result<D3D12_CPU_DESCRIPTOR_HANDLE>::success(std::move(handle));
 }
 
+// 使用中 Slot が残る間は Heap 解放を拒否し、Command 記録が参照する Descriptor の消失を防ぐ
 Result<void> D3d12RtvHeap::shutdown() noexcept
 {
     if (!has_native_object())

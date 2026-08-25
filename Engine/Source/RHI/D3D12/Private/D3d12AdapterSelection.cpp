@@ -1,3 +1,6 @@
+// DXGI Adapter 候補を列挙し、要求 Feature Level と選択 Policy に合う候補だけを D3D12 Backend へ渡す
+// 候補を除外した理由も Log へ残し、GPU 構成差による初期化失敗を追跡できるようにする
+
 #include "D3d12AdapterSelection.h"
 
 #include "D3d12Diagnostics.h"
@@ -335,6 +338,8 @@ Result<CapabilityReport> make_d3d12_capability_report(
     }
 }
 
+// High Performance 順の列挙結果を使用し、明示的な独自順位付けを持たず OS の GPU 選択意図を尊重する
+// Debug Factory が環境上利用できない場合だけ通常 Factory へ再試行し、他の生成失敗は隠さず返す
 Result<D3d12AdapterSelection> select_d3d12_adapter(
     D3d12AdapterPolicy a_policy, const D3d12DiagnosticsStatus &a_diagnostics,
     const AssertContext &a_assertContext) noexcept
