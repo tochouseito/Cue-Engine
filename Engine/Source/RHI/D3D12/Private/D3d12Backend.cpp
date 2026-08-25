@@ -1428,7 +1428,8 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     }
 
     // Active Presentation が残る間は借用先が存在するため Shutdown を拒否し、先行解放を防ぐ
-    // Device Removal 時は DRED を Queue と Fence の解放前、InfoQueue を両者の解放後かつ Device 解放前に収集する
+    // Device Removal 時は有効な診断だけ収集を試行する
+    // DRED は Queue と Fence の解放前、InfoQueue は両者の解放後かつ Device 解放前に扱う
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
