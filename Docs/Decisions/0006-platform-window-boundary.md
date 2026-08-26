@@ -38,7 +38,7 @@ M02では、Renderingより先にRuntimeHostから利用できる最小Window Li
 ### Current Requirements
 
 - `Cue.Platform`の公開HeaderはWindows SDKを要求しない
-- `Cue.Platform.Windows`だけがWin32型とUnicode Win32 APIを扱う
+- `Cue.Platform.Windows`だけがWindowing用Win32型とAPIを扱う。機械的なUnicode変換APIはADR-0009の`Cue.Foundation.Windows`へ隔離する
 - RuntimeHostはPlatform契約を通してWindowを所有する
 - Close Request、Destroyed、Resize、Minimize、Restoreを区別する
 - Native Handleは将来のRHI連携など、明示的なInterop境界だけで一時参照する
@@ -233,7 +233,7 @@ struct WindowEvent
 - UTF-16入力と`AssertContext`は呼出中だけ参照し、保持しない。参照先が全呼出中に有効なら並行呼出を許可する
 - UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`のFatal HandlerでProcessを終了する
 - Windows実装はUnicode版Win32 APIを明示的に呼び、Encoding-neutral Macroへ依存しない
-- UTF-8からUTF-16への変換は`Cue.Platform.Windows`のPrivate Helperだけが担当する
+- UTF-8からUTF-16へのPlatform固有Error変換は`Cue.Platform.Windows`が担当し、機械的な変換はADR-0009の`Cue.Foundation.Windows`へ委譲する
 - UTF-16からUTF-8へのWindows RuntimeHost入口向け公開Helperは`Cue.Platform.Windows`が所有し、機械的な変換は ADR-0009 の`Cue.Foundation.Windows`へ委譲する
 - 無効なUTF-8、変換失敗、長さOverflowはWindow生成前に`Result` Errorとして返す
 - 無効なUTF-16 Command Line Argument、変換失敗、長さOverflowも`Result` Errorとして返す
