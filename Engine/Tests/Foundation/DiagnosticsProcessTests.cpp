@@ -140,7 +140,7 @@ class BlockingSink final : public cue::LogSink
     void wait_until_entered()
     {
         std::unique_lock lock(m_mutex);
-        /// @brief 別 Thread が Test Sink へ進入したことを同期条件として通知する
+        /// @brief 別 Thread が Test Sink へ進入済みかを待機解除条件として判定する
         m_condition.wait(lock, [this]() { return m_didEnter; });
     }
 

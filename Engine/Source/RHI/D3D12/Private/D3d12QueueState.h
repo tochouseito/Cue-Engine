@@ -71,9 +71,9 @@ class D3d12FenceEvent final
     [[nodiscard]] HANDLE get() const noexcept;
     /// @brief D3D12 Queue State の Open 条件を判定して返す
     [[nodiscard]] bool is_open() const noexcept;
-    /// @brief D3D12 Queue State を次の処理で再利用可能な初期状態へ戻す
+    /// @brief 新しい Native Event HANDLE と Close Callback を受け取り、Event の一意所有を開始する
     void reset(HANDLE a_handle, BOOL(WINAPI *a_closeHandle)(HANDLE)) noexcept;
-    /// @brief D3D12 Queue State の Closed を診断と Lifecycle の規則に従って更新する
+    /// @brief 呼び出し側で閉じた Native Event の参照と Close Callback を空にして非所有状態へ戻す
     void mark_closed() noexcept;
 
   private:
@@ -108,14 +108,14 @@ class D3d12QueueState final
     [[nodiscard]] Result<void> signal_reserved(std::uint64_t a_fenceValue) noexcept;
     /// @brief D3D12 Queue State の Device Failure を既存の診断情報を失わず追加または再分類する
     [[nodiscard]] Result<void> reclassify_device_failure(Error &&a_error) noexcept;
-    /// @brief D3D12 Queue State が保持する Refresh Device Removed Status を呼び出し元へ返す
+    /// @brief Native Device Removal Reason を再取得し、除去検出時は状態を DeviceRemoved へ遷移して true を返す
     [[nodiscard]] bool refresh_device_removed_status() noexcept;
     /// @brief Queue Signal 失敗後の Completion と Device Removal を再確認して終端状態を確定する
     [[nodiscard]] Result<void> resolve_failed_signal(std::uint64_t a_fenceValue, Error &&a_signalError,
                                                      D3d12FenceWaitPurpose a_purpose) noexcept;
     /// @brief D3D12 Queue State が保持する Completed Value を呼び出し元へ返す
     [[nodiscard]] std::uint64_t completed_value() noexcept;
-    /// @brief D3D12 Queue State が保持する Wait For Fence を呼び出し元へ返す
+    /// @brief 指定 Fence を有限時間待機し、完了証明を更新するか異常内容に応じて終端状態へ遷移する
     [[nodiscard]] Result<void> wait_for_fence(std::uint64_t a_fenceValue, D3d12FenceWaitPurpose a_purpose) noexcept;
     /// @brief 保持する Native Resource を依存関係と完了条件に従って停止し、安全な解放結果を返す
     [[nodiscard]] Result<void> shutdown() noexcept;
