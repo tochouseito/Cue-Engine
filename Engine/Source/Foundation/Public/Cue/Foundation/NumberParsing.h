@@ -8,6 +8,9 @@
 namespace cue
 {
 /// @brief 符号や空白を許可しない10進文字列を符号なし整数へ変換し、無効入力またはOverflow時は空を返す
+/// @param a_text 呼び出し中だけ有効であることを要求する非所有の文字列View
+/// @return 入力Storageから独立した整数値、または変換できない場合は空のOptional
+/// @note 共有状態とThread Affinityを持たず、異なる入力から並行に呼び出せる
 template <typename Integer, typename Character>
     requires(std::is_integral_v<Integer> && std::is_unsigned_v<Integer> && !std::is_same_v<Integer, bool>)
 [[nodiscard]] constexpr std::optional<Integer> parse_unsigned_decimal(

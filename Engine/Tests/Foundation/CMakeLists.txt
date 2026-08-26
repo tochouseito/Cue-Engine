@@ -780,6 +780,7 @@ endforeach()
 
 set_tests_properties(
     Cue.Foundation.Result
+    Cue.Foundation.NumberParsing
     Cue.Foundation.PublicHeaders
     Cue.Foundation.Logger
     Cue.Foundation.Assert.Success
