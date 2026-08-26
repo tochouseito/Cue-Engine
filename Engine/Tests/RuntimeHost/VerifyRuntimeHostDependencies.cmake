@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 4.2.0)
 
+include("${CMAKE_CURRENT_LIST_DIR}/../CMake/CueDependencyVerification.cmake")
+
 if(NOT EXISTS "${REPORT_FILE}")
     message(FATAL_ERROR "Runtime Host dependency report does not exist: ${REPORT_FILE}")
 endif()
@@ -14,18 +16,11 @@ foreach(
         "Testing-only direct dependency: Cue.Platform.Windows.TestSupport"
         "Forbidden source dependencies: WindowsSDK;D3D12NativeTypes;Renderer;Editor;ECS;Asset"
 )
-    set(hasRequiredLine FALSE)
-
-    foreach(reportLine IN LISTS dependencyReportLines)
-        if(reportLine STREQUAL requiredLine)
-            set(hasRequiredLine TRUE)
-            break()
-        endif()
-    endforeach()
-
-    if(NOT hasRequiredLine)
-        message(FATAL_ERROR "Runtime Host dependency report is missing an exact line: ${requiredLine}")
-    endif()
+    cue_require_report_line(
+        dependencyReportLines
+        "${requiredLine}"
+        "Runtime Host dependency report is missing an exact line: "
+    )
 endforeach()
 
 file(

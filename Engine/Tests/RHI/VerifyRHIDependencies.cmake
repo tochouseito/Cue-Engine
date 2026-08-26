@@ -1,19 +1,6 @@
 cmake_minimum_required(VERSION 4.2.0)
 
-function(cue_require_rhi_report_line reportLinesVariable requiredLine)
-    set(hasRequiredLine FALSE)
-
-    foreach(reportLine IN LISTS ${reportLinesVariable})
-        if(reportLine STREQUAL requiredLine)
-            set(hasRequiredLine TRUE)
-            break()
-        endif()
-    endforeach()
-
-    if(NOT hasRequiredLine)
-        message(FATAL_ERROR "RHI dependency report is missing an exact line: ${requiredLine}")
-    endif()
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/../CMake/CueDependencyVerification.cmake")
 
 if(NOT EXISTS "${REPORT_FILE}")
     message(FATAL_ERROR "RHI dependency report does not exist: ${REPORT_FILE}")
@@ -56,7 +43,11 @@ foreach(
         "Interface include roots: target Public directories only"
         "Library-injecting link options and compiler pragmas: forbidden"
 )
-    cue_require_rhi_report_line(dependencyReportLines "${requiredLine}")
+    cue_require_report_line(
+        dependencyReportLines
+        "${requiredLine}"
+        "RHI dependency report is missing an exact line: "
+    )
 endforeach()
 
 file(READ "${REPORT_FILE}" dependencyReport)
