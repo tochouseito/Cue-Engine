@@ -100,7 +100,7 @@ void reset_probe_state(ProbeFaultMode a_mode) noexcept
     g_probeState.completionCheckedSinceSubmit = {true, true};
 }
 
-/// @brief D3D12 Frame Command Probe で使用する Allocator For Probe を生成し、呼び出し元へ返す
+/// @brief Native Allocator を生成し、Frame Slot ごとの再利用順序を検証できるよう参照を記録する
 HRESULT create_allocator_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator **a_allocator) noexcept
 {
     const HRESULT result = a_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(a_allocator));
@@ -114,7 +114,7 @@ HRESULT create_allocator_for_probe(ID3D12Device *a_device, ID3D12CommandAllocato
     return result;
 }
 
-/// @brief D3D12 Frame Command Probe で使用する List For Probe を生成し、呼び出し元へ返す
+/// @brief Native Command List の生成を転送し、Frame Command 初期化経路を実デバイスで検証する
 HRESULT create_list_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator *a_allocator,
                               ID3D12GraphicsCommandList **a_commandList) noexcept
 {
@@ -122,7 +122,7 @@ HRESULT create_list_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator *a_
                                        IID_PPV_ARGS(a_commandList));
 }
 
-/// @brief D3D12 Frame Command Probe の Name For Probe を整合性を保って更新する
+/// @brief Allocator 名に Frame Index が含まれるか記録してから Native SetName へ転送する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     for (std::uint32_t index = 0; index < cue::k_d3d12FrameContextCount; ++index)
@@ -138,7 +138,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
-/// @brief D3D12 Frame Command Probe の Allocator For Probe を次の処理で再利用可能な初期状態へ戻す
+/// @brief Fence 完了確認後だけ Allocator が再利用されるか記録し、指定時は Reset 失敗を注入する
 HRESULT reset_allocator_for_probe(ID3D12CommandAllocator *a_allocator) noexcept
 {
     for (std::uint32_t index = 0; index < cue::k_d3d12FrameContextCount; ++index)
@@ -162,7 +162,7 @@ HRESULT reset_allocator_for_probe(ID3D12CommandAllocator *a_allocator) noexcept
     return a_allocator->Reset();
 }
 
-/// @brief D3D12 Frame Command Probe の List For Probe を次の処理で再利用可能な初期状態へ戻す
+/// @brief Command List の Reset 回数を記録し、通常経路または破棄経路へ指定した失敗を注入する
 HRESULT reset_list_for_probe(ID3D12GraphicsCommandList *a_commandList, ID3D12CommandAllocator *a_allocator) noexcept
 {
     ++g_probeState.commandListResetCount;
@@ -176,7 +176,7 @@ HRESULT reset_list_for_probe(ID3D12GraphicsCommandList *a_commandList, ID3D12Com
     return a_commandList->Reset(a_allocator, nullptr);
 }
 
-/// @brief D3D12 Frame Command Probe の List For Probe を依存関係と完了条件を守って安全に解放または停止する
+/// @brief Command List の Close 回数を記録し、通常経路または破棄経路へ指定した失敗を注入する
 HRESULT close_list_for_probe(ID3D12GraphicsCommandList *a_commandList) noexcept
 {
     ++g_probeState.commandListCloseCount;
@@ -215,7 +215,7 @@ void resource_barrier_for_probe(ID3D12GraphicsCommandList *a_commandList, UINT a
     a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
-/// @brief D3D12 Frame Command Probe の Marker For Probe を整合性を保って更新する
+/// @brief Clear Marker の名前と Barrier 後の記録順を検証してから Native Marker 呼び出しへ転送する
 void set_marker_for_probe(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name) noexcept
 {
     g_probeState.markerNamesAreValid =
@@ -250,7 +250,7 @@ void clear_render_target_view_for_probe(ID3D12GraphicsCommandList *a_commandList
         a_commandList, a_handle, a_color, a_rectangleCount, a_rectangles);
 }
 
-/// @brief D3D12 Frame Command Probe の Lists For Probe を GPU 実行順と Resource State を守って投入する
+/// @brief Command List 投入を記録して対象 Frame Slot を未完了状態にし、Native Queue へ転送する
 void execute_lists_for_probe(ID3D12CommandQueue *a_queue, UINT a_count,
                              ID3D12CommandList *const *a_commandLists) noexcept
 {
@@ -291,7 +291,7 @@ std::uint64_t completed_value_for_probe(ID3D12Fence *a_fence) noexcept
     return completedValue;
 }
 
-/// @brief D3D12 Frame Command Probe の Event For Probe を整合性を保って更新する
+/// @brief Fence Event 登録を記録し、指定時は登録失敗を注入して待機 Error 経路を再現する
 HRESULT set_event_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     ++g_probeState.setEventCallCount;
@@ -305,7 +305,7 @@ HRESULT set_event_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE 
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
-/// @brief D3D12 Frame Command Probe の For Single Object For Probe 完了を待機し、後続処理を安全に進められる状態を返す
+/// @brief 指定した待機結果を注入し、それ以外は Win32 Event 待機を実行して Error 分岐を検証可能にする
 DWORD WINAPI wait_for_single_object_for_probe(HANDLE a_event, DWORD a_timeout)
 {
     if (g_probeState.waitFaultActive)
@@ -334,13 +334,13 @@ DWORD WINAPI wait_for_single_object_for_probe(HANDLE a_event, DWORD a_timeout)
     return WaitForSingleObject(a_event, a_timeout);
 }
 
-/// @brief D3D12 Frame Command Probe が保持する Get Last Error For Probe を呼び出し元へ返す
+/// @brief WAIT_FAILED 経路の Native Error 伝播を検証するため固定 Win32 Error Code を返す
 DWORD WINAPI get_last_error_for_probe()
 {
     return 1234;
 }
 
-/// @brief D3D12 Frame Command Probe で使用する Event For Probe を生成し、呼び出し元へ返す
+/// @brief Event 再生成回数と Handle を記録し、指定時は交換用 Event の生成失敗を注入する
 HANDLE WINAPI create_event_for_probe(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_manualReset, BOOL a_initialState,
                                      LPCWSTR a_name)
 {
@@ -366,7 +366,7 @@ HANDLE WINAPI create_event_for_probe(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_
     return eventHandle;
 }
 
-/// @brief D3D12 Frame Command Probe の Handle For Probe を依存関係と完了条件を守って安全に解放または停止する
+/// @brief Event Handle の Close 回数を記録し、指定時は Close 失敗を注入する
 BOOL WINAPI close_handle_for_probe(HANDLE a_handle)
 {
     ++g_probeState.closeHandleCallCount;
@@ -379,7 +379,7 @@ BOOL WINAPI close_handle_for_probe(HANDLE a_handle)
     return CloseHandle(a_handle);
 }
 
-/// @brief D3D12 Frame Command Probe が保持する Get Device Removed Reason For Probe を呼び出し元へ返す
+/// @brief 指定時は Device Removal を注入し、それ以外は実デバイスの Removal 理由を返す
 HRESULT get_device_removed_reason_for_probe(ID3D12Device *a_device) noexcept
 {
     if (g_probeState.waitFaultActive && g_probeState.waitFaultMode == ProbeWaitFaultMode::DeviceRemoved)
@@ -390,7 +390,7 @@ HRESULT get_device_removed_reason_for_probe(ID3D12Device *a_device) noexcept
     return a_device->GetDeviceRemovedReason();
 }
 
-/// @brief D3D12 Frame Command Probe の For Probe へ完了通知を発行し、追跡する Fence 値を確定する
+/// @brief Signal 対象値と Frame Slot の完了追跡値を記録し、指定時は Native Signal を抑止する
 HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     g_probeState.targetFenceValue = a_value;

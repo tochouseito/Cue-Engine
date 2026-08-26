@@ -657,6 +657,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
                 make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Frame is unavailable"));
         }
 
+        /// @brief Frame 操作失敗を Device Removal 状態と統合し、最初の失敗を失わずに呼び出し元へ返す
         const auto failFrameOperation = [&](cue::Error &&a_error,
                                             std::string_view a_operation) noexcept {
             if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
@@ -2014,6 +2015,7 @@ bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std:
 {
     struct ProbeReset final
     {
+        /// @brief RTV 再構築 Probe の Fault Injection 状態を検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_rtvCreationProbeState = {};
@@ -2071,6 +2073,7 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
 {
     struct ProbeReset final
     {
+        /// @brief Queue Lifecycle Probe の Fault Injection 状態を検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_queueLifecycleProbeState = {};
@@ -2149,6 +2152,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
     struct ProbeReset final
     {
+        /// @brief Present と Queue の Fault Injection 状態を各検証 Case 後に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_presentationFrameProbeState = {};
@@ -2158,6 +2162,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     } probeReset;
 
     static_cast<void>(probeReset);
+    /// @brief Present、Signal、完了待機の失敗組み合わせが期待した主 Error を保持するか検証する
     const auto runCase = [&](bool a_failPresent, bool a_failSignal, bool a_failWaitAfterCompletion,
                              std::int64_t a_expectedCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
@@ -2233,6 +2238,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return frameValid && cleanupValid;
     };
 
+    /// @brief Begin Frame が利用不能な場合に既存 Frame 状態が保持されることを検証する
     const auto runBeginFrameUnavailableCase = [&]() noexcept {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2298,6 +2304,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return valid;
     };
 
+    /// @brief Command List Close 中の Device Removal が Backend 状態へ伝播することを検証する
     const auto runCloseFrameDeviceRemovedCase = [&]() noexcept {
         g_presentationFrameProbeState = {true, false, false, true, 0};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2368,6 +2375,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return frameValid && cleanupValid;
     };
 
+    /// @brief Present 経路が利用不能でも Frame 所有状態と期待 Error が保持されることを検証する
     const auto runUnavailableCase = [&](bool a_failPresent, std::int64_t a_expectedCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2437,6 +2445,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return valid;
     };
 
+    /// @brief Present 前後の Device Removal 位置ごとに原因 Code と Backend 状態を検証する
     const auto runDeviceRemovedCase = [&](bool a_removeBeforePresent, bool a_failPresent,
                                           bool a_removeBeforeSignal, std::int64_t a_expectedCauseCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
@@ -2568,6 +2577,7 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
 {
     struct ProbeReset final
     {
+        /// @brief Queue Lifecycle Probe の状態を Signal Recovery 検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_queueLifecycleProbeState = {};

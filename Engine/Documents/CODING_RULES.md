@@ -88,7 +88,7 @@
 - コメントにはWhatではなくWhyを書く
 - Header先頭には、必要な場合だけファイル責務を簡潔に書く
 - すべてのC++関数は、公開範囲や定義場所を問わず、宣言または定義の直前に`/// @brief`形式で目的を書く
-- Constructor、Destructor、Operator、`main`、内部補助関数、Test関数も`/// @brief`の対象とする
+- Constructor、Destructor、Operator、`main`、内部補助関数、Local Classの特殊メンバ関数、Lambda、Test関数も`/// @brief`の対象とする
 - Headerで宣言する関数は宣言側へ記述し、Headerに宣言を持たない関数は定義側へ記述する
 - `/// @brief`には関数名の言い換えだけでなく、その関数が必要な理由または呼び出し側へ提供する結果を書く
 - 話し言葉を避ける

@@ -264,6 +264,7 @@ class ForeignWindow final : public cue::Window
     std::barrier destroyBarrier(2);
     bool didSucceed[2] = {};
 
+    /// @brief 独立 Thread で Window を生成・破棄し、Thread 固有 Lifecycle が干渉しないことを検証する
     auto runWindow = [&a_context, &createBarrier, &destroyBarrier, &didSucceed](std::size_t a_index)
     {
         cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(a_context);
@@ -737,6 +738,7 @@ class ForeignWindow final : public cue::Window
     std::unique_ptr<cue::Window> window = std::move(*windowResult.try_value());
 
 #if CUE_ENABLE_ASSERTS
+    /// @brief 所有 Thread 外から Window 状態へ触れ、Thread Affinity Assert が発火することを検証する
     std::thread invalidThread([&window]() { static_cast<void>(window->state()); });
     invalidThread.join();
     return 22;

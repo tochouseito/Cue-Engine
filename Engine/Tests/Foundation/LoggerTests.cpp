@@ -128,6 +128,7 @@ class RecordingSink final : public cue::LogSink
     std::vector<std::thread> threads;
     for (int threadIndex = 0; threadIndex < k_threadCount; ++threadIndex)
     {
+        /// @brief 各 Thread から規定数の Log を投入し、Logger の直列化と欠落有無を検証する
         threads.emplace_back(
             [&logger]()
             {

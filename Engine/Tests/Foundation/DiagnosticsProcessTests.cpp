@@ -125,6 +125,7 @@ class BlockingSink final : public cue::LogSink
         std::unique_lock lock(m_mutex);
         m_didEnter = true;
         m_condition.notify_all();
+        /// @brief Test Sink の解放許可が届くまで Log 呼び出しを意図的に Block する
         m_condition.wait(lock, [this]() { return m_canExit; });
         return true;
     }
@@ -139,6 +140,7 @@ class BlockingSink final : public cue::LogSink
     void wait_until_entered()
     {
         std::unique_lock lock(m_mutex);
+        /// @brief 別 Thread が Test Sink へ進入したことを同期条件として通知する
         m_condition.wait(lock, [this]() { return m_didEnter; });
     }
 
@@ -195,6 +197,7 @@ class BlockingSink final : public cue::LogSink
     sinks.push_back(std::move(sink));
     cue::Logger logger(handler, std::move(sinks));
 
+    /// @brief Logger を占有する Thread を作り、競合中の Fatal 診断経路を再現する
     std::thread loggingThread(
         [&logger]() { [[maybe_unused]] const cue::LogResult result = logger.log(cue::LogLevel::Info, "blocking"); });
     sinkPointer->wait_until_entered();

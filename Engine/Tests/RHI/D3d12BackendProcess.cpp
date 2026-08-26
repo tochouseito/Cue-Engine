@@ -116,6 +116,7 @@ class ProcessLogSink final : public cue::LogSink
     }
 
 #if CUE_ENABLE_ASSERTS
+    /// @brief 所有 Thread 外で Backend を破棄し、Thread Affinity Assert が発火することを検証する
     std::thread invalidThread(
         [backend = std::move(backend)]() mutable { backend.reset(); });
     invalidThread.join();
