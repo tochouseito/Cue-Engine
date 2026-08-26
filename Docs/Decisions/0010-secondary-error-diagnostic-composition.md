@@ -33,7 +33,7 @@ ADR-0005 は Error の Primary identity、Context、Native Error、再分類に�
 ```cpp
 /// @brief Secondary Error の診断を Primary Error の Context へ転記する
 void Error::append_secondary_diagnostics(
-    EmergencyHandler& a_emergencyHandler,
+    const AssertContext& a_assertContext,
     const Error& a_secondaryError,
     std::string_view a_context,
     std::string_view a_label,
@@ -50,7 +50,8 @@ void Error::append_secondary_diagnostics(
 
 - 呼び出し対象の `Error` が Primary Error であり、所有権は呼び出し側に残る
 - Secondary Error / ErrorCause は呼び出し中だけ参照し、所有権を移動しない
-- Secondary Error を受ける Overload では、`a_secondaryError` が呼び出し対象の Primary Error とは異なる Object を参照することを前提条件とする。自己参照による合成は許可しない
+- Secondary Error を受ける Overload では、`a_secondaryError` が呼び出し対象の Primary Error とは異なる Object を参照することを前提条件とする。Debug / Development は注入された`AssertContext`を使う`CUE_ASSERT`で違反を診断して終了する
+- Release は Assert 式を生成せず、自己参照の場合は Primary Error を変更せずに戻る安全 Guard を残す。自己参照による合成は全 Build で行わない
 - `a_context` は「どの後続処理が失敗したか」を表す呼び出し側固有 Message とする
 - `a_label` は `Secondary Runtime Error`、`Secondary shutdown Error`、`Secondary Queue Error`、`Secondary Frame Command Error` のような診断 Prefix とする
 - `a_location` は共通 Helper ではなく実際の呼び出し位置を、新しく生成する境界 Context と識別 Context に記録する
@@ -91,7 +92,8 @@ Secondary Error を Cause Chain へ追加しない理由は、Cause Chain が AD
 
 - M07 では Context 数、Cause 数、文字列長に新しい上限や Truncation を導入しない
 - Secondary Error とその既存 Cause / Context を省略せず、有限の入力 Span 全体を転記する
-- 文字列構築または Context 追加の Allocation 失敗は `a_emergencyHandler` の Emergency Entry Point へ渡し、通常実行へ戻らない
+- Secondary Error Overload の文字列構築または Context 追加の Allocation 失敗は`a_assertContext.fatal_handler()`の Emergency Entry Point へ渡し、通常実行へ戻らない
+- `ErrorCause` Overload の Allocation 失敗は`a_emergencyHandler`の Emergency Entry Point へ渡し、通常実行へ戻らない
 - Allocation 失敗を Secondary Error や部分成功 Result へ変換しない
 - `noexcept` 境界から C++ 例外を出さない
 
@@ -143,6 +145,7 @@ Issue #120 では次を検証します。
 - RuntimeHost、D3D12 Backend、D3D12 Queue、D3D12 Frame Command の既存 Label と Failure Matrix を維持すること
 - Label、Code、Native Error などの診断文字列構築中の Allocation 失敗が、注入済み Emergency Handler の規定経路で終了すること
 - Context 追加中の Allocation 失敗が、注入済み Emergency Handler の規定経路で終了すること
+- 自己参照を渡した Process Test が、Debug / Development では注入済み`AssertContext`の Assert 経路で終了し、Release では Primary Error を変更せず復帰すること
 - Debug / Development / Release Build と全 Test
 
 ## Non-goals
