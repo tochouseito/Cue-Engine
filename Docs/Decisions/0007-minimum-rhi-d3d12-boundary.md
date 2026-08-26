@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Decision Owners: CueEngine Project
+- Superseded in part by: ADR-0009 の `Cue.RHI.D3D12` Windows UTF 変換依存
 
 ## Context
 
@@ -68,7 +69,7 @@ M03では次のTargetを使用する。
 | Target | Responsibility | Allowed Dependencies |
 | --- | --- | --- |
 | `Cue.RHI` | Backend契約、Configuration、Capability値 | `Cue.Foundation` |
-| `Cue.RHI.D3D12` | D3D12診断、DXGI Adapter選択、Device生成 | `Cue.RHI`、`Cue.Foundation`、DXGI、D3D12、DXGUID |
+| `Cue.RHI.D3D12` | D3D12診断、DXGI Adapter選択、Device生成 | `Cue.RHI`、`Cue.Foundation`、`Cue.Foundation.Windows`（Private、Windows UTF変換のみ）、DXGI、D3D12、DXGUID |
 | `CueRuntimeHost` | 実装選択、Owner構築、Errorの最終Log | Foundation、Platform、RHIの契約と選択実装 |
 
 M04でSwap Chainが必要になった時点で、次のAdapter Targetを追加する。

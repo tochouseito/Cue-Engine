@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Decision Owners: CueEngine Project
+- Superseded in part by: ADR-0009（UTF-8 and UTF-16 Boundary の変換 Primitive 所有者）
 
 ## Context
 
@@ -37,7 +38,7 @@ M02では、Renderingより先にRuntimeHostから利用できる最小Window Li
 ### Current Requirements
 
 - `Cue.Platform`の公開HeaderはWindows SDKを要求しない
-- `Cue.Platform.Windows`だけがWin32型とUnicode Win32 APIを扱う
+- `Cue.Platform.Windows`だけがWindowing用Win32型とAPIを扱う。機械的なUnicode変換APIはADR-0009の`Cue.Foundation.Windows`へ隔離する
 - RuntimeHostはPlatform契約を通してWindowを所有する
 - Close Request、Destroyed、Resize、Minimize、Restoreを区別する
 - Native Handleは将来のRHI連携など、明示的なInterop境界だけで一時参照する
@@ -84,6 +85,13 @@ Native Handleは通常のWindow操作APIから分離した`NativeWindowView`と�
 ### Targets and Source Placement
 
 ```text
+Engine/Source/Foundation/
+    Windows/
+        CMakeLists.txt
+        Public/Cue/Foundation/Windows/
+            UtfConversion.h
+        Private/
+            UtfConversion.cpp
 Engine/Source/Platform/
     CMakeLists.txt
     Public/Cue/Platform/
@@ -101,13 +109,12 @@ Engine/Source/Platform/
             WindowsWindow.cpp
             WindowsWindow.h
             UtfConversion.cpp
-            UtfConversion.h
 ```
 
 - `Cue.Platform`はWindow契約とPlatform非依存Value Typeを所有する
 - `Cue.Platform.Windows`はWindows実装Factoryと明示的なInterop境界を所有する
 - `Cue.Platform`は`Cue.Foundation`へ`PUBLIC`依存する
-- `Cue.Platform.Windows`は`Cue.Platform`へ`PUBLIC`依存し、Windows SDK Libraryへ`PRIVATE`依存する
+- `Cue.Platform.Windows`は`Cue.Platform`へ`PUBLIC`依存し、`Cue.Foundation.Windows`とWindows SDK Libraryへ`PRIVATE`依存する
 - `Cue.Platform`はRHI、D3D12、RuntimeHost、Editorへ依存しない
 - `Cue.Platform.Windows`はRHIとD3D12へ依存しない
 
@@ -223,15 +230,17 @@ struct WindowEvent
 
 ### UTF-8 and UTF-16 Boundary
 
+この節の変換 Primitive の所有者は ADR-0009 により更新されています。Cue.Platform.Windows は Window Title と Command Line の Error 変換および機能固有の事前条件を所有し、機械的な UTF 変換には Cue.Foundation.Windows を Private 利用します。
+
 - Engine側の文字列契約はUTF-8とする
 - Windows RuntimeHostは`wmain`でOSのUTF-16 Command Line Argumentを受け、`Cue.Platform.Windows`の変換APIを通してUTF-8へ変換する
 - RuntimeHostはWindows SDK HeaderをIncludeせず、Unicode Win32 APIを直接呼ばない
 - UTF-16 Command Line Argument変換APIは`std::wstring_view`を入力、`Result<std::string>`を出力とし、Win32型を公開しない
-- UTF-16入力と`AssertContext`は呼出中だけ参照し、保持しない。参照先が全呼出中に有効なら並行呼出を許可する
-- UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`のFatal HandlerでProcessを終了する
+- UTF-16入力と`AssertContext`は呼出中だけ参照し、保持しない。並行呼出は、各入力が並行変更されず、各出力Objectが呼出ごとに独立しているか呼出側で同期され、`AssertContext`から得る`EmergencyHandler`の寿命と並行終了契約が全呼出で満たされる場合に限る
+- UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`から得る`EmergencyHandler`のEmergency Entry PointでProcessを終了する
 - Windows実装はUnicode版Win32 APIを明示的に呼び、Encoding-neutral Macroへ依存しない
-- UTF-8からUTF-16への変換は`Cue.Platform.Windows`のPrivate Helperだけが担当する
-- UTF-16からUTF-8への変換はWindows RuntimeHost入口向けの`Cue.Platform.Windows`公開Helperだけが担当する
+- UTF-8からUTF-16へのPlatform固有Error変換は`Cue.Platform.Windows`が担当し、機械的な変換はADR-0009の`Cue.Foundation.Windows`へ委譲する
+- UTF-16からUTF-8へのWindows RuntimeHost入口向け公開Helperは`Cue.Platform.Windows`が所有し、機械的な変換は ADR-0009 の`Cue.Foundation.Windows`へ委譲する
 - 無効なUTF-8、変換失敗、長さOverflowはWindow生成前に`Result` Errorとして返す
 - 無効なUTF-16 Command Line Argument、変換失敗、長さOverflowも`Result` Errorとして返す
 - 変換後のBufferはWindow生成呼出中だけ保持し、Platform公開型へ`std::wstring`を出さない
