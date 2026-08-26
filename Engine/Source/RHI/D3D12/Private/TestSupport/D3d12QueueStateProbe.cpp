@@ -312,7 +312,7 @@ HRESULT set_event_on_completion_for_probe(ID3D12Fence *a_fence, std::uint64_t a_
 
 struct QueueProbeObjects final
 {
-    /// @brief 無効な QueueProbeObjects 状態を作らせないため既定構築を禁止する
+    /// @brief Probe 用 Device と Queue State の所有権を同じ Lifecycle に束ねる
     QueueProbeObjects(Microsoft::WRL::ComPtr<ID3D12Device> a_device, cue::D3d12QueueState &&a_state) noexcept
         : device(std::move(a_device)), state(std::move(a_state))
     {
@@ -322,7 +322,7 @@ struct QueueProbeObjects final
     QueueProbeObjects(const QueueProbeObjects &) = delete;
     /// @brief QueueProbeObjects の一意所有を保つため Copy 代入を禁止する
     QueueProbeObjects &operator=(const QueueProbeObjects &) = delete;
-    /// @brief QueueProbeObjects の所有状態を移動させないため Move 構築を禁止する
+    /// @brief Probe 用 Device と Queue State の一意所有を移動元から引き継ぐ
     QueueProbeObjects(QueueProbeObjects &&) noexcept = default;
     /// @brief QueueProbeObjects の所有状態を移動させないため Move 代入を禁止する
     QueueProbeObjects &operator=(QueueProbeObjects &&) noexcept = delete;

@@ -17,7 +17,7 @@ class FatalHandler : public EmergencyHandler
   public:
     using EmergencyHandler::terminate;
 
-    /// @brief 無効な FatalHandler 状態を作らせないため既定構築を禁止する
+    /// @brief EmergencyHandler 契約を Fatal 終了処理へ特化するための基底状態を構築する
     FatalHandler() = default;
     /// @brief FatalHandler が保持する Resource を所有権規則に従って破棄する
     ~FatalHandler() override = default;
