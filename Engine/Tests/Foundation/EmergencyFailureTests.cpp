@@ -1,11 +1,14 @@
+#include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
+#include <memory>
 #include <new>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -28,9 +31,15 @@ std::atomic<bool> shouldFailNextAllocation = false;
     throw std::bad_alloc();
 }
 
-class TestEmergencyHandler final : public cue::EmergencyHandler
+class TestEmergencyHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 通常 Fatal 診断後に Test Process を規定終了 Code で終了する
+    [[noreturn]] void terminate() noexcept override
+    {
+        std::_Exit(k_emergencyExitCode);
+    }
+
     /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
@@ -79,6 +88,34 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
     error.add_context(a_emergencyHandler, "Error context that requires an allocation in the test process");
     return 4;
 }
+
+/// @brief Secondary 診断文字列の構築失敗が設定済み Emergency Handler へ移行することを検証する
+[[nodiscard]] int test_append_secondary_formatting(
+    TestEmergencyHandler &a_emergencyHandler, const cue::AssertContext &a_assertContext)
+{
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue", 6);
+    cue::Error primary = cue::Error::create(a_emergencyHandler, std::move(primaryCode), "primary");
+    cue::ErrorCode secondaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue", 7);
+    cue::Error secondary = cue::Error::create(a_emergencyHandler, std::move(secondaryCode), "secondary");
+    shouldFailNextAllocation = true;
+    primary.append_secondary_diagnostics(
+        a_assertContext, secondary, "cleanup",
+        "Secondary Error Label That Requires Allocation Before Context Mutation");
+    return 5;
+}
+
+/// @brief Secondary 診断 Context の追加失敗が設定済み Emergency Handler へ移行することを検証する
+[[nodiscard]] int test_append_secondary_context(
+    TestEmergencyHandler &a_emergencyHandler, const cue::AssertContext &a_assertContext)
+{
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue", 8);
+    cue::Error primary = cue::Error::create(a_emergencyHandler, std::move(primaryCode), "primary");
+    cue::ErrorCode secondaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue", 9);
+    cue::Error secondary = cue::Error::create(a_emergencyHandler, std::move(secondaryCode), "secondary");
+    shouldFailNextAllocation = true;
+    primary.append_secondary_diagnostics(a_assertContext, secondary, "cleanup", "S");
+    return 6;
+}
 } // namespace
 
 /// @brief EmergencyFailureTests Test で Allocation 経路を制御するための Memory を確保する
@@ -126,6 +163,9 @@ int main(int a_argumentCount, char **a_arguments)
     }
 
     TestEmergencyHandler emergencyHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(emergencyHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, emergencyHandler);
     const std::string_view mode = a_arguments[1];
 
     if (mode == "CreateErrorCode")
@@ -143,6 +183,14 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "AddContext")
     {
         return test_add_context(emergencyHandler);
+    }
+    if (mode == "AppendSecondaryFormatting")
+    {
+        return test_append_secondary_formatting(emergencyHandler, assertContext);
+    }
+    if (mode == "AppendSecondaryContext")
+    {
+        return test_append_secondary_context(emergencyHandler, assertContext);
     }
 
     return 11;

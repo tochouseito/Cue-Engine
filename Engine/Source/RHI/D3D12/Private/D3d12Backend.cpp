@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -263,62 +264,14 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     std::abort();
 }
 
-/// @brief Error の Domain、Code、Native 情報を追跡可能な Context として追加する
-void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label, const cue::ErrorCode &a_code,
-                                const cue::NativeError *a_nativeError,
-                                const cue::AssertContext &a_assertContext) noexcept
-{
-    try
-    {
-        std::string codeContext(a_label);
-        codeContext.append(" Code=");
-        codeContext.append(a_code.domain());
-        codeContext.push_back('/');
-        codeContext.append(std::to_string(a_code.value()));
-        a_primaryError.add_context(a_assertContext.fatal_handler(), codeContext);
-
-        if (a_nativeError != nullptr)
-        {
-            std::string nativeContext(a_label);
-            nativeContext.append(" NativeError=");
-            nativeContext.append(a_nativeError->domain());
-            nativeContext.push_back('/');
-            nativeContext.append(std::to_string(a_nativeError->value()));
-            a_primaryError.add_context(a_assertContext.fatal_handler(), nativeContext);
-        }
-    }
-    catch (...)
-    {
-        terminate_allocation(a_assertContext);
-    }
-}
-
 /// @brief 主因 Error を失わず Secondary Error の識別情報を Context へ追加する
 void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
-                                 std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                                 std::string_view a_context, const cue::AssertContext &a_assertContext,
+                                 std::source_location a_location = std::source_location::current()) noexcept
 {
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_secondaryError.summary());
-    add_error_identity_context(a_primaryError, "Secondary shutdown Error", a_secondaryError.code(),
-                               a_secondaryError.try_native_error(), a_assertContext);
-
-    for (const cue::ErrorContext &context : a_secondaryError.contexts())
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-    }
-
-    for (const cue::ErrorCause &cause : a_secondaryError.causes())
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), "Secondary shutdown Error cause");
-        a_primaryError.add_context(a_assertContext.fatal_handler(), cause.summary());
-        add_error_identity_context(a_primaryError, "Secondary shutdown Error cause", cause.code(),
-                                   cause.try_native_error(), a_assertContext);
-
-        for (const cue::ErrorContext &context : cause.contexts())
-        {
-            a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-        }
-    }
+    a_primaryError.append_secondary_diagnostics(
+        a_assertContext, a_secondaryError, a_context,
+        "Secondary shutdown Error", a_location);
 }
 
 /// @brief Error に指定された診断 Context が含まれるかを判定する
@@ -388,7 +341,8 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
 
 /// @brief D3D12 Backend の Shutdown Error を診断と Lifecycle の規則に従って更新する
 void retain_shutdown_error(std::optional<cue::Error> &a_firstError, cue::Result<void> &a_result,
-                           std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                           std::string_view a_context, const cue::AssertContext &a_assertContext,
+                           std::source_location a_location = std::source_location::current()) noexcept
 {
     if (a_result)
     {
@@ -403,7 +357,7 @@ void retain_shutdown_error(std::optional<cue::Error> &a_firstError, cue::Result<
         return;
     }
 
-    add_secondary_error_context(*a_firstError, *error, a_context, a_assertContext);
+    add_secondary_error_context(*a_firstError, *error, a_context, a_assertContext, a_location);
 }
 
 using UnregisterPresentation = void (*)(void *) noexcept;
