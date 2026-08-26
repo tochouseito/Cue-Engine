@@ -103,7 +103,7 @@ void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_tearingOverrid
     g_probeState.presentOverride = a_presentOverride;
 }
 
-/// @brief D3D12 Swap Chain Probe の Tearing For Probe 条件を判定して返す
+/// @brief Tearing Query 失敗または対応可否を注入し、未指定時は Native Feature Query へ転送する
 HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) noexcept
 {
     if (g_probeState.fault == ProbeFault::TearingQuery)
@@ -126,7 +126,7 @@ HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) n
     return a_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, a_isSupported, sizeof(*a_isSupported));
 }
 
-/// @brief D3D12 Swap Chain Probe で使用する Swap Chain For Probe を生成し、呼び出し元へ返す
+/// @brief Swap Chain Descriptor を記録し、指定時は生成失敗を注入して Rollback 経路を再現する
 HRESULT create_swap_chain_for_probe(IDXGIFactory6 *a_factory, ID3D12CommandQueue *a_queue, HWND a_window,
                                     const DXGI_SWAP_CHAIN_DESC1 *a_descriptor, IDXGISwapChain1 **a_swapChain) noexcept
 {
@@ -141,7 +141,7 @@ HRESULT create_swap_chain_for_probe(IDXGIFactory6 *a_factory, ID3D12CommandQueue
     return a_factory->CreateSwapChainForHwnd(a_queue, a_window, a_descriptor, nullptr, nullptr, a_swapChain);
 }
 
-/// @brief D3D12 Swap Chain Probe の Alt Enter For Probe を診断と Lifecycle の規則に従って更新する
+/// @brief Alt+Enter 無効化失敗を指定時に注入し、通常時は Native 設定結果を記録する
 HRESULT disable_alt_enter_for_probe(IDXGIFactory6 *a_factory, HWND a_window) noexcept
 {
     if (g_probeState.fault == ProbeFault::AltEnter)
@@ -154,7 +154,7 @@ HRESULT disable_alt_enter_for_probe(IDXGIFactory6 *a_factory, HWND a_window) noe
     return result;
 }
 
-/// @brief D3D12 Swap Chain Probe の Swap Chain For Probe を条件に従って選択または取得し、診断可能な結果を返す
+/// @brief Swap Chain 3 Interface 取得失敗を指定時に注入し、通常時は Native QueryInterface へ転送する
 HRESULT query_swap_chain_for_probe(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3 **a_swapChain3) noexcept
 {
     if (g_probeState.fault == ProbeFault::Interface)
@@ -165,7 +165,7 @@ HRESULT query_swap_chain_for_probe(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3
     return a_swapChain->QueryInterface(IID_PPV_ARGS(a_swapChain3));
 }
 
-/// @brief D3D12 Swap Chain Probe が保持する Get Back Buffer For Probe を呼び出し元へ返す
+/// @brief 指定 Buffer または再取得時の GetBuffer 失敗を注入し、通常時は Native Back Buffer を返す
 HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_index,
                                   ID3D12Resource **a_backBuffer) noexcept
 {
@@ -179,7 +179,7 @@ HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_
     return a_swapChain->GetBuffer(a_index, IID_PPV_ARGS(a_backBuffer));
 }
 
-/// @brief D3D12 Swap Chain Probe が保持する Get Current Index For Probe を呼び出し元へ返す
+/// @brief InvalidCurrentIndex 時は範囲外 Index を注入し、通常時は Native Back Buffer Index を返す
 std::uint32_t get_current_index_for_probe(IDXGISwapChain3 *a_swapChain) noexcept
 {
     if (g_probeState.fault == ProbeFault::InvalidCurrentIndex)
@@ -190,7 +190,7 @@ std::uint32_t get_current_index_for_probe(IDXGISwapChain3 *a_swapChain) noexcept
     return a_swapChain->GetCurrentBackBufferIndex();
 }
 
-/// @brief D3D12 Swap Chain Probe の Name For Probe を整合性を保って更新する
+/// @brief Back Buffer Name 設定失敗を指定時に注入し、通常時は Native SetName へ転送する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     if (g_probeState.fault == ProbeFault::BackBufferName)
@@ -201,7 +201,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
-/// @brief D3D12 Swap Chain Probe の Buffers For Probe を指定 Size へ再構築し、後続処理へ反映する
+/// @brief Resize 失敗を指定時に注入し、通常時は Native ResizeBuffers へ転送する
 HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount, std::uint32_t a_width,
                                  std::uint32_t a_height, DXGI_FORMAT a_format, std::uint32_t a_flags) noexcept
 {
@@ -213,7 +213,7 @@ HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_b
     return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
 }
 
-/// @brief D3D12 Swap Chain Probe の For Probe を GPU 実行順と Resource State を守って投入する
+/// @brief Present 引数を記録し、成功または Occluded 結果を注入して通常時は Native Present へ転送する
 HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
 {
     g_probeState.presentCaptured = true;
@@ -233,7 +233,7 @@ HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UIN
     return a_swapChain->Present(a_syncInterval, a_flags);
 }
 
-/// @brief D3D12 Swap Chain Probe で使用する Probe Functions を生成し、呼び出し元へ返す
+/// @brief Swap Chain の全 Native 境界を Fault Injection Callback へ差し替える関数 Table を返す
 [[nodiscard]] cue::D3d12SwapChainNativeFunctions make_probe_functions() noexcept
 {
     return {
