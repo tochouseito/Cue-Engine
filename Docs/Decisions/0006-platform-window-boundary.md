@@ -230,8 +230,8 @@ struct WindowEvent
 - Windows RuntimeHostは`wmain`でOSのUTF-16 Command Line Argumentを受け、`Cue.Platform.Windows`の変換APIを通してUTF-8へ変換する
 - RuntimeHostはWindows SDK HeaderをIncludeせず、Unicode Win32 APIを直接呼ばない
 - UTF-16 Command Line Argument変換APIは`std::wstring_view`を入力、`Result<std::string>`を出力とし、Win32型を公開しない
-- UTF-16入力と`AssertContext`は呼出中だけ参照し、保持しない。参照先が全呼出中に有効なら並行呼出を許可する
-- UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`のFatal HandlerでProcessを終了する
+- UTF-16入力と`AssertContext`は呼出中だけ参照し、保持しない。並行呼出は、各入力が並行変更されず、各出力Objectが呼出ごとに独立しているか呼出側で同期され、`AssertContext`から得る`EmergencyHandler`の寿命と並行終了契約が全呼出で満たされる場合に限る
+- UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`から得る`EmergencyHandler`のEmergency Entry PointでProcessを終了する
 - Windows実装はUnicode版Win32 APIを明示的に呼び、Encoding-neutral Macroへ依存しない
 - UTF-8からUTF-16へのPlatform固有Error変換は`Cue.Platform.Windows`が担当し、機械的な変換はADR-0009の`Cue.Foundation.Windows`へ委譲する
 - UTF-16からUTF-8へのWindows RuntimeHost入口向け公開Helperは`Cue.Platform.Windows`が所有し、機械的な変換は ADR-0009 の`Cue.Foundation.Windows`へ委譲する
