@@ -3,6 +3,8 @@
 
 #include "D3d12QueueState.h"
 
+#include "D3d12Error.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 
@@ -14,6 +16,10 @@
 
 namespace
 {
+using cue::d3d12_private::make_code;
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_native_error;
+
 constexpr std::int64_t k_queueCreationFailed = 40;
 constexpr std::int64_t k_queueNameFailed = 41;
 constexpr std::int64_t k_fenceCreationFailed = 42;
@@ -30,29 +36,6 @@ constexpr std::int64_t k_deviceRemoved = 52;
 constexpr std::int64_t k_invalidFenceReservation = 53;
 constexpr std::uint64_t k_deviceRemovedCompletedValue = (std::numeric_limits<std::uint64_t>::max)();
 constexpr std::uint64_t k_maximumSignalValue = k_deviceRemovedCompletedValue - 1;
-
-/// @brief 現在の Module Domain と識別値から Error Code を生成する
-[[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
-{
-    return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, std::string_view a_nativeDomain,
-                                           std::int64_t a_nativeCode) noexcept
-{
-    cue::NativeError nativeError = cue::NativeError::create(a_context.fatal_handler(), a_nativeDomain, a_nativeCode);
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary,
-                              std::move(nativeError));
-}
 
 /// @brief D3D12 Queue State で使用する Device Removed Error を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_device_removed_error(const cue::AssertContext &a_context, HRESULT a_reason,

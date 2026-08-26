@@ -3,6 +3,8 @@
 
 #include "D3d12SwapChainState.h"
 
+#include "D3d12Error.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Log.h>
@@ -14,6 +16,11 @@
 
 namespace
 {
+using cue::d3d12_private::make_code;
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_native_error;
+using cue::d3d12_private::set_object_name;
+
 constexpr std::int64_t k_invalidDescriptor = 77;
 constexpr std::int64_t k_tearingQueryFailed = 78;
 constexpr std::int64_t k_swapChainCreationFailed = 79;
@@ -32,30 +39,6 @@ constexpr std::int64_t k_swapChainPresentFailed = 98;
 {
     a_context.fatal_handler().terminate("D3D12 Swap Chain diagnostic allocation failed");
     std::abort();
-}
-
-/// @brief 現在の Module Domain と識別値から Error Code を生成する
-[[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
-{
-    return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, std::string_view a_nativeDomain,
-                                           HRESULT a_nativeCode) noexcept
-{
-    cue::NativeError nativeError =
-        cue::NativeError::create(a_context.fatal_handler(), a_nativeDomain, static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary,
-                              std::move(nativeError));
 }
 
 /// @brief D3D12 Swap Chain State で使用する Failure Resources を生成し、呼び出し元へ返す
@@ -131,12 +114,6 @@ HRESULT get_back_buffer(IDXGISwapChain3 *a_swapChain, std::uint32_t a_index, ID3
 std::uint32_t get_current_back_buffer_index(IDXGISwapChain3 *a_swapChain) noexcept
 {
     return a_swapChain->GetCurrentBackBufferIndex();
-}
-
-/// @brief D3D12 Swap Chain State の Object Name を整合性を保って更新する
-HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
-{
-    return a_object->SetName(a_name);
 }
 
 /// @brief D3D12 Swap Chain State の Buffers を指定 Size へ再構築し、後続処理へ反映する

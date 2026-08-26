@@ -3,6 +3,7 @@
 
 #include "D3d12FrameCommandState.h"
 
+#include "D3d12Error.h"
 #include "D3d12QueueState.h"
 
 #include <Cue/Foundation/Assert.h>
@@ -18,6 +19,11 @@
 
 namespace
 {
+using cue::d3d12_private::make_code;
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_native_error;
+using cue::d3d12_private::set_object_name;
+
 constexpr std::int64_t k_commandAllocatorCreationFailed = 54;
 constexpr std::int64_t k_commandAllocatorNameFailed = 55;
 constexpr std::int64_t k_commandListCreationFailed = 56;
@@ -36,29 +42,6 @@ constexpr std::int64_t k_invalidBackBufferClear = 97;
 constexpr std::int64_t k_fenceValueExhausted = 45;
 constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uint32_t>::max)();
 
-/// @brief 現在の Module Domain と識別値から Error Code を生成する
-[[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
-{
-    return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, HRESULT a_nativeCode) noexcept
-{
-    cue::NativeError nativeError =
-        cue::NativeError::create(a_context.fatal_handler(), "D3D12", static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary,
-                              std::move(nativeError));
-}
-
 /// @brief D3D12 Frame Command State で使用する Command Allocator を生成し、呼び出し元へ返す
 HRESULT create_command_allocator(ID3D12Device *a_device, ID3D12CommandAllocator **a_allocator) noexcept
 {
@@ -71,12 +54,6 @@ HRESULT create_command_list(ID3D12Device *a_device, ID3D12CommandAllocator *a_al
 {
     return a_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, a_allocator, nullptr,
                                        IID_PPV_ARGS(a_commandList));
-}
-
-/// @brief D3D12 Frame Command State の Object Name を整合性を保って更新する
-HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
-{
-    return a_object->SetName(a_name);
 }
 
 /// @brief D3D12 Frame Command State の Command Allocator を次の処理で再利用可能な初期状態へ戻す

@@ -3,6 +3,8 @@
 
 #include "D3d12RtvHeap.h"
 
+#include "D3d12Error.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 
@@ -13,6 +15,11 @@
 
 namespace
 {
+using cue::d3d12_private::make_code;
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_native_error;
+using cue::d3d12_private::set_object_name;
+
 constexpr std::int64_t k_heapCreationFailed = 65;
 constexpr std::int64_t k_heapNameFailed = 66;
 constexpr std::int64_t k_invalidIncrementSize = 67;
@@ -43,29 +50,6 @@ std::atomic<std::uint64_t> g_nextHeapIncarnation = 1;
     }
 
     return 0;
-}
-
-/// @brief 現在の Module Domain と識別値から Error Code を生成する
-[[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
-{
-    return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, HRESULT a_nativeCode) noexcept
-{
-    cue::NativeError nativeError =
-        cue::NativeError::create(a_context.fatal_handler(), "D3D12", static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary,
-                              std::move(nativeError));
 }
 
 /// @brief D3D12 RTV Heap で回復不能な Native Creation を診断し、規定の終了境界へ移す
@@ -109,11 +93,6 @@ D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_descriptor_handle_for_heap_start(ID3D12Descr
     return a_heap->GetCPUDescriptorHandleForHeapStart();
 }
 
-/// @brief D3D12 RTV Heap の Object Name を整合性を保って更新する
-HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
-{
-    return a_object->SetName(a_name);
-}
 } // namespace
 
 namespace cue

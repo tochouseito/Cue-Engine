@@ -4,6 +4,7 @@
 #include "D3d12AdapterSelection.h"
 
 #include "D3d12Diagnostics.h"
+#include "D3d12Error.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
@@ -19,6 +20,10 @@
 
 namespace
 {
+using cue::d3d12_private::make_dxgi_error;
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_win32_error;
+
 constexpr std::int64_t k_factoryCreationFailed = 20;
 constexpr std::int64_t k_adapterEnumerationFailed = 21;
 constexpr std::int64_t k_adapterDescriptionFailed = 22;
@@ -34,35 +39,6 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 {
     a_context.fatal_handler().terminate("D3D12 adapter selection allocation failed");
     std::abort();
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_code);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, HRESULT a_nativeCode,
-                                           std::string_view a_nativeDomain = "DXGI") noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_code);
-    cue::NativeError nativeError = cue::NativeError::create(
-        a_context.fatal_handler(), a_nativeDomain, static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
-}
-
-/// @brief D3D12 Adapter 選択で使用する Win32 Error を生成し、呼び出し元へ返す
-[[nodiscard]] cue::Error make_win32_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                          std::string_view a_summary, DWORD a_nativeCode) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_code);
-    cue::NativeError nativeError = cue::NativeError::create(
-        a_context.fatal_handler(), "Win32", static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
 /// @brief Log 出力結果を検証し、診断を継続できない場合は終了境界へ移す
@@ -146,7 +122,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 [[nodiscard]] cue::Result<void> log_skipped_candidate(
     UINT a_index, HRESULT a_probeResult, const cue::AssertContext &a_context) noexcept
 {
-    cue::Error error = make_native_error(
+    cue::Error error = make_dxgi_error(
         a_context, k_noSuitableAdapter, "DXGI adapter does not satisfy D3D Feature Level 12_0",
         a_probeResult, "D3D12");
 
@@ -217,7 +193,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 [[nodiscard]] cue::Result<void> log_factory_debug_fallback(
     HRESULT a_nativeCode, const cue::AssertContext &a_context) noexcept
 {
-    cue::Error error = make_native_error(
+    cue::Error error = make_dxgi_error(
         a_context, k_factoryCreationFailed,
         "DXGI debug component is unavailable; factory creation will continue without debug",
         a_nativeCode);
@@ -323,7 +299,7 @@ Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(
 
     if (FAILED(factoryResult))
     {
-        return Result<Microsoft::WRL::ComPtr<IDXGIFactory6>>::failure(make_native_error(
+        return Result<Microsoft::WRL::ComPtr<IDXGIFactory6>>::failure(make_dxgi_error(
             a_assertContext, k_factoryCreationFailed, "DXGI Factory could not be created", factoryResult));
     }
 
@@ -376,7 +352,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(warpResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_native_error(
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
                 a_assertContext, k_warpUnavailable, "DXGI WARP adapter is unavailable", warpResult));
         }
 
@@ -385,7 +361,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(descriptionResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_native_error(
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
                 a_assertContext, k_adapterDescriptionFailed, "DXGI WARP adapter description is unavailable",
                 descriptionResult));
         }
@@ -395,7 +371,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(probeResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_native_error(
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
                 a_assertContext, k_noSuitableAdapter, "DXGI WARP adapter does not support D3D Feature Level 12_0",
                 probeResult, "D3D12"));
         }
@@ -419,7 +395,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(enumerationResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_native_error(
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
                 a_assertContext, k_adapterEnumerationFailed, "DXGI adapter enumeration failed",
                 enumerationResult));
         }
@@ -429,7 +405,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(descriptionResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_native_error(
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
                 a_assertContext, k_adapterDescriptionFailed, "DXGI adapter description is unavailable",
                 descriptionResult));
         }
