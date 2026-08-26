@@ -1,6 +1,7 @@
 #include <Cue/Platform/Windows/WindowsWindowInterop.h>
 
 #include "WindowsWindow.h"
+#include "WindowsUtilities.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
@@ -10,14 +11,9 @@
 
 namespace
 {
-constexpr std::int64_t k_foreignWindow = 12;
+using cue::windows_private::make_error;
 
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::string_view a_summary) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.Platform.Windows", k_foreignWindow);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
-}
+constexpr std::int64_t k_foreignWindow = 12;
 } // namespace
 
 namespace cue
@@ -44,7 +40,7 @@ Result<NativeWindowView> get_native_window_view(Window &a_window, const AssertCo
     if (window == nullptr)
     {
         return Result<NativeWindowView>::failure(
-            make_error(a_assertContext, "Native Win32 View requires a Windows Window"));
+            make_error(a_assertContext, k_foreignWindow, "Native Win32 View requires a Windows Window"));
     }
 
     // 非所有 View だけを返し、Interop 呼出側へ HWND の破棄責務を移さない
