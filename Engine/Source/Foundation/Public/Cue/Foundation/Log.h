@@ -75,7 +75,7 @@ class LogSink
   public:
     /// @brief 派生 Sink が出力先を実装するための基底状態を構築する
     LogSink() = default;
-    /// @brief LogSink が保持する Resource を所有権規則に従って破棄する
+    /// @brief 基底 Pointer を介して派生 Log Sink を正しく破棄できるようにする
     virtual ~LogSink() = default;
 
     /// @brief LogSink の一意所有を保つため Copy 構築を禁止する

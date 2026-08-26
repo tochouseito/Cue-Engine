@@ -13,7 +13,7 @@ class EmergencyHandler
   public:
     /// @brief 派生 Handler が終了方針を実装するための基底状態を構築する
     EmergencyHandler() = default;
-    /// @brief EmergencyHandler が保持する Resource を所有権規則に従って破棄する
+    /// @brief 基底 Pointer を介して派生 Emergency Handler を正しく破棄できるようにする
     virtual ~EmergencyHandler() = default;
 
     /// @brief EmergencyHandler の一意所有を保つため Copy 構築を禁止する

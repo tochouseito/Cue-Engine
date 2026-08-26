@@ -73,7 +73,7 @@ void observe_native_call() noexcept
     }
 }
 
-/// @brief D3D12 Queue State Probe の Command Lists For Fault を GPU 実行順と Resource State を守って投入する
+/// @brief Native 呼び出し順を観測してから Command List 投入を実 Queue へ転送する
 void execute_command_lists_for_fault(ID3D12CommandQueue *a_queue, UINT a_count,
                                      ID3D12CommandList *const *a_commandLists) noexcept
 {
@@ -81,7 +81,7 @@ void execute_command_lists_for_fault(ID3D12CommandQueue *a_queue, UINT a_count,
     a_queue->ExecuteCommandLists(a_count, a_commandLists);
 }
 
-/// @brief D3D12 Queue State Probe の For Fault へ完了通知を発行し、追跡する Fence 値を確定する
+/// @brief Signal 対象値を記録し、選択した Fault Mode に応じて Signal 失敗または未送信成功を注入する
 HRESULT signal_for_fault(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     observe_native_call();
@@ -110,7 +110,7 @@ HRESULT signal_for_fault(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     return a_queue->Signal(a_fence, a_value);
 }
 
-/// @brief D3D12 Queue State Probe が保持する Get Completed Value For Fault を呼び出し元へ返す
+/// @brief Fault Mode と呼び出し回数に応じて未完了値、完了値、Sentinel、または Native Fence 値を返す
 std::uint64_t get_completed_value_for_fault(ID3D12Fence *a_fence) noexcept
 {
     observe_native_call();
@@ -144,7 +144,7 @@ std::uint64_t get_completed_value_for_fault(ID3D12Fence *a_fence) noexcept
     }
 }
 
-/// @brief D3D12 Queue State Probe の Event On Completion For Fault を整合性を保って更新する
+/// @brief Event 待機経路の使用を記録し、指定時は Fence Event 登録失敗を注入する
 HRESULT set_event_on_completion_for_fault(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     observe_native_call();
@@ -158,7 +158,7 @@ HRESULT set_event_on_completion_for_fault(ID3D12Fence *a_fence, std::uint64_t a_
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
-/// @brief D3D12 Queue State Probe の For Single Object For Fault 完了を待機し、後続処理を安全に進められる状態を返す
+/// @brief Fault Mode に対応する Timeout、Failure、Unexpected 結果を注入し、通常時は Win32 待機へ転送する
 DWORD WINAPI wait_for_single_object_for_fault(HANDLE a_event, DWORD a_timeout)
 {
     observe_native_call();
@@ -188,7 +188,7 @@ DWORD WINAPI wait_for_single_object_for_fault(HANDLE a_event, DWORD a_timeout)
     }
 }
 
-/// @brief D3D12 Queue State Probe で使用する Event For Fault を生成し、呼び出し元へ返す
+/// @brief Event 生成回数を記録し、交換用 Event 生成時に指定された Native 失敗を注入する
 HANDLE WINAPI create_event_for_fault(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_manualReset, BOOL a_initialState,
                                      LPCWSTR a_name)
 {
@@ -206,7 +206,7 @@ HANDLE WINAPI create_event_for_fault(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_
     return CreateEventW(a_attributes, a_manualReset, a_initialState, a_name);
 }
 
-/// @brief D3D12 Queue State Probe の Handle For Fault を依存関係と完了条件を守って安全に解放または停止する
+/// @brief Handle Close 回数を記録し、初回 Close へ指定された Native 失敗を注入する
 BOOL WINAPI close_handle_for_fault(HANDLE a_handle)
 {
     observe_native_call();
@@ -224,7 +224,7 @@ BOOL WINAPI close_handle_for_fault(HANDLE a_handle)
     return CloseHandle(a_handle);
 }
 
-/// @brief D3D12 Queue State Probe が保持する Get Last Error For Fault を呼び出し元へ返す
+/// @brief Native 失敗直後にだけ GetLastError が呼ばれたか検証し、固定 Win32 Error Code を返す
 DWORD WINAPI get_last_error_for_fault()
 {
     ++g_faultState.getLastErrorCallCount;
@@ -238,7 +238,7 @@ DWORD WINAPI get_last_error_for_fault()
     return k_probeNativeError;
 }
 
-/// @brief D3D12 Queue State Probe が保持する Get Device Removed Reason For Fault を呼び出し元へ返す
+/// @brief Fault Mode と呼び出し回数に応じて Device Removal 発生時点を再現する
 HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
 {
     observe_native_call();
@@ -258,7 +258,7 @@ HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
     return S_OK;
 }
 
-/// @brief D3D12 Queue State Probe で使用する Fault Functions を生成し、呼び出し元へ返す
+/// @brief Queue State の全 Native 境界を Fault Injection Callback へ差し替える関数 Table を返す
 [[nodiscard]] cue::D3d12QueueNativeFunctions make_fault_functions() noexcept
 {
     return {
@@ -274,7 +274,7 @@ HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
     };
 }
 
-/// @brief D3D12 Queue State Probe が保持する Get Completed Value For Probe を呼び出し元へ返す
+/// @brief 初回だけ未完了値を返して Event 待機経路へ誘導し、以後は Native Fence 値を返す
 std::uint64_t get_completed_value_for_probe(ID3D12Fence *a_fence) noexcept
 {
     if (g_forceInitialIncomplete)
@@ -286,7 +286,7 @@ std::uint64_t get_completed_value_for_probe(ID3D12Fence *a_fence) noexcept
     return a_fence->GetCompletedValue();
 }
 
-/// @brief D3D12 Queue State Probe の Event On Completion For Probe を整合性を保って更新する
+/// @brief Event 待機経路の使用を記録してから Native Fence 登録へ転送する
 HRESULT set_event_on_completion_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     g_usedEventWaitPath = true;

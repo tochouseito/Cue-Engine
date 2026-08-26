@@ -19,7 +19,7 @@ class FatalHandler : public EmergencyHandler
 
     /// @brief EmergencyHandler 契約を Fatal 終了処理へ特化するための基底状態を構築する
     FatalHandler() = default;
-    /// @brief FatalHandler が保持する Resource を所有権規則に従って破棄する
+    /// @brief 基底 Pointer を介して派生 Fatal Handler を正しく破棄できるようにする
     ~FatalHandler() override = default;
 
     /// @brief FatalHandler の一意所有を保つため Copy 構築を禁止する
