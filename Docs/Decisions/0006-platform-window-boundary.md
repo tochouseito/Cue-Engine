@@ -85,6 +85,13 @@ Native Handleは通常のWindow操作APIから分離した`NativeWindowView`と�
 ### Targets and Source Placement
 
 ```text
+Engine/Source/Foundation/
+    Windows/
+        CMakeLists.txt
+        Public/Cue/Foundation/Windows/
+            UtfConversion.h
+        Private/
+            UtfConversion.cpp
 Engine/Source/Platform/
     CMakeLists.txt
     Public/Cue/Platform/
@@ -102,13 +109,12 @@ Engine/Source/Platform/
             WindowsWindow.cpp
             WindowsWindow.h
             UtfConversion.cpp
-            UtfConversion.h
 ```
 
 - `Cue.Platform`はWindow契約とPlatform非依存Value Typeを所有する
 - `Cue.Platform.Windows`はWindows実装Factoryと明示的なInterop境界を所有する
 - `Cue.Platform`は`Cue.Foundation`へ`PUBLIC`依存する
-- `Cue.Platform.Windows`は`Cue.Platform`へ`PUBLIC`依存し、Windows SDK Libraryへ`PRIVATE`依存する
+- `Cue.Platform.Windows`は`Cue.Platform`へ`PUBLIC`依存し、`Cue.Foundation.Windows`とWindows SDK Libraryへ`PRIVATE`依存する
 - `Cue.Platform`はRHI、D3D12、RuntimeHost、Editorへ依存しない
 - `Cue.Platform.Windows`はRHIとD3D12へ依存しない
 
