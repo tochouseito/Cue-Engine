@@ -59,7 +59,7 @@ class D3d12RtvHeap final
     D3d12RtvHeap(D3d12RtvHeap &&a_other) noexcept;
     /// @brief D3d12RtvHeap の所有状態を Move 代入し、代入元を安全な空状態へ移す
     D3d12RtvHeap &operator=(D3d12RtvHeap &&a_other) noexcept;
-    /// @brief D3d12RtvHeap が保持する Resource を所有権規則に従って破棄する
+    /// @brief 明示 Shutdown 前に Native Resource が残っていれば契約違反として Process を強制終了する
     ~D3d12RtvHeap() noexcept;
 
     /// @brief 未使用 RTV Descriptor Slot の Generation と使用数を更新し、論理 Slot Token を返す

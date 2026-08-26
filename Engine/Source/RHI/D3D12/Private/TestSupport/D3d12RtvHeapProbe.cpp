@@ -53,7 +53,7 @@ void reset_probe_state(ProbeCreationFault a_fault) noexcept
     g_probeState.fault = a_fault;
 }
 
-/// @brief D3D12 RTV Heap Probe で使用する Heap For Probe を生成し、呼び出し元へ返す
+/// @brief Heap Descriptor を記録し、指定時は生成失敗を注入して Rollback 経路を再現する
 HRESULT create_heap_for_probe(ID3D12Device *a_device, const D3D12_DESCRIPTOR_HEAP_DESC *a_descriptor,
                               ID3D12DescriptorHeap **a_heap) noexcept
 {
@@ -68,7 +68,7 @@ HRESULT create_heap_for_probe(ID3D12Device *a_device, const D3D12_DESCRIPTOR_HEA
     return a_device->CreateDescriptorHeap(a_descriptor, IID_PPV_ARGS(a_heap));
 }
 
-/// @brief D3D12 RTV Heap Probe が保持する Get Increment For Probe を呼び出し元へ返す
+/// @brief ZeroIncrement 時は無効な 0 を注入し、通常時は Native Descriptor Increment を返す
 UINT get_increment_for_probe(ID3D12Device *a_device) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::ZeroIncrement)
@@ -79,7 +79,7 @@ UINT get_increment_for_probe(ID3D12Device *a_device) noexcept
     return a_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 }
 
-/// @brief D3D12 RTV Heap Probe が保持する Get Start For Probe を呼び出し元へ返す
+/// @brief Overflow または Null Start Handle を注入し、通常時は Native Heap Start を記録して返す
 D3D12_CPU_DESCRIPTOR_HANDLE get_start_for_probe(ID3D12DescriptorHeap *a_heap) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::OverflowStart)
@@ -98,7 +98,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE get_start_for_probe(ID3D12DescriptorHeap *a_heap) no
     return g_probeState.startHandle;
 }
 
-/// @brief D3D12 RTV Heap Probe の Name For Probe を整合性を保って更新する
+/// @brief Name 設定失敗を指定時に注入し、通常時は Native SetName へ転送する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::Name)

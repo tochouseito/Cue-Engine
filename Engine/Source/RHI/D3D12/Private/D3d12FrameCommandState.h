@@ -98,7 +98,7 @@ class D3d12FrameCommandState final
     D3d12FrameCommandState(D3d12FrameCommandState &&a_other) noexcept;
     /// @brief D3d12FrameCommandState の所有状態を Move 代入し、代入元を安全な空状態へ移す
     D3d12FrameCommandState &operator=(D3d12FrameCommandState &&a_other) noexcept;
-    /// @brief D3d12FrameCommandState が保持する Resource を所有権規則に従って破棄する
+    /// @brief 明示 Shutdown 前に Native Resource が残っていれば契約違反として Process を強制終了する
     ~D3d12FrameCommandState() noexcept;
 
     /// @brief 再利用 Fence の完了後に Allocator と Command List を Reset し、Frame Recording を開始する

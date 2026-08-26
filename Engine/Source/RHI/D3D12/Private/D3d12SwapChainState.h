@@ -79,7 +79,7 @@ class D3d12SwapChainState final
     D3d12SwapChainState(D3d12SwapChainState &&a_other) noexcept;
     /// @brief D3d12SwapChainState の所有状態を Move 代入し、代入元を安全な空状態へ移す
     D3d12SwapChainState &operator=(D3d12SwapChainState &&a_other) noexcept;
-    /// @brief D3d12SwapChainState が保持する Resource を所有権規則に従って破棄する
+    /// @brief 明示 Shutdown 前に Native Resource が残っていれば契約違反として Process を強制終了する
     ~D3d12SwapChainState() noexcept;
 
     /// @brief D3D12 Swap Chain State の Current Back Buffer Index を整合性を保って更新する
