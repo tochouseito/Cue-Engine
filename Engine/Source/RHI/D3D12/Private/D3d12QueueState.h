@@ -73,7 +73,7 @@ class D3d12FenceEvent final
     [[nodiscard]] bool is_open() const noexcept;
     /// @brief 新しい Native Event HANDLE と Close Callback を受け取り、Event の一意所有を開始する
     void reset(HANDLE a_handle, BOOL(WINAPI *a_closeHandle)(HANDLE)) noexcept;
-    /// @brief 呼び出し側で閉じた Native Event の参照と Close Callback を空にして非所有状態へ戻す
+    /// @brief 呼び出し側で閉じた Native Event の Handle を空にし、Event を非所有状態へ戻す
     void mark_closed() noexcept;
 
   private:
