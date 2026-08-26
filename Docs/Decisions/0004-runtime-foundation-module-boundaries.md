@@ -90,7 +90,7 @@ Target名は責務を表す`Cue.<Module>`形式を使用し、PlatformまたはB
 | `Cue.Foundation` | Static Library | Platform非依存な基本契約と実装 |
 | `Cue.Foundation.Windows` | Static Library | Windows UTF 変換の低層 Primitive。詳細は ADR-0009 |
 | `Cue.Platform` | Static Library | Platform非依存なPlatform契約 |
-| `Cue.Platform.Windows` | Static Library | Windows固有実装と変換境界 |
+| `Cue.Platform.Windows` | Static Library | Windows Windowing実装とPlatform固有Error変換。UTF PrimitiveはADR-0009 |
 | `Cue.RHI` | Static Library | Graphics API非依存なRHI契約 |
 | `Cue.RHI.D3D12` | Static Library | D3D12固有実装と変換境界 |
 | `CueRuntimeHost` | Executable | 実装選択、所有権構築、Lifecycle制御 |
