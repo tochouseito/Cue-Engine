@@ -1,6 +1,7 @@
 #include "WindowsWindow.h"
 
 #include "UtfConversion.h"
+#include "WindowsUtilities.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
@@ -16,6 +17,10 @@
 
 namespace
 {
+using cue::windows_private::make_error;
+using cue::windows_private::make_native_error;
+using cue::windows_private::query_client_size;
+
 constexpr wchar_t k_windowClassName[] = L"CueEngine.Window";
 constexpr DWORD k_windowStyle = WS_OVERLAPPEDWINDOW;
 
@@ -23,7 +28,6 @@ constexpr std::int64_t k_invalidDescriptor = 3;
 constexpr std::int64_t k_windowRectangleFailed = 4;
 constexpr std::int64_t k_classRegistrationFailed = 5;
 constexpr std::int64_t k_windowCreationFailed = 6;
-constexpr std::int64_t k_clientSizeQueryFailed = 7;
 constexpr std::int64_t k_windowDestroyFailed = 8;
 constexpr std::int64_t k_windowAlreadyExists = 9;
 constexpr std::int64_t k_classUnregistrationFailed = 10;
@@ -33,23 +37,6 @@ constexpr std::int64_t k_classUnregistrationFailed = 10;
 {
     a_context.fatal_handler().terminate("Windows Window allocation failed");
     std::abort();
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.Platform.Windows", a_code);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, DWORD a_nativeCode) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.Platform.Windows", a_code);
-    cue::NativeError nativeError = cue::NativeError::create(a_context.fatal_handler(), "Win32", a_nativeCode);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
 /// @brief Process 内の WindowSystem 間で Win32 Window Class の登録寿命を共有する
@@ -485,18 +472,15 @@ Result<void> WindowsWindow::create_native(std::wstring_view a_title, int a_width
     CUE_ASSERT(m_system->assert_context(), m_window == window,
                "Window Procedure must attach the native handle during creation");
 
-    RECT clientRectangle = {};
+    Result<WindowSize> clientSizeResult = query_client_size(window, m_system->assert_context());
 
-    if (GetClientRect(window, &clientRectangle) == FALSE)
+    if (!clientSizeResult)
     {
-        DWORD nativeCode = GetLastError();
         static_cast<void>(DestroyWindow(window));
-        return Result<void>::failure(make_native_error(m_system->assert_context(), k_clientSizeQueryFailed,
-                                                       "Windows Window client size query failed", nativeCode));
+        return Result<void>::failure(std::move(*clientSizeResult.try_error()));
     }
 
-    m_clientSize = {static_cast<std::uint32_t>(clientRectangle.right - clientRectangle.left),
-                    static_cast<std::uint32_t>(clientRectangle.bottom - clientRectangle.top)};
+    m_clientSize = *clientSizeResult.try_value();
     m_state = WindowState::Created;
     return Result<void>::success();
 }
@@ -582,21 +566,15 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
             return 0;
         }
 
-        RECT clientRectangle = {};
+        Result<WindowSize> clientSizeResult = query_client_size(m_window, m_system->assert_context());
 
-        if (GetClientRect(m_window, &clientRectangle) == FALSE)
+        if (!clientSizeResult)
         {
-            DWORD nativeCode = GetLastError();
-            Error error = make_native_error(m_system->assert_context(), k_clientSizeQueryFailed,
-                                            "Windows Window client size query failed", nativeCode);
             report_fatal(m_system->assert_context().logger(), m_system->assert_context().fatal_handler(),
-                         "Window Event conversion failed", std::move(error));
+                         "Window Event conversion failed", std::move(*clientSizeResult.try_error()));
         }
 
-        WindowSize clientSize = {
-            static_cast<std::uint32_t>(clientRectangle.right - clientRectangle.left),
-            static_cast<std::uint32_t>(clientRectangle.bottom - clientRectangle.top),
-        };
+        WindowSize clientSize = *clientSizeResult.try_value();
 
         if (clientSize.width == 0 || clientSize.height == 0)
         {

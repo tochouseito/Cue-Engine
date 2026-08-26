@@ -1,6 +1,7 @@
 #include <Cue/Platform/Windows/WindowsPlatform.h>
 
 #include "WindowsWindow.h"
+#include "WindowsUtilities.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
@@ -13,6 +14,8 @@
 
 namespace
 {
+using cue::windows_private::make_native_error;
+
 constexpr std::int64_t k_moduleHandleUnavailable = 1;
 
 /// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
@@ -22,14 +25,6 @@ constexpr std::int64_t k_moduleHandleUnavailable = 1;
     std::abort();
 }
 
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, DWORD a_nativeCode) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.Platform.Windows", a_code);
-    cue::NativeError nativeError = cue::NativeError::create(a_context.fatal_handler(), "Win32", a_nativeCode);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
-}
 } // namespace
 
 namespace cue

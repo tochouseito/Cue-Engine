@@ -9,6 +9,8 @@ target_sources(
         Private/WindowsWindow.cpp
         Private/WindowsWindow.h
         Private/WindowsPlatform.cpp
+        Private/WindowsUtilities.cpp
+        Private/WindowsUtilities.h
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
