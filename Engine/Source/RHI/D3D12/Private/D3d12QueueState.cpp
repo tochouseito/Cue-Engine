@@ -122,7 +122,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     }
 }
 
-/// @brief D3D12 Queue State が保持する Add Secondary Cause Context を呼び出し元へ返す
+/// @brief 主 Error を維持したまま Secondary Cause の Summary、識別情報、Context を診断情報として転記する
 void add_secondary_cause_context(cue::Error &a_primaryError, const cue::ErrorCause &a_secondaryCause,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
