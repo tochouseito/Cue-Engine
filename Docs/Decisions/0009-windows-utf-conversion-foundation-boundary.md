@@ -59,8 +59,8 @@ Cue.Foundation.Windows は次の Primitive を提供します。
 - 明示された長さを使い、埋め込み NUL を終端として扱わない
 - MB_ERR_INVALID_CHARS と WC_ERR_INVALID_CHARS を使い、不正 Sequence を置換しない
 - int で表現できない入力長は Native 呼び出し前に拒否する
-- Allocation 失敗は AssertContext の Fatal Handler へ委譲し、例外を公開境界から出さない
-- 共有可変状態を持たず、引数と AssertContext の寿命が有効なら並行呼び出し可能とする
+- Allocation 失敗は呼び出し側が渡す EmergencyHandler へ委譲し、例外を公開境界から出さない
+- Primitive 自身は共有可変状態を持たない。並行呼び出しは、各入力が並行変更されず、各出力 Object が呼び出しごとに独立しているか呼び出し側で同期され、EmergencyHandler の寿命と並行終了契約が満たされる場合に限る
 
 Primitive は Engine の Error を生成しません。失敗種別と Native Code のみを返し、意味付けは呼び出し側が行います。
 
