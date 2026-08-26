@@ -3,6 +3,8 @@
 
 #include "D3d12Diagnostics.h"
 
+#include "D3d12Error.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Log.h>
@@ -29,6 +31,9 @@
 
 namespace
 {
+using cue::d3d12_private::make_error;
+using cue::d3d12_private::make_native_error;
+
 constexpr std::int64_t k_invalidConfiguration = 1;
 constexpr std::int64_t k_invalidDevice = 2;
 constexpr std::int64_t k_infoQueueRollbackFailed = 3;
@@ -45,24 +50,6 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
 {
     a_context.fatal_handler().terminate("D3D12 diagnostics allocation failed");
     std::abort();
-}
-
-/// @brief 現在の Module Domain で診断可能な Error を生成する
-[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                    std::string_view a_summary) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_code);
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
-}
-
-/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
-[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
-                                           std::string_view a_summary, HRESULT a_nativeCode) noexcept
-{
-    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_code);
-    cue::NativeError nativeError = cue::NativeError::create(
-        a_context.fatal_handler(), "D3D12", static_cast<std::int64_t>(a_nativeCode));
-    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
 /// @brief D3D12 Message Severity を Engine 共通 Log Level へ変換する

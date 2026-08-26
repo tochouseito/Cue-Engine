@@ -36,6 +36,8 @@ target_sources(
         Private/D3d12DeviceCreation.h
         Private/D3d12Diagnostics.cpp
         Private/D3d12Diagnostics.h
+        Private/D3d12Error.cpp
+        Private/D3d12Error.h
         Private/D3d12FrameCommandState.cpp
         Private/D3d12FrameCommandState.h
         Private/D3d12QueueState.cpp
