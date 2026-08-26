@@ -242,6 +242,30 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            contexts[1].location().line() == appendLine && contexts[2].location().line() == appendLine &&
            contexts[3].location().line() == causeContextLine;
 }
+
+/// @brief Primary Context を参照する Label が Context 再確保後も Secondary Cause 診断へ保持されることを検証する
+[[nodiscard]] bool test_secondary_label_alias(
+    TestEmergencyHandler &a_emergencyHandler, const cue::AssertContext &a_assertContext)
+{
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Primary", 31);
+    cue::Error primary = cue::Error::create(a_emergencyHandler, std::move(primaryCode), "primary summary");
+    primary.add_context(a_emergencyHandler, "Aliased Label");
+    const std::string_view aliasedLabel = primary.contexts()[0].message();
+
+    cue::ErrorCode causeCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary.Cause", 32);
+    cue::Error cause = cue::Error::create(a_emergencyHandler, std::move(causeCode), "cause summary");
+    cue::ErrorCode secondaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary", 33);
+    cue::Error secondary = cue::Error::reclassify(
+        a_emergencyHandler, std::move(secondaryCode), "secondary summary", std::move(cause));
+
+    primary.append_secondary_diagnostics(
+        a_assertContext, secondary, "cleanup also failed", aliasedLabel);
+
+    const std::span<const cue::ErrorContext> contexts = primary.contexts();
+    return contexts.size() == 7 && contexts[3].message() == "Aliased Label Code=Cue.Secondary/33" &&
+           contexts[4].message() == "Aliased Label Cause" &&
+           contexts[6].message() == "Aliased Label Cause Code=Cue.Secondary.Cause/32";
+}
 } // namespace
 
 static_assert(!std::is_copy_constructible_v<cue::Error>);
@@ -297,6 +321,11 @@ int main()
     if (!test_secondary_cause_diagnostics(emergencyHandler))
     {
         return 8;
+    }
+
+    if (!test_secondary_label_alias(emergencyHandler, assertContext))
+    {
+        return 9;
     }
 
     return 0;

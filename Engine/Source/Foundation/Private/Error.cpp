@@ -247,10 +247,12 @@ void Error::append_secondary_diagnostics(
 
     try
     {
+        // Label が Primary 自身の Context を参照していても、以降の Context 追加で無効化されないよう先に所有する
+        const std::string label(a_label);
         const ErrorCode &secondaryCode = a_secondaryError.code();
         const NativeError *secondaryNativeError = a_secondaryError.try_native_error();
         const ErrorIdentityContexts identity = make_error_identity_contexts(
-            a_label, secondaryCode, secondaryNativeError);
+            label, secondaryCode, secondaryNativeError);
 
         add_context(emergencyHandler, a_context, a_location);
         add_context(emergencyHandler, a_secondaryError.summary(), a_location);
@@ -268,7 +270,7 @@ void Error::append_secondary_diagnostics(
 
         for (const ErrorCause &cause : a_secondaryError.causes())
         {
-            std::string causeLabel(a_label);
+            std::string causeLabel(label);
             causeLabel.append(" Cause");
             const ErrorIdentityContexts causeIdentity = make_error_identity_contexts(
                 causeLabel, cause.code(), cause.try_native_error());
